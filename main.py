@@ -181,7 +181,8 @@ class Cannon:
         self.current_power = self.base_power
         self.power_step = 20  # Power increase/decrease per key press
         self.piece_rotation = 0  # Current piece rotation
-        self.can_shoot = True  # Can only shoot one piece at a time
+        self.last_shot_time = 0  # Time of last shot
+        self.cooldown_duration = 1000  # Cooldown in milliseconds (1 second)
         self.current_piece_type = "I"  # Always start with I piece
         self.piece_types = ["I", "O", "T", "L", "J", "S", "Z"]
         self.piece_index = 0  # Index of current piece
@@ -205,6 +206,14 @@ class Cannon:
     def decrease_power(self):
         """Decrease power with S key"""
         self.current_power = max(self.base_power, self.current_power - self.power_step)
+
+    def can_shoot(self, current_time):
+        """Check if enough time has passed since last shot"""
+        return current_time - self.last_shot_time >= self.cooldown_duration
+
+    def shoot(self, current_time):
+        """Record the time of shooting"""
+        self.last_shot_time = current_time
 
     def next_piece(self):
         """Cycle to the next piece type"""
@@ -414,7 +423,7 @@ def create_tetris_piece(x, y, angle, velocity, piece_type="I", size=40):
                 
                 # Create a pin joint between adjacent cubes
                 joint = pymunk.PinJoint(body1, body2, (0, 0), (0, 0))
-                joint.max_force = 100000  # Even stronger joints
+                joint.max_force = 3000  # Even stronger joints
                 space.add(joint)
                 joints.append(joint)
     
@@ -596,7 +605,7 @@ def main():
                     space.gravity = tuple(GRAVITY)
                 if event.key == pygame.K_SPACE:
                     # Shoot a tetris piece only if we can shoot
-                    if cannon.can_shoot:
+                    if cannon.can_shoot(current_time):
                         piece_type = cannon.current_piece_type  # Use current piece instead of random
                         
                         power = cannon.stop_charging()
@@ -610,11 +619,11 @@ def main():
                         # Use the cannon's piece rotation
                         tetris_bodies, joints = create_tetris_piece(launch_x, launch_y, cannon.piece_rotation, (vx, vy), piece_type)
                         
-                        # Add the pieces and disable shooting until they land
+                        # Add the pieces and record shot time
                         for body, shape, size in tetris_bodies:
                             pieces.append((body, shape, size))
                         
-                        cannon.can_shoot = False  # Disable shooting until piece settles
+                        cannon.shoot(current_time)  # Record shot time for cooldown
                         cannon.next_piece()  # Move to next piece type
                 if event.key == pygame.K_q:
                     cannon.rotate_piece_left()
@@ -626,13 +635,13 @@ def main():
         # Continuous key handling for cannon rotation and power
         keys = pygame.key.get_pressed()
         if keys[pygame.K_a]:
-            cannon.rotate_left()
+            cannon.rotate_right()
         if keys[pygame.K_d]:
-            cannon.rotate_right()
-        if keys[pygame.K_LEFT]:
             cannon.rotate_left()
-        if keys[pygame.K_RIGHT]:
+        if keys[pygame.K_LEFT]:
             cannon.rotate_right()
+        if keys[pygame.K_RIGHT]:
+            cannon.rotate_left()
         if keys[pygame.K_w]:
             cannon.increase_power()
         if keys[pygame.K_s]:
@@ -645,16 +654,6 @@ def main():
         # Update compactor
         compactor.update()
 
-        # Check if we can shoot again (when all pieces are moving slowly)
-        if not cannon.can_shoot:
-            all_settled = True
-            for body, shape, size in pieces:
-                if abs(body.velocity.x) > 20 or abs(body.velocity.y) > 20:
-                    all_settled = False
-                    break
-            if all_settled:
-                cannon.can_shoot = True
-
         # Check and clear lines only when compactor overlaps them
         lines = check_and_clear_lines(pieces, compactor)
         if lines > 0:
@@ -666,7 +665,9 @@ def main():
         # Update blinking pieces and remove expired ones
         disappeared_count = update_blinking_pieces(blinking_pieces, space, current_time)
         if disappeared_count > 0:
-            score += disappeared_count * 50  # Bonus points for pieces that disappear
+            # Negative points for pieces that disappear, but don't go below 0
+            penalty = disappeared_count * 50
+            score = max(0, score - penalty)
 
         screen.fill((30, 30, 30))
         cannon.draw(screen, tuple(GRAVITY))
@@ -688,12 +689,21 @@ def main():
         power_surf = font.render(f"Power: {int(cannon.current_power)}", True, (255,255,255))
         screen.blit(power_surf, (150, 10))
         
-        # Next piece indicator
-        # next_surf = small_font.render("Next Piece:", True, (255,255,255))
-        # screen.blit(next_surf, (300, 10))
+        # Cooldown indicator
+        can_shoot_now = cannon.can_shoot(current_time)
+        if can_shoot_now:
+            cooldown_surf = small_font.render("READY", True, (0, 255, 0))
+        else:
+            remaining_time = cannon.cooldown_duration - (current_time - cannon.last_shot_time)
+            cooldown_surf = small_font.render(f"Cooldown: {remaining_time/1000:.1f}s", True, (255, 255, 0))
+        screen.blit(cooldown_surf, (300, 10))
         
-        # piece_type_surf = small_font.render(f"{cannon.current_piece_type}", True, (255,255,255))
-        # screen.blit(piece_type_surf, (380, 10))
+        # Next piece indicator
+        next_surf = small_font.render("Next:", True, (255,255,255))
+        screen.blit(next_surf, (450, 10))
+        
+        piece_type_surf = small_font.render(f"{cannon.current_piece_type}", True, (255,255,255))
+        screen.blit(piece_type_surf, (490, 10))
         
         # Help button on the right
         help_button_rect = pygame.Rect(WIDTH - 40, 10, 30, 30)
