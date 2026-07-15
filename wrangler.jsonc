@@ -3,6 +3,9 @@
   "name": "tetrilaunch",
   "main": "app/worker/index.ts",
   "compatibility_date": "2025-05-01",
+  "build": {
+    "command": "npm run build"
+  },
   "assets": {
     "directory": "app/dist",
     "binding": "ASSETS",
