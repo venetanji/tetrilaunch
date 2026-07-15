@@ -132,7 +132,6 @@ class App {
     this.game = new Game(LEVEL_1, {
       onShoot: () => { void tapHaptic(); },
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
-      onPieceLost: () => { void impactHaptic(); },
       onStatus: (s) => this.onGameStatus(s),
     });
     this.setState("playing");

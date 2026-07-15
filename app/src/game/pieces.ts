@@ -83,6 +83,31 @@ export function createTetrisPiece(
   return { cubes, constraints };
 }
 
+/**
+ * Break the joints of any piece the compactor bar is crushing, so tetrominoes
+ * shatter into loose cubes as the compactor sweeps into them — without deleting
+ * the cubes (only full lines get cleared). Only affects cubes down at the bar's
+ * level (y past `topY`), so pieces flying over the bar aren't broken mid-air.
+ */
+export function breakJointsInBand(
+  world: Matter.World,
+  constraints: Matter.Constraint[],
+  x: number,
+  topY: number,
+  halfBand: number,
+): void {
+  const inBand = (b: Matter.Body) =>
+    Math.abs(b.position.x - x) < halfBand && b.position.y > topY;
+  for (let i = constraints.length - 1; i >= 0; i--) {
+    const c = constraints[i];
+    if (!c.bodyA || !c.bodyB) continue;
+    if (inBand(c.bodyA) || inBand(c.bodyB)) {
+      Matter.Composite.remove(world, c);
+      constraints.splice(i, 1);
+    }
+  }
+}
+
 /** Remove over-stretched joints so pieces break apart on hard impacts. */
 export function updateBreakableJoints(
   world: Matter.World,
