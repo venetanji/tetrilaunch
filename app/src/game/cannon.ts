@@ -7,9 +7,10 @@ import type { LevelConfig } from "./level";
 export const SPEED_MIN = 9;
 export const SPEED_MAX = 26;
 
-// Drag distance (px, world space) that maps to full power.
-const DRAG_MIN = 40;
-const DRAG_MAX = 460;
+// Drag distance (px, world space) that maps to full power. Kept short so a
+// modest pull-back already reaches max power.
+const DRAG_MIN = 28;
+const DRAG_MAX = 220;
 
 export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
 
