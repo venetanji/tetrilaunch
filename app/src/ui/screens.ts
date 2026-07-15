@@ -41,11 +41,11 @@ export function menuScreen(best: number): string {
 
 export function howtoScreen(): string {
   const steps = [
-    ["01", "Aim & charge", `Drag from the cannon — <b>direction sets the angle</b>, <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
+    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
     ["02", "Rotate the piece", `Spin the incoming tetromino with the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons or <span class="kbd">Q</span><span class="kbd">E</span> before launch.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
-    ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a line.`],
-    ["05", "Beat the compactor", `The red bar sweeps right, clearing full rows for points. Cubes stuck on its left blink out and cost you.`],
+    ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
+    ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", `Hit ${LEVEL_1.targetScore}`, `Reach the target score to clear Launch Bay. More levels & roguelite mutators are coming.`],
   ];
   return `<div class="screen neon-backdrop">
@@ -149,7 +149,7 @@ export function hudHTML(cannon: Cannon, target: number): string {
         </div>
         <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE</button>
       </div>
-      <div class="hint muted">Drag anywhere to aim · release to fire</div>
+      <div class="hint muted">Pull back to aim · release to fire</div>
     </div>
   </div>`;
 }

@@ -1,18 +1,14 @@
 import Matter from "matter-js";
-import { createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
+import { CELL, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
 import { Cannon, predictTrajectory } from "./cannon";
 import { Compactor } from "./compactor";
 import {
   createTetrisPiece,
   updateBreakableJoints,
+  breakJointsInBand,
   type Cube,
 } from "./pieces";
-import {
-  updateLineClear,
-  markLostPieces,
-  updateBlinking,
-  resetLineClear,
-} from "./lineClear";
+import { updateLineClear, resetLineClear } from "./lineClear";
 import type { LevelConfig } from "./level";
 
 const DT = 1000 / 60;
@@ -22,11 +18,12 @@ export type GameStatus = "playing" | "won" | "lost";
 export interface GameEvents {
   onLineClear?: (lines: number) => void;
   onShoot?: () => void;
-  onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
 }
 
-const LOSE_LIMIT = 40;
+// The field tops out (you lose) when a settled cube reaches near the ceiling.
+const TOPOUT_Y = 96;
+const AT_REST = 2.5;
 
 export class Game {
   phys: PhysicsWorld;
@@ -39,7 +36,6 @@ export class Game {
   score = 0;
   combo = 0;
   linesTotal = 0;
-  lostTotal = 0;
   status: GameStatus = "playing";
   aiming = false;
   paused = false;
@@ -91,15 +87,23 @@ export class Game {
     return true;
   }
 
-  update(now: number): void {
+  update(_now: number): void {
     if (this.status !== "playing") return;
 
     stepPhysics(this.phys);
     this.compactor.update();
     updateBreakableJoints(this.phys.world, this.constraints);
 
-    markLostPieces(this.cubes, this.compactor, now);
+    // The compactor shatters pieces it crushes into loose cubes (no deletion).
+    breakJointsInBand(
+      this.phys.world,
+      this.constraints,
+      this.compactor.x,
+      this.compactor.top - CELL * 0.3,
+      this.compactor.width / 2 + CELL,
+    );
 
+    // Cubes are ONLY removed when they form a full straight line.
     const cleared = updateLineClear(this.phys.world, this.cubes, this.compactor);
     if (cleared > 0) {
       this.combo += 1;
@@ -109,18 +113,24 @@ export class Game {
       this.events.onLineClear?.(cleared);
     }
 
-    const lost = updateBlinking(this.phys.world, this.cubes, now);
-    if (lost > 0) {
-      this.combo = 0;
-      this.lostTotal += lost;
-      this.score = Math.max(0, this.score - lost * this.level.penaltyPerLostPiece);
-      this.events.onPieceLost?.(lost);
-    }
-
     this.updateTrajectory();
 
     if (this.score >= this.target) this.setStatus("won");
-    else if (this.lostTotal >= LOSE_LIMIT) this.setStatus("lost");
+    else if (this.isToppedOut()) this.setStatus("lost");
+  }
+
+  /** Lose when a settled cube stacks up to the ceiling. */
+  private isToppedOut(): boolean {
+    for (const c of this.cubes) {
+      const b = c.body;
+      if (
+        b.position.y < TOPOUT_Y &&
+        Math.hypot(b.velocity.x, b.velocity.y) < AT_REST
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private setStatus(s: GameStatus): void {

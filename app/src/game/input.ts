@@ -11,6 +11,7 @@ export class InputController {
   private game: () => Game | null;
   private keys = new Set<string>();
   private dragging = false;
+  private dragStart: { x: number; y: number } | null = null;
   private raf = 0;
 
   constructor(canvas: HTMLCanvasElement, game: () => Game | null) {
@@ -41,9 +42,11 @@ export class InputController {
 
   private applyAim(e: PointerEvent): void {
     const g = this.game();
-    if (!g) return;
+    if (!g || !this.dragStart) return;
     const p = this.worldPoint(e);
-    g.cannon.aimFromDrag(p.x - g.cannon.x, p.y - g.cannon.y);
+    // Slingshot: aim from the drag delta (works anywhere on screen), and the
+    // cannon reverses it 180° so pulling back fires forward.
+    g.cannon.aimFromDrag(p.x - this.dragStart.x, p.y - this.dragStart.y);
     g.updateTrajectory();
   }
 
@@ -51,9 +54,9 @@ export class InputController {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
     this.dragging = true;
+    this.dragStart = this.worldPoint(e);
     g.aiming = true;
     this.canvas.setPointerCapture?.(e.pointerId);
-    this.applyAim(e);
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -64,6 +67,7 @@ export class InputController {
   private onUp = (): void => {
     if (!this.dragging) return;
     this.dragging = false;
+    this.dragStart = null;
     const g = this.game();
     if (g) {
       g.aiming = false;

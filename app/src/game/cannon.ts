@@ -56,12 +56,14 @@ export class Cannon {
     return (this.power - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
   }
 
-  /** Set aim + power from a world-space drag vector originating at the cannon. */
+  /** Set aim + power from a world-space drag vector originating at the cannon.
+   *  Slingshot pull-back: the launch direction is OPPOSITE the drag (drag
+   *  down-left to fire up-right), reversed 180° from the raw drag vector. */
   aimFromDrag(dx: number, dy: number): void {
     const len = Math.hypot(dx, dy);
     if (len < 4) return;
-    // Direction = where the player points. Constrain to the upper-right cone.
-    let ang = Math.atan2(-dy, dx);
+    // Reverse the drag vector, then constrain to the upper-right launch cone.
+    let ang = Math.atan2(dy, -dx);
     ang = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, ang));
     this.angle = ang;
     const t = Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));

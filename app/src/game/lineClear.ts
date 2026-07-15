@@ -4,7 +4,6 @@ import type { Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 
 const SLOW = 3; // px/step considered "at rest / being compressed"
-const BLINK_MS = 1400;
 
 // Module-level crossing tracker (mirrors main.py's check_and_clear_lines.last_box_idx)
 let lastBoxIdx = -1;
@@ -72,35 +71,6 @@ export function updateLineClear(
     }
   }
   return cleared;
-}
-
-/** Mark cubes stuck on the wrong (left) side of the compactor to blink out. */
-export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
-  const left = compactor.x - compactor.width / 2;
-  for (const c of cubes) {
-    if (c.blinkStart !== null) continue;
-    if (
-      c.body.position.x < left &&
-      Math.abs(c.body.velocity.x) < SLOW &&
-      Math.abs(c.body.velocity.y) < SLOW
-    ) {
-      c.blinkStart = now;
-    }
-  }
-}
-
-/** Remove blinking cubes after their blink duration. Returns count despawned. */
-export function updateBlinking(world: Matter.World, cubes: Cube[], now: number): number {
-  let lost = 0;
-  for (let i = cubes.length - 1; i >= 0; i--) {
-    const c = cubes[i];
-    if (c.blinkStart !== null && now - c.blinkStart > BLINK_MS) {
-      Matter.Composite.remove(world, c.body);
-      cubes.splice(i, 1);
-      lost++;
-    }
-  }
-  return lost;
 }
 
 export function blinkVisible(cube: Cube, now: number): boolean {
