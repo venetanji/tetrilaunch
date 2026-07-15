@@ -1,173 +1,111 @@
 # Tetrilaunch 🚀
 
-A unique physics-based puzzle game that combines Tetris pieces with cannon mechanics! Launch colorful Tetris pieces from a cannon and watch them interact with realistic physics simulation.
+A neon-arcade **physics cannon puzzle**. Load the cannon, arc tetrominoes across the bay
+with an Angry-Birds-style drag, and feed full rows into the sweeping compactor before it
+clears them away.
 
-![Tetrilaunch Game](https://img.shields.io/badge/Python-3.7+-blue.svg)
-![Pygame](https://img.shields.io/badge/Pygame-2.0+-green.svg)
-![Pymunk](https://img.shields.io/badge/Pymunk-Physics-red.svg)
+> **This repo is a port** of the original Python/pygame prototype (`main.py`, kept for
+> reference) to a **Capacitor.js** app targeting **Web (PWA) · Android · iOS**, deployed on
+> **Cloudflare Workers** with a **D1-backed leaderboard**.
 
+**Play:** https://tetrilaunch.venetanji.workers.dev/
 
-<img width="998" height="782" alt="image" src="https://github.com/user-attachments/assets/eda78b8d-d754-4ae8-9259-8ed3ade3a917" />
+## 🎮 How it plays
 
-## 🎮 Game Overview
+- **Drag to aim** — direction sets the launch angle, distance sets the power (further =
+  stronger). A dotted **parabola** previews the flight; release to fire. Keyboard fallback
+  on desktop: `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate.
+- Tetrominoes are 4 cubes joined by **breakable joints** — hard hits shatter them.
+- The **compactor** (bottom-half red bar) sweeps right, compacting cubes against the wall.
+  Complete a row to its right to **clear it for points**; cubes stuck on its left blink out
+  and cost you.
+- Reach the **target score** to clear the level, then post your score to the leaderboard.
 
-Tetrilaunch is an innovative twist on classic puzzle games where you:
-- **Aim and shoot** Tetris pieces from a physics-powered cannon
-- **Control power and rotation** for strategic placement
-- **Clear lines** using a moving compactor mechanism
-- **Watch pieces interact** with realistic physics and breakable joints
+Landscape only (fullscreen PWA on web, orientation-locked on mobile, with a rotate-device
+guard in portrait).
 
-## ✨ Features
+## 🧱 Architecture
 
-### 🎯 Core Gameplay
-- **7 Tetris Piece Types**: I, O, T, L, J, S, Z pieces with unique visual patterns
-- **Physics Simulation**: Realistic piece interactions using Pymunk physics engine
-- **Breakable Joints**: Tetris pieces can break apart on impact
-- **Line Clearing**: Moving compactor clears completed lines
-- **Trajectory Prediction**: See exactly where your pieces will land
+```
+app/                      Capacitor + Vite + TypeScript web app
+  src/game/               matter.js physics port of main.py
+    engine, pieces, cannon, compactor, lineClear, render, input, level, state, game
+  src/ui/                 screens + components (menu, HUD, pause, end, settings, leaderboard)
+  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics)
+  src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
+  worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
+  capacitor.config.ts     native shell config
+design/                   design-system source (synced to claude.ai/design via /design-sync)
+  foundations/ components/ screens/    HTML preview cards
+wrangler.jsonc            Worker config: static assets + D1 binding
+migrations/               D1 schema
+main.py                   original pygame prototype (reference)
+```
 
-### 🎨 Visual Features
-- **Unique Patterns**: Each piece type has distinctive internal patterns
-  - I-piece: Horizontal lines
-  - O-piece: Concentric squares
-  - T-piece: Diagonal lines (↘)
-  - L-piece: Vertical lines
-  - J-piece: Diagonal lines (↙)
-  - S-piece: Dotted pattern
-  - Z-piece: Cross-hatch pattern
-- **Color-Coded Pieces**: Easy identification with bright, distinct colors
-- **Blinking Effects**: Pieces blink red before disappearing
+**Tech:** matter.js (physics), HTML5 Canvas (gameplay render), HTML/CSS overlays (UI),
+vite-plugin-pwa (installable fullscreen web), Capacitor (`@capacitor/screen-orientation`,
+`@capacitor/haptics`), Cloudflare Workers + D1 (leaderboard).
 
-### 🎛️ Controls
-- **A/D or ←/→**: Aim cannon left/right
-- **W/S or ↑/↓**: Increase/decrease power
-- **Q/E**: Rotate piece before shooting
-- **Space**: Shoot piece
-- **? (Shift+/)**: Toggle help instructions
-- **Mouse**: Click help button (?) to toggle instructions
+## 🚀 Develop
 
-### 🔧 Advanced Features
-- **Smart Line Detection**: Dynamic line clearing based on compactor position
-- **Piece Preview**: See your next piece with rotation
-- **Power Control**: Fine-grained power adjustment (400-1000 units)
-- **Single-Shot Mechanics**: One piece at a time for strategic gameplay
-- **Gravity Manipulation**: Developer keys for testing (G, H, J)
+```bash
+cd app
+npm install
+npm run dev          # http://localhost:5173  (vite dev)
+npm run build        # typecheck + production build → app/dist
+```
 
-## 🚀 Installation
+### Cloudflare Worker + D1 (leaderboard)
 
-### Prerequisites
-- Python 3.7 or higher
-- pip package manager
+From the repo root:
 
-### Setup
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/venetanji/tetrilaunch.git
-   cd tetrilaunch
-   ```
+```bash
+npm install                       # wrangler + workers-types
+npm run build                     # builds app/dist
+npm run db:migrate                # apply migrations to the remote D1 database
+npx wrangler dev --local          # run worker + assets + local D1 at :8787
+npm run deploy                    # build + wrangler deploy
+```
 
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+The Worker serves the built app and exposes:
 
-3. **Run the game**:
-   ```bash
-   python main.py
-   ```
+- `GET  /api/scores?level=1&limit=10` → top scores
+- `POST /api/scores` `{ name, score, level, lines }` → inserts, returns `{ rank, scores }`
 
-## 📦 Dependencies
+D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
+`migrations/0001_init.sql`.
 
-- **pygame**: Graphics, input handling, and game loop
-- **pymunk**: 2D physics simulation engine
-- **math**: Mathematical calculations for trajectories
-- **sys**: System-specific parameters and functions
-- **random**: (Legacy - now using sequential piece cycling)
+> **CI note:** if the repo auto-deploys via Cloudflare Workers Builds, set the build command
+> to `npm run build` and the deploy command to `npx wrangler deploy` at the repo root so the
+> app bundle and D1 binding are picked up.
 
-## 🎮 How to Play
+### Native (Android / iOS)
 
-1. **Aim Your Cannon**: Use A/D or arrow keys to adjust the cannon angle
-2. **Set Power Level**: Use W/S or up/down arrows to control shot strength
-3. **Rotate Pieces**: Use Q/E to rotate pieces before shooting
-4. **Fire**: Press Space to launch the piece
-5. **Clear Lines**: The compactor moves from center to right, clearing full lines
-6. **Strategic Placement**: Pieces on the left side of the compactor will blink and disappear
+```bash
+cd app
+npm run build
+npx cap add android      # or: npx cap add ios
+npx cap sync
+npx cap open android     # build/run in Android Studio / Xcode
+```
 
-### 🎯 Scoring
-- **Line Clears**: 100 points per line cleared
-- **Disappearing Pieces**: 50 points per piece that disappears on the left side
+Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`.
 
-## 🛠️ Technical Details
+## 🎨 Design system
 
-### Architecture
-- **Object-Oriented Design**: Modular classes for Cannon, Compactor, and game mechanics
-- **Physics Integration**: Seamless integration between Pygame rendering and Pymunk physics
-- **Event-Driven Input**: Responsive controls with both discrete and continuous input handling
+The neon-arcade design system lives in `design/` as self-contained HTML preview cards
+(foundations, components, all screens) and is synced to a **claude.ai/design** project with
+`/design-sync`. `app/src/styles/tokens.css` is the shared single source of truth for tokens.
 
-### Key Components
-- **Cannon Class**: Manages aiming, power, and piece rotation
-- **Compactor Class**: Handles the moving compression mechanism
-- **Physics Bodies**: Individual cubes with breakable joints for realistic piece behavior
-- **Pattern Rendering**: Custom drawing functions for unique piece patterns
+## 🗺️ Roadmap
 
-### Performance
-- **60 FPS**: Smooth gameplay with consistent frame rate
-- **Efficient Physics**: Optimized collision detection and physics simulation
-- **Memory Management**: Proper cleanup of physics bodies and joints
+Only **Level 1 (“Launch Bay”)** ships now. Clean seams are in place for what's next:
 
-## 🎨 Customization
-
-The game is designed to be easily customizable:
-
-### Colors and Patterns
-Modify the `colors` dictionary and pattern drawing functions in `draw_square_piece()` to create new visual styles.
-
-### Physics Parameters
-Adjust physics constants like gravity, friction, and joint strength for different gameplay feels.
-
-### Game Mechanics
-Tweak scoring, line detection thresholds, and piece behavior in the respective functions.
-
-## 🐛 Troubleshooting
-
-### Common Issues
-- **Import Errors**: Ensure pygame and pymunk are installed (`pip install pygame pymunk`)
-- **Performance Issues**: Try reducing FPS or physics simulation complexity
-- **Control Responsiveness**: Check for conflicting key mappings
-
-### Debug Features
-- **G Key**: Toggle gravity direction
-- **H/J Keys**: Increase/decrease gravity strength
-- **Console Output**: Line clearing debug information
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to:
-- Report bugs and issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
+- `app/src/game/level.ts` `LevelConfig` — more levels + **roguelite mutators** (gravity
+  flips, faster/multi compactors, custom piece bags, target modifiers) drop in as new configs.
+- Difficulty scaling, run/upgrade screens, per-level leaderboards (the D1 schema already keys
+  scores by `level`).
 
 ## 📄 License
 
-This project is open source. Feel free to use, modify, and distribute as needed.
-
-## 🎯 Future Enhancements
-
-Potential improvements and features:
-- **Multiple Levels**: Different gravity settings and obstacles
-- **Power-ups**: Special pieces with unique abilities
-- **Multiplayer Mode**: Competitive or cooperative gameplay
-- **Sound Effects**: Audio feedback for actions and events
-- **Particle Effects**: Enhanced visual feedback
-- **Leaderboards**: Score tracking and competition
-
-## 🙏 Acknowledgments
-
-- **Pygame Community**: For the excellent game development framework
-- **Pymunk**: For the robust 2D physics engine
-- **Tetris**: For the inspiration of the classic falling block puzzle
-
----
-
-**Enjoy playing Tetrilaunch!** 🎮✨
+Open source — use, modify, and distribute freely.
