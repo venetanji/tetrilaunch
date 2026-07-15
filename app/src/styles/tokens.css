@@ -1,0 +1,118 @@
+/* ============================================================================
+   Tetrilaunch — Neon Arcade Design Tokens
+   Single source of truth. Mirrored by design/foundations/* in the design system.
+   ========================================================================== */
+
+:root {
+  /* --- Base surfaces (dark) --- */
+  --bg: #07070f;
+  --bg-deep: #04040a;
+  --surface: #12121f;
+  --surface-2: #1b1b2e;
+  --surface-3: #24243b;
+  --line: #2e2e4a;
+  --line-strong: #3d3d63;
+
+  /* --- Text --- */
+  --text: #eaeaff;
+  --text-dim: #b6b6df;
+  --text-muted: #8080ac;
+  --text-faint: #55557a;
+
+  /* --- Brand / accent (I-piece cyan drives the brand) --- */
+  --accent: #00f0ff;
+  --accent-2: #7a5cff;
+  --accent-ink: #04040a; /* text on accent fills */
+  --danger: #ff2d55;
+  --warn: #ffb020;
+  --success: #00ff9c;
+
+  /* --- Tetromino neon hues (ported & neon-ized from main.py) --- */
+  --piece-i: #00f0ff; /* cyan   */
+  --piece-o: #ffe500; /* yellow */
+  --piece-t: #b026ff; /* purple */
+  --piece-l: #ff8a00; /* orange */
+  --piece-j: #2979ff; /* blue   */
+  --piece-s: #00ff85; /* green  */
+  --piece-z: #ff2d55; /* red    */
+
+  /* --- Typography --- */
+  --font-display: "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Rajdhani", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --fs-display: clamp(40px, 8vw, 88px);
+  --fs-h1: clamp(28px, 5vw, 44px);
+  --fs-h2: clamp(20px, 3.4vw, 30px);
+  --fs-h3: 18px;
+  --fs-body: 16px;
+  --fs-sm: 14px;
+  --fs-xs: 12px;
+
+  --fw-regular: 500;
+  --fw-medium: 600;
+  --fw-bold: 700;
+  --fw-black: 900;
+
+  --tracking-wide: 0.08em;
+  --tracking-wider: 0.18em;
+
+  /* --- Spacing scale (4px base) --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* --- Radii --- */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+
+  /* --- Elevation / neon glow --- */
+  --glow-accent: 0 0 8px rgba(0, 240, 255, 0.55), 0 0 24px rgba(0, 240, 255, 0.28);
+  --glow-soft: 0 0 6px rgba(122, 92, 255, 0.35), 0 0 18px rgba(122, 92, 255, 0.18);
+  --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.45);
+
+  /* --- Motion --- */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
+  --dur-slow: 420ms;
+
+  /* --- Layout --- */
+  --hud-pad: clamp(12px, 2.2vw, 28px);
+  --z-hud: 10;
+  --z-overlay: 40;
+  --z-toast: 60;
+}
+
+/* A reusable neon-scanline backdrop used behind menus and the game. */
+.neon-backdrop {
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(122, 92, 255, 0.16), transparent 60%),
+    radial-gradient(90% 70% at 90% 110%, rgba(0, 240, 255, 0.12), transparent 55%),
+    var(--bg);
+  position: relative;
+}
+.neon-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}

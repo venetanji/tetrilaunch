@@ -1,0 +1,28 @@
+{
+  "name": "tetrilaunch",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tetrilaunch — a neon-arcade physics cannon puzzle. Capacitor port (web / Android / iOS).",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "cap:sync": "cap sync",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.1",
+    "@capacitor/screen-orientation": "^6.0.2",
+    "matter-js": "^0.20.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@types/matter-js": "^0.19.7",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vite-plugin-pwa": "^0.20.5"
+  }
+}

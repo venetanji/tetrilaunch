@@ -1,0 +1,17 @@
+{
+  "name": "tetrilaunch-workspace",
+  "private": true,
+  "description": "Tetrilaunch — Cloudflare Worker (static app + D1 leaderboard) wrapping the Vite/Capacitor game in app/.",
+  "scripts": {
+    "build": "npm --prefix app install && npm --prefix app run build",
+    "dev:web": "npm --prefix app run dev",
+    "dev:worker": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply tetrilaunch-leaderboard --remote",
+    "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard --local"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260710.1",
+    "wrangler": "^4.20.0"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tetrilaunch",
+  "main": "app/worker/index.ts",
+  "compatibility_date": "2025-05-01",
+  "assets": {
+    "directory": "app/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tetrilaunch-leaderboard",
+      "database_id": "a9b63a9d-e4a5-4f92-95ff-904bfd1f9450",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": { "enabled": true }
+}

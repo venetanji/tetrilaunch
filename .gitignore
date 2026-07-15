@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+app/node_modules/
+
+# build output
+app/dist/
+dist/
+
+# wrangler / cloudflare
+.wrangler/
+.dev.vars
+
+# capacitor native platforms (generated with `npx cap add`)
+app/android/
+app/ios/
+
+# misc
+*.log
+.DS_Store
+.vscode/
+__pycache__/
