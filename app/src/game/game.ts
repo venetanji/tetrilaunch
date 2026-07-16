@@ -8,7 +8,12 @@ import {
   breakJointsInBand,
   type Cube,
 } from "./pieces";
-import { updateLineClear, resetLineClear } from "./lineClear";
+import {
+  updateLineClear,
+  markLostPieces,
+  updateBlinking,
+  resetLineClear,
+} from "./lineClear";
 import type { LevelConfig } from "./level";
 
 const DT = 1000 / 60;
@@ -18,6 +23,7 @@ export type GameStatus = "playing" | "won" | "lost";
 export interface GameEvents {
   onLineClear?: (lines: number) => void;
   onShoot?: () => void;
+  onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
 }
 
@@ -36,6 +42,7 @@ export class Game {
   score = 0;
   combo = 0;
   linesTotal = 0;
+  lostTotal = 0;
   status: GameStatus = "playing";
   aiming = false;
   paused = false;
@@ -87,7 +94,7 @@ export class Game {
     return true;
   }
 
-  update(_now: number): void {
+  update(now: number): void {
     if (this.status !== "playing") return;
 
     stepPhysics(this.phys);
@@ -103,14 +110,27 @@ export class Game {
       this.compactor.width / 2 + CELL,
     );
 
-    // Cubes are ONLY removed when they form a full straight line.
-    const cleared = updateLineClear(this.phys.world, this.cubes, this.compactor);
+    // Cubes are ONLY removed when a full row is crushed against the wall on the
+    // compactor's forward (pressure) stroke — a broken joint never deletes one.
+    const cleared = this.compactor.pressing
+      ? updateLineClear(this.phys.world, this.cubes, this.compactor)
+      : 0;
     if (cleared > 0) {
       this.combo += 1;
       const bonus = 1 + (this.combo - 1) * 0.25;
       this.score += Math.round(cleared * this.level.scorePerLine * bonus);
       this.linesTotal += cleared;
       this.events.onLineClear?.(cleared);
+    }
+
+    // ...or when they bounce OUT before the compactor (blink away, lose points).
+    markLostPieces(this.cubes, this.compactor, now);
+    const lost = updateBlinking(this.phys.world, this.cubes, now);
+    if (lost > 0) {
+      this.combo = 0;
+      this.lostTotal += lost;
+      this.score = Math.max(0, this.score - lost * this.level.penaltyPerLostPiece);
+      this.events.onPieceLost?.(lost);
     }
 
     this.updateTrajectory();

@@ -30,7 +30,7 @@ export const LEVEL_1: LevelConfig = {
   id: 1,
   name: "Launch Bay",
   gravity: 1,
-  compactorSpeed: 5.5,
+  compactorSpeed: 2.2,
   compactorMargin: 90,
   scorePerLine: 100,
   penaltyPerLostPiece: 25,
