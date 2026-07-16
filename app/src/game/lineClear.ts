@@ -78,16 +78,19 @@ export function updateLineClear(
   return cleared;
 }
 
+// Everything left of here is "bounced out" — back in the launch corridor,
+// well behind the compactor's leftmost reach. A cube that merely scattered next
+// to the bar (still in the compaction half) is NOT penalized.
+const OUT_X = WORLD.width * 0.3;
+
 /**
  * Penalty path (ports main.py's check_pieces_on_left_side): pieces that bounce
- * back OUT — settling on the left half, before the compactor — start blinking
- * and are removed for a point penalty. Right-side compacted cubes are never
- * touched here.
+ * back OUT — settling in the launch corridor, well before the compactor — start
+ * blinking and are removed for a point penalty. Cubes shattered at the bar or
+ * compacted against the wall are never touched here.
  */
-export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
-  // "Out" = left of the compactor face AND in the left half (bounced back),
-  // so cubes the advancing compactor merely passes over aren't penalized.
-  const cutoff = Math.min(compactor.x - compactor.width / 2, WORLD.width / 2);
+export function markLostPieces(cubes: Cube[], _compactor: Compactor, now: number): void {
+  const cutoff = OUT_X;
   for (const c of cubes) {
     if (c.blinkStart !== null) continue;
     const b = c.body;

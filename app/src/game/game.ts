@@ -110,8 +110,11 @@ export class Game {
       this.compactor.width / 2 + CELL,
     );
 
-    // Cubes are ONLY removed when they form a full compacted line...
-    const cleared = updateLineClear(this.phys.world, this.cubes, this.compactor);
+    // Cubes are ONLY removed when a full row is crushed against the wall on the
+    // compactor's forward (pressure) stroke — a broken joint never deletes one.
+    const cleared = this.compactor.pressing
+      ? updateLineClear(this.phys.world, this.cubes, this.compactor)
+      : 0;
     if (cleared > 0) {
       this.combo += 1;
       const bonus = 1 + (this.combo - 1) * 0.25;
