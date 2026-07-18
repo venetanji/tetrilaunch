@@ -43,6 +43,9 @@ interface Args {
    *  mirrors run.ts's RunState.carry, a typical one-line overshoot by
    *  default. */
   carry: number;
+  /** windMax override for every tested bay (--windmax); NaN = use the
+   *  level ladder's own value. For wind-amplitude tuning sweeps. */
+  windMax: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -98,7 +101,13 @@ function parseArgs(argv: string[]): Args {
 
   const carry = parseInt(get("--carry") ?? "100", 10);
 
-  return { bays, seeds, bots, modVariants, carry };
+  // Optional windMax override for wind-ladder tuning: "--windmax 0.2" forces
+  // every tested bay's windMax to that value (NaN = no override, use the
+  // level's own ladder). Lets several candidate amplitudes sweep in parallel
+  // without editing level.ts between runs.
+  const windMax = parseFloat(get("--windmax") ?? "NaN");
+
+  return { bays, seeds, bots, modVariants, carry, windMax };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,9 +122,10 @@ function parseArgs(argv: string[]): Args {
  *  comes from the --carry CLI flag (default 100, a typical one-line
  *  overshoot); it's a flat per-bay assumption here since the sweep doesn't
  *  simulate a full run end-to-end. */
-function baseLevelForBay(bay: number, carry: number): LevelConfig {
+function baseLevelForBay(bay: number, carry: number, windMax = NaN): LevelConfig {
   const cfg = makeBaseLevel(bay - 1);
   if (bay > 1) cfg.startingFunds = cfg.startingFunds + carry;
+  if (!Number.isNaN(windMax)) cfg.windMax = windMax;
   return cfg;
 }
 
@@ -217,9 +227,9 @@ function main(): void {
   {
     const bay = args.bays[0] ?? 1;
     const botName = args.bots[0] ?? Object.keys(BOTS)[0];
-    const cfg = baseLevelForBay(bay, args.carry);
+    const cfg = baseLevelForBay(bay, args.carry, args.windMax);
     const run1 = runBay(cfg, BOTS[botName](1), 1);
-    const run2 = runBay(baseLevelForBay(bay, args.carry), BOTS[botName](1), 1);
+    const run2 = runBay(baseLevelForBay(bay, args.carry, args.windMax), BOTS[botName](1), 1);
     const same = JSON.stringify(run1) === JSON.stringify(run2);
     console.log(
       `Reproducibility check (bay ${bay}, bot ${botName}, seed 1): ` +
@@ -250,7 +260,7 @@ function main(): void {
     for (const botName of args.bots) {
       const rows: BayOutcome[] = [];
       for (let seed = 1; seed <= args.seeds; seed++) {
-        const cfg = baseLevelForBay(bay, args.carry);
+        const cfg = baseLevelForBay(bay, args.carry, args.windMax);
         const outcome = runBay(cfg, BOTS[botName](seed), seed);
         rows.push(outcome);
         allResults.push(outcome);
@@ -301,7 +311,7 @@ function main(): void {
         for (const botName of args.bots) {
           const rows: BayOutcome[] = [];
           for (let seed = 1; seed <= args.seeds; seed++) {
-            const cfg = applyMods(baseLevelForBay(bay, args.carry), ids);
+            const cfg = applyMods(baseLevelForBay(bay, args.carry, args.windMax), ids);
             const outcome = runBay(cfg, BOTS[botName](seed), seed);
             outcome.mods = ids;
             rows.push(outcome);
