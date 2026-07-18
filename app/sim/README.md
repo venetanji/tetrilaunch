@@ -37,10 +37,31 @@ Both scripts print markdown tables to stdout and write full per-run JSON to
 
 Each bot is a `fixedAimBot(name, angleDeg, power, opts)`: a fixed base
 angle/power with bounded, seeded jitter (models a human re-aiming
-imprecisely between shots) and an optional random 0-3 quarter-turn spin.
-Presets: `middle`, `lob`, `flat`, `lob-rot`. No lookahead, no trajectory
-awareness — these approximate "hold roughly the same aim and keep firing,"
-not a strong player.
+imprecisely between shots) and an optional random 0-3 quarter-turn spin (or,
+for the `lob-flat`/`lob-tall` variants, a *deterministic* rotation to the
+piece's min/max-height orientation instead of a random one — see
+`MIN_HEIGHT_TURNS`/`MAX_HEIGHT_TURNS` in `bots.ts`). `random`/`random-up`
+skip the fixed-base model entirely and sample angle/power uniformly every
+shot. Presets:
+
+- `middle` — aim toward the field middle.
+- `lob` — high, soft arc toward the back of the bay; never rotates.
+- `flat` — low, flat, fast shot.
+- `lob-rot` — same arc as `lob`, plus a random 0-3 quarter-turn spin per shot.
+- `lob-flat` — same arc as `lob`, but always rotates the loaded piece to its
+  minimal-height (flattest) orientation before firing — the deliberately
+  GOOD rotation strategy.
+- `lob-tall` — same arc as `lob`, but always rotates to the maximal-height
+  (standing on end) orientation — the deliberately BAD rotation strategy, for
+  measuring the flat/tall spread.
+- `random` — uniformly random angle across the full cannon cone
+  [-60°, +60°], random power, random rotation. A button-masher robustness
+  floor.
+- `random-up` — same as `random`, but angle restricted to the upward half of
+  the cone [0°, +60°] — a harder "random should never win" case.
+
+No lookahead, no trajectory awareness — these approximate "hold roughly the
+same aim and keep firing," not a strong player.
 
 ### Baseline table
 
