@@ -76,8 +76,17 @@ export class Cannon {
   aimDown() { this.angle = Math.max(-Math.PI / 3, this.angle - 0.035); }
   powerUp() { this.power = Math.min(SPEED_MAX, this.power + 0.4); }
   powerDown() { this.power = Math.max(SPEED_MIN, this.power - 0.4); }
-  rotateLeft() { this.pieceRotation += Math.PI / 12; }
-  rotateRight() { this.pieceRotation -= Math.PI / 12; }
+  // Canvas y-axis points DOWN, so a POSITIVE angle rotates the piece
+  // clockwise on screen. rotateLeft (⟲) must look counter-clockwise, so it
+  // subtracts; rotateRight (⟳) adds. 90° steps give the player predictable,
+  // readable orientations instead of a blind ±15° nudge.
+  rotateLeft() { this.pieceRotation -= Math.PI / 2; }
+  rotateRight() { this.pieceRotation += Math.PI / 2; }
+
+  /** Current orientation as a 0-3 quarter-turn index (clockwise), for UI previews. */
+  get quarterTurns(): number {
+    return ((Math.round(this.pieceRotation / (Math.PI / 2)) % 4) + 4) % 4;
+  }
 
   canShoot(now: number): boolean {
     return now - this.lastShot >= this.cooldownMs;
@@ -104,7 +113,7 @@ export function predictTrajectory(
   vel: Matter.Vector,
   gAccel: number,
   frictionAir: number,
-  steps = 90,
+  steps = 140,
 ): Matter.Vector[] {
   const pts: Matter.Vector[] = [];
   let x = start.x;

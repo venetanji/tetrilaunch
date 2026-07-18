@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
-import { COLORS, shade, type PieceType } from "./theme";
+import { COLORS, PIECE_SHAPES, PIECE_COLORS, shade, type PieceType } from "./theme";
 import type { Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
@@ -73,6 +73,7 @@ export function render(
   drawCompactor(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
   drawTrajectory(ctx, scene.trajectory);
+  drawLoadedPiece(ctx, scene.cannon);
   drawCannon(ctx, scene.cannon, scene.aiming);
 
   ctx.restore();
@@ -102,13 +103,20 @@ function drawBackground(ctx: CanvasRenderingContext2D): void {
   ctx.stroke();
 }
 
+/** Left/bottom/right glow only — the top is physically open (pieces can fly
+ *  above the frame and fall back in), so the visuals leave the sky open too. */
 function drawWalls(ctx: CanvasRenderingContext2D): void {
   ctx.save();
   ctx.strokeStyle = COLORS.aim;
   ctx.shadowColor = COLORS.wallGlow;
   ctx.shadowBlur = 18;
   ctx.lineWidth = 4;
-  ctx.strokeRect(2, 2, WORLD.width - 4, WORLD.height - 4);
+  ctx.beginPath();
+  ctx.moveTo(2, 2);
+  ctx.lineTo(2, WORLD.height - 2);
+  ctx.lineTo(WORLD.width - 2, WORLD.height - 2);
+  ctx.lineTo(WORLD.width - 2, 2);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -241,6 +249,41 @@ function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): vo
     ctx.fillStyle = COLORS.trajectory;
     ctx.beginPath();
     ctx.arc(pts[i].x, pts[i].y, 4 * (1 - t) + 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Loaded-piece "ghost" scale relative to CELL — small enough to not dominate the view. */
+const GHOST_SCALE = 0.55;
+
+/**
+ * Draw the currently loaded piece, semi-transparent, at the cannon's muzzle in
+ * its current orientation — so aiming shows the real world-space rotation the
+ * player will fire. Same offset math as pieces.ts createTetrisPiece
+ * ((px-1.5)*cell rotated by cos/sin of pieceRotation), just at a miniature
+ * cell size so it reads as a preview rather than a real piece.
+ */
+function drawLoadedPiece(ctx: CanvasRenderingContext2D, cannon: Cannon): void {
+  const shape = PIECE_SHAPES[cannon.currentType];
+  const color = PIECE_COLORS[cannon.currentType];
+  const tip = cannon.tip;
+  const cos = Math.cos(cannon.pieceRotation);
+  const sin = Math.sin(cannon.pieceRotation);
+  const cell = CELL * GHOST_SCALE;
+  const h = cell / 2;
+
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = color;
+  for (const [px, py] of shape) {
+    const ox = (px - 1.5) * cell;
+    const oy = (py - 1.5) * cell;
+    const rx = ox * cos - oy * sin;
+    const ry = ox * sin + oy * cos;
+    roundRect(ctx, tip.x + rx - h, tip.y + ry - h, cell, cell, 4);
     ctx.fill();
   }
   ctx.restore();

@@ -4,7 +4,6 @@ import { LEVEL_1 } from "./game/level";
 import { render } from "./game/render";
 import { InputController } from "./game/input";
 import { nextPreviewHTML } from "./ui/components";
-import type { PieceType } from "./game/theme";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import {
@@ -34,7 +33,8 @@ class App {
   private dpr = 1;
   private last = 0;
   private acc = 0;
-  private lastNext: PieceType | null = null;
+  /** Composite "type:quarterTurns" key so the HUD preview refreshes on rotation too. */
+  private lastNext: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
 
@@ -207,10 +207,11 @@ class App {
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
     if (power) power.style.width = Math.round(g.cannon.powerRatio * 100) + "%";
-    if (this.lastNext !== g.cannon.currentType) {
+    const nextKey = `${g.cannon.currentType}:${g.cannon.quarterTurns}`;
+    if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
-      if (next) next.innerHTML = nextPreviewHTML(g.cannon.currentType);
-      this.lastNext = g.cannon.currentType;
+      if (next) next.innerHTML = nextPreviewHTML(g.cannon.currentType, g.cannon.quarterTurns);
+      this.lastNext = nextKey;
     }
     const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
     if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now());

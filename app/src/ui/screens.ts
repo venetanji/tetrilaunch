@@ -42,7 +42,7 @@ export function menuScreen(best: number): string {
 export function howtoScreen(): string {
   const steps = [
     ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
-    ["02", "Rotate the piece", `Spin the incoming tetromino with the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons or <span class="kbd">Q</span><span class="kbd">E</span> before launch.`],
+    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon and the <b>Next</b> preview both show the exact orientation before you fire.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
@@ -137,7 +137,7 @@ export function hudHTML(cannon: Cannon, target: number): string {
       <div class="hud__cluster">
         <div class="power"><span class="chip__label">Pwr</span>
           <div class="power__track"><div class="power__fill" id="hud-power"></div></div></div>
-        <div id="hud-next">${nextPreviewHTML(cannon.currentType)}</div>
+        <div id="hud-next">${nextPreviewHTML(cannon.currentType, cannon.quarterTurns)}</div>
         <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
       </div>
     </div>
