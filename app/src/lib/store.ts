@@ -4,13 +4,17 @@ export interface Settings {
   sound: boolean;
   music: boolean;
   haptics: boolean;
+  /** Set once the player completes their first real drag-fire — gates the
+   *  finger-drag onboarding hint's automatic first-bay appearance (see
+   *  main.ts's armDragHint/dismissDragHint + ui/screens.ts's dragHintHTML). */
+  seenDragHint: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
 const NAME_KEY = "tetrilaunch.name";
 const BEST_KEY = "tetrilaunch.best";
 
-const DEFAULTS: Settings = { sound: true, music: true, haptics: true };
+const DEFAULTS: Settings = { sound: true, music: true, haptics: true, seenDragHint: false };
 
 export function loadSettings(): Settings {
   try {

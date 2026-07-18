@@ -47,6 +47,11 @@ class App {
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
 
+  /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
+   *  once-per-session idle timer, armed at each bay start. */
+  private dragHintTimer: number | null = null;
+  private dragHintShownThisSession = false;
+
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <canvas id="game"></canvas>
@@ -89,6 +94,7 @@ class App {
   private destroy(): void {
     this.input.destroy();
     this.game?.destroy();
+    if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
   }
 
   // ---------------- state / rendering ----------------
@@ -195,13 +201,40 @@ class App {
     if (!this.run) return;
     this.game?.destroy();
     this.game = new Game(levelForRun(this.run), {
-      onShoot: () => { void tapHaptic(); },
+      onShoot: () => { void tapHaptic(); this.dismissDragHint(); },
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
       onStatus: (s) => this.onGameStatus(s),
     });
     this.setState("playing");
     void enterFullscreen();
+    this.armDragHint();
+  }
+
+  /** Shows the finger-drag onboarding hint immediately on a brand-new
+   *  player's very first bay (persisted via settings.seenDragHint);
+   *  otherwise arms it as a once-per-session fallback if 15s pass at this
+   *  bay's start with no shot fired. */
+  private armDragHint(): void {
+    if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    if (!this.settings.seenDragHint) {
+      this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
+    } else if (!this.dragHintShownThisSession) {
+      this.dragHintTimer = window.setTimeout(() => {
+        this.dragHintShownThisSession = true;
+        this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
+      }, 15_000);
+    }
+  }
+
+  /** Hides the drag hint for good once a real shot fires, and marks it seen. */
+  private dismissDragHint(): void {
+    if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    this.overlay.querySelector("#drag-hint")?.classList.add("drag-hint--hidden");
+    if (!this.settings.seenDragHint) {
+      this.settings.seenDragHint = true;
+      saveSettings(this.settings);
+    }
   }
 
   private onGameStatus(s: GameStatus): void {
@@ -291,6 +324,7 @@ class App {
         cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
+        windNow: g.windNow,
       });
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);

@@ -203,17 +203,34 @@ body {
   box-shadow: 0 0 10px rgba(255,45,85,0.5);
 }
 
-/* HUD bottom controls (mobile) */
-.hud__bottom {
-  position: absolute; bottom: var(--hud-pad); left: var(--hud-pad); right: var(--hud-pad);
-  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-3);
+/* ---------- HUD bottom controls ----------
+   Corner-anchored per input mode: touch anchors the rotate cluster
+   bottom-RIGHT (right-thumb reach — explicit design call) and FIRE
+   bottom-LEFT (left thumb), both safe-area aware (--safe-l/r/b, tokens.css)
+   and clear of the center so the drag-anywhere aim gesture always has room.
+   Desktop hides both touch clusters and shows a keyboard-hint strip instead
+   — pure CSS via (pointer: …) queries below, no device sniffing. */
+.hud__bottom { position: absolute; inset: 0; }
+/* Reclaim pointer-events from the `.hud > *` rule above: only the actual
+   controls should intercept clicks, not the (now full-bleed) empty center
+   that the drag-anywhere aim gesture needs. */
+.hud .hud__bottom { pointer-events: none; }
+.hud__bottom .shoot-btn,
+.hud__bottom .rotate-cluster { pointer-events: auto; }
+
+.rotate-cluster {
+  position: absolute;
+  right: var(--safe-r);
+  bottom: var(--safe-b);
+  display: flex; flex-direction: column; gap: var(--ctrl-gap);
 }
-.controls { display: flex; align-items: center; gap: var(--sp-3); }
-.rotate-cluster { display: flex; flex-direction: column; gap: var(--sp-2); }
-.hint { font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); opacity: 0.7; align-self: flex-end; padding-bottom: 6px; }
-@media (max-width: 720px) { .hint { display: none; } }
+.rotate-cluster .icon-btn { width: var(--tap-md); height: var(--tap-md); font-size: 22px; }
+
 .shoot-btn {
-  width: 92px; height: 92px; border-radius: 50%;
+  position: absolute;
+  left: var(--safe-l);
+  bottom: var(--safe-b);
+  width: var(--tap-lg); height: var(--tap-lg); border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #38d6ff, var(--accent) 55%, #0090a8);
   color: var(--accent-ink); border: none; cursor: pointer;
   font-family: var(--font-display); font-weight: 900; letter-spacing: 1px; font-size: 15px;
@@ -223,7 +240,8 @@ body {
 }
 .shoot-btn:active { transform: scale(0.94); }
 .shoot-btn:disabled { filter: grayscale(0.7) brightness(0.6); box-shadow: none; cursor: default; }
-/* Cost line under FIRE — small enough to stay inside the 92px round button. */
+/* Cost line under FIRE — small enough to stay inside the round button at
+   its smallest (--tap-lg's clamp floor). */
 .shoot-btn__cost {
   display: block;
   font-family: var(--font-mono);
@@ -231,6 +249,81 @@ body {
   letter-spacing: 0;
   font-size: 10px;
   opacity: 0.85;
+}
+
+/* Desktop keyboard-hint strip — replaces the touch clusters entirely on
+   fine-pointer devices (mouse/trackpad). Keys mirror input.ts's bindings
+   exactly (Q/E rotate, W/S aim, A/D power, Space fire, drag to aim). */
+.kbd-hint {
+  display: none;
+  position: absolute; left: 50%; bottom: var(--safe-b); transform: translateX(-50%);
+  align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); color: var(--text-muted);
+  white-space: nowrap; pointer-events: none;
+}
+.kbd-hint__sep { opacity: 0.4; }
+
+@media (pointer: fine) {
+  .hud__bottom .shoot-btn,
+  .hud__bottom .rotate-cluster { display: none; }
+  .kbd-hint { display: flex; }
+}
+
+/* ---------- Finger-drag onboarding hint (see screens.ts's dragHintHTML) ----------
+   A neon finger-dot appears near the cannon (left ~25%, vertical center),
+   presses, drags back along a curve while a ghost pull-back arc grows, then
+   releases — looping with a pause between loops. main.ts toggles the
+   `drag-hint--hidden` class (shown once on a player's first-ever bay, or
+   once per session if a bay opens and 15s pass with no shot; dismissed for
+   good the moment a shot fires). Pure CSS: transform/opacity keyframes
+   driven by the --hint-* tokens in tokens.css. Touch-only — desktop already
+   spells the gesture out in the .kbd-hint strip above. */
+.drag-hint {
+  position: absolute; left: 25%; top: 50%;
+  width: 160px; height: 160px; margin: -80px 0 0 -80px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity var(--hint-show-dur) var(--ease);
+}
+.drag-hint--hidden { opacity: 0; }
+.drag-hint--hidden .drag-hint__dot,
+.drag-hint--hidden .drag-hint__arc path { animation-play-state: paused; }
+.drag-hint__arc { position: absolute; inset: 0; overflow: visible; }
+.drag-hint__arc path {
+  fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 5 11; stroke-dashoffset: 60; opacity: 0;
+  filter: drop-shadow(0 0 6px rgba(0,240,255,0.65));
+  animation: hint-arc var(--hint-loop-dur) var(--hint-ease) infinite;
+}
+.drag-hint__dot {
+  position: absolute; top: 64px; left: 76px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, var(--accent) 60%, #0090a8);
+  box-shadow: 0 0 10px var(--accent), 0 0 22px rgba(0,240,255,0.6);
+  opacity: 0;
+  animation: hint-dot var(--hint-loop-dur) var(--hint-ease) infinite;
+}
+@keyframes hint-dot {
+  0%, 100% { opacity: 0; transform: translate(0, 0) scale(1); }
+  6% { opacity: 1; transform: translate(0, 0) scale(1); }
+  12% { opacity: 1; transform: translate(0, 0) scale(0.85); }
+  55% { opacity: 1; transform: translate(-35px, 56px) scale(0.85); }
+  65% { opacity: 1; transform: translate(-35px, 56px) scale(0.85); }
+  74% { opacity: 0; transform: translate(-35px, 56px) scale(1.2); }
+}
+@keyframes hint-arc {
+  0%, 11% { opacity: 0; stroke-dashoffset: 60; }
+  14% { opacity: 0.9; stroke-dashoffset: 60; }
+  55% { opacity: 0.9; stroke-dashoffset: 0; }
+  65% { opacity: 0.9; stroke-dashoffset: 0; }
+  74% { opacity: 0; stroke-dashoffset: 0; }
+  100% { opacity: 0; stroke-dashoffset: 60; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drag-hint__dot, .drag-hint__arc path { animation: none; opacity: 0; }
+}
+@media (pointer: fine) {
+  .drag-hint { display: none; }
 }
 
 /* Progress to target */
@@ -410,5 +503,4 @@ body {
   .menu { grid-template-columns: 1fr; text-align: center; gap: var(--sp-4); }
   .menu__actions { margin: 0 auto; }
   .howto__grid { grid-template-columns: 1fr; }
-  .shoot-btn { width: 78px; height: 78px; }
 }

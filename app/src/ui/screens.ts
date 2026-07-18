@@ -167,15 +167,44 @@ export function hudHTML(opts: {
       </div>
     </div>
     <div class="hud__bottom">
-      <div class="controls">
-        <div class="rotate-cluster">
-          <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
-          <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
-        </div>
-        <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
+      <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
+      <div class="rotate-cluster">
+        <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
+        <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
       </div>
-      <div class="hint muted">Pull back to aim · release to fire</div>
+      <div class="kbd-hint" aria-hidden="true">
+        <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
+        <span class="kbd-hint__sep">·</span>
+        <span class="kbd">W</span>/<span class="kbd">S</span> aim
+        <span class="kbd-hint__sep">·</span>
+        <span class="kbd">A</span>/<span class="kbd">D</span> power
+        <span class="kbd-hint__sep">·</span>
+        <span class="kbd">Space</span> fire
+        <span class="kbd-hint__sep">·</span>
+        drag to aim
+      </div>
     </div>
+    ${dragHintHTML()}
+  </div>`;
+}
+
+/** First-play / idle-timeout onboarding overlay teaching the slingshot drag
+ *  — a neon finger-dot presses near the cannon (left ~25% of screen,
+ *  vertical center), drags back along a curve while a ghost pull-back arc
+ *  grows, then releases, looping with a pause between loops. Rendered
+ *  hidden by default (`drag-hint--hidden`); main.ts's armDragHint/
+ *  dismissDragHint toggle that class based on the persisted
+ *  settings.seenDragHint flag and a 15s once-per-session idle timer (see
+ *  main.ts). Pure CSS animation — see tokens.css's --hint-* tokens and
+ *  app.css's hint-dot/hint-arc keyframes. Touch-only (hidden on fine
+ *  pointers via CSS), pointer-events:none throughout so it never blocks the
+ *  drag-anywhere aim gesture. */
+export function dragHintHTML(): string {
+  return `<div class="drag-hint drag-hint--hidden" id="drag-hint" aria-hidden="true">
+    <svg class="drag-hint__arc" viewBox="0 0 160 160" width="160" height="160">
+      <path d="M89,77 Q52,112 49,133" />
+    </svg>
+    <div class="drag-hint__dot"></div>
   </div>`;
 }
 

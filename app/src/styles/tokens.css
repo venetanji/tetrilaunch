@@ -91,6 +91,35 @@
   --z-hud: 10;
   --z-overlay: 40;
   --z-toast: 60;
+
+  /* ==========================================================================
+     Control layout — touch targets, control-cluster placement, safe-area
+     insets, and the finger-drag onboarding hint. Mirrored by
+     design/foundations/controls.html.
+     ========================================================================== */
+
+  /* Touch target sizes (WCAG 2.5.5 / iOS HIG minimum is 44px) */
+  --tap-min: 44px; /* absolute floor for any tappable control */
+  --tap-md: 60px; /* rotate-cluster buttons — one-thumb, comfortably above the floor */
+  --tap-lg: clamp(72px, 20vw, 92px); /* FIRE — the single most important target, biggest of the three */
+
+  /* Control cluster spacing/offsets (corner-anchored touch controls) */
+  --ctrl-gap: var(--sp-5); /* gap between the two rotate buttons — wide enough that ⟲/⟳ can't be fat-fingered */
+  --ctrl-inset-x: clamp(16px, 4vw, 32px); /* cluster offset from the left/right screen edge */
+  --ctrl-inset-b: clamp(16px, 5vh, 32px); /* cluster offset from the bottom edge */
+
+  /* Safe-area-aware positions for the corner-anchored clusters. env() falls
+     back to 0px on browsers without notch/home-indicator insets, so
+     --ctrl-inset-x/b alone still applies there. */
+  --safe-l: calc(env(safe-area-inset-left, 0px) + var(--ctrl-inset-x));
+  --safe-r: calc(env(safe-area-inset-right, 0px) + var(--ctrl-inset-x));
+  --safe-b: calc(env(safe-area-inset-bottom, 0px) + var(--ctrl-inset-b));
+
+  /* Finger-drag onboarding hint (see screens.ts's dragHintHTML + app.css's
+     .drag-hint rules) */
+  --hint-ease: cubic-bezier(0.65, 0, 0.35, 1); /* press/drag/release motion curve */
+  --hint-loop-dur: 3400ms; /* one full press-drag-hold-release-pause cycle */
+  --hint-show-dur: var(--dur-slow); /* fade when main.ts shows/hides the hint overlay */
 }
 
 /* A reusable neon-scanline backdrop used behind menus and the game. */
