@@ -148,7 +148,7 @@ body {
   position: absolute; top: var(--hud-pad); left: var(--hud-pad); right: var(--hud-pad);
   display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
 }
-.hud__cluster { display: flex; gap: var(--sp-3); align-items: center; }
+.hud__cluster { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
 
 .chip {
   background: rgba(18,18,31,0.72);
@@ -163,6 +163,13 @@ body {
 .chip__value { font-family: var(--font-mono); font-weight: 700; font-size: 20px; color: var(--text); }
 .chip--accent .chip__value { color: var(--accent); }
 .chip--combo .chip__value { color: var(--piece-o); }
+/* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud). Reduced
+   motion keeps the color cue but drops the pulse. */
+.chip--danger .chip__value { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .chip--danger .chip__value { animation: none; }
+}
+@keyframes pulse-danger { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* Power meter */
 .power {
@@ -186,6 +193,15 @@ body {
 }
 .next__grid { width: 46px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
 .next__cell { border-radius: 2px; }
+/* Bomb telegraph (see components.ts's bombNextHTML) — same .next card shell,
+   a static glyph tile instead of a rotated piece grid. */
+.next__bomb-tile {
+  width: 46px; height: 46px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; line-height: 1;
+  background: rgba(255,45,85,0.14);
+  box-shadow: 0 0 10px rgba(255,45,85,0.5);
+}
 
 /* HUD bottom controls (mobile) */
 .hud__bottom {
@@ -270,6 +286,60 @@ body {
   .stat b { font-size: 20px; }
   .submit-row .name-input,
   .submit-row .btn { padding: 8px 14px; }
+}
+
+/* ---------- Draft modal (mod cards) ---------- */
+.draft__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.mod-card {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  padding: 14px 16px;
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(27,27,46,0.92), rgba(12,12,24,0.94));
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.mod-card:hover, .mod-card:focus-visible { transform: translateY(-2px); }
+.mod-card__kind {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(255,255,255,0.06);
+}
+.mod-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); color: var(--text); }
+.mod-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
+
+.mod-card--boon { border-color: rgba(0,255,156,0.4); }
+.mod-card--boon:hover, .mod-card--boon:focus-visible { border-color: var(--success); box-shadow: 0 0 8px rgba(0,255,156,0.35), 0 0 24px rgba(0,255,156,0.18); }
+.mod-card--boon .mod-card__kind { color: var(--success); background: rgba(0,255,156,0.12); }
+
+.mod-card--bane { border-color: rgba(255,45,85,0.4); }
+.mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 0 0 8px rgba(255,45,85,0.35), 0 0 24px rgba(255,45,85,0.18); }
+.mod-card--bane .mod-card__kind { color: var(--danger); background: rgba(255,45,85,0.12); }
+
+.mod-card--tradeoff { border-color: rgba(0,240,255,0.35); }
+.mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: var(--glow-accent); }
+.mod-card--tradeoff .mod-card__kind { color: var(--accent); background: rgba(0,240,255,0.12); }
+
+/* Owned-modifier chip row shown under the draft cards. */
+.run-mods { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-xs); color: var(--text-muted); }
+.run-mods__chip {
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-pill);
+  padding: 3px 10px; font-size: var(--fs-xs); color: var(--text-dim);
 }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }

@@ -1,4 +1,5 @@
-import { PIECE_SHAPES, PIECE_COLORS, type PieceType } from "../game/theme";
+import { PIECE_COLORS, type PieceType } from "../game/theme";
+import { pieceCells } from "../game/pieces";
 
 /**
  * One clockwise quarter-turn about the 4x4 preview grid's own center (y down):
@@ -34,9 +35,13 @@ function recenterInBox(cells: [number, number][]): [number, number][] {
   return cells.map(([x, y]) => [x + dx, y + dy]);
 }
 
-/** 4x4 mini render of a tetromino (next-piece preview, piece tiles). */
-export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0): string {
-  const shape = PIECE_SHAPES[type];
+/** 4x4 mini render of a tetromino (next-piece preview, piece tiles).
+ *  `pieceCubes` selects the base cell set via game/pieces's pieceCells — 2
+ *  renders the "Half Shipments" domino, 4 the real tetromino shape. The
+ *  rotate/recenter pipeline below is shape-agnostic, so either cell count
+ *  flows through it unchanged. */
+export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, pieceCubes: 2 | 4 = 4): string {
+  const shape = pieceCells(type, pieceCubes);
   const color = PIECE_COLORS[type];
   const turns = ((quarterTurns % 4) + 4) % 4;
   const rotated = shape.map((cell) => {
@@ -60,14 +65,38 @@ export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0): stri
   return `<div class="next__grid" style="gap:${gap}px">${cells}</div>`;
 }
 
-export function nextPreviewHTML(type: PieceType, quarterTurns = 0): string {
+export function nextPreviewHTML(type: PieceType, quarterTurns = 0, pieceCubes: 2 | 4 = 4): string {
   return `<div class="next" aria-label="Next piece">
-    ${pieceCellsHTML(type, 1, quarterTurns)}
+    ${pieceCellsHTML(type, 1, quarterTurns, pieceCubes)}
     <div>
       <div class="chip__label">Next</div>
       <div class="chip__value" style="font-size:16px;color:${PIECE_COLORS[type]}">${type}</div>
     </div>
   </div>`;
+}
+
+/** HUD preview card for a telegraphed bomb shot (see game.ts's nextIsBomb) —
+ *  same `.next` card shell as nextPreviewHTML, but a static glyph tile
+ *  instead of a rotated piece grid (a bomb has no orientation to show). */
+export function bombNextHTML(): string {
+  return `<div class="next next--bomb" aria-label="Next: bomb">
+    <div class="next__bomb-tile">💣</div>
+    <div>
+      <div class="chip__label">Next</div>
+      <div class="chip__value" style="font-size:16px;color:var(--danger)">BOMB</div>
+    </div>
+  </div>`;
+}
+
+/** Format a countdown in ms as "m:ss", ceiling-rounded so the displayed
+ *  number only reaches 0 once time is actually up. Shared by screens.ts
+ *  (initial HUD render) and main.ts (per-tick sync) so the two never drift
+ *  out of formatting sync. */
+export function formatMMSS(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 export function toggleHTML(id: string, label: string, desc: string, on: boolean): string {
