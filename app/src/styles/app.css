@@ -203,9 +203,19 @@ body {
   font-family: var(--font-display); font-weight: 900; letter-spacing: 1px; font-size: 15px;
   box-shadow: 0 0 24px rgba(0,240,255,0.55), inset 0 -6px 14px rgba(0,0,0,0.25);
   transition: transform var(--dur-fast) var(--ease);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 .shoot-btn:active { transform: scale(0.94); }
 .shoot-btn:disabled { filter: grayscale(0.7) brightness(0.6); box-shadow: none; cursor: default; }
+/* Cost line under FIRE — small enough to stay inside the 92px round button. */
+.shoot-btn__cost {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 10px;
+  opacity: 0.85;
+}
 
 /* Progress to target */
 .goal { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }

@@ -46,7 +46,7 @@ export function howtoScreen(): string {
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
-    ["06", `Hit ${LEVEL_1.targetScore}`, `Reach the target score to clear Launch Bay. More levels & roguelite mutators are coming.`],
+    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry — going broke with nothing left in play ends the run.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
@@ -123,11 +123,11 @@ export function leaderboardScreen(rows: string): string {
 }
 
 /** In-game HUD overlay. */
-export function hudHTML(cannon: Cannon, target: number): string {
+export function hudHTML(cannon: Cannon, target: number, score: number): string {
   return `<div class="hud" id="hud">
     <div class="hud__top">
       <div class="hud__cluster">
-        <div class="chip chip--accent"><div class="chip__label">Score</div><div class="chip__value" id="hud-score">0</div></div>
+        <div class="chip chip--accent"><div class="chip__label">Funds</div><div class="chip__value" id="hud-score">$${score}</div></div>
         <div class="chip chip--combo"><div class="chip__label">Combo</div><div class="chip__value" id="hud-combo">×0</div></div>
         <div class="goal">
           <div class="chip__label">Target ${target}</div>
@@ -147,7 +147,7 @@ export function hudHTML(cannon: Cannon, target: number): string {
           <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
           <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
         </div>
-        <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE</button>
+        <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${LEVEL_1.launchCost}</span></button>
       </div>
       <div class="hint muted">Pull back to aim · release to fire</div>
     </div>
@@ -175,15 +175,21 @@ export function endModal(opts: {
   best: number;
   name: string;
   rows: string;
+  /** Why the run ended in a loss ("topout" keeps the classic path). Unused when won. */
+  reason?: "topout" | "broke" | null;
 }): string {
   const title = opts.won ? "Level Cleared!" : "Game Over";
-  const eyebrow = opts.won ? "Launch Bay complete" : "The compactor won this round";
+  const eyebrow = opts.won
+    ? "Launch Bay complete"
+    : opts.reason === "broke"
+      ? "Out of funds — the bay stays unpaid"
+      : "The compactor won this round";
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
       <div class="stat-row">
-        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Score</span></div>
+        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Funds</span></div>
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
         <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
       </div>

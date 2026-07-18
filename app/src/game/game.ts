@@ -40,25 +40,41 @@ export class Game {
   constraints: Matter.Constraint[] = [];
   trajectory: Matter.Vector[] = [];
 
-  score = 0;
+  score: number;
   combo = 0;
   linesTotal = 0;
   lostTotal = 0;
   status: GameStatus = "playing";
+  /** Which condition triggered a "lost" status, for end-of-run copy. */
+  lossReason: "topout" | "broke" | null = null;
   aiming = false;
   paused = false;
 
   readonly level: LevelConfig;
   private gAccel: number;
   private events: GameEvents;
+  /** Timestamp (ms) the player first went "stuck broke" (see update()), or null. */
+  private brokeSince: number | null = null;
+  /** Grace window (ms) before stuck-broke becomes a loss: one full compactor
+   *  round trip (retreat to open + press back to full advance) computed from
+   *  the real leftX/rightX/speed, plus a small buffer. A full row already
+   *  sitting in the zone must get its pressing stroke — which pays out and
+   *  un-brokes the player — before the game calls it; a line clear raises
+   *  score by >= scorePerLine > launchCost, so a rescue auto-cancels the
+   *  countdown (see update()). */
+  private readonly brokeGraceMs: number;
 
   constructor(level: LevelConfig, events: GameEvents = {}) {
     this.level = level;
     this.events = events;
+    this.score = level.startingFunds;
     this.phys = createPhysics(level);
     this.cannon = new Cannon(level);
     this.compactor = new Compactor(this.phys.world, level);
     this.gAccel = this.phys.engine.gravity.y * this.phys.engine.gravity.scale * DT * DT;
+    this.brokeGraceMs =
+      ((this.compactor.rightX - this.compactor.leftX) * 2 / level.compactorSpeed) / 60 * 1000 +
+      2000;
     resetLineClear();
     this.updateTrajectory();
   }
@@ -79,6 +95,7 @@ export class Game {
   shoot(now: number): boolean {
     if (this.status !== "playing" || this.paused) return false;
     if (!this.cannon.canShoot(now)) return false;
+    if (this.score < this.level.launchCost) return false;
     const piece = createTetrisPiece(
       this.phys.world,
       this.cannon.tip.x,
@@ -90,6 +107,7 @@ export class Game {
     this.cubes.push(...piece.cubes);
     this.constraints.push(...piece.constraints);
     this.cannon.markShot(now);
+    this.score -= this.level.launchCost;
     this.events.onShoot?.();
     this.updateTrajectory();
     return true;
@@ -143,8 +161,27 @@ export class Game {
 
     this.updateTrajectory();
 
+    // Broke-lose: can't afford another shot AND nothing is still moving (a
+    // shot in flight, or a pile still settling, might yet clear a line and
+    // rescue the run). Vacuously true with zero cubes on the field.
+    const allAtRest = this.cubes.every(
+      (c) => Math.hypot(c.body.velocity.x, c.body.velocity.y) < AT_REST,
+    );
+    const stuckBroke = this.score < this.level.launchCost && allAtRest;
+    if (stuckBroke) {
+      if (this.brokeSince === null) this.brokeSince = now;
+    } else {
+      this.brokeSince = null;
+    }
+
     if (this.score >= this.target) this.setStatus("won");
-    else if (this.isToppedOut()) this.setStatus("lost");
+    else if (this.isToppedOut()) {
+      this.lossReason = "topout";
+      this.setStatus("lost");
+    } else if (this.brokeSince !== null && now - this.brokeSince > this.brokeGraceMs) {
+      this.lossReason = "broke";
+      this.setStatus("lost");
+    }
   }
 
   /** Lose when a settled cube stacks up to the ceiling. */

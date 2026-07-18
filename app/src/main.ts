@@ -95,20 +95,21 @@ class App {
         this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
         break;
       case "playing":
-        if (g) { this.overlay.innerHTML = S.hudHTML(g.cannon, g.target); this.lastNext = null; }
+        if (g) { this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score); this.lastNext = null; }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(g.cannon, g.target) + S.pauseModal();
+        if (g) this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score) + S.pauseModal();
         break;
       case "won":
       case "lost":
         if (g) {
           this.overlay.innerHTML =
-            S.hudHTML(g.cannon, g.target) +
+            S.hudHTML(g.cannon, g.target, g.score) +
             S.endModal({
               won: this.state === "won",
               score: g.score, lines: g.linesTotal, best: loadBest(),
               name: loadName(), rows: S.leaderboardRowsHTML(this.cachedBoard, loadName() || undefined),
+              reason: g.lossReason,
             });
         }
         break;
@@ -201,7 +202,7 @@ class App {
       const el = this.overlay.querySelector(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
-    set("#hud-score", String(g.score));
+    set("#hud-score", "$" + g.score);
     set("#hud-combo", "×" + g.combo);
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
@@ -214,7 +215,7 @@ class App {
       this.lastNext = nextKey;
     }
     const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
-    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now());
+    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
   }
 
   // ---------------- events ----------------
