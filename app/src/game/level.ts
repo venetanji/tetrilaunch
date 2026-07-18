@@ -122,18 +122,25 @@ function targetScoreFor(i: number): number {
  * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
  *   so time pressure keeps rising relative to how much a bay actually needs
  *   to bank.
- * - windMax (0.75 + 0.03i) is the core counter to "fire the same direction
- *   forever": tuned via sim/sweep.ts so every fixed-aim preset (middle/flat/
- *   lob/lob-rot/lob-flat/lob-tall, plus random/random-up) measures 0% wins
- *   while the adaptive `aim` bot — which re-solves each shot against the
- *   exact wind-aware trajectory preview, varies power, targets pile gaps,
- *   and WAITS OUT gusts rather than firing on cooldown — stays comfortably
- *   viable (~60-65% at bay 1). 0.75 sits deliberately below a measured
- *   cliff: the aim bot holds 60-90% up through ~0.78 and collapses to
- *   20-40% by 0.82, so the margin keeps skilled play robust to small
- *   physics drift. Patience is the load-bearing skill at this amplitude —
- *   peak gusts are genuinely unplayable and the HUD wind meter telegraphs
- *   the calm windows around each sine zero-crossing.
+ * - windMax (0.25 at bay 1, then 0.30 + 0.045i) is the core counter to
+ *   "fire the same direction forever", introduced GENTLY and ramped across
+ *   the run (playtest feedback: a flat-high wind read as extreme conditions
+ *   from bay 1). Bay 1's 0.25 is the measured strict minimum for the
+ *   guarantee (sim/sweep.ts --windmax ladder, 20 seeds): at 0.15 fixed-aim
+ *   presets scrape 5-15%, at 0.20 they still scrape 5%, at 0.25 every
+ *   fixed preset (middle/flat/lob/lob-rot/lob-flat/lob-tall, plus
+ *   random/random-up) measures 0% while the adaptive `aim` bot — which
+ *   re-solves each shot against the exact wind-aware trajectory preview,
+ *   varies power, targets pile gaps, and WAITS OUT gusts rather than
+ *   firing on cooldown — wins 95%. The weather then rolls in from bay 2:
+ *   the step to 0.345 closes a lucky-seed leak (single fixed-aim bots
+ *   scraped 5% at 0.295-0.30 against bay 2's easier target) — verified 0%
+ *   fixed / 95% aim at 0.345. The ladder tops out at ~0.705 (bay 10,
+ *   verified 0% fixed / 85% aim), below the measured ~0.8 cliff where even
+ *   adaptive play collapses (aim holds 60-90% through ~0.78, drops to
+ *   20-40% by 0.82). Patience becomes the load-bearing skill as the ladder
+ *   climbs — late-bay gusts are genuinely unplayable and the HUD wind
+ *   meter telegraphs the calm windows around each sine zero-crossing.
  *   windPeriodSec (flat 24s) is NOT tied to i — it's long relative to a
  *   single piece's ~1.5-2.5s flight time (so a fixed aim's shots all drift
  *   the same way for many consecutive launches, not averaging out
@@ -162,7 +169,7 @@ export function makeBaseLevel(i: number): LevelConfig {
     timeLimitSec: 150 + i * 10,
     pieceCubes: 4,
     bombEvery: 0,
-    windMax: 0.75 + i * 0.03,
+    windMax: i === 0 ? 0.25 : 0.3 + i * 0.045,
     windPeriodSec: 24,
   };
 }
