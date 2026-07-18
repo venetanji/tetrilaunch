@@ -7,9 +7,12 @@ export const WORLD = { width: 1280, height: 720 };
 
 export const CELL = 40; // cube size (px)
 
-/** Inner face of the right wall (walls are WALL_T=40 thick, centered at
- *  WORLD.width + 20) — the surface the compactor presses the pile against. */
-export const WALL_INNER = WORLD.width - 20;
+/** Inner face of the right wall — the surface the compactor presses the pile
+ *  against, and the anchor of the line-clear slot grid. The wall body is
+ *  WALL_T=40 thick centered at WORLD.width + WALL_T/2, so its inner face sits
+ *  exactly at WORLD.width; anchoring anywhere else desyncs the slot grid from
+ *  where wall-flush cubes physically rest. */
+export const WALL_INNER = WORLD.width;
 
 export interface PhysicsWorld {
   engine: Matter.Engine;

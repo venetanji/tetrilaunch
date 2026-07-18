@@ -13,6 +13,7 @@ import {
   markLostPieces,
   updateBlinking,
   resetLineClear,
+  settleZoneCubes,
 } from "./lineClear";
 import type { LevelConfig } from "./level";
 
@@ -109,6 +110,13 @@ export class Game {
       this.compactor.top - CELL * 0.3,
       this.compactor.width / 2 + CELL,
     );
+
+    // While pressing, physically settle near-resting cubes onto the slot grid
+    // (vibro-compaction) so the strict clear rule below stays reachable even
+    // when a cube wedges tilted against the wall.
+    if (this.compactor.pressing) {
+      settleZoneCubes(this.cubes, this.compactor, this.level);
+    }
 
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
