@@ -160,20 +160,29 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
  *
  * Cubes are removed ONLY here (a broken joint never deletes a cube), and only
  * the exact slot-filling cubes of rows that actually clear — never hangers-on.
- * Returns the number of rows cleared.
  */
+export interface ClearResult {
+  lines: number;
+  /** Position + color snapshots of every removed cube, taken just before
+   *  removal — render-side FX (shatter bursts, payout text) need where a
+   *  cube WAS, and the body/cube are both gone by the time the caller sees this. */
+  cubes: { x: number; y: number; color: string }[];
+  /** Center Y of each cleared row, for a row-flash effect. */
+  rows: number[];
+}
+
 export function updateLineClear(
   world: Matter.World,
   cubes: Cube[],
   compactor: Compactor,
   level: LevelConfig,
-): number {
+): ClearResult {
   // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
   // own right stop is clamped there), but zoneGrid guards against it
   // defensively — the bar keeps ping-ponging between its stops, it never
   // teleports.
   const zone = zoneGrid(compactor, level);
-  if (!zone) return 0;
+  if (!zone) return { lines: 0, cubes: [], rows: [] };
   // Dynamic threshold: compactorMinLineCells cubes at full advance, growing
   // toward compactorOpenCells as the compactor opens back up and the zone widens.
   const { needed } = zone;
@@ -191,7 +200,7 @@ export function updateLineClear(
   }
 
   const toRemove = new Set<Cube>();
-  let cleared = 0;
+  const rows: number[] = [];
   const maxRow = Math.ceil(WORLD.height / CELL);
 
   for (let r = 0; r < maxRow; r++) {
@@ -218,18 +227,21 @@ export function updateLineClear(
     if (slots.some((s) => s === null)) continue; // hole in the row
 
     for (const c of slots) toRemove.add(c!);
-    cleared++;
+    rows.push(rowY);
   }
 
+  const removedCubes: { x: number; y: number; color: string }[] = [];
   if (toRemove.size) {
     for (let i = cubes.length - 1; i >= 0; i--) {
-      if (toRemove.has(cubes[i])) {
-        Matter.Composite.remove(world, cubes[i].body);
+      const cube = cubes[i];
+      if (toRemove.has(cube)) {
+        removedCubes.push({ x: cube.body.position.x, y: cube.body.position.y, color: cube.color });
+        Matter.Composite.remove(world, cube.body);
         cubes.splice(i, 1);
       }
     }
   }
-  return cleared;
+  return { lines: rows.length, cubes: removedCubes, rows };
 }
 
 /**

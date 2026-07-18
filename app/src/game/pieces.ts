@@ -20,7 +20,20 @@ function dist(a: Matter.Vector, b: Matter.Vector): number {
 }
 
 /**
- * World-space offsets (px) of a piece's 4 cubes from its OWN centroid, rotated
+ * Grid cells (relative coords) making up a piece for a given cubes-per-piece
+ * setting. 4 => the real tetromino shape (PIECE_SHAPES). 2 => a "half
+ * shipment" domino — a fixed horizontal pair; rotation (in pieceOffsets)
+ * turns it vertical like any other orientation. The domino ignores `type`
+ * for its cells but keeps the type for color/theming, so a "Half Shipments"
+ * run modifier doesn't need a whole second piece-color table.
+ */
+export function pieceCells(type: PieceType, pieceCubes: 2 | 4): [number, number][] {
+  if (pieceCubes === 2) return [[0, 0], [1, 0]];
+  return PIECE_SHAPES[type];
+}
+
+/**
+ * World-space offsets (px) of a piece's cubes from its OWN centroid, rotated
  * by `angle` (radians). Centroid-anchored (not the enclosing 4x4 grid's center
  * at (1.5, 1.5)) so rotating a piece spins it in place — several shapes (I, L,
  * J, S, Z, T) have a centroid that differs from grid-center, so pivoting on
@@ -28,8 +41,12 @@ function dist(a: Matter.Vector, b: Matter.Vector): number {
  * spinning. Shared by createTetrisPiece (world spawn) and render.ts's muzzle
  * ghost preview, so both draw the exact same rotated shape.
  */
-export function pieceOffsets(type: PieceType, angle: number): { x: number; y: number }[] {
-  const shape = PIECE_SHAPES[type];
+export function pieceOffsets(
+  type: PieceType,
+  angle: number,
+  pieceCubes: 2 | 4 = 4,
+): { x: number; y: number }[] {
+  const shape = pieceCells(type, pieceCubes);
   const cx = shape.reduce((s, [px]) => s + px, 0) / shape.length;
   const cy = shape.reduce((s, [, py]) => s + py, 0) / shape.length;
   const cos = Math.cos(angle);
@@ -41,7 +58,10 @@ export function pieceOffsets(type: PieceType, angle: number): { x: number; y: nu
   });
 }
 
-/** Build a tetromino from 4 cubes rigidly joined by breakable distance joints. */
+/** Build a tetromino (or domino — see pieceCells) from cubes rigidly joined
+ *  by breakable distance joints. `jointStiffness` and `pieceCubes` come from
+ *  the level/run config; passed as scalars rather than the whole LevelConfig
+ *  since game.ts is the only caller and already has both at hand. */
 export function createTetrisPiece(
   world: Matter.World,
   x: number,
@@ -49,11 +69,13 @@ export function createTetrisPiece(
   angle: number,
   velocity: Matter.Vector,
   type: PieceType,
+  jointStiffness: number,
+  pieceCubes: 2 | 4 = 4,
 ): Piece {
   const color = PIECE_COLORS[type];
   const cubes: Cube[] = [];
 
-  for (const { x: rx, y: ry } of pieceOffsets(type, angle)) {
+  for (const { x: rx, y: ry } of pieceOffsets(type, angle, pieceCubes)) {
     const body = Matter.Bodies.rectangle(x + rx, y + ry, CELL, CELL, {
       friction: 0.5,
       frictionAir: 0.012,
@@ -79,7 +101,7 @@ export function createTetrisPiece(
         bodyA: a,
         bodyB: b,
         length: rest,
-        stiffness: 0.9,
+        stiffness: jointStiffness,
         damping: 0.1,
         render: { visible: false },
       });

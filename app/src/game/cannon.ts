@@ -95,8 +95,14 @@ export class Cannon {
     return Math.max(0, this.cooldownMs - (now - this.lastShot));
   }
 
-  markShot(now: number): void {
+  /** Reset the fire cooldown only, without advancing the piece queue — a
+   *  bomb shot consumes the cooldown but leaves the loaded piece in place. */
+  markCooldown(now: number): void {
     this.lastShot = now;
+  }
+
+  markShot(now: number): void {
+    this.markCooldown(now);
     this.pieceIndex = (this.pieceIndex + 1) % this.seq.length;
     this.currentType = this.nextType;
     this.nextType = this.seq[(this.pieceIndex + 1) % this.seq.length];
