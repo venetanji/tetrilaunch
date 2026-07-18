@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD, WALL_INNER } from "./engine";
-import type { Cube } from "./pieces";
+import { removeConstraintsFor, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import type { LevelConfig } from "./level";
 
@@ -176,6 +176,7 @@ export function updateLineClear(
   cubes: Cube[],
   compactor: Compactor,
   level: LevelConfig,
+  constraints: Matter.Constraint[],
 ): ClearResult {
   // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
   // own right stop is clamped there), but zoneGrid guards against it
@@ -236,6 +237,10 @@ export function updateLineClear(
       const cube = cubes[i];
       if (toRemove.has(cube)) {
         removedCubes.push({ x: cube.body.position.x, y: cube.body.position.y, color: cube.color });
+        // A cleared cube may still be joined to a surviving piece-mate (e.g. a
+        // domino straddling the row) — prune its constraints first, or the
+        // joint dangles: pointing at a body no longer in the world.
+        removeConstraintsFor(world, constraints, cube.body);
         Matter.Composite.remove(world, cube.body);
         cubes.splice(i, 1);
       }
@@ -272,11 +277,19 @@ export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number)
 }
 
 /** Remove blinking (bounced-out) cubes after the blink duration. Returns count. */
-export function updateBlinking(world: Matter.World, cubes: Cube[], now: number): number {
+export function updateBlinking(
+  world: Matter.World,
+  cubes: Cube[],
+  now: number,
+  constraints: Matter.Constraint[],
+): number {
   let lost = 0;
   for (let i = cubes.length - 1; i >= 0; i--) {
     const c = cubes[i];
     if (c.blinkStart !== null && now - c.blinkStart > BLINK_MS) {
+      // Same dangling-joint hazard as updateLineClear: a joined cube may
+      // blink out alone while its piece-mate stays behind.
+      removeConstraintsFor(world, constraints, c.body);
       Matter.Composite.remove(world, c.body);
       cubes.splice(i, 1);
       lost++;

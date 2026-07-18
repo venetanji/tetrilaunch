@@ -3,8 +3,13 @@ import type { LevelConfig } from "./level";
 /**
  * A drafted modifier: picked once between levels, then stacks for the rest of
  * the run (see run.ts's RunState.modIds). `apply` mutates the LevelConfig
- * copy applyMods hands it — mods never see or touch each other, so ordering
- * only matters for mods that compound multiplicatively with themselves.
+ * copy applyMods hands it, one mod at a time in pick order — mods never see
+ * or touch each other directly, but each sees the field values the previous
+ * ones already changed, so order can matter ACROSS different mods too, not
+ * just a mod compounding with itself (e.g. Premium then Half Shipments rounds
+ * -40% off a launchCost that already includes Premium's +$5, landing on a
+ * different number than Half Shipments first). This is accepted roguelite
+ * behavior: drafts apply in the order picked.
  */
 export interface ModDef {
   id: string;

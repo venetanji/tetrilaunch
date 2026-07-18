@@ -140,6 +140,28 @@ export function breakJointsInBand(
 }
 
 /**
+ * Remove every constraint (world + array, reverse iteration so splicing is
+ * safe) whose bodyA or bodyB is `body`. Call this right before removing a
+ * cube's body wherever a cube can be deleted outright (line-clear, blink-out,
+ * bomb blast) — otherwise a joined cube's constraint keeps pointing at a body
+ * no longer in the world: a dangling joint that either throws or gets solved
+ * against a frozen ghost every tick.
+ */
+export function removeConstraintsFor(
+  world: Matter.World,
+  constraints: Matter.Constraint[],
+  body: Matter.Body,
+): void {
+  for (let i = constraints.length - 1; i >= 0; i--) {
+    const c = constraints[i];
+    if (c.bodyA === body || c.bodyB === body) {
+      Matter.Composite.remove(world, c);
+      constraints.splice(i, 1);
+    }
+  }
+}
+
+/**
  * Remove over-stretched joints so pieces break apart on hard impacts. A joint
  * breaks once stretched past its rest length by `breakStretch` — a hard impact
  * momentarily yanks the stiff constraint, mimicking pymunk's max_force joints.

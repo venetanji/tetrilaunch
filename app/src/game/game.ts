@@ -6,6 +6,7 @@ import {
   createTetrisPiece,
   updateBreakableJoints,
   breakJointsInBand,
+  removeConstraintsFor,
   type Cube,
 } from "./pieces";
 import {
@@ -89,17 +90,23 @@ export class Game {
   readonly level: LevelConfig;
   private gAccel: number;
   private events: GameEvents;
-  /** Timestamp (ms) the player first went "stuck broke" (see update()), or null. */
-  private brokeSince: number | null = null;
-  /** Grace window (ms) before stuck-broke becomes a loss: one full compactor
-   *  round trip (Compactor.cycleSteps, retreat to open + press back to full
-   *  advance) converted to ms via DT, plus a small buffer, capped at 30s so a
-   *  degenerate compactorSpeed mutator can't make the grace effectively
-   *  infinite. A full line already sitting in the zone must get its pressing
-   *  stroke — which pays out and un-brokes the player — before the game calls
-   *  it; a line clear raises score by >= scorePerLine > launchCost, so a
-   *  rescue auto-cancels the countdown (see update()). */
-  private readonly brokeGraceMs: number;
+  /** Game.stepCount at which the player first went "stuck broke" (see
+   *  update()), or null. Step-based rather than wall-clock: see
+   *  brokeGraceSteps below for why. */
+  private brokeSinceStep: number | null = null;
+  /** Grace window (physics steps) before stuck-broke becomes a loss: one full
+   *  compactor round trip (Compactor.cycleSteps, retreat to open + press back
+   *  to full advance), plus a small buffer (2000ms worth of steps), capped at
+   *  30s worth of steps so a degenerate compactorSpeed mutator can't make the
+   *  grace effectively infinite. A full line already sitting in the zone must
+   *  get its pressing stroke — which pays out and un-brokes the player —
+   *  before the game calls it; a line clear raises score by >= scorePerLine >
+   *  launchCost, so a rescue auto-cancels the countdown (see update()).
+   *  Steps, not wall-clock ms: update() doesn't run while paused, so a
+   *  wall-clock deadline armed just before a long pause would already be
+   *  expired the instant play resumes — the same pause-safety reasoning as
+   *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS). */
+  private readonly brokeGraceSteps: number;
 
   /** Physics steps elapsed (one per update() call) — bombs use this instead
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
@@ -120,8 +127,12 @@ export class Game {
     this.gAccel = this.phys.engine.gravity.y * this.phys.engine.gravity.scale * DT * DT;
     // Cap guards degenerate level configs (e.g. a near-zero compactorSpeed
     // mutator) from making the grace window — and so the broke-loss — effectively
-    // unreachable.
-    this.brokeGraceMs = Math.min(this.compactor.cycleSteps * DT + 2000, 30_000);
+    // unreachable. Same min(...) as the old ms-based formula, just divided
+    // through by DT once here so update() can compare step counts directly.
+    this.brokeGraceSteps = Math.min(
+      this.compactor.cycleSteps + 2000 / DT,
+      30_000 / DT,
+    );
     resetLineClear();
     this.updateTrajectory();
 
@@ -260,7 +271,7 @@ export class Game {
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
     const clear: ClearResult = pressing
-      ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level)
+      ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level, this.constraints)
       : { lines: 0, cubes: [], rows: [] };
     if (clear.lines > 0) {
       this.combo += 1;
@@ -274,7 +285,7 @@ export class Game {
 
     // ...or when they bounce OUT before the compactor (blink away, lose points).
     markLostPieces(this.cubes, this.compactor, now);
-    const lost = updateBlinking(this.phys.world, this.cubes, now);
+    const lost = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
     if (lost > 0) {
       this.combo = 0;
       this.lostTotal += lost;
@@ -292,17 +303,20 @@ export class Game {
     // (score below cost AND the countdown hasn't started yet) to skip the
     // per-cube scan during normal play.
     if (this.score >= this.level.launchCost) {
-      this.brokeSince = null;
-    } else if (this.brokeSince === null) {
+      this.brokeSinceStep = null;
+    } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
-      if (allAtRest) this.brokeSince = now;
+      if (allAtRest) this.brokeSinceStep = this.stepCount;
     }
 
     if (this.score >= this.target) this.setStatus("won");
     else if (this.isToppedOut()) {
       this.lossReason = "topout";
       this.setStatus("lost");
-    } else if (this.brokeSince !== null && now - this.brokeSince > this.brokeGraceMs) {
+    } else if (
+      this.brokeSinceStep !== null &&
+      this.stepCount - this.brokeSinceStep > this.brokeGraceSteps
+    ) {
       this.lossReason = "broke";
       this.setStatus("lost");
     } else if (this.timeLeftMs <= 0) {
@@ -357,13 +371,7 @@ export class Game {
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
       if (d <= BOMB_BLAST_R) {
-        for (let j = this.constraints.length - 1; j >= 0; j--) {
-          const c = this.constraints[j];
-          if (c.bodyA === b || c.bodyB === b) {
-            Matter.Composite.remove(this.phys.world, c);
-            this.constraints.splice(j, 1);
-          }
-        }
+        removeConstraintsFor(this.phys.world, this.constraints, b);
         Matter.Composite.remove(this.phys.world, b);
         this.cubes.splice(i, 1);
       } else if (d <= shoveR) {
