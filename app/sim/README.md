@@ -20,7 +20,7 @@ step, no type-checking gate — a typo here can't break the shipped build).
 From `app/`:
 
 ```sh
-npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --mods all
+npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --mods all --carry 100
 npm run sim:perf -- --counts 50,100,150,200,300,400 --steps 600
 ```
 
@@ -78,19 +78,38 @@ For each `(bay, bot)` pair, across `--seeds` reproducible seeds:
 | MeanLines | mean lines cleared, all runs |
 | Losses | breakdown of non-win outcomes: `topout` (stacked to the ceiling), `broke` (out of funds and nothing left to rescue it), `time` (clock ran out), `cap` (hit the sweep's own step cap while still "playing" — a safety net, should be rare) |
 
-Bays 2+ start with `startingFunds` set to the previous bay's `targetScore`,
-emulating a bankroll carried over from clearing the prior bay in a real run
-(mirrors `run.ts`'s `advanceRun`/`levelForRun`).
+Each bay is its own economy now (`targetScore`, `launchCost`, and
+`scorePerLine` are all per-bay, not cumulative — see `level.ts`'s economy
+balance note), and only the SURPLUS a real run banked above the just-cleared
+bay's target carries forward (`run.ts`'s `advanceRun`/`levelForRun`,
+`RunState.carry`), not the whole ending score. The sweep doesn't play a full
+run end-to-end, so it can't compute a real per-seed surplus; instead, bays 2+
+start with `startingFunds` bumped by a flat `--carry` amount (default `100`,
+a typical one-line overshoot) on top of the base level's own float. `--carry
+0` models a bay entered with no cushion at all (e.g. a bay cleared right at
+target); a larger value models a run that's been overshooting comfortably.
 
 ### Mods table
 
-Only produced when `--mods` isn't `none`. Each mod is drafted **alone**
-(`applyMods(base, [modId])`) on bay 1 and bay 2, run the same way as
-baseline, then compared against that same `(bay, bot)`'s baseline:
+Only produced when `--mods` isn't `none`. `--mods` is a two-level grammar:
+comma separates independent **variants**, and within one variant, a
+`+`-joined group (e.g. `half+overclock`) stacks those mods together into a
+single variant, applied via `applyMods(base, [id1, id2, ...])` — exactly
+like drafting more than one modifier in a real run. `--mods
+half+overclock,premium` is two variants: `[half, overclock]` stacked, and
+`[premium]` alone. `--mods all` still expands to one variant per mod (no
+stacking) — every `ModDef` in `mods.ts`, unstacked. Every id in every group
+is validated up front; an unknown id anywhere aborts with an error listing
+the available ids.
 
-- `ΔWin` = mod winRate − baseline winRate
-- `ΔSecs-saved` = baseline median winning-secs − mod median winning-secs
-  (positive = the mod's winning runs finish faster)
+Each variant is run on bay 1 and bay 2, the same way as baseline, then
+compared against that same `(bay, bot)`'s baseline. The Mod column shows the
+variant's joined name (its mod ids joined with `+`; a single-mod variant just
+shows its bare id):
+
+- `ΔWin` = variant winRate − baseline winRate
+- `ΔSecs-saved` = baseline median winning-secs − variant median winning-secs
+  (positive = the variant's winning runs finish faster)
 
 **Ease score (CRUDE, read the caveat):** per bot,
 `ΔwinRate*100 + clamp(ΔSecs-saved, -60, 60) / 2`, then averaged over bots to
@@ -117,7 +136,7 @@ check is a standing tripwire on that assumption, not a one-off.
 `--bays 1,2,3`, `--seeds 5`, `--bots` = all four presets. `--mods` has no
 single obvious literal default (it's a three-way switch: `all|none|list`),
 so it defaults to `all` — modifier balance is this tool's headline purpose.
-Pass `--mods none` for a baseline-only run.
+Pass `--mods none` for a baseline-only run. `--carry` defaults to `100`.
 
 ## `perf.ts` — physics step-cost sweep
 

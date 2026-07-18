@@ -1,7 +1,12 @@
 #!/usr/bin/env npx tsx
 // Balance sweep CLI.
 //
-//   npx tsx sim/sweep.ts [--bays 1,2,3] [--seeds 5] [--bots middle,lob,flat,lob-rot] [--mods all|none|comma,list]
+//   npx tsx sim/sweep.ts [--bays 1,2,3] [--seeds 5] [--bots middle,lob,flat,lob-rot]
+//     [--mods all|none|comma,list] [--carry 100]
+//
+// --mods accepts "+"-joined groups for stacked variants tested together,
+// e.g. "half+overclock,premium" is two variants: [half,overclock] stacked,
+// and [premium] alone.
 //
 // Two questions this answers:
 //   1. Baseline: for each (bay, bot) pair, across N seeds, what fraction of
@@ -29,7 +34,15 @@ interface Args {
   bays: number[];
   seeds: number;
   bots: string[];
-  modIds: string[]; // resolved list; [] means "none"
+  /** Each entry is one variant to test: a list of mod ids applied TOGETHER
+   *  (a "+"-joined group in --mods, e.g. "half+overclock" -> ["half",
+   *  "overclock"]). Comma still separates independent variants. [] means
+   *  "none" (no mods sweep at all). */
+  modVariants: string[][];
+  /** Flat $ surplus assumed carried into bay > 1 (see baseLevelForBay) —
+   *  mirrors run.ts's RunState.carry, a typical one-line overshoot by
+   *  default. */
+  carry: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -59,34 +72,50 @@ function parseArgs(argv: string[]): Args {
   // No single literal default value makes sense for --mods (it's a
   // three-way grammar: all|none|list), so we pick a default here: "all",
   // since modifier balance is this tool's primary purpose (see README).
+  // Grammar: comma separates independent variants; within one variant, a
+  // "+"-joined group (e.g. "half+overclock") is a single STACKED variant
+  // applied together via applyMods(base, [ids...]) — the mods table's Mod
+  // column shows the joined name (e.g. "half+overclock").
   const modsRaw = get("--mods") ?? "all";
-  let modIds: string[];
-  if (modsRaw === "all") modIds = MODS.map((m) => m.id);
-  else if (modsRaw === "none") modIds = [];
+  let modVariants: string[][];
+  if (modsRaw === "all") modVariants = MODS.map((m) => [m.id]);
+  else if (modsRaw === "none") modVariants = [];
   else {
-    modIds = modsRaw.split(",").map((s) => s.trim()).filter(Boolean);
-    for (const id of modIds) {
-      if (!MODS.some((m) => m.id === id)) {
-        console.error(`Unknown mod id "${id}" — available: ${MODS.map((m) => m.id).join(", ")}`);
-        process.exit(1);
+    modVariants = modsRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((group) => group.split("+").map((s) => s.trim()).filter(Boolean));
+    for (const ids of modVariants) {
+      for (const id of ids) {
+        if (!MODS.some((m) => m.id === id)) {
+          console.error(`Unknown mod id "${id}" — available: ${MODS.map((m) => m.id).join(", ")}`);
+          process.exit(1);
+        }
       }
     }
   }
 
-  return { bays, seeds, bots, modIds };
+  const carry = parseInt(get("--carry") ?? "100", 10);
+
+  return { bays, seeds, bots, modVariants, carry };
 }
 
 // ---------------------------------------------------------------------------
 // Level construction
 // ---------------------------------------------------------------------------
 
-/** Bay `bay` (1-based) with startingFunds left alone for bay 1, or set to
- *  the previous bay's targetScore for bay > 1 — emulating a bankroll carried
- *  over from clearing the prior bay in a real run (see run.ts's
- *  advanceRun/levelForRun, which carries endedScore the same way). */
-function baseLevelForBay(bay: number): LevelConfig {
+/** Bay `bay` (1-based) with startingFunds left alone for bay 1, or bumped by
+ *  `carry` for bay > 1 — emulating the surplus a real run would have carried
+ *  over from clearing the prior bay (see run.ts's advanceRun/levelForRun,
+ *  which add RunState.carry — the overshoot above the cleared bay's target,
+ *  not the whole ending score — on top of the base startingFunds). `carry`
+ *  comes from the --carry CLI flag (default 100, a typical one-line
+ *  overshoot); it's a flat per-bay assumption here since the sweep doesn't
+ *  simulate a full run end-to-end. */
+function baseLevelForBay(bay: number, carry: number): LevelConfig {
   const cfg = makeBaseLevel(bay - 1);
-  if (bay > 1) cfg.startingFunds = makeBaseLevel(bay - 2).targetScore;
+  if (bay > 1) cfg.startingFunds = cfg.startingFunds + carry;
   return cfg;
 }
 
@@ -177,8 +206,8 @@ function main(): void {
 
   console.log("# Tetrilaunch balance sweep\n");
   console.log(
-    `bays=${args.bays.join(",")} seeds=${args.seeds} bots=${args.bots.join(",")} ` +
-      `mods=${args.modIds.length ? args.modIds.join(",") : "none"}\n`,
+    `bays=${args.bays.join(",")} seeds=${args.seeds} bots=${args.bots.join(",")} carry=${args.carry} ` +
+      `mods=${args.modVariants.length ? args.modVariants.map((ids) => ids.join("+")).join(",") : "none"}\n`,
   );
 
   // --- Reproducibility self-check -----------------------------------------
@@ -188,9 +217,9 @@ function main(): void {
   {
     const bay = args.bays[0] ?? 1;
     const botName = args.bots[0] ?? Object.keys(BOTS)[0];
-    const cfg = baseLevelForBay(bay);
+    const cfg = baseLevelForBay(bay, args.carry);
     const run1 = runBay(cfg, BOTS[botName](1), 1);
-    const run2 = runBay(baseLevelForBay(bay), BOTS[botName](1), 1);
+    const run2 = runBay(baseLevelForBay(bay, args.carry), BOTS[botName](1), 1);
     const same = JSON.stringify(run1) === JSON.stringify(run2);
     console.log(
       `Reproducibility check (bay ${bay}, bot ${botName}, seed 1): ` +
@@ -209,7 +238,7 @@ function main(): void {
   // whenever mods are in play (mods are only ever tested on bays 1-2, but
   // their delta is computed against that same bay's baseline).
   const baselineBays = new Set(args.bays);
-  if (args.modIds.length) {
+  if (args.modVariants.length) {
     baselineBays.add(1);
     baselineBays.add(2);
   }
@@ -221,7 +250,7 @@ function main(): void {
     for (const botName of args.bots) {
       const rows: BayOutcome[] = [];
       for (let seed = 1; seed <= args.seeds; seed++) {
-        const cfg = baseLevelForBay(bay);
+        const cfg = baseLevelForBay(bay, args.carry);
         const outcome = runBay(cfg, BOTS[botName](seed), seed);
         rows.push(outcome);
         allResults.push(outcome);
@@ -246,8 +275,14 @@ function main(): void {
   console.log();
 
   // --- Mods sweep ----------------------------------------------------------
+  // Each entry in args.modVariants is one variant: a list of mod ids applied
+  // TOGETHER (applyMods(base, ids)) — a "+"-joined group in --mods is one
+  // stacked variant, comma still separates independent variants tested
+  // against the same baseline. `variant` (the joined name, e.g.
+  // "half+overclock") is what's displayed/keyed on below; single-mod
+  // variants (the --mods all/none default) just render as their bare id.
   interface ModRow {
-    modId: string;
+    variant: string;
     bay: number;
     bot: string;
     agg: Agg;
@@ -257,20 +292,22 @@ function main(): void {
     easeContribution: number;
   }
   const modRows: ModRow[] = [];
+  const variantNames = args.modVariants.map((ids) => ids.join("+"));
 
-  if (args.modIds.length) {
+  if (args.modVariants.length) {
     for (const bay of [1, 2]) {
-      for (const modId of args.modIds) {
+      for (const ids of args.modVariants) {
+        const variant = ids.join("+");
         for (const botName of args.bots) {
           const rows: BayOutcome[] = [];
           for (let seed = 1; seed <= args.seeds; seed++) {
-            const cfg = applyMods(baseLevelForBay(bay), [modId]);
+            const cfg = applyMods(baseLevelForBay(bay, args.carry), ids);
             const outcome = runBay(cfg, BOTS[botName](seed), seed);
-            outcome.mods = [modId];
+            outcome.mods = ids;
             rows.push(outcome);
             allResults.push(outcome);
           }
-          const agg = aggregate(rows, bay, botName, modId);
+          const agg = aggregate(rows, bay, botName, variant);
           const baseline = baselineByKey.get(`${bay}|${botName}`)!;
           const dWinRate = agg.winRate - baseline.winRate;
           const dSecsSaved =
@@ -278,28 +315,28 @@ function main(): void {
               ? baseline.medianSecsWin - agg.medianSecsWin
               : null;
           const easeContribution = dWinRate * 100 + clamp(dSecsSaved ?? 0, -60, 60) / 2;
-          modRows.push({ modId, bay, bot: botName, agg, baseline, dWinRate, dSecsSaved, easeContribution });
+          modRows.push({ variant, bay, bot: botName, agg, baseline, dWinRate, dSecsSaved, easeContribution });
         }
       }
     }
 
-    // Ease score per (bay, mod): mean over bots. Overall ease score per mod:
-    // mean over the two bays' ease scores.
+    // Ease score per (bay, variant): mean over bots. Overall ease score per
+    // variant: mean over the two bays' ease scores.
     interface ModSummary {
-      modId: string;
+      variant: string;
       easeBay1: number | null;
       easeBay2: number | null;
       easeOverall: number;
     }
-    const summaries: ModSummary[] = args.modIds.map((modId) => {
+    const summaries: ModSummary[] = variantNames.map((variant) => {
       const forBay = (bay: number) => {
-        const rows = modRows.filter((r) => r.modId === modId && r.bay === bay);
+        const rows = modRows.filter((r) => r.variant === variant && r.bay === bay);
         return rows.length ? mean(rows.map((r) => r.easeContribution)) : null;
       };
       const easeBay1 = forBay(1);
       const easeBay2 = forBay(2);
       const both = [easeBay1, easeBay2].filter((x): x is number => x !== null);
-      return { modId, easeBay1, easeBay2, easeOverall: mean(both) };
+      return { variant, easeBay1, easeBay2, easeOverall: mean(both) };
     });
     summaries.sort((a, b) => b.easeOverall - a.easeOverall);
 
@@ -309,14 +346,14 @@ function main(): void {
     );
     console.log("|---|---|---|---|---|---|---|---|");
     for (const s of summaries) {
-      const r1 = modRows.filter((r) => r.modId === s.modId && r.bay === 1);
-      const r2 = modRows.filter((r) => r.modId === s.modId && r.bay === 2);
+      const r1 = modRows.filter((r) => r.variant === s.variant && r.bay === 1);
+      const r2 = modRows.filter((r) => r.variant === s.variant && r.bay === 2);
       const dWin1 = r1.length ? mean(r1.map((r) => r.dWinRate)) : null;
       const dSecs1 = r1.length ? mean(r1.map((r) => r.dSecsSaved ?? 0)) : null;
       const dWin2 = r2.length ? mean(r2.map((r) => r.dWinRate)) : null;
       const dSecs2 = r2.length ? mean(r2.map((r) => r.dSecsSaved ?? 0)) : null;
       console.log(
-        `| ${s.modId} | ${dWin1 === null ? "n/a" : pct(dWin1)} | ${fmt(dSecs1)} | ` +
+        `| ${s.variant} | ${dWin1 === null ? "n/a" : pct(dWin1)} | ${fmt(dSecs1)} | ` +
           `${dWin2 === null ? "n/a" : pct(dWin2)} | ${fmt(dSecs2)} | ` +
           `${fmt(s.easeBay1)} | ${fmt(s.easeBay2)} | ${fmt(s.easeOverall)} |`,
       );

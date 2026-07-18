@@ -35,7 +35,9 @@ export interface LevelConfig {
   penaltyPerLostPiece: number;
   /** Points needed to clear the level. */
   targetScore: number;
-  /** Bankroll at level start — the single currency doubling as score. Tunable
+  /** Bankroll at level start — the single currency doubling as score. A flat
+   *  per-bay float; only the prior bay's overshoot carries on top for
+   *  levelIndex > 0 (see run.ts's levelForRun/RunState.carry). Tunable
    *  roadmap seam: a "hard mode" modifier just lowers this. */
   startingFunds: number;
   /** Cost deducted per shot fired; you cannot fire once your funds drop below
@@ -63,26 +65,28 @@ export interface LevelConfig {
   bombEvery: number;
 }
 
-// Economy balance note (Launch Bay, i.e. makeBaseLevel(0)): a perfect 8-cube
-// line costs 2 shots ($50) for a $100 payout, so clean play nets $50/line.
-// Reaching the $800 target from a $250 start needs ~11 clean lines with combo
-// bonuses helping close the gap — but the existing $25 lost-piece penalty and
-// any wasted shots (cooldown-gated misses still cost nothing, only fired
-// shots do) eat into the bankroll, so sloppy play can go broke before hitting
-// the target.
+// Economy balance note: each bay is its OWN economy now — targetScore,
+// launchCost, and scorePerLine are all PER-BAY (not cumulative), and only
+// the surplus banked above a cleared bay's target carries into the next one
+// (see run.ts's RunState.carry / advanceRun). At Launch Bay (i=0) a perfect
+// 8-cube line costs 2 shots ($50) for a $100 payout, so clean play nets
+// $50/line toward the $800 target from a $250 float. Late bays cost more per
+// shot but pay out faster: scorePerLine ramps +10/bay against launchCost's
+// +2/bay, so a bay-10 (i=9) line costs 2 x $43 = $86 for a $190 payout — net
+// +$104/line, comfortably ahead of bay 1's +$50. The existing $25+2i
+// lost-piece penalty and wasted shots (cooldown-gated misses cost nothing,
+// only fired shots do) are what can still put a bay out of reach.
 const LEVEL_NAMES = [
   "Launch Bay", "Cargo Dock", "Freight Yard", "Assembly Line", "Foundry",
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
 ] as const;
 
-/** Cumulative bankroll target for level i (0-based): target(0) = 800,
- *  target(i) = target(i-1) + 450 + 100*i. Cumulative (not per-level) because
- *  bankroll itself carries across levels in the run — each level's target is
- *  really "how much more the player needs to bank by the end of this level." */
+/** Per-bay funding target for level i (0-based): 800 + 150*i. Per-bay (not
+ *  cumulative) because each bay is its own economy — only the overshoot
+ *  above this target carries into the next bay's float (see run.ts's
+ *  RunState.carry), not the whole ending score. */
 function targetScoreFor(i: number): number {
-  let score = 800;
-  for (let k = 1; k <= i; k++) score += 450 + 100 * k;
-  return score;
+  return 800 + 150 * i;
 }
 
 /**
@@ -95,11 +99,18 @@ function targetScoreFor(i: number): number {
  *   progressively harder to shatter apart from bad landings.
  * - jointStiffness edges up too (capped at 0.98) so joints stay crisp instead
  *   of rubbery as break-resistance rises.
- * - compactorSpeed, launchCost, and penaltyPerLostPiece all creep up so later
- *   levels punish sloppy play faster and harder.
- * - timeLimitSec grows slower than targetScore (10s/level vs. a target that
- *   accelerates by +100/level), so time pressure keeps rising relative to how
- *   much bankroll is actually needed.
+ * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
+ *   sloppy play faster and harder.
+ * - targetScore (800 + 150i), launchCost (25 + 2i), and scorePerLine
+ *   (100 + 10i) are all PER-BAY floats, not cumulative — startingFunds stays
+ *   a flat $250 float every bay (see run.ts's levelForRun), with only the
+ *   prior bay's overshoot (RunState.carry) stacked on top. scorePerLine
+ *   ramping (+10/bay) faster than launchCost (+2/bay) keeps a clean line's
+ *   net payout growing bay-over-bay instead of bleeding out late (bay 10: a
+ *   2-shot line costs $86, pays $190).
+ * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
+ *   so time pressure keeps rising relative to how much a bay actually needs
+ *   to bank.
  */
 export function makeBaseLevel(i: number): LevelConfig {
   return {
@@ -113,11 +124,11 @@ export function makeBaseLevel(i: number): LevelConfig {
     compactorHeightFrac: 0.5,
     jointBreakStretch: 1.7 + i * 0.12,
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
-    scorePerLine: 100,
+    scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
     targetScore: targetScoreFor(i),
     startingFunds: 250,
-    launchCost: 25 + i * 3,
+    launchCost: 25 + i * 2,
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
     cooldownMs: 900,
     timeLimitSec: 150 + i * 10,

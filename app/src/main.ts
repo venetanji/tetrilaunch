@@ -32,8 +32,8 @@ class App {
   private input: InputController;
   private settings: Settings = loadSettings();
 
-  /** The current roguelite run (seed, level index, bankroll, drafted mods).
-   *  Null only before the first "Play" — startGame() creates it. */
+  /** The current roguelite run (seed, level index, carried surplus, drafted
+   *  mods). Null only before the first "Play" — startGame() creates it. */
   private run: RunState | null = null;
   /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
   private pendingOffers: ModDef[] = [];
@@ -142,6 +142,7 @@ class App {
               bayName: g.level.name,
               nextBayName: makeBaseLevel(this.run.levelIndex + 1).name,
               funds: g.score,
+              carry: Math.max(0, g.score - g.target),
               offers: this.pendingOffers,
               owned,
             });
@@ -188,7 +189,7 @@ class App {
 
   /** (Re)starts the Game for the run's current levelIndex. Level 1 plays at
    *  the base level's startingFunds; every later bay's LevelConfig already
-   *  has startingFunds overridden to the carried bankroll (see run.ts's
+   *  has startingFunds bumped by the carried surplus (see run.ts's
    *  levelForRun) — so the Game itself needs no run-awareness at all. */
   private startLevel(): void {
     if (!this.run) return;
@@ -234,7 +235,7 @@ class App {
   private advanceAfterDraft(modId: string | null): void {
     const g = this.game;
     if (!g || !this.run) return;
-    this.run = advanceRun(this.run, g.score, g.linesTotal, modId);
+    this.run = advanceRun(this.run, g.score, g.target, g.linesTotal, modId);
     this.startLevel();
   }
 
@@ -254,8 +255,8 @@ class App {
   /** Pause modal's "Restart Bay": re-enters the *current* bay from scratch —
    *  unlike startGame()/"restart", this leaves `this.run` untouched, so
    *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
-   *  keeping the run's bankroll and drafted mods exactly as they were at
-   *  this bay's entry. */
+   *  keeping the run's carried surplus and drafted mods exactly as they were
+   *  at this bay's entry. */
   private restartBay(): void {
     if (this.state !== "paused" || !this.run) return;
     this.startLevel();

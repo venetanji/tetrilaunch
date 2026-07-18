@@ -49,7 +49,7 @@ export function howtoScreen(): string {
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b> — going broke, or running out the timer, ends the run.`],
-    ["07", "Run the gauntlet", `Ten bays deep, each with a rising target, a stiffer clock, and stiffer joints. Clear a bay and <b>draft one of three modifiers</b> — it stacks for the rest of the run. Your bankroll carries forward into the next bay, but so does every trade-off you picked up. Go broke or run out the clock and the run ends right there.`],
+    ["07", "Run the gauntlet", `Ten bays deep, each with a rising target, a stiffer clock, and stiffer joints. Clear a bay and <b>draft one of three modifiers</b> — it stacks for the rest of the run. Each bay funds a fresh <b>$250 float</b>, and any surplus you banked above the target carries on top — but so does every trade-off you picked up. Go broke or run out the clock and the run ends right there.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
@@ -205,6 +205,10 @@ export function draftScreen(opts: {
   bayName: string;
   nextBayName: string;
   funds: number;
+  /** Overshoot above this bay's target (0 if it ended right at target) —
+   *  the only part of `funds` that actually carries into the next bay's
+   *  float (see run.ts's advanceRun). */
+  carry: number;
   offers: ModDef[];
   owned: ModDef[];
 }): string {
@@ -228,8 +232,8 @@ export function draftScreen(opts: {
       <h2 class="display">Choose your contract</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
       <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px;align-self:center;max-width:260px">
-        <div class="chip__label">Bankroll carries over</div>
-        <div class="chip__value">$${opts.funds}</div>
+        <div class="chip__label">Ended with $${opts.funds} — carries over</div>
+        <div class="chip__value">$${opts.carry}</div>
       </div>
       <div class="draft__cards">${cards || `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
       ${ownedRow}
