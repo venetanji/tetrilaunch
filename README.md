@@ -12,20 +12,31 @@ clears them away.
 
 ## 🎮 How it plays
 
+- **A run is 10 bays** (levels) of rising difficulty — stiffer, harder-breaking joints, a
+  faster compactor, pricier launches, and cumulative bankroll targets. Each bay has a
+  **countdown clock**; clear the target before it runs out.
+- **Draft a modifier after every bay** — pick 1 of 3 seeded offers (or skip): Overclock,
+  Wide Bay, Sturdy/Half/Bomb Shipments, Overtime, Premium Contracts, Short Lines, Heavy
+  Cargo, Rapid Loader. Mods **stack for the rest of the run**, so the build is the strategy
+  (e.g. Half Shipments' cheap dominoes + Rapid Loader tempo, paid for with Overclock's
+  shorter clock).
 - **Drag to aim** — direction sets the launch angle, distance sets the power (further =
   stronger). A dotted **parabola** previews the flight; release to fire. Keyboard fallback
   on desktop: `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate. The **ceiling is open** —
   max-power lobs arc above the screen and fall back in.
 - **Rotate before you fire** — pieces turn in 90° steps; the ghost at the muzzle and the
-  Next preview show the exact orientation you'll launch.
+  Next preview show the exact orientation you'll launch. With Bomb Shipments, the HUD
+  telegraphs when the next launch is a 💣 — it detonates on contact, vaporizing nearby
+  cubes penalty-free (great for junk piles, pays nothing).
 - Tetrominoes are 4 cubes joined by **breakable joints** — hard hits shatter them.
 - The **compactor** (bottom-half red bar) ping-pongs between the 12-cell and 8-cell marks,
   pressing cubes against the right wall. A row clears only when **every cell slot is filled
   by one settled, squared-up cube** (min 8, more when the zone is open); the pressing stroke
   grinds near-aligned cubes onto the grid. Cubes that bounce back out blink away and cost you.
-- **Economy**: you start with a bankroll ($250), every launch costs money ($25), and cleared
-  lines pay out ($100 + combo). Reach the **target ($800)** to win — go broke and the run is
-  lost. Topping out the field also ends the run.
+- **Economy**: the bankroll doubles as the score and **carries across bays**. Every launch
+  costs money, cleared lines pay out ($100 + combo, shattering in a burst of payout FX).
+  Go broke, run out of time, or top out and the run ends — clear bay 10 and the run is
+  complete.
 
 Landscape only (fullscreen PWA on web, orientation-locked on mobile, with a rotate-device
 guard in portrait).
@@ -105,31 +116,37 @@ The neon-arcade design system lives in `design/` as self-contained HTML preview 
 
 ## 🗺️ Dev plan
 
-Only **Level 1 (“Launch Bay”)** ships now, but the tuning surface is in place: `LevelConfig`
-(`app/src/game/level.ts`) carries the compactor sweep (`compactorOpenCells` /
-`compactorMinLineCells` / `compactorSpeed` / size), the joint breaking point
-(`jointBreakStretch`), and the economy (`startingFunds` / `launchCost` / `scorePerLine` /
-`penaltyPerLostPiece` / `targetScore`) — a new level or mutator is just a new config entry.
+The roguelite core now ships: a **10-bay run** (`makeBaseLevel(i)` ladder in
+`app/src/game/level.ts`), a **stacking modifier draft** between bays (10-mod pool in
+`app/src/game/mods.ts`, seeded deterministic offers), per-bay **time limits**, **bomb** and
+**half-size** shipments, bankroll carry-over (`app/src/game/run.ts`), and line-clear /
+detonation FX. Everything is data-driven: a new bay is a formula tweak, a new mutator is a
+`ModDef` with an `apply(cfg)` delta.
 
 Next steps:
 
-1. **Levels 2+** — a small ladder of configs that tighten the economy and speed up the
-   compactor (e.g. narrower `compactorMinLineCells`, lower `startingFunds`, higher
-   `launchCost`), plus a level-select/progression flow (`LEVELS[]` already exists).
-2. **Balance pass on Launch Bay** — playtest the $250/$25/$100 economy and the strict-clear
-   tolerances (`X_TOL`/`Y_TOL`/`ANGLE_TOL` and the settling rates in
-   `app/src/game/lineClear.ts`); these are the difficulty knobs.
-3. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`; implement
-   the bag in `Cannon`.
-4. **Audio** — the Sound FX / Music settings toggles exist but no audio is wired up yet
-   (launch, shatter, line-clear payout, broke-warning cues).
-5. **Roguelite mutators** — gravity flips/strength, multi-compactor, fragile/sturdy pieces
-   (via `jointBreakStretch`), wind; each is a `LevelConfig` delta plus, where needed, a small
-   seam like the existing ones.
-6. **Per-level leaderboards UI** — the D1 schema already keys scores by `level`; the
-   leaderboard screen needs a level switcher once level 2 lands.
-7. **Juice** — screen shake on compaction, payout fly-up numbers on clears, particle burst on
-   shatter; all render-layer only.
+1. **Balance the ladder from playtests** — the knobs are `makeBaseLevel`'s formulas (target
+   deltas vs `timeLimitSec`, `jointBreakStretch` / `jointStiffness` ramps, `launchCost`) and
+   each mod's numbers in `mods.ts`. The bay-target growth (+$550 → +$1350 per bay) is a
+   first guess; tune until a clean run is tense but fair, and mods feel like real decisions.
+2. **Draft depth** — rarity weights and synergy tags on `ModDef` (e.g. tempo mods more
+   likely once you own Overclock), a "reroll" costing bankroll, and 1–2 pure banes with a
+   cash signing bonus for risk players.
+3. **More mutators** — gravity flips, wind gusts, a second mini-compactor, sticky cubes,
+   golden cubes (5× payout slot), shielded cubes that need a bomb; each is a `ModDef` plus,
+   where needed, a small seam like `pieceCubes` / `bombEvery`.
+4. **Meta-progression & daily seed** — persist unlocks (mods unlock as you reach deeper
+   bays) and a shared daily `RunState.seed` so everyone drafts from the same offers;
+   leaderboard per daily seed.
+5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`; implement
+   the bag in `Cannon`, seeded from the run for fairness.
+6. **Audio** — the Sound FX / Music settings toggles exist but no audio is wired up yet
+   (launch, shatter, payout, bomb, clock-warning cues).
+7. **Run history & boards** — the D1 schema keys scores by `level`; today everything posts
+   to the single run board (level 1). Add bays-reached to submissions and a board switcher
+   (overall run / daily seed).
+8. **More juice** — screen shake on detonation, combo streak banner, draft-card flip-in;
+   render/UI layer only (the FX event bus in `app/src/game/fx.ts` is the seam).
 
 ## 📄 License
 
