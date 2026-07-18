@@ -123,7 +123,7 @@ export function leaderboardScreen(rows: string): string {
 }
 
 /** In-game HUD overlay. */
-export function hudHTML(cannon: Cannon, target: number, score: number): string {
+export function hudHTML(cannon: Cannon, target: number, score: number, launchCost: number): string {
   return `<div class="hud" id="hud">
     <div class="hud__top">
       <div class="hud__cluster">
@@ -147,7 +147,7 @@ export function hudHTML(cannon: Cannon, target: number, score: number): string {
           <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
           <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
         </div>
-        <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${LEVEL_1.launchCost}</span></button>
+        <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
       </div>
       <div class="hint muted">Pull back to aim · release to fire</div>
     </div>

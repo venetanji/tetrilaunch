@@ -5,6 +5,7 @@ import type { Compactor } from "./compactor";
 import type { LevelConfig } from "./level";
 
 const SETTLE = 3.2; // px/step below which a cube counts as compacted/at rest
+const SETTLE_SQ = SETTLE * SETTLE; // squared-speed compare avoids a sqrt per cube
 const BLINK_MS = 1400;
 
 /**
@@ -59,6 +60,24 @@ function isAxisAligned(angle: number): boolean {
 }
 
 /**
+ * Shared face/zone-width/slot-count computation for both settleZoneCubes and
+ * updateLineClear, so the settle assist always targets exactly the slots a
+ * row would need to fill to clear. Returns null when the zone is narrower
+ * than the minimum-line stop — shouldn't happen (the compactor's own right
+ * stop is clamped there), but guarded defensively.
+ */
+function zoneGrid(
+  compactor: Compactor,
+  level: LevelConfig,
+): { face: number; zoneW: number; needed: number } | null {
+  const face = compactor.x + compactor.width / 2;
+  const zoneW = WALL_INNER - face;
+  if (zoneW < (level.compactorMinLineCells - 0.5) * CELL) return null;
+  const needed = Math.max(level.compactorMinLineCells, Math.round(zoneW / CELL));
+  return { face, zoneW, needed };
+}
+
+/**
  * Physically nudge near-settled cubes onto the wall/row slot grid while the
  * compactor is pressing. The strict clear rule in updateLineClear requires
  * cubes to be axis-aligned and sitting exactly at wall-anchored slot centers
@@ -77,29 +96,24 @@ function isAxisAligned(angle: number): boolean {
  * per-step kinematic corrections on near-resting bodies.
  */
 export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: LevelConfig): void {
-  const face = compactor.x + compactor.width / 2;
+  const zone = zoneGrid(compactor, level);
+  const face = zone ? zone.face : compactor.x + compactor.width / 2;
   const minX = face - SETTLE_X_MARGIN;
-
-  // Same zone/needed computation as updateLineClear, so the slot pull targets
-  // exactly the slots a row would need to fill to clear.
-  const zoneW = WALL_INNER - face;
-  const zoneOk = zoneW >= (level.compactorMinLineCells - 0.5) * CELL;
-  const needed = zoneOk
-    ? Math.max(level.compactorMinLineCells, Math.round(zoneW / CELL))
-    : 0;
-  const slotX: number[] = [];
-  for (let k = 0; k < needed; k++) slotX.push(WALL_INNER - CELL / 2 - k * CELL);
 
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
     const b = cube.body;
-    if (Math.hypot(b.velocity.x, b.velocity.y) >= SETTLE) continue;
+    if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
     if (b.position.x <= minX) continue; // left of the compactor's reach — untouched
 
-    // Nearest floor-anchored row center; skip cubes not near one.
+    // Nearest floor-anchored row center; skip cubes not near one, and skip
+    // rows above the bar's physical reach (same bound updateLineClear uses) —
+    // otherwise this would apply a phantom force to stacks the bar can never
+    // actually touch.
     const r = Math.round((WORLD.height - CELL / 2 - b.position.y) / CELL);
     if (r < 0) continue;
     const rowY = WORLD.height - CELL / 2 - r * CELL;
+    if (rowY < compactor.top) continue;
     if (Math.abs(b.position.y - rowY) > SETTLE_ROW_TOL) continue;
 
     // Angle grind: rotate slowly toward the nearest axis-aligned orientation.
@@ -110,15 +124,16 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
       Matter.Body.setAngle(b, b.angle + clamp(angleDelta, ANGLE_RATE));
     }
 
-    // Slot pull: nudge slowly toward the nearest wall-anchored slot center.
-    if (zoneOk) {
-      let nearestDx = Infinity;
-      for (const sx of slotX) {
-        const dx = sx - b.position.x;
-        if (Math.abs(dx) < Math.abs(nearestDx)) nearestDx = dx;
-      }
-      if (Number.isFinite(nearestDx) && Math.abs(nearestDx) <= SETTLE_SLOT_TOL) {
-        Matter.Body.setPosition(b, { x: b.position.x + clamp(nearestDx, X_RATE), y: b.position.y });
+    // Slot pull: nudge slowly toward the nearest wall-anchored slot center,
+    // found directly by index (nearest slot k) rather than scanning every slot.
+    if (zone) {
+      const k = Math.round((WALL_INNER - CELL / 2 - b.position.x) / CELL);
+      if (k >= 0 && k < zone.needed) {
+        const slotXk = WALL_INNER - CELL / 2 - k * CELL;
+        const dx = slotXk - b.position.x;
+        if (Math.abs(dx) <= SETTLE_SLOT_TOL) {
+          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, X_RATE), y: b.position.y });
+        }
       }
     }
   }
@@ -153,19 +168,15 @@ export function updateLineClear(
   compactor: Compactor,
   level: LevelConfig,
 ): number {
-  const face = compactor.x + compactor.width / 2;
-  const zoneW = WALL_INNER - face;
   // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
-  // own right stop is clamped there), but guard against it defensively — the
-  // bar keeps ping-ponging between its stops, it never teleports.
-  if (zoneW < (level.compactorMinLineCells - 0.5) * CELL) return 0;
-  // Dynamic threshold: 8 cubes at full advance, growing toward 12 as the
-  // compactor opens back up and the zone widens.
-  const needed = Math.max(level.compactorMinLineCells, Math.round(zoneW / CELL));
-
-  // Wall-anchored slot centers: slot k is k cubes out from the wall.
-  const slotX: number[] = [];
-  for (let k = 0; k < needed; k++) slotX.push(WALL_INNER - CELL / 2 - k * CELL);
+  // own right stop is clamped there), but zoneGrid guards against it
+  // defensively — the bar keeps ping-ponging between its stops, it never
+  // teleports.
+  const zone = zoneGrid(compactor, level);
+  if (!zone) return 0;
+  // Dynamic threshold: compactorMinLineCells cubes at full advance, growing
+  // toward compactorOpenCells as the compactor opens back up and the zone widens.
+  const { needed } = zone;
 
   // Candidate cubes: settled, not blinking, axis-aligned squares. (Being left
   // of the compactor face or outside every slot/row simply means a cube never
@@ -174,7 +185,7 @@ export function updateLineClear(
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
     const b = cube.body;
-    if (Math.hypot(b.velocity.x, b.velocity.y) >= SETTLE) continue;
+    if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
     if (!isAxisAligned(b.angle)) continue;
     candidates.push(cube);
   }
@@ -193,12 +204,14 @@ export function updateLineClear(
     for (const cube of candidates) {
       const b = cube.body;
       if (Math.abs(b.position.y - rowY) > Y_TOL) continue;
-      for (let k = 0; k < needed; k++) {
-        if (Math.abs(b.position.x - slotX[k]) > X_TOL) continue;
-        if (slots[k] !== null) duplicate = true;
-        else slots[k] = cube;
-        break; // slot spacing (CELL) vs X_TOL keeps this to at most one match
-      }
+      // Direct index instead of a linear scan over every slot: slot spacing
+      // (CELL) vs X_TOL guarantees at most one slot can ever match a cube.
+      const k = Math.round((WALL_INNER - CELL / 2 - b.position.x) / CELL);
+      if (k < 0 || k >= needed) continue;
+      const slotXk = WALL_INNER - CELL / 2 - k * CELL;
+      if (Math.abs(b.position.x - slotXk) > X_TOL) continue;
+      if (slots[k] !== null) duplicate = true;
+      else slots[k] = cube;
     }
 
     if (duplicate) continue; // overlapping stack contending for a slot — not clean
@@ -219,19 +232,20 @@ export function updateLineClear(
   return cleared;
 }
 
-// Everything left of here is "bounced out" — back in the launch corridor,
-// well behind the compactor's leftmost reach. A cube that merely scattered next
-// to the bar (still in the compaction half) is NOT penalized.
-const OUT_X = WORLD.width * 0.3;
-
 /**
- * Penalty path (ports main.py's check_pieces_on_left_side): pieces that bounce
- * back OUT — settling in the launch corridor, well before the compactor — start
- * blinking and are removed for a point penalty. Cubes shattered at the bar or
- * compacted against the wall are never touched here.
+ * Penalty path (ports main.py's check_pieces_on_left_side): settled cubes the
+ * compactor bar can NEVER reach decay for a point penalty, instead of sitting
+ * as unreachable dead weight forever. The cutoff is derived from the bar
+ * itself: compactor.leftX is its body-center at the fully-retreated (open)
+ * stop, so even a cube flush against the bar's face there (center = leftX +
+ * width/2 - CELL/2) sits at the closest-to-the-launcher position the zone
+ * will ever reach — the bar's face never gets any further left than that.
+ * Anything left of this cutoff can never be compacted or counted for a line;
+ * cubes shattered at the bar or compacted against the wall are never touched
+ * here.
  */
-export function markLostPieces(cubes: Cube[], _compactor: Compactor, now: number): void {
-  const cutoff = OUT_X;
+export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
+  const cutoff = compactor.leftX + compactor.width / 2 - CELL / 2;
   for (const c of cubes) {
     if (c.blinkStart !== null) continue;
     const b = c.body;

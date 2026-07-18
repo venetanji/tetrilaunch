@@ -5,12 +5,12 @@ import type { LevelConfig } from "./level";
 /**
  * Kinematic sweep bar. A bar covering the BOTTOM portion of the field (so pieces
  * can be lofted over its top onto the right floor). It presses forward to the
- * 8-cell (minimum full line) stop and then opens back up to the 12-cell (fully
- * open) stop at the same pace — a ping-pong stroke, same speed both ways, that
- * never teleports. The forward stroke is when a full row is crushed and cleared;
- * the retreat lets more pieces fall into the widening zone. Pieces that bounce
- * all the way back out toward the launcher decay; nothing is deleted just for
- * the bar passing over it.
+ * compactorMinLineCells (minimum full line) stop and then opens back up to the
+ * compactorOpenCells (fully open) stop at the same pace — a ping-pong stroke,
+ * same speed both ways, that never teleports. The forward stroke is when a full
+ * row is crushed and cleared; the retreat lets more pieces fall into the
+ * widening zone. Pieces that bounce all the way back out toward the launcher
+ * decay; nothing is deleted just for the bar passing over it.
  */
 export class Compactor {
   body: Matter.Body;
@@ -51,6 +51,13 @@ export class Compactor {
   /** True while pressing the pile toward the wall (the crushing stroke). */
   get pressing(): boolean {
     return this.dir === 1;
+  }
+
+  /** One full round trip (retreat to open + press back to full advance), in
+   *  physics steps — used to size the broke-loss grace window on a real
+   *  compactor cadence instead of a hardcoded guess. */
+  get cycleSteps(): number {
+    return ((this.rightX - this.leftX) * 2) / this.speed;
   }
 
   update(): void {

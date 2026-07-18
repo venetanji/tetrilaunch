@@ -31,6 +31,13 @@ export interface GameEvents {
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
 const TOPOUT_Y = 96;
 const AT_REST = 2.5;
+const AT_REST_SQ = AT_REST * AT_REST;
+
+/** True if a body's speed is below the at-rest threshold (squared compare, no sqrt). */
+function isAtRest(body: Matter.Body): boolean {
+  const v = body.velocity;
+  return v.x * v.x + v.y * v.y < AT_REST_SQ;
+}
 
 export class Game {
   phys: PhysicsWorld;
@@ -56,12 +63,13 @@ export class Game {
   /** Timestamp (ms) the player first went "stuck broke" (see update()), or null. */
   private brokeSince: number | null = null;
   /** Grace window (ms) before stuck-broke becomes a loss: one full compactor
-   *  round trip (retreat to open + press back to full advance) computed from
-   *  the real leftX/rightX/speed, plus a small buffer. A full row already
-   *  sitting in the zone must get its pressing stroke — which pays out and
-   *  un-brokes the player — before the game calls it; a line clear raises
-   *  score by >= scorePerLine > launchCost, so a rescue auto-cancels the
-   *  countdown (see update()). */
+   *  round trip (Compactor.cycleSteps, retreat to open + press back to full
+   *  advance) converted to ms via DT, plus a small buffer, capped at 30s so a
+   *  degenerate compactorSpeed mutator can't make the grace effectively
+   *  infinite. A full line already sitting in the zone must get its pressing
+   *  stroke — which pays out and un-brokes the player — before the game calls
+   *  it; a line clear raises score by >= scorePerLine > launchCost, so a
+   *  rescue auto-cancels the countdown (see update()). */
   private readonly brokeGraceMs: number;
 
   constructor(level: LevelConfig, events: GameEvents = {}) {
@@ -72,9 +80,10 @@ export class Game {
     this.cannon = new Cannon(level);
     this.compactor = new Compactor(this.phys.world, level);
     this.gAccel = this.phys.engine.gravity.y * this.phys.engine.gravity.scale * DT * DT;
-    this.brokeGraceMs =
-      ((this.compactor.rightX - this.compactor.leftX) * 2 / level.compactorSpeed) / 60 * 1000 +
-      2000;
+    // Cap guards degenerate level configs (e.g. a near-zero compactorSpeed
+    // mutator) from making the grace window — and so the broke-loss — effectively
+    // unreachable.
+    this.brokeGraceMs = Math.min(this.compactor.cycleSteps * DT + 2000, 30_000);
     resetLineClear();
     this.updateTrajectory();
   }
@@ -117,6 +126,10 @@ export class Game {
     if (this.status !== "playing") return;
 
     stepPhysics(this.phys);
+    // Capture BEFORE update(): the tick the bar exactly reaches its full-advance
+    // stop is also the tick update() flips dir to -1 (pressing -> false) — read
+    // after update(), that tick's settle/clear gate would be skipped entirely.
+    const pressing = this.compactor.pressing;
     this.compactor.update();
     updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
 
@@ -132,13 +145,13 @@ export class Game {
     // While pressing, physically settle near-resting cubes onto the slot grid
     // (vibro-compaction) so the strict clear rule below stays reachable even
     // when a cube wedges tilted against the wall.
-    if (this.compactor.pressing) {
+    if (pressing) {
       settleZoneCubes(this.cubes, this.compactor, this.level);
     }
 
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
-    const cleared = this.compactor.pressing
+    const cleared = pressing
       ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level)
       : 0;
     if (cleared > 0) {
@@ -159,19 +172,20 @@ export class Game {
       this.events.onPieceLost?.(lost);
     }
 
-    this.updateTrajectory();
-
-    // Broke-lose: can't afford another shot AND nothing is still moving (a
-    // shot in flight, or a pile still settling, might yet clear a line and
-    // rescue the run). Vacuously true with zero cubes on the field.
-    const allAtRest = this.cubes.every(
-      (c) => Math.hypot(c.body.velocity.x, c.body.velocity.y) < AT_REST,
-    );
-    const stuckBroke = this.score < this.level.launchCost && allAtRest;
-    if (stuckBroke) {
-      if (this.brokeSince === null) this.brokeSince = now;
-    } else {
+    // Broke-lose: the countdown STARTS only once we can't afford another shot
+    // AND nothing is still moving (a shot in flight, or a pile still settling,
+    // might yet clear a line and rescue the run) — but once started, only
+    // funds recovery (a clear paying out, score >= launchCost again) cancels
+    // it. Cube motion no longer resets it: a bar-agitated pile that never
+    // fully rests (contact jitter on every press) would otherwise postpone the
+    // broke-loss forever. allAtRest is only computed when it's actually needed
+    // (score below cost AND the countdown hasn't started yet) to skip the
+    // per-cube scan during normal play.
+    if (this.score >= this.level.launchCost) {
       this.brokeSince = null;
+    } else if (this.brokeSince === null) {
+      const allAtRest = this.cubes.every((c) => isAtRest(c.body));
+      if (allAtRest) this.brokeSince = now;
     }
 
     if (this.score >= this.target) this.setStatus("won");
@@ -188,10 +202,7 @@ export class Game {
   private isToppedOut(): boolean {
     for (const c of this.cubes) {
       const b = c.body;
-      if (
-        b.position.y < TOPOUT_Y &&
-        Math.hypot(b.velocity.x, b.velocity.y) < AT_REST
-      ) {
+      if (b.position.y < TOPOUT_Y && isAtRest(b)) {
         return true;
       }
     }

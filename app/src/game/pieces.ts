@@ -19,6 +19,28 @@ function dist(a: Matter.Vector, b: Matter.Vector): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+/**
+ * World-space offsets (px) of a piece's 4 cubes from its OWN centroid, rotated
+ * by `angle` (radians). Centroid-anchored (not the enclosing 4x4 grid's center
+ * at (1.5, 1.5)) so rotating a piece spins it in place — several shapes (I, L,
+ * J, S, Z, T) have a centroid that differs from grid-center, so pivoting on
+ * grid-center would visibly translate/teleport them on every turn instead of
+ * spinning. Shared by createTetrisPiece (world spawn) and render.ts's muzzle
+ * ghost preview, so both draw the exact same rotated shape.
+ */
+export function pieceOffsets(type: PieceType, angle: number): { x: number; y: number }[] {
+  const shape = PIECE_SHAPES[type];
+  const cx = shape.reduce((s, [px]) => s + px, 0) / shape.length;
+  const cy = shape.reduce((s, [, py]) => s + py, 0) / shape.length;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return shape.map(([px, py]) => {
+    const ox = (px - cx) * CELL;
+    const oy = (py - cy) * CELL;
+    return { x: ox * cos - oy * sin, y: ox * sin + oy * cos };
+  });
+}
+
 /** Build a tetromino from 4 cubes rigidly joined by breakable distance joints. */
 export function createTetrisPiece(
   world: Matter.World,
@@ -28,19 +50,10 @@ export function createTetrisPiece(
   velocity: Matter.Vector,
   type: PieceType,
 ): Piece {
-  const shape = PIECE_SHAPES[type];
   const color = PIECE_COLORS[type];
   const cubes: Cube[] = [];
 
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-
-  for (const [px, py] of shape) {
-    const ox = (px - 1.5) * CELL;
-    const oy = (py - 1.5) * CELL;
-    const rx = ox * cos - oy * sin;
-    const ry = ox * sin + oy * cos;
-
+  for (const { x: rx, y: ry } of pieceOffsets(type, angle)) {
     const body = Matter.Bodies.rectangle(x + rx, y + ry, CELL, CELL, {
       friction: 0.5,
       frictionAir: 0.012,

@@ -95,16 +95,16 @@ class App {
         this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
         break;
       case "playing":
-        if (g) { this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score); this.lastNext = null; }
+        if (g) { this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score, g.level.launchCost); this.lastNext = null; }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score) + S.pauseModal();
+        if (g) this.overlay.innerHTML = S.hudHTML(g.cannon, g.target, g.score, g.level.launchCost) + S.pauseModal();
         break;
       case "won":
       case "lost":
         if (g) {
           this.overlay.innerHTML =
-            S.hudHTML(g.cannon, g.target, g.score) +
+            S.hudHTML(g.cannon, g.target, g.score, g.level.launchCost) +
             S.endModal({
               won: this.state === "won",
               score: g.score, lines: g.linesTotal, best: loadBest(),

@@ -1,7 +1,7 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
-import { COLORS, PIECE_SHAPES, PIECE_COLORS, shade, type PieceType } from "./theme";
-import type { Cube } from "./pieces";
+import { COLORS, PIECE_COLORS, shade, type PieceType } from "./theme";
+import { pieceOffsets, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
 import { blinkVisible } from "./lineClear";
@@ -73,8 +73,10 @@ export function render(
   drawCompactor(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
   drawTrajectory(ctx, scene.trajectory);
-  drawLoadedPiece(ctx, scene.cannon);
+  // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
+  // tip, and previously painted over ghost cells at some aim angles.
   drawCannon(ctx, scene.cannon, scene.aiming);
+  drawLoadedPiece(ctx, scene.cannon);
 
   ctx.restore();
 }
@@ -256,33 +258,31 @@ function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): vo
 
 /** Loaded-piece "ghost" scale relative to CELL — small enough to not dominate the view. */
 const GHOST_SCALE = 0.55;
+/** Ghost piece opacity — see-through enough to read as a preview, not a real piece. */
+const GHOST_ALPHA = 0.45;
 
 /**
  * Draw the currently loaded piece, semi-transparent, at the cannon's muzzle in
  * its current orientation — so aiming shows the real world-space rotation the
- * player will fire. Same offset math as pieces.ts createTetrisPiece
- * ((px-1.5)*cell rotated by cos/sin of pieceRotation), just at a miniature
- * cell size so it reads as a preview rather than a real piece.
+ * player will fire. Uses the same pieceOffsets helper as pieces.ts
+ * createTetrisPiece (centroid-anchored rotation), scaled down by GHOST_SCALE
+ * so it reads as a preview rather than a real piece.
  */
 function drawLoadedPiece(ctx: CanvasRenderingContext2D, cannon: Cannon): void {
-  const shape = PIECE_SHAPES[cannon.currentType];
   const color = PIECE_COLORS[cannon.currentType];
   const tip = cannon.tip;
-  const cos = Math.cos(cannon.pieceRotation);
-  const sin = Math.sin(cannon.pieceRotation);
+  const offsets = pieceOffsets(cannon.currentType, cannon.pieceRotation);
   const cell = CELL * GHOST_SCALE;
   const h = cell / 2;
 
   ctx.save();
-  ctx.globalAlpha = 0.45;
+  ctx.globalAlpha = GHOST_ALPHA;
   ctx.shadowColor = color;
   ctx.shadowBlur = 12;
   ctx.fillStyle = color;
-  for (const [px, py] of shape) {
-    const ox = (px - 1.5) * cell;
-    const oy = (py - 1.5) * cell;
-    const rx = ox * cos - oy * sin;
-    const ry = ox * sin + oy * cos;
+  for (const { x: ox, y: oy } of offsets) {
+    const rx = ox * GHOST_SCALE;
+    const ry = oy * GHOST_SCALE;
     roundRect(ctx, tip.x + rx - h, tip.y + ry - h, cell, cell, 4);
     ctx.fill();
   }
