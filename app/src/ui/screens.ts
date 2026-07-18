@@ -186,7 +186,7 @@ export function pauseModal(): string {
       <h2 class="display">Take a breath</h2>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
-        <button class="btn btn--secondary" data-action="restart">Restart</button>
+        <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
     </div>

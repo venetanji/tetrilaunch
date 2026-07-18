@@ -251,6 +251,18 @@ class App {
     this.setState("playing");
   }
 
+  /** Pause modal's "Restart Bay": re-enters the *current* bay from scratch —
+   *  unlike startGame()/"restart", this leaves `this.run` untouched, so
+   *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
+   *  keeping the run's bankroll and drafted mods exactly as they were at
+   *  this bay's entry. */
+  private restartBay(): void {
+    if (this.state !== "paused" || !this.run) return;
+    this.startLevel();
+    this.last = performance.now();
+    this.acc = 0;
+  }
+
   private async refreshBoard(): Promise<void> {
     // The D1 board is the single RUN board for now — level is always 1
     // regardless of which bay the run ended on.
@@ -360,6 +372,7 @@ class App {
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "restart": this.startGame(); break;
+      case "restart-bay": this.restartBay(); break;
       case "submit-score": void this.onSubmitScore(); break;
       case "pick-mod":
         if (this.state === "draft") this.advanceAfterDraft(el.getAttribute("data-mod"));
