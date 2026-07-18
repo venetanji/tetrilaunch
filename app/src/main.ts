@@ -1,10 +1,11 @@
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
-import { LEVEL_1 } from "./game/level";
+import { makeBaseLevel } from "./game/level";
+import { newRun, advanceRun, levelForRun, RUN_LEVELS, type RunState } from "./game/run";
+import { draftOffers, modById, type ModDef } from "./game/mods";
 import { render } from "./game/render";
 import { InputController } from "./game/input";
-import { nextPreviewHTML } from "./ui/components";
-import type { PieceType } from "./game/theme";
+import { nextPreviewHTML, bombNextHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import {
@@ -16,7 +17,7 @@ import {
 
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "leaderboard"
-  | "playing" | "paused" | "won" | "lost";
+  | "playing" | "draft" | "paused" | "won" | "lost";
 
 const STEP = 1000 / 60;
 
@@ -31,10 +32,18 @@ class App {
   private input: InputController;
   private settings: Settings = loadSettings();
 
+  /** The current roguelite run (seed, level index, bankroll, drafted mods).
+   *  Null only before the first "Play" — startGame() creates it. */
+  private run: RunState | null = null;
+  /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
+  private pendingOffers: ModDef[] = [];
+
   private dpr = 1;
   private last = 0;
   private acc = 0;
-  private lastNext: PieceType | null = null;
+  /** Composite "type:quarterTurns:bomb:pieceCubes" key so the HUD preview
+   *  refreshes on rotation, bomb telegraph, or a piece-size mutator too. */
+  private lastNext: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
 
@@ -70,6 +79,11 @@ class App {
 
     this.last = performance.now();
     requestAnimationFrame(this.loop);
+
+    // Dev-only: exposes the App instance so Playwright can drive the
+    // draft/end screens directly (pick-mod/skip-mod/restart etc.) without
+    // having to play a full bay every time. Stripped from production builds.
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__tl = this;
   }
 
   private destroy(): void {
@@ -84,6 +98,22 @@ class App {
     this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
   }
 
+  /** Shared hudHTML() input for every state that renders the HUD — keeps the
+   *  bay/time/next-piece fields consistent across playing/paused/draft/end. */
+  private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
+    return {
+      cannon: g.cannon,
+      target: g.target,
+      score: g.score,
+      launchCost: g.level.launchCost,
+      bayNum: (this.run?.levelIndex ?? 0) + 1,
+      timeLimitSec: g.level.timeLimitSec,
+      timeLeftMs: g.timeLeftMs,
+      pieceCubes: g.level.pieceCubes,
+      nextIsBomb: g.nextIsBomb,
+    };
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     switch (this.state) {
@@ -95,20 +125,43 @@ class App {
         this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
         break;
       case "playing":
-        if (g) { this.overlay.innerHTML = S.hudHTML(g.cannon, g.target); this.lastNext = null; }
+        if (g) { this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)); this.lastNext = null; }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(g.cannon, g.target) + S.pauseModal();
+        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal();
+        break;
+      case "draft":
+        if (g && this.run) {
+          const owned = this.run.modIds
+            .map(modById)
+            .filter((m): m is ModDef => m != null);
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.draftScreen({
+              bayNum: this.run.levelIndex + 1,
+              bayName: g.level.name,
+              nextBayName: makeBaseLevel(this.run.levelIndex + 1).name,
+              funds: g.score,
+              offers: this.pendingOffers,
+              owned,
+            });
+        }
         break;
       case "won":
       case "lost":
-        if (g) {
+        if (g && this.run) {
           this.overlay.innerHTML =
-            S.hudHTML(g.cannon, g.target) +
+            S.hudHTML(this.hudOpts(g)) +
             S.endModal({
               won: this.state === "won",
-              score: g.score, lines: g.linesTotal, best: loadBest(),
+              score: g.score,
+              lines: this.run.linesTotal + g.linesTotal,
+              best: loadBest(),
               name: loadName(), rows: S.leaderboardRowsHTML(this.cachedBoard, loadName() || undefined),
+              reason: g.lossReason,
+              bayNum: this.run.levelIndex + 1,
+              bayName: g.level.name,
+              runComplete: this.state === "won",
             });
         }
         break;
@@ -126,10 +179,21 @@ class App {
   };
 
   // ---------------- game lifecycle ----------------
+  /** "Play"/"Play Again": starts a brand-new 10-bay run. */
   private startGame(): void {
-    this.game?.destroy();
+    this.run = newRun(Date.now() >>> 0);
     this.submitted = false;
-    this.game = new Game(LEVEL_1, {
+    this.startLevel();
+  }
+
+  /** (Re)starts the Game for the run's current levelIndex. Level 1 plays at
+   *  the base level's startingFunds; every later bay's LevelConfig already
+   *  has startingFunds overridden to the carried bankroll (see run.ts's
+   *  levelForRun) — so the Game itself needs no run-awareness at all. */
+  private startLevel(): void {
+    if (!this.run) return;
+    this.game?.destroy();
+    this.game = new Game(levelForRun(this.run), {
       onShoot: () => { void tapHaptic(); },
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
@@ -141,9 +205,37 @@ class App {
 
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
-    if (!g) return;
-    if (s === "won") { void successHaptic(); saveBest(g.score); this.refreshBoard(); this.setState("won"); }
-    else if (s === "lost") { void impactHaptic(); saveBest(g.score); this.refreshBoard(); this.setState("lost"); }
+    if (!g || !this.run) return;
+    if (s === "won") {
+      void successHaptic();
+      if (this.run.levelIndex < RUN_LEVELS - 1) {
+        // Mid-run clear: draft a modifier over the frozen field. The Game
+        // is deliberately NOT destroyed here — status "won" makes update()
+        // a no-op, so the rAF loop just keeps re-rendering its last frame
+        // behind the draft scrim until startLevel() tears it down.
+        this.pendingOffers = draftOffers(this.run.seed, this.run.levelIndex, this.run.modIds);
+        this.setState("draft");
+      } else {
+        // Bay 10 cleared: the run is complete.
+        saveBest(g.score);
+        this.refreshBoard();
+        this.setState("won");
+      }
+    } else if (s === "lost") {
+      void impactHaptic();
+      saveBest(g.score);
+      this.refreshBoard();
+      this.setState("lost");
+    }
+  }
+
+  /** "pick-mod"/"skip-mod": advance the run past the just-cleared bay and
+   *  start the next one. `modId` is null for a skip. */
+  private advanceAfterDraft(modId: string | null): void {
+    const g = this.game;
+    if (!g || !this.run) return;
+    this.run = advanceRun(this.run, g.score, g.linesTotal, modId);
+    this.startLevel();
   }
 
   private pause(): void {
@@ -159,8 +251,22 @@ class App {
     this.setState("playing");
   }
 
+  /** Pause modal's "Restart Bay": re-enters the *current* bay from scratch —
+   *  unlike startGame()/"restart", this leaves `this.run` untouched, so
+   *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
+   *  keeping the run's bankroll and drafted mods exactly as they were at
+   *  this bay's entry. */
+  private restartBay(): void {
+    if (this.state !== "paused" || !this.run) return;
+    this.startLevel();
+    this.last = performance.now();
+    this.acc = 0;
+  }
+
   private async refreshBoard(): Promise<void> {
-    this.cachedBoard = await fetchLeaderboard(LEVEL_1.id, 10);
+    // The D1 board is the single RUN board for now — level is always 1
+    // regardless of which bay the run ended on.
+    this.cachedBoard = await fetchLeaderboard(1, 10);
     if (["leaderboard", "won", "lost"].includes(this.state)) this.renderOverlay();
   }
 
@@ -183,6 +289,7 @@ class App {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
+        effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
       });
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -201,19 +308,30 @@ class App {
       const el = this.overlay.querySelector(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
-    set("#hud-score", String(g.score));
+    set("#hud-score", "$" + g.score);
     set("#hud-combo", "×" + g.combo);
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
     if (power) power.style.width = Math.round(g.cannon.powerRatio * 100) + "%";
-    if (this.lastNext !== g.cannon.currentType) {
+
+    if (g.timeLeftMs !== Infinity) {
+      set("#hud-time", formatMMSS(g.timeLeftMs));
+      this.overlay.querySelector("#hud-time-chip")?.classList.toggle("chip--danger", g.timeLeftMs < 20_000);
+    }
+
+    const nextKey = `${g.cannon.currentType}:${g.cannon.quarterTurns}:${g.nextIsBomb ? 1 : 0}:${g.level.pieceCubes}`;
+    if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
-      if (next) next.innerHTML = nextPreviewHTML(g.cannon.currentType);
-      this.lastNext = g.cannon.currentType;
+      if (next) {
+        next.innerHTML = g.nextIsBomb
+          ? bombNextHTML()
+          : nextPreviewHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceCubes);
+      }
+      this.lastNext = nextKey;
     }
     const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
-    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now());
+    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
   }
 
   // ---------------- events ----------------
@@ -254,7 +372,14 @@ class App {
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "restart": this.startGame(); break;
+      case "restart-bay": this.restartBay(); break;
       case "submit-score": void this.onSubmitScore(); break;
+      case "pick-mod":
+        if (this.state === "draft") this.advanceAfterDraft(el.getAttribute("data-mod"));
+        break;
+      case "skip-mod":
+        if (this.state === "draft") this.advanceAfterDraft(null);
+        break;
     }
   };
 
@@ -284,8 +409,9 @@ class App {
     this.submitted = true;
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
-    const res = await submitScore(name, g.score, LEVEL_1.id, g.linesTotal);
-    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(LEVEL_1.id, 10));
+    const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
+    const res = await submitScore(name, g.score, 1, lines);
+    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
     const body = this.overlay.querySelector("#lb-body");
     if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, name);
     void successHaptic();

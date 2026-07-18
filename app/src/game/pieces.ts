@@ -15,15 +15,53 @@ export interface Piece {
   constraints: Matter.Constraint[];
 }
 
-// Break a joint once it is stretched well past its rest length — a hard impact
-// momentarily yanks the stiff constraint, mimicking pymunk's max_force joints.
-const BREAK_STRETCH = 1.7;
-
 function dist(a: Matter.Vector, b: Matter.Vector): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Build a tetromino from 4 cubes rigidly joined by breakable distance joints. */
+/**
+ * Grid cells (relative coords) making up a piece for a given cubes-per-piece
+ * setting. 4 => the real tetromino shape (PIECE_SHAPES). 2 => a "half
+ * shipment" domino — a fixed horizontal pair; rotation (in pieceOffsets)
+ * turns it vertical like any other orientation. The domino ignores `type`
+ * for its cells but keeps the type for color/theming, so a "Half Shipments"
+ * run modifier doesn't need a whole second piece-color table.
+ */
+export function pieceCells(type: PieceType, pieceCubes: 2 | 4): [number, number][] {
+  if (pieceCubes === 2) return [[0, 0], [1, 0]];
+  return PIECE_SHAPES[type];
+}
+
+/**
+ * World-space offsets (px) of a piece's cubes from its OWN centroid, rotated
+ * by `angle` (radians). Centroid-anchored (not the enclosing 4x4 grid's center
+ * at (1.5, 1.5)) so rotating a piece spins it in place — several shapes (I, L,
+ * J, S, Z, T) have a centroid that differs from grid-center, so pivoting on
+ * grid-center would visibly translate/teleport them on every turn instead of
+ * spinning. Shared by createTetrisPiece (world spawn) and render.ts's muzzle
+ * ghost preview, so both draw the exact same rotated shape.
+ */
+export function pieceOffsets(
+  type: PieceType,
+  angle: number,
+  pieceCubes: 2 | 4 = 4,
+): { x: number; y: number }[] {
+  const shape = pieceCells(type, pieceCubes);
+  const cx = shape.reduce((s, [px]) => s + px, 0) / shape.length;
+  const cy = shape.reduce((s, [, py]) => s + py, 0) / shape.length;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return shape.map(([px, py]) => {
+    const ox = (px - cx) * CELL;
+    const oy = (py - cy) * CELL;
+    return { x: ox * cos - oy * sin, y: ox * sin + oy * cos };
+  });
+}
+
+/** Build a tetromino (or domino — see pieceCells) from cubes rigidly joined
+ *  by breakable distance joints. `jointStiffness` and `pieceCubes` come from
+ *  the level/run config; passed as scalars rather than the whole LevelConfig
+ *  since game.ts is the only caller and already has both at hand. */
 export function createTetrisPiece(
   world: Matter.World,
   x: number,
@@ -31,20 +69,13 @@ export function createTetrisPiece(
   angle: number,
   velocity: Matter.Vector,
   type: PieceType,
+  jointStiffness: number,
+  pieceCubes: 2 | 4 = 4,
 ): Piece {
-  const shape = PIECE_SHAPES[type];
   const color = PIECE_COLORS[type];
   const cubes: Cube[] = [];
 
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-
-  for (const [px, py] of shape) {
-    const ox = (px - 1.5) * CELL;
-    const oy = (py - 1.5) * CELL;
-    const rx = ox * cos - oy * sin;
-    const ry = ox * sin + oy * cos;
-
+  for (const { x: rx, y: ry } of pieceOffsets(type, angle, pieceCubes)) {
     const body = Matter.Bodies.rectangle(x + rx, y + ry, CELL, CELL, {
       friction: 0.5,
       frictionAir: 0.012,
@@ -70,7 +101,7 @@ export function createTetrisPiece(
         bodyA: a,
         bodyB: b,
         length: rest,
-        stiffness: 0.9,
+        stiffness: jointStiffness,
         damping: 0.1,
         render: { visible: false },
       });
@@ -108,17 +139,44 @@ export function breakJointsInBand(
   }
 }
 
-/** Remove over-stretched joints so pieces break apart on hard impacts. */
+/**
+ * Remove every constraint (world + array, reverse iteration so splicing is
+ * safe) whose bodyA or bodyB is `body`. Call this right before removing a
+ * cube's body wherever a cube can be deleted outright (line-clear, blink-out,
+ * bomb blast) — otherwise a joined cube's constraint keeps pointing at a body
+ * no longer in the world: a dangling joint that either throws or gets solved
+ * against a frozen ghost every tick.
+ */
+export function removeConstraintsFor(
+  world: Matter.World,
+  constraints: Matter.Constraint[],
+  body: Matter.Body,
+): void {
+  for (let i = constraints.length - 1; i >= 0; i--) {
+    const c = constraints[i];
+    if (c.bodyA === body || c.bodyB === body) {
+      Matter.Composite.remove(world, c);
+      constraints.splice(i, 1);
+    }
+  }
+}
+
+/**
+ * Remove over-stretched joints so pieces break apart on hard impacts. A joint
+ * breaks once stretched past its rest length by `breakStretch` — a hard impact
+ * momentarily yanks the stiff constraint, mimicking pymunk's max_force joints.
+ */
 export function updateBreakableJoints(
   world: Matter.World,
   constraints: Matter.Constraint[],
+  breakStretch: number,
 ): void {
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
     const rest = (c as unknown as { restLength: number }).restLength || c.length;
     const cur = dist(c.bodyA.position, c.bodyB.position);
-    if (cur > rest * BREAK_STRETCH) {
+    if (cur > rest * breakStretch) {
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);
     }

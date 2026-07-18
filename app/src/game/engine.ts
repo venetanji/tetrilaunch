@@ -5,7 +5,14 @@ import type { LevelConfig } from "./level";
  *  in these coordinates; render.ts scales to the actual canvas (letterboxed). */
 export const WORLD = { width: 1280, height: 720 };
 
-export const CELL = 44; // cube size (px), ~ the original 40px scaled up
+export const CELL = 40; // cube size (px)
+
+/** Inner face of the right wall — the surface the compactor presses the pile
+ *  against, and the anchor of the line-clear slot grid. The wall body is
+ *  WALL_T=40 thick centered at WORLD.width + WALL_T/2, so its inner face sits
+ *  exactly at WORLD.width; anchoring anywhere else desyncs the slot grid from
+ *  where wall-flush cubes physically rest. */
+export const WALL_INNER = WORLD.width;
 
 export interface PhysicsWorld {
   engine: Matter.Engine;
@@ -14,6 +21,14 @@ export interface PhysicsWorld {
 }
 
 const WALL_T = 40;
+
+/** How far above y=0 the left/right walls extend, so lofted pieces can't
+ *  drift sideways out of the open-top shaft and land outside the field.
+ *  Max power (26 px/step) at up to 60° gives vy ~= 22.5 px/step against a
+ *  per-step gravity accel of ~0.611 px/step^2, for an apex ~180px above
+ *  y=0 (cannon at y=288, barrel tip up to ~55px higher). 600px comfortably
+ *  exceeds that ~180px max overshoot. */
+const SKY = 600;
 
 export function createPhysics(level: LevelConfig): PhysicsWorld {
   const engine = Matter.Engine.create();
@@ -33,11 +48,17 @@ export function createPhysics(level: LevelConfig): PhysicsWorld {
     label: "wall",
   };
   const { width: W, height: H } = WORLD;
+  // World boundaries: bottom is closed (pieces settle on it), left/right are
+  // closed but extend well above y=0 into the "sky" so a high launch arc
+  // can't drift sideways past them while off-screen. The top is intentionally
+  // open — high-power lofted shots are allowed to fly above y=0 and fall back
+  // into the field under gravity rather than bouncing off a ceiling.
+  const sideH = H + SKY; // spans y = -SKY .. H
+  const sideCy = (H - SKY) / 2; // vertical center of that span
   const walls = [
-    Matter.Bodies.rectangle(W / 2, -WALL_T / 2, W, WALL_T, wallOpts), // top
     Matter.Bodies.rectangle(W / 2, H + WALL_T / 2, W, WALL_T, wallOpts), // bottom
-    Matter.Bodies.rectangle(-WALL_T / 2, H / 2, WALL_T, H, wallOpts), // left
-    Matter.Bodies.rectangle(W + WALL_T / 2, H / 2, WALL_T, H, wallOpts), // right
+    Matter.Bodies.rectangle(-WALL_T / 2, sideCy, WALL_T, sideH, wallOpts), // left
+    Matter.Bodies.rectangle(W + WALL_T / 2, sideCy, WALL_T, sideH, wallOpts), // right
   ];
   Matter.Composite.add(world, walls);
 

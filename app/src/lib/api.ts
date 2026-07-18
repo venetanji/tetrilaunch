@@ -1,6 +1,9 @@
 // Leaderboard client. Talks to the D1-backed Worker API.
 // Same-origin when served by the Worker (web/PWA); absolute to the deployed
-// Worker when running locally (vite dev) or inside the Capacitor native shell.
+// Worker when running locally (vite dev), on a Cloudflare Pages preview
+// (*.pages.dev branch deploys), or inside the Capacitor native shell. The
+// Worker's /api responses are CORS-open (Access-Control-Allow-Origin: *), so
+// the cross-origin cases need no proxy and share the production leaderboard.
 
 const REMOTE = "https://tetrilaunch.venetanji.workers.dev";
 
