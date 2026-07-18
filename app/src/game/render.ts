@@ -155,7 +155,9 @@ function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, wi
   const len = ratio * WIND_HUD_HALF_LEN;
 
   ctx.save();
-  ctx.font = "600 12px system-ui, sans-serif";
+  // Retro pass: monospace/pixel-feel label to match the DOM UI's restyle —
+  // still no shadowBlur (kept cheap/subtle, per the note above).
+  ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
   ctx.textAlign = "center";
   ctx.fillStyle = COLORS.textDim;
   ctx.globalAlpha = 0.8;

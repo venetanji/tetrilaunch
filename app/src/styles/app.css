@@ -25,6 +25,31 @@ body {
 }
 #overlay { position: absolute; inset: 0; z-index: var(--z-overlay); }
 
+/* ---------- CRT scanline overlay (retro pass) ----------
+   A pure-CSS repeating-linear-gradient laid over the whole app (canvas +
+   DOM overlay alike) — subtle, static (no animation, so it already
+   "respects prefers-reduced-motion" by construction rather than needing a
+   media-query escape hatch), and pointer-events:none so it never intercepts
+   input. Toggle off from anywhere by adding `crt-off` to <body> if it ever
+   hurts readability (not currently wired to a settings switch). */
+#app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-crt);
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.22) 0px,
+    rgba(0, 0, 0, 0.22) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.3;
+}
+body.crt-off #app::after { display: none; }
+
 /* ---------- Typography ---------- */
 .display {
   font-family: var(--font-display);
@@ -33,9 +58,9 @@ body {
   line-height: 0.95;
 }
 .eyebrow {
-  font-family: var(--font-display);
-  font-size: var(--fs-xs);
-  letter-spacing: var(--tracking-wider);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
 }
@@ -52,18 +77,23 @@ body {
   color: transparent;
 }
 
-/* ---------- Buttons ---------- */
+/* ---------- Buttons ----------
+   Retro pixel-art pass: square-ish corners (via the --r-* token cascade),
+   chunky 2-3px borders, and a hard offset shadow instead of blur — the
+   button "presses in" on :active by translating into its own shadow rather
+   than scaling, the classic 8-bit-arcade button feel. */
 .btn {
-  font-family: var(--font-display);
+  font-family: var(--font-pixel);
   font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-wide);
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  font-size: var(--fs-body);
-  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 1.4;
+  border: var(--bw) solid transparent;
   border-radius: var(--r-pill);
-  padding: 14px 30px;
+  padding: 14px 26px;
   cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease),
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
     background var(--dur) var(--ease);
   display: inline-flex;
   align-items: center;
@@ -71,46 +101,56 @@ body {
   gap: var(--sp-2);
   color: var(--text);
   background: var(--surface-2);
+  box-shadow: var(--shadow-hard);
 }
-.btn:active { transform: translateY(1px) scale(0.99); }
+.btn:active { transform: translate(2px, 2px); box-shadow: none; }
 .btn--primary {
   background: linear-gradient(100deg, var(--accent), #38d6ff);
   color: var(--accent-ink);
-  box-shadow: var(--glow-accent);
+  border-color: var(--accent-ink);
 }
 .btn--secondary {
   background: var(--surface-2);
   border-color: var(--line-strong);
   color: var(--text);
 }
-.btn--secondary:hover { border-color: var(--accent); box-shadow: var(--glow-accent); }
-.btn--ghost { background: transparent; color: var(--text-dim); border-color: var(--line); }
+.btn--secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn--ghost { background: transparent; color: var(--text-dim); border-color: var(--line); box-shadow: none; }
+.btn--ghost:active { transform: none; }
 .btn--ghost:hover { color: var(--text); border-color: var(--accent); }
 .btn--danger { background: linear-gradient(100deg, var(--danger), #ff6f8b); color: #1a0008; }
 .btn--block { width: 100%; }
-.btn--lg { font-size: var(--fs-h3); padding: 18px 40px; }
+.btn--lg { font-size: 13px; padding: 18px 36px; }
 
 .icon-btn {
   width: 52px; height: 52px;
   border-radius: var(--r-md);
   background: rgba(18, 18, 31, 0.75);
-  border: 1px solid var(--line);
+  border: var(--bw) solid var(--line);
   color: var(--text);
   font-size: 20px;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: all var(--dur) var(--ease);
+  box-shadow: var(--shadow-hard-sm);
+  transition: all var(--dur-fast) var(--ease);
 }
-.icon-btn:hover { border-color: var(--accent); color: var(--accent); box-shadow: var(--glow-accent); }
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+/* JS-toggled visibility (fullscreen button on platforms without the
+   Fullscreen API) — a plain class, not the `hidden` attribute, so it isn't
+   fighting `.icon-btn`/`.btn`'s own `display` in the cascade. */
+.fs-hidden { display: none !important; }
+
+/* Compact HUD variant of the icon buttons (pause / fullscreen) — smaller
+   than the 52px default used by modal "back" buttons elsewhere. */
+.icon-btn--c { width: clamp(30px, 7vw, 38px); height: clamp(30px, 7vw, 38px); font-size: 16px; border-radius: var(--r-sm); }
 
 /* ---------- Panels / cards ---------- */
 .panel {
-  background: linear-gradient(180deg, rgba(27,27,46,0.92), rgba(12,12,24,0.94));
-  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-hard-lg);
 }
 
 /* ---------- Screen scaffolds ---------- */
@@ -144,22 +184,37 @@ body {
 /* ---------- HUD ---------- */
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
+/* Single slim top-bar row — a fixed height budget (48-64 CSS px on phones,
+   see tokens.css's --hud-bar-h) instead of the old ~30%-of-screen two-row
+   block, so it stops covering the apex of high lob trajectories. Panels in
+   this row are semi-transparent with NO blur (--panel-alpha) so the dotted
+   trajectory arc stays readable through them (see render.ts's
+   drawTrajectory) — flat/blur-free also matches the retro pixel-art pass. */
 .hud__top {
-  position: absolute; top: var(--hud-pad); left: var(--hud-pad); right: var(--hud-pad);
-  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
+  position: absolute; top: 0; left: 0; right: 0;
+  height: var(--hud-bar-h);
+  padding: max(4px, env(safe-area-inset-top, 0px))
+    calc(var(--hud-bar-pad-x) + env(safe-area-inset-right, 0px)) 4px
+    calc(var(--hud-bar-pad-x) + env(safe-area-inset-left, 0px));
+  display: flex; align-items: center;
 }
-.hud__cluster { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
+.hud__row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.hud__row::-webkit-scrollbar { display: none; }
+.hud__row > * { flex: none; }
 
 .chip {
   background: rgba(18,18,31,0.72);
-  border: 1px solid var(--line);
+  border: var(--bw) solid var(--line);
   border-radius: var(--r-md);
   padding: 8px 14px;
   display: flex; flex-direction: column; gap: 2px;
   min-width: 84px;
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-hard-sm);
 }
-.chip__label { font-size: 10px; letter-spacing: var(--tracking-wider); text-transform: uppercase; color: var(--text-muted); }
+.chip__label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .chip__value { font-family: var(--font-mono); font-weight: 700; font-size: 20px; color: var(--text); }
 .chip--accent .chip__value { color: var(--accent); }
 .chip--combo .chip__value { color: var(--piece-o); }
@@ -171,36 +226,56 @@ body {
 }
 @keyframes pulse-danger { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+/* Compact top-bar variant: label+value sit inline on one line (not
+   stacked), translucent flat background, small pixel-font label. Used by
+   every chip/meter/preview that lives in .hud__row. */
+.chip--c {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 8px;
+  min-width: 0;
+  white-space: nowrap;
+  background: rgba(18, 18, 31, var(--panel-alpha));
+}
+.chip--c .chip__label { font-size: var(--fs-chip-label-c); }
+.chip--c .chip__value { font-size: var(--fs-chip-value-c); }
+
 /* Power meter */
 .power {
   display: flex; align-items: center; gap: var(--sp-2);
   background: rgba(18,18,31,0.72);
-  border: 1px solid var(--line);
+  border: var(--bw) solid var(--line);
   border-radius: var(--r-md);
   padding: 8px 12px;
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-hard-sm);
 }
 .power__track { width: 120px; height: 10px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
 .power__fill { height: 100%; width: 0%; border-radius: var(--r-pill);
   background: linear-gradient(90deg, var(--success), var(--warn) 60%, var(--danger));
-  box-shadow: 0 0 10px rgba(255,176,32,0.6); transition: width 80ms linear; }
-
-/* Next-piece preview */
-.next {
-  display: flex; align-items: center; gap: var(--sp-2);
-  background: rgba(18,18,31,0.72); border: 1px solid var(--line);
-  border-radius: var(--r-md); padding: 6px 12px; backdrop-filter: blur(6px);
+  transition: width 80ms linear; }
+.power--c {
+  padding: 4px 8px; gap: 6px; background: rgba(18, 18, 31, var(--panel-alpha));
 }
-.next__grid { width: 46px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
-.next__cell { border-radius: 2px; }
+.power--c .chip__label { font-family: var(--font-pixel); font-size: var(--fs-chip-label-c); text-transform: uppercase; color: var(--text-muted); }
+.power--c .power__track { width: clamp(46px, 9vw, 90px); height: 8px; }
+
+/* Next-piece preview (HUD-only — see components.ts's nextPreviewHTML) */
+.next {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(18,18,31, var(--panel-alpha)); border: var(--bw) solid var(--line);
+  border-radius: var(--r-md); padding: 3px 8px;
+}
+.next__grid { width: 28px; height: 28px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
+.next__cell { border-radius: 1px; }
 /* Bomb telegraph (see components.ts's bombNextHTML) — same .next card shell,
    a static glyph tile instead of a rotated piece grid. */
 .next__bomb-tile {
-  width: 46px; height: 46px; border-radius: var(--r-sm);
+  width: 28px; height: 28px; border-radius: var(--r-sm);
   display: flex; align-items: center; justify-content: center;
-  font-size: 24px; line-height: 1;
+  font-size: 15px; line-height: 1;
   background: rgba(255,45,85,0.14);
-  box-shadow: 0 0 10px rgba(255,45,85,0.5);
+  border: 1px solid rgba(255,45,85,0.5);
 }
 
 /* ---------- HUD bottom controls ----------
@@ -230,15 +305,15 @@ body {
   position: absolute;
   left: var(--safe-l);
   bottom: var(--safe-b);
-  width: var(--tap-lg); height: var(--tap-lg); border-radius: 50%;
+  width: var(--tap-lg); height: var(--tap-lg); border-radius: var(--r-xl);
   background: radial-gradient(circle at 35% 30%, #38d6ff, var(--accent) 55%, #0090a8);
-  color: var(--accent-ink); border: none; cursor: pointer;
-  font-family: var(--font-display); font-weight: 900; letter-spacing: 1px; font-size: 15px;
-  box-shadow: 0 0 24px rgba(0,240,255,0.55), inset 0 -6px 14px rgba(0,0,0,0.25);
-  transition: transform var(--dur-fast) var(--ease);
+  color: var(--accent-ink); border: var(--bw-thick) solid var(--accent-ink); cursor: pointer;
+  font-family: var(--font-pixel); font-weight: 700; letter-spacing: 0; font-size: 12px;
+  box-shadow: var(--shadow-hard-lg);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
-.shoot-btn:active { transform: scale(0.94); }
+.shoot-btn:active { transform: translate(3px, 3px); box-shadow: none; }
 .shoot-btn:disabled { filter: grayscale(0.7) brightness(0.6); box-shadow: none; cursor: default; }
 /* Cost line under FIRE — small enough to stay inside the round button at
    its smallest (--tap-lg's clamp floor). */
@@ -330,6 +405,13 @@ body {
 .goal { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
 .goal__bar { height: 8px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
 .goal__fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
+/* Compact top-bar variant: TARGET progress inline in the slim HUD row
+   instead of a second row underneath the chips. */
+.goal--c {
+  flex: 1 1 90px; min-width: 60px; max-width: 200px; gap: 2px;
+}
+.goal--c .chip__label { font-family: var(--font-pixel); font-size: var(--fs-chip-label-c); white-space: nowrap; text-transform: uppercase; color: var(--text-muted); }
+.goal--c .goal__bar { height: 6px; }
 
 /* ---------- Modal overlays ---------- */
 .modal-scrim {
@@ -359,12 +441,18 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* Modal headings stay on the Orbitron display face (not --font-pixel) even
+   though they're "small headings" by the retro brief's letter — at
+   --fs-h1 (28-44px) Press Start 2P's block width makes longer titles
+   ("Run Complete!", "Level Cleared!") wrap awkwardly or blow past the modal.
+   Chips/buttons/eyebrows/labels (genuinely small text) carry the pixel
+   look instead; this keeps the brand headline legible. */
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }
 .stat { display: flex; flex-direction: column; }
 .stat b { font-family: var(--font-mono); font-size: 28px; }
-.stat span { font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--text-muted); }
+.stat span { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 
 /* Short (landscape-phone) viewports: the end-of-game modal stacks a LOT —
    stats + name-submit + leaderboard rows + two buttons. Tighten the modal's
@@ -397,19 +485,20 @@ body {
   text-align: left;
   padding: 14px 16px;
   cursor: pointer;
-  background: linear-gradient(180deg, rgba(27,27,46,0.92), rgba(12,12,24,0.94));
-  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-lg);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  box-shadow: var(--shadow-hard-sm);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur) var(--ease);
 }
-.mod-card:hover, .mod-card:focus-visible { transform: translateY(-2px); }
+.mod-card:hover, .mod-card:focus-visible { transform: translate(-2px, -2px); }
 .mod-card__kind {
-  font-family: var(--font-display);
-  font-size: 10px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   font-weight: 700;
-  letter-spacing: var(--tracking-wider);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: var(--r-pill);
   background: rgba(255,255,255,0.06);
 }
@@ -417,22 +506,22 @@ body {
 .mod-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
 
 .mod-card--boon { border-color: rgba(0,255,156,0.4); }
-.mod-card--boon:hover, .mod-card--boon:focus-visible { border-color: var(--success); box-shadow: 0 0 8px rgba(0,255,156,0.35), 0 0 24px rgba(0,255,156,0.18); }
+.mod-card--boon:hover, .mod-card--boon:focus-visible { border-color: var(--success); box-shadow: 4px 4px 0 rgba(0,255,156,0.45); }
 .mod-card--boon .mod-card__kind { color: var(--success); background: rgba(0,255,156,0.12); }
 
 .mod-card--bane { border-color: rgba(255,45,85,0.4); }
-.mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 0 0 8px rgba(255,45,85,0.35), 0 0 24px rgba(255,45,85,0.18); }
+.mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 4px 4px 0 rgba(255,45,85,0.45); }
 .mod-card--bane .mod-card__kind { color: var(--danger); background: rgba(255,45,85,0.12); }
 
 .mod-card--tradeoff { border-color: rgba(0,240,255,0.35); }
-.mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: var(--glow-accent); }
+.mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: 4px 4px 0 rgba(0,240,255,0.45); }
 .mod-card--tradeoff .mod-card__kind { color: var(--accent); background: rgba(0,240,255,0.12); }
 
 /* Owned-modifier chip row shown under the draft cards. */
 .run-mods { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-xs); color: var(--text-muted); }
 .run-mods__chip {
-  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-pill);
-  padding: 3px 10px; font-size: var(--fs-xs); color: var(--text-dim);
+  background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-pill);
+  padding: 3px 10px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-dim);
 }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -444,18 +533,20 @@ body {
 .setting__label { display: flex; flex-direction: column; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
-.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
-.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--text-muted); transition: all var(--dur) var(--ease); }
-.toggle[aria-checked="true"] { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: transparent; box-shadow: var(--glow-accent); }
+/* Square-ish, chunky-bordered slider — a small block thumb instead of a
+   circle, in keeping with the retro pass's steppy geometry. */
+.toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text-muted); transition: all var(--dur) var(--ease); }
+.toggle[aria-checked="true"] { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
 .toggle[aria-checked="true"]::after { left: 31px; background: var(--accent-ink); }
 
 /* ---------- How to play ---------- */
 .howto { max-width: 900px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3); }
 .howto__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
 .step { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4); }
-.step__n { font-family: var(--font-display); font-weight: 900; color: var(--accent); font-size: 22px; }
+.step__n { font-family: var(--font-pixel); font-weight: 700; color: var(--accent); font-size: 16px; }
 .step p { color: var(--text-dim); font-size: var(--fs-sm); }
-.kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; color: var(--text); }
+.kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
 /* ---------- Splash ---------- */
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); height: 100%; }
@@ -479,23 +570,23 @@ body {
 .lb__row {
   display: grid; grid-template-columns: 40px 1fr auto auto; gap: var(--sp-3); align-items: center;
   padding: 10px 14px; border-radius: var(--r-md);
-  background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+  background: rgba(255,255,255,0.03); border: var(--bw) solid var(--line);
 }
-.lb__row--me { border-color: var(--accent); box-shadow: var(--glow-accent); background: rgba(0,240,255,0.08); }
-.lb__rank { font-family: var(--font-display); font-weight: 900; font-size: 18px; color: var(--text-dim); }
-.lb__name { font-family: var(--font-display); font-weight: 700; letter-spacing: 1px; }
+.lb__row--me { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); background: rgba(0,240,255,0.08); }
+.lb__rank { font-family: var(--font-pixel); font-weight: 700; font-size: 13px; color: var(--text-dim); }
+.lb__name { font-family: var(--font-pixel); font-weight: 700; font-size: 11px; letter-spacing: 0.03em; }
 .lb__lines { font-size: var(--fs-xs); color: var(--text-muted); }
 .lb__score { font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--accent); }
 
 /* ---------- Name input ---------- */
 .submit-row { display: flex; gap: var(--sp-2); }
 .name-input {
-  flex: 1; background: var(--surface-3); border: 1px solid var(--line-strong);
+  flex: 1; background: var(--surface-3); border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md); color: var(--text); padding: 12px 16px;
   font-family: var(--font-display); font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
   font-size: 16px; text-align: center; outline: none;
 }
-.name-input:focus { border-color: var(--accent); box-shadow: var(--glow-accent); }
+.name-input:focus { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); }
 .submit-row.done { display: none; }
 
 /* Small screens: stack menu */

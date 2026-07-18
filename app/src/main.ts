@@ -12,7 +12,8 @@ import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, enterFullscreen, tapHaptic, successHaptic, impactHaptic,
+  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
+  autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
 } from "./lib/platform";
 
 type AppState =
@@ -74,6 +75,8 @@ class App {
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
     window.addEventListener("pagehide", () => this.destroy());
+    document.addEventListener("fullscreenchange", this.onFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
     lockLandscape();
     this.onResize();
@@ -95,6 +98,8 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    document.removeEventListener("fullscreenchange", this.onFullscreenChange);
+    document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
 
   // ---------------- state / rendering ----------------
@@ -173,7 +178,30 @@ class App {
         }
         break;
     }
+    this.syncFullscreenButtons();
   }
+
+  /** Reflects fullscreen availability/state onto every fullscreen control
+   *  currently mounted (the HUD icon button and/or the pause modal's row —
+   *  renderOverlay() recreates both from scratch on every state change, so
+   *  this needs to re-run each time, not just once at startup). Hides the
+   *  control entirely on platforms without a Fullscreen API at all (e.g.
+   *  iPhone Safari in-browser) instead of showing a button that can never
+   *  do anything. */
+  private syncFullscreenButtons(): void {
+    const supported = fullscreenSupported();
+    const fs = isFullscreen();
+    this.overlay.querySelectorAll<HTMLElement>('[data-action="fullscreen"]').forEach((btn) => {
+      btn.classList.toggle("fs-hidden", !supported);
+      btn.setAttribute("aria-label", fs ? "Exit fullscreen" : "Fullscreen");
+      const label = btn.querySelector<HTMLElement>(".fs-label");
+      if (label) label.textContent = fs ? "Exit Fullscreen" : "Fullscreen";
+    });
+  }
+
+  private onFullscreenChange = (): void => {
+    this.syncFullscreenButtons();
+  };
 
   private onResize = (): void => {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -186,8 +214,14 @@ class App {
   };
 
   // ---------------- game lifecycle ----------------
-  /** "Play"/"Play Again": starts a brand-new 10-bay run. */
+  /** "Play"/"Play Again": starts a brand-new 10-bay run. Called synchronously
+   *  from the Play/Start button's click handler (see onClick) — that's the
+   *  one user gesture this auto-requests fullscreen from; browsers ignore
+   *  fullscreen requests made outside a direct user-activation event, and
+   *  every later transition (draft advance, bay restart) reuses whatever
+   *  fullscreen state this call already established. */
   private startGame(): void {
+    void autoEnterFullscreenForRun();
     this.run = newRun(Date.now() >>> 0);
     this.submitted = false;
     this.startLevel();
@@ -207,7 +241,6 @@ class App {
       onStatus: (s) => this.onGameStatus(s),
     });
     this.setState("playing");
-    void enterFullscreen();
     this.armDragHint();
   }
 
@@ -297,11 +330,28 @@ class App {
     this.acc = 0;
   }
 
+  /** Patches the currently-mounted #lb-body in place (no full overlay
+   *  re-render). Used both here and by onSubmitScore — a full renderOverlay()
+   *  after the fetch resolves would recreate the whole `.panel.modal.pop`
+   *  node a second time, replaying its entrance animation on top of the one
+   *  that already played when the screen first opened with cached/empty
+   *  data. On localhost that race is invisible (near-zero latency hides it),
+   *  but on a real device's network it reads as "the leaderboard shows
+   *  twice" — the modal visibly pops in, then pops in again a moment later
+   *  once the fetch lands. */
+  private renderBoardRows(highlight?: string): void {
+    const body = this.overlay.querySelector("#lb-body");
+    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, highlight);
+  }
+
   private async refreshBoard(): Promise<void> {
     // The D1 board is the single RUN board for now — level is always 1
     // regardless of which bay the run ended on.
     this.cachedBoard = await fetchLeaderboard(1, 10);
-    if (["leaderboard", "won", "lost"].includes(this.state)) this.renderOverlay();
+    // won/lost highlight the player's own just-played name; the standalone
+    // leaderboard screen doesn't (matches renderOverlay's existing per-state
+    // leaderboardRowsHTML args).
+    this.renderBoardRows(this.state === "leaderboard" ? undefined : loadName() || undefined);
   }
 
   // ---------------- main loop ----------------
@@ -406,6 +456,7 @@ class App {
       case "menu": this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
+      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
       case "restart": this.startGame(); break;
       case "restart-bay": this.restartBay(); break;
       case "submit-score": void this.onSubmitScore(); break;
@@ -447,8 +498,7 @@ class App {
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
     const res = await submitScore(name, g.score, 1, lines);
     this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
-    const body = this.overlay.querySelector("#lb-body");
-    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, name);
+    this.renderBoardRows(name);
     void successHaptic();
   }
 }

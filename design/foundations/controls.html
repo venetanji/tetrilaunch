@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Controls — Tetrilaunch</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 
 :root{
@@ -17,16 +17,17 @@
   --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
   --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
   --fs-display:clamp(40px,8vw,88px); --fs-h1:clamp(28px,5vw,44px); --fs-h2:clamp(20px,3.4vw,30px);
   --fs-h3:18px; --fs-body:16px; --fs-sm:14px; --fs-xs:12px;
   --fw-regular:500; --fw-medium:600; --fw-bold:700; --fw-black:900;
   --tracking-wide:0.08em; --tracking-wider:0.18em;
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
-  --r-sm:6px; --r-md:10px; --r-lg:16px; --r-xl:24px; --r-pill:999px;
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,.85); --shadow-hard:3px 3px 0 rgba(0,0,0,.85); --shadow-hard-lg:4px 4px 0 rgba(0,0,0,.85);
   --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
   --glow-soft:0 0 6px rgba(122,92,255,0.35),0 0 18px rgba(122,92,255,0.18);
-  --shadow-panel:0 12px 40px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.04);
-  --shadow-card:0 6px 20px rgba(0,0,0,0.45);
   --ease:cubic-bezier(0.22,1,0.36,1); --dur-fast:120ms; --dur:220ms; --dur-slow:420ms;
   --hud-pad:20px; --z-hud:10; --z-overlay:40; --z-toast:60;
 
@@ -54,9 +55,9 @@
 .display{font-family:var(--font-display);font-weight:var(--fw-black);letter-spacing:var(--tracking-wide);line-height:.95}
 .eyebrow{font-family:var(--font-display);font-size:var(--fs-xs);letter-spacing:var(--tracking-wider);text-transform:uppercase;color:var(--accent)}
 .muted{color:var(--text-muted)}
-.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);border:1px solid var(--line);color:var(--text);font-size:20px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(6px);transition:all var(--dur) var(--ease)}
-.panel{background:linear-gradient(180deg,rgba(27,27,46,0.92),rgba(12,12,24,0.94));border:1px solid var(--line-strong);border-radius:var(--r-xl);box-shadow:var(--shadow-panel);backdrop-filter:blur(10px)}
-.kbd{font-family:var(--font-mono);font-size:12px;background:var(--surface-3);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--text)}
+.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);border:var(--bw) solid var(--line);color:var(--text);font-size:20px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-hard-sm);transition:all var(--dur-fast) var(--ease)}
+.panel{background:linear-gradient(180deg,rgba(27,27,46,0.95),rgba(12,12,24,0.97));border:var(--bw) solid var(--line-strong);border-radius:var(--r-xl);box-shadow:var(--shadow-hard-lg)}
+.kbd{font-family:var(--font-mono);font-size:12px;background:var(--surface-3);border:var(--bw) solid var(--line);border-radius:var(--r-sm);padding:2px 7px;color:var(--text)}
 
 body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);padding:24px;min-height:100vh}
 .wrap{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);padding:24px;max-width:1080px;margin:0 auto}
@@ -92,7 +93,7 @@ p.note{color:var(--text-dim);font-size:14px;line-height:1.6;max-width:70ch;margi
 }
 .rotate-cluster{position:absolute;right:var(--safe-r);bottom:var(--safe-b);display:flex;flex-direction:column;gap:var(--ctrl-gap)}
 .rotate-cluster .icon-btn{width:var(--tap-md);height:var(--tap-md);font-size:22px}
-.shoot-btn{position:absolute;left:var(--safe-l);bottom:var(--safe-b);width:var(--tap-lg);height:var(--tap-lg);border-radius:50%;background:radial-gradient(circle at 35% 30%,#38d6ff,var(--accent) 55%,#0090a8);color:var(--accent-ink);border:none;cursor:pointer;font-family:var(--font-display);font-weight:900;letter-spacing:1px;font-size:15px;box-shadow:0 0 24px rgba(0,240,255,0.55),inset 0 -6px 14px rgba(0,0,0,0.25);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.shoot-btn{position:absolute;left:var(--safe-l);bottom:var(--safe-b);width:var(--tap-lg);height:var(--tap-lg);border-radius:var(--r-xl);background:radial-gradient(circle at 35% 30%,#38d6ff,var(--accent) 55%,#0090a8);color:var(--accent-ink);border:var(--bw-thick) solid var(--accent-ink);cursor:pointer;font-family:var(--font-pixel);font-weight:700;letter-spacing:0;font-size:12px;box-shadow:var(--shadow-hard-lg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
 .center-clear{
   position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
   width:38%; height:60%; border:1px dashed rgba(0,240,255,0.35); border-radius:16px;
@@ -128,7 +129,8 @@ table.tok code{font-family:var(--font-mono);color:var(--accent)}
 <body>
 <div class="wrap">
 <h1 class="title brand-gradient" style="background:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));-webkit-background-clip:text;background-clip:text;color:transparent">Controls</h1>
-<div class="sub">Touch layout · desktop keyboard map · drag gesture &amp; onboarding hint · control tokens</div>
+<div class="sub">Touch layout · desktop keyboard map · drag gesture &amp; onboarding hint · fullscreen toggle · control tokens</div>
+<p class="note">Retro pass: all interactive chrome (FIRE, rotate cluster, pause/fullscreen icon buttons) now uses square-ish corners, chunky 2-3px borders and hard offset shadows instead of soft glow blur — buttons visually "press into" their own shadow on <code style="font-family:var(--font-mono);color:var(--accent)">:active</code> rather than scaling. A fullscreen icon button sits next to pause in the HUD's compact top bar (see <code style="font-family:var(--font-mono);color:var(--accent)">gameplay.html</code>) and as a labeled row in the pause modal; it hides itself on platforms without a Fullscreen API (e.g. iPhone Safari in-browser), and auto-requests fullscreen from inside the Play/Start button's click gesture on coarse-pointer devices only (never outside a user gesture, never when already fullscreen or running standalone/Capacitor).</p>
 
 <div class="sec-title">Touch layout — handedness &amp; safe areas</div>
 <p class="note">Rotate cluster anchors <b>bottom-right</b> (right-thumb reach — an explicit design call), FIRE anchors <b>bottom-left</b> (left thumb). Both sit inside the safe-area inset (dashed amber ring) so notches/home-indicators never clip them, and both hug their corner so the center stays clear — the aim gesture is drag-anywhere-on-canvas. Thumb-reach zones shown in green (left) / cyan (right).</p>

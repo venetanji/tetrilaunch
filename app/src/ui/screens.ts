@@ -144,26 +144,32 @@ export function hudHTML(opts: {
   const { cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs, pieceCubes, nextIsBomb } = opts;
   const timeChip =
     timeLimitSec > 0
-      ? `<div class="chip" id="hud-time-chip"><div class="chip__label">Time</div><div class="chip__value" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
+      ? `<div class="chip chip--c" id="hud-time-chip"><span class="chip__label">Time</span><span class="chip__value" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
       : "";
   const nextHTML = nextIsBomb ? bombNextHTML() : nextPreviewHTML(cannon.currentType, cannon.quarterTurns, pieceCubes);
+  // Single slim row: everything the player needs to read at a glance sits in
+  // one ~48-64px-tall strip (see tokens.css's --hud-bar-h) instead of the old
+  // two-cluster block, so it stops eating the top ~30% of a phone screen and
+  // covering high-lob apexes (see render.ts's drawTrajectory). Chips go
+  // label+value inline (`.chip--c`, not stacked) and the panels are
+  // semi-transparent with no blur so the dotted trajectory stays legible
+  // through them (see app.css's --panel-alpha).
   return `<div class="hud" id="hud">
     <div class="hud__top">
-      <div class="hud__cluster">
-        <div class="chip"><div class="chip__label">Bay</div><div class="chip__value">${bayNum}/10</div></div>
-        <div class="chip chip--accent"><div class="chip__label">Funds</div><div class="chip__value" id="hud-score">$${score}</div></div>
-        <div class="chip chip--combo"><div class="chip__label">Combo</div><div class="chip__value" id="hud-combo">×0</div></div>
+      <div class="hud__row">
+        <div class="chip chip--c"><span class="chip__label">Bay</span><span class="chip__value">${bayNum}/10</span></div>
+        <div class="chip chip--c chip--accent"><span class="chip__label">Funds</span><span class="chip__value" id="hud-score">$${score}</span></div>
+        <div class="chip chip--c chip--combo"><span class="chip__label">Combo</span><span class="chip__value" id="hud-combo">×0</span></div>
         ${timeChip}
-        <div class="goal">
-          <div class="chip__label">Target ${target}</div>
+        <div class="goal goal--c">
+          <span class="chip__label">Tgt ${target}</span>
           <div class="goal__bar"><div class="goal__fill" id="hud-goal" style="width:0%"></div></div>
         </div>
-      </div>
-      <div class="hud__cluster">
-        <div class="power"><span class="chip__label">Pwr</span>
+        <div class="power power--c"><span class="chip__label">Pwr</span>
           <div class="power__track"><div class="power__fill" id="hud-power"></div></div></div>
         <div id="hud-next">${nextHTML}</div>
-        <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
+        <button class="icon-btn icon-btn--c" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
+        <button class="icon-btn icon-btn--c" data-action="pause" aria-label="Pause">⏸</button>
       </div>
     </div>
     <div class="hud__bottom">
@@ -215,6 +221,7 @@ export function pauseModal(): string {
       <h2 class="display">Take a breath</h2>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
+        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">⛶ <span class="fs-label">Fullscreen</span></button>
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
