@@ -120,7 +120,11 @@ body {
   padding: var(--hud-pad);
   overflow-y: auto;
 }
-.center { align-items: center; justify-content: center; }
+/* Centering is done via `margin: auto` on the `.modal` child itself (see below),
+   not via align-items/justify-content here — that keeps the panel's top edge
+   reachable/scrollable instead of clipped off-screen when content overflows
+   a short (landscape phone) viewport. */
+.center { display: flex; }
 
 /* Full-screen menu layouts (landscape split) */
 .menu {
@@ -212,16 +216,51 @@ body {
 .modal-scrim {
   position: absolute; inset: 0; z-index: var(--z-overlay);
   background: rgba(4,4,10,0.72); backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  overflow-y: auto;
   animation: fade var(--dur) var(--ease);
 }
-.modal { width: min(520px, 92vw); padding: clamp(20px, 4vw, 40px); text-align: center; display: flex; flex-direction: column; gap: var(--sp-4); }
+/* `.modal` never exceeds the visible viewport (dvh with a vh fallback for
+   WebViews without dvh support), and centers itself with `margin: auto`
+   rather than relying on the container's align-items/justify-content — auto
+   margins collapse to 0 instead of pushing content past the start edge, so
+   an oversized modal stays flush at the top (reachable/scrollable) instead
+   of clipping there. Internal overflow scrolls via #lb-body (see below) or,
+   failing that, the modal itself. */
+.modal {
+  width: min(520px, 92vw);
+  max-height: calc(100vh - (var(--hud-pad) * 2));
+  max-height: calc(100dvh - (var(--hud-pad) * 2));
+  margin: auto;
+  padding: clamp(20px, 4vw, 40px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }
 .stat { display: flex; flex-direction: column; }
 .stat b { font-family: var(--font-mono); font-size: 28px; }
 .stat span { font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--text-muted); }
+
+/* Short (landscape-phone) viewports: the end-of-game modal stacks a LOT —
+   stats + name-submit + leaderboard rows + two buttons. Tighten the modal's
+   own rhythm so that fixed chrome doesn't crowd #lb-body down to nothing;
+   the leaderboard rows stay genuinely visible/scrollable, not just
+   technically present. Header/button text stays readable, just snugger. */
+@media (max-height: 480px) {
+  .modal { padding: clamp(10px, 3vh, 20px); gap: var(--sp-2); }
+  .modal .btn { padding: 10px 20px; }
+  .modal h2 { font-size: clamp(18px, 4.5vh, 32px); }
+  .stat-row { margin: 0; }
+  .stat b { font-size: 20px; }
+  .submit-row .name-input,
+  .submit-row .btn { padding: 8px 14px; }
+}
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(0.98);} to { opacity: 1; transform: none;} }
@@ -259,7 +298,11 @@ body {
 @keyframes rot { 0%,40% { transform: rotate(0);} 60%,100% { transform: rotate(-90deg);} }
 
 /* ---------- Leaderboard ---------- */
-.lb { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; }
+/* #lb-body is the flexible, scrollable region inside `.modal`'s flex column —
+   it grows to fill leftover space and shrinks (down to a 64px floor) before
+   the header/buttons ever do, so those stay visible while the rows scroll. */
+#lb-body { flex: 1 1 auto; min-height: 64px; overflow-y: auto; }
+.lb { display: flex; flex-direction: column; gap: 6px; }
 .lb__row {
   display: grid; grid-template-columns: 40px 1fr auto auto; gap: var(--sp-3); align-items: center;
   padding: 10px 14px; border-radius: var(--r-md);
