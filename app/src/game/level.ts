@@ -10,10 +10,25 @@ export interface LevelConfig {
   name: string;
   /** Downward gravity (matter units, per-step scaled internally). */
   gravity: number;
-  /** Compactor sweep speed in px/step. */
+  /** Compactor sweep speed in px/step (same pace advancing and retreating). */
   compactorSpeed: number;
-  /** Right-side margin the compactor stops at before resetting to center. */
-  compactorMargin: number;
+  /** Compaction-zone width (in cells, face-to-wall) at the open/left stop —
+   *  how wide the gap is when the compactor is fully retreated. Tunable roadmap
+   *  seam: a "wider bay" modifier just raises this. */
+  compactorOpenCells: number;
+  /** Compaction-zone width (in cells) at full advance (right stop) — this is
+   *  also the minimum cube count for a full line, since a line must span the
+   *  whole zone. Tunable roadmap seam: a "harder line" modifier lowers this. */
+  compactorMinLineCells: number;
+  /** Compactor bar thickness (px). */
+  compactorWidth: number;
+  /** Compactor bar height, as a fraction of world height (bottom-anchored;
+   *  pieces are lofted over its top). */
+  compactorHeightFrac: number;
+  /** Joint breaking point: a piece's distance joint snaps once stretched
+   *  beyond restLength * this factor. Tunable roadmap seam: "fragile pieces"
+   *  modifiers lower this, "sturdy pieces" raise it. */
+  jointBreakStretch: number;
   /** Points awarded per cleared line. */
   scorePerLine: number;
   /** Penalty per piece that decays on the wrong side of the compactor. */
@@ -30,8 +45,12 @@ export const LEVEL_1: LevelConfig = {
   id: 1,
   name: "Launch Bay",
   gravity: 1,
-  compactorSpeed: 2.2,
-  compactorMargin: 90,
+  compactorSpeed: 1.2,
+  compactorOpenCells: 12,
+  compactorMinLineCells: 8,
+  compactorWidth: 26,
+  compactorHeightFrac: 0.5,
+  jointBreakStretch: 1.7,
   scorePerLine: 100,
   penaltyPerLostPiece: 25,
   targetScore: 800,

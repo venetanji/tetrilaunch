@@ -15,10 +15,6 @@ export interface Piece {
   constraints: Matter.Constraint[];
 }
 
-// Break a joint once it is stretched well past its rest length — a hard impact
-// momentarily yanks the stiff constraint, mimicking pymunk's max_force joints.
-const BREAK_STRETCH = 1.7;
-
 function dist(a: Matter.Vector, b: Matter.Vector): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -108,17 +104,22 @@ export function breakJointsInBand(
   }
 }
 
-/** Remove over-stretched joints so pieces break apart on hard impacts. */
+/**
+ * Remove over-stretched joints so pieces break apart on hard impacts. A joint
+ * breaks once stretched past its rest length by `breakStretch` — a hard impact
+ * momentarily yanks the stiff constraint, mimicking pymunk's max_force joints.
+ */
 export function updateBreakableJoints(
   world: Matter.World,
   constraints: Matter.Constraint[],
+  breakStretch: number,
 ): void {
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
     const rest = (c as unknown as { restLength: number }).restLength || c.length;
     const cur = dist(c.bodyA.position, c.bodyB.position);
-    if (cur > rest * BREAK_STRETCH) {
+    if (cur > rest * breakStretch) {
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);
     }

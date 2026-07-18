@@ -1,30 +1,36 @@
 import Matter from "matter-js";
-import { WORLD } from "./engine";
+import { WORLD, CELL, WALL_INNER } from "./engine";
 import type { LevelConfig } from "./level";
 
 /**
  * Kinematic sweep bar. A bar covering the BOTTOM portion of the field (so pieces
- * can be lofted over its top onto the right floor). It sweeps back and forth
- * between center and the right margin: the rightward (forward) stroke presses
- * the pile against the wall — that is when a full row is crushed and cleared —
- * and the leftward stroke retreats to let more pieces fall. Pieces that bounce
+ * can be lofted over its top onto the right floor). It presses forward to the
+ * 8-cell (minimum full line) stop and then opens back up to the 12-cell (fully
+ * open) stop at the same pace — a ping-pong stroke, same speed both ways, that
+ * never teleports. The forward stroke is when a full row is crushed and cleared;
+ * the retreat lets more pieces fall into the widening zone. Pieces that bounce
  * all the way back out toward the launcher decay; nothing is deleted just for
  * the bar passing over it.
  */
 export class Compactor {
   body: Matter.Body;
-  width = 26;
-  height = Math.round(WORLD.height * 0.5); // bottom half — arc over the top
+  width: number;
+  height: number;
   speed: number;
-  margin: number;
   /** +1 = advancing right (applying pressure), -1 = retreating left. */
   dir: 1 | -1 = 1;
-  readonly leftX = WORLD.width / 2;
+  /** Body-center X at the open/left stop (zone = compactorOpenCells). */
+  readonly leftX: number;
+  /** Body-center X at the full-advance/right stop (zone = compactorMinLineCells). */
+  readonly rightX: number;
   readonly yCenter: number;
 
   constructor(world: Matter.World, level: LevelConfig) {
     this.speed = level.compactorSpeed;
-    this.margin = level.compactorMargin;
+    this.width = level.compactorWidth;
+    this.height = Math.round(WORLD.height * level.compactorHeightFrac);
+    this.leftX = WALL_INNER - level.compactorOpenCells * CELL - this.width / 2;
+    this.rightX = WALL_INNER - level.compactorMinLineCells * CELL - this.width / 2;
     this.yCenter = WORLD.height - this.height / 2;
     this.body = Matter.Bodies.rectangle(
       this.leftX,
@@ -38,9 +44,6 @@ export class Compactor {
 
   get x(): number {
     return this.body.position.x;
-  }
-  get rightX(): number {
-    return WORLD.width - this.margin;
   }
   get top(): number {
     return this.yCenter - this.height / 2;

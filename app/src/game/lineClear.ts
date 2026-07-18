@@ -1,10 +1,10 @@
 import Matter from "matter-js";
-import { CELL, WORLD } from "./engine";
+import { CELL, WORLD, WALL_INNER } from "./engine";
 import type { Cube } from "./pieces";
 import type { Compactor } from "./compactor";
+import type { LevelConfig } from "./level";
 
 const SETTLE = 3.2; // px/step below which a cube counts as compacted/at rest
-const WALL_INNER = WORLD.width - 20; // inner face of the right wall
 const BLINK_MS = 1400;
 
 export function resetLineClear(): void {
@@ -21,12 +21,17 @@ export function updateLineClear(
   world: Matter.World,
   cubes: Cube[],
   compactor: Compactor,
+  level: LevelConfig,
 ): number {
   const face = compactor.x + compactor.width / 2;
   const zoneW = WALL_INNER - face;
-  // Zone too small to hold a meaningful line — it'll reset to center shortly.
-  if (zoneW < CELL * 1.5) return 0;
-  const needed = Math.max(2, Math.round(zoneW / CELL));
+  // Zone narrower than the minimum-line stop shouldn't happen (the compactor's
+  // own right stop is clamped there), but guard against it defensively — the
+  // bar keeps ping-ponging between its stops, it never teleports.
+  if (zoneW < (level.compactorMinLineCells - 0.5) * CELL) return 0;
+  // Dynamic threshold: 8 cubes at full advance, growing toward 12 as the
+  // compactor opens back up and the zone widens.
+  const needed = Math.max(level.compactorMinLineCells, Math.round(zoneW / CELL));
 
   // Group settled cubes that live in the compaction zone by grid row.
   const yThresh = CELL * 0.6;

@@ -99,7 +99,7 @@ export class Game {
 
     stepPhysics(this.phys);
     this.compactor.update();
-    updateBreakableJoints(this.phys.world, this.constraints);
+    updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
     breakJointsInBand(
@@ -113,7 +113,7 @@ export class Game {
     // Cubes are ONLY removed when a full row is crushed against the wall on the
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
     const cleared = this.compactor.pressing
-      ? updateLineClear(this.phys.world, this.cubes, this.compactor)
+      ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level)
       : 0;
     if (cleared > 0) {
       this.combo += 1;

@@ -5,7 +5,11 @@ import type { LevelConfig } from "./level";
  *  in these coordinates; render.ts scales to the actual canvas (letterboxed). */
 export const WORLD = { width: 1280, height: 720 };
 
-export const CELL = 44; // cube size (px), ~ the original 40px scaled up
+export const CELL = 40; // cube size (px)
+
+/** Inner face of the right wall (walls are WALL_T=40 thick, centered at
+ *  WORLD.width + 20) — the surface the compactor presses the pile against. */
+export const WALL_INNER = WORLD.width - 20;
 
 export interface PhysicsWorld {
   engine: Matter.Engine;
