@@ -73,7 +73,7 @@ export function howtoScreen(): string {
             )}</div>`,
         ).join("")}
       </div>
-      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">▶ Start Level 1</button>
+      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">▶ Start Run</button>
     </div>
   </div>`;
 }

@@ -92,9 +92,21 @@ The Worker serves the built app and exposes:
 D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
 `migrations/0001_init.sql`.
 
-> **CI note:** if the repo auto-deploys via Cloudflare Workers Builds, set the build command
-> to `npm run build` and the deploy command to `npx wrangler deploy` at the repo root so the
-> app bundle and D1 binding are picked up.
+### Deploy strategy
+
+The app and the leaderboard Worker deploy independently — the Worker code rarely changes,
+so it should not rebuild on every game commit:
+
+- **App — Cloudflare Pages (auto, every branch).** The `tetrilaunch` Pages project builds
+  each branch into its own preview URL (and `main` into the Pages production URL).
+  Project settings: **root directory `app`**, build command **`npm run build`**, output
+  **`dist`**. Nothing else is required: on a `*.pages.dev` host the app calls the
+  production Worker API cross-origin (the Worker's `/api` responses are CORS-open), so
+  every preview shares the live leaderboard.
+- **Leaderboard Worker — manual, rare.** Turn **off** auto-deploy (Workers Builds) for the
+  Worker in the Cloudflare dash. Deploy it with `npm run deploy` from the repo root only
+  when `app/worker/`, `wrangler.jsonc`, or `migrations/` change (schema changes:
+  `npm run db:migrate` first).
 
 ### Native (Android / iOS)
 
