@@ -63,6 +63,17 @@ export interface LevelConfig {
    *  the same launchCost but clear cubes around their blast instead of
    *  scoring — a cleanup tool, not a scoring one (see game.ts's detonate). */
   bombEvery: number;
+  /** Peak lateral wind acceleration (px/step^2) applied to airborne cubes and
+   *  live bombs — see game.ts's windNow (a pure sine function of stepCount,
+   *  no RNG) and cannon.ts's predictTrajectory windAccel param. 0 disables
+   *  the mechanic entirely (inert: windNow is always 0). Tunable roadmap
+   *  seam: the core counter to "fire the same direction forever" — see the
+   *  BALANCE KNOBS note below. */
+  windMax: number;
+  /** Full wind sine-cycle length, in seconds (60 steps/sec) — see game.ts's
+   *  windNow: windMax * sin(2π * stepCount / (60 * windPeriodSec)). Ignored
+   *  when windMax is 0. */
+  windPeriodSec: number;
 }
 
 // Economy balance note: each bay is its OWN economy now — targetScore,
@@ -111,6 +122,23 @@ function targetScoreFor(i: number): number {
  * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
  *   so time pressure keeps rising relative to how much a bay actually needs
  *   to bank.
+ * - windMax (0.75 + 0.03i) is the core counter to "fire the same direction
+ *   forever": tuned via sim/sweep.ts so every fixed-aim preset (middle/flat/
+ *   lob/lob-rot/lob-flat/lob-tall, plus random/random-up) measures 0% wins
+ *   while the adaptive `aim` bot — which re-solves each shot against the
+ *   exact wind-aware trajectory preview, varies power, targets pile gaps,
+ *   and WAITS OUT gusts rather than firing on cooldown — stays comfortably
+ *   viable (~60-65% at bay 1). 0.75 sits deliberately below a measured
+ *   cliff: the aim bot holds 60-90% up through ~0.78 and collapses to
+ *   20-40% by 0.82, so the margin keeps skilled play robust to small
+ *   physics drift. Patience is the load-bearing skill at this amplitude —
+ *   peak gusts are genuinely unplayable and the HUD wind meter telegraphs
+ *   the calm windows around each sine zero-crossing.
+ *   windPeriodSec (flat 24s) is NOT tied to i — it's long relative to a
+ *   single piece's ~1.5-2.5s flight time (so a fixed aim's shots all drift
+ *   the same way for many consecutive launches, not averaging out
+ *   shot-to-shot) but short relative to a full bay's playtime (so the wind
+ *   reverses direction, and offers calm windows, several times per run).
  */
 export function makeBaseLevel(i: number): LevelConfig {
   return {
@@ -134,6 +162,8 @@ export function makeBaseLevel(i: number): LevelConfig {
     timeLimitSec: 150 + i * 10,
     pieceCubes: 4,
     bombEvery: 0,
+    windMax: 0.75 + i * 0.03,
+    windPeriodSec: 24,
   };
 }
 

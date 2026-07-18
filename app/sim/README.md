@@ -59,6 +59,12 @@ shot. Presets:
   floor.
 - `random-up` — same as `random`, but angle restricted to the upward half of
   the cone [0°, +60°] — a harder "random should never win" case.
+- `aim` — adaptive: re-solves its angle every shot against the live wind
+  reading (searches 15°-55° via `g.updateTrajectory()`/`g.trajectory`,
+  targeting the compaction zone's floor middle), plus the min-height
+  rotation strategy — the existence proof that re-aiming beats the wind
+  where every fixed-aim preset above must not (see `level.ts`'s
+  `windMax`/`windPeriodSec` and `game.ts`'s `windNow`).
 
 No lookahead, no trajectory awareness — these approximate "hold roughly the
 same aim and keep firing," not a strong player.
