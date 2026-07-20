@@ -83,6 +83,10 @@ export class Game {
   /** Which condition triggered a "lost" status, for end-of-run copy. */
   lossReason: "topout" | "broke" | "time" | null = null;
   aiming = false;
+  /** True while an active aim drag is inside the pull-back dead zone, so a
+   *  release would cancel rather than fire. Drives the "release to cancel"
+   *  render treatment. */
+  aimCancel = false;
   paused = false;
 
   /** Countdown in ms; Infinity when level.timeLimitSec is 0 (no limit). */

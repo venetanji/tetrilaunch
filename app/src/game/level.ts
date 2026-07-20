@@ -147,6 +147,11 @@ function targetScoreFor(i: number): number {
  *   shot-to-shot) but short relative to a full bay's playtime (so the wind
  *   reverses direction, and offers calm windows, several times per run).
  */
+/** Global multiplier on the documented windMax ladder. 0.3 = 30% of the
+ *  original tuned strength (player feedback: the full-strength ladder was too
+ *  punishing). Lower this to soften wind further; 0 disables it entirely. */
+export const WIND_SCALE = 0.3;
+
 export function makeBaseLevel(i: number): LevelConfig {
   return {
     id: i + 1,
@@ -169,7 +174,11 @@ export function makeBaseLevel(i: number): LevelConfig {
     timeLimitSec: 150 + i * 10,
     pieceCubes: 4,
     bombEvery: 0,
-    windMax: i === 0 ? 0.25 : 0.3 + i * 0.045,
+    // Base ladder scaled to 30% (WIND_SCALE) — the values documented above
+    // (0.25 / 0.30+0.045i, with their sim-measured 0%-fixed / 95%-aim
+    // guarantees) proved too strong in play, so wind is dialled back to a
+    // gentle drift. The *shape* of the ramp is unchanged; only the magnitude.
+    windMax: (i === 0 ? 0.25 : 0.3 + i * 0.045) * WIND_SCALE,
     windPeriodSec: 24,
   };
 }

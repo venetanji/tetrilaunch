@@ -46,6 +46,9 @@ export interface Scene {
   trajectory: Matter.Vector[];
   now: number;
   aiming: boolean;
+  /** Aim drag is inside the dead zone — releasing cancels instead of firing.
+   *  Recolors the arc and shows the cancel hint. */
+  aimCancel: boolean;
   /** Render-facing FX events (see fx.ts) — drawn by drawEffects() at the end
    *  of render(), over the settled field. */
   effects: FxEvent[];
@@ -56,6 +59,8 @@ export interface Scene {
   /** Current signed wind acceleration (game.ts's windNow) — drives the HUD
    *  wind indicator's length/direction. */
   windNow: number;
+  /** Player setting: draw the on-canvas wind gauge (see drawWindIndicator). */
+  showWind: boolean;
 }
 
 export function render(
@@ -69,8 +74,16 @@ export function render(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cssW * dpr, cssH * dpr);
 
-  // Letterbox backdrop
-  ctx.fillStyle = COLORS.bg;
+  // Surround backdrop. The playfield is a fixed 16:9 world, so on taller or
+  // (more commonly) ultrawide phones — e.g. the OnePlus 12's ~20:9 panel in
+  // landscape — there's leftover space around it. Rather than flat black
+  // letterbox bars, paint a subtly-lifted vertical "bezel" gradient so the
+  // bay reads as an inset console screen; the neon walls glowing along the
+  // world edge bleed into it and frame the play area.
+  const bezel = ctx.createLinearGradient(0, 0, 0, cssH * dpr);
+  bezel.addColorStop(0, "#15152f");
+  bezel.addColorStop(1, "#090913");
+  ctx.fillStyle = bezel;
   ctx.fillRect(0, 0, cssW * dpr, cssH * dpr);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
@@ -82,15 +95,16 @@ export function render(
 
   drawBackground(ctx);
   drawWalls(ctx);
-  drawWindIndicator(ctx, scene.level, scene.windNow);
+  if (scene.showWind) drawWindIndicator(ctx, scene.level, scene.windNow);
   drawCompactor(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
-  drawTrajectory(ctx, scene.trajectory);
+  drawTrajectory(ctx, scene.trajectory, scene.aimCancel);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
   drawCannon(ctx, scene.cannon, scene.aiming);
   drawLoadedPiece(ctx, scene.cannon, scene.level.pieceCubes, scene.nextIsBomb);
+  if (scene.aiming && scene.aimCancel) drawCancelHint(ctx, scene.cannon);
   drawEffects(ctx, scene.effects, scene.now);
 
   ctx.restore();
@@ -137,37 +151,54 @@ function drawWalls(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
-/** HUD wind indicator: a horizontal neon arrow near top-center whose length
- *  and direction track windNow / level.windMax (signed, so it points the way
- *  the wind is actually pushing) — a legible read on the invisible lateral
- *  force applied to airborne pieces (see game.ts's windNow/applyWind).
+/** HUD wind indicator: a horizontal neon gauge below the top bar whose arrow
+ *  length and direction track windNow / level.windMax (signed, so it points
+ *  the way the wind is actually pushing) — a legible read on the invisible
+ *  lateral force applied to airborne pieces (see game.ts's windNow/applyWind).
  *  Inert (no draw) when level.windMax is 0, matching the mechanic itself.
- *  Deliberately no shadowBlur — kept subtle and cheap, unlike the glowy
- *  walls/compactor above it. */
-const WIND_HUD_Y = 34;
-const WIND_HUD_HALF_LEN = 70; // px of arrow length at full deflection (|ratio| = 1)
-const WIND_HUD_HEAD = 8;
+ *  A dim baseline track + center tick are ALWAYS drawn (when the level has
+ *  wind at all) so the gauge is discoverable even during a calm window; the
+ *  arrow glows so it reads at a glance. Sits at WIND_HUD_Y — pushed clear of
+ *  the top HUD chips row, which previously overlapped it (reported invisible
+ *  on tall/notched phones). Gated by the showWind setting at the call site. */
+const WIND_HUD_Y = 104;
+const WIND_HUD_HALF_LEN = 82; // px of arrow length at full deflection (|ratio| = 1)
+const WIND_HUD_HEAD = 9;
 
 function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, windNow: number): void {
   if (level.windMax <= 0) return;
   const ratio = Math.max(-1, Math.min(1, windNow / level.windMax));
   const cx = WORLD.width / 2;
   const len = ratio * WIND_HUD_HALF_LEN;
+  const calm = Math.abs(ratio) < 0.06;
 
   ctx.save();
-  // Retro pass: monospace/pixel-feel label to match the DOM UI's restyle —
-  // still no shadowBlur (kept cheap/subtle, per the note above).
   ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
   ctx.textAlign = "center";
   ctx.fillStyle = COLORS.textDim;
-  ctx.globalAlpha = 0.8;
-  ctx.fillText("WIND", cx, WIND_HUD_Y - 12);
+  ctx.globalAlpha = 0.85;
+  ctx.fillText(calm ? "WIND · CALM" : "WIND", cx, WIND_HUD_Y - 13);
 
+  // Always-visible baseline track + center tick, so the gauge is legible even
+  // when the wind is near zero.
+  ctx.lineCap = "round";
+  ctx.strokeStyle = COLORS.aim;
+  ctx.globalAlpha = 0.22;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - WIND_HUD_HALF_LEN, WIND_HUD_Y);
+  ctx.lineTo(cx + WIND_HUD_HALF_LEN, WIND_HUD_Y);
+  ctx.moveTo(cx, WIND_HUD_Y - 5);
+  ctx.lineTo(cx, WIND_HUD_Y + 5);
+  ctx.stroke();
+
+  // Live arrow, glowing so it's easy to catch.
+  ctx.shadowColor = COLORS.aim;
+  ctx.shadowBlur = 8;
   ctx.strokeStyle = COLORS.aim;
   ctx.fillStyle = COLORS.aim;
-  ctx.globalAlpha = 0.55 + 0.35 * Math.abs(ratio);
+  ctx.globalAlpha = 0.6 + 0.4 * Math.abs(ratio);
   ctx.lineWidth = 3;
-  ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(cx, WIND_HUD_Y);
   ctx.lineTo(cx + len, WIND_HUD_Y);
@@ -331,19 +362,43 @@ function drawPattern(
   }
 }
 
-function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): void {
+function drawTrajectory(
+  ctx: CanvasRenderingContext2D,
+  pts: Matter.Vector[],
+  cancel = false,
+): void {
   if (pts.length < 2) return;
+  // In the cancel dead zone the arc turns muted red and dimmer, so it's clear
+  // a release won't fire.
+  const color = cancel ? COLORS.compactor : COLORS.trajectory;
+  const dim = cancel ? 0.45 : 1;
   ctx.save();
-  ctx.shadowColor = COLORS.trajectory;
+  ctx.shadowColor = color;
   ctx.shadowBlur = 10;
   for (let i = 0; i < pts.length; i += 3) {
     const t = i / pts.length;
-    ctx.globalAlpha = 0.9 * (1 - t) + 0.15;
-    ctx.fillStyle = COLORS.trajectory;
+    ctx.globalAlpha = (0.9 * (1 - t) + 0.15) * dim;
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(pts[i].x, pts[i].y, 4 * (1 - t) + 2, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+/** "✕ release to cancel" tag above the muzzle while the pull-back is still in
+ *  the dead zone — teaches the abort gesture and confirms the armed cancel. */
+function drawCancelHint(ctx: CanvasRenderingContext2D, cannon: Cannon): void {
+  const x = cannon.x;
+  const y = cannon.y - CANNON.barrel - 26;
+  ctx.save();
+  ctx.font = "600 15px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = COLORS.compactorGlow;
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = COLORS.compactor;
+  ctx.fillText("✕ release to cancel", x, y);
   ctx.restore();
 }
 

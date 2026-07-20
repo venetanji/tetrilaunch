@@ -70,6 +70,7 @@ class App {
     this.input = new InputController(this.canvas, () => this.game);
 
     this.overlay.addEventListener("click", this.onClick);
+    this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
     this.overlay.addEventListener("keydown", this.onKeydown);
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
@@ -372,9 +373,9 @@ class App {
     if (g) {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
-        trajectory: g.trajectory, now, aiming: g.aiming,
+        trajectory: g.trajectory, now, aiming: g.aiming, aimCancel: g.aimCancel,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
-        windNow: g.windNow,
+        windNow: g.windNow, showWind: this.settings.showWind,
       });
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -435,15 +436,27 @@ class App {
     }
   };
 
+  /** In-game controls (FIRE / rotate) fire on pointerdown, NOT click: the
+   *  browser only synthesizes a `click` for the PRIMARY touch, so a second
+   *  finger tapping rotate mid-aim (first finger dragging the canvas) never
+   *  produced a click and silently did nothing. pointerdown is dispatched per
+   *  pointer, so it works during a multi-touch aim — and it's snappier. The
+   *  click handler no longer routes data-game (avoids a double-trigger). */
+  private onGamePointerDown = (e: PointerEvent): void => {
+    if (this.state !== "playing") return;
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
+    if (!el) return;
+    e.preventDefault();
+    void tapHaptic();
+    this.onGameAction(el.getAttribute("data-game")!);
+  };
+
   private onClick = (e: MouseEvent): void => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-toggle]");
     if (!el) return;
 
     const toggle = el.getAttribute("data-toggle");
     if (toggle) { this.onToggle(toggle, el); return; }
-
-    const gameAct = el.getAttribute("data-game");
-    if (gameAct) { this.onGameAction(gameAct); return; }
 
     const action = el.getAttribute("data-action");
     if (!action) return;

@@ -43,8 +43,8 @@ export function menuScreen(best: number): string {
 
 export function howtoScreen(): string {
   const steps = [
-    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
-    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon and the <b>Next</b> preview both show the exact orientation before you fire.`],
+    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire, or <b>ease back to the cannon to cancel</b> (the arc turns red). On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
+    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons, even <b>while you're still aiming</b>. The glowing piece at the cannon and the <b>Next</b> preview both show the exact orientation before you fire.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
@@ -88,6 +88,7 @@ export function settingsScreen(s: Settings): string {
       ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
       ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
       ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
+      ${toggleHTML("showWind", "Wind Gauge", "Show the wind meter above the bay", s.showWind)}
       <button class="btn btn--secondary" data-action="menu">Done</button>
     </div>
   </div>`;

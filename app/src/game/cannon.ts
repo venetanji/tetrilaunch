@@ -63,16 +63,20 @@ export class Cannon {
 
   /** Set aim + power from a world-space drag vector originating at the cannon.
    *  Slingshot pull-back: the launch direction is OPPOSITE the drag (drag
-   *  down-left to fire up-right), reversed 180° from the raw drag vector. */
-  aimFromDrag(dx: number, dy: number): void {
+   *  down-left to fire up-right), reversed 180° from the raw drag vector.
+   *  Returns whether the pull-back cleared the launch dead zone (DRAG_MIN):
+   *  a release below it is a *cancel*, not a shot, so aiming can be aborted
+   *  by easing the pull back toward the cannon. */
+  aimFromDrag(dx: number, dy: number): boolean {
     const len = Math.hypot(dx, dy);
-    if (len < 4) return;
+    if (len < 4) return false;
     // Reverse the drag vector, then constrain to the upper-right launch cone.
     let ang = Math.atan2(dy, -dx);
     ang = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, ang));
     this.angle = ang;
     const t = Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
     this.power = SPEED_MIN + t * (SPEED_MAX - SPEED_MIN);
+    return len >= DRAG_MIN;
   }
 
   // --- Keyboard fallback (web) ---
