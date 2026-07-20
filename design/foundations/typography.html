@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Typography — Tetrilaunch</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 
 :root{
@@ -17,12 +17,19 @@
   --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
   --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  /* Retro pass: pixel-art display face for chips/buttons/eyebrows/small
+     headings (not the huge splash/menu title — Press Start 2P gets
+     illegible/too wide at --fs-display scale). */
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
   --fs-display:clamp(40px,8vw,88px); --fs-h1:clamp(28px,5vw,44px); --fs-h2:clamp(20px,3.4vw,30px);
   --fs-h3:18px; --fs-body:16px; --fs-sm:14px; --fs-xs:12px;
   --fw-regular:500; --fw-medium:600; --fw-bold:700; --fw-black:900;
   --tracking-wide:0.08em; --tracking-wider:0.18em;
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
-  --r-sm:6px; --r-md:10px; --r-lg:16px; --r-xl:24px; --r-pill:999px;
+  /* Retro pass: square, steppy corners instead of soft/pill rounding. */
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,.85); --shadow-hard:3px 3px 0 rgba(0,0,0,.85); --shadow-hard-lg:4px 4px 0 rgba(0,0,0,.85);
   --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
   --glow-soft:0 0 6px rgba(122,92,255,0.35),0 0 18px rgba(122,92,255,0.18);
   --shadow-panel:0 12px 40px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.04);
@@ -46,7 +53,7 @@
 
 *{box-sizing:border-box;margin:0;padding:0}
 .display{font-family:var(--font-display);font-weight:var(--fw-black);letter-spacing:var(--tracking-wide);line-height:.95}
-.eyebrow{font-family:var(--font-display);font-size:var(--fs-xs);letter-spacing:var(--tracking-wider);text-transform:uppercase;color:var(--accent)}
+.eyebrow{font-family:var(--font-pixel);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
 .muted{color:var(--text-muted)}
 .neon-text{color:var(--text);text-shadow:0 0 12px rgba(0,240,255,0.55),0 0 30px rgba(122,92,255,0.35)}
 .brand-gradient{background:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -147,6 +154,6 @@ h1.title{font-family:var(--font-display);font-weight:900;letter-spacing:.08em;fo
 </style>
 </head>
 <body>
-<div class="wrap"><h1 class="title brand-gradient">Typography</h1><div class="sub">Orbitron (display) · Rajdhani (UI) · JetBrains Mono (data)</div><div style="display:flex;flex-direction:column;gap:18px"><div><div class="sw__hex">Wordmark · Orbitron 900 · brand-gradient</div><div class="display neon-text brand-gradient" style="font-size:56px">TETRILAUNCH</div></div><div><div class="sw__hex">display · Orbitron 900 · var(--fs-display)</div><div class="display" style="font-size:64px">Launch Bay</div></div><div><div class="sw__hex">h1 · Orbitron 900 · var(--fs-h1) 44px</div><div class="display" style="font-size:44px">Level Cleared!</div></div><div><div class="sw__hex">h2 · Orbitron 700 · var(--fs-h2) 30px</div><div style="font-family:var(--font-display);font-weight:700;font-size:30px">How to Play</div></div><div><div class="sw__hex">h3 · Rajdhani 600 · var(--fs-h3) 18px</div><div style="font-size:18px;font-weight:600">Aim, charge, and fire the cannon</div></div><div><div class="sw__hex">body · Rajdhani 500 · var(--fs-body) 16px</div><div style="font-size:16px;color:var(--text-dim)">Arc your tetrominoes across the bay and feed full rows into the compactor.</div></div><div><div class="sw__hex">small · 14px · muted</div><div class="muted" style="font-size:14px">Drag anywhere to aim · release to fire</div></div><div><div class="sw__hex">eyebrow · Orbitron · 0.18em tracking · accent</div><div class="eyebrow">Physics Cannon Puzzle</div></div><div><div class="sw__hex">mono · JetBrains Mono 700 · scores</div><div style="font-family:var(--font-mono);font-weight:700;font-size:28px;color:var(--accent)">00812480</div></div></div></div>
+<div class="wrap"><h1 class="title brand-gradient">Typography</h1><div class="sub">Orbitron (display) · Rajdhani (UI) · JetBrains Mono (data) · Press Start 2P (retro pixel-art chrome — chips/buttons/small headings)</div><div style="display:flex;flex-direction:column;gap:18px"><div><div class="sw__hex">Wordmark · Orbitron 900 · brand-gradient — kept on the brand face; Press Start 2P is illegible/too wide at this scale</div><div class="display neon-text brand-gradient" style="font-size:56px">TETRILAUNCH</div></div><div><div class="sw__hex">display · Orbitron 900 · var(--fs-display)</div><div class="display" style="font-size:64px">Launch Bay</div></div><div><div class="sw__hex">h1 · Orbitron 900 · var(--fs-h1) 44px</div><div class="display" style="font-size:44px">Level Cleared!</div></div><div><div class="sw__hex">h2 · Orbitron 700 · var(--fs-h2) 30px</div><div style="font-family:var(--font-display);font-weight:700;font-size:30px">How to Play</div></div><div><div class="sw__hex">h3 · Rajdhani 600 · var(--fs-h3) 18px</div><div style="font-size:18px;font-weight:600">Aim, charge, and fire the cannon</div></div><div><div class="sw__hex">body · Rajdhani 500 · var(--fs-body) 16px</div><div style="font-size:16px;color:var(--text-dim)">Arc your tetrominoes across the bay and feed full rows into the compactor.</div></div><div><div class="sw__hex">small · 14px · muted</div><div class="muted" style="font-size:14px">Drag anywhere to aim · release to fire</div></div><div><div class="sw__hex">eyebrow · Press Start 2P 9px · 0.1em tracking · accent</div><div class="eyebrow">Physics Cannon Puzzle</div></div><div><div class="sw__hex">pixel label · Press Start 2P 11px · chips/buttons/HUD labels (retro pass)</div><div style="font-family:var(--font-pixel);font-size:11px;letter-spacing:.03em;text-transform:uppercase">Fire · Funds · Bay 1/10</div></div><div><div class="sw__hex">mono · JetBrains Mono 700 · scores</div><div style="font-family:var(--font-mono);font-weight:700;font-size:28px;color:var(--accent)">00812480</div></div></div></div>
 </body>
 </html>

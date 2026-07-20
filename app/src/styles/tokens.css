@@ -40,6 +40,12 @@
   --font-display: "Orbitron", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
   --font-ui: "Rajdhani", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  /* Retro pixel-art display face — chips, buttons, eyebrows and small
+     headings (see index.html's Google Fonts link). Kept out of --font-display
+     itself: the splash/menu's huge brand title (--fs-display, up to 88px)
+     stays on Orbitron because an 8-bit face gets illegible/absurdly wide at
+     that scale — this is a restyle of the UI chrome, not the brand mark. */
+  --font-pixel: "Press Start 2P", "Orbitron", ui-monospace, monospace;
 
   --fs-display: clamp(40px, 8vw, 88px);
   --fs-h1: clamp(28px, 5vw, 44px);
@@ -68,17 +74,30 @@
   --sp-8: 64px;
 
   /* --- Radii --- */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 16px;
-  --r-xl: 24px;
-  --r-pill: 999px;
+  /* Retro pass: square, steppy corners instead of soft/pill rounding. These
+     values cascade to every consumer (buttons, chips, toggles, progress
+     bars, panels, mod-cards…) without touching each rule individually. */
+  --r-sm: 2px;
+  --r-md: 3px;
+  --r-lg: 4px;
+  --r-xl: 5px;
+  --r-pill: 3px; /* was 999px — pills go square-ish too (toggle, meters, badges) */
 
-  /* --- Elevation / neon glow --- */
+  /* --- Elevation --- */
+  /* Neon glows stay for the canvas-drawn world + a couple of deliberate CTA
+     accents; DOM *panels* (chips, buttons, cards, modals) switch to chunky
+     hard-edged "8-bit" drop shadows — no blur — per the retro restyle. */
   --glow-accent: 0 0 8px rgba(0, 240, 255, 0.55), 0 0 24px rgba(0, 240, 255, 0.28);
   --glow-soft: 0 0 6px rgba(122, 92, 255, 0.35), 0 0 18px rgba(122, 92, 255, 0.18);
   --shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.45);
+
+  /* --- Retro pixel-art borders + hard shadows --- */
+  --bw: 2px; /* standard chunky UI border */
+  --bw-thick: 3px; /* emphasis borders — primary CTAs, FIRE */
+  --shadow-hard-sm: 2px 2px 0 rgba(0, 0, 0, 0.85);
+  --shadow-hard: 3px 3px 0 rgba(0, 0, 0, 0.85);
+  --shadow-hard-lg: 4px 4px 0 rgba(0, 0, 0, 0.85);
 
   /* --- Motion --- */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -91,6 +110,49 @@
   --z-hud: 10;
   --z-overlay: 40;
   --z-toast: 60;
+  --z-crt: 70;
+
+  /* --- Compact top HUD bar ---
+     A single slim row (chips + PWR + NEXT + pause/fullscreen) instead of the
+     old two-row/~30%-of-screen block, so it stops covering the apex of high
+     lob trajectories on phones (cannon sits ~40% down, arcs peak above it —
+     see render.ts's drawTrajectory). Height budget target: 48-64 CSS px. */
+  --hud-bar-h: clamp(44px, 15vh, 60px);
+  --hud-bar-pad-x: clamp(8px, 1.6vw, 16px);
+  --fs-chip-label-c: 8px;
+  --fs-chip-value-c: 13px;
+  /* Semi-transparent, no blur — keeps the dotted trajectory arc readable
+     through the top bar instead of smearing it behind frosted glass. */
+  --panel-alpha: 0.55;
+
+  /* ==========================================================================
+     Control layout — touch targets, control-cluster placement, safe-area
+     insets, and the finger-drag onboarding hint. Mirrored by
+     design/foundations/controls.html.
+     ========================================================================== */
+
+  /* Touch target sizes (WCAG 2.5.5 / iOS HIG minimum is 44px) */
+  --tap-min: 44px; /* absolute floor for any tappable control */
+  --tap-md: 60px; /* rotate-cluster buttons — one-thumb, comfortably above the floor */
+  --tap-lg: clamp(72px, 20vw, 92px); /* FIRE — the single most important target, biggest of the three */
+
+  /* Control cluster spacing/offsets (corner-anchored touch controls) */
+  --ctrl-gap: var(--sp-5); /* gap between the two rotate buttons — wide enough that ⟲/⟳ can't be fat-fingered */
+  --ctrl-inset-x: clamp(16px, 4vw, 32px); /* cluster offset from the left/right screen edge */
+  --ctrl-inset-b: clamp(16px, 5vh, 32px); /* cluster offset from the bottom edge */
+
+  /* Safe-area-aware positions for the corner-anchored clusters. env() falls
+     back to 0px on browsers without notch/home-indicator insets, so
+     --ctrl-inset-x/b alone still applies there. */
+  --safe-l: calc(env(safe-area-inset-left, 0px) + var(--ctrl-inset-x));
+  --safe-r: calc(env(safe-area-inset-right, 0px) + var(--ctrl-inset-x));
+  --safe-b: calc(env(safe-area-inset-bottom, 0px) + var(--ctrl-inset-b));
+
+  /* Finger-drag onboarding hint (see screens.ts's dragHintHTML + app.css's
+     .drag-hint rules) */
+  --hint-ease: cubic-bezier(0.65, 0, 0.35, 1); /* press/drag/release motion curve */
+  --hint-loop-dur: 3400ms; /* one full press-drag-hold-release-pause cycle */
+  --hint-show-dur: var(--dur-slow); /* fade when main.ts shows/hides the hint overlay */
 }
 
 /* A reusable neon-scanline backdrop used behind menus and the game. */

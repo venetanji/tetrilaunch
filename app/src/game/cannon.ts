@@ -5,7 +5,11 @@ import type { LevelConfig } from "./level";
 
 // Launch speeds in px/step (matter velocity units). Drag distance maps here.
 export const SPEED_MIN = 9;
-export const SPEED_MAX = 26;
+// 28, not 26: reach analysis (sim/ tuning) showed max-power landings topped
+// out at x≈1228, 1.3 cells short of the back wall (x=1280) — a skilled
+// player couldn't reach the last strip of the bay at any angle. 28 closes it
+// (see engine.ts's SKY doc comment for the resulting apex height check).
+export const SPEED_MAX = 28;
 
 // Drag distance (px, world space) that maps to full power. Kept short so a
 // modest pull-back already reaches max power.
@@ -112,7 +116,17 @@ export class Cannon {
 
 /**
  * Analytic parabola preview that mirrors matter's per-step integration
- * (constant gravity accel + air damping), so the dotted arc matches the flight.
+ * (constant gravity accel + air damping), so the dotted arc matches the
+ * flight. `windAt(i)` returns the wind acceleration for step `i` (0-based,
+ * relative to "now") — a FUNCTION rather than a single scalar because wind
+ * is a sine of stepCount (see game.ts's windNow) with a period only ~9-15x
+ * a typical flight's duration: holding it constant across the whole ~140
+ * steps here materially mismatches the real per-step value the actual
+ * flight will experience under game.ts's applyWind, especially for a bot
+ * (like sim/bots.ts's `aim`) whose whole strategy is re-solving against
+ * this exact preview. Defaults to a still-air `() => 0` so every other
+ * caller (main.ts's live HUD arc, which only ever wants "wind as of right
+ * now" smeared across the preview) is unaffected.
  */
 export function predictTrajectory(
   start: Matter.Vector,
@@ -120,6 +134,7 @@ export function predictTrajectory(
   gAccel: number,
   frictionAir: number,
   steps = 140,
+  windAt: (step: number) => number = () => 0,
 ): Matter.Vector[] {
   const pts: Matter.Vector[] = [];
   let x = start.x;
@@ -129,6 +144,7 @@ export function predictTrajectory(
   for (let i = 0; i < steps; i++) {
     pts.push({ x, y });
     vy += gAccel;
+    vx += windAt(i);
     vx *= 1 - frictionAir;
     vy *= 1 - frictionAir;
     x += vx;

@@ -24,10 +24,10 @@ const WALL_T = 40;
 
 /** How far above y=0 the left/right walls extend, so lofted pieces can't
  *  drift sideways out of the open-top shaft and land outside the field.
- *  Max power (26 px/step) at up to 60° gives vy ~= 22.5 px/step against a
- *  per-step gravity accel of ~0.611 px/step^2, for an apex ~180px above
- *  y=0 (cannon at y=288, barrel tip up to ~55px higher). 600px comfortably
- *  exceeds that ~180px max overshoot. */
+ *  Max power (28 px/step, see cannon.ts's SPEED_MAX) at up to 60° gives vy
+ *  ~= 24.2 px/step against a per-step gravity accel of ~0.611 px/step^2, for
+ *  an apex ~250px above y=0 (cannon at y=288, barrel tip up to ~55px
+ *  higher). 600px comfortably exceeds that ~250px max overshoot. */
 const SKY = 600;
 
 export function createPhysics(level: LevelConfig): PhysicsWorld {

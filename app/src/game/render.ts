@@ -53,6 +53,9 @@ export interface Scene {
   /** Whether the NEXT shot fired will be a bomb — swaps the muzzle ghost. */
   nextIsBomb: boolean;
   bombs: Matter.Body[];
+  /** Current signed wind acceleration (game.ts's windNow) — drives the HUD
+   *  wind indicator's length/direction. */
+  windNow: number;
 }
 
 export function render(
@@ -79,6 +82,7 @@ export function render(
 
   drawBackground(ctx);
   drawWalls(ctx);
+  drawWindIndicator(ctx, scene.level, scene.windNow);
   drawCompactor(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
@@ -130,6 +134,55 @@ function drawWalls(ctx: CanvasRenderingContext2D): void {
   ctx.lineTo(WORLD.width - 2, WORLD.height - 2);
   ctx.lineTo(WORLD.width - 2, 2);
   ctx.stroke();
+  ctx.restore();
+}
+
+/** HUD wind indicator: a horizontal neon arrow near top-center whose length
+ *  and direction track windNow / level.windMax (signed, so it points the way
+ *  the wind is actually pushing) — a legible read on the invisible lateral
+ *  force applied to airborne pieces (see game.ts's windNow/applyWind).
+ *  Inert (no draw) when level.windMax is 0, matching the mechanic itself.
+ *  Deliberately no shadowBlur — kept subtle and cheap, unlike the glowy
+ *  walls/compactor above it. */
+const WIND_HUD_Y = 34;
+const WIND_HUD_HALF_LEN = 70; // px of arrow length at full deflection (|ratio| = 1)
+const WIND_HUD_HEAD = 8;
+
+function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, windNow: number): void {
+  if (level.windMax <= 0) return;
+  const ratio = Math.max(-1, Math.min(1, windNow / level.windMax));
+  const cx = WORLD.width / 2;
+  const len = ratio * WIND_HUD_HALF_LEN;
+
+  ctx.save();
+  // Retro pass: monospace/pixel-feel label to match the DOM UI's restyle —
+  // still no shadowBlur (kept cheap/subtle, per the note above).
+  ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.fillStyle = COLORS.textDim;
+  ctx.globalAlpha = 0.8;
+  ctx.fillText("WIND", cx, WIND_HUD_Y - 12);
+
+  ctx.strokeStyle = COLORS.aim;
+  ctx.fillStyle = COLORS.aim;
+  ctx.globalAlpha = 0.55 + 0.35 * Math.abs(ratio);
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx, WIND_HUD_Y);
+  ctx.lineTo(cx + len, WIND_HUD_Y);
+  ctx.stroke();
+
+  if (Math.abs(len) > 2) {
+    const dir = Math.sign(len);
+    const tipX = cx + len;
+    ctx.beginPath();
+    ctx.moveTo(tipX, WIND_HUD_Y);
+    ctx.lineTo(tipX - dir * WIND_HUD_HEAD, WIND_HUD_Y - WIND_HUD_HEAD * 0.6);
+    ctx.lineTo(tipX - dir * WIND_HUD_HEAD, WIND_HUD_Y + WIND_HUD_HEAD * 0.6);
+    ctx.closePath();
+    ctx.fill();
+  }
   ctx.restore();
 }
 

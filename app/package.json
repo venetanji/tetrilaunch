@@ -10,7 +10,9 @@
     "preview": "vite preview --port 4173",
     "cap:sync": "cap sync",
     "cap:add:android": "cap add android",
-    "cap:add:ios": "cap add ios"
+    "cap:add:ios": "cap add ios",
+    "sim:balance": "tsx sim/sweep.ts",
+    "sim:perf": "tsx sim/perf.ts"
   },
   "dependencies": {
     "@capacitor/core": "^6.1.2",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@capacitor/cli": "^6.1.2",
     "@types/matter-js": "^0.19.7",
+    "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",
     "vite-plugin-pwa": "^0.20.5"

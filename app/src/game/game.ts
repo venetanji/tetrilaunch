@@ -42,6 +42,12 @@ function isAtRest(body: Matter.Body): boolean {
   return v.x * v.x + v.y * v.y < AT_REST_SQ;
 }
 
+/** Wind only nudges bodies that are actually flying — above AT_REST (2.5) with
+ *  a small buffer so it can never tug at the settled pile (see windNow /
+ *  update()'s wind-application loop below). */
+const WIND_AIRBORNE_SPEED = 3;
+const WIND_AIRBORNE_SPEED_SQ = WIND_AIRBORNE_SPEED * WIND_AIRBORNE_SPEED;
+
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
  *  out, and those aren't a "landed" trigger. */
@@ -165,12 +171,49 @@ export class Game {
     return this.liveBombs.map((b) => b.body);
   }
 
+  /** Signed lateral wind acceleration (px/step^2) at an arbitrary step count
+   *  — a pure function of `step`, deliberately with no RNG (determinism is
+   *  load-bearing for the sim harness): windMax * sin(2π * step / (60 *
+   *  windPeriodSec)), 60 steps/sec. Always 0 when windMax is 0, so the whole
+   *  mechanic is inert for a zeroed level/modifier. Factored out of windNow
+   *  so updateTrajectory can also ask "what will the wind be N steps from
+   *  now" instead of treating the CURRENT reading as constant for the whole
+   *  predicted flight (see updateTrajectory's doc comment). */
+  private windAtStep(step: number): number {
+    const { windMax, windPeriodSec } = this.level;
+    if (windMax === 0) return 0;
+    return windMax * Math.sin((2 * Math.PI * step) / (60 * windPeriodSec));
+  }
+
+  /** Signed lateral wind acceleration (px/step^2) at THIS instant. Pause-safe
+   *  by construction (stepCount only advances inside update(), which doesn't
+   *  run while paused). Public so render.ts's HUD wind indicator can read
+   *  the live value. */
+  get windNow(): number {
+    return this.windAtStep(this.stepCount);
+  }
+
+  /**
+   * Recomputes the dotted preview arc. Passes windAt(i) = the wind the
+   * flight will ACTUALLY see at step (stepCount + i) — not a single
+   * "windNow, held constant for all 140 steps" scalar. windPeriodSec is only
+   * ~9-15x a typical ~1.5-2.5s flight, so holding the CURRENT reading
+   * constant across the whole preview measurably mismatches what
+   * applyWind() will really do step-by-step during that flight, especially
+   * near a zero-crossing. sim/bots.ts's `aim` preset re-solves its shot by
+   * reading THIS trajectory back out, so an inexact preview isn't just a
+   * cosmetic HUD glitch — it silently mis-aims the one bot whose entire
+   * strategy depends on it.
+   */
   updateTrajectory(): void {
+    const stepCount = this.stepCount;
     this.trajectory = predictTrajectory(
       this.cannon.tip,
       this.cannon.velocity,
       this.gAccel,
       0.012,
+      140,
+      (i) => this.windAtStep(stepCount + i),
     );
   }
 
@@ -233,6 +276,7 @@ export class Game {
 
     this.stepCount++;
     stepPhysics(this.phys);
+    this.applyWind();
 
     // Fuse: a bomb that never collides with anything still has to go off.
     for (const bomb of this.liveBombs) {
@@ -326,6 +370,37 @@ export class Game {
 
     if (this.effects.length) {
       this.effects = this.effects.filter((e) => now - e.t0 < FX_TTL[e.kind]);
+    }
+
+    // Keep the dotted arc live against the current wind reading (~140 cheap
+    // analytic-parabola iterations, fine headless too — see cannon.ts's
+    // predictTrajectory). Aim/power haven't necessarily changed this frame,
+    // but windNow just did (stepCount advanced above), so the preview would
+    // otherwise silently go stale between shots.
+    this.updateTrajectory();
+  }
+
+  /** Nudge every AIRBORNE cube and live bomb's x-velocity by the current wind
+   *  reading (windNow) — a velocity nudge, i.e. an acceleration applied over
+   *  one physics step, matching how predictTrajectory integrates gravity/wind.
+   *  Gated on speed >= WIND_AIRBORNE_SPEED so the settled pile (below
+   *  AT_REST) is never touched. */
+  private applyWind(): void {
+    const wind = this.windNow;
+    if (wind === 0) return;
+    for (const c of this.cubes) {
+      const b = c.body;
+      const v = b.velocity;
+      if (v.x * v.x + v.y * v.y >= WIND_AIRBORNE_SPEED_SQ) {
+        Matter.Body.setVelocity(b, { x: v.x + wind, y: v.y });
+      }
+    }
+    for (const bomb of this.liveBombs) {
+      const b = bomb.body;
+      const v = b.velocity;
+      if (v.x * v.x + v.y * v.y >= WIND_AIRBORNE_SPEED_SQ) {
+        Matter.Body.setVelocity(b, { x: v.x + wind, y: v.y });
+      }
     }
   }
 

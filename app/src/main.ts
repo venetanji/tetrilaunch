@@ -12,7 +12,8 @@ import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, enterFullscreen, tapHaptic, successHaptic, impactHaptic,
+  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
+  autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
 } from "./lib/platform";
 
 type AppState =
@@ -32,8 +33,8 @@ class App {
   private input: InputController;
   private settings: Settings = loadSettings();
 
-  /** The current roguelite run (seed, level index, bankroll, drafted mods).
-   *  Null only before the first "Play" — startGame() creates it. */
+  /** The current roguelite run (seed, level index, carried surplus, drafted
+   *  mods). Null only before the first "Play" — startGame() creates it. */
   private run: RunState | null = null;
   /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
   private pendingOffers: ModDef[] = [];
@@ -46,6 +47,11 @@ class App {
   private lastNext: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
+
+  /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
+   *  once-per-session idle timer, armed at each bay start. */
+  private dragHintTimer: number | null = null;
+  private dragHintShownThisSession = false;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -69,6 +75,8 @@ class App {
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
     window.addEventListener("pagehide", () => this.destroy());
+    document.addEventListener("fullscreenchange", this.onFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
     lockLandscape();
     this.onResize();
@@ -89,6 +97,9 @@ class App {
   private destroy(): void {
     this.input.destroy();
     this.game?.destroy();
+    if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    document.removeEventListener("fullscreenchange", this.onFullscreenChange);
+    document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
 
   // ---------------- state / rendering ----------------
@@ -142,6 +153,7 @@ class App {
               bayName: g.level.name,
               nextBayName: makeBaseLevel(this.run.levelIndex + 1).name,
               funds: g.score,
+              carry: Math.max(0, g.score - g.target),
               offers: this.pendingOffers,
               owned,
             });
@@ -166,7 +178,30 @@ class App {
         }
         break;
     }
+    this.syncFullscreenButtons();
   }
+
+  /** Reflects fullscreen availability/state onto every fullscreen control
+   *  currently mounted (the HUD icon button and/or the pause modal's row —
+   *  renderOverlay() recreates both from scratch on every state change, so
+   *  this needs to re-run each time, not just once at startup). Hides the
+   *  control entirely on platforms without a Fullscreen API at all (e.g.
+   *  iPhone Safari in-browser) instead of showing a button that can never
+   *  do anything. */
+  private syncFullscreenButtons(): void {
+    const supported = fullscreenSupported();
+    const fs = isFullscreen();
+    this.overlay.querySelectorAll<HTMLElement>('[data-action="fullscreen"]').forEach((btn) => {
+      btn.classList.toggle("fs-hidden", !supported);
+      btn.setAttribute("aria-label", fs ? "Exit fullscreen" : "Fullscreen");
+      const label = btn.querySelector<HTMLElement>(".fs-label");
+      if (label) label.textContent = fs ? "Exit Fullscreen" : "Fullscreen";
+    });
+  }
+
+  private onFullscreenChange = (): void => {
+    this.syncFullscreenButtons();
+  };
 
   private onResize = (): void => {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -179,8 +214,14 @@ class App {
   };
 
   // ---------------- game lifecycle ----------------
-  /** "Play"/"Play Again": starts a brand-new 10-bay run. */
+  /** "Play"/"Play Again": starts a brand-new 10-bay run. Called synchronously
+   *  from the Play/Start button's click handler (see onClick) — that's the
+   *  one user gesture this auto-requests fullscreen from; browsers ignore
+   *  fullscreen requests made outside a direct user-activation event, and
+   *  every later transition (draft advance, bay restart) reuses whatever
+   *  fullscreen state this call already established. */
   private startGame(): void {
+    void autoEnterFullscreenForRun();
     this.run = newRun(Date.now() >>> 0);
     this.submitted = false;
     this.startLevel();
@@ -188,19 +229,45 @@ class App {
 
   /** (Re)starts the Game for the run's current levelIndex. Level 1 plays at
    *  the base level's startingFunds; every later bay's LevelConfig already
-   *  has startingFunds overridden to the carried bankroll (see run.ts's
+   *  has startingFunds bumped by the carried surplus (see run.ts's
    *  levelForRun) — so the Game itself needs no run-awareness at all. */
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
     this.game = new Game(levelForRun(this.run), {
-      onShoot: () => { void tapHaptic(); },
+      onShoot: () => { void tapHaptic(); this.dismissDragHint(); },
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
       onStatus: (s) => this.onGameStatus(s),
     });
     this.setState("playing");
-    void enterFullscreen();
+    this.armDragHint();
+  }
+
+  /** Shows the finger-drag onboarding hint immediately on a brand-new
+   *  player's very first bay (persisted via settings.seenDragHint);
+   *  otherwise arms it as a once-per-session fallback if 15s pass at this
+   *  bay's start with no shot fired. */
+  private armDragHint(): void {
+    if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    if (!this.settings.seenDragHint) {
+      this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
+    } else if (!this.dragHintShownThisSession) {
+      this.dragHintTimer = window.setTimeout(() => {
+        this.dragHintShownThisSession = true;
+        this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
+      }, 15_000);
+    }
+  }
+
+  /** Hides the drag hint for good once a real shot fires, and marks it seen. */
+  private dismissDragHint(): void {
+    if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    this.overlay.querySelector("#drag-hint")?.classList.add("drag-hint--hidden");
+    if (!this.settings.seenDragHint) {
+      this.settings.seenDragHint = true;
+      saveSettings(this.settings);
+    }
   }
 
   private onGameStatus(s: GameStatus): void {
@@ -234,7 +301,7 @@ class App {
   private advanceAfterDraft(modId: string | null): void {
     const g = this.game;
     if (!g || !this.run) return;
-    this.run = advanceRun(this.run, g.score, g.linesTotal, modId);
+    this.run = advanceRun(this.run, g.score, g.target, g.linesTotal, modId);
     this.startLevel();
   }
 
@@ -254,8 +321,8 @@ class App {
   /** Pause modal's "Restart Bay": re-enters the *current* bay from scratch —
    *  unlike startGame()/"restart", this leaves `this.run` untouched, so
    *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
-   *  keeping the run's bankroll and drafted mods exactly as they were at
-   *  this bay's entry. */
+   *  keeping the run's carried surplus and drafted mods exactly as they were
+   *  at this bay's entry. */
   private restartBay(): void {
     if (this.state !== "paused" || !this.run) return;
     this.startLevel();
@@ -263,11 +330,28 @@ class App {
     this.acc = 0;
   }
 
+  /** Patches the currently-mounted #lb-body in place (no full overlay
+   *  re-render). Used both here and by onSubmitScore — a full renderOverlay()
+   *  after the fetch resolves would recreate the whole `.panel.modal.pop`
+   *  node a second time, replaying its entrance animation on top of the one
+   *  that already played when the screen first opened with cached/empty
+   *  data. On localhost that race is invisible (near-zero latency hides it),
+   *  but on a real device's network it reads as "the leaderboard shows
+   *  twice" — the modal visibly pops in, then pops in again a moment later
+   *  once the fetch lands. */
+  private renderBoardRows(highlight?: string): void {
+    const body = this.overlay.querySelector("#lb-body");
+    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, highlight);
+  }
+
   private async refreshBoard(): Promise<void> {
     // The D1 board is the single RUN board for now — level is always 1
     // regardless of which bay the run ended on.
     this.cachedBoard = await fetchLeaderboard(1, 10);
-    if (["leaderboard", "won", "lost"].includes(this.state)) this.renderOverlay();
+    // won/lost highlight the player's own just-played name; the standalone
+    // leaderboard screen doesn't (matches renderOverlay's existing per-state
+    // leaderboardRowsHTML args).
+    this.renderBoardRows(this.state === "leaderboard" ? undefined : loadName() || undefined);
   }
 
   // ---------------- main loop ----------------
@@ -290,6 +374,7 @@ class App {
         cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
+        windNow: g.windNow,
       });
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -371,6 +456,7 @@ class App {
       case "menu": this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
+      case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
       case "restart": this.startGame(); break;
       case "restart-bay": this.restartBay(); break;
       case "submit-score": void this.onSubmitScore(); break;
@@ -412,8 +498,7 @@ class App {
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
     const res = await submitScore(name, g.score, 1, lines);
     this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
-    const body = this.overlay.querySelector("#lb-body");
-    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, name);
+    this.renderBoardRows(name);
     void successHaptic();
   }
 }
