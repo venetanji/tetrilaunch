@@ -622,7 +622,11 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted);
   white-space: nowrap;
 }
-.belt-piece { position: absolute; right: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
+/* The tile rides the belt's uphill (top-left) end: the downhill end lands
+   right on the cannon (world ~x160 vs the cannon at x150), so pinning the
+   tile there overlapped the barrel and the muzzle ghost. The "◂ NEXT" label
+   at left 34% now points at the tile instead of empty track. */
+.belt-piece { position: absolute; left: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
 .belt-piece .next__grid { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); }
 .belt-piece .next__bomb-tile { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); font-size: max(13px, calc(29 * var(--fpx))); }
 

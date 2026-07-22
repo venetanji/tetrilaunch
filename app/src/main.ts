@@ -114,7 +114,7 @@ class App {
    *  bay/time/next-piece fields consistent across playing/paused/draft/end. */
   private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
     return {
-      cannon: g.cannon,
+      beltPreview: g.beltPreview,
       target: g.target,
       score: g.score,
       launchCost: g.level.launchCost,
@@ -122,7 +122,6 @@ class App {
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
       pieceCubes: g.level.pieceCubes,
-      nextIsBomb: g.nextIsBomb,
       bondBreakerOwned: g.level.bondBreakerCharges > 0,
       bondCharges: g.bondCharges,
       modIds: this.run?.modIds ?? [],
@@ -423,15 +422,17 @@ class App {
       this.overlay.querySelector("#hud-time-chip")?.classList.toggle("chip--danger", g.timeLeftMs < 20_000);
     }
 
-    // NEXT preview rides the conveyor belt (top-left) — just the colored
-    // piece grid, no label/type text (see components.ts's beltPieceHTML).
-    const nextKey = `${g.cannon.currentType}:${g.cannon.quarterTurns}:${g.nextIsBomb ? 1 : 0}:${g.level.pieceCubes}`;
+    // NEXT preview rides the conveyor belt (top-left) — the shot that fires
+    // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
+    // grid, no label/type text (see components.ts's beltPieceHTML).
+    const bp = g.beltPreview;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${g.level.pieceCubes}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
-        next.innerHTML = g.nextIsBomb
+        next.innerHTML = bp.bomb
           ? beltBombHTML()
-          : beltPieceHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceCubes);
+          : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceCubes);
       }
       this.lastNext = nextKey;
     }

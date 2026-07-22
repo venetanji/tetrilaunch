@@ -20,6 +20,7 @@ import {
 import type { LevelConfig } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
+import type { PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
@@ -33,6 +34,14 @@ export interface GameEvents {
   /** Fired when the Bond Breaker ability successfully discharges (see
    *  useBondBreaker) — lets the UI play a haptic/SFX cue. */
   onBondBreak?: () => void;
+}
+
+/** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
+ *  `quarterTurns` are meaningless when `bomb` is set. */
+export interface BeltPreview {
+  bomb: boolean;
+  type: PieceType;
+  quarterTurns: number;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -243,6 +252,30 @@ export class Game {
    *  cadence — lets the HUD/muzzle preview show a bomb before it's fired. */
   get nextIsBomb(): boolean {
     return this.level.bombEvery > 0 && (this.shotsFired + 1) % this.level.bombEvery === 0;
+  }
+
+  /** True if the shot AFTER next (shotsFired + 2, 1-based) lands on the bomb
+   *  cadence — lets the belt telegraph a bomb one shot before the muzzle
+   *  ghost swaps to it (see beltPreview). */
+  get nextNextIsBomb(): boolean {
+    return this.level.bombEvery > 0 && (this.shotsFired + 2) % this.level.bombEvery === 0;
+  }
+
+  /** What rides the conveyor-belt "NEXT" preview: the shot that fires AFTER
+   *  the one the muzzle ghost is promising (render.ts's drawLoadedPiece
+   *  already shows the current shot at the cannon). A bomb shot doesn't
+   *  advance the piece queue (see shoot()), so while a bomb is up the loaded
+   *  piece keeps riding the belt at its live rotation; otherwise the belt
+   *  carries the queue's next piece, unrotated — markShot resets
+   *  pieceRotation when it loads. */
+  get beltPreview(): BeltPreview {
+    if (this.nextNextIsBomb) {
+      return { bomb: true, type: this.cannon.currentType, quarterTurns: 0 };
+    }
+    if (this.nextIsBomb) {
+      return { bomb: false, type: this.cannon.currentType, quarterTurns: this.cannon.quarterTurns };
+    }
+    return { bomb: false, type: this.cannon.nextType, quarterTurns: 0 };
   }
 
   /** Live bomb bodies, for render.ts to draw. */
