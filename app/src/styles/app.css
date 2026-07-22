@@ -244,14 +244,16 @@ body.crt-off #app::after { display: none; }
 /* ---------- Right-side button rail ----------
    EVERY HUD button in one same-width column, centered in the letterbox
    gutter OUTSIDE the field's right wall (the field is letterbox-centered,
-   so the right gutter is exactly --field-x wide — see main.ts's onResize):
-   fullscreen + pause anchor the top, and the accent-colored rotate CCW/CW
-   pair (+ Bond Breaker if drafted) sits vertically centered at thumb
-   height. --rail-btn tracks the gutter width so the column narrows (never
-   below the 44px WCAG tap floor) instead of covering the field on
-   near-16:9 viewports where the gutter closes up. Desktop hides the rotate
-   cluster and uses Q/E + B instead (see the `@media (pointer: fine)` rule
-   below), matching the kbd-hint strip's bindings. */
+   so the right gutter is exactly --field-x wide — see main.ts's onResize).
+   ALL buttons sit on the same layer, one vertically-centered stack of at
+   most six at thumb height: fullscreen, pause, the accent-colored rotate
+   CCW/CW pair, Bond Breaker (if drafted), and the aim-state cancel ✕
+   (slot always reserved — see .cancel-aim-btn). --rail-btn tracks the
+   gutter width so the column narrows (never below the 44px WCAG tap
+   floor) instead of covering the field on near-16:9 viewports where the
+   gutter closes up. Desktop hides the game buttons and uses Q/E + B
+   instead (see the `@media (pointer: fine)` rule below), matching the
+   kbd-hint strip's bindings. */
 .side-rail {
   --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), var(--tap-md));
   position: absolute;
@@ -260,21 +262,16 @@ body.crt-off #app::after { display: none; }
   right: max(calc(8px + env(safe-area-inset-right, 0px)), calc((var(--field-x) - var(--rail-btn)) / 2));
   width: var(--rail-btn);
   z-index: 6;
-  display: flex; flex-direction: column; align-items: center;
-  /* The rail spans the full viewport height so the rotate cluster can
-     center in it — only the buttons themselves may take pointer events,
-     or the column would eat drag-to-aim gestures started in the gutter. */
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px;
+  /* The rail spans the full viewport height so the column can center in
+     it — only the buttons themselves may take pointer events, or the
+     column would eat drag-to-aim gestures started in the gutter. */
   pointer-events: none;
 }
 .side-rail .icon-btn {
   pointer-events: auto;
   width: var(--rail-btn); height: var(--rail-btn); font-size: 22px;
-}
-.side-rail__top { display: flex; flex-direction: column; gap: 8px; }
-
-.rotate-cluster {
-  position: absolute; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 8px;
 }
 
 /* Rotate pair in the accent color — the primary in-game touch controls,
@@ -286,6 +283,24 @@ body.crt-off #app::after { display: none; }
   box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), var(--shadow-hard-sm);
 }
 .rotate-btn:hover { border-color: var(--accent); color: #b8f7ff; }
+
+/* Aim-state cancel — a danger-red ✕, last in the rail's single column,
+   shown only while a slingshot drag is live (main.ts's syncHud toggles
+   .hud--aiming on the HUD root from game.aiming). Hidden via visibility,
+   NOT display, so its slot stays reserved and the centered column never
+   reflows under a thumb mid-aim. Tapping it with a second finger aborts
+   the launch (input.ts's cancelAim) so releasing the aim finger fires
+   nothing. Touch-only — a mouse mid-drag can't click a second control, so
+   fine-pointer devices drop it entirely (see the media rule below). */
+.cancel-aim-btn {
+  visibility: hidden;
+  color: var(--danger);
+  border-color: rgba(255, 45, 85, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 45, 85, 0.22), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(255, 45, 85, 0.3), var(--shadow-hard-sm);
+}
+.cancel-aim-btn:hover { border-color: var(--danger); color: #ffb8c6; }
+.hud--aiming .cancel-aim-btn { visibility: visible; }
 
 /* Bond Breaker ability (see screens.ts's hudHTML / game.ts's useBondBreaker)
    — electric-amber accent so it reads as a special power, not another
@@ -325,7 +340,12 @@ body.crt-off #app::after { display: none; }
 .kbd-hint__sep { opacity: 0.4; }
 
 @media (pointer: fine) {
-  .side-rail .rotate-cluster { display: none; }
+  /* Keyboard covers rotate/bond/cancel; only fullscreen + pause remain,
+     back at their conventional top-right anchor. */
+  .side-rail { justify-content: flex-start; }
+  .side-rail .rotate-btn,
+  .side-rail .bond-btn,
+  .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
     display: flex;
     /* Dropped into the slim strip BELOW the plant's bottom edge (the plant
@@ -337,15 +357,13 @@ body.crt-off #app::after { display: none; }
   }
 }
 
-/* Short (landscape-phone) viewports: the centered rotate cluster (up to 3
-   stacked tap-md 60px buttons) can collide with the top fullscreen/pause
-   pair against a ~400px-tall viewport — cap the rail's button size a notch
-   lower (still above the 44px WCAG tap-target floor) and tighten the gaps
-   so both groups keep clear of each other. */
+/* Short (landscape-phone) viewports: the full six-button column (up to
+   6 × tap-md 60px + gaps ≈ 400px) can overflow a ~400px-tall viewport —
+   cap the rail's button size a notch lower (still above the 44px WCAG
+   tap-target floor) and tighten the gap so the stack fits. */
 @media (max-height: 480px) {
-  .side-rail { --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), 48px); }
+  .side-rail { --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), 48px); gap: 6px; }
   .side-rail .icon-btn { font-size: 18px; }
-  .side-rail__top, .rotate-cluster { gap: 6px; }
 }
 
 /* ---------- Finger-drag onboarding hint (see screens.ts's dragHintHTML) ----------

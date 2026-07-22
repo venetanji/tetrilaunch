@@ -71,6 +71,7 @@ class App {
     this.input = new InputController(this.canvas, () => this.game);
 
     this.overlay.addEventListener("click", this.onClick);
+    this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
     this.overlay.addEventListener("keydown", this.onKeydown);
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
@@ -421,6 +422,8 @@ class App {
     set("#hud-combo", "×" + g.combo);
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
+    // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
+    this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
     const powerPct = Math.round(g.cannon.powerRatio * 100);
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
     if (power) power.style.width = powerPct + "%";
@@ -479,7 +482,12 @@ class App {
     if (toggle) { this.onToggle(toggle, el); return; }
 
     const gameAct = el.getAttribute("data-game");
-    if (gameAct) { this.onGameAction(gameAct); return; }
+    if (gameAct) {
+      // Pointer taps already acted on pointerdown (see onGamePointerDown);
+      // only keyboard activation (click with detail 0) still lands here.
+      if (e.detail === 0) this.onGameAction(gameAct);
+      return;
+    }
 
     const action = el.getAttribute("data-action");
     if (!action) return;
@@ -505,12 +513,29 @@ class App {
     }
   };
 
+  /** In-game [data-game] buttons act on pointerdown, not click: browsers
+   *  only synthesize click for the PRIMARY pointer, so while a finger
+   *  holds the slingshot drag a second finger's tap on rotate/✕ never
+   *  produces a click at all. Firing on press also feels snappier for
+   *  game controls. onClick keeps keyboard activation working (a
+   *  keyboard "click" has detail 0 and no preceding pointerdown). */
+  private onGamePointerDown = (e: PointerEvent): void => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
+    if (!el || (el as HTMLButtonElement).disabled) return;
+    // No focus steal / compatibility mouse events for game controls; the
+    // primary pointer's synthesized click is skipped via onClick's
+    // detail check, so pressing can't double-fire.
+    e.preventDefault();
+    this.onGameAction(el.getAttribute("data-game")!);
+  };
+
   private onGameAction(a: string): void {
     const g = this.game;
     if (!g || this.state !== "playing") return;
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
+    else if (a === "cancel") this.input.cancelAim();
   }
 
   private onToggle(key: string, el: HTMLElement): void {
