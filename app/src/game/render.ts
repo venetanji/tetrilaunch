@@ -84,6 +84,7 @@ export function render(
   drawWalls(ctx);
   drawWindIndicator(ctx, scene.level, scene.windNow);
   drawCompactor(ctx, scene.compactor);
+  drawPistons(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
   drawTrajectory(ctx, scene.trajectory);
@@ -270,6 +271,84 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
   }
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * Two hydraulic pistons (1d "recycling-plant" layout — see
+ * design/screens/gameplay-variants.html's `.piston`) visually "driving" the
+ * compactor bar toward the right wall: a fixed barrel mounted so it tucks
+ * just under the right edge of the DOM plant panel (the panel spans field
+ * x 1.67%..48.75%, i.e. world x 624 — see app.css's .plant; the mockup
+ * mounts its barrels at frame x 462/960 = world 616, 8px under the panel
+ * edge, so they read as bolted onto the machine), a telescoping rod that
+ * stretches/shrinks to the bar's LIVE x-position every frame, and a head
+ * that "attaches" right at the bar's left face. Drawn here (not as DOM)
+ * precisely because the rod length has to track compactor.x every physics
+ * step, same as the bar itself. Two heights, spread inside the compactor's
+ * own half-height band (c.top..c.top+c.height) at the mockup's fractions,
+ * so they never desync if compactorHeightFrac changes. Note the bar CAN
+ * sweep left of the mount under extreme "Wide Bay" stacking (leftX bottoms
+ * out at 547 < 616 with 9 stacks — see mods.ts): the rod-length guard below
+ * just collapses the rod to zero and lets the head overlap the barrel,
+ * which reads as "fully retracted" and is an acceptable degenerate look.
+ */
+const PISTON_BARREL_X = 616; // world-x, fixed mount — tucked under the plant panel's right edge (624)
+const PISTON_BARREL_LEN = 93;
+const PISTON_BARREL_H = 35;
+const PISTON_ROD_H = 15;
+const PISTON_HEAD_W = 17;
+const PISTON_HEAD_H = 51;
+const PISTON_Y_FRACS = [0.27, 0.73]; // fraction down the compactor's [top, top+height] band — mockup's two mounts
+
+function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
+  for (const frac of PISTON_Y_FRACS) {
+    const y = c.top + c.height * frac;
+    const barrelX0 = PISTON_BARREL_X;
+    const barrelX1 = barrelX0 + PISTON_BARREL_LEN;
+    const headX = c.x - c.width / 2; // the bar's left face — where the piston pushes it
+    const rodX0 = barrelX1;
+    const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
+
+    ctx.save();
+
+    // Barrel (fixed) — dark riveted housing, subtle top-down gradient.
+    const barrelGrad = ctx.createLinearGradient(0, y - PISTON_BARREL_H / 2, 0, y + PISTON_BARREL_H / 2);
+    barrelGrad.addColorStop(0, "#2c2c48");
+    barrelGrad.addColorStop(1, "#171729");
+    ctx.fillStyle = barrelGrad;
+    roundRect(ctx, barrelX0, y - PISTON_BARREL_H / 2, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
+    ctx.fill();
+    ctx.strokeStyle = "#3d3d63";
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, barrelX0, y - PISTON_BARREL_H / 2, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
+    ctx.stroke();
+
+    // Rod — telescopes to meet the bar; metallic gradient + cyan glow.
+    if (rodX1 > rodX0) {
+      const rodGrad = ctx.createLinearGradient(0, y - PISTON_ROD_H / 2, 0, y + PISTON_ROD_H / 2);
+      rodGrad.addColorStop(0, "#e2e2f5");
+      rodGrad.addColorStop(0.55, "#8f8fc0");
+      rodGrad.addColorStop(1, "#5c5c88");
+      ctx.shadowColor = "rgba(0,240,255,0.4)";
+      ctx.shadowBlur = 6;
+      ctx.fillStyle = rodGrad;
+      ctx.fillRect(rodX0, y - PISTON_ROD_H / 2, rodX1 - rodX0, PISTON_ROD_H);
+      ctx.shadowBlur = 0;
+    }
+
+    // Head — attaches at the compactor's left face, same hazard-red as the bar.
+    const headGrad = ctx.createLinearGradient(headX - PISTON_HEAD_W, 0, headX, 0);
+    headGrad.addColorStop(0, "#ff6f8a");
+    headGrad.addColorStop(1, "#ff2d55");
+    ctx.shadowColor = "rgba(255,45,85,0.75)";
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = headGrad;
+    roundRect(ctx, headX - PISTON_HEAD_W, y - PISTON_HEAD_H / 2, PISTON_HEAD_W, PISTON_HEAD_H, 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+  }
 }
 
 function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
