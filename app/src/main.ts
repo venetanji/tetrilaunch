@@ -71,6 +71,7 @@ class App {
     this.input = new InputController(this.canvas, () => this.game);
 
     this.overlay.addEventListener("click", this.onClick);
+    this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
     this.overlay.addEventListener("keydown", this.onKeydown);
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
@@ -481,7 +482,12 @@ class App {
     if (toggle) { this.onToggle(toggle, el); return; }
 
     const gameAct = el.getAttribute("data-game");
-    if (gameAct) { this.onGameAction(gameAct); return; }
+    if (gameAct) {
+      // Pointer taps already acted on pointerdown (see onGamePointerDown);
+      // only keyboard activation (click with detail 0) still lands here.
+      if (e.detail === 0) this.onGameAction(gameAct);
+      return;
+    }
 
     const action = el.getAttribute("data-action");
     if (!action) return;
@@ -505,6 +511,22 @@ class App {
         if (this.state === "draft") this.advanceAfterDraft(null);
         break;
     }
+  };
+
+  /** In-game [data-game] buttons act on pointerdown, not click: browsers
+   *  only synthesize click for the PRIMARY pointer, so while a finger
+   *  holds the slingshot drag a second finger's tap on rotate/✕ never
+   *  produces a click at all. Firing on press also feels snappier for
+   *  game controls. onClick keeps keyboard activation working (a
+   *  keyboard "click" has detail 0 and no preceding pointerdown). */
+  private onGamePointerDown = (e: PointerEvent): void => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
+    if (!el || (el as HTMLButtonElement).disabled) return;
+    // No focus steal / compatibility mouse events for game controls; the
+    // primary pointer's synthesized click is skipped via onClick's
+    // detail check, so pressing can't double-fire.
+    e.preventDefault();
+    this.onGameAction(el.getAttribute("data-game")!);
   };
 
   private onGameAction(a: string): void {
