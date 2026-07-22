@@ -137,52 +137,106 @@ function drawWalls(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
-/** HUD wind indicator: a horizontal neon arrow near top-center whose length
- *  and direction track windNow / level.windMax (signed, so it points the way
- *  the wind is actually pushing) — a legible read on the invisible lateral
- *  force applied to airborne pieces (see game.ts's windNow/applyWind).
- *  Inert (no draw) when level.windMax is 0, matching the mechanic itself.
- *  Deliberately no shadowBlur — kept subtle and cheap, unlike the glowy
- *  walls/compactor above it. */
-const WIND_HUD_Y = 34;
-const WIND_HUD_HALF_LEN = 70; // px of arrow length at full deflection (|ratio| = 1)
-const WIND_HUD_HEAD = 8;
+/** Linear-interpolate between two "#rrggbb" hex colors (t clamped 0..1) —
+ *  used by the wind gauge to shift calm→dangerous with strength. */
+function lerpHex(a: string, b: string, t: number): string {
+  const k = Math.max(0, Math.min(1, t));
+  const na = parseInt(a.slice(1), 16);
+  const nb = parseInt(b.slice(1), 16);
+  const lerp = (sh: number) => {
+    const ca = (na >> sh) & 255;
+    const cb = (nb >> sh) & 255;
+    return Math.round(ca + (cb - ca) * k);
+  };
+  return `rgb(${lerp(16)},${lerp(8)},${lerp(0)})`;
+}
+
+/**
+ * HUD wind gauge: a bold, glowing directional bar drawn on a translucent pill
+ * just below the top HUD strip (the old thin arrow sat at world-y 34, behind
+ * the DOM HUD, and was effectively invisible — see the wind-rework PR). Its
+ * length and direction track windNow / level.windMax (signed, so it points the
+ * way the wind is actually pushing airborne pieces — see game.ts's
+ * windNow/applyWind), and its color ramps calm-cyan → hot-red as the gust
+ * strengthens so a strong wind reads as an obvious hazard at a glance. Inert
+ * (no draw) when level.windMax is 0 (the calm early bays), matching the
+ * mechanic itself.
+ */
+const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
+const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
+const WIND_HUD_HEAD = 15;
 
 function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, windNow: number): void {
   if (level.windMax <= 0) return;
   const ratio = Math.max(-1, Math.min(1, windNow / level.windMax));
+  const mag = Math.abs(ratio);
+  const dir = ratio >= 0 ? 1 : -1;
   const cx = WORLD.width / 2;
+  const y = WIND_HUD_Y;
   const len = ratio * WIND_HUD_HALF_LEN;
+  const col = lerpHex(COLORS.aim, COLORS.compactor, mag);
 
   ctx.save();
-  // Retro pass: monospace/pixel-feel label to match the DOM UI's restyle —
-  // still no shadowBlur (kept cheap/subtle, per the note above).
-  ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
   ctx.textAlign = "center";
-  ctx.fillStyle = COLORS.textDim;
-  ctx.globalAlpha = 0.8;
-  ctx.fillText("WIND", cx, WIND_HUD_Y - 12);
 
-  ctx.strokeStyle = COLORS.aim;
-  ctx.fillStyle = COLORS.aim;
-  ctx.globalAlpha = 0.55 + 0.35 * Math.abs(ratio);
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
+  // Translucent backing pill so the gauge stays legible over any field state.
+  const padX = WIND_HUD_HALF_LEN + 34;
+  const pillTop = y - 30;
+  const pillH = 52;
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(7,7,15,0.55)";
+  roundRect(ctx, cx - padX, pillTop, padX * 2, pillH, 12);
+  ctx.fill();
+
+  // "WIND" label.
+  ctx.font = "700 13px 'JetBrains Mono', ui-monospace, monospace";
+  ctx.fillStyle = COLORS.textDim;
+  ctx.globalAlpha = 0.9;
+  ctx.fillText("WIND", cx, y - 14);
+
+  // Baseline track + center tick (the calm/zero reference).
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = COLORS.textDim;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(cx, WIND_HUD_Y);
-  ctx.lineTo(cx + len, WIND_HUD_Y);
+  ctx.moveTo(cx - WIND_HUD_HALF_LEN, y);
+  ctx.lineTo(cx + WIND_HUD_HALF_LEN, y);
+  ctx.moveTo(cx, y - 8);
+  ctx.lineTo(cx, y + 8);
   ctx.stroke();
 
-  if (Math.abs(len) > 2) {
-    const dir = Math.sign(len);
+  // Glowing strength bar.
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 8 + 14 * mag;
+  ctx.lineWidth = 6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx, y);
+  ctx.lineTo(cx + len, y);
+  ctx.stroke();
+
+  // Arrowhead pointing the way the wind pushes.
+  if (mag > 0.02) {
     const tipX = cx + len;
     ctx.beginPath();
-    ctx.moveTo(tipX, WIND_HUD_Y);
-    ctx.lineTo(tipX - dir * WIND_HUD_HEAD, WIND_HUD_Y - WIND_HUD_HEAD * 0.6);
-    ctx.lineTo(tipX - dir * WIND_HUD_HEAD, WIND_HUD_Y + WIND_HUD_HEAD * 0.6);
+    ctx.moveTo(tipX + dir * WIND_HUD_HEAD, y);
+    ctx.lineTo(tipX, y - WIND_HUD_HEAD * 0.72);
+    ctx.lineTo(tipX, y + WIND_HUD_HEAD * 0.72);
     ctx.closePath();
     ctx.fill();
   }
+
+  // Numeric strength readout under the bar, on the pushing side.
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = col;
+  ctx.font = "700 12px 'JetBrains Mono', ui-monospace, monospace";
+  const pct = Math.round(mag * 100);
+  const glyph = dir >= 0 ? "▶" : "◀";
+  ctx.fillText(mag < 0.02 ? "CALM" : `${glyph} ${pct}%`, cx, y + 22);
   ctx.restore();
 }
 

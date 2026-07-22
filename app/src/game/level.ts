@@ -63,17 +63,20 @@ export interface LevelConfig {
    *  the same launchCost but clear cubes around their blast instead of
    *  scoring — a cleanup tool, not a scoring one (see game.ts's detonate). */
   bombEvery: number;
-  /** Peak lateral wind acceleration (px/step^2) applied to airborne cubes and
-   *  live bombs — see game.ts's windNow (a pure sine function of stepCount,
-   *  no RNG) and cannon.ts's predictTrajectory windAccel param. 0 disables
+  /** Magnitude cap (px/step^2) on this bay's lateral wind. Each bay rolls a
+   *  steady AVERAGE wind in [-windMax, +windMax] once from the run seed (see
+   *  game.ts's windAvg), then the live wind drunk-walks gently around that
+   *  average (windGust per step) rather than sweeping a full sine. 0 disables
    *  the mechanic entirely (inert: windNow is always 0). Tunable roadmap
    *  seam: the core counter to "fire the same direction forever" — see the
    *  BALANCE KNOBS note below. */
   windMax: number;
-  /** Full wind sine-cycle length, in seconds (60 steps/sec) — see game.ts's
-   *  windNow: windMax * sin(2π * stepCount / (60 * windPeriodSec)). Ignored
-   *  when windMax is 0. */
-  windPeriodSec: number;
+  /** Per-step size of the wind's random drunk-walk (px/step^2). The live wind
+   *  nudges by up to ±windGust each physics step and is gently pulled back
+   *  toward the bay's rolled average, so it gusts around a learnable baseline
+   *  instead of oscillating extreme-to-extreme (see game.ts's stepWind).
+   *  Ignored when windMax is 0. */
+  windGust: number;
 }
 
 // Economy balance note: each bay is its OWN economy now — targetScore,
@@ -122,30 +125,25 @@ function targetScoreFor(i: number): number {
  * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
  *   so time pressure keeps rising relative to how much a bay actually needs
  *   to bank.
- * - windMax (0.25 at bay 1, then 0.30 + 0.045i) is the core counter to
- *   "fire the same direction forever", introduced GENTLY and ramped across
- *   the run (playtest feedback: a flat-high wind read as extreme conditions
- *   from bay 1). Bay 1's 0.25 is the measured strict minimum for the
- *   guarantee (sim/sweep.ts --windmax ladder, 20 seeds): at 0.15 fixed-aim
- *   presets scrape 5-15%, at 0.20 they still scrape 5%, at 0.25 every
- *   fixed preset (middle/flat/lob/lob-rot/lob-flat/lob-tall, plus
- *   random/random-up) measures 0% while the adaptive `aim` bot — which
- *   re-solves each shot against the exact wind-aware trajectory preview,
- *   varies power, targets pile gaps, and WAITS OUT gusts rather than
- *   firing on cooldown — wins 95%. The weather then rolls in from bay 2:
- *   the step to 0.345 closes a lucky-seed leak (single fixed-aim bots
- *   scraped 5% at 0.295-0.30 against bay 2's easier target) — verified 0%
- *   fixed / 95% aim at 0.345. The ladder tops out at ~0.705 (bay 10,
- *   verified 0% fixed / 85% aim), below the measured ~0.8 cliff where even
- *   adaptive play collapses (aim holds 60-90% through ~0.78, drops to
- *   20-40% by 0.82). Patience becomes the load-bearing skill as the ladder
- *   climbs — late-bay gusts are genuinely unplayable and the HUD wind
- *   meter telegraphs the calm windows around each sine zero-crossing.
- *   windPeriodSec (flat 24s) is NOT tied to i — it's long relative to a
- *   single piece's ~1.5-2.5s flight time (so a fixed aim's shots all drift
- *   the same way for many consecutive launches, not averaging out
- *   shot-to-shot) but short relative to a full bay's playtime (so the wind
- *   reverses direction, and offers calm windows, several times per run).
+ * - windMax is the core counter to "fire the same direction forever", now
+ *   introduced only AFTER the player has the fundamentals down. The first
+ *   three bays (i < 3) are dead calm (windMax 0) so new players learn the
+ *   slingshot, economy, and compactor with no lateral force at all. Weather
+ *   then rolls in GENTLY from bay 4 (i === 3) at 0.06 and ramps +0.04/bay to
+ *   0.30 at bay 10 (i === 9) — a fraction of the old flat-high ladder that
+ *   playtesters flagged as unfair.
+ * - The mechanic itself changed shape (see game.ts's stepWind): instead of a
+ *   deterministic sine sweeping the full ±windMax every windPeriodSec, each
+ *   bay rolls ONE steady average wind in [-windMax, +windMax] from the run
+ *   seed, and the live wind drunk-walks around it by ±windGust per step with
+ *   a gentle pull back toward that average. So a bay has a *character* ("a
+ *   light breeze from the left") the player can read once and compensate for
+ *   shot-to-shot, with small gusts for texture — rather than a sine that
+ *   forces every shot to re-solve against a constantly reversing force. This
+ *   is deliberately fairer to a human: the wind is learnable, not a coin
+ *   flip on each launch. The drunk walk is seeded (Game's seed ^ bay id) so a
+ *   given run/bay always plays the exact same weather, and a Restart Bay
+ *   replays it identically — determinism the sim harness still relies on.
  */
 export function makeBaseLevel(i: number): LevelConfig {
   return {
@@ -169,8 +167,10 @@ export function makeBaseLevel(i: number): LevelConfig {
     timeLimitSec: 150 + i * 10,
     pieceCubes: 4,
     bombEvery: 0,
-    windMax: i === 0 ? 0.25 : 0.3 + i * 0.045,
-    windPeriodSec: 24,
+    // Dead calm for the first three bays; weather rolls in gently from bay 4
+    // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
+    windMax: i < 3 ? 0 : 0.06 + (i - 3) * 0.04,
+    windGust: 0.03,
   };
 }
 

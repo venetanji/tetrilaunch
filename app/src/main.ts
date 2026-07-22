@@ -239,7 +239,7 @@ class App {
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
       onStatus: (s) => this.onGameStatus(s),
-    });
+    }, this.run.seed);
     this.setState("playing");
     this.armDragHint();
   }
