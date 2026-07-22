@@ -66,16 +66,23 @@ export interface LevelConfig {
   /** Magnitude cap (px/step^2) on this bay's lateral wind. Each bay rolls a
    *  steady AVERAGE wind in [-windMax, +windMax] once from the run seed (see
    *  game.ts's windAvg), then the live wind drunk-walks gently around that
-   *  average (windGust per step) rather than sweeping a full sine. 0 disables
-   *  the mechanic entirely (inert: windNow is always 0). Tunable roadmap
-   *  seam: the core counter to "fire the same direction forever" — see the
-   *  BALANCE KNOBS note below. */
+   *  average (windGust per step, mean-reverting on a ~5s timescale — see
+   *  game.ts's WIND_TAU_SEC/WIND_REVERT) rather than sweeping a full sine.
+   *  0 disables the mechanic entirely (inert: windNow is always 0). Tunable
+   *  roadmap seam: the core counter to "fire the same direction forever" —
+   *  see the BALANCE KNOBS note below. */
   windMax: number;
-  /** Per-step size of the wind's random drunk-walk (px/step^2). The live wind
-   *  nudges by up to ±windGust each physics step and is gently pulled back
-   *  toward the bay's rolled average, so it gusts around a learnable baseline
-   *  instead of oscillating extreme-to-extreme (see game.ts's stepWind).
-   *  Ignored when windMax is 0. */
+  /** Per-step size of the wind's random drunk-walk (px/step^2) — see
+   *  makeBaseLevel, which sizes this as windMax * WIND_GUST_FRACTION so the
+   *  gust "texture" stays a fixed fraction of the bay's prevailing-wind cap
+   *  (~17.7% stationary std at the tuned WIND_GUST_FRACTION/WIND_TAU_SEC —
+   *  see game.ts's WIND_REVERT comment for the exact formula) instead of a
+   *  flat magnitude that would dwarf a low bay's windMax while reading as
+   *  flat at a high one. The live wind nudges by up to ±windGust each
+   *  physics step and is gently pulled back toward the bay's rolled average
+   *  over a ~5s decorrelation time (game.ts's stepWind), so it gusts around
+   *  a learnable baseline instead of oscillating extreme-to-extreme or
+   *  re-rolling every fraction of a second. Ignored when windMax is 0. */
   windGust: number;
   /** Bond Breaker charges granted at the START of this bay — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
@@ -152,8 +159,34 @@ function targetScoreFor(i: number): number {
  *   flip on each launch. The drunk walk is seeded (Game's seed ^ bay id) so a
  *   given run/bay always plays the exact same weather, and a Restart Bay
  *   replays it identically — determinism the sim harness still relies on.
+ * - windGust is sized here as windMax * WIND_GUST_FRACTION rather than a flat
+ *   number, and the per-step revert (game.ts's WIND_REVERT) is derived from
+ *   a named seconds-scale time constant (WIND_TAU_SEC ≈ 5s) instead of a
+ *   bare per-step fraction. This fixes a real bug: the wind used to decorrelate
+ *   with tau ≈ 0.33s (re-rolling ~3x/sec, ~6x within one flight) because
+ *   WIND_REVERT=0.05 was tuned as if it were a per-second rate but was
+ *   actually applied per PHYSICS STEP at 60/sec — an order-of-magnitude
+ *   timescale error with the units left implicit. It also made gusts as big
+ *   as the whole prevailing wind at low bays (std ≈ ±0.055 vs. bay 4's
+ *   windMax of 0.06). With WIND_TAU_SEC=5 and WIND_GUST_FRACTION=0.025, gusts
+ *   now sit at a steady ~17.7% of windMax stationary std and the character of
+ *   the wind barely changes within one ~2s flight, only drifting over the
+ *   course of a bay — matching the "learnable character, small gusts for
+ *   texture" intent described above (see game.ts's WIND_REVERT comment for
+ *   the full derivation and the std formula).
  */
+/** Fraction of windMax used to size each bay's windGust (see the field's doc
+ *  and the BALANCE KNOBS note above). Kept here, not as a flat windGust
+ *  number, so the "texture vs. prevailing wind" ratio is the SAME at every
+ *  windy bay instead of a flat magnitude that swamps a low windMax bay while
+ *  reading as nothing at a high one. See game.ts's WIND_REVERT comment for
+ *  the exact stationary-std formula this feeds (~17.7% of windMax at the
+ *  tuned WIND_TAU_SEC=5s). */
+export const WIND_GUST_FRACTION = 0.025;
 export function makeBaseLevel(i: number): LevelConfig {
+  // Dead calm for the first three bays; weather rolls in gently from bay 4
+  // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
+  const windMax = i < 3 ? 0 : 0.06 + (i - 3) * 0.04;
   return {
     id: i + 1,
     name: LEVEL_NAMES[i],
@@ -175,10 +208,11 @@ export function makeBaseLevel(i: number): LevelConfig {
     timeLimitSec: 150 + i * 10,
     pieceCubes: 4,
     bombEvery: 0,
-    // Dead calm for the first three bays; weather rolls in gently from bay 4
-    // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
-    windMax: i < 3 ? 0 : 0.06 + (i - 3) * 0.04,
-    windGust: 0.03,
+    windMax,
+    // Sized as a fraction of windMax, not a flat number — see
+    // WIND_GUST_FRACTION's doc above. windMax 0 (bays 1-3) makes this 0 too,
+    // consistent with stepWind's own windMax===0 inert-wind short-circuit.
+    windGust: windMax * WIND_GUST_FRACTION,
     bondBreakerCharges: 0,
   };
 }

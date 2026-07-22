@@ -119,14 +119,16 @@ export class Cannon {
  * (constant gravity accel + air damping), so the dotted arc matches the
  * flight. `windAt(i)` returns the wind acceleration for step `i` (0-based,
  * relative to "now") — a FUNCTION rather than a single scalar because wind
- * is a sine of stepCount (see game.ts's windNow) with a period only ~9-15x
- * a typical flight's duration: holding it constant across the whole ~140
- * steps here materially mismatches the real per-step value the actual
- * flight will experience under game.ts's applyWind, especially for a bot
- * (like sim/bots.ts's `aim`) whose whole strategy is re-solving against
- * this exact preview. Defaults to a still-air `() => 0` so every other
- * caller (main.ts's live HUD arc, which only ever wants "wind as of right
- * now" smeared across the preview) is unaffected.
+ * is a seeded drunk walk (see game.ts's windNow/stepWind), not a fixed
+ * value; game.ts's updateTrajectory passes a constant closure over the
+ * current reading, which is a close match because the walk's decorrelation
+ * time constant (game.ts's WIND_TAU_SEC, ~5s) is long relative to a ~140
+ * step (~2.3s) preview. A caller that instead wanted to simulate the wind
+ * continuing to drunk-walk forward would pass a step-varying function here
+ * — the signature supports it even though no current caller does. Defaults
+ * to a still-air `() => 0` so every other caller (main.ts's live HUD arc,
+ * which only ever wants "wind as of right now" smeared across the preview)
+ * is unaffected.
  */
 export function predictTrajectory(
   start: Matter.Vector,

@@ -19,7 +19,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeBaseLevel, type LevelConfig } from "../src/game/level";
+import { makeBaseLevel, WIND_GUST_FRACTION, type LevelConfig } from "../src/game/level";
 import { MODS, applyMods } from "../src/game/mods";
 import { BOTS } from "./bots";
 import { runBay, type BayOutcome } from "./runner";
@@ -125,7 +125,15 @@ function parseArgs(argv: string[]): Args {
 function baseLevelForBay(bay: number, carry: number, windMax = NaN): LevelConfig {
   const cfg = makeBaseLevel(bay - 1);
   if (bay > 1) cfg.startingFunds = cfg.startingFunds + carry;
-  if (!Number.isNaN(windMax)) cfg.windMax = windMax;
+  if (!Number.isNaN(windMax)) {
+    cfg.windMax = windMax;
+    // Keep windGust proportionate to the OVERRIDDEN windMax too (see
+    // level.ts's WIND_GUST_FRACTION doc) — otherwise a --windmax override
+    // would leave the gust texture sized for the bay's original ladder
+    // value, so e.g. forcing bay 1 (natural windMax 0) up to 0.2 would fire
+    // with zero gust texture at all.
+    cfg.windGust = windMax * WIND_GUST_FRACTION;
+  }
   return cfg;
 }
 
