@@ -19,3 +19,7 @@ app/ios/
 .DS_Store
 .vscode/
 __pycache__/
+
+# design-sync (regenerated build output + machine state)
+ds-bundle/
+.design-sync/.cache/
