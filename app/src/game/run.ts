@@ -69,3 +69,21 @@ export function advanceRun(
     linesTotal: run.linesTotal + lines,
   };
 }
+
+/** Final-score weights (see finalRunScore). Exported so the end modal can
+ *  show the same numbers in its breakdown line. */
+export const SCORE_PER_BAY = 500;
+export const SCORE_PER_LINE = 100;
+
+/**
+ * Composite score for a FINISHED run — what goes to the leaderboard and the
+ * saved best. Bays cleared and total lines dominate; the funds in hand when
+ * the run ended count only 1:1, as a tie-breaker. That ordering is
+ * deliberate: each bay is its own economy (only the overshoot above target
+ * carries — see levelForRun/advanceRun), so ending funds are mostly the
+ * final bay's float, not a measure of the whole run. Ranking by funds alone
+ * let a bay-1 flameout with a fat wallet outrank a deep run that died broke.
+ */
+export function finalRunScore(baysCleared: number, totalLines: number, fundsLeft: number): number {
+  return baysCleared * SCORE_PER_BAY + totalLines * SCORE_PER_LINE + Math.max(0, fundsLeft);
+}

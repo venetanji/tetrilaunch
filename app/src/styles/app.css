@@ -141,10 +141,6 @@ body.crt-off #app::after { display: none; }
    fighting `.icon-btn`/`.btn`'s own `display` in the cascade. */
 .fs-hidden { display: none !important; }
 
-/* Compact HUD variant of the icon buttons (pause / fullscreen) — smaller
-   than the 52px default used by modal "back" buttons elsewhere. */
-.icon-btn--c { width: clamp(30px, 7vw, 38px); height: clamp(30px, 7vw, 38px); font-size: 16px; border-radius: var(--r-sm); }
-
 /* ---------- Panels / cards ---------- */
 .panel {
   background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
@@ -235,66 +231,61 @@ body.crt-off #app::after { display: none; }
   border: 1px solid rgba(255,45,85,0.5);
 }
 
-/* ---------- HUD bottom controls ----------
-   FIRE anchors bottom-RIGHT (right thumb; the recycling-plant panel owns
-   the bottom-LEFT corner in the 1d layout, and bottom-right freed up when
-   the rotate cluster moved to the top-right rail), safe-area aware
-   (--safe-r/b, tokens.css), clear of the center so the drag-anywhere aim
-   gesture always has room. Desktop hides it and shows a keyboard-hint strip
-   instead — pure CSS via (pointer: …) queries below, no device sniffing. */
+/* ---------- HUD bottom strip ----------
+   Holds only the desktop keyboard-hint strip now — there is no FIRE button:
+   releasing the slingshot drag fires (see input.ts's onUp), and Space fires
+   on desktop. */
 .hud__bottom { position: absolute; inset: 0; }
-/* Reclaim pointer-events from the `.hud > *` rule above: only the actual
-   controls should intercept clicks, not the (now full-bleed) empty center
-   that the drag-anywhere aim gesture needs. */
+/* Reclaim pointer-events from the `.hud > *` rule above: nothing in this
+   (full-bleed) layer should intercept clicks — the drag-anywhere aim
+   gesture needs the whole center. */
 .hud .hud__bottom { pointer-events: none; }
-.hud__bottom .shoot-btn { pointer-events: auto; }
-.rotate-cluster .icon-btn { width: var(--tap-md); height: var(--tap-md); font-size: 22px; }
 
-.shoot-btn {
-  position: absolute;
-  right: var(--safe-r);
-  bottom: var(--safe-b);
-  width: var(--tap-lg); height: var(--tap-lg); border-radius: var(--r-xl);
-  background: radial-gradient(circle at 35% 30%, #38d6ff, var(--accent) 55%, #0090a8);
-  color: var(--accent-ink); border: var(--bw-thick) solid var(--accent-ink); cursor: pointer;
-  font-family: var(--font-pixel); font-weight: 700; letter-spacing: 0; font-size: 12px;
-  box-shadow: var(--shadow-hard-lg);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-}
-.shoot-btn:active { transform: translate(3px, 3px); box-shadow: none; }
-.shoot-btn:disabled { filter: grayscale(0.7) brightness(0.6); box-shadow: none; cursor: default; }
-/* Cost line under FIRE — small enough to stay inside the round button at
-   its smallest (--tap-lg's clamp floor). */
-.shoot-btn__cost {
-  display: block;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  letter-spacing: 0;
-  font-size: 10px;
-  opacity: 0.85;
-}
-
-/* ---------- Top-right button rail ----------
-   Fullscreen + pause sit in a small horizontal row at the top on every input
-   mode. Below that, a touch-only vertical column carries rotate CCW/CW and
-   (if drafted) Bond Breaker — there's no keyboard on a touchscreen, so this
-   rail IS the rotate/bond control surface there; desktop hides it and uses
-   Q/E + B instead (see the `@media (pointer: fine)` rule below), matching
-   the kbd-hint strip's bindings. Anchored top-right, safe-area aware. */
-.corner-tr {
+/* ---------- Right-side button rail ----------
+   EVERY HUD button in one same-width column, centered in the letterbox
+   gutter OUTSIDE the field's right wall (the field is letterbox-centered,
+   so the right gutter is exactly --field-x wide — see main.ts's onResize):
+   fullscreen + pause anchor the top, and the accent-colored rotate CCW/CW
+   pair (+ Bond Breaker if drafted) sits vertically centered at thumb
+   height. --rail-btn tracks the gutter width so the column narrows (never
+   below the 44px WCAG tap floor) instead of covering the field on
+   near-16:9 viewports where the gutter closes up. Desktop hides the rotate
+   cluster and uses Q/E + B instead (see the `@media (pointer: fine)` rule
+   below), matching the kbd-hint strip's bindings. */
+.side-rail {
+  --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), var(--tap-md));
   position: absolute;
   top: max(8px, env(safe-area-inset-top, 0px));
-  right: calc(8px + env(safe-area-inset-right, 0px));
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  right: max(calc(8px + env(safe-area-inset-right, 0px)), calc((var(--field-x) - var(--rail-btn)) / 2));
+  width: var(--rail-btn);
   z-index: 6;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  display: flex; flex-direction: column; align-items: center;
+  /* The rail spans the full viewport height so the rotate cluster can
+     center in it — only the buttons themselves may take pointer events,
+     or the column would eat drag-to-aim gestures started in the gutter. */
+  pointer-events: none;
 }
-.corner-tr__row { display: flex; align-items: center; gap: 8px; }
+.side-rail .icon-btn {
+  pointer-events: auto;
+  width: var(--rail-btn); height: var(--rail-btn); font-size: 22px;
+}
+.side-rail__top { display: flex; flex-direction: column; gap: 8px; }
 
 .rotate-cluster {
+  position: absolute; top: 50%; transform: translateY(-50%);
   display: flex; flex-direction: column; gap: 8px;
 }
-.rotate-cluster .icon-btn { width: var(--tap-md); height: var(--tap-md); font-size: 22px; }
+
+/* Rotate pair in the accent color — the primary in-game touch controls,
+   set apart from the neutral fullscreen/pause pair above them. */
+.rotate-btn {
+  color: var(--accent);
+  border-color: rgba(0, 240, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(0, 240, 255, 0.22), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), var(--shadow-hard-sm);
+}
+.rotate-btn:hover { border-color: var(--accent); color: #b8f7ff; }
 
 /* Bond Breaker ability (see screens.ts's hudHTML / game.ts's useBondBreaker)
    — electric-amber accent so it reads as a special power, not another
@@ -334,8 +325,7 @@ body.crt-off #app::after { display: none; }
 .kbd-hint__sep { opacity: 0.4; }
 
 @media (pointer: fine) {
-  .hud__bottom .shoot-btn,
-  .corner-tr .rotate-cluster { display: none; }
+  .side-rail .rotate-cluster { display: none; }
   .kbd-hint {
     display: flex;
     /* Dropped into the slim strip BELOW the plant's bottom edge (the plant
@@ -347,13 +337,15 @@ body.crt-off #app::after { display: none; }
   }
 }
 
-/* Short (landscape-phone) viewports: the touch rail's 3 stacked tap-md
-   (60px) buttons can run tall against a ~400px-tall viewport — tighten the
-   rail's own gap and shrink the buttons a notch (still well above the
-   44px WCAG tap-target floor) so it doesn't crowd the play field. */
+/* Short (landscape-phone) viewports: the centered rotate cluster (up to 3
+   stacked tap-md 60px buttons) can collide with the top fullscreen/pause
+   pair against a ~400px-tall viewport — cap the rail's button size a notch
+   lower (still above the 44px WCAG tap-target floor) and tighten the gaps
+   so both groups keep clear of each other. */
 @media (max-height: 480px) {
-  .rotate-cluster { gap: 6px; }
-  .rotate-cluster .icon-btn { width: 48px; height: 48px; font-size: 18px; }
+  .side-rail { --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), 48px); }
+  .side-rail .icon-btn { font-size: 18px; }
+  .side-rail__top, .rotate-cluster { gap: 6px; }
 }
 
 /* ---------- Finger-drag onboarding hint (see screens.ts's dragHintHTML) ----------
@@ -430,10 +422,9 @@ body.crt-off #app::after { display: none; }
   /* The mockup's frame fractions, verbatim: left 16/960, top 292/540, size
      452x232 of the 960x540 frame — anchored to the FIELD rect published by
      main.ts's onResize (not the viewport edges), so the panel keeps the
-     mockup's footprint at every window aspect, letterboxing included. FIRE
-     moved to the bottom-RIGHT corner on touch (see .shoot-btn below):
-     this corner belongs to the plant now, and bottom-right freed up when
-     the rotate cluster moved to the top-right rail. */
+     mockup's footprint at every window aspect, letterboxing included. The
+     bottom-LEFT corner belongs to the plant; every button lives in the
+     right-gutter rail outside the field (see .side-rail). */
   left: calc(var(--field-x) + 0.0167 * var(--field-w));
   top: calc(var(--field-y) + 0.5407 * var(--field-h));
   width: calc(0.4708 * var(--field-w));

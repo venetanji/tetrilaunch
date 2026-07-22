@@ -1,5 +1,6 @@
 import { PIECE_TYPES } from "../game/theme";
 import { LEVEL_1 } from "../game/level";
+import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import { toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML } from "./components";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
@@ -138,7 +139,9 @@ export function leaderboardScreen(rows: string): string {
  * The old single-row top chip bar is gone: funds/target/time/combo now live
  * in the RECYCLING PLANT panel bottom-left (below the cannon), the NEXT
  * preview rides a conveyor belt top-left, the power meter is a bar mounted
- * on the plant, and top-right keeps only fullscreen + pause. Two hydraulic
+ * on the plant, and every button lives in one same-width column in the
+ * letterbox gutter OUTSIDE the field's right wall (fullscreen + pause on
+ * top, rotate vertically centered — see app.css's .side-rail). Two hydraulic
  * pistons "driving" the compactor toward the right wall are canvas-drawn
  * (see render.ts's drawPistons) since they must track the compactor's live
  * x-position every frame — nothing here positions them, this file only owns
@@ -150,7 +153,6 @@ export function hudHTML(opts: {
   beltPreview: BeltPreview;
   target: number;
   score: number;
-  launchCost: number;
   bayNum: number;
   timeLimitSec: number;
   timeLeftMs: number;
@@ -166,7 +168,7 @@ export function hudHTML(opts: {
   modIds: string[];
 }): string {
   const {
-    beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
+    beltPreview, target, score, bayNum, timeLimitSec, timeLeftMs,
     pieceCubes, bondBreakerOwned, bondCharges, modIds,
   } = opts;
   const beltNextHTML = beltPreview.bomb
@@ -193,20 +195,22 @@ export function hudHTML(opts: {
     ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   return `<div class="hud" id="hud">
-    <!-- top-right button rail. Fullscreen + pause sit in the top row on every
-         input mode; below that, a touch-only column (rotate CCW/CW, then
-         Bond Breaker if drafted) — there's no keyboard on mobile, so this
-         rail IS the rotate/bond control surface there. Desktop hides that
-         column (see the @media (pointer: fine) rule in app.css) and keeps
-         using Q/E + B instead, per the kbd-hint strip down in .hud__bottom. -->
-    <div class="corner-tr">
-      <div class="corner-tr__row">
-        <button class="icon-btn icon-btn--c" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
-        <button class="icon-btn icon-btn--c" data-action="pause" aria-label="Pause">⏸</button>
+    <!-- right-side button rail: ONE same-width column in the letterbox
+         gutter outside the field's right wall (see app.css's .side-rail).
+         Fullscreen + pause anchor the top on every input mode; the
+         accent-colored rotate CCW/CW pair (+ Bond Breaker if drafted) sits
+         vertically centered — there's no keyboard on mobile, so that
+         cluster IS the rotate/bond control surface there. Desktop hides it
+         (see the @media (pointer: fine) rule in app.css) and keeps using
+         Q/E + B instead, per the kbd-hint strip down in .hud__bottom. -->
+    <div class="side-rail">
+      <div class="side-rail__top">
+        <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
+        <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
       </div>
       <div class="rotate-cluster">
-        <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
-        <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
+        <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
+        <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
         ${bondRailBtn}
       </div>
     </div>
@@ -253,7 +257,6 @@ export function hudHTML(opts: {
     </div>
 
     <div class="hud__bottom">
-      <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
       <div class="kbd-hint" aria-hidden="true">
         <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
         <span class="kbd-hint__sep">·</span>
@@ -357,8 +360,15 @@ export function draftScreen(opts: {
 
 export function endModal(opts: {
   won: boolean;
+  /** Composite final run score (run.ts's finalRunScore) — bays + lines +
+   *  leftover funds, NOT the raw ending bankroll. */
   score: number;
   lines: number;
+  /** Bays fully cleared (0 if the run died in bay 1) — the ×SCORE_PER_BAY
+   *  term in the breakdown line. */
+  baysCleared: number;
+  /** Funds in hand when the run ended — the tie-breaker term. */
+  funds: number;
   best: number;
   name: string;
   rows: string;
@@ -386,9 +396,14 @@ export function endModal(opts: {
       <h2 class="display">${title}</h2>
       ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum} — ${opts.bayName}</p>` : ""}
       <div class="stat-row">
-        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Funds</span></div>
+        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Score</span></div>
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
         <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
+      </div>
+      <div class="muted" style="text-align:center;font-size:12px;margin-top:-8px">
+        ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
+        · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
+        · $${Math.max(0, opts.funds)} left
       </div>
       <div class="submit-row" id="submit-row">
         <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"

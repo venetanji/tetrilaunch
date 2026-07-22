@@ -1,7 +1,7 @@
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
-import { newRun, advanceRun, levelForRun, RUN_LEVELS, type RunState } from "./game/run";
+import { newRun, advanceRun, levelForRun, finalRunScore, RUN_LEVELS, type RunState } from "./game/run";
 import { draftOffers, modById, type ModDef } from "./game/mods";
 import { render, computeViewport } from "./game/render";
 import { WORLD } from "./game/engine";
@@ -117,7 +117,6 @@ class App {
       beltPreview: g.beltPreview,
       target: g.target,
       score: g.score,
-      launchCost: g.level.launchCost,
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
@@ -169,8 +168,10 @@ class App {
             S.hudHTML(this.hudOpts(g)) +
             S.endModal({
               won: this.state === "won",
-              score: g.score,
+              score: this.finalScore(g, this.state === "won"),
               lines: this.run.linesTotal + g.linesTotal,
+              baysCleared: this.run.levelIndex + (this.state === "won" ? 1 : 0),
+              funds: g.score,
               best: loadBest(),
               name: loadName(), rows: S.leaderboardRowsHTML(this.cachedBoard, loadName() || undefined),
               reason: g.lossReason,
@@ -285,6 +286,14 @@ class App {
     }
   }
 
+  /** Composite leaderboard/best score for the run that just ended (`won` =
+   *  the bay-10 clear; every other end is a loss). Bays cleared and lines
+   *  weigh far more than the funds in hand — see run.ts's finalRunScore. */
+  private finalScore(g: Game, won: boolean): number {
+    const cleared = (this.run?.levelIndex ?? 0) + (won ? 1 : 0);
+    return finalRunScore(cleared, (this.run?.linesTotal ?? 0) + g.linesTotal, g.score);
+  }
+
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
     if (!g || !this.run) return;
@@ -299,13 +308,13 @@ class App {
         this.setState("draft");
       } else {
         // Bay 10 cleared: the run is complete.
-        saveBest(g.score);
+        saveBest(this.finalScore(g, true));
         this.refreshBoard();
         this.setState("won");
       }
     } else if (s === "lost") {
       void impactHaptic();
-      saveBest(g.score);
+      saveBest(this.finalScore(g, false));
       this.refreshBoard();
       this.setState("lost");
     }
@@ -436,9 +445,6 @@ class App {
       }
       this.lastNext = nextKey;
     }
-    const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
-    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
-
     // Bond Breaker has TWO triggers on screen at once when drafted — the
     // plant's status chip and the touch-rail's primary button (see
     // screens.ts's hudHTML) — kept in sync together via a shared class
@@ -502,8 +508,7 @@ class App {
   private onGameAction(a: string): void {
     const g = this.game;
     if (!g || this.state !== "playing") return;
-    if (a === "shoot") g.shoot(performance.now());
-    else if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
+    if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
   }
@@ -527,7 +532,7 @@ class App {
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
-    const res = await submitScore(name, g.score, 1, lines);
+    const res = await submitScore(name, this.finalScore(g, this.state === "won"), 1, lines);
     this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
     this.renderBoardRows(name);
     void successHaptic();

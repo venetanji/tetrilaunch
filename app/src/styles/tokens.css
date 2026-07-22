@@ -133,8 +133,7 @@
 
   /* Touch target sizes (WCAG 2.5.5 / iOS HIG minimum is 44px) */
   --tap-min: 44px; /* absolute floor for any tappable control */
-  --tap-md: 60px; /* rotate-cluster buttons — one-thumb, comfortably above the floor */
-  --tap-lg: clamp(72px, 20vw, 92px); /* FIRE — the single most important target, biggest of the three */
+  --tap-md: 60px; /* side-rail buttons' size cap — one-thumb, comfortably above the floor */
 
   /* Control cluster spacing/offsets (corner-anchored touch controls) */
   --ctrl-gap: var(--sp-5); /* gap between the two rotate buttons — wide enough that ⟲/⟳ can't be fat-fingered */
