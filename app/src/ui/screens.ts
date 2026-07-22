@@ -1,5 +1,6 @@
 import { PIECE_TYPES } from "../game/theme";
 import { LEVEL_1 } from "../game/level";
+import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import { toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML } from "./components";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
@@ -359,8 +360,15 @@ export function draftScreen(opts: {
 
 export function endModal(opts: {
   won: boolean;
+  /** Composite final run score (run.ts's finalRunScore) — bays + lines +
+   *  leftover funds, NOT the raw ending bankroll. */
   score: number;
   lines: number;
+  /** Bays fully cleared (0 if the run died in bay 1) — the ×SCORE_PER_BAY
+   *  term in the breakdown line. */
+  baysCleared: number;
+  /** Funds in hand when the run ended — the tie-breaker term. */
+  funds: number;
   best: number;
   name: string;
   rows: string;
@@ -388,9 +396,14 @@ export function endModal(opts: {
       <h2 class="display">${title}</h2>
       ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum} — ${opts.bayName}</p>` : ""}
       <div class="stat-row">
-        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Funds</span></div>
+        <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Score</span></div>
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
         <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
+      </div>
+      <div class="muted" style="text-align:center;font-size:12px;margin-top:-8px">
+        ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
+        · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
+        · $${Math.max(0, opts.funds)} left
       </div>
       <div class="submit-row" id="submit-row">
         <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
