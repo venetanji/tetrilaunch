@@ -421,6 +421,8 @@ class App {
     set("#hud-combo", "×" + g.combo);
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
+    // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
+    this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
     const powerPct = Math.round(g.cannon.powerRatio * 100);
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
     if (power) power.style.width = powerPct + "%";
@@ -511,6 +513,7 @@ class App {
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
+    else if (a === "cancel") this.input.cancelAim();
   }
 
   private onToggle(key: string, el: HTMLElement): void {

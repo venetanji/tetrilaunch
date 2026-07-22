@@ -287,6 +287,28 @@ body.crt-off #app::after { display: none; }
 }
 .rotate-btn:hover { border-color: var(--accent); color: #b8f7ff; }
 
+/* Aim-state cancel — a danger-red ✕ that exists only while a slingshot drag
+   is live (main.ts's syncHud toggles .hud--aiming on the HUD root from
+   game.aiming). It sits at the rail's BOTTOM via margin-top:auto (the
+   rotate cluster is absolutely centered, so it never shoves those buttons
+   mid-aim) where the aiming thumb's off hand can reach it: tapping aborts
+   the launch (input.ts's cancelAim) so releasing the aim finger fires
+   nothing. Touch-only — a mouse mid-drag can't click a second control, so
+   fine-pointer devices never show it. */
+.cancel-aim-btn {
+  display: none;
+  margin-top: auto;
+  color: var(--danger);
+  border-color: rgba(255, 45, 85, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 45, 85, 0.22), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(255, 45, 85, 0.3), var(--shadow-hard-sm);
+}
+.cancel-aim-btn:hover { border-color: var(--danger); color: #ffb8c6; }
+.hud--aiming .cancel-aim-btn { display: inline-flex; }
+@media (pointer: fine) {
+  .hud--aiming .cancel-aim-btn { display: none; }
+}
+
 /* Bond Breaker ability (see screens.ts's hudHTML / game.ts's useBondBreaker)
    — electric-amber accent so it reads as a special power, not another
    rotate control, with a charge-count badge in the corner. This is the

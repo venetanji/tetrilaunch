@@ -213,6 +213,12 @@ export function hudHTML(opts: {
         <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
         ${bondRailBtn}
       </div>
+      <!-- aim-state escape hatch: only visible mid-drag (main.ts's syncHud
+           toggles .hud--aiming), pinned at the rail's bottom clear of the
+           rotate cluster. A second finger taps it to abort the queued
+           launch — releasing the aim finger then fires nothing. Rotate
+           taps mid-drag do NOT cancel (see input.ts). -->
+      <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
     </div>
 
     <!-- conveyor belt: the piece that fires AFTER the loaded one rides in
