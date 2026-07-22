@@ -117,7 +117,6 @@ class App {
       beltPreview: g.beltPreview,
       target: g.target,
       score: g.score,
-      launchCost: g.level.launchCost,
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
@@ -436,9 +435,6 @@ class App {
       }
       this.lastNext = nextKey;
     }
-    const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
-    if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
-
     // Bond Breaker has TWO triggers on screen at once when drafted — the
     // plant's status chip and the touch-rail's primary button (see
     // screens.ts's hudHTML) — kept in sync together via a shared class
@@ -502,8 +498,7 @@ class App {
   private onGameAction(a: string): void {
     const g = this.game;
     if (!g || this.state !== "playing") return;
-    if (a === "shoot") g.shoot(performance.now());
-    else if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
+    if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
   }
