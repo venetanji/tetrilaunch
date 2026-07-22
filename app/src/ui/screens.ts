@@ -139,9 +139,9 @@ export function leaderboardScreen(rows: string): string {
  * The old single-row top chip bar is gone: funds/target/time/combo now live
  * in the RECYCLING PLANT panel bottom-left (below the cannon), the NEXT
  * preview rides a conveyor belt top-left, the power meter is a bar mounted
- * on the plant, and every button lives in one same-width column in the
- * letterbox gutter OUTSIDE the field's right wall (fullscreen + pause on
- * top, rotate vertically centered — see app.css's .side-rail). Two hydraulic
+ * on the plant, and every button lives in one same-width vertically-centered
+ * column in the letterbox gutter OUTSIDE the field's right wall (see
+ * app.css's .side-rail). Two hydraulic
  * pistons "driving" the compactor toward the right wall are canvas-drawn
  * (see render.ts's drawPistons) since they must track the compactor's live
  * x-position every frame — nothing here positions them, this file only owns
@@ -195,29 +195,26 @@ export function hudHTML(opts: {
     ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   return `<div class="hud" id="hud">
-    <!-- right-side button rail: ONE same-width column in the letterbox
-         gutter outside the field's right wall (see app.css's .side-rail).
-         Fullscreen + pause anchor the top on every input mode; the
-         accent-colored rotate CCW/CW pair (+ Bond Breaker if drafted) sits
-         vertically centered — there's no keyboard on mobile, so that
-         cluster IS the rotate/bond control surface there. Desktop hides it
-         (see the @media (pointer: fine) rule in app.css) and keeps using
-         Q/E + B instead, per the kbd-hint strip down in .hud__bottom. -->
+    <!-- right-side button rail: ONE same-width vertically-centered column
+         in the letterbox gutter outside the field's right wall (see
+         app.css's .side-rail) — every button on the same layer, max six:
+         fullscreen, pause, rotate CCW/CW, Bond Breaker (if drafted), and
+         the aim-state cancel ✕. There's no keyboard on mobile, so this
+         column IS the touch control surface. The ✕ is only visible
+         mid-drag (main.ts's syncHud toggles .hud--aiming) but its slot is
+         always reserved so appearing never shifts the other buttons under
+         a hovering thumb; a second finger taps it to abort the queued
+         launch — releasing the aim finger then fires nothing. Rotate taps
+         mid-drag do NOT cancel (see input.ts). Desktop hides the game
+         buttons, keeps fullscreen + pause top-anchored, and uses Q/E + B
+         instead (see the @media (pointer: fine) rule in app.css), per the
+         kbd-hint strip down in .hud__bottom. -->
     <div class="side-rail">
-      <div class="side-rail__top">
-        <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
-        <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
-      </div>
-      <div class="rotate-cluster">
-        <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
-        <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
-        ${bondRailBtn}
-      </div>
-      <!-- aim-state escape hatch: only visible mid-drag (main.ts's syncHud
-           toggles .hud--aiming), pinned at the rail's bottom clear of the
-           rotate cluster. A second finger taps it to abort the queued
-           launch — releasing the aim finger then fires nothing. Rotate
-           taps mid-drag do NOT cancel (see input.ts). -->
+      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
+      <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
+      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
+      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
+      ${bondRailBtn}
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
     </div>
 
