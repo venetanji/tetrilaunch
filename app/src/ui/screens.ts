@@ -3,7 +3,7 @@ import { LEVEL_1 } from "../game/level";
 import { toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML } from "./components";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
-import type { Cannon } from "../game/cannon";
+import type { BeltPreview } from "../game/game";
 import type { PieceType } from "../game/theme";
 import type { ModDef } from "../game/mods";
 
@@ -44,7 +44,7 @@ export function menuScreen(best: number): string {
 export function howtoScreen(): string {
   const steps = [
     ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
-    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon and the <b>Next</b> preview both show the exact orientation before you fire.`],
+    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
@@ -130,7 +130,7 @@ export function leaderboardScreen(rows: string): string {
  * bay currently playing (out of RUN_LEVELS); `timeLimitSec` gates whether a
  * Time readout renders at all (0 = no limit, e.g. never happens today but
  * kept level-driven for future ladder entries); `timeLeftMs`/`pieceCubes`/
- * `nextIsBomb` seed the initial render so it matches whatever main.ts's
+ * `beltPreview` seed the initial render so it matches whatever main.ts's
  * syncHud takes over from frame 2. `modIds` is the run's full drafted-mod
  * pick history (run.ts's RunState.modIds) — rendered as chips in the plant
  * panel (see components.ts's runModsHTML).
@@ -145,7 +145,9 @@ export function leaderboardScreen(rows: string): string {
  * the DOM chrome.
  */
 export function hudHTML(opts: {
-  cannon: Cannon;
+  /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
+   *  Game.beltPreview). */
+  beltPreview: BeltPreview;
   target: number;
   score: number;
   launchCost: number;
@@ -153,7 +155,6 @@ export function hudHTML(opts: {
   timeLimitSec: number;
   timeLeftMs: number;
   pieceCubes: 2 | 4;
-  nextIsBomb: boolean;
   /** Whether this bay's run has the Bond Breaker ability drafted — shows its
    *  glowing chip in the plant's mods row (see main.ts / game.ts's
    *  useBondBreaker). */
@@ -165,10 +166,12 @@ export function hudHTML(opts: {
   modIds: string[];
 }): string {
   const {
-    cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
-    pieceCubes, nextIsBomb, bondBreakerOwned, bondCharges, modIds,
+    beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
+    pieceCubes, bondBreakerOwned, bondCharges, modIds,
   } = opts;
-  const beltNextHTML = nextIsBomb ? beltBombHTML() : beltPieceHTML(cannon.currentType, cannon.quarterTurns, pieceCubes);
+  const beltNextHTML = beltPreview.bomb
+    ? beltBombHTML()
+    : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceCubes);
   const timeBlock =
     timeLimitSec > 0
       ? `<div class="pl-time" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
@@ -208,9 +211,10 @@ export function hudHTML(opts: {
       </div>
     </div>
 
-    <!-- conveyor belt: the NEXT piece rides in from the top-left and feeds
-         the cannon (see components.ts's beltPieceHTML/beltBombHTML — the
-         real next piece's shape/colors, not a mockup stand-in). -->
+    <!-- conveyor belt: the piece that fires AFTER the loaded one rides in
+         from the top-left and feeds the cannon (see components.ts's
+         beltPieceHTML/beltBombHTML — the real queued piece's shape/colors,
+         not a mockup stand-in). -->
     <div class="belt" aria-label="Next piece">
       <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
       <div class="belt__roller belt__roller--l"></div>
