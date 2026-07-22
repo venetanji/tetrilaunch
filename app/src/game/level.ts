@@ -77,6 +77,14 @@ export interface LevelConfig {
    *  instead of oscillating extreme-to-extreme (see game.ts's stepWind).
    *  Ignored when windMax is 0. */
   windGust: number;
+  /** Bond Breaker charges granted at the START of this bay — the "shatter
+   *  every joint on the field into loose cubes" special ability (see game.ts's
+   *  useBondBreaker). 0 = the player never drafted it. Each charge is a
+   *  one-shot use; the count refreshes every bay because run.ts's levelForRun
+   *  re-applies the drafted mods onto a fresh base each bay (the Bond Breaker
+   *  mod just increments this — see mods.ts). Tunable roadmap seam: a future
+   *  "efficient charges" boon could grant more per bay. */
+  bondBreakerCharges: number;
 }
 
 // Economy balance note: each bay is its OWN economy now — targetScore,
@@ -171,6 +179,7 @@ export function makeBaseLevel(i: number): LevelConfig {
     // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
     windMax: i < 3 ? 0 : 0.06 + (i - 3) * 0.04,
     windGust: 0.03,
+    bondBreakerCharges: 0,
   };
 }
 

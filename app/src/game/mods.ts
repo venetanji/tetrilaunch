@@ -121,6 +121,16 @@ export const MODS: ModDef[] = [
     },
   },
   {
+    id: "bond-breaker",
+    name: "Bond Breaker",
+    desc: "Gain a Bond Breaker charge each bay. Press B (or tap the ⚡ button) to shatter every joint on the field into loose cubes — they settle flatter and the compactor packs them into lines far more easily. Stacks: +1 charge per bay.",
+    kind: "boon",
+    stackable: true,
+    apply(cfg) {
+      cfg.bondBreakerCharges += 1;
+    },
+  },
+  {
     id: "rapid",
     name: "Rapid Loader",
     desc: "−35% cooldown, +$5 launch cost",

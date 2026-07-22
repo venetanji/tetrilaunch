@@ -1,5 +1,5 @@
 import Matter from "matter-js";
-import { CELL, WALL_INNER, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
+import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
 import { Cannon, predictTrajectory } from "./cannon";
 import { Compactor } from "./compactor";
 import {
@@ -30,6 +30,9 @@ export interface GameEvents {
   onShoot?: () => void;
   onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
+  /** Fired when the Bond Breaker ability successfully discharges (see
+   *  useBondBreaker) — lets the UI play a haptic/SFX cue. */
+  onBondBreak?: () => void;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -96,6 +99,9 @@ export class Game {
   timeLeftMs: number;
   /** Pieces AND bombs fired so far this level — drives nextIsBomb. */
   shotsFired = 0;
+  /** Bond Breaker charges left this bay (see useBondBreaker). Seeded from
+   *  level.bondBreakerCharges — 0 unless the player drafted the mod. */
+  bondCharges: number;
   /** Render-facing FX events (shatter/payout/rowflash/explosion); spawned
    *  here, pruned here by FX_TTL, drawn by render.ts. */
   effects: FxEvent[] = [];
@@ -153,6 +159,7 @@ export class Game {
     // Roll the bay's steady average in [-windMax, +windMax]; 0 stays 0 (calm).
     this.windAvg = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
     this.windCur = this.windAvg;
+    this.bondCharges = level.bondBreakerCharges;
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
@@ -217,6 +224,56 @@ export class Game {
     // the bay's magnitude cap.
     const cap = windMax + windGust * 4;
     this.windCur = Math.max(-cap, Math.min(cap, this.windCur));
+  }
+
+  /**
+   * Bond Breaker special ability (drafted via mods.ts): shatter EVERY joint on
+   * the field at once, turning all pieces into loose cubes. With nothing
+   * holding awkward stacks rigid, the pile slumps flatter and the compactor
+   * packs the loose cubes into full lines far more easily. Consumes one charge;
+   * a no-op (returns false, no charge spent) when there are no charges left, no
+   * joints left to break, or the game isn't actively playing. `now` is the
+   * caller's wall-clock time, used only as the FX timestamp.
+   */
+  useBondBreaker(now: number): boolean {
+    if (this.status !== "playing" || this.paused) return false;
+    if (this.bondCharges <= 0 || this.constraints.length === 0) return false;
+
+    // Remember which cubes were still joined so the shatter FX only sparks on
+    // pieces that actually came apart, then tear down every joint (world +
+    // array) in one sweep — same removal both places as removeConstraintsFor.
+    const joined = new Set<Matter.Body>();
+    for (const c of this.constraints) {
+      if (c.bodyA) joined.add(c.bodyA);
+      if (c.bodyB) joined.add(c.bodyB);
+    }
+    for (const c of this.constraints) Matter.Composite.remove(this.phys.world, c);
+    this.constraints.length = 0;
+
+    let sx = 0;
+    let sy = 0;
+    let n = 0;
+    for (const cube of this.cubes) {
+      if (!joined.has(cube.body)) continue;
+      const p = cube.body.position;
+      this.effects.push({ kind: "shatter", x: p.x, y: p.y, color: cube.color, t0: now });
+      sx += p.x;
+      sy += p.y;
+      n += 1;
+    }
+    // A central shockwave ring so the field-wide break reads as one deliberate
+    // action, not just scattered sparks.
+    this.effects.push({
+      kind: "explosion",
+      x: n ? sx / n : WORLD.width / 2,
+      y: n ? sy / n : WORLD.height / 2,
+      r: CELL * 3.2,
+      t0: now,
+    });
+
+    this.bondCharges -= 1;
+    this.events.onBondBreak?.();
+    return true;
   }
 
   /** Signed lateral wind acceleration (px/step^2) at THIS instant. Pause-safe
