@@ -237,7 +237,7 @@ const AIM_PENDING_MS = 2200;
 const AIM_PATIENCE_TOL = CELL;
 /** Once the clock has under this much time left, patience stops being
  *  affordable — firing the best (even if mediocre) candidate beats banking a
- *  guaranteed zero by waiting out a wind cycle that outlasts the level. */
+ *  guaranteed zero by waiting out gusts the clock will outlast. */
 const AIM_PATIENCE_DEADLINE_MS = 30_000;
 
 /**

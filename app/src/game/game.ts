@@ -18,6 +18,7 @@ import {
   type ClearResult,
 } from "./lineClear";
 import type { LevelConfig } from "./level";
+import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
 
 const DT = 1000 / 60;
@@ -47,6 +48,12 @@ function isAtRest(body: Matter.Body): boolean {
  *  update()'s wind-application loop below). */
 const WIND_AIRBORNE_SPEED = 3;
 const WIND_AIRBORNE_SPEED_SQ = WIND_AIRBORNE_SPEED * WIND_AIRBORNE_SPEED;
+
+/** How strongly the drunk-walking wind is pulled back toward the bay's rolled
+ *  average each step (see stepWind). Tuned so the wind hovers within roughly
+ *  ±0.055 of the average (given windGust 0.03) — gusts for texture, but the
+ *  bay keeps a legible, learnable prevailing direction. */
+const WIND_REVERT = 0.05;
 
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
@@ -122,9 +129,30 @@ export class Game {
   private pendingDetonations = new Set<Matter.Body>();
   private readonly onCollisionStart: (e: Matter.IEventCollision<Matter.Engine>) => void;
 
-  constructor(level: LevelConfig, events: GameEvents = {}) {
+  /** Seeded RNG driving the wind drunk-walk (see stepWind) — kept private so
+   *  the whole weather stream is reproducible for a given run seed + bay. */
+  private readonly windRng: () => number;
+  /** This bay's steady prevailing wind (px/step^2), rolled once from the seed
+   *  in [-windMax, +windMax]. The live wind hovers around this. */
+  private readonly windAvg: number;
+  /** Live wind (px/step^2), drunk-walking around windAvg each step. */
+  private windCur: number;
+
+  /**
+   * `seed` seeds the wind drunk-walk. main.ts passes the run seed so every
+   * bay of a run has its own reproducible weather (and a Restart Bay replays
+   * it exactly); it defaults to the bay id so headless callers (sim/perf.ts)
+   * that don't thread a seed still get deterministic, per-bay-distinct wind.
+   */
+  constructor(level: LevelConfig, events: GameEvents = {}, seed: number = level.id) {
     this.level = level;
     this.events = events;
+    // Combine seed with the bay id so consecutive bays of one run roll
+    // different prevailing winds instead of all sharing the run seed's roll.
+    this.windRng = mulberry32((seed ^ (level.id * 0x9e3779b9)) >>> 0);
+    // Roll the bay's steady average in [-windMax, +windMax]; 0 stays 0 (calm).
+    this.windAvg = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
+    this.windCur = this.windAvg;
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
@@ -171,49 +199,54 @@ export class Game {
     return this.liveBombs.map((b) => b.body);
   }
 
-  /** Signed lateral wind acceleration (px/step^2) at an arbitrary step count
-   *  — a pure function of `step`, deliberately with no RNG (determinism is
-   *  load-bearing for the sim harness): windMax * sin(2π * step / (60 *
-   *  windPeriodSec)), 60 steps/sec. Always 0 when windMax is 0, so the whole
-   *  mechanic is inert for a zeroed level/modifier. Factored out of windNow
-   *  so updateTrajectory can also ask "what will the wind be N steps from
-   *  now" instead of treating the CURRENT reading as constant for the whole
-   *  predicted flight (see updateTrajectory's doc comment). */
-  private windAtStep(step: number): number {
-    const { windMax, windPeriodSec } = this.level;
-    if (windMax === 0) return 0;
-    return windMax * Math.sin((2 * Math.PI * step) / (60 * windPeriodSec));
+  /** Advance the wind drunk-walk by one physics step: a small seeded random
+   *  nudge (±windGust) plus a gentle pull back toward the bay's rolled
+   *  average (WIND_REVERT), so the wind gusts around a steady, learnable
+   *  prevailing direction instead of oscillating extreme-to-extreme. Inert
+   *  (pinned to 0) when windMax is 0. Called once per update() step, so it's
+   *  pause-safe by construction (update doesn't run while paused). */
+  private stepWind(): void {
+    const { windMax, windGust } = this.level;
+    if (windMax === 0) {
+      this.windCur = 0;
+      return;
+    }
+    this.windCur += (this.windRng() * 2 - 1) * windGust;
+    this.windCur += (this.windAvg - this.windCur) * WIND_REVERT;
+    // Safety clamp so a run of same-signed nudges can't push a gust far past
+    // the bay's magnitude cap.
+    const cap = windMax + windGust * 4;
+    this.windCur = Math.max(-cap, Math.min(cap, this.windCur));
   }
 
   /** Signed lateral wind acceleration (px/step^2) at THIS instant. Pause-safe
-   *  by construction (stepCount only advances inside update(), which doesn't
+   *  by construction (windCur only advances inside update(), which doesn't
    *  run while paused). Public so render.ts's HUD wind indicator can read
    *  the live value. */
   get windNow(): number {
-    return this.windAtStep(this.stepCount);
+    return this.windCur;
   }
 
   /**
-   * Recomputes the dotted preview arc. Passes windAt(i) = the wind the
-   * flight will ACTUALLY see at step (stepCount + i) — not a single
-   * "windNow, held constant for all 140 steps" scalar. windPeriodSec is only
-   * ~9-15x a typical ~1.5-2.5s flight, so holding the CURRENT reading
-   * constant across the whole preview measurably mismatches what
-   * applyWind() will really do step-by-step during that flight, especially
-   * near a zero-crossing. sim/bots.ts's `aim` preset re-solves its shot by
-   * reading THIS trajectory back out, so an inexact preview isn't just a
-   * cosmetic HUD glitch — it silently mis-aims the one bot whose entire
-   * strategy depends on it.
+   * Recomputes the dotted preview arc against the CURRENT wind held constant
+   * across the whole predicted flight. Unlike the old deterministic sine, a
+   * drunk walk's future is genuinely unknowable, so the current reading is
+   * the best available estimate — and because the wind now hovers near a
+   * steady average (small per-step gusts, mean-reverting), holding it
+   * constant across a ~1.5-2.5s flight is a close match to what applyWind()
+   * actually does. sim/bots.ts's `aim` preset re-solves its shot by reading
+   * THIS trajectory back out, so it aims against the same current-wind
+   * estimate a human would read off the HUD indicator.
    */
   updateTrajectory(): void {
-    const stepCount = this.stepCount;
+    const wind = this.windCur;
     this.trajectory = predictTrajectory(
       this.cannon.tip,
       this.cannon.velocity,
       this.gAccel,
       0.012,
       140,
-      (i) => this.windAtStep(stepCount + i),
+      () => wind,
     );
   }
 
@@ -275,6 +308,7 @@ export class Game {
     }
 
     this.stepCount++;
+    this.stepWind();
     stepPhysics(this.phys);
     this.applyWind();
 
@@ -375,7 +409,7 @@ export class Game {
     // Keep the dotted arc live against the current wind reading (~140 cheap
     // analytic-parabola iterations, fine headless too — see cannon.ts's
     // predictTrajectory). Aim/power haven't necessarily changed this frame,
-    // but windNow just did (stepCount advanced above), so the preview would
+    // but windCur just drunk-walked (stepWind above), so the preview would
     // otherwise silently go stale between shots.
     this.updateTrajectory();
   }

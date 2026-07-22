@@ -38,7 +38,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     onShoot: () => {
       shots += 1;
     },
-  });
+  }, seed);
 
   const stepCap = cfg.timeLimitSec > 0 ? cfg.timeLimitSec * 60 + 3600 : 36_000;
 
