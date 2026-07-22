@@ -58,6 +58,14 @@ export function pieceOffsets(
   });
 }
 
+/** Joint damping — resistance to the cubes' relative velocity along each
+ *  joint. jointStiffness stays < 1 (0.9-0.98, see level.ts), so the joints
+ *  are real springs and CAN ring; at 0.1 a hard landing kept a piece
+ *  visibly jiggling for a while. 0.3 settles that ringing within a few
+ *  frames without making the piece read as gooey in flight. Exported so
+ *  sim/perf.ts's clique builder stays physics-identical to real pieces. */
+export const JOINT_DAMPING = 0.3;
+
 /** Build a tetromino (or domino — see pieceCells) from cubes rigidly joined
  *  by breakable distance joints. `jointStiffness` and `pieceCubes` come from
  *  the level/run config; passed as scalars rather than the whole LevelConfig
@@ -102,7 +110,7 @@ export function createTetrisPiece(
         bodyB: b,
         length: rest,
         stiffness: jointStiffness,
-        damping: 0.1,
+        damping: JOINT_DAMPING,
         render: { visible: false },
       });
       (c as unknown as { restLength: number }).restLength = rest;

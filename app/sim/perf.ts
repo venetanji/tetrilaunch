@@ -21,7 +21,7 @@ import { makeBaseLevel } from "../src/game/level";
 import { CELL, WORLD } from "../src/game/engine";
 import { PIECE_COLORS } from "../src/game/theme";
 import { mulberry32 } from "../src/game/mods";
-import type { Cube } from "../src/game/pieces";
+import { JOINT_DAMPING, type Cube } from "../src/game/pieces";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DT = 1000 / 60;
@@ -116,7 +116,7 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
           bodyB: b,
           length: rest,
           stiffness: jointStiffness,
-          damping: 0.1,
+          damping: JOINT_DAMPING,
           render: { visible: false },
         });
         Matter.Composite.add(g.phys.world, constraint);
