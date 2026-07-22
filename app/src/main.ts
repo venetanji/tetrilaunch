@@ -122,6 +122,8 @@ class App {
       timeLeftMs: g.timeLeftMs,
       pieceCubes: g.level.pieceCubes,
       nextIsBomb: g.nextIsBomb,
+      bondBreakerOwned: g.level.bondBreakerCharges > 0,
+      bondCharges: g.bondCharges,
     };
   }
 
@@ -238,6 +240,7 @@ class App {
       onShoot: () => { void tapHaptic(); this.dismissDragHint(); },
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
+      onBondBreak: () => { void impactHaptic(); },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
     this.setState("playing");
@@ -417,6 +420,13 @@ class App {
     }
     const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
     if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
+
+    const bond = this.overlay.querySelector<HTMLButtonElement>("#bond-btn");
+    if (bond) {
+      const count = this.overlay.querySelector("#bond-count");
+      if (count) count.textContent = String(g.bondCharges);
+      bond.disabled = g.bondCharges <= 0;
+    }
   }
 
   // ---------------- events ----------------
@@ -475,6 +485,7 @@ class App {
     if (a === "shoot") g.shoot(performance.now());
     else if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
+    else if (a === "bond") g.useBondBreaker(performance.now());
   }
 
   private onToggle(key: string, el: HTMLElement): void {

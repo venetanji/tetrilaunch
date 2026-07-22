@@ -140,13 +140,23 @@ export function hudHTML(opts: {
   timeLeftMs: number;
   pieceCubes: 2 | 4;
   nextIsBomb: boolean;
+  /** Whether this bay's run has the Bond Breaker ability drafted — shows its
+   *  HUD button (see main.ts / game.ts's useBondBreaker). */
+  bondBreakerOwned: boolean;
+  /** Charges left this bay, shown on the button. */
+  bondCharges: number;
 }): string {
-  const { cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs, pieceCubes, nextIsBomb } = opts;
+  const { cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs, pieceCubes, nextIsBomb, bondBreakerOwned, bondCharges } = opts;
   const timeChip =
     timeLimitSec > 0
       ? `<div class="chip chip--c" id="hud-time-chip"><span class="chip__label">Time</span><span class="chip__value" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
       : "";
   const nextHTML = nextIsBomb ? bombNextHTML() : nextPreviewHTML(cannon.currentType, cannon.quarterTurns, pieceCubes);
+  // Bond Breaker: only rendered when the run drafted the ability. Disabled once
+  // this bay's charges are spent; main.ts's syncHud keeps the count live.
+  const bondBtn = bondBreakerOwned
+    ? `<button class="icon-btn bond-btn" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count" id="bond-count">${bondCharges}</span></button>`
+    : "";
   // Single slim row: everything the player needs to read at a glance sits in
   // one ~48-64px-tall strip (see tokens.css's --hud-bar-h) instead of the old
   // two-cluster block, so it stops eating the top ~30% of a phone screen and
@@ -177,6 +187,7 @@ export function hudHTML(opts: {
       <div class="rotate-cluster">
         <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
         <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
+        ${bondBtn}
       </div>
       <div class="kbd-hint" aria-hidden="true">
         <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
@@ -186,6 +197,7 @@ export function hudHTML(opts: {
         <span class="kbd">A</span>/<span class="kbd">D</span> power
         <span class="kbd-hint__sep">·</span>
         <span class="kbd">Space</span> fire
+        ${bondBreakerOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">B</span> break bonds' : ""}
         <span class="kbd-hint__sep">·</span>
         drag to aim
       </div>

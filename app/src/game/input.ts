@@ -86,6 +86,7 @@ export class InputController {
     }
     if (k === "q") g.cannon.rotateLeft();
     if (k === "e") g.cannon.rotateRight();
+    if (k === "b") g.useBondBreaker(performance.now());
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {

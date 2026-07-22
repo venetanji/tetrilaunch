@@ -326,6 +326,27 @@ body.crt-off #app::after { display: none; }
   opacity: 0.85;
 }
 
+/* Bond Breaker ability button (see screens.ts's hudHTML / game.ts's
+   useBondBreaker) — an electric-amber accent so it reads as a special power,
+   not another rotate control, with a charge-count badge in the corner. */
+.bond-btn {
+  position: relative;
+  color: #ffd23f;
+  border-color: rgba(255, 210, 63, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 210, 63, 0.28), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(255, 210, 63, 0.35), var(--shadow-hard-sm);
+}
+.bond-btn:hover { border-color: #ffd23f; color: #fff0b8; }
+.bond-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
+.bond-btn__count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 9px;
+  background: #ffd23f; color: #1a1400;
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
+  text-align: center;
+}
+
 /* Desktop keyboard-hint strip — replaces the touch clusters entirely on
    fine-pointer devices (mouse/trackpad). Keys mirror input.ts's bindings
    exactly (Q/E rotate, W/S aim, A/D power, Space fire, drag to aim). */
