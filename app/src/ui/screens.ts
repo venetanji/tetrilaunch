@@ -1,6 +1,6 @@
 import { PIECE_TYPES } from "../game/theme";
 import { LEVEL_1 } from "../game/level";
-import { nextPreviewHTML, toggleHTML, pieceCellsHTML, bombNextHTML, formatMMSS } from "./components";
+import { toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML } from "./components";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { Cannon } from "../game/cannon";
@@ -125,11 +125,25 @@ export function leaderboardScreen(rows: string): string {
   </div>`;
 }
 
-/** In-game HUD overlay. `bayNum` is the 1-based bay currently playing (out of
- *  RUN_LEVELS); `timeLimitSec` gates whether a Time chip renders at all (0 =
- *  no limit, e.g. never happens today but kept level-driven for future
- *  ladder entries); `timeLeftMs`/`pieceCubes`/`nextIsBomb` seed the initial
- *  render so it matches whatever main.ts's syncHud takes over from frame 2. */
+/**
+ * In-game HUD overlay — 1d "recycling-plant" layout. `bayNum` is the 1-based
+ * bay currently playing (out of RUN_LEVELS); `timeLimitSec` gates whether a
+ * Time readout renders at all (0 = no limit, e.g. never happens today but
+ * kept level-driven for future ladder entries); `timeLeftMs`/`pieceCubes`/
+ * `nextIsBomb` seed the initial render so it matches whatever main.ts's
+ * syncHud takes over from frame 2. `modIds` is the run's full drafted-mod
+ * pick history (run.ts's RunState.modIds) — rendered as chips in the plant
+ * panel (see components.ts's runModsHTML).
+ *
+ * The old single-row top chip bar is gone: funds/target/time/combo now live
+ * in the RECYCLING PLANT panel bottom-left (below the cannon), the NEXT
+ * preview rides a conveyor belt top-left, the power meter is a bar mounted
+ * on the plant, and top-right keeps only fullscreen + pause. Two hydraulic
+ * pistons "driving" the compactor toward the right wall are canvas-drawn
+ * (see render.ts's drawPistons) since they must track the compactor's live
+ * x-position every frame — nothing here positions them, this file only owns
+ * the DOM chrome.
+ */
 export function hudHTML(opts: {
   cannon: Cannon;
   target: number;
@@ -141,54 +155,101 @@ export function hudHTML(opts: {
   pieceCubes: 2 | 4;
   nextIsBomb: boolean;
   /** Whether this bay's run has the Bond Breaker ability drafted — shows its
-   *  HUD button (see main.ts / game.ts's useBondBreaker). */
+   *  glowing chip in the plant's mods row (see main.ts / game.ts's
+   *  useBondBreaker). */
   bondBreakerOwned: boolean;
-  /** Charges left this bay, shown on the button. */
+  /** Charges left this bay, shown on the chip. */
   bondCharges: number;
+  /** The run's full drafted-mod pick history, in pick order — rendered as
+   *  chips in the plant panel (see components.ts's runModsHTML). */
+  modIds: string[];
 }): string {
-  const { cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs, pieceCubes, nextIsBomb, bondBreakerOwned, bondCharges } = opts;
-  const timeChip =
+  const {
+    cannon, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
+    pieceCubes, nextIsBomb, bondBreakerOwned, bondCharges, modIds,
+  } = opts;
+  const beltNextHTML = nextIsBomb ? beltBombHTML() : beltPieceHTML(cannon.currentType, cannon.quarterTurns, pieceCubes);
+  const timeBlock =
     timeLimitSec > 0
-      ? `<div class="chip chip--c" id="hud-time-chip"><span class="chip__label">Time</span><span class="chip__value" id="hud-time">${formatMMSS(timeLeftMs)}</span></div>`
+      ? `<div class="pl-time" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
       : "";
-  const nextHTML = nextIsBomb ? bombNextHTML() : nextPreviewHTML(cannon.currentType, cannon.quarterTurns, pieceCubes);
-  // Bond Breaker: only rendered when the run drafted the ability. Disabled once
-  // this bay's charges are spent; main.ts's syncHud keeps the count live.
-  const bondBtn = bondBreakerOwned
-    ? `<button class="icon-btn bond-btn" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count" id="bond-count">${bondCharges}</span></button>`
+  // Bond Breaker: only rendered when the run drafted the ability. TWO
+  // triggers share the same data-game="bond" click handling and are kept in
+  // sync by main.ts's syncHud via the shared .bond-trigger/.bond-trigger__count
+  // classes (both disable at 0 charges, both show the live count):
+  //  - a status chip in the plant's mods row (bondChip, styled like a mod —
+  //    matches the mockup, stays tappable)
+  //  - a dedicated icon button in the touch-only top-right rail (bondRailBtn),
+  //    the PRIMARY mobile control since there's no "B" key on a touchscreen.
+  const bondChip = bondBreakerOwned
+    ? `<button class="mod mod--bb k-boon bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
+        <span class="g">⚡</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
+      </button>`
     : "";
-  // Single slim row: everything the player needs to read at a glance sits in
-  // one ~48-64px-tall strip (see tokens.css's --hud-bar-h) instead of the old
-  // two-cluster block, so it stops eating the top ~30% of a phone screen and
-  // covering high-lob apexes (see render.ts's drawTrajectory). Chips go
-  // label+value inline (`.chip--c`, not stacked) and the panels are
-  // semi-transparent with no blur so the dotted trajectory stays legible
-  // through them (see app.css's --panel-alpha).
+  const bondRailBtn = bondBreakerOwned
+    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
+    : "";
   return `<div class="hud" id="hud">
-    <div class="hud__top">
-      <div class="hud__row">
-        <div class="chip chip--c"><span class="chip__label">Bay</span><span class="chip__value">${bayNum}/10</span></div>
-        <div class="chip chip--c chip--accent"><span class="chip__label">Funds</span><span class="chip__value" id="hud-score">$${score}</span></div>
-        <div class="chip chip--c chip--combo"><span class="chip__label">Combo</span><span class="chip__value" id="hud-combo">×0</span></div>
-        ${timeChip}
-        <div class="goal goal--c">
-          <span class="chip__label">Tgt ${target}</span>
-          <div class="goal__bar"><div class="goal__fill" id="hud-goal" style="width:0%"></div></div>
-        </div>
-        <div class="power power--c"><span class="chip__label">Pwr</span>
-          <div class="power__track"><div class="power__fill" id="hud-power"></div></div></div>
-        <div id="hud-next">${nextHTML}</div>
+    <!-- top-right button rail. Fullscreen + pause sit in the top row on every
+         input mode; below that, a touch-only column (rotate CCW/CW, then
+         Bond Breaker if drafted) — there's no keyboard on mobile, so this
+         rail IS the rotate/bond control surface there. Desktop hides that
+         column (see the @media (pointer: fine) rule in app.css) and keeps
+         using Q/E + B instead, per the kbd-hint strip down in .hud__bottom. -->
+    <div class="corner-tr">
+      <div class="corner-tr__row">
         <button class="icon-btn icon-btn--c" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
         <button class="icon-btn icon-btn--c" data-action="pause" aria-label="Pause">⏸</button>
       </div>
-    </div>
-    <div class="hud__bottom">
-      <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
       <div class="rotate-cluster">
         <button class="icon-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
         <button class="icon-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
-        ${bondBtn}
+        ${bondRailBtn}
       </div>
+    </div>
+
+    <!-- conveyor belt: the NEXT piece rides in from the top-left and feeds
+         the cannon (see components.ts's beltPieceHTML/beltBombHTML — the
+         real next piece's shape/colors, not a mockup stand-in). -->
+    <div class="belt" aria-label="Next piece">
+      <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
+      <div class="belt__roller belt__roller--l"></div>
+      <div class="belt__roller belt__roller--r"></div>
+      <span class="belt__lbl">◂ NEXT</span>
+      <div class="belt-piece" id="hud-next">${beltNextHTML}</div>
+    </div>
+
+    <!-- the RECYCLING PLANT: PWR bar, funds/target/time/combo, and the run's
+         drafted mods (+ Bond Breaker), below the cannon. -->
+    <div class="plant">
+      <div class="pl-pwr"><span class="lbl">PWR</span>
+        <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
+        <span class="pl-pwr__val" id="hud-power-val">0%</span>
+      </div>
+      <div class="plant__body">
+        <div class="plant__hdr">
+          <div class="plant__title"><b>◊</b> Recycling Plant <span class="plant__bay">· Bay ${bayNum}/10</span></div>
+          <div class="plant__rivets"><i></i><i></i><i></i></div>
+        </div>
+        <div class="pl-read">
+          <div class="pl-funds">
+            <div class="lbl">Funds / Target</div>
+            <div class="v"><span id="hud-score">$${score}</span> <span>/ ${target}</span></div>
+            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+            <div class="pl-meta"><span>Combo <b id="hud-combo">×0</b></span></div>
+          </div>
+          ${timeBlock}
+        </div>
+        <div class="pl-mods" id="hud-mods">
+          <span class="lbl">Run mods</span>
+          ${runModsHTML(modIds)}
+          ${bondChip}
+        </div>
+      </div>
+    </div>
+
+    <div class="hud__bottom">
+      <button class="shoot-btn" data-game="shoot" id="shoot-btn">FIRE<span class="shoot-btn__cost">-$${launchCost}</span></button>
       <div class="kbd-hint" aria-hidden="true">
         <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
         <span class="kbd-hint__sep">·</span>

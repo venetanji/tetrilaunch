@@ -3,9 +3,10 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import { newRun, advanceRun, levelForRun, RUN_LEVELS, type RunState } from "./game/run";
 import { draftOffers, modById, type ModDef } from "./game/mods";
-import { render } from "./game/render";
+import { render, computeViewport } from "./game/render";
+import { WORLD } from "./game/engine";
 import { InputController } from "./game/input";
-import { nextPreviewHTML, bombNextHTML, formatMMSS } from "./ui/components";
+import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import {
@@ -124,6 +125,7 @@ class App {
       nextIsBomb: g.nextIsBomb,
       bondBreakerOwned: g.level.bondBreakerCharges > 0,
       bondCharges: g.bondCharges,
+      modIds: this.run?.modIds ?? [],
     };
   }
 
@@ -211,6 +213,17 @@ class App {
     const h = window.innerHeight;
     this.canvas.width = Math.floor(w * this.dpr);
     this.canvas.height = Math.floor(h * this.dpr);
+    // Publish the letterboxed field rect (the same world viewport the canvas
+    // draws in — see render.ts's computeViewport) as CSS custom properties,
+    // so the DOM HUD chrome (plant panel, conveyor belt, kbd-hint — see
+    // app.css's --field-*/--fpx consumers) anchors to the FIELD at any
+    // window aspect instead of drifting with the viewport edges.
+    const vp = computeViewport(w, h);
+    const rs = document.documentElement.style;
+    rs.setProperty("--field-x", `${vp.ox}px`);
+    rs.setProperty("--field-y", `${vp.oy}px`);
+    rs.setProperty("--field-w", `${WORLD.width * vp.scale}px`);
+    rs.setProperty("--field-h", `${WORLD.height * vp.scale}px`);
     const mobile = "ontouchstart" in window || w < 900;
     this.guard.classList.toggle("show", isPortrait() && mobile);
   };
@@ -400,33 +413,39 @@ class App {
     set("#hud-combo", "×" + g.combo);
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
+    const powerPct = Math.round(g.cannon.powerRatio * 100);
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
-    if (power) power.style.width = Math.round(g.cannon.powerRatio * 100) + "%";
+    if (power) power.style.width = powerPct + "%";
+    set("#hud-power-val", powerPct + "%");
 
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
       this.overlay.querySelector("#hud-time-chip")?.classList.toggle("chip--danger", g.timeLeftMs < 20_000);
     }
 
+    // NEXT preview rides the conveyor belt (top-left) — just the colored
+    // piece grid, no label/type text (see components.ts's beltPieceHTML).
     const nextKey = `${g.cannon.currentType}:${g.cannon.quarterTurns}:${g.nextIsBomb ? 1 : 0}:${g.level.pieceCubes}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
         next.innerHTML = g.nextIsBomb
-          ? bombNextHTML()
-          : nextPreviewHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceCubes);
+          ? beltBombHTML()
+          : beltPieceHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceCubes);
       }
       this.lastNext = nextKey;
     }
     const shoot = this.overlay.querySelector<HTMLButtonElement>("#shoot-btn");
     if (shoot) shoot.disabled = !g.cannon.canShoot(performance.now()) || g.score < g.level.launchCost;
 
-    const bond = this.overlay.querySelector<HTMLButtonElement>("#bond-btn");
-    if (bond) {
-      const count = this.overlay.querySelector("#bond-count");
-      if (count) count.textContent = String(g.bondCharges);
-      bond.disabled = g.bondCharges <= 0;
-    }
+    // Bond Breaker has TWO triggers on screen at once when drafted — the
+    // plant's status chip and the touch-rail's primary button (see
+    // screens.ts's hudHTML) — kept in sync together via a shared class
+    // instead of two hardcoded ids.
+    const bondBtns = this.overlay.querySelectorAll<HTMLButtonElement>(".bond-trigger");
+    bondBtns.forEach((b) => { b.disabled = g.bondCharges <= 0; });
+    const bondCounts = this.overlay.querySelectorAll(".bond-trigger__count");
+    bondCounts.forEach((c) => { c.textContent = String(g.bondCharges); });
   }
 
   // ---------------- events ----------------

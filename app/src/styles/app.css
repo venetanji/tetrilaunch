@@ -182,28 +182,22 @@ body.crt-off #app::after { display: none; }
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
 /* ---------- HUD ---------- */
+/* Field rect published by main.ts's onResize (the canvas's letterboxed world
+   viewport, in CSS px). --fpx is one WORLD pixel at the current scale —
+   in-field chrome (plant, belt) sizes itself in world px via calc(N *
+   var(--fpx)) so it keeps the exact proportions of the 1d mockup
+   (design/screens/gameplay-variants.html, a 960x540 frame = the 1280x720
+   world at 0.75) on every window aspect, letterboxing included. Fallbacks
+   only cover the first paint before onResize runs. */
+:root {
+  --field-x: 0px;
+  --field-y: 0px;
+  --field-w: 100vw;
+  --field-h: 100vh;
+  --fpx: calc(var(--field-w) / 1280);
+}
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
-/* Single slim top-bar row — a fixed height budget (48-64 CSS px on phones,
-   see tokens.css's --hud-bar-h) instead of the old ~30%-of-screen two-row
-   block, so it stops covering the apex of high lob trajectories. Panels in
-   this row are semi-transparent with NO blur (--panel-alpha) so the dotted
-   trajectory arc stays readable through them (see render.ts's
-   drawTrajectory) — flat/blur-free also matches the retro pixel-art pass. */
-.hud__top {
-  position: absolute; top: 0; left: 0; right: 0;
-  height: var(--hud-bar-h);
-  padding: max(4px, env(safe-area-inset-top, 0px))
-    calc(var(--hud-bar-pad-x) + env(safe-area-inset-right, 0px)) 4px
-    calc(var(--hud-bar-pad-x) + env(safe-area-inset-left, 0px));
-  display: flex; align-items: center;
-}
-.hud__row {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-}
-.hud__row::-webkit-scrollbar { display: none; }
-.hud__row > * { flex: none; }
 
 .chip {
   background: rgba(18,18,31,0.72);
@@ -226,50 +220,13 @@ body.crt-off #app::after { display: none; }
 }
 @keyframes pulse-danger { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-/* Compact top-bar variant: label+value sit inline on one line (not
-   stacked), translucent flat background, small pixel-font label. Used by
-   every chip/meter/preview that lives in .hud__row. */
-.chip--c {
-  flex-direction: row;
-  align-items: baseline;
-  gap: 5px;
-  padding: 4px 8px;
-  min-width: 0;
-  white-space: nowrap;
-  background: rgba(18, 18, 31, var(--panel-alpha));
-}
-.chip--c .chip__label { font-size: var(--fs-chip-label-c); }
-.chip--c .chip__value { font-size: var(--fs-chip-value-c); }
-
-/* Power meter */
-.power {
-  display: flex; align-items: center; gap: var(--sp-2);
-  background: rgba(18,18,31,0.72);
-  border: var(--bw) solid var(--line);
-  border-radius: var(--r-md);
-  padding: 8px 12px;
-  box-shadow: var(--shadow-hard-sm);
-}
-.power__track { width: 120px; height: 10px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.power__fill { height: 100%; width: 0%; border-radius: var(--r-pill);
-  background: linear-gradient(90deg, var(--success), var(--warn) 60%, var(--danger));
-  transition: width 80ms linear; }
-.power--c {
-  padding: 4px 8px; gap: 6px; background: rgba(18, 18, 31, var(--panel-alpha));
-}
-.power--c .chip__label { font-family: var(--font-pixel); font-size: var(--fs-chip-label-c); text-transform: uppercase; color: var(--text-muted); }
-.power--c .power__track { width: clamp(46px, 9vw, 90px); height: 8px; }
-
-/* Next-piece preview (HUD-only — see components.ts's nextPreviewHTML) */
-.next {
-  display: flex; align-items: center; gap: 6px;
-  background: rgba(18,18,31, var(--panel-alpha)); border: var(--bw) solid var(--line);
-  border-radius: var(--r-md); padding: 3px 8px;
-}
+/* Next-piece preview grid (see components.ts's pieceCellsHTML/beltPieceHTML)
+   — the actual colored-cube shape, reused by the conveyor belt (1d layout)
+   and the how-to-play piece gallery. */
 .next__grid { width: 28px; height: 28px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
 .next__cell { border-radius: 1px; }
-/* Bomb telegraph (see components.ts's bombNextHTML) — same .next card shell,
-   a static glyph tile instead of a rotated piece grid. */
+/* Bomb telegraph (see components.ts's beltBombHTML) — same footprint as
+   next__grid, a static glyph tile instead of a rotated piece grid. */
 .next__bomb-tile {
   width: 28px; height: 28px; border-radius: var(--r-sm);
   display: flex; align-items: center; justify-content: center;
@@ -279,31 +236,23 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ---------- HUD bottom controls ----------
-   Corner-anchored per input mode: touch anchors the rotate cluster
-   bottom-RIGHT (right-thumb reach — explicit design call) and FIRE
-   bottom-LEFT (left thumb), both safe-area aware (--safe-l/r/b, tokens.css)
-   and clear of the center so the drag-anywhere aim gesture always has room.
-   Desktop hides both touch clusters and shows a keyboard-hint strip instead
-   — pure CSS via (pointer: …) queries below, no device sniffing. */
+   FIRE anchors bottom-RIGHT (right thumb; the recycling-plant panel owns
+   the bottom-LEFT corner in the 1d layout, and bottom-right freed up when
+   the rotate cluster moved to the top-right rail), safe-area aware
+   (--safe-r/b, tokens.css), clear of the center so the drag-anywhere aim
+   gesture always has room. Desktop hides it and shows a keyboard-hint strip
+   instead — pure CSS via (pointer: …) queries below, no device sniffing. */
 .hud__bottom { position: absolute; inset: 0; }
 /* Reclaim pointer-events from the `.hud > *` rule above: only the actual
    controls should intercept clicks, not the (now full-bleed) empty center
    that the drag-anywhere aim gesture needs. */
 .hud .hud__bottom { pointer-events: none; }
-.hud__bottom .shoot-btn,
-.hud__bottom .rotate-cluster { pointer-events: auto; }
-
-.rotate-cluster {
-  position: absolute;
-  right: var(--safe-r);
-  bottom: var(--safe-b);
-  display: flex; flex-direction: column; gap: var(--ctrl-gap);
-}
+.hud__bottom .shoot-btn { pointer-events: auto; }
 .rotate-cluster .icon-btn { width: var(--tap-md); height: var(--tap-md); font-size: 22px; }
 
 .shoot-btn {
   position: absolute;
-  left: var(--safe-l);
+  right: var(--safe-r);
   bottom: var(--safe-b);
   width: var(--tap-lg); height: var(--tap-lg); border-radius: var(--r-xl);
   background: radial-gradient(circle at 35% 30%, #38d6ff, var(--accent) 55%, #0090a8);
@@ -326,9 +275,33 @@ body.crt-off #app::after { display: none; }
   opacity: 0.85;
 }
 
-/* Bond Breaker ability button (see screens.ts's hudHTML / game.ts's
-   useBondBreaker) — an electric-amber accent so it reads as a special power,
-   not another rotate control, with a charge-count badge in the corner. */
+/* ---------- Top-right button rail ----------
+   Fullscreen + pause sit in a small horizontal row at the top on every input
+   mode. Below that, a touch-only vertical column carries rotate CCW/CW and
+   (if drafted) Bond Breaker — there's no keyboard on a touchscreen, so this
+   rail IS the rotate/bond control surface there; desktop hides it and uses
+   Q/E + B instead (see the `@media (pointer: fine)` rule below), matching
+   the kbd-hint strip's bindings. Anchored top-right, safe-area aware. */
+.corner-tr {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  z-index: 6;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+.corner-tr__row { display: flex; align-items: center; gap: 8px; }
+
+.rotate-cluster {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rotate-cluster .icon-btn { width: var(--tap-md); height: var(--tap-md); font-size: 22px; }
+
+/* Bond Breaker ability (see screens.ts's hudHTML / game.ts's useBondBreaker)
+   — electric-amber accent so it reads as a special power, not another
+   rotate control, with a charge-count badge in the corner. This is the
+   touch-rail's icon-button trigger; the plant panel also has a chip-styled
+   trigger (`.mod--bb`) — both share the `.bond-trigger`/`.bond-trigger__count`
+   classes main.ts's syncHud updates together. */
 .bond-btn {
   position: relative;
   color: #ffd23f;
@@ -347,9 +320,10 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
-/* Desktop keyboard-hint strip — replaces the touch clusters entirely on
+/* Desktop keyboard-hint strip — replaces the touch rail entirely on
    fine-pointer devices (mouse/trackpad). Keys mirror input.ts's bindings
-   exactly (Q/E rotate, W/S aim, A/D power, Space fire, drag to aim). */
+   exactly (Q/E rotate, W/S aim, A/D power, Space fire, B break bonds, drag
+   to aim). */
 .kbd-hint {
   display: none;
   position: absolute; left: 50%; bottom: var(--safe-b); transform: translateX(-50%);
@@ -361,8 +335,25 @@ body.crt-off #app::after { display: none; }
 
 @media (pointer: fine) {
   .hud__bottom .shoot-btn,
-  .hud__bottom .rotate-cluster { display: none; }
-  .kbd-hint { display: flex; }
+  .corner-tr .rotate-cluster { display: none; }
+  .kbd-hint {
+    display: flex;
+    /* Dropped into the slim strip BELOW the plant's bottom edge (the plant
+       stops at 97% of the field's height) and centered under the plant —
+       the one bottom lane clear of the panel, the compactor bar's sweep
+       and the pile at every window aspect; reads as the machine's footer
+       plaque. In letterboxed windows this lands in the bottom band. */
+    bottom: 2px;
+  }
+}
+
+/* Short (landscape-phone) viewports: the touch rail's 3 stacked tap-md
+   (60px) buttons can run tall against a ~400px-tall viewport — tighten the
+   rail's own gap and shrink the buttons a notch (still well above the
+   44px WCAG tap-target floor) so it doesn't crowd the play field. */
+@media (max-height: 480px) {
+  .rotate-cluster { gap: 6px; }
+  .rotate-cluster .icon-btn { width: 48px; height: 48px; font-size: 18px; }
 }
 
 /* ---------- Finger-drag onboarding hint (see screens.ts's dragHintHTML) ----------
@@ -375,7 +366,12 @@ body.crt-off #app::after { display: none; }
    driven by the --hint-* tokens in tokens.css. Touch-only — desktop already
    spells the gesture out in the .kbd-hint strip above. */
 .drag-hint {
-  position: absolute; left: 25%; top: 50%;
+  position: absolute;
+  /* Anchored to the field, just above the plant's top edge (54% of the
+     field's height) so the looping gesture never plays half-hidden under
+     the panel. */
+  left: calc(var(--field-x) + 0.25 * var(--field-w));
+  top: calc(var(--field-y) + 0.40 * var(--field-h));
   width: 160px; height: 160px; margin: -80px 0 0 -80px;
   pointer-events: none;
   opacity: 1;
@@ -422,17 +418,213 @@ body.crt-off #app::after { display: none; }
   .drag-hint { display: none; }
 }
 
-/* Progress to target */
-.goal { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
-.goal__bar { height: 8px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.goal__fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
-/* Compact top-bar variant: TARGET progress inline in the slim HUD row
-   instead of a second row underneath the chips. */
-.goal--c {
-  flex: 1 1 90px; min-width: 60px; max-width: 200px; gap: 2px;
+/* ============================================================================
+   RECYCLING PLANT — 1d gameplay HUD layout (design/screens/gameplay-
+   variants.html's `.frame--d`). A riveted machine-panel bottom-left, below
+   the cannon, that owns funds/target/time/combo, the PWR meter, and the
+   run's drafted mods (+ Bond Breaker). Replaces the old top chip bar
+   entirely — see screens.ts's hudHTML for the markup this styles.
+   ========================================================================== */
+.plant {
+  position: absolute;
+  /* The mockup's frame fractions, verbatim: left 16/960, top 292/540, size
+     452x232 of the 960x540 frame — anchored to the FIELD rect published by
+     main.ts's onResize (not the viewport edges), so the panel keeps the
+     mockup's footprint at every window aspect, letterboxing included. FIRE
+     moved to the bottom-RIGHT corner on touch (see .shoot-btn below):
+     this corner belongs to the plant now, and bottom-right freed up when
+     the rotate cluster moved to the top-right rail. */
+  left: calc(var(--field-x) + 0.0167 * var(--field-w));
+  top: calc(var(--field-y) + 0.5407 * var(--field-h));
+  width: calc(0.4708 * var(--field-w));
+  height: calc(0.4296 * var(--field-h));
+  z-index: 6;
+  border-radius: var(--r-md);
+  border: var(--bw) solid var(--line-strong);
+  box-shadow: var(--shadow-hard-sm), inset 0 1px 0 rgba(255,255,255,0.05);
+  background: linear-gradient(180deg, rgba(22,22,37,.95), rgba(9,9,18,.96));
+  display: flex; flex-direction: column;
+  /* visible: the PWR cap rides ABOVE the top edge, and the mod chips' xN
+     badges / B-key tag poke past the panel's box (see .pl-pwr / .mod). */
+  overflow: visible;
 }
-.goal--c .chip__label { font-family: var(--font-pixel); font-size: var(--fs-chip-label-c); white-space: nowrap; text-transform: uppercase; color: var(--text-muted); }
-.goal--c .goal__bar { height: 6px; }
+
+/* PWR meter — a raised cap riveted on TOP of the plant's edge, right-aligned
+   (mockup: x 150..468 over the 16..468 panel, i.e. ~70% of the panel's
+   width flush with its right edge, bottom overlapping the panel top by
+   2px so it reads as bolted onto the machine, not floating). */
+.pl-pwr {
+  position: absolute;
+  right: calc(-1 * var(--bw));
+  width: 70.4%;
+  --pwr-h: max(14px, calc(22.7 * var(--fpx)));
+  height: var(--pwr-h);
+  top: calc(2px - var(--pwr-h));
+  display: flex; align-items: center; gap: max(5px, calc(12 * var(--fpx)));
+  padding: 0 max(6px, calc(14.7 * var(--fpx)));
+  background: linear-gradient(180deg, #20203a, #12121f);
+  border: var(--bw) solid var(--line-strong);
+  border-bottom: none;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  box-shadow: var(--shadow-hard-sm);
+}
+.pl-pwr .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted); flex: none; }
+.pl-pwr__track { flex: 1; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.pl-pwr__fill { display: block; height: 100%; width: 0%; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--success), var(--warn) 62%, var(--danger));
+  box-shadow: 0 0 8px rgba(255,176,32,.55); transition: width 80ms linear; }
+.pl-pwr__val { font-family: var(--font-mono); font-weight: 700; font-size: max(9px, calc(13.3 * var(--fpx))); color: var(--warn); flex: none; }
+
+.plant__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: calc(17 * var(--fpx)) calc(19 * var(--fpx));
+  display: flex; flex-direction: column; justify-content: space-between;
+  gap: max(3px, calc(8 * var(--fpx)));
+}
+.plant__hdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.plant__title {
+  font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.1em; color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.plant__title b { color: var(--accent); }
+.plant__bay { color: var(--text-faint); }
+.plant__rivets { display: flex; gap: 5px; flex: none; }
+.plant__rivets i { width: max(4px, calc(6.7 * var(--fpx))); height: max(4px, calc(6.7 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+
+.pl-read { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.pl-funds .lbl, .pl-time .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.pl-funds .v {
+  font-family: var(--font-mono); font-weight: 800; font-size: max(20px, calc(44 * var(--fpx)));
+  color: var(--accent); text-shadow: var(--glow-accent); line-height: 0.95; margin-top: max(3px, calc(8 * var(--fpx)));
+}
+.pl-funds .v span { color: var(--text-muted); font-size: 0.55em; font-weight: 700; }
+.pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 51%; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
+.pl-meta { margin-top: 4px; font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.pl-meta b { color: var(--piece-o); font-weight: 700; }
+.pl-time { text-align: right; flex: none; }
+.pl-time .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(32 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; }
+/* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud) — shares
+   the pulse-danger keyframe with the old .chip--danger usage. */
+.pl-time.chip--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .pl-time.chip--danger .v { animation: none; }
+}
+
+/* Run-mods row — horizontally scrollable (a full run can draft many stacked
+   mods) with a small vertical "Run mods" label like the mockup's rail tag. */
+.pl-mods {
+  display: flex; align-items: center; gap: max(5px, calc(10.7 * var(--fpx)));
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  /* headroom so the xN badge (top:-7px) and the B-key tag (bottom:-8px)
+     survive this row's own scroll clipping */
+  padding-top: 8px; padding-bottom: 9px;
+}
+.pl-mods::-webkit-scrollbar { display: none; }
+.pl-mods > .lbl {
+  flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint);
+  writing-mode: vertical-rl; transform: rotate(180deg); align-self: stretch; text-transform: uppercase;
+}
+.mod {
+  position: relative; flex: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: max(38px, calc(66.7 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--line-strong);
+  box-shadow: var(--shadow-hard-sm);
+}
+.mod .g { font-family: var(--font-mono); font-weight: 700; font-size: max(12px, calc(20 * var(--fpx))); color: var(--text); letter-spacing: 0.02em; }
+.mod .nm { font-family: var(--font-pixel); font-size: max(6px, calc(8 * var(--fpx))); color: var(--text-muted); letter-spacing: 0.01em; text-align: center; line-height: 1.3; padding: 0 2px; }
+.mod .stk {
+  position: absolute; top: -7px; right: -7px;
+  font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); color: var(--accent-ink);
+  background: var(--warn); border-radius: var(--r-sm); padding: 2px 4px; box-shadow: var(--shadow-hard-sm);
+}
+.mod.k-tradeoff { border-top-color: var(--warn); }
+.mod.k-boon { border-top-color: var(--success); }
+.mod.k-bane { border-top-color: var(--danger); }
+
+/* Bond Breaker's plant-panel chip — glowing purple, tappable (reuses the
+   bond-breaker action; see the .bond-trigger note near .bond-btn above). */
+.mod--bb {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; margin: 0; padding: 0;
+  cursor: pointer;
+  width: max(44px, calc(74.7 * var(--fpx)));
+  background: linear-gradient(180deg, rgba(122,92,255,.34), rgba(122,92,255,.10));
+  border-color: var(--accent-2);
+  border-top-color: var(--accent-2);
+}
+.mod--bb .g { color: #dccfff; font-size: max(14px, calc(25.3 * var(--fpx))); text-shadow: 0 0 9px rgba(122,92,255,.85); }
+.mod--bb .stk { background: var(--accent-2); }
+.mod--bb .key {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: max(6px, calc(9.3 * var(--fpx))); background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-dim);
+}
+.mod--bb:hover:not(:disabled) { border-color: #9b82ff; }
+.mod--bb:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+/* No keyboard on touch — the chip's "B" key tag only makes sense with one. */
+@media (pointer: coarse) {
+  .mod--bb .key { display: none; }
+}
+
+/* ============================================================================
+   CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
+   the cannon (see design/screens/gameplay-variants.html's `.belt`). Purely
+   decorative chrome (pointer-events: none) sized off vh/vw so it scales down
+   on short phone-landscape viewports instead of crowding the field.
+   ========================================================================== */
+.belt {
+  position: absolute;
+  top: calc(var(--field-y) + 0.30 * var(--field-h));
+  left: calc(var(--field-x) - 0.0229 * var(--field-w));
+  width: calc(0.1583 * var(--field-w));
+  height: calc(0.0519 * var(--field-h));
+  transform: rotate(20deg);
+  transform-origin: left top;
+  z-index: 5;
+  pointer-events: none;
+}
+.belt__track {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, #26263f, #12121c);
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 2px 4px rgba(255,255,255,.05), inset 0 -4px 8px rgba(0,0,0,.5), var(--shadow-hard-sm);
+  overflow: hidden;
+}
+.belt__tread {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 3px, transparent 3px 17px);
+}
+.belt__arrows {
+  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+  text-align: center; color: rgba(0,240,255,.35);
+  font: 700 max(8px, calc(16 * var(--fpx))) var(--font-mono); letter-spacing: 6px;
+}
+.belt__roller {
+  position: absolute; top: 50%;
+  width: calc(0.0519 * var(--field-h)); height: calc(0.0519 * var(--field-h));
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #40406a, transparent 70%), #1a1a2e;
+  border: var(--bw) solid var(--line-strong);
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 2px rgba(0,0,0,.45);
+}
+.belt__roller--l { left: -8px; }
+.belt__roller--r { right: -8px; }
+.belt__lbl {
+  position: absolute; left: 34%; top: calc(-16 * var(--fpx) - 2px);
+  font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted);
+  white-space: nowrap;
+}
+.belt-piece { position: absolute; right: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
+.belt-piece .next__grid { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); }
+.belt-piece .next__bomb-tile { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); font-size: max(13px, calc(29 * var(--fpx))); }
 
 /* ---------- Modal overlays ---------- */
 .modal-scrim {

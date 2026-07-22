@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gameplay — Redesign (1d recycling-plant · 1c mechanics-accurate)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
+  --line:#2e2e4a; --line-strong:#3d3d63;
+  --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
+  --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
+  --piece-i:#00f0ff; --piece-o:#ffe500; --piece-t:#b026ff; --piece-l:#ff8a00; --piece-j:#2979ff; --piece-s:#00ff85; --piece-z:#ff2d55;
+  --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
+  --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --fs-xs:12px;
+  --sp-2:8px; --sp-3:12px;
+  --r-sm:2px; --r-md:3px; --r-xl:5px; --r-pill:3px;
+  --bw:2px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,.85);
+  --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
+  --tracking-wide:0.08em; --panel-alpha:.55;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);display:flex;flex-direction:column;align-items:center;gap:24px;min-height:100vh;padding:34px 16px}
+a{color:var(--accent)}a:hover{color:var(--accent-2)}
+
+.cap{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:13px;color:var(--text-dim)}
+.cap .sub{font-family:var(--font-ui);font-weight:600;letter-spacing:0;text-transform:none;color:var(--text-muted);font-size:13px}
+.badge{font-family:var(--font-pixel);font-size:10px;color:var(--accent-ink);background:var(--accent);padding:5px 8px;border-radius:var(--r-sm)}
+
+.neon-backdrop{background:radial-gradient(120% 90% at 50% -12%,rgba(122,92,255,0.14),transparent 60%),radial-gradient(80% 60% at 92% 118%,rgba(0,240,255,0.10),transparent 55%),linear-gradient(180deg,#161636,#07070f 70%);position:relative}
+
+.frame{width:960px;height:540px;position:relative;overflow:hidden;border-radius:var(--r-xl);border:var(--bw) solid var(--line);box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.frame::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:8;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0,rgba(0,0,0,.22) 1px,transparent 1px,transparent 3px);mix-blend-mode:multiply;opacity:.3}
+.field{position:absolute;inset:0}
+
+/* faint play-field grid (COLORS.grid, one CELL = 30px at this scale) */
+.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(122,92,255,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(122,92,255,.08) 1px,transparent 1px);background-size:30px 30px;pointer-events:none}
+/* glowing walls: left / right / bottom closed, top open (lofted shots fly out and fall back) */
+.walls{position:absolute;inset:0;border-left:3px solid rgba(0,240,255,.5);border-right:3px solid rgba(0,240,255,.5);border-bottom:3px solid rgba(0,240,255,.5);box-shadow:inset 0 -12px 26px rgba(0,240,255,.10),inset 12px 0 26px rgba(0,240,255,.05),inset -12px 0 26px rgba(0,240,255,.05);pointer-events:none}
+
+/* ---- COMPACTOR (compactor.ts): bottom-anchored, half-height (heightFrac .5),
+        thin bar (width 26 world), sweeps L↔R near the right wall, presses the
+        pile toward it. Pieces are lofted OVER its top onto the right floor. ---- */
+.compactor{position:absolute;top:270px;height:270px;left:632px;width:20px;
+  background:repeating-linear-gradient(45deg,rgba(10,10,18,.32) 0 7px,transparent 7px 20px),linear-gradient(90deg,#ff5c78,#ff2d55 50%,#c31b3d);
+  box-shadow:0 0 24px rgba(255,45,85,.55);z-index:4}
+.compactor__cap{position:absolute;left:-3px;right:-3px;top:-4px;height:6px;background:#ffd0d8;box-shadow:0 0 14px #ffd0d8}
+.compactor__push{position:absolute;top:calc(50% - 8px);right:-24px;color:#ff9db0;font:700 13px var(--font-mono);letter-spacing:-3px;text-shadow:0 0 8px rgba(255,45,85,.8)}
+
+/* ---- procedurally-drawn cubes (render.ts drawCube + drawPattern) ---- */
+.cube{width:30px;height:30px;border-radius:5px;background-color:var(--c);box-shadow:0 0 7px var(--c),inset 0 -5px 9px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.26)}
+.cb-i{background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.42) 0 1.5px,transparent 1.5px 6px)}
+.cb-l{background-image:repeating-linear-gradient(90deg,rgba(0,0,0,.42) 0 1.5px,transparent 1.5px 6px)}
+.cb-t{background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.35) 0 1.5px,transparent 1.5px 7px)}
+.cb-j{background-image:repeating-linear-gradient(-45deg,rgba(0,0,0,.35) 0 1.5px,transparent 1.5px 7px)}
+.cb-z{background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.42) 0 1.5px,transparent 1.5px 7px),repeating-linear-gradient(90deg,rgba(255,255,255,.30) 0 1.5px,transparent 1.5px 7px)}
+.cb-s{background-image:radial-gradient(circle at center,rgba(0,0,0,.55) 1.3px,transparent 1.7px);background-size:7px 7px}
+.cb-o{background-image:repeating-linear-gradient(0deg,transparent 0 2px,rgba(0,0,0,.22) 2px 3px,transparent 3px 5px,rgba(255,255,255,.16) 5px 6px,transparent 6px 8px),repeating-linear-gradient(90deg,transparent 0 2px,rgba(0,0,0,.14) 2px 3px,transparent 3px 6px)}
+
+/* landed pile — right of the bar, against the wall, MESSY (uneven, holed) */
+.stack{position:absolute;right:9px;bottom:7px;display:grid;grid-template-columns:repeat(8,30px);grid-auto-rows:30px;gap:3px;z-index:3}
+.stack i{display:block}
+
+/* in-flight / ghost piece clusters */
+.pgrid{position:absolute;display:grid;gap:2px;z-index:4}
+.pgrid i{display:block}
+.pgrid .cube{width:26px;height:26px;box-shadow:0 0 9px var(--c),inset 0 -4px 8px rgba(0,0,0,.35),inset 0 0 0 2px rgba(255,255,255,.28)}
+.ghost{opacity:.42;z-index:3}
+
+.pwr-v{position:absolute;left:70px;top:184px;width:9px;height:64px;border-radius:var(--r-pill);background:rgba(18,18,31,.65);border:1px solid var(--line);overflow:hidden;z-index:6}
+.pwr-v i{position:absolute;left:0;right:0;bottom:0;height:60%;background:linear-gradient(0deg,var(--success),var(--warn) 62%,var(--danger));box-shadow:0 0 8px rgba(255,176,32,.5)}
+.pwr-v__lbl{position:absolute;left:62px;top:252px;font:8px var(--font-pixel);color:var(--text-muted);letter-spacing:.04em;z-index:6}
+
+/* ---- HUD (1c minimal) ---- */
+.hud{position:absolute;inset:0;pointer-events:none;z-index:7}
+.hud>*{pointer-events:auto}
+.econ{position:absolute;top:13px;left:15px;display:flex;flex-direction:column;gap:6px}
+.econ__val{font:700 26px var(--font-mono);color:var(--accent);text-shadow:var(--glow-accent);line-height:1}
+.econ__val span{color:var(--text-muted);font-size:16px}
+.econ__bar{width:196px;height:5px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.econ__bar i{display:block;height:100%;width:77%;background:linear-gradient(90deg,var(--accent),var(--accent-2));box-shadow:var(--glow-accent)}
+.econ__meta{display:flex;gap:14px;font:8px var(--font-pixel);letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.econ__meta b{color:var(--piece-o)}
+.econ__meta .t{color:var(--text-dim)}
+.corner-tr{position:absolute;top:13px;right:13px;display:flex;align-items:center;gap:9px}
+.next{display:flex;align-items:center;gap:7px;background:rgba(18,18,31,var(--panel-alpha));border:var(--bw) solid var(--line);border-radius:var(--r-md);padding:3px 8px}
+.next__grid{width:28px;height:28px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:1px}
+.next__cell{border-radius:1px;background:rgba(255,255,255,.04)}
+.next__lbl{font:8px var(--font-pixel);color:var(--text-muted)}
+.next__type{font:700 15px var(--font-mono);color:var(--piece-z)}
+.icon-btn{width:36px;height:36px;border-radius:var(--r-sm);background:rgba(18,18,31,0.75);border:var(--bw) solid var(--line);color:var(--text);font-size:16px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-hard-sm)}
+.kbd{font:11px var(--font-mono);background:var(--surface-3);border:var(--bw) solid var(--line);border-radius:var(--r-sm);padding:1px 6px;color:var(--text)}
+.kbd-hint{position:absolute;left:50%;bottom:15px;transform:translateX(-50%);display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-xs);letter-spacing:var(--tracking-wide);color:var(--text-muted);white-space:nowrap}
+.kbd-hint b{color:var(--text-dim);font-weight:600}
+.kbd-hint__sep{opacity:.4}
+
+/* ================= 1d — RECYCLING-PLANT LAYOUT (Gio) =================
+   The bottom-left (below cannon, left of compactor) becomes the recycling
+   PLANT: it owns funds/target/time + the run's drafted mods. Top-right keeps
+   only NEXT + pause. Two hydraulic PISTONS mounted on the plant drive the
+   compactor bar toward the right wall. */
+.plant{position:absolute;left:16px;bottom:16px;width:452px;height:232px;z-index:6;
+  background:linear-gradient(180deg,rgba(22,22,37,.95),rgba(9,9,18,.96));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);
+  box-shadow:var(--shadow-hard-sm),0 0 0 1px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.05);
+  padding:13px 14px 13px;display:flex;flex-direction:column;justify-content:space-between;backdrop-filter:blur(2px)}
+.frame--d .pwr-v{top:230px}
+.frame--d .pwr-v__lbl{top:298px}
+.plant__hdr{display:flex;align-items:center;justify-content:space-between}
+.plant__title{font:8px var(--font-pixel);letter-spacing:.1em;color:var(--text-muted);display:flex;align-items:center;gap:8px}
+.plant__title b{color:var(--accent)}
+.plant__rivets{display:flex;gap:5px}
+.plant__rivets i{width:5px;height:5px;border-radius:50%;background:var(--surface-3);box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
+.pl-read{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}
+.pl-funds .lbl{font:8px var(--font-pixel);letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.frame--d .pwr-v,.frame--d .pwr-v__lbl{display:none}
+.pl-pwr{position:absolute;left:150px;bottom:246px;width:318px;height:17px;z-index:4;display:flex;align-items:center;gap:9px;padding:0 11px;background:linear-gradient(180deg,#20203a,#12121f);border:var(--bw) solid var(--line-strong);border-bottom:none;border-radius:var(--r-md) var(--r-md) 0 0;box-shadow:var(--shadow-hard-sm)}
+.pl-pwr .lbl{font:7px var(--font-pixel);letter-spacing:.08em;color:var(--text-muted)}
+.pl-pwr__track{flex:1;height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.pl-pwr__track i{display:block;height:100%;width:60%;background:linear-gradient(90deg,var(--success),var(--warn) 62%,var(--danger));box-shadow:0 0 8px rgba(255,176,32,.55)}
+.pl-pwr__val{font:700 10px var(--font-mono);color:var(--warn)}
+.pl-funds .v{font:800 33px var(--font-mono);color:var(--accent);text-shadow:var(--glow-accent);line-height:.95;margin-top:6px}
+.pl-funds .v span{color:var(--text-muted);font-size:17px;font-weight:700}
+.pl-goal{margin-top:12px;width:230px;height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.pl-goal i{display:block;height:100%;width:77%;background:linear-gradient(90deg,var(--accent),var(--accent-2));box-shadow:var(--glow-accent)}
+.pl-time{text-align:right;flex:none}
+.pl-time .lbl{font:8px var(--font-pixel);letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.pl-time .v{font:700 24px var(--font-mono);color:var(--text);line-height:1;margin-top:3px}
+.pl-mods{display:flex;align-items:center;gap:8px}
+.pl-mods>.lbl{font:8px var(--font-pixel);letter-spacing:.04em;color:var(--text-faint);writing-mode:vertical-rl;transform:rotate(180deg);align-self:stretch;text-transform:uppercase}
+.mod{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:50px;height:52px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--line);border-top:2px solid var(--line-strong);box-shadow:var(--shadow-hard-sm)}
+.mod .g{font:700 15px var(--font-mono);color:var(--text);letter-spacing:.02em}
+.mod .nm{font:6px var(--font-pixel);color:var(--text-muted);letter-spacing:.01em;text-align:center;line-height:1.3}
+.mod .stk{position:absolute;top:-7px;right:-7px;font:7px var(--font-pixel);color:var(--accent-ink);background:var(--warn);border-radius:var(--r-sm);padding:2px 4px;box-shadow:var(--shadow-hard-sm)}
+.mod.k-tradeoff{border-top-color:var(--warn)}
+.mod.k-boon{border-top-color:var(--success)}
+.mod.k-bane{border-top-color:var(--danger)}
+.mod--bb{width:56px;background:linear-gradient(180deg,rgba(122,92,255,.34),rgba(122,92,255,.10));border-color:var(--accent-2);border-top-color:var(--accent-2);cursor:pointer}
+.mod--bb .g{color:#dccfff;font-size:19px;text-shadow:0 0 9px rgba(122,92,255,.85)}
+.mod--bb .stk{background:var(--accent-2)}
+.mod--bb .key{position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);font:7px var(--font-mono);background:var(--surface-3);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px;color:var(--text-dim)}
+/* two hydraulic pistons driving the compactor rightward */
+.piston{position:absolute;left:462px;width:172px;height:30px;z-index:4;display:flex;align-items:center;pointer-events:none}
+.piston__barrel{width:70px;height:26px;flex:none;background:repeating-linear-gradient(90deg,#34345040 0 4px,transparent 4px 8px),linear-gradient(180deg,#2c2c48,#171729);border:1px solid var(--line-strong);border-radius:3px;box-shadow:inset 0 2px 4px rgba(255,255,255,.06),inset 0 -3px 6px rgba(0,0,0,.5)}
+.piston__rod{flex:1;height:11px;background:linear-gradient(180deg,#e2e2f5,#8f8fc0 55%,#5c5c88);box-shadow:0 0 7px rgba(0,240,255,.4),inset 0 1px 0 rgba(255,255,255,.6);position:relative}
+.piston__rod::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(0,0,0,.28) 0 2px,transparent 2px 12px)}
+.piston__head{width:13px;height:38px;flex:none;background:linear-gradient(90deg,#ff6f8a,#ff2d55);border-radius:2px;box-shadow:0 0 13px rgba(255,45,85,.75),inset 0 0 0 1px rgba(255,255,255,.3)}
+.piston__push{position:absolute;right:16px;top:50%;transform:translateY(-50%);color:#ff9db0;font:700 13px var(--font-mono);letter-spacing:-3px;text-shadow:0 0 8px rgba(255,45,85,.9)}
+/* conveyor belt feeding the next-piece queue into the cannon (top-left) */
+.belt{position:absolute;z-index:4;width:152px;height:28px;transform-origin:left top}
+.belt__track{position:absolute;inset:0;background:linear-gradient(180deg,#26263f,#12121c);border:var(--bw) solid var(--line-strong);border-radius:4px;box-shadow:inset 0 2px 4px rgba(255,255,255,.05),inset 0 -4px 8px rgba(0,0,0,.5),var(--shadow-hard-sm);overflow:hidden}
+.belt__tread{position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 3px,transparent 3px 17px)}
+.belt__arrows{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;color:rgba(0,240,255,.35);font:700 12px var(--font-mono);letter-spacing:6px}
+.belt__roller{position:absolute;top:50%;width:28px;height:28px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#40406a,#14142400);background-color:#1a1a2e;border:var(--bw) solid var(--line-strong);transform:translateY(-50%);box-shadow:0 0 0 2px rgba(0,0,0,.45)}
+.belt__lbl{position:absolute;left:2px;top:-16px;font:8px var(--font-pixel);letter-spacing:.08em;color:var(--text-muted)}
+.belt-piece{position:absolute;bottom:28px}
+.qpiece{display:grid;gap:2px;grid-auto-rows:16px}
+.qpiece .cube{width:16px;height:16px;box-shadow:0 0 5px var(--c),inset 0 -3px 5px rgba(0,0,0,.35),inset 0 0 0 1.5px rgba(255,255,255,.28)}
+.qpiece i{display:block}
+/* wind indicator (render.ts drawWindIndicator): a glowing directional bar on a
+   translucent pill, top-center of the field, points where wind pushes airborne
+   pieces, ramps calm-cyan -> hot-red with strength. */
+.wind{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+.wind__lbl{font:8px var(--font-pixel);letter-spacing:.16em;color:var(--text-muted)}
+.wind__gauge{position:relative;width:296px;height:16px;background:rgba(9,9,18,.5);border:1px solid var(--line);border-radius:var(--r-pill)}
+.wind__axis{position:absolute;left:12px;right:12px;top:50%;height:2px;transform:translateY(-50%);background:repeating-linear-gradient(90deg,var(--line-strong) 0 4px,transparent 4px 9px)}
+.wind__center{position:absolute;left:50%;top:3px;bottom:3px;width:2px;transform:translateX(-50%);background:var(--text-faint)}
+.wind__bar{position:absolute;left:50%;top:50%;transform:translateY(-50%);height:7px;width:92px;border-radius:2px;background:linear-gradient(90deg,var(--warn),var(--danger));box-shadow:0 0 11px rgba(255,45,85,.6)}
+.wind__bar::after{content:"";position:absolute;right:-9px;top:50%;transform:translateY(-50%);border:6px solid transparent;border-left:10px solid var(--danger);filter:drop-shadow(0 0 4px rgba(255,45,85,.75))}
+.legend{width:960px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.legend div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:11px 13px;font-size:12.5px;line-height:1.5;color:var(--text-dim)}
+.legend b{color:var(--accent);font-family:var(--font-ui)}
+</style>
+</head>
+<body>
+
+<div class="cap"><span class="badge">1d</span> Recycling-plant layout (Gio) <span class="sub">funds · target · time · run-mods all live in the plant below the cannon · top-right = next + pause only · two pistons drive the compactor right</span></div>
+
+<div class="frame frame--d">
+  <div class="field neon-backdrop">
+    <div class="grid"></div>
+
+    <!-- COMPACTOR bar, pushed right by the plant's two pistons -->
+    <div class="compactor"><div class="compactor__cap"></div></div>
+    <div class="piston" style="top:328px"><div class="piston__barrel"></div><div class="piston__rod"></div><div class="piston__head"></div><span class="piston__push">▸▸</span></div>
+    <div class="piston" style="top:452px"><div class="piston__barrel"></div><div class="piston__rod"></div><div class="piston__head"></div><span class="piston__push">▸▸</span></div>
+
+    <!-- conveyor belt: the NEXT piece rides in from the top-left and feeds the cannon -->
+    <div class="belt" style="top:162px;left:-22px;transform:rotate(20deg)">
+      <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
+      <div class="belt__roller" style="left:-8px"></div>
+      <div class="belt__roller" style="right:-8px"></div>
+      <span class="belt__lbl">◂ NEXT</span>
+      <div class="belt-piece" style="right:8px">
+        <div class="qpiece" style="grid-template-columns:repeat(3,16px)">
+          <div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><i></i>
+          <i></i><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- landed MESSY pile: right of the bar, against the wall -->
+    <div class="stack">
+      <i></i><i></i><i></i><i></i><i></i><div class="cube cb-l" style="--c:#ff8a00"></div><i></i><i></i>
+      <i></i><i></i><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><i></i><div class="cube cb-l" style="--c:#ff8a00"></div><div class="cube cb-l" style="--c:#ff8a00"></div><i></i>
+      <i></i><div class="cube cb-s" style="--c:#00ff85"></div><i></i><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-l" style="--c:#ff8a00"></div><i></i><div class="cube cb-j" style="--c:#2979ff"></div>
+      <i></i><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-t" style="--c:#b026ff"></div><i></i><div class="cube cb-j" style="--c:#2979ff"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div><i></i><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-j" style="--c:#2979ff"></div><div class="cube cb-j" style="--c:#2979ff"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><i></i><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-j" style="--c:#2979ff"></div><div class="cube cb-o" style="--c:#ffe500"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-l" style="--c:#ff8a00"></div><div class="cube cb-o" style="--c:#ffe500"></div>
+    </div>
+
+    <svg style="position:absolute;inset:0;width:100%;height:100%;z-index:5" viewBox="0 0 960 540">
+      <path d="M153,227 Q440,58 780,300" fill="none" stroke="#00ff85" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 13" opacity="0.9" style="filter:drop-shadow(0 0 6px rgba(0,255,133,.6))"/>
+      <g transform="translate(112,262)">
+        <rect x="0" y="-10" width="54" height="20" rx="6" transform="rotate(-40)" fill="rgb(213,148,90)" style="filter:drop-shadow(0 0 8px rgba(213,148,90,.7))"/>
+        <circle r="22" fill="#1b1b2e"/>
+        <circle r="22" fill="none" stroke="#00f0ff" stroke-width="3" style="filter:drop-shadow(0 0 6px rgba(0,240,255,.7))"/>
+      </g>
+    </svg>
+
+    <div class="pgrid ghost" style="left:132px;top:205px;grid-template-columns:repeat(3,20px);grid-auto-rows:20px">
+      <div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><i></i>
+      <i></i><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div>
+    </div>
+
+    <div class="pgrid" style="left:676px;top:170px;grid-template-columns:repeat(3,26px);grid-auto-rows:26px;transform:rotate(16deg)">
+      <i></i><div class="cube cb-t" style="--c:#b026ff"></div><i></i>
+      <div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div>
+    </div>
+
+    <div class="pwr-v"><i></i></div><div class="pwr-v__lbl">PWR</div>
+
+    <div class="pl-pwr"><span class="lbl">PWR</span><div class="pl-pwr__track"><i></i></div><span class="pl-pwr__val">60%</span></div>
+
+    <div class="walls"></div>
+
+    <div class="hud">
+      <!-- wind indicator, top-center -->
+      <div class="wind"><span class="wind__lbl">WIND</span><div class="wind__gauge"><div class="wind__axis"></div><div class="wind__center"></div><div class="wind__bar"></div></div></div>
+
+      <!-- top-right ONLY: pause (NEXT now rides the conveyor belt at top-left) -->
+      <div class="corner-tr">
+        <button class="icon-btn" aria-label="Pause">⏸</button>
+      </div>
+
+      <!-- the RECYCLING PLANT: funds / target / time / run-mods, below the cannon -->
+      <div class="plant">
+        <div class="plant__hdr">
+          <div class="plant__title"><b>◊</b> Recycling Plant <span style="color:var(--text-faint)">· Bay 4/10</span></div>
+          <div class="plant__rivets"><i></i><i></i><i></i></div>
+        </div>
+        <div class="pl-read">
+          <div class="pl-funds">
+            <div class="lbl">Funds / Target</div>
+            <div class="v">$620 <span>/ 800</span></div>
+            <div class="pl-goal"><i></i></div>
+          </div>
+          <div class="pl-time">
+            <div class="lbl">Time</div>
+            <div class="v">2:12</div>
+          </div>
+        </div>
+        <div class="pl-mods">
+          <span class="lbl">Run mods</span>
+          <div class="mod k-tradeoff"><span class="g">OC</span><span class="nm">O.CLOCK</span><span class="stk">×2</span></div>
+          <div class="mod k-tradeoff"><span class="g">PR</span><span class="nm">PREMIUM</span></div>
+          <div class="mod k-tradeoff"><span class="g">HC</span><span class="nm">HEAVY</span></div>
+          <div class="mod k-tradeoff"><span class="g">SL</span><span class="nm">SH.LINE</span></div>
+          <div class="mod mod--bb k-boon"><span class="g">⚡</span><span class="nm">BOND BRK</span><span class="stk">×1</span><span class="key">B</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cap"><span class="badge">1c</span> Minimal HUD — mechanics-accurate field <span class="sub">half-height sweeping compactor · pieces loft over it · procedurally-patterned cubes · no FIRE button</span></div>
+
+<div class="frame">
+  <div class="field neon-backdrop">
+    <div class="grid"></div>
+
+    <div class="compactor"><div class="compactor__cap"></div><div class="compactor__push">▸▸</div></div>
+
+    <!-- landed MESSY pile: right of the bar, against the wall -->
+    <div class="stack">
+      <i></i><i></i><i></i><i></i><i></i><div class="cube cb-l" style="--c:#ff8a00"></div><i></i><i></i>
+      <i></i><i></i><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><i></i><div class="cube cb-l" style="--c:#ff8a00"></div><div class="cube cb-l" style="--c:#ff8a00"></div><i></i>
+      <i></i><div class="cube cb-s" style="--c:#00ff85"></div><i></i><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-l" style="--c:#ff8a00"></div><i></i><div class="cube cb-j" style="--c:#2979ff"></div>
+      <i></i><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-o" style="--c:#ffe500"></div><div class="cube cb-t" style="--c:#b026ff"></div><i></i><div class="cube cb-j" style="--c:#2979ff"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div><i></i><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-j" style="--c:#2979ff"></div><div class="cube cb-j" style="--c:#2979ff"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><i></i><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-j" style="--c:#2979ff"></div><div class="cube cb-o" style="--c:#ffe500"></div>
+      <div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-i" style="--c:#00f0ff"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-s" style="--c:#00ff85"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-z" style="--c:#ff2d55"></div><div class="cube cb-l" style="--c:#ff8a00"></div><div class="cube cb-o" style="--c:#ffe500"></div>
+    </div>
+
+    <!-- trajectory + cannon -->
+    <svg style="position:absolute;inset:0;width:100%;height:100%;z-index:5" viewBox="0 0 960 540">
+      <path d="M153,181 Q440,18 780,300" fill="none" stroke="#00ff85" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 13" opacity="0.9" style="filter:drop-shadow(0 0 6px rgba(0,255,133,.6))"/>
+      <g transform="translate(112,216)">
+        <rect x="0" y="-10" width="54" height="20" rx="6" transform="rotate(-40)" fill="rgb(213,148,90)" style="filter:drop-shadow(0 0 8px rgba(213,148,90,.7))"/>
+        <circle r="22" fill="#1b1b2e"/>
+        <circle r="22" fill="none" stroke="#00f0ff" stroke-width="3" style="filter:drop-shadow(0 0 6px rgba(0,240,255,.7))"/>
+      </g>
+    </svg>
+
+    <!-- loaded ghost (Z) at the muzzle -->
+    <div class="pgrid ghost" style="left:132px;top:159px;grid-template-columns:repeat(3,20px);grid-auto-rows:20px">
+      <div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><i></i>
+      <i></i><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div><div class="cube cb-z" style="--c:#ff2d55;width:20px;height:20px"></div>
+    </div>
+
+    <!-- in-flight T piece: over the bar, descending into the right zone -->
+    <div class="pgrid" style="left:676px;top:214px;grid-template-columns:repeat(3,26px);grid-auto-rows:26px;transform:rotate(16deg)">
+      <i></i><div class="cube cb-t" style="--c:#b026ff"></div><i></i>
+      <div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div><div class="cube cb-t" style="--c:#b026ff"></div>
+    </div>
+
+    <!-- diegetic power meter on the cannon -->
+    <div class="pwr-v"><i></i></div><div class="pwr-v__lbl">PWR</div>
+
+    <div class="walls"></div>
+
+    <div class="hud">
+      <div class="econ">
+        <div class="econ__val">$620 <span>/ 800</span></div>
+        <div class="econ__bar"><i></i></div>
+        <div class="econ__meta"><span>Combo <b>×3</b></span><span class="t">Time 2:12</span></div>
+      </div>
+      <div class="corner-tr">
+        <div class="next">
+          <div class="next__grid"><div class="next__cell"></div><div class="next__cell" style="background:#ff2d55;box-shadow:0 0 6px #ff2d55"></div><div class="next__cell" style="background:#ff2d55;box-shadow:0 0 6px #ff2d55"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell" style="background:#ff2d55;box-shadow:0 0 6px #ff2d55"></div><div class="next__cell" style="background:#ff2d55;box-shadow:0 0 6px #ff2d55"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div><div class="next__cell"></div></div>
+          <div><div class="next__lbl">Next</div><div class="next__type">Z</div></div>
+        </div>
+        <button class="icon-btn" aria-label="Pause">⏸</button>
+      </div>
+      <div class="kbd-hint"><span class="kbd">Q</span>/<span class="kbd">E</span> <b>rotate</b><span class="kbd-hint__sep">·</span><span class="kbd">W</span>/<span class="kbd">S</span> <b>aim</b><span class="kbd-hint__sep">·</span><span class="kbd">A</span>/<span class="kbd">D</span> <b>power</b><span class="kbd-hint__sep">·</span><span class="kbd">Space</span> <b>fire</b><span class="kbd-hint__sep">·</span>drag to aim</div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div><b>Compactor</b> — thin bar, bottom half only (heightFrac 0.5), sweeps left↔right near the right wall and presses the pile into it. Pieces loft over its top onto the right floor.</div>
+  <div><b>Pieces = code</b> — cubes drawn procedurally with per-type patterns (I h-lines, O concentric, T/J diagonals, L v-lines, S dots, Z crosshatch) + neon glow, not sprites.</div>
+  <div><b>No FIRE button</b> — release fires on touch, <span class="kbd">Space</span> on desktop. Power reads off the cannon barrel + the small diegetic meter; economy merges into one $ / target readout.</div>
+</div>
+
+</body>
+</html>
