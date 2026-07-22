@@ -52,11 +52,55 @@ function isAtRest(body: Matter.Body): boolean {
 const WIND_AIRBORNE_SPEED = 3;
 const WIND_AIRBORNE_SPEED_SQ = WIND_AIRBORNE_SPEED * WIND_AIRBORNE_SPEED;
 
-/** How strongly the drunk-walking wind is pulled back toward the bay's rolled
- *  average each step (see stepWind). Tuned so the wind hovers within roughly
- *  ±0.055 of the average (given windGust 0.03) — gusts for texture, but the
- *  bay keeps a legible, learnable prevailing direction. */
-const WIND_REVERT = 0.05;
+/** Physics steps per second — the inverse of DT (1000/60 ms/step, engine.ts's
+ *  fixed 60Hz stepPhysics). Exists so the wind tuning below can be specified
+ *  as real-world SECONDS and converted to a per-step rate explicitly, rather
+ *  than hand-tuned as a bare per-step magic number with the timescale left
+ *  implicit — see WIND_TAU_SEC's comment for why that implicitness is
+ *  exactly what caused this mechanic's timescale bug. */
+const STEPS_PER_SEC = 1000 / DT;
+
+/** Decorrelation time constant (in SECONDS) of the drunk-walking wind: how
+ *  long it takes (1 - 1/e ≈ 63%) of a step's displacement from windAvg to
+ *  revert. Tuned to ~5s so the wind is close to constant across one shot's
+ *  ~1.5-2.5s flight (see updateTrajectory's doc — the preview literally
+ *  assumes this) while still drifting noticeably over a whole bay (bays run
+ *  150s+).
+ *
+ *  PREVIOUSLY this constant didn't exist: WIND_REVERT was hand-set to a bare
+ *  per-step 0.05 with no stated unit. Applied once per physics step at the
+ *  engine's fixed 60 steps/sec, that gave tau = 1/(0.05*60) ≈ 0.33s — the
+ *  wind was completely re-rolling its character ~3x per second (~6x within
+ *  a single ~2s flight), which read to players as flicker/noise instead of
+ *  a legible breeze. That was an implicit-units bug: 0.05 looks like a
+ *  reasonable "5% per tick" rate, but nothing tied "tick" to a real-time
+ *  rate, so it was ~15x too fast for a human to read. WIND_TAU_SEC forces
+ *  the timescale to be named explicitly instead. */
+const WIND_TAU_SEC = 5;
+
+/** Per-step pull-back-to-average fraction used by stepWind, derived from
+ *  WIND_TAU_SEC via the standard discrete-time relation for an AR(1)/OU
+ *  process: holding (1 - WIND_REVERT) = exp(-1 / (WIND_TAU_SEC *
+ *  STEPS_PER_SEC)) keeps the real-world decorrelation time fixed at
+ *  WIND_TAU_SEC seconds regardless of the physics step rate, instead of the
+ *  old bare-per-step constant that silently meant something different at
+ *  every step rate. At WIND_TAU_SEC=5 (60 steps/sec) this works out to
+ *  ≈0.00333 — about 1/15th of the old flat 0.05, which is the
+ *  order-of-magnitude correction this bug needed.
+ *
+ *  Together with each bay's windGust (level.ts — sized as a fraction of
+ *  windMax, see WIND_GUST_FRACTION there), this sets the stationary spread
+ *  of the drunk walk around windAvg. For a uniform per-step nudge of
+ *  ±windGust and per-step revert WIND_REVERT, the standard deviation of
+ *  (windCur − windAvg) at steady state is (small-WIND_REVERT approximation
+ *  of the exact discrete-OU variance):
+ *    std ≈ (windGust / √3) / √(2 · WIND_REVERT · (1 − WIND_REVERT / 2))
+ *  With WIND_GUST_FRACTION=0.025 and WIND_TAU_SEC=5 that comes out to std ≈
+ *  17.7% of windMax at every windy bay (e.g. bay 4's windMax 0.06 → std ≈
+ *  ±0.0106) — gusts read as texture around a legible prevailing average,
+ *  not noise the size of the average itself (the old flat windGust=0.03 was
+ *  std ≈ ±0.055, i.e. almost the ENTIRE windMax cap at bay 4). */
+const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
 
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
@@ -209,9 +253,13 @@ export class Game {
   /** Advance the wind drunk-walk by one physics step: a small seeded random
    *  nudge (±windGust) plus a gentle pull back toward the bay's rolled
    *  average (WIND_REVERT), so the wind gusts around a steady, learnable
-   *  prevailing direction instead of oscillating extreme-to-extreme. Inert
-   *  (pinned to 0) when windMax is 0. Called once per update() step, so it's
-   *  pause-safe by construction (update doesn't run while paused). */
+   *  prevailing direction instead of oscillating extreme-to-extreme. Both
+   *  constants are seconds-scale by design (see WIND_TAU_SEC's comment
+   *  above) — decorrelation time constant τ ≈ WIND_TAU_SEC (5s), so the
+   *  character of the wind barely changes within one flight but visibly
+   *  drifts over a bay. Inert (pinned to 0) when windMax is 0. Called once
+   *  per update() step, so it's pause-safe by construction (update doesn't
+   *  run while paused). */
   private stepWind(): void {
     const { windMax, windGust } = this.level;
     if (windMax === 0) {
@@ -221,8 +269,12 @@ export class Game {
     this.windCur += (this.windRng() * 2 - 1) * windGust;
     this.windCur += (this.windAvg - this.windCur) * WIND_REVERT;
     // Safety clamp so a run of same-signed nudges can't push a gust far past
-    // the bay's magnitude cap.
-    const cap = windMax + windGust * 4;
+    // the bay's magnitude cap. windGust * 16 is ~2.26 stationary standard
+    // deviations of headroom above windMax (see the std formula in
+    // WIND_REVERT's comment) — at WIND_GUST_FRACTION=0.025 that's exactly
+    // windMax * 1.4, tight enough that a bay never reads as far windier than
+    // its advertised windMax.
+    const cap = windMax + windGust * 16;
     this.windCur = Math.max(-cap, Math.min(cap, this.windCur));
   }
 
@@ -288,10 +340,11 @@ export class Game {
    * Recomputes the dotted preview arc against the CURRENT wind held constant
    * across the whole predicted flight. Unlike the old deterministic sine, a
    * drunk walk's future is genuinely unknowable, so the current reading is
-   * the best available estimate — and because the wind now hovers near a
-   * steady average (small per-step gusts, mean-reverting), holding it
-   * constant across a ~1.5-2.5s flight is a close match to what applyWind()
-   * actually does. sim/bots.ts's `aim` preset re-solves its shot by reading
+   * the best available estimate — and because the wind's decorrelation time
+   * constant is tuned to WIND_TAU_SEC (5s — see that constant's comment),
+   * holding it constant across a ~1.5-2.5s flight is a close match to what
+   * applyWind() actually does: the wind has barely drifted by the time the
+   * shot lands. sim/bots.ts's `aim` preset re-solves its shot by reading
    * THIS trajectory back out, so it aims against the same current-wind
    * estimate a human would read off the HUD indicator.
    */
