@@ -180,6 +180,15 @@ export class Game {
    *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS). */
   private readonly brokeGraceSteps: number;
 
+  /** Game.stepCount when the clock first hit zero, or null while time
+   *  remains. Time-up is overtime, not an instant loss — see the time-up
+   *  block in update(). */
+  private timeUpStep: number | null = null;
+  /** Game.stepCount of the compactor's most recent arrival at full advance
+   *  (rightX) — "a pressing stroke has completed since step S" is then just
+   *  `lastFullAdvanceStep > S`. */
+  private lastFullAdvanceStep = -1;
+
   /** Physics steps elapsed (one per update() call) — bombs use this instead
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
    *  (update doesn't run while paused). */
@@ -395,6 +404,9 @@ export class Game {
 
   shoot(now: number): boolean {
     if (this.status !== "playing" || this.paused) return false;
+    // Clock's out: overtime only settles what's already flying (see the
+    // time-up block in update()) — no new launches.
+    if (this.timeLeftMs <= 0) return false;
     if (!this.cannon.canShoot(now)) return false;
     if (this.score < this.level.launchCost) return false;
 
@@ -471,6 +483,9 @@ export class Game {
     // after update(), that tick's settle/clear gate would be skipped entirely.
     const pressing = this.compactor.pressing;
     this.compactor.update();
+    // The bar's x clamps exactly to rightX on the tick it arrives (then flips
+    // to retreat), so this records precisely the full-advance ticks.
+    if (this.compactor.x >= this.compactor.rightX) this.lastFullAdvanceStep = this.stepCount;
     updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
@@ -541,8 +556,24 @@ export class Game {
       this.lossReason = "broke";
       this.setStatus("lost");
     } else if (this.timeLeftMs <= 0) {
-      this.lossReason = "time";
-      this.setStatus("lost");
+      // Overtime — not an instant loss: launches already paid for get to
+      // land and their lines to be pressed and paid before the run is
+      // judged (shoot() blocks new launches once the clock is out). The
+      // run ends once the compactor has completed a pressing stroke since
+      // expiry AND the field is at rest — any line the final launch
+      // completed has had its crush-and-pay stroke by then — or after the
+      // same capped grace window the broke-loss uses, so a never-resting
+      // pile can't stall the verdict forever. A payout during overtime can
+      // still win the bay: the score >= target check above runs first.
+      if (this.timeUpStep === null) this.timeUpStep = this.stepCount;
+      const strokeDone = this.lastFullAdvanceStep > this.timeUpStep;
+      if (
+        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
+        this.stepCount - this.timeUpStep > this.brokeGraceSteps
+      ) {
+        this.lossReason = "time";
+        this.setStatus("lost");
+      }
     }
 
     if (this.effects.length) {

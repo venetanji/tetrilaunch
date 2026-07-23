@@ -286,13 +286,13 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
  * precisely because the rod length has to track compactor.x every physics
  * step, same as the bar itself. Two heights, spread inside the compactor's
  * own half-height band (c.top..c.top+c.height) at the mockup's fractions,
- * so they never desync if compactorHeightFrac changes. Note the bar CAN
- * sweep left of the mount under extreme "Wide Bay" stacking (leftX bottoms
- * out at 547 < 616 with 9 stacks — see mods.ts): the rod-length guard below
- * just collapses the rod to zero and lets the head overlap the barrel,
- * which reads as "fully retracted" and is an acceptable degenerate look.
+ * so they never desync if compactorHeightFrac changes. The bar CAN sweep
+ * left of the default mount under "Wide Bay" stacking (leftX bottoms out at
+ * 547 < 616 with compactorOpenCells 18 — see mods.ts), which used to bury
+ * the head inside the barrel; the whole rig now slides left per-level so
+ * the barrel tip always clears the bar's leftmost face (see drawPistons).
  */
-const PISTON_BARREL_X = 616; // world-x, fixed mount — tucked under the plant panel's right edge (624)
+const PISTON_BARREL_X = 616; // world-x, preferred mount — tucked under the plant panel's right edge (624); slides left for wide bays (see drawPistons)
 const PISTON_BARREL_LEN = 93;
 const PISTON_BARREL_H = 35;
 const PISTON_ROD_H = 15;
@@ -301,9 +301,16 @@ const PISTON_HEAD_H = 51;
 const PISTON_Y_FRACS = [0.27, 0.73]; // fraction down the compactor's [top, top+height] band — mockup's two mounts
 
 function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
+  // Mount the rig at the mockup's 616 when the bay allows, but slide it left
+  // for wide bays: the barrel tip must stay clear of the bar's LEFTMOST face
+  // (c.leftX is the open stop) plus the head's width, or the head would
+  // sweep through the housing on full retreat (Wide Bay at 18 open cells
+  // puts that face at 534, 175px left of the default barrel tip).
+  const minFace = c.leftX - c.width / 2;
+  const mountX = Math.min(PISTON_BARREL_X, minFace - PISTON_HEAD_W - PISTON_BARREL_LEN - 6);
   for (const frac of PISTON_Y_FRACS) {
     const y = c.top + c.height * frac;
-    const barrelX0 = PISTON_BARREL_X;
+    const barrelX0 = mountX;
     const barrelX1 = barrelX0 + PISTON_BARREL_LEN;
     const headX = c.x - c.width / 2; // the bar's left face — where the piston pushes it
     const rodX0 = barrelX1;
