@@ -153,6 +153,9 @@ export function hudHTML(opts: {
   beltPreview: BeltPreview;
   target: number;
   score: number;
+  /** Cost per launch this bay — shown in the plant readout together with how
+   *  many launches the current funds afford (#hud-shots, live-synced). */
+  launchCost: number;
   bayNum: number;
   timeLimitSec: number;
   timeLeftMs: number;
@@ -168,7 +171,7 @@ export function hudHTML(opts: {
   modIds: string[];
 }): string {
   const {
-    beltPreview, target, score, bayNum, timeLimitSec, timeLeftMs,
+    beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceCubes, bondBreakerOwned, bondCharges, modIds,
   } = opts;
   const beltNextHTML = beltPreview.bomb
@@ -245,9 +248,15 @@ export function hudHTML(opts: {
         <div class="pl-read">
           <div class="pl-funds">
             <div class="lbl">Funds / Target</div>
-            <div class="v"><span id="hud-score">$${score}</span> <span>/ ${target}</span></div>
+            <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
-            <div class="pl-meta"><span>Combo <b id="hud-combo">×0</b></span></div>
+            <div class="pl-meta">
+              <span>Combo <b id="hud-combo">×0</b></span>
+              <span class="pl-meta__sep">·</span>
+              <span>Launch $${launchCost}</span>
+              <span class="pl-meta__sep">·</span>
+              <span><b id="hud-shots">${Math.floor(score / launchCost)}</b> launches left</span>
+            </div>
           </div>
           ${timeBlock}
         </div>
@@ -346,7 +355,7 @@ export function draftScreen(opts: {
         .join("")}</div>`
     : "";
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal pop" style="width:min(760px,94vw)">
+    <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
       <h2 class="display">Choose your contract</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
@@ -359,6 +368,39 @@ export function draftScreen(opts: {
       <button class="btn btn--ghost" data-action="skip-mod">Skip — no modifier</button>
     </div>
   </div>`;
+}
+
+/**
+ * Full-screen animated backdrop for the two "economic" losses — pure CSS
+ * (app.css's .lose-fx rules), pointer-events: none, rendered inside the
+ * scrim BEHIND the modal panel. "time": a giant draining clock ring with a
+ * fast-spinning hand that stops at 12. "broke": a rain of tumbling $ coins.
+ * Topout keeps the plain scrim — the pile hitting the ceiling is its own
+ * visual. Coin spread/delays are inline per-coin (a fixed multiplicative
+ * scatter, no randomness) so the rain fills the screen from frame one.
+ */
+function loseFxHTML(reason: "topout" | "broke" | "time"): string {
+  if (reason === "time") {
+    return `<div class="lose-fx lose-fx--time" aria-hidden="true">
+      <div class="lose-fx__vignette"></div>
+      <svg class="lose-fx__clock" viewBox="0 0 100 100">
+        <circle class="ring" cx="50" cy="50" r="44"/>
+        <line class="hand" x1="50" y1="50" x2="50" y2="14"/>
+      </svg>
+    </div>`;
+  }
+  if (reason === "broke") {
+    const coins = Array.from({ length: 16 }, (_, i) => {
+      const left = (i * 137) % 100;
+      const delay = ((i * 73) % 26) / 10;
+      const dur = 2.2 + (i % 5) * 0.35;
+      const size = 20 + (i % 3) * 9;
+      return `<span class="lose-fx__coin" style="left:${left}%;font-size:${size}px;animation-duration:${dur}s;animation-delay:-${delay}s">$</span>`;
+    }).join("");
+    return `<div class="lose-fx lose-fx--broke" aria-hidden="true">
+      <div class="lose-fx__vignette"></div>${coins}</div>`;
+  }
+  return "";
 }
 
 export function endModal(opts: {
@@ -393,7 +435,9 @@ export function endModal(opts: {
         : opts.reason === "time"
           ? "Time's up — the bay went dark"
           : "The compactor won this round";
+  const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
   return `<div class="modal-scrim" id="scrim">
+    ${loseFx}
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>

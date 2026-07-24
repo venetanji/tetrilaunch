@@ -118,6 +118,7 @@ class App {
       beltPreview: g.beltPreview,
       target: g.target,
       score: g.score,
+      launchCost: g.level.launchCost,
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
@@ -420,6 +421,7 @@ class App {
     };
     set("#hud-score", "$" + g.score);
     set("#hud-combo", "×" + g.combo);
+    set("#hud-shots", String(Math.floor(g.score / g.level.launchCost)));
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.

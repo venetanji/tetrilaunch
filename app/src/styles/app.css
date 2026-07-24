@@ -507,11 +507,16 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-weight: 800; font-size: max(20px, calc(44 * var(--fpx)));
   color: var(--accent); text-shadow: var(--glow-accent); line-height: 0.95; margin-top: max(3px, calc(8 * var(--fpx)));
 }
-.pl-funds .v span { color: var(--text-muted); font-size: 0.55em; font-weight: 700; }
-.pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 51%; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+/* The target is the bay's whole objective — it reads at 0.75em of the funds
+   figure in goal-yellow (was a dim 0.55em afterthought), and the progress
+   bar spans the full readout width at nearly double thickness so distance-
+   to-goal is legible at a glance mid-aim. */
+.pl-funds .v .tgt { color: var(--piece-o); font-size: 0.75em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
+.pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 .pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
-.pl-meta { margin-top: 4px; font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.pl-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .pl-meta b { color: var(--piece-o); font-weight: 700; }
+.pl-meta__sep { color: var(--text-faint); }
 .pl-time { text-align: right; flex: none; }
 .pl-time .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(32 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; }
 /* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud) — shares
@@ -748,6 +753,65 @@ body.crt-off #app::after { display: none; }
 .run-mods__chip {
   background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-pill);
   padding: 3px 10px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-dim);
+}
+
+/* The card grid is the draft modal's flexible, scrollable region (same idiom
+   as #lb-body below): it shrinks and scrolls before the header/carry chip/
+   skip button ever clip, so every choice AND the skip stay reachable on
+   short landscape-phone viewports instead of overflowing below the fold.
+   The 2px padding keeps the cards' hover translate from clipping at the
+   scroll edge. */
+.modal--draft .draft__cards { flex: 1 1 auto; min-height: 96px; overflow-y: auto; padding: 2px; }
+@media (max-height: 520px) {
+  .modal--draft { gap: var(--sp-2); }
+  .modal--draft .mod-card { padding: 8px 12px; gap: 4px; }
+  .modal--draft .mod-card__name { font-size: 15px; }
+  .modal--draft .mod-card__desc { font-size: 11px; line-height: 1.35; }
+  .modal--draft .draft__cards { gap: 8px; }
+}
+
+/* ---------- Game-over FX (see screens.ts's loseFxHTML) ----------
+   Full-screen animated backdrop inside the scrim, behind the modal panel.
+   Pure CSS, pointer-events: none — the modal stays fully interactive. */
+.lose-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.lose-fx__vignette { position: absolute; inset: 0; animation: losefx-pulse 1.8s var(--ease) infinite; }
+.lose-fx--time .lose-fx__vignette { box-shadow: inset 0 0 22vmax rgba(255,45,85,0.5); }
+.lose-fx--broke .lose-fx__vignette { box-shadow: inset 0 0 22vmax rgba(255,224,102,0.35); }
+@keyframes losefx-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+/* Time-up: a giant clock whose ring drains to empty while the hand whips
+   around twice and stops dead at 12. dasharray/offset 276.5 = 2π×r(44). */
+.lose-fx__clock { position: absolute; left: 50%; top: 50%; width: min(72vmin, 540px); transform: translate(-50%, -50%); opacity: 0.32; }
+.lose-fx__clock .ring {
+  fill: none; stroke: var(--danger); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 276.5; transform: rotate(-90deg); transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 8px rgba(255,45,85,0.8));
+  animation: losefx-drain 2.6s linear forwards;
+}
+.lose-fx__clock .hand {
+  stroke: var(--danger); stroke-width: 3.5; stroke-linecap: round;
+  transform-origin: 50% 50%;
+  animation: losefx-hand 2.6s cubic-bezier(0.55, 0, 0.45, 1) forwards;
+}
+@keyframes losefx-drain { to { stroke-dashoffset: 276.5; } }
+@keyframes losefx-hand { to { transform: rotate(2turn); } }
+
+/* Broke: a rain of tumbling coins. Per-coin left/size/duration/negative
+   delay are inline (screens.ts) so the rain fills the screen from frame one. */
+.lose-fx__coin {
+  position: absolute; top: -12%;
+  font-family: var(--font-mono); font-weight: 800;
+  color: var(--piece-o); text-shadow: 0 0 10px rgba(255,224,102,0.9);
+  animation: losefx-coin 2.6s linear infinite;
+}
+@keyframes losefx-coin {
+  0% { transform: translateY(0) rotate(0deg); }
+  100% { transform: translateY(130vh) rotate(680deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lose-fx * { animation: none !important; }
+  .lose-fx__clock .ring { stroke-dashoffset: 276.5; }
 }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
