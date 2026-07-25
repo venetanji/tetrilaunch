@@ -1,20 +1,30 @@
 import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
-import { newRun, advanceRun, levelForRun, finalRunScore, RUN_LEVELS, type RunState } from "./game/run";
+import {
+  newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
+  RUN_LEVELS, type RunState,
+} from "./game/run";
 import { draftOffers, modById, type ModDef } from "./game/mods";
-import { render, computeViewport } from "./game/render";
-import { WORLD } from "./game/engine";
+import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
+import {
+  salvageForRun, unlockAvailable, unlockById, type MetaState,
+} from "./game/meta";
+import { render } from "./game/render";
+import { computeLayout } from "./game/layout";
+
 import { InputController } from "./game/input";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import {
-  loadSettings, saveSettings, loadName, saveName, loadBest, saveBest, type Settings,
+  loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
+  loadMeta, saveMeta, type Settings,
 } from "./lib/store";
 import {
   lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
+  applySafeAreaInsets,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isPro, onProChange,
@@ -22,8 +32,8 @@ import {
 } from "./lib/purchases";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "leaderboard"
-  | "playing" | "draft" | "paused" | "won" | "lost";
+  | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
+  | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost";
 
 const STEP = 1000 / 60;
 
@@ -43,6 +53,16 @@ class App {
   private run: RunState | null = null;
   /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
   private pendingOffers: ModDef[] = [];
+  /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
+   *  Loaded once at boot and written back on every purchase/run end. */
+  private meta: MetaState = loadMeta();
+  /** Salvage paid out by the run that just ended, held so the end modal can
+   *  show the award without recomputing (and so re-rendering the modal — e.g.
+   *  after the leaderboard fetch lands — can't pay it twice). */
+  private lastSalvage = 0;
+  /** Timer that auto-advances the bay-clear celebration; cleared if the player
+   *  taps through it first. */
+  private bayClearTimer: number | null = null;
 
   private dpr = 1;
   private last = 0;
@@ -118,6 +138,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offProChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -141,10 +162,13 @@ class App {
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
-      pieceCubes: g.level.pieceCubes,
+      pieceSize: g.level.pieceSize,
       bondBreakerOwned: g.level.bondBreakerCharges > 0,
       bondCharges: g.bondCharges,
+      demoOwned: g.level.bombCharges > 0,
+      bombCharges: g.bombCharges,
       modIds: this.run?.modIds ?? [],
+      tiers: this.run?.tiers ?? ({} as UpgradeTiers),
     };
   }
 
@@ -156,7 +180,10 @@ class App {
     const g = this.game;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
-      case "menu": this.overlay.innerHTML = S.menuScreen(loadBest(), this.storeState()); break;
+      case "menu":
+        this.overlay.innerHTML = S.menuScreen(loadBest(), this.meta.salvage, this.storeState());
+        break;
+      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
@@ -170,6 +197,35 @@ class App {
       case "paused":
         if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal();
         break;
+      case "bayclear":
+        if (g && this.run) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.bayClearScreen({
+              bayNum: this.run.levelIndex + 1,
+              bayName: g.level.name,
+              funds: g.score,
+              target: g.target,
+              lines: g.linesTotal,
+              scrap: g.scrapEarned + g.level.scrapPerBay,
+            });
+        }
+        break;
+      case "refit":
+        if (g && this.run) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.refitScreen({
+              // levelIndex has already been stepped past the cleared bay by
+              // afterBayClear, so it IS the just-cleared bay's 1-based number,
+              // and makeBaseLevel(levelIndex) is the bay about to be played.
+              bayNum: this.run.levelIndex,
+              nextBayName: makeBaseLevel(this.run.levelIndex).name,
+              scrap: this.run.scrap,
+              tiers: this.run.tiers,
+            });
+        }
+        break;
       case "draft":
         if (g && this.run) {
           const owned = this.run.modIds
@@ -178,13 +234,22 @@ class App {
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
             S.draftScreen({
-              bayNum: this.run.levelIndex + 1,
+              // Same already-advanced levelIndex as the refit screen above.
+              bayNum: this.run.levelIndex,
               bayName: g.level.name,
-              nextBayName: makeBaseLevel(this.run.levelIndex + 1).name,
+              nextBayName: makeBaseLevel(this.run.levelIndex).name,
               funds: g.score,
-              carry: Math.max(0, g.score - g.target),
+              // Read the carry the RUN actually recorded rather than
+              // recomputing it, so what's displayed can't drift from what the
+              // next bay's float is really getting (see advanceRun).
+              carry: this.run.carry,
               offers: this.pendingOffers,
               owned,
+              scrap: this.run.scrap,
+              // Bay-CLEARS until the next refit stop, counting the bay about to
+              // be played; 1 means "clear this one and you dock". Null late in a
+              // run when no stop remains.
+              baysToRefit: baysUntilRefit(this.run.levelIndex),
             });
         }
         break;
@@ -205,6 +270,10 @@ class App {
               bayNum: this.run.levelIndex + 1,
               bayName: g.level.name,
               runComplete: this.state === "won",
+              salvageEarned: this.lastSalvage,
+              salvageTotal: this.meta.salvage,
+              scrapEarned: this.run.scrapEarned + g.scrapEarned,
+              tiers: this.run.tiers,
             });
         }
         break;
@@ -240,17 +309,35 @@ class App {
     const h = window.innerHeight;
     this.canvas.width = Math.floor(w * this.dpr);
     this.canvas.height = Math.floor(h * this.dpr);
-    // Publish the letterboxed field rect (the same world viewport the canvas
-    // draws in — see render.ts's computeViewport) as CSS custom properties,
-    // so the DOM HUD chrome (plant panel, conveyor belt, kbd-hint — see
-    // app.css's --field-*/--fpx consumers) anchors to the FIELD at any
-    // window aspect instead of drifting with the viewport edges.
-    const vp = computeViewport(w, h);
+
+    // Safe-area insets first: the layout solver subtracts them from the usable
+    // box, so they have to be current before computeLayout runs. Measured from
+    // real CSS env() values (see lib/platform's applySafeAreaInsets) rather
+    // than guessed per-device.
+    applySafeAreaInsets();
+
+    // Publish the solved layout (see game/layout.ts) to CSS: the letterboxed
+    // field rect the canvas actually draws in, the rail's button size, and the
+    // layout MODE as a `data-layout` attribute on <html>. The DOM HUD chrome
+    // (plant panel, conveyor belt, side rail, kbd-hint) anchors to the FIELD at
+    // any window aspect rather than drifting with the viewport edges, and the
+    // rail's placement rules key off the mode — see app.css's --field-*/--fpx
+    // and [data-layout] consumers.
+    const l = computeLayout(w, h);
     const rs = document.documentElement.style;
-    rs.setProperty("--field-x", `${vp.ox}px`);
-    rs.setProperty("--field-y", `${vp.oy}px`);
-    rs.setProperty("--field-w", `${WORLD.width * vp.scale}px`);
-    rs.setProperty("--field-h", `${WORLD.height * vp.scale}px`);
+    rs.setProperty("--field-x", `${l.ox}px`);
+    rs.setProperty("--field-y", `${l.oy}px`);
+    rs.setProperty("--field-w", `${l.fw}px`);
+    rs.setProperty("--field-h", `${l.fh}px`);
+    // Gutters actually available OUTSIDE the field on each axis — what the rail
+    // positions against. In "snug" this is the reserved band, in "wide"/"tall"
+    // the natural letterbox gutter; either way the rail reads one number and
+    // never has to know which mode produced it.
+    rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
+    rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
+    rs.setProperty("--rail-btn", `${l.railSize}px`);
+    document.documentElement.dataset.layout = l.mode;
+
     const mobile = "ontouchstart" in window || w < 900;
     this.guard.classList.toggle("show", isPortrait() && mobile);
   };
@@ -264,8 +351,14 @@ class App {
    *  fullscreen state this call already established. */
   private startGame(): void {
     void autoEnterFullscreenForRun();
-    this.run = newRun(Date.now() >>> 0);
+    // The run gets a SNAPSHOT of the player's unlocks (see run.ts's
+    // RunState.unlocks): a Workshop purchase made mid-run can't retroactively
+    // change this run's draft pool, and the run never has to reach back into
+    // localStorage.
+    const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
+    this.run = newRun(Date.now() >>> 0, this.meta.unlocks, startingScrap);
     this.submitted = false;
+    this.lastSalvage = 0;
     this.startLevel();
   }
 
@@ -281,6 +374,7 @@ class App {
       onLineClear: () => { void successHaptic(); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); },
       onBondBreak: () => { void impactHaptic(); },
+      onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
     this.setState("playing");
@@ -326,33 +420,155 @@ class App {
     if (!g || !this.run) return;
     if (s === "won") {
       void successHaptic();
+      this.showSettleNote(false);
       if (this.run.levelIndex < RUN_LEVELS - 1) {
-        // Mid-run clear: draft a modifier over the frozen field. The Game
-        // is deliberately NOT destroyed here — status "won" makes update()
-        // a no-op, so the rAF loop just keeps re-rendering its last frame
-        // behind the draft scrim until startLevel() tears it down.
-        this.pendingOffers = draftOffers(this.run.seed, this.run.levelIndex, this.run.modIds);
-        this.setState("draft");
+        // Mid-run clear: CELEBRATE first, then draft. The Game is deliberately
+        // NOT destroyed here — status "won" makes update() a no-op, so the rAF
+        // loop keeps re-rendering the settled field (and its bayclear sweep FX)
+        // behind the banner until startLevel() tears it down.
+        this.pendingOffers = draftOffers(
+          this.run.seed, this.run.levelIndex, this.run.modIds, 3, this.run.unlocks,
+        );
+        this.setState("bayclear");
+        this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);
       } else {
         // Bay 10 cleared: the run is complete.
-        saveBest(this.finalScore(g, true));
-        this.refreshBoard();
-        this.setState("won");
+        this.finishRun(true);
       }
     } else if (s === "lost") {
       void impactHaptic();
-      saveBest(this.finalScore(g, false));
-      this.refreshBoard();
-      this.setState("lost");
+      this.showSettleNote(false);
+      this.finishRun(false);
     }
   }
 
-  /** "pick-mod"/"skip-mod": advance the run past the just-cleared bay and
-   *  start the next one. `modId` is null for a skip. */
-  private advanceAfterDraft(modId: string | null): void {
+  /** Toggles the "target met — settling" HUD note (see screens.ts's
+   *  .settle-note). Patched in place rather than via a full renderOverlay so it
+   *  can't restart the plant panel's entrance animation mid-bay. */
+  private showSettleNote(on: boolean): void {
+    this.overlay.querySelector("#settle-note")?.classList.toggle("show", on);
+  }
+
+  /** End of the bay-clear celebration: bank the bay into the run, then route to
+   *  a REFIT stop if this clear earned one (every REFIT_EVERY-th bay — see
+   *  run.ts's isRefitBay), otherwise straight to the modifier draft. Both paths
+   *  end at the draft, so the refit is an extra stop rather than a replacement:
+   *  ship upgrades and drafted contracts are different decisions and the player
+   *  makes both. Idempotent — a tap-through and the timer both land here. */
+  private afterBayClear(): void {
+    if (this.bayClearTimer !== null) {
+      window.clearTimeout(this.bayClearTimer);
+      this.bayClearTimer = null;
+    }
+    if (this.state !== "bayclear") return;
     const g = this.game;
     if (!g || !this.run) return;
-    this.run = advanceRun(this.run, g.score, g.target, g.linesTotal, modId);
+    // Bank the cleared bay NOW (not at draft-dismiss time) so the refit screen
+    // can spend the scrap this bay just earned. advanceRun also steps
+    // levelIndex, so everything downstream — the draft's "next bay" name, the
+    // refit's bay counter — reads the same post-clear run state.
+    this.run = advanceRun(
+      this.run,
+      g.score,
+      g.target,
+      g.linesTotal,
+      g.scrapEarned + g.level.scrapPerBay,
+      null,
+    );
+    // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
+    // already stepped past — hence the -1.
+    this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
+  }
+
+  /** Common run-end path for both a bay-10 win and any loss: pay out salvage
+   *  (meta.ts's salvageForRun — every finished run pays, which is the whole
+   *  point of the meta layer), persist meta + best, refresh the board, and show
+   *  the end modal. */
+  private finishRun(won: boolean): void {
+    const g = this.game;
+    if (!g || !this.run) return;
+    const baysCleared = this.run.levelIndex + (won ? 1 : 0);
+    const lines = this.run.linesTotal + g.linesTotal;
+    this.lastSalvage = salvageForRun(baysCleared, lines, won);
+    this.meta = {
+      ...this.meta,
+      salvage: this.meta.salvage + this.lastSalvage,
+      runs: this.meta.runs + 1,
+      bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
+    };
+    saveMeta(this.meta);
+    saveBest(this.finalScore(g, won));
+    this.refreshBoard();
+    this.setState(won ? "won" : "lost");
+  }
+
+  /** Refit stop: buy one tier of a system with the run's scrap. Re-renders the
+   *  refit screen in place so the newly-revealed next-tier price is visible
+   *  immediately. A rejected purchase (maxed, or unaffordable) is a silent
+   *  no-op — the button was already disabled, so this is belt-and-braces. */
+  private onBuyUpgrade(id: string): void {
+    if (this.state !== "refit" || !this.run) return;
+    const tier = this.run.tiers[id as UpgradeId] ?? 0;
+    const cost = nextTierCost(tier);
+    if (cost === null) return;
+    const next = buyUpgrade(this.run, id as UpgradeId, cost, MAX_TIER);
+    if (!next) return;
+    this.run = next;
+    void successHaptic();
+    this.refreshRefit();
+  }
+
+  /** Re-render the refit stop's card grid and scrap chip IN PLACE after a
+   *  purchase, rather than calling renderOverlay(). A full re-render recreates
+   *  the `.panel.modal.pop` node, replaying its entrance animation on every
+   *  buy — so a player working through three purchases watches the whole modal
+   *  fly in three times. Same reasoning (and same idiom) as renderBoardRows
+   *  patching #lb-body instead of re-rendering the leaderboard modal. */
+  private refreshRefit(): void {
+    if (!this.run) return;
+    const grid = this.overlay.querySelector("#refit-grid");
+    const scrap = this.overlay.querySelector("#refit-scrap");
+    if (!grid || !scrap) return;
+    // Render the screen to a detached container and lift just the two live
+    // regions out of it — keeps one source of truth for the card markup
+    // (screens.ts's refitScreen) instead of a second copy that could drift.
+    const tmp = document.createElement("div");
+    tmp.innerHTML = S.refitScreen({
+      bayNum: this.run.levelIndex,
+      nextBayName: makeBaseLevel(this.run.levelIndex).name,
+      scrap: this.run.scrap,
+      tiers: this.run.tiers,
+    });
+    const freshGrid = tmp.querySelector("#refit-grid");
+    const freshScrap = tmp.querySelector("#refit-scrap");
+    if (freshGrid) grid.innerHTML = freshGrid.innerHTML;
+    if (freshScrap) scrap.textContent = freshScrap.textContent;
+  }
+
+  /** Workshop: buy a permanent unlock with salvage. */
+  private onBuyUnlock(id: string): void {
+    const def = unlockById(id);
+    if (!def) return;
+    if (this.meta.unlocks.includes(id)) return;
+    if (!unlockAvailable(def, this.meta.unlocks)) return;
+    if (this.meta.salvage < def.cost) return;
+    this.meta = {
+      ...this.meta,
+      salvage: this.meta.salvage - def.cost,
+      unlocks: [...this.meta.unlocks, id],
+    };
+    saveMeta(this.meta);
+    void successHaptic();
+    this.renderOverlay();
+  }
+
+  /** "pick-mod"/"skip-mod": append the drafted pick (null for a skip) and start
+   *  the next bay. The bay itself was already banked into the run by
+   *  afterBayClear (so a refit stop could spend its scrap), so this ONLY records
+   *  the choice — it must not call advanceRun again or the run would skip a bay. */
+  private advanceAfterDraft(modId: string | null): void {
+    if (!this.run) return;
+    if (modId) this.run = { ...this.run, modIds: [...this.run.modIds, modId] };
     this.startLevel();
   }
 
@@ -426,6 +642,12 @@ class App {
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
         windNow: g.windNow,
+        // The bay's steady prevailing wind is only revealed with the Weather
+        // Survey unlock (see game/meta.ts) — otherwise null and the gauge
+        // shows only the live reading, as before.
+        windAverage: this.meta.unlocks.includes("survey") ? g.windAverage : null,
+        reload: g.cannon.reloadRatio(now),
+        settling: g.settling,
       });
     } else {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -446,7 +668,20 @@ class App {
     };
     set("#hud-score", "$" + g.score);
     set("#hud-combo", "×" + g.combo);
-    set("#hud-shots", String(Math.floor(g.score / g.level.launchCost)));
+    set("#hud-scrap", String(g.scrapEarned));
+
+    // LAUNCHES LEFT — tier 2 of the plant readout (see screens.ts's hudHTML).
+    // It turns danger-red and pulses at LOW_LAUNCH_WARN or fewer, because that
+    // is the exact point where the right play changes from "keep feeding the
+    // bay" to "this shot has to count". Computed from funds, so it also drops
+    // when a mod raises launchCost — the warning tracks affordability, not a
+    // separate ammo counter.
+    const launches = Math.floor(g.score / Math.max(1, g.level.launchCost));
+    set("#hud-launches", String(launches));
+    this.overlay
+      .querySelector("#hud-launches-chip")
+      ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
@@ -456,33 +691,54 @@ class App {
     if (power) power.style.width = powerPct + "%";
     set("#hud-power-val", powerPct + "%");
 
+    // RELOAD bar — same value the canvas draws as a ring around the muzzle
+    // (render.ts's drawReloadRing). Two views of one number on purpose: the
+    // ring is what you read mid-aim with your eyes on the cannon, this is what
+    // you catch in peripheral vision while looking at the pile.
+    const reload = g.cannon.reloadRatio(performance.now());
+    const load = this.overlay.querySelector<HTMLElement>("#hud-load");
+    if (load) load.style.width = Math.round(reload * 100) + "%";
+    this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", reload >= 1);
+
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
-      this.overlay.querySelector("#hud-time-chip")?.classList.toggle("chip--danger", g.timeLeftMs < 20_000);
+      this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
     // NEXT preview rides the conveyor belt (top-left) — the shot that fires
     // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
     // grid, no label/type text (see components.ts's beltPieceHTML).
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${g.level.pieceCubes}`;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${g.level.pieceSize}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
-          : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceCubes);
+          : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
       }
       this.lastNext = nextKey;
     }
-    // Bond Breaker has TWO triggers on screen at once when drafted — the
-    // plant's status chip and the touch-rail's primary button (see
-    // screens.ts's hudHTML) — kept in sync together via a shared class
-    // instead of two hardcoded ids.
-    const bondBtns = this.overlay.querySelectorAll<HTMLButtonElement>(".bond-trigger");
-    bondBtns.forEach((b) => { b.disabled = g.bondCharges <= 0; });
-    const bondCounts = this.overlay.querySelectorAll(".bond-trigger__count");
-    bondCounts.forEach((c) => { c.textContent = String(g.bondCharges); });
+    // Each ABILITY has TWO triggers on screen at once when drafted — the plant
+    // chip and the touch-rail button (see screens.ts's hudHTML) — kept in sync
+    // together via shared classes instead of hardcoded ids per trigger.
+    this.syncAbility("bond", g.bondCharges, false);
+    this.syncAbility("demo", g.bombCharges, g.bombArmed);
+  }
+
+  /** Sync one ability's pair of triggers: disable both at zero charges, write
+   *  the live count into both badges, and mark both `armed` when the ability is
+   *  currently armed (only Demolition Charges use that — the armed state is what
+   *  tells the player their next launch will fire a bomb, and it has to be
+   *  unmistakable since it changes what the trigger pull does). */
+  private syncAbility(name: string, charges: number, armed: boolean): void {
+    this.overlay.querySelectorAll<HTMLButtonElement>(`.${name}-trigger`).forEach((b) => {
+      b.disabled = charges <= 0 && !armed;
+      b.classList.toggle("armed", armed);
+    });
+    this.overlay.querySelectorAll(`.${name}-trigger__count`).forEach((c) => {
+      c.textContent = String(charges);
+    });
   }
 
   // ---------------- events ----------------
@@ -524,6 +780,7 @@ class App {
       case "howto": this.setState("howto"); break;
       case "settings": this.setState("settings"); break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
+      case "workshop": this.setState("workshop"); break;
       case "menu": this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
@@ -540,6 +797,12 @@ class App {
       case "skip-mod":
         if (this.state === "draft") this.advanceAfterDraft(null);
         break;
+      // Tap-through for the bay-clear celebration — a player who has seen it
+      // before shouldn't have to wait out the animation.
+      case "skip-bayclear": this.afterBayClear(); break;
+      case "buy-upgrade": this.onBuyUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
+      case "refit-done": if (this.state === "refit") this.setState("draft"); break;
+      case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
     }
   };
 
@@ -565,6 +828,7 @@ class App {
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
+    else if (a === "demo") { if (g.armBomb()) void tapHaptic(); }
     else if (a === "cancel") this.input.cancelAim();
   }
 

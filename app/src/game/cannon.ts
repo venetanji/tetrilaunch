@@ -24,7 +24,7 @@ export class Cannon {
   /** Aim angle in radians. 0 = right, positive = upward (matches main.py). */
   angle = Math.PI / 9;
   /** Launch speed in px/step. */
-  power = SPEED_MIN;
+  power: number;
   pieceRotation = 0;
   lastShot = -99999;
 
@@ -32,12 +32,25 @@ export class Cannon {
   currentType: PieceType;
   nextType: PieceType;
 
+  /** This bay's usable speed range — SPEED_MIN/SPEED_MAX scaled by the
+   *  LAUNCHER upgrade track's launchPower (see upgrades.ts / level.ts). BOTH
+   *  ends scale, not just the cap: a powered launcher should throw further at
+   *  the same drag distance, so the whole mapping shifts rather than only
+   *  extending the top of it. powerRatio stays normalized to this range, so
+   *  the PWR meter still reads 0-100% of whatever the current ship can do. */
+  readonly speedMin: number;
+  readonly speedMax: number;
+
   private seq: PieceType[];
   private cooldownMs: number;
 
   constructor(level: LevelConfig) {
     this.seq = level.pieceSequence ?? PIECE_TYPES;
     this.cooldownMs = level.cooldownMs;
+    const mult = level.launchPower > 0 ? level.launchPower : 1;
+    this.speedMin = SPEED_MIN * mult;
+    this.speedMax = SPEED_MAX * mult;
+    this.power = this.speedMin;
     this.currentType = this.seq[0];
     this.nextType = this.seq[1 % this.seq.length];
   }
@@ -58,7 +71,7 @@ export class Cannon {
   }
 
   get powerRatio(): number {
-    return (this.power - SPEED_MIN) / (SPEED_MAX - SPEED_MIN);
+    return (this.power - this.speedMin) / (this.speedMax - this.speedMin);
   }
 
   /** Set aim + power from a world-space drag vector originating at the cannon.
@@ -72,14 +85,14 @@ export class Cannon {
     ang = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, ang));
     this.angle = ang;
     const t = Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
-    this.power = SPEED_MIN + t * (SPEED_MAX - SPEED_MIN);
+    this.power = this.speedMin + t * (this.speedMax - this.speedMin);
   }
 
   // --- Keyboard fallback (web) ---
   aimUp() { this.angle = Math.min(Math.PI / 3, this.angle + 0.035); }
   aimDown() { this.angle = Math.max(-Math.PI / 3, this.angle - 0.035); }
-  powerUp() { this.power = Math.min(SPEED_MAX, this.power + 0.4); }
-  powerDown() { this.power = Math.max(SPEED_MIN, this.power - 0.4); }
+  powerUp() { this.power = Math.min(this.speedMax, this.power + 0.4); }
+  powerDown() { this.power = Math.max(this.speedMin, this.power - 0.4); }
   // Canvas y-axis points DOWN, so a POSITIVE angle rotates the piece
   // clockwise on screen. rotateLeft (⟲) must look counter-clockwise, so it
   // subtracts; rotateRight (⟳) adds. 90° steps give the player predictable,
@@ -97,6 +110,14 @@ export class Cannon {
   }
   cooldownRemaining(now: number): number {
     return Math.max(0, this.cooldownMs - (now - this.lastShot));
+  }
+  /** 0 = just fired, 1 = fully reloaded — what the HUD reload bar and the
+   *  canvas muzzle ring both animate from (see render.ts's drawReloadRing and
+   *  main.ts's syncHud). Guards a zero/negative cooldown (a degenerate
+   *  Magazine + Rapid Loader stack) as always-ready rather than dividing by 0. */
+  reloadRatio(now: number): number {
+    if (this.cooldownMs <= 0) return 1;
+    return Math.max(0, Math.min(1, (now - this.lastShot) / this.cooldownMs));
   }
 
   /** Reset the fire cooldown only, without advancing the piece queue — a

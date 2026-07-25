@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { loadSettings } from "./store";
+import { setSafeAreaInsets, type Insets } from "../game/layout";
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -132,4 +133,55 @@ export async function impactHaptic(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Measure the device's real safe-area insets and hand them to the layout solver.
+ *
+ * These can't be read directly from JS — `env(safe-area-inset-*)` only exists in
+ * CSS — so this mounts a throwaway probe whose padding IS those four env()
+ * values and reads the computed padding back. Cheap (one layout, immediately
+ * removed) and called once per resize/orientation change, which is exactly when
+ * the values can actually change.
+ *
+ * Why the layout solver needs them at all: in LANDSCAPE (the only orientation
+ * this game plays in) a notch/Dynamic Island and the home indicator eat the
+ * LEFT and RIGHT edges, not the top — precisely the edges the field and the
+ * button rail live at. Without this the field would sit partly under the notch
+ * on an iPhone and the rail partly under the home-indicator swipe zone, both of
+ * which are only visible on real hardware.
+ *
+ * Returns the insets as well as publishing them, for callers that want to log
+ * or assert on them.
+ */
+export function applySafeAreaInsets(): Insets {
+  const probe = document.createElement("div");
+  probe.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    "width:0",
+    "height:0",
+    "visibility:hidden",
+    "pointer-events:none",
+    "padding-top:env(safe-area-inset-top,0px)",
+    "padding-right:env(safe-area-inset-right,0px)",
+    "padding-bottom:env(safe-area-inset-bottom,0px)",
+    "padding-left:env(safe-area-inset-left,0px)",
+  ].join(";");
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const px = (v: string): number => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const insets: Insets = {
+    top: px(cs.paddingTop),
+    right: px(cs.paddingRight),
+    bottom: px(cs.paddingBottom),
+    left: px(cs.paddingLeft),
+  };
+  probe.remove();
+  setSafeAreaInsets(insets);
+  return insets;
 }

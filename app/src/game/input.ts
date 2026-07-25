@@ -117,6 +117,9 @@ export class InputController {
     if (k === "q") g.cannon.rotateLeft();
     if (k === "e") g.cannon.rotateRight();
     if (k === "b") g.useBondBreaker(performance.now());
+    // X arms/disarms a demolition charge — the next launch then fires the bomb
+    // along the current aim instead of the loaded piece (see game.ts's armBomb).
+    if (k === "x") g.armBomb();
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {

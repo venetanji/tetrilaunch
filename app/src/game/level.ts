@@ -1,4 +1,4 @@
-import type { PieceType } from "./theme";
+import type { PieceSize, PieceType } from "./theme";
 
 /**
  * A single level's tunables. This is the primary ROADMAP SEAM: future levels and
@@ -55,14 +55,25 @@ export interface LevelConfig {
    *  holds a piece together more rigidly under impact; a "sturdy" modifier
    *  raises this alongside jointBreakStretch. */
   jointStiffness: number;
-  /** Cubes per launched piece: 4 = a real tetromino, 2 = a "half shipment"
-   *  domino (see pieces.ts's pieceCells). Tunable roadmap seam for a
-   *  cheaper-but-smaller-payload modifier. */
-  pieceCubes: 2 | 4;
-  /** Every Nth launch fires a bomb instead of a piece; 0 = never. Bombs cost
-   *  the same launchCost but clear cubes around their blast instead of
-   *  scoring — a cleanup tool, not a scoring one (see game.ts's detonate). */
-  bombEvery: number;
+  /** Payload size class of every launched shipment — see theme.ts's PieceSize
+   *  and pieces.ts's SIZE_SPEC. Drives cube count, per-cube DENSITY and joint
+   *  fragility together, so "tiny" isn't just "smaller" (it's also lighter and
+   *  more brittle) and "bulk" isn't just "bigger" (it's also heavier and more
+   *  rigid). The Micro/Bulk Shipments modifiers set this. */
+  pieceSize: PieceSize;
+  /** Demolition charges granted at the START of this bay — armed with the 💥
+   *  control, then fired by the next launch INSTEAD of the loaded piece (see
+   *  game.ts's armBomb/shoot). Charges are free to fire (they do NOT cost
+   *  launchCost) and each cube they vaporize refunds salvagePerCube, which is
+   *  what makes a bomb an economically legible SALVAGE tool rather than the
+   *  old pay-full-price-for-nothing cadence shot: you trade line material you
+   *  were never going to complete for funds back. 0 = the player never drafted
+   *  them. */
+  bombCharges: number;
+  /** Funds refunded per cube a demolition charge vaporizes (see game.ts's
+   *  detonate). The economic core of the bomb: a junk pile that can never
+   *  complete a line is still worth something. */
+  salvagePerCube: number;
   /** Magnitude cap (px/step^2) on this bay's lateral wind. Each bay rolls a
    *  steady AVERAGE wind in [-windMax, +windMax] once from the run seed (see
    *  game.ts's windAvg), then the live wind drunk-walks gently around that
@@ -84,6 +95,39 @@ export interface LevelConfig {
    *  a learnable baseline instead of oscillating extreme-to-extreme or
    *  re-rolling every fraction of a second. Ignored when windMax is 0. */
   windGust: number;
+  /** Muzzle-speed multiplier from the LAUNCHER upgrade track (see
+   *  upgrades.ts). 1 = stock. Scales both ends of the cannon's speed range
+   *  (cannon.ts's speedMin/speedMax), so a powered launcher reaches deeper
+   *  into the bay at the SAME drag distance rather than just raising the cap.
+   *  Together with windAssist this is the sanctioned counter to a bay whose
+   *  rolled headwind would otherwise put the back of the field out of reach. */
+  launchPower: number;
+  /** Fraction of this bay's wind cancelled by the launcher's stabilizer
+   *  (0 = none, 0.6 = 60% cancelled), from the LAUNCHER upgrade track. Applied
+   *  to the LIVE wind before it touches anything — airborne pieces, the dotted
+   *  preview and the HUD gauge all read the same post-assist number (see
+   *  game.ts's windEffective), so the arc the player is shown is the arc they
+   *  get. This is the fix for "a hard against-wind bay is unwinnable": the
+   *  weather still has a character, the ship can be upgraded to fight it. */
+  windAssist: number;
+  /** Multiplier on the compaction settle assist's grind/pull rates (see
+   *  lineClear.ts's settleZoneCubes), from the HYDRAULICS upgrade track.
+   *  1 = stock. A stronger press squares up a messy pile faster, which is what
+   *  turns "nearly a line" into a payout before the stroke ends. */
+  settleAssist: number;
+  /** Scrap earned per cleared line, and per bay cleared — the IN-RUN currency
+   *  spent on ship upgrades at refit stops (see run.ts / upgrades.ts). Kept on
+   *  the level (not hardcoded in Game) so a future mod can trade funds for
+   *  scrap or vice versa. */
+  scrapPerLine: number;
+  scrapPerBay: number;
+  /** Autoloader interval in ms; 0 = off (the default — the player fires every
+   *  shot by hand). When set, the cannon fires ITSELF this often at a
+   *  randomized aim within a band around the player's current one (see
+   *  game.ts's stepAutoLaunch) — fast, cheap and probabilistic instead of
+   *  aimed. The endgame of the tiny/micro build: volume over precision, which
+   *  only pays off if you can flatten the resulting mess (Bond Breakers). */
+  autoLaunchMs: number;
   /** Bond Breaker charges granted at the START of this bay — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
    *  useBondBreaker). 0 = the player never drafted it. Each charge is a
@@ -183,6 +227,27 @@ function targetScoreFor(i: number): number {
  *  the exact stationary-std formula this feeds (~17.7% of windMax at the
  *  tuned WIND_TAU_SEC=5s). */
 export const WIND_GUST_FRACTION = 0.025;
+
+/**
+ * SCRAP — the in-run upgrade currency (see run.ts's RunState.scrap and
+ * upgrades.ts). Deliberately separate from funds: funds are the bay's
+ * OPERATING budget (spent on launches, and the bay's own objective is a funds
+ * threshold), while scrap is CAPITAL, only ever spendable on the ship at a
+ * refit stop. That separation is what makes the two decisions distinct — a
+ * tight-funds bay still earns scrap, so a rough bay you barely survive still
+ * moves the build forward, and banking a fat surplus never buys upgrades
+ * directly.
+ *
+ * First-pass sizing: a clean bay clears ~8 lines, so a bay is worth ~10 + 8×2
+ * = 26 scrap. The three refit stops sit after bays 3, 6 and 9, so the player
+ * arrives at them with roughly 78 / 156 / 234 cumulative scrap. Against
+ * upgrades.ts's 20/35/55 per-tier ladder (110 for a full track) that's "one
+ * track nearly maxed, or two tracks opened" by the first stop — an FTL-shaped
+ * choice rather than a shopping spree. Tune here, not per-bay.
+ */
+export const SCRAP_PER_LINE = 2;
+export const SCRAP_PER_BAY = 10;
+
 export function makeBaseLevel(i: number): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
   // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
@@ -206,8 +271,15 @@ export function makeBaseLevel(i: number): LevelConfig {
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
     cooldownMs: 900,
     timeLimitSec: 150 + i * 10,
-    pieceCubes: 4,
-    bombEvery: 0,
+    pieceSize: "std",
+    bombCharges: 0,
+    salvagePerCube: 8,
+    launchPower: 1,
+    windAssist: 0,
+    settleAssist: 1,
+    scrapPerLine: SCRAP_PER_LINE,
+    scrapPerBay: SCRAP_PER_BAY,
+    autoLaunchMs: 0,
     windMax,
     // Sized as a fraction of windMax, not a flat number — see
     // WIND_GUST_FRACTION's doc above. windMax 0 (bays 1-3) makes this 0 too,

@@ -12,51 +12,85 @@ clears them away.
 
 ## 🎮 How it plays
 
-- **A run is 10 bays** (levels) of rising difficulty — stiffer, harder-breaking joints, a
-  faster compactor, pricier launches, and cumulative bankroll targets. Each bay has a
-  **countdown clock**; clear the target before it runs out.
-- **Draft a modifier after every bay** — pick 1 of 3 seeded offers (or skip): Overclock,
-  Wide Bay, Sturdy/Half/Bomb Shipments, Overtime, Premium Contracts, Short Lines, Heavy
-  Cargo, Rapid Loader. Mods **stack for the rest of the run**, so the build is the strategy
-  (e.g. Half Shipments' cheap dominoes + Rapid Loader tempo, paid for with Overclock's
-  shorter clock).
-- **Drag to aim** — direction sets the launch angle, distance sets the power (further =
-  stronger). A dotted **parabola** previews the flight; release to fire. Keyboard fallback
-  on desktop: `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate. The **ceiling is open** —
-  max-power lobs arc above the screen and fall back in.
-- **Rotate before you fire** — pieces turn in 90° steps; the ghost at the muzzle and the
-  Next preview show the exact orientation you'll launch. With Bomb Shipments, the HUD
-  telegraphs when the next launch is a 💣 — it detonates on contact, vaporizing nearby
-  cubes penalty-free (great for junk piles, pays nothing).
-- Tetrominoes are 4 cubes joined by **breakable joints** — hard hits shatter them.
-- The **compactor** (bottom-half red bar) ping-pongs between the 12-cell and 8-cell marks,
-  pressing cubes against the right wall. A row clears only when **every cell slot is filled
-  by one settled, squared-up cube** (min 8, more when the zone is open); the pressing stroke
-  grinds near-aligned cubes onto the grid. Cubes that bounce back out blink away and cost you.
-- **Economy**: the bankroll doubles as the score and **carries across bays**. Every launch
-  costs money, cleared lines pay out ($100 + combo, shattering in a burst of payout FX).
-  Go broke, run out of time, or top out and the run ends — clear bay 10 and the run is
-  complete.
+- **A run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
+  compactor, pricier launches, a tighter clock. Each bay has its own **funding
+  target** and **countdown**; bank the target before the clock or the bankroll
+  runs out.
+- **Three currencies, three horizons** (see [docs/ECONOMY.md](docs/ECONOMY.md)):
+  - **Funds `$`** last one bay. They pay for launches and *are* the bay's target.
+  - **Scrap `♻`** lasts one run (2/line, 10/bay). Spent on the **ship**.
+  - **Salvage** is forever, paid out at the end of **every** run — win or lose —
+    and spent in the **Workshop** on permanent unlocks.
+- **The compactor is your ship.** After bays **3, 6 and 9** you dock at a
+  **refit stop** and spend scrap on six systems, three tiers each: **Bay
+  Extension** (12→18 open cells), **Launcher Coils** (muzzle power + a wind
+  stabilizer), **Press Hydraulics**, **Loader Magazine**, **Reactor Output**,
+  **Bond Emitter**. Upgrades last the whole run.
+- **Draft a modifier after every bay** — 1 of 3 seeded offers (or skip):
+  Overclock, Wide Bay, Sturdy/Micro/Bulk Shipments, Demolition Charges,
+  Autoloader, Overtime, Premium Contracts, Short Lines, Ballast Load, Bond
+  Breaker, Rapid Loader. Mods **stack for the rest of the run**, and compound on
+  top of whatever ship you refitted.
+- **Drag to aim** — direction sets the launch angle, distance sets the power. A
+  dotted **parabola** previews the flight; release to fire. Keyboard on desktop:
+  `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate, `B` bond breaker, `X` arm a
+  demolition charge. The **ceiling is open** — max-power lobs arc above the screen
+  and fall back in.
+- **Shipments come in three sizes**, and size changes weight and rigidity as well
+  as shape. **Micro** dominoes are cheap, precise and brittle — but too light for
+  their own weight to square up the pile below them. **Bulk** pentominoes are
+  expensive, rigid, and heavy enough that landing presses the layers beneath them
+  flat. Standard tetrominoes sit between.
+- **Demolition charges** are armed consumables, not launches: free to fire, and
+  each cube they vaporize **refunds $8**. Blowing up a junk pile that will never
+  complete a line is a positive-value play; blowing up a row you were two cubes
+  from closing is not.
+- The **compactor** (bottom-half red bar) ping-pongs between its open and
+  full-advance stops, pressing cubes against the right wall. A row clears only
+  when **every cell slot is filled by one settled, squared-up cube**; the pressing
+  stroke grinds near-aligned cubes onto the grid. Cubes that bounce back out blink
+  away and cost you.
+- **The bay settles before it ends.** Cross the funding target and launches stop,
+  but the world keeps running: shots already in the air land, and a line your last
+  shot completed still gets its pressing stroke and pays out. Then the bay
+  celebrates.
+- **The HUD tells you when to worry.** Launches-left turns red and pulses at 3 or
+  fewer; the reload shows as a bar in the plant and a ring around the muzzle; the
+  wind gauge shows the live gust, your stabilizer's cut, and (with the Weather
+  Survey unlock) the bay's steady prevailing wind.
 
-Landscape only (fullscreen PWA on web, orientation-locked on mobile, with a rotate-device
-guard in portrait).
+Landscape only. The field is authored at 1280×720 and **letterboxed by a layout
+solver** that adapts to the viewport's aspect ratio and safe-area insets — see
+[docs/NATIVE.md](docs/NATIVE.md#display-what-the-layout-solver-does-and-why-native-needed-it).
 
 ## 🧱 Architecture
 
 ```
 app/                      Capacitor + Vite + TypeScript web app
   src/game/               matter.js physics port of main.py
-    engine, pieces, cannon, compactor, lineClear, render, input, level, state, game
-  src/ui/                 screens + components (menu, HUD, pause, end, settings, leaderboard)
-  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics),
+    engine, pieces, cannon, compactor, lineClear, render, input, game
+    layout      viewport/aspect-ratio solver (wide | snug | tall + safe areas)
+    level       per-bay tunables (the 10-bay ladder)
+    upgrades    ship upgrade tracks bought with scrap at refit stops
+    mods        drafted modifier pool
+    run         one run's state: carry, scrap, tiers, mods
+    meta        salvage + permanent unlocks (persists across runs)
+  src/ui/                 screens + components (menu, HUD, bay-clear, refit,
+                          draft, workshop, pause, end, settings, leaderboard)
+  src/lib/                api (leaderboard), store (settings/name/meta),
+                          platform (orientation/haptics/safe-area),
                           purchases (RevenueCat: entitlement, paywall, restore)
   src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
+  sim/                    headless harnesses: sweep (balance), perf (physics
+                          cost), systems (systems smoke test — npm run test)
   worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
   capacitor.config.ts     native shell config
   ios/                    committed Xcode project (see docs/ios.md)
   resources/              icon/splash SVG sources → native asset catalogs
 design/                   design-system source (synced to claude.ai/design via /design-sync)
   foundations/ components/ screens/    HTML preview cards
+docs/ECONOMY.md           three-currency economy + ship-upgrade design rationale
+docs/NATIVE.md            Android/iOS pipeline + the layout solver
 wrangler.jsonc            Worker config: static assets + D1 binding
 migrations/               D1 schema
 main.py                   original pygame prototype (reference)
@@ -129,18 +163,36 @@ npm run ios:open         # opens App.xcodeproj
 Signing, RevenueCat/App Store Connect setup, TestFlight and the App Privacy answers are
 written up in **[docs/ios.md](docs/ios.md)**.
 
-Android isn't generated in the repo:
+Android isn't generated in the repo — full pipeline and prerequisites in
+**[docs/NATIVE.md](docs/NATIVE.md)**:
 
 ```bash
 cd app
-npm run build
-npx cap add android
-npx cap sync android
-npx cap open android
+npm run cap:add:android   # one-time; needs the Android SDK
+npm run android:open      # build + verify + sync + open in Android Studio
+npm run android:apk       # build + verify + sync + assembleDebug -> installable APK
 ```
 
-Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`
-(and declared landscape-only in the iOS `Info.plist`).
+`app/android/` is gitignored and regenerated from `capacitor.config.ts` by
+`cap add`; CI (`.github/workflows/android.yml`) builds a debug APK on every push
+touching `app/`, which keeps that regeneration honest. **`app/ios/` is committed**
+— see [docs/ios.md](docs/ios.md).
+
+Orientation is locked to landscape at runtime via
+`@capacitor/screen-orientation` (and declared landscape-only in the iOS
+`Info.plist`); safe-area insets are measured at runtime and fed to the layout
+solver (`src/game/layout.ts`).
+
+### Tests
+
+```bash
+cd app
+npm run test          # systems smoke test (economy, upgrades, sizes, layout)
+npm run verify:store  # asserts the RevenueCat SDK survived into dist/
+npm run sim:balance   # bays x bots x mods win-rate sweep
+npm run sim:perf      # physics step cost vs. cube count
+```
+
 
 ## 🎨 Design system
 
@@ -150,37 +202,53 @@ The neon-arcade design system lives in `design/` as self-contained HTML preview 
 
 ## 🗺️ Dev plan
 
-The roguelite core now ships: a **10-bay run** (`makeBaseLevel(i)` ladder in
-`app/src/game/level.ts`), a **stacking modifier draft** between bays (10-mod pool in
-`app/src/game/mods.ts`, seeded deterministic offers), per-bay **time limits**, **bomb** and
-**half-size** shipments, bankroll carry-over (`app/src/game/run.ts`), and line-clear /
-detonation FX. Everything is data-driven: a new bay is a formula tweak, a new mutator is a
-`ModDef` with an `apply(cfg)` delta.
+**Shipped.** The roguelite core (a 10-bay `makeBaseLevel(i)` ladder, a stacking
+modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus the
+**refit phase**:
+
+- **Three-currency economy** — funds (bay) / scrap (run) / salvage (forever). See
+  [docs/ECONOMY.md](docs/ECONOMY.md) for the full rationale.
+- **Ship upgrades** — six tracks × three tiers, bought with scrap at refit stops
+  after bays 3/6/9 (`upgrades.ts`). Launcher Coils are the sanctioned answer to
+  an unwinnable headwind bay; Bay Extension makes "extend to 18" earned capital.
+- **Meta-progression** — every finished run pays salvage, win or lose, spent in
+  the Workshop on unlocks that add *options* rather than stat bumps (`meta.ts`).
+- **Bombs with an economic argument** — armed consumables, free to fire, refund
+  per cube vaporized.
+- **Three payload sizes** — micro dominoes / tetrominoes / bulk pentominoes,
+  differing in weight and rigidity as well as shape, with the Autoloader as the
+  micro build's endgame.
+- **Settle-then-celebrate** — the bay no longer ends mid-flight; it settles, pays
+  out, then plays a BAY CLEARED beat.
+- **Aspect-ratio layout solver** + safe-area handling, so the controls stop being
+  drawn over the play field on 16:9 and tablet aspects
+  ([docs/NATIVE.md](docs/NATIVE.md#display-what-the-layout-solver-does-and-why-native-needed-it)).
+- **HUD hierarchy** — launches-left goes red under 3, reload is visible as both a
+  plant bar and a muzzle ring.
+- **Native path** — platform packages, config, npm scripts, CI debug APK.
 
 Next steps:
 
-1. **Balance the ladder from playtests** — the knobs are `makeBaseLevel`'s formulas (target
-   deltas vs `timeLimitSec`, `jointBreakStretch` / `jointStiffness` ramps, `launchCost`) and
-   each mod's numbers in `mods.ts`. The bay-target growth (+$550 → +$1350 per bay) is a
-   first guess; tune until a clean run is tense but fair, and mods feel like real decisions.
-2. **Draft depth** — rarity weights and synergy tags on `ModDef` (e.g. tempo mods more
-   likely once you own Overclock), a "reroll" costing bankroll, and 1–2 pure banes with a
-   cash signing bonus for risk players.
-3. **More mutators** — gravity flips, wind gusts, a second mini-compactor, sticky cubes,
-   golden cubes (5× payout slot), shielded cubes that need a bomb; each is a `ModDef` plus,
-   where needed, a small seam like `pieceCubes` / `bombEvery`.
-4. **Meta-progression & daily seed** — persist unlocks (mods unlock as you reach deeper
-   bays) and a shared daily `RunState.seed` so everyone drafts from the same offers;
-   leaderboard per daily seed.
-5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`; implement
-   the bag in `Cannon`, seeded from the run for fairness.
-6. **Audio** — the Sound FX / Music settings toggles exist but no audio is wired up yet
-   (launch, shatter, payout, bomb, clock-warning cues).
-7. **Run history & boards** — the D1 schema keys scores by `level`; today everything posts
-   to the single run board (level 1). Add bays-reached to submissions and a board switcher
-   (overall run / daily seed).
-8. **More juice** — screen shake on detonation, combo streak banner, draft-card flip-in;
-   render/UI layer only (the FX event bus in `app/src/game/fx.ts` is the seam).
+1. **Playtest the refit balance.** `TIER_COSTS` (20/35/55) against
+   `SCRAP_PER_LINE`/`SCRAP_PER_BAY` (2/10) is a first guess: it lands the player
+   at ~78 scrap by the first stop, i.e. one track nearly maxed or two opened.
+   Tune until each stop is a real dilemma. The sweep can't measure this — bots
+   never use abilities and the Autoloader fights them for the cannon.
+2. **Draft depth** — rarity weights and synergy tags on `ModDef` (tempo mods more
+   likely once you own Overclock), a scrap-priced reroll, and 1–2 pure banes with
+   a signing bonus for risk players.
+3. **More mutators** — gravity flips, a second mini-compactor, sticky cubes,
+   golden cubes (5× payout slot), shielded cubes that need a demolition charge.
+4. **Daily seed** — a shared `RunState.seed` so everyone drafts the same offers,
+   with a per-seed leaderboard.
+5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`;
+   implement the bag in `Cannon`, seeded from the run.
+6. **Audio** — the Sound FX / Music toggles exist but nothing is wired up
+   (launch, shatter, payout, salvage refund, bomb, clock warning, bay clear).
+7. **Run history & boards** — the D1 schema keys scores by `level`; everything
+   posts to the single run board today. Add bays-reached and a board switcher.
+8. **More juice** — screen shake on detonation, combo streak banner, draft-card
+   flip-in, refit-purchase clunk. `fx.ts` is the seam.
 
 ## 📄 License
 

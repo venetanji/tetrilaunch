@@ -34,10 +34,15 @@ export interface GameEvents {
   /** Fired when the Bond Breaker ability successfully discharges (see
    *  useBondBreaker) — lets the UI play a haptic/SFX cue. */
   onBondBreak?: () => void;
+  /** Fired the step the bay's funding target is met and the SETTLE window
+   *  opens (see update()'s win handling) — the UI stops accepting launches and
+   *  shows the settling readout, well before onStatus("won") lands. */
+  onSettleStart?: () => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
- *  `quarterTurns` are meaningless when `bomb` is set. */
+ *  `quarterTurns` are meaningless when `bomb` is set (an armed demolition
+ *  charge — see Game.bombArmed). */
 export interface BeltPreview {
   bomb: boolean;
   type: PieceType;
@@ -111,6 +116,21 @@ const WIND_TAU_SEC = 5;
  *  std ≈ ±0.055, i.e. almost the ENTIRE windMax cap at bay 4). */
 const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
 
+/** How long (physics steps) the SETTLE window may run before the bay is called
+ *  won regardless of whether everything has stopped moving. Sized as a real
+ *  seconds value: 4s is long enough for a max-power lob fired the instant
+ *  before the target was met to land and be pressed, and short enough that a
+ *  pile in permanent contact-jitter can't hold the celebration hostage. The
+ *  window's NORMAL exit is "field at rest AND a pressing stroke completed" —
+ *  see resolveWin; this is only the backstop. */
+const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
+
+/** Autoloader aim spread (radians, +/-) around the player's current angle —
+ *  ~9 degrees. Wide enough that consecutive shots genuinely scatter across the
+ *  bay (that's the mechanic), tight enough that where the player points the
+ *  cannon still decides which HALF of the bay gets buried. */
+const AUTO_SPREAD_RAD = 0.16;
+
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
  *  out, and those aren't a "landed" trigger. */
@@ -155,6 +175,23 @@ export class Game {
   /** Bond Breaker charges left this bay (see useBondBreaker). Seeded from
    *  level.bondBreakerCharges — 0 unless the player drafted the mod. */
   bondCharges: number;
+  /** Demolition charges left this bay (see armBomb/shoot). Seeded from
+   *  level.bombCharges — 0 unless the player drafted them. */
+  bombCharges: number;
+  /** True when a demolition charge is ARMED: the next launch fires a bomb
+   *  instead of the loaded piece, free of launch cost (see shoot()). Armed
+   *  rather than fire-on-tap so the shot still goes where the player aimed —
+   *  the muzzle ghost and belt preview both swap to a bomb while this is set,
+   *  so what's promised is what fires. */
+  bombArmed = false;
+  /** SCRAP earned this bay so far (level.scrapPerLine per cleared line). The
+   *  run adds the per-bay clear bonus on top when the bay is banked — see
+   *  run.ts's advanceRun. Accrues even in a bay that is ultimately lost, which
+   *  is deliberate: the run keeps whatever the bay actually produced. */
+  scrapEarned = 0;
+  /** Funds recovered from demolition-charge blasts this bay — a stat for the
+   *  end/HUD readouts so bomb income is visibly separate from line income. */
+  salvagedFunds = 0;
   /** Render-facing FX events (shatter/payout/rowflash/explosion); spawned
    *  here, pruned here by FX_TTL, drawn by render.ts. */
   effects: FxEvent[] = [];
@@ -184,6 +221,20 @@ export class Game {
    *  remains. Time-up is overtime, not an instant loss — see the time-up
    *  block in update(). */
   private timeUpStep: number | null = null;
+  /** Game.stepCount when the funding target was met and the SETTLE window
+   *  opened, or null while the bay is still being played. The bay is NOT won
+   *  the instant funds cross the target: shots already in the air have been
+   *  paid for and deserve to land, a line the last shot completed deserves its
+   *  pressing stroke, and freezing the field mid-flight to slam a modal up
+   *  reads as the game snatching the moment away. See resolveWin. */
+  private winPendingStep: number | null = null;
+  /** Autoloader: Game.stepCount of its last self-fired shot (see
+   *  stepAutoLaunch). Steps, not wall-clock, for the same pause-safety reason
+   *  as the bomb timers. */
+  private lastAutoStep = -99999;
+  /** Seeded RNG for the Autoloader's aim spread — separate stream from the
+   *  wind's so adding/removing the mod can't shift the weather for a seed. */
+  private readonly autoRng: () => number;
   /** Game.stepCount of the compactor's most recent arrival at full advance
    *  (rightX) — "a pressing stroke has completed since step S" is then just
    *  `lastFullAdvanceStep > S`. */
@@ -221,7 +272,9 @@ export class Game {
     // Roll the bay's steady average in [-windMax, +windMax]; 0 stays 0 (calm).
     this.windAvg = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
     this.windCur = this.windAvg;
+    this.autoRng = mulberry32((seed ^ 0x5f356495 ^ (level.id * 0x85ebca6b)) >>> 0);
     this.bondCharges = level.bondBreakerCharges;
+    this.bombCharges = level.bombCharges;
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
@@ -257,34 +310,51 @@ export class Game {
     return this.level.targetScore;
   }
 
-  /** True if the NEXT shot fired (shotsFired + 1, 1-based) lands on the bomb
-   *  cadence — lets the HUD/muzzle preview show a bomb before it's fired. */
+  /** True if the NEXT launch will fire a demolition charge — i.e. one is
+   *  armed. Drives the muzzle ghost and the belt telegraph, which must promise
+   *  exactly what the next trigger pull produces. */
   get nextIsBomb(): boolean {
-    return this.level.bombEvery > 0 && (this.shotsFired + 1) % this.level.bombEvery === 0;
+    return this.bombArmed;
   }
 
-  /** True if the shot AFTER next (shotsFired + 2, 1-based) lands on the bomb
-   *  cadence — lets the belt telegraph a bomb one shot before the muzzle
-   *  ghost swaps to it (see beltPreview). */
-  get nextNextIsBomb(): boolean {
-    return this.level.bombEvery > 0 && (this.shotsFired + 2) % this.level.bombEvery === 0;
+  /** True while the bay's funding target has been met but the field hasn't
+   *  finished settling yet (see resolveWin). Public so the HUD can switch to a
+   *  "SETTLING" readout and disable its launch affordances without having to
+   *  infer the state from score >= target. */
+  get settling(): boolean {
+    return this.winPendingStep !== null && this.status === "playing";
   }
 
   /** What rides the conveyor-belt "NEXT" preview: the shot that fires AFTER
    *  the one the muzzle ghost is promising (render.ts's drawLoadedPiece
-   *  already shows the current shot at the cannon). A bomb shot doesn't
-   *  advance the piece queue (see shoot()), so while a bomb is up the loaded
-   *  piece keeps riding the belt at its live rotation; otherwise the belt
-   *  carries the queue's next piece, unrotated — markShot resets
-   *  pieceRotation when it loads. */
+   *  already shows the current shot at the cannon). While a bomb is armed the
+   *  loaded piece hasn't been consumed, so it keeps riding the belt at its
+   *  live rotation; otherwise the belt carries the queue's next piece,
+   *  unrotated — markShot resets pieceRotation when it loads. */
   get beltPreview(): BeltPreview {
-    if (this.nextNextIsBomb) {
-      return { bomb: true, type: this.cannon.currentType, quarterTurns: 0 };
-    }
-    if (this.nextIsBomb) {
+    if (this.bombArmed) {
       return { bomb: false, type: this.cannon.currentType, quarterTurns: this.cannon.quarterTurns };
     }
     return { bomb: false, type: this.cannon.nextType, quarterTurns: 0 };
+  }
+
+  /**
+   * Toggle a demolition charge on/off the launch rail. A no-op (returns false)
+   * with no charges left, or when the game isn't actively playable — so the
+   * HUD can call this blind and just re-read `bombArmed`. Disarming is always
+   * allowed and never costs anything; the charge is only consumed when the
+   * armed shot actually FIRES (see shoot()), so arming to look at the ghost
+   * and thinking better of it is free.
+   */
+  armBomb(): boolean {
+    if (this.status !== "playing" || this.paused || this.settling) return false;
+    if (this.bombArmed) {
+      this.bombArmed = false;
+      return true;
+    }
+    if (this.bombCharges <= 0) return false;
+    this.bombArmed = true;
+    return true;
   }
 
   /** Live bomb bodies, for render.ts to draw. */
@@ -330,7 +400,7 @@ export class Game {
    * caller's wall-clock time, used only as the FX timestamp.
    */
   useBondBreaker(now: number): boolean {
-    if (this.status !== "playing" || this.paused) return false;
+    if (this.status !== "playing" || this.paused || this.settling) return false;
     if (this.bondCharges <= 0 || this.constraints.length === 0) return false;
 
     // Remember which cubes were still joined so the shatter FX only sparks on
@@ -370,12 +440,27 @@ export class Game {
     return true;
   }
 
-  /** Signed lateral wind acceleration (px/step^2) at THIS instant. Pause-safe
-   *  by construction (windCur only advances inside update(), which doesn't
-   *  run while paused). Public so render.ts's HUD wind indicator can read
-   *  the live value. */
+  /** Signed lateral wind acceleration (px/step^2) at THIS instant, AFTER the
+   *  launcher's stabilizer (level.windAssist, from the LAUNCHER upgrade track)
+   *  has cancelled its share. This — not the raw drunk walk — is the single
+   *  number that drives everything the player can observe or feel: the force
+   *  applied to airborne bodies (applyWind), the dotted preview arc
+   *  (updateTrajectory) and the HUD gauge (render.ts). Keeping them on one
+   *  value is what makes a stabilizer legible: buy a tier, watch the gauge
+   *  shrink, watch your arcs stop drifting, all consistently.
+   *
+   *  Pause-safe by construction (windCur only advances inside update(), which
+   *  doesn't run while paused). */
   get windNow(): number {
-    return this.windCur;
+    return this.windCur * (1 - Math.max(0, Math.min(0.95, this.level.windAssist)));
+  }
+
+  /** The bay's RAW prevailing wind (px/step^2) before any stabilizer — what
+   *  the Weather Survey meta unlock reveals (see meta.ts), so the HUD can show
+   *  "this bay blows left at 60%" as a fixed, learnable fact next to the live
+   *  reading. Always available on Game; whether it's SHOWN is the UI's call. */
+  get windAverage(): number {
+    return this.windAvg;
   }
 
   /**
@@ -404,23 +489,32 @@ export class Game {
 
   shoot(now: number): boolean {
     if (this.status !== "playing" || this.paused) return false;
+    // Target already met: the SETTLE window only lets what's ALREADY flying
+    // land (see resolveWin) — spending more on a bay you've won is never what
+    // the player meant.
+    if (this.settling) return false;
     // Clock's out: overtime only settles what's already flying (see the
     // time-up block in update()) — no new launches.
     if (this.timeLeftMs <= 0) return false;
     if (!this.cannon.canShoot(now)) return false;
-    if (this.score < this.level.launchCost) return false;
 
-    // Read before shotsFired advances: nextIsBomb describes the shot about to
-    // be fired (shotsFired + 1), so it must be evaluated pre-increment.
-    const firingBomb = this.nextIsBomb;
-    this.score -= this.level.launchCost;
+    // An armed demolition charge fires FREE — it's a consumable, already paid
+    // for when it was drafted, so the funds check is skipped entirely for it.
+    // That's the whole economic fix: the old bomb burned a full-price launch
+    // and returned nothing, so it was never the right call at any funds level.
+    const firingBomb = this.bombArmed && this.bombCharges > 0;
+    if (!firingBomb && this.score < this.level.launchCost) return false;
+
     this.shotsFired += 1;
 
     if (firingBomb) {
+      this.bombCharges -= 1;
+      this.bombArmed = false;
       this.spawnBomb();
       // Cooldown-only: the queued piece stays loaded for the next real shot.
       this.cannon.markCooldown(now);
     } else {
+      this.score -= this.level.launchCost;
       const piece = createTetrisPiece(
         this.phys.world,
         this.cannon.tip.x,
@@ -429,7 +523,8 @@ export class Game {
         this.cannon.velocity,
         this.cannon.currentType,
         this.level.jointStiffness,
-        this.level.pieceCubes,
+        this.level.pieceSize,
+        this.level.jointBreakStretch,
       );
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);
@@ -439,6 +534,41 @@ export class Game {
     this.events.onShoot?.();
     this.updateTrajectory();
     return true;
+  }
+
+  /**
+   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): once
+   * per level.autoLaunchMs the cannon fires ITSELF, re-rolling its aim inside a
+   * band around wherever the player left it rather than shooting the exact same
+   * arc forever. Fast, cheap and PROBABILISTIC — it is not trying to be a good
+   * player, it's trading precision for volume, which is why it only works on
+   * top of a build that can flatten the resulting mess (Bond Breakers) and
+   * cheap enough payloads (micro shipments) to survive the waste.
+   *
+   * Skipped entirely while the player is actively aiming, so grabbing the
+   * slingshot always takes manual control back mid-bay instead of fighting the
+   * rig for the cannon.
+   */
+  private stepAutoLaunch(now: number): void {
+    const interval = this.level.autoLaunchMs;
+    if (interval <= 0 || this.aiming || this.settling) return;
+    const stepsPerMs = 1 / DT;
+    if (this.stepCount - this.lastAutoStep < interval * stepsPerMs) return;
+    if (!this.cannon.canShoot(now)) return;
+    if (this.score < this.level.launchCost) return;
+
+    // Aim spread: +/-AUTO_SPREAD_RAD around the player's angle and the upper
+    // half of the power band, clamped to the cannon's own cone/limits.
+    const angle = this.cannon.angle + (this.autoRng() * 2 - 1) * AUTO_SPREAD_RAD;
+    this.cannon.angle = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, angle));
+    const lo = this.cannon.speedMin + (this.cannon.speedMax - this.cannon.speedMin) * 0.45;
+    this.cannon.power = lo + this.autoRng() * (this.cannon.speedMax - lo);
+    // A random quarter-turn too: the rig doesn't care how the piece lands.
+    const turns = Math.floor(this.autoRng() * 4);
+    for (let i = 0; i < turns; i++) this.cannon.rotateRight();
+
+    this.lastAutoStep = this.stepCount;
+    this.shoot(now);
   }
 
   private spawnBomb(): void {
@@ -464,6 +594,7 @@ export class Game {
 
     this.stepCount++;
     this.stepWind();
+    this.stepAutoLaunch(now);
     stepPhysics(this.phys);
     this.applyWind();
 
@@ -515,6 +646,10 @@ export class Game {
       const awarded = Math.round(clear.lines * this.level.scorePerLine * bonus);
       this.score += awarded;
       this.linesTotal += clear.lines;
+      // Scrap is earned per LINE, flat and combo-free (unlike funds): capital
+      // shouldn't spike on a lucky multi-clear, or one good stroke would buy a
+      // whole upgrade track. See level.ts's SCRAP_PER_LINE note.
+      this.scrapEarned += clear.lines * this.level.scrapPerLine;
       this.events.onLineClear?.(clear.lines);
       this.spawnClearFx(clear, awarded, now);
     }
@@ -545,8 +680,20 @@ export class Game {
       if (allAtRest) this.brokeSinceStep = this.stepCount;
     }
 
-    if (this.score >= this.target) this.setStatus("won");
-    else if (this.isToppedOut()) {
+    // Funding target met: open the SETTLE window rather than winning on the
+    // spot, then let resolveWin decide when the bay is actually done. Note the
+    // ordering below is unchanged — a bay whose target is met still beats a
+    // topout/broke/time verdict in the same step — but a bay in its settle
+    // window can no longer be LOST either (resolveWin's early return), because
+    // the money is already banked; the only thing left to determine is when the
+    // dust stops.
+    if (this.score >= this.target || this.winPendingStep !== null) {
+      if (this.winPendingStep === null) {
+        this.winPendingStep = this.stepCount;
+        this.events.onSettleStart?.();
+      }
+      this.resolveWin(now);
+    } else if (this.isToppedOut()) {
       this.lossReason = "topout";
       this.setStatus("lost");
     } else if (
@@ -632,12 +779,49 @@ export class Game {
   }
 
   /**
-   * Blow up a bomb: every cube centered within BOMB_BLAST_R is destroyed
-   * outright (its constraints too — a stray joint pointing at a removed body
-   * would otherwise dangle); cubes out to BOMB_SHOVE_MULT * BOMB_BLAST_R get
-   * a radial velocity kick instead. No score effect either way — bombs are a
-   * cleanup tool, not a scoring one, so no lost-piece penalty and no payout,
-   * and combo is left untouched.
+   * The SETTLE window's exit condition. The bay is called won once EITHER
+   *   - the field is at rest AND a full pressing stroke has completed since the
+   *     window opened (so a line the final shot completed has had its
+   *     crush-and-pay stroke — the same reasoning the overtime block uses), or
+   *   - WIN_SETTLE_MAX_STEPS have elapsed (backstop for a pile that never
+   *     fully rests; contact jitter under the press is common enough that "wait
+   *     for perfect stillness" alone would sometimes never fire).
+   *
+   * Nothing is frozen during the window: physics, the compactor and line clears
+   * all keep running, so shots already paid for still land, still shatter, and
+   * still pay out — the score shown on the celebration is the real final one.
+   * shoot() is what's blocked (see there), not the world.
+   */
+  private resolveWin(now: number): void {
+    if (this.winPendingStep === null) return;
+    const elapsed = this.stepCount - this.winPendingStep;
+    const strokeDone = this.lastFullAdvanceStep > this.winPendingStep;
+    const atRest = this.cubes.every((c) => isAtRest(c.body));
+    if ((strokeDone && atRest) || elapsed > WIN_SETTLE_MAX_STEPS) {
+      this.effects.push({ kind: "bayclear", x: WORLD.width / 2, y: WORLD.height * 0.42, t0: now });
+      this.setStatus("won");
+    }
+  }
+
+  /**
+   * Blow up a demolition charge: every cube centered within BOMB_BLAST_R is
+   * destroyed outright (its constraints too — a stray joint pointing at a
+   * removed body would otherwise dangle); cubes out to BOMB_SHOVE_MULT *
+   * BOMB_BLAST_R get a radial velocity kick instead.
+   *
+   * Every vaporized cube REFUNDS level.salvagePerCube into funds (and the same
+   * per-line scrap rate per 4 cubes, so a big salvage haul also feeds the
+   * ship). That refund is the point: it gives the bomb a price the player can
+   * actually reason about. A cube sitting in a pile that will never complete a
+   * line is worth $0 as line material and salvagePerCube as scrap metal, so
+   * blowing up junk is a POSITIVE-value play, while blowing up a row you were
+   * two cubes from closing is a clear, self-inflicted loss. The old
+   * every-Nth-launch bomb had neither side of that trade — it cost a full-price
+   * launch and paid literally nothing, so it was dominated at every funds
+   * level, which is exactly the complaint this rework answers.
+   *
+   * No lost-piece penalty (a deliberate demolition isn't a fumble) and combo is
+   * left untouched.
    */
   private detonate(bombBody: Matter.Body, now: number): void {
     const idx = this.liveBombs.findIndex((b) => b.body === bombBody);
@@ -648,6 +832,7 @@ export class Game {
     const cy = bombBody.position.y;
     const shoveR = BOMB_SHOVE_MULT * BOMB_BLAST_R;
 
+    let vaporized = 0;
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const b = this.cubes[i].body;
       const dx = b.position.x - cx;
@@ -657,6 +842,7 @@ export class Game {
         removeConstraintsFor(this.phys.world, this.constraints, b);
         Matter.Composite.remove(this.phys.world, b);
         this.cubes.splice(i, 1);
+        vaporized += 1;
       } else if (d <= shoveR) {
         const mag = BOMB_SHOVE_SPEED * (1 - d / shoveR);
         Matter.Body.setVelocity(b, {
@@ -668,6 +854,17 @@ export class Game {
 
     Matter.Composite.remove(this.phys.world, bombBody);
     this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
+
+    if (vaporized > 0) {
+      const refund = vaporized * this.level.salvagePerCube;
+      this.score += refund;
+      this.salvagedFunds += refund;
+      // Scrap from salvage is deliberately stingy (a quarter of a line's rate
+      // per cube) so demolition can't out-earn actually clearing lines as an
+      // upgrade engine — it's a rescue valve, not an income strategy.
+      this.scrapEarned += Math.floor((vaporized * this.level.scrapPerLine) / 4);
+      this.effects.push({ kind: "salvage", x: cx, y: cy - 24, amount: refund, t0: now });
+    }
   }
 
   /** Lose when a settled cube stacks up to the ceiling. */

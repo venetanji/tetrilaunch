@@ -1,0 +1,78 @@
+name: Android debug APK
+
+# Builds an installable debug APK so the native path stays provably working
+# rather than documented-and-rotting. Runs on changes under app/ and on manual
+# dispatch. Nothing is signed or published — release signing needs secrets that
+# don't belong in the repo (see docs/NATIVE.md).
+on:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Cheap gates first: typecheck and the systems smoke test both fail in
+      # seconds, long before Gradle spends minutes on a build that can't work.
+      - name: Typecheck + build web bundle
+        run: npm run build
+
+      - name: Systems smoke test
+        run: npm run test
+
+      # Catches a build that dead-code-eliminated the RevenueCat SDK out of the
+      # bundle — which is what happens if a store code path ever ends up gated
+      # on an env-derived constant. CI has no keys, so this is exactly the
+      # configuration that would hide the bug.
+      - name: Verify the store bundle
+        run: npm run verify:store
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 21, not 17: Capacitor 8's Android platform builds with AGP 8.13 and
+          # sets source/targetCompatibility to VERSION_21.
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      # app/android/ is gitignored (it's a derived artifact — see
+      # docs/NATIVE.md), so CI generates it from capacitor.config.ts and the
+      # installed plugins on every run. That also means this job is a real test
+      # of `cap add` working from a clean checkout, not just of Gradle.
+      - name: Add Android platform
+        run: npx cap add android
+
+      - name: Sync web assets into the native project
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: app/android
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tetrilaunch-debug-apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

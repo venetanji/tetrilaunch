@@ -1,6 +1,7 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
-import { COLORS, PIECE_COLORS, shade, type PieceType } from "./theme";
+import { computeLayout } from "./layout";
+import { COLORS, PIECE_COLORS, shade, type PieceSize, type PieceType } from "./theme";
 import { pieceOffsets, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
@@ -14,13 +15,17 @@ export interface Viewport {
   oy: number;
 }
 
+/**
+ * Where the world sits in the canvas, in CSS px. Delegates to the layout solver
+ * (layout.ts) rather than doing its own naive centered fit, so the field rect
+ * accounts for reserved chrome bands and safe-area insets. That delegation is
+ * what keeps input honest: screenToWorld below calls this same function, so a
+ * tap always maps through the exact transform the frame was drawn with — a
+ * separate fit here would silently offset every aim on any non-16:9 viewport.
+ */
 export function computeViewport(cw: number, ch: number): Viewport {
-  const scale = Math.min(cw / WORLD.width, ch / WORLD.height);
-  return {
-    scale,
-    ox: (cw - WORLD.width * scale) / 2,
-    oy: (ch - WORLD.height * scale) / 2,
-  };
+  const l = computeLayout(cw, ch);
+  return { scale: l.scale, ox: l.ox, oy: l.oy };
 }
 
 /** Map a client (CSS px) point to world coordinates. */
@@ -54,8 +59,17 @@ export interface Scene {
   nextIsBomb: boolean;
   bombs: Matter.Body[];
   /** Current signed wind acceleration (game.ts's windNow) — drives the HUD
-   *  wind indicator's length/direction. */
+   *  wind indicator's length/direction. Already post-stabilizer. */
   windNow: number;
+  /** The bay's steady prevailing wind, or null to hide it — shown as a ghost
+   *  marker on the gauge only when the Weather Survey unlock is owned (see
+   *  meta.ts), so a headwind bay can be planned for rather than discovered. */
+  windAverage: number | null;
+  /** 0..1 reload progress (cannon.reloadRatio) — drives the muzzle ring. */
+  reload: number;
+  /** True while the bay's settle window is running (game.ts's Game.settling):
+   *  the cannon is locked out, so it dims instead of promising a shot. */
+  settling: boolean;
 }
 
 export function render(
@@ -82,7 +96,7 @@ export function render(
 
   drawBackground(ctx);
   drawWalls(ctx);
-  drawWindIndicator(ctx, scene.level, scene.windNow);
+  drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
@@ -90,8 +104,11 @@ export function render(
   drawTrajectory(ctx, scene.trajectory);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
-  drawCannon(ctx, scene.cannon, scene.aiming);
-  drawLoadedPiece(ctx, scene.cannon, scene.level.pieceCubes, scene.nextIsBomb);
+  drawCannon(ctx, scene.cannon, scene.aiming, scene.settling);
+  drawReloadRing(ctx, scene.cannon, scene.reload);
+  if (!scene.settling) {
+    drawLoadedPiece(ctx, scene.cannon, scene.level.pieceSize, scene.nextIsBomb);
+  }
   drawEffects(ctx, scene.effects, scene.now);
 
   ctx.restore();
@@ -167,7 +184,12 @@ const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
 const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
 const WIND_HUD_HEAD = 15;
 
-function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, windNow: number): void {
+function drawWindIndicator(
+  ctx: CanvasRenderingContext2D,
+  level: LevelConfig,
+  windNow: number,
+  windAverage: number | null,
+): void {
   if (level.windMax <= 0) return;
   const ratio = Math.max(-1, Math.min(1, windNow / level.windMax));
   const mag = Math.abs(ratio);
@@ -228,6 +250,35 @@ function drawWindIndicator(ctx: CanvasRenderingContext2D, level: LevelConfig, wi
     ctx.lineTo(tipX, y + WIND_HUD_HEAD * 0.72);
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Weather Survey (meta unlock): a dim tick at the bay's STEADY average, so
+  // the live gust reads as "drifting around a known baseline" instead of an
+  // unknowable number. Drawn behind the numeric readout, in the neutral track
+  // color, so it never competes with the live bar for attention.
+  if (windAverage !== null) {
+    const avgRatio = Math.max(-1, Math.min(1, windAverage / level.windMax));
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = COLORS.text;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cx + avgRatio * WIND_HUD_HALF_LEN, y - 11);
+    ctx.lineTo(cx + avgRatio * WIND_HUD_HALF_LEN, y + 11);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Stabilizer tag: when the launcher cancels part of the wind, say so — the
+  // gauge is showing the POST-assist number (game.ts's windNow), and without
+  // this the upgrade would silently look like "the weather got easier".
+  if (level.windAssist > 0) {
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = COLORS.trajectory;
+    ctx.font = "700 11px 'JetBrains Mono', ui-monospace, monospace";
+    ctx.fillText(`STAB −${Math.round(level.windAssist * 100)}%`, cx + padX - 44, y - 14);
   }
 
   // Numeric strength readout under the bar, on the pushing side.
@@ -504,7 +555,7 @@ const GHOST_ALPHA = 0.45;
 function drawLoadedPiece(
   ctx: CanvasRenderingContext2D,
   cannon: Cannon,
-  pieceCubes: 2 | 4,
+  size: PieceSize,
   nextIsBomb: boolean,
 ): void {
   const tip = cannon.tip;
@@ -527,7 +578,7 @@ function drawLoadedPiece(
   }
 
   const color = PIECE_COLORS[cannon.currentType];
-  const offsets = pieceOffsets(cannon.currentType, cannon.pieceRotation, pieceCubes);
+  const offsets = pieceOffsets(cannon.currentType, cannon.pieceRotation, size);
   const cell = CELL * GHOST_SCALE;
   const h = cell / 2;
 
@@ -545,9 +596,19 @@ function drawLoadedPiece(
   ctx.restore();
 }
 
-function drawCannon(ctx: CanvasRenderingContext2D, cannon: Cannon, aiming: boolean): void {
+function drawCannon(
+  ctx: CanvasRenderingContext2D,
+  cannon: Cannon,
+  aiming: boolean,
+  settling = false,
+): void {
   const ratio = cannon.powerRatio;
   const barrelColor = `rgb(${Math.round(150 + 105 * ratio)}, ${Math.round(220 - 120 * ratio)}, 90)`;
+
+  ctx.save();
+  // Settle window: the cannon is locked out (game.ts's shoot() refuses), so it
+  // reads as powered down rather than sitting there looking loaded.
+  if (settling) ctx.globalAlpha = 0.35;
 
   // Barrel
   ctx.save();
@@ -588,6 +649,45 @@ function drawCannon(ctx: CanvasRenderingContext2D, cannon: Cannon, aiming: boole
     ctx.stroke();
     ctx.restore();
   }
+  ctx.restore();
+}
+
+/**
+ * Launch cooldown, drawn as an arc sweeping around the cannon base: empty the
+ * instant a shot fires, closing to a full ring as the loader finishes. The
+ * player's attention is on the cannon while aiming the next shot, so THIS is
+ * where "can I fire yet" belongs — the plant panel's reload bar (see
+ * ui/screens.ts's .pl-load) carries the same value for peripheral vision, but
+ * this is the one you actually read mid-aim. Hidden once fully reloaded so a
+ * ready cannon isn't wearing a permanent decoration.
+ */
+const RELOAD_RING_R = CANNON.size / 2 + 9;
+
+function drawReloadRing(ctx: CanvasRenderingContext2D, cannon: Cannon, reload: number): void {
+  if (reload >= 1) return;
+  ctx.save();
+  ctx.translate(cannon.x, cannon.y);
+  // Track.
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = COLORS.textDim;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(0, 0, RELOAD_RING_R, 0, Math.PI * 2);
+  ctx.stroke();
+  // Filled portion, starting at 12 o'clock and sweeping clockwise. Warm amber
+  // while loading (it reads as "wait"), snapping to the aim cyan at the very
+  // end so the moment it becomes fireable is visible in peripheral vision.
+  const col = reload > 0.92 ? COLORS.aim : "#ffb020";
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 10;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, 0, RELOAD_RING_R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * reload);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -710,6 +810,79 @@ function drawPayoutFx(
   ctx.restore();
 }
 
+/** Salvage refund (1100ms): the funds a demolition charge paid back, rising
+ *  from the blast. Same motion as a payout so it reads as income, but in the
+ *  warn amber of the demolition kit rather than the payout green — at a glance
+ *  the player can tell "a line sold" from "I sold scrap metal", which is the
+ *  whole reason bombs refund instead of silently topping up the bankroll. */
+const SALVAGE_COLOR = "#ffb020";
+
+function drawSalvageFx(
+  ctx: CanvasRenderingContext2D,
+  e: Extract<FxEvent, { kind: "salvage" }>,
+  now: number,
+): void {
+  const elapsed = now - e.t0;
+  const t = clamp01(elapsed / FX_TTL.salvage);
+  if (t >= 1) return;
+
+  const x = Math.min(Math.max(e.x, PAYOUT_CLAMP_MARGIN), WORLD.width - PAYOUT_CLAMP_MARGIN);
+  const y = e.y - easeOutCubic(t) * PAYOUT_RISE_PX;
+  const alpha = clamp01(elapsed < PAYOUT_FADE_IN_MS ? elapsed / PAYOUT_FADE_IN_MS : 1 - t * t);
+  if (alpha <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = SALVAGE_COLOR;
+  ctx.shadowColor = SALVAGE_COLOR;
+  ctx.shadowBlur = PAYOUT_GLOW;
+  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`♻ +$${e.amount}`, x, y);
+  ctx.restore();
+}
+
+/** Bay cleared (1400ms): a bright band sweeping the field left-to-right plus an
+ *  expanding ring, spawned once when the settle window resolves (game.ts's
+ *  resolveWin). Deliberately a CANVAS effect rather than only a DOM banner: the
+ *  moment belongs to the field the player just filled, so the celebration
+ *  should wash over the pile itself before the ui/screens.ts banner and the
+ *  draft modal take the screen. Additive, inside its own save/restore. */
+const BAYCLEAR_BAND_W = 240;
+
+function drawBayClearFx(
+  ctx: CanvasRenderingContext2D,
+  e: Extract<FxEvent, { kind: "bayclear" }>,
+  now: number,
+): void {
+  const t = clamp01((now - e.t0) / FX_TTL.bayclear);
+  if (t >= 1) return;
+  const eased = easeOutCubic(t);
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  // Sweeping band.
+  const cxBand = -BAYCLEAR_BAND_W + eased * (WORLD.width + BAYCLEAR_BAND_W * 2);
+  const grad = ctx.createLinearGradient(cxBand - BAYCLEAR_BAND_W, 0, cxBand + BAYCLEAR_BAND_W, 0);
+  grad.addColorStop(0, "rgba(0,255,156,0)");
+  grad.addColorStop(0.5, `rgba(0,255,156,${0.5 * (1 - t)})`);
+  grad.addColorStop(1, "rgba(0,255,156,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+
+  // Expanding ring at the event point.
+  ctx.globalAlpha = 1 - t;
+  ctx.strokeStyle = COLORS.trajectory;
+  ctx.shadowColor = COLORS.trajectory;
+  ctx.shadowBlur = 24;
+  ctx.lineWidth = 8 * (1 - t) + 2;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, 60 + eased * 380, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Rowflash (450ms): the cleared row band, bright toward the wall it just
  *  got crushed into. Drawn additively ("lighter") so it blooms rather than
  *  paints a flat white bar; that GCO is scoped to this function's own
@@ -817,6 +990,12 @@ function drawEffects(ctx: CanvasRenderingContext2D, effects: FxEvent[], now: num
         break;
       case "explosion":
         drawExplosionFx(ctx, e, now);
+        break;
+      case "salvage":
+        drawSalvageFx(ctx, e, now);
+        break;
+      case "bayclear":
+        drawBayClearFx(ctx, e, now);
         break;
     }
   }

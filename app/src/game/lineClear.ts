@@ -99,6 +99,14 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
   const zone = zoneGrid(compactor, level);
   const face = zone ? zone.face : compactor.x + compactor.width / 2;
   const minX = face - SETTLE_X_MARGIN;
+  // Press strength from the HYDRAULICS upgrade track (level.settleAssist, 1 =
+  // stock — see upgrades.ts). It scales the RATES only, never the tolerances:
+  // a refitted press grinds a near-aligned cube into its slot faster, but it
+  // still can't reach out and snap a cube that was never close, so the
+  // "grinds, doesn't teleport" feel survives every tier.
+  const assist = level.settleAssist > 0 ? level.settleAssist : 1;
+  const angleRate = ANGLE_RATE * assist;
+  const xRate = X_RATE * assist;
 
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
@@ -121,7 +129,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
     const target = Math.round(b.angle / (Math.PI / 2)) * (Math.PI / 2);
     const angleDelta = target - b.angle;
     if (Math.abs(angleDelta) <= SETTLE_ANGLE_CAP) {
-      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, ANGLE_RATE));
+      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate));
     }
 
     // Slot pull: nudge slowly toward the nearest wall-anchored slot center,
@@ -132,7 +140,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
         const slotXk = WALL_INNER - CELL / 2 - k * CELL;
         const dx = slotXk - b.position.x;
         if (Math.abs(dx) <= SETTLE_SLOT_TOL) {
-          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, X_RATE), y: b.position.y });
+          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate), y: b.position.y });
         }
       }
     }

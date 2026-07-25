@@ -6,9 +6,10 @@
 import type Matter from "matter-js";
 import type { Game } from "../src/game/game";
 import { mulberry32 } from "../src/game/mods";
-import { SPEED_MIN, SPEED_MAX } from "../src/game/cannon";
+import { SPEED_MAX } from "../src/game/cannon";
 import { CELL, WALL_INNER } from "../src/game/engine";
-import type { PieceType } from "../src/game/theme";
+import { pieceCells } from "../src/game/pieces";
+import type { PieceSize, PieceType } from "../src/game/theme";
 
 export interface Bot {
   name: string;
@@ -118,7 +119,7 @@ export function fixedAimBot(
         -MAX_ANGLE_RAD,
         Math.min(MAX_ANGLE_RAD, baseAngleRad + jAngleRad),
       );
-      const pw = Math.max(SPEED_MIN, Math.min(SPEED_MAX, power + jPower));
+      const pw = Math.max(g.cannon.speedMin, Math.min(g.cannon.speedMax, power + jPower));
 
       g.cannon.angle = angle;
       g.cannon.power = pw;
@@ -152,7 +153,7 @@ export function fixedAimBot(
 /**
  * A fully random "button masher": every time the cannon is off cooldown and
  * funds cover the shot, pick a uniformly random angle within [angleMinDeg,
- * angleMaxDeg], a uniformly random power within [SPEED_MIN, SPEED_MAX], spin
+ * angleMaxDeg], a uniformly random power within the ship's own speed range, spin
  * a random 0-3 quarter-turn rotation, and fire. No aim model at all — the
  * point is a robustness floor ("does anything beat pure noise") rather than
  * a plausible player.
@@ -169,7 +170,7 @@ function randomAimBot(name: string, angleMinDeg: number, angleMaxDeg: number, se
       if (g.score < g.level.launchCost) return;
 
       g.cannon.angle = minRad + rng() * (maxRad - minRad);
-      g.cannon.power = SPEED_MIN + rng() * (SPEED_MAX - SPEED_MIN);
+      g.cannon.power = g.cannon.speedMin + rng() * (g.cannon.speedMax - g.cannon.speedMin);
 
       const turns = Math.floor(rng() * 4);
       for (let i = 0; i < turns; i++) g.cannon.rotateRight();
@@ -184,26 +185,35 @@ function randomAimBot(name: string, angleMinDeg: number, angleMaxDeg: number, se
  *  without exploding the search to a continuous 2D scan. See aimBot. */
 const AIM_POWER_CANDIDATES = [19, 22, 25, 28];
 
-/** Half the rotated bounding-box WIDTH (px) of each piece type in its
- *  min-height orientation (see MIN_HEIGHT_TURNS — this is the orientation
- *  every shot actually fires in) — I is 4 cells wide, O is 2, everything
- *  else is 3. The single-point ballistic trajectory the search scores
- *  against only tracks a piece's CENTER of mass; a candidate that lands
- *  that center too close to the wall, or too close to the compactor bar,
- *  can still have the piece's own FAR EDGE clip it — this table is what lets
- *  readGapTarget/candidateHitsBar reason about the piece's actual footprint
- *  instead of treating it as a single cube. Found necessary by tracing
- *  actual losses: a point-mass-only model reliably clipped the wall and the
- *  sweeping compactor bar for anything wider than a single cell. */
-const PIECE_HALF_WIDTH_PX: Record<PieceType, number> = {
-  I: 2 * CELL,
-  O: 1 * CELL,
-  T: 1.5 * CELL,
-  L: 1.5 * CELL,
-  J: 1.5 * CELL,
-  S: 1.5 * CELL,
-  Z: 1.5 * CELL,
-};
+/** Half the rotated bounding-box WIDTH (px) of the loaded shipment in its
+ *  min-height orientation (see MIN_HEIGHT_TURNS — this is the orientation every
+ *  shot actually fires in). The single-point ballistic trajectory the search
+ *  scores against only tracks a piece's CENTER of mass; a candidate that lands
+ *  that center too close to the wall, or too close to the compactor bar, can
+ *  still have the piece's own FAR EDGE clip it — this is what lets
+ *  readGapTarget/candidateHitsBar reason about the real footprint instead of
+ *  treating it as a single cube. Found necessary by tracing actual losses: a
+ *  point-mass-only model reliably clipped the wall and the sweeping compactor
+ *  bar for anything wider than a single cell.
+ *
+ *  Derived from pieceCells rather than a hardcoded per-TYPE table, because the
+ *  footprint now depends on the run's payload SIZE class too (theme.ts's
+ *  PieceSize): a micro domino is 2 cells wide, a bulk pentomino up to 4. A
+ *  tetromino-shaped constant would have quietly mis-modelled both, making the
+ *  sweep's Micro/Bulk numbers measure the bot's broken assumptions instead of
+ *  the mods.
+ *
+ *  min-height orientation means the flattest one, and a 90-degree turn just
+ *  SWAPS the bounding box's width and height (see MIN_HEIGHT_TURNS' derivation),
+ *  so the flattest orientation's WIDTH is simply the larger of the two extents.
+ */
+function pieceHalfWidthPx(type: PieceType, size: PieceSize): number {
+  const cells = pieceCells(type, size);
+  const w = Math.max(...cells.map(([x]) => x)) - Math.min(...cells.map(([x]) => x)) + 1;
+  const h = Math.max(...cells.map(([, y]) => y)) - Math.min(...cells.map(([, y]) => y)) + 1;
+  return (Math.max(w, h) * CELL) / 2;
+}
+
 /** Extra clearance (px) added on top of a piece's half-width for both the
  *  wall-margin and bar-collision checks below — physics contact isn't a
  *  mathematical point, so a little slack keeps "just barely clear" from
@@ -251,7 +261,7 @@ const AIM_PATIENCE_DEADLINE_MS = 30_000;
  * 1. GAP TARGETING (GapTargeter/makeGapTargeter below): instead of always
  *    aiming at a fixed spot, it builds a per-slot height map and targets the
  *    CENTER of the lowest-stacked run of slots wide enough for the CURRENTLY
- *    LOADED piece's own footprint (see PIECE_HALF_WIDTH_PX — a naive
+ *    LOADED piece's own footprint (see pieceHalfWidthPx — a naive
  *    single-cell-wide read let a wide piece straddle a shallow slot and a
  *    tall neighbor, landing off-balance and toppling), ties broken toward
  *    the wall. Falls back to the zone's middle when nothing has landed yet.
@@ -342,10 +352,10 @@ function makeGapTargeter() {
       // doc comment above) — never the live, compactor-position-dependent
       // full zone.
       const numSlots = g.level.compactorMinLineCells;
-      const halfWidthPx = PIECE_HALF_WIDTH_PX[g.cannon.currentType];
+      const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
       const widthCells = Math.max(1, Math.round((2 * halfWidthPx) / CELL));
       // Slots too close to the wall for this piece's own footprint to fit
-      // without its far edge clipping the wall (see PIECE_HALF_WIDTH_PX).
+      // without its far edge clipping the wall (see pieceHalfWidthPx).
       const marginPx = halfWidthPx + AIM_CLEARANCE_PX;
       const minSlot = Math.max(0, Math.ceil((marginPx - CELL / 2) / CELL));
 
@@ -502,13 +512,18 @@ function aimBot(seed = 1): Bot {
       if (g.score < g.level.launchCost) return;
 
       const { x: target, slot } = gapTargeter.read(g, now);
-      const halfWidthPx = PIECE_HALF_WIDTH_PX[g.cannon.currentType];
+      const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
 
       const safeCands: AimCandidate[] = [];
       const allCands: AimCandidate[] = [];
       for (let deg = 15; deg <= 55; deg += 2) {
         const rad = (deg * Math.PI) / 180;
-        for (const pw of AIM_POWER_CANDIDATES) {
+        // Scale the fixed candidate list by whatever the ship's launcher can
+        // actually do (cannon.speedMax vs. the stock SPEED_MAX), so a
+        // LAUNCHER-upgraded run's extra reach is searched instead of clamped away.
+        const powerScale = g.cannon.speedMax / SPEED_MAX;
+        for (const pwBase of AIM_POWER_CANDIDATES) {
+          const pw = pwBase * powerScale;
           g.cannon.angle = rad;
           g.cannon.power = pw;
           g.updateTrajectory();
@@ -553,7 +568,7 @@ function aimBot(seed = 1): Bot {
         -MAX_ANGLE_RAD,
         Math.min(MAX_ANGLE_RAD, (chosen.deg * Math.PI) / 180 + jAngleRad),
       );
-      const pw = Math.max(SPEED_MIN, Math.min(SPEED_MAX, chosen.power + jPower));
+      const pw = Math.max(g.cannon.speedMin, Math.min(g.cannon.speedMax, chosen.power + jPower));
       g.cannon.angle = angle;
       g.cannon.power = pw;
       g.updateTrajectory();
