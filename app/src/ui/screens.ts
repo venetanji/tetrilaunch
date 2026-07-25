@@ -363,12 +363,18 @@ export function hudHTML(opts: {
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>
         </div>
+        <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
+             The row scrolls horizontally (a full run drafts more than fits), so
+             whatever is last gets cut off first — and the ability chips are the
+             only TAPPABLE things in here. Leading with them keeps the controls
+             reachable however long the build gets; a passive mod scrolling out
+             of view costs nothing but a glance. -->
         <div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
-          ${plates}
-          ${runModsHTML(modIds)}
           ${bondChip}
           ${demoChip}
+          ${plates}
+          ${runModsHTML(modIds)}
         </div>
       </div>
     </div>

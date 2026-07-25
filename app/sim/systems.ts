@@ -356,6 +356,101 @@ section("Layout solver (layout.ts)");
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
 }
 
+// ---------------------------------------------------------------------------
+section("HUD readout widths (the $1000+ wrap regression)");
+// ---------------------------------------------------------------------------
+{
+  // A 4-digit bankroll against a 4-digit target ("$1259 / 1700") used to wrap
+  // the funds readout onto a second line at phone CSS viewports, which pushed
+  // the plant panel's content down and clipped the build-chip row in half.
+  //
+  // The DOM fix is in app.css (nowrap on .pl-funds .v, a bottom-anchored
+  // auto-height panel, and smaller pixel-font stat labels). What CAN be checked
+  // headlessly — and is the part that actually made it fragile — is the WIDTH
+  // BUDGET: the funds line has to fit its column with real slack at the smallest
+  // scale the game runs at, using conservative per-character advances rather
+  // than the sandbox's fallback font metrics (the real Press Start 2P is far
+  // wider than any fallback, which is exactly why this reproduced on a device
+  // and not in a headless browser).
+  //
+  // Advances are expressed in em and deliberately generous:
+  //   mono  0.60em — JetBrains Mono's actual advance
+  //   pixel 1.45em — Press Start 2P measured on-device INCLUDING letter-spacing
+  const MONO_ADV = 0.6;
+  const PIXEL_ADV = 1.45;
+
+  // The CSS geometry this mirrors. Kept as named constants so a change in
+  // app.css that isn't reflected here shows up as a failing budget rather than
+  // a silently stale test.
+  const PANEL_W_FRAC = 0.4708;
+  const PANEL_PAD_FPX = 19;
+  const READ_GAP_MIN = 4, READ_GAP_FPX = 12;
+  const STAT_PAD_MIN = 6, STAT_PAD_FPX = 14;
+  const STAT_MARGIN_MIN = 5, STAT_MARGIN_FPX = 10;
+  const FUNDS_FS_MIN = 17, FUNDS_FS_FPX = 38;
+  const TGT_EM = 0.62;
+  const STAT_LBL_MIN = 6, STAT_LBL_FPX = 8.6;
+  const STAT_VAL_MIN = 15, STAT_VAL_FPX = 30;
+
+  /** Width the funds line needs vs. the width its column actually gets. */
+  function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
+    const l = computeLayout(viewportW, viewportH);
+    const fpx = l.fw / 1280;
+    const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
+
+    const content = PANEL_W_FRAC * l.fw - 2 * PANEL_PAD_FPX * fpx;
+    const fundsFs = mx(FUNDS_FS_MIN, FUNDS_FS_FPX);
+    const statLbl = mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
+    const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
+
+    // Each stat column is as wide as the WIDER of its pixel-font label and its
+    // mono value — the label is what dominates at small scales, and missing that
+    // is what made the original budget wrong.
+    const col = (label: string, value: string) =>
+      Math.max(label.length * PIXEL_ADV * statLbl, value.length * MONO_ADV * statVal) + statPad;
+    const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)));
+    const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+
+    const gaps = 2 * mx(READ_GAP_MIN, READ_GAP_FPX);
+    const available = content - launchesCol - timeCol - gaps;
+
+    // "$1259" + a space + "/ 1700" — the target renders at TGT_EM of the figure.
+    const scoreStr = "$" + funds;
+    const tgtStr = "/ " + target;
+    const needed =
+      scoreStr.length * MONO_ADV * fundsFs +
+      MONO_ADV * fundsFs +
+      tgtStr.length * MONO_ADV * fundsFs * TGT_EM;
+
+    return { available, needed, slack: available - needed, mode: l.mode };
+  }
+
+  // Every viewport class, at the worst realistic bankroll/target pairing. The
+  // 800x360 case is the one that actually broke.
+  const VIEWPORTS: [string, number, number][] = [
+    ["phone 800x360", 800, 360],
+    ["phone 864x393", 864, 393],
+    ["phone 915x412", 915, 412],
+    ["tablet 1024x768", 1024, 768],
+    ["laptop 1600x900", 1600, 900],
+    ["ultrawide 2400x1080", 2400, 1080],
+  ];
+  // bay-10's target is 2150, and a Reactor+carry run can carry 5 figures.
+  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 2150], [24680, 2150]];
+
+  for (const [name, w, h] of VIEWPORTS) {
+    for (const [funds, target] of CASES) {
+      const b = fundsBudget(w, h, funds, target);
+      check(
+        `${name} fits $${funds}/${target}`,
+        b.slack >= 0,
+        `needs ${b.needed.toFixed(0)}px, has ${b.available.toFixed(0)}px (short ${(-b.slack).toFixed(0)}px)`,
+      );
+    }
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

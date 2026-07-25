@@ -528,9 +528,22 @@ body.crt-off #app::after { display: none; }
      bottom-LEFT corner belongs to the plant; every button lives in the
      right-gutter rail outside the field (see .side-rail). */
   left: calc(var(--field-x) + 0.0167 * var(--field-w));
-  top: calc(var(--field-y) + 0.5407 * var(--field-h));
   width: calc(0.4708 * var(--field-w));
-  height: calc(0.4296 * var(--field-h));
+  /* BOTTOM-anchored with an auto height, not top-anchored with a fixed one.
+     The mockup's footprint is preserved by min-height (the panel is normally
+     exactly that tall), but if the content ever needs more room the panel grows
+     UPWARD into empty sky instead of clipping its own last row.
+
+     This is a structural fix for a real bug: at phone CSS viewports the funds
+     readout had essentially zero horizontal slack, so a 4-digit bankroll
+     ($1259 / 1700) wrapped onto a second line, pushed everything down, and cut
+     the build chips in half. The wrap is prevented below as well — but a fixed
+     height meant ANY future overflow (a longer label, wider font metrics, a
+     translation) would silently clip content, and that's the class of bug worth
+     designing out rather than re-tuning. */
+  bottom: calc(100% - var(--field-y) - 0.9703 * var(--field-h));
+  height: auto;
+  min-height: calc(0.4296 * var(--field-h));
   z-index: 6;
   border-radius: var(--r-md);
   border: var(--bw) solid var(--line-strong);
@@ -591,17 +604,30 @@ body.crt-off #app::after { display: none; }
    and time are equal fixed columns beside it (tier 2), and the reload bar +
    meta line sit under them (tiers 4 and 5). See screens.ts's hudHTML for the
    full rationale. */
-.pl-read { display: flex; align-items: flex-end; justify-content: space-between; gap: max(8px, calc(16 * var(--fpx))); }
+/* flex-wrap is the last-resort fallback: if a viewport is so narrow that the
+   three columns genuinely cannot share a row, the stat columns drop to a second
+   row — which the auto-height panel above can now absorb — rather than
+   squeezing the funds figure until it wraps. */
+.pl-read { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: max(4px, calc(12 * var(--fpx))); }
 .pl-funds { flex: 1 1 auto; min-width: 0; }
-.pl-funds .lbl, .pl-stat .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.pl-funds .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+/* The tier-2 columns are sized by their LABEL at phone scale, not their value
+   ("LAUNCHES" is 8 pixel-font glyphs; "22" is two mono digits) — and the pixel
+   font stops shrinking at its floor while the panel keeps shrinking, so these
+   labels were quietly eating the funds figure's width. Smaller and untracked:
+   they're column headings, not readouts. */
+.pl-stat .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(8.6 * var(--fpx))); letter-spacing: 0; text-transform: uppercase; color: var(--text-muted); }
 .pl-funds .v {
-  font-family: var(--font-mono); font-weight: 800; font-size: max(20px, calc(44 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 800; font-size: max(17px, calc(38 * var(--fpx)));
   color: var(--accent); text-shadow: var(--glow-accent); line-height: 0.95; margin-top: max(3px, calc(8 * var(--fpx)));
+  /* Never wrap: "$1259" and "/ 1700" are one reading, and a break between them
+     both misreads (1700 looks like a separate figure) and grows the panel. */
+  white-space: nowrap;
 }
 /* The target is the bay's whole objective — it reads at 0.75em of the funds
    figure in goal-yellow, and the progress bar spans the full readout width at
    nearly double thickness so distance-to-goal is legible at a glance mid-aim. */
-.pl-funds .v .tgt { color: var(--piece-o); font-size: 0.75em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
+.pl-funds .v .tgt { color: var(--piece-o); font-size: 0.62em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 .pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
 
@@ -610,9 +636,9 @@ body.crt-off #app::after { display: none; }
 /* The two tier-2 columns need to read as SEPARATE numbers — at a glance
    "0" and "2:23" side by side can otherwise scan as one figure. A hairline rule
    and real padding between them does that without adding another label. */
-.pl-stat { flex: none; text-align: right; padding-left: max(10px, calc(20 * var(--fpx))); }
-.pl-stat + .pl-stat { margin-left: max(8px, calc(14 * var(--fpx))); border-left: 1px solid var(--line); }
-.pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(17px, calc(34 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; }
+.pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
+.pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
+.pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
 /* Urgency, shared by the launches counter (<= LOW_LAUNCH_WARN launches, see
    main.ts's syncHud) and the clock (last 20s). One class, one look: both mean
    "you are about to run out of the thing that lets you keep playing". */
