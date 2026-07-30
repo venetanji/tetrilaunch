@@ -1,0 +1,128 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workshop — Tetrilaunch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+/* Mirrors app/src/ui/screens.ts workshopScreen + app.css .workshop / .shop-card.
+   The meta-progression store: spends SALVAGE (paid out by every finished run,
+   win or lose) on permanent unlocks. Three card states are shown: buyable,
+   owned, and gated-by-prerequisite (visible but dimmed — a locked capstone you
+   can see is a goal, one you can't is a surprise). */
+:root{
+  --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
+  --line:#2e2e4a; --line-strong:#3d3d63;
+  --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
+  --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
+  --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
+  --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --fs-h1:clamp(28px,5vw,44px); --fs-h3:18px; --fs-sm:14px; --fs-xs:12px;
+  --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  /* Retro pass: square, steppy corners + chunky borders and hard shadows. */
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,0.85); --shadow-hard-lg:4px 4px 0 rgba(0,0,0,0.85);
+  --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
+  --ease:cubic-bezier(0.22,1,0.36,1); --dur:220ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-height:100vh}
+.eyebrow{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent)}
+.display{font-family:var(--font-display);font-weight:900;letter-spacing:0.08em;line-height:0.95}
+.muted{color:var(--text-muted)}
+.btn{font-family:var(--font-pixel);font-weight:700;letter-spacing:0.03em;text-transform:uppercase;font-size:11px;
+  border:var(--bw) solid transparent;border-radius:var(--r-pill);padding:14px 26px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);
+  color:var(--text);background:var(--surface-2);box-shadow:var(--shadow-hard-sm)}
+.btn--primary{background:linear-gradient(100deg,var(--accent),#38d6ff);color:var(--accent-ink);border-color:var(--accent-ink)}
+.btn:disabled{filter:grayscale(0.7) brightness(0.6);cursor:default}
+.chip{background:rgba(18,18,31,0.72);border:var(--bw) solid var(--line);border-radius:var(--r-md);padding:8px 14px;
+  display:flex;flex-direction:row;align-items:center;gap:10px;box-shadow:var(--shadow-hard-sm)}
+.chip__label{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted)}
+.chip__value{font-family:var(--font-mono);font-weight:700;font-size:20px}
+.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);
+  border:var(--bw) solid var(--line);color:var(--text);font-size:20px;
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-hard-sm)}
+.neon-backdrop{
+  background:
+    radial-gradient(120% 90% at 50% -10%,rgba(122,92,255,0.16),transparent 60%),
+    radial-gradient(90% 70% at 90% 110%,rgba(0,240,255,0.12),transparent 55%),
+    var(--bg);
+  position:relative;
+}
+.neon-backdrop::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,0.025) 0px,rgba(255,255,255,0.025) 1px,transparent 1px,transparent 3px);
+  mix-blend-mode:overlay;opacity:0.5;
+}
+.screen{position:relative;min-height:100vh;display:flex;flex-direction:column;padding:20px;overflow-y:auto}
+.workshop{max-width:980px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:var(--sp-3);padding-block:var(--sp-3)}
+.workshop__hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap}
+.workshop__hdr > div:first-child{flex:1 1 320px;min-width:0}
+.workshop__meta{font-family:var(--font-pixel);font-size:8px;letter-spacing:0.08em}
+.workshop__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.shop-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;
+  background:linear-gradient(180deg,rgba(27,27,46,0.95),rgba(12,12,24,0.97));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-hard-sm)}
+.shop-card--owned{border-color:rgba(0,255,156,0.5)}
+.shop-card--gated{opacity:0.6}
+.shop-card__name{font-family:var(--font-display);font-weight:700;font-size:var(--fs-h3)}
+.shop-card__desc{color:var(--text-dim);font-size:var(--fs-sm);line-height:1.4;flex:1}
+.shop-card__foot{margin-top:auto}
+.shop-card__foot .btn{width:100%}
+.shop-card__owned{font-family:var(--font-pixel);font-size:9px;color:var(--success);letter-spacing:0.06em}
+.shop-card__locked{font-family:var(--font-pixel);font-size:8px;color:var(--warn);letter-spacing:0.04em}
+</style>
+</head>
+<body>
+<div class="screen neon-backdrop">
+  <div class="workshop">
+    <div class="workshop__hdr">
+      <div>
+        <div class="eyebrow">Between runs</div>
+        <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
+        <p class="muted" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="chip"><div class="chip__label">Salvage</div><div class="chip__value" style="color:var(--warn)">♻ 118</div></div>
+        <button class="icon-btn" aria-label="Back">✕</button>
+      </div>
+    </div>
+    <div class="workshop__meta muted">12 runs logged · deepest bay 7</div>
+    <div class="workshop__grid">
+      <div class="shop-card shop-card--owned">
+        <div class="shop-card__name">Demolition Licence</div>
+        <p class="shop-card__desc">Adds Demolition Charges to the draft pool: armed bombs that cost nothing to fire and refund funds for every cube they vaporize. Turns a dead junk pile into cash.</p>
+        <div class="shop-card__foot"><span class="shop-card__owned">✓ Owned</span></div>
+      </div>
+      <div class="shop-card">
+        <div class="shop-card__name">Bulk Freight Permit</div>
+        <p class="shop-card__desc">Adds Bulk Shipments to the draft pool: 5-cube pentominoes. Dense and rigid — they survive landings that shatter a tetromino, and their weight squares up the layers underneath.</p>
+        <div class="shop-card__foot"><button class="btn btn--primary">♻ 55</button></div>
+      </div>
+      <div class="shop-card">
+        <div class="shop-card__name">Autoloader Rig</div>
+        <p class="shop-card__desc">Adds the Autoloader to the draft pool — the endgame of the micro build. The cannon fires itself, fast and roughly aimed, at half cost. You will need Bond Breakers to flatten what it makes.</p>
+        <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 130</button></div>
+      </div>
+      <div class="shop-card shop-card--gated">
+        <div class="shop-card__name">Scrap Cache</div>
+        <p class="shop-card__desc">Every run starts with 30 scrap banked, so the first refit stop is a real decision instead of a window-shop.</p>
+        <div class="shop-card__foot"><span class="shop-card__locked">Needs Demolition Licence</span></div>
+      </div>
+      <div class="shop-card">
+        <div class="shop-card__name">Weather Survey</div>
+        <p class="shop-card__desc">The bay's prevailing wind is surveyed before you launch: the HUD gauge shows the bay's steady average alongside the live gust, so a headwind bay can be planned for instead of discovered.</p>
+        <div class="shop-card__foot"><button class="btn btn--primary">♻ 60</button></div>
+      </div>
+    </div>
+    <button class="btn btn--primary" style="align-self:center;font-size:13px;padding:18px 36px">▶ Start Run</button>
+  </div>
+</div>
+</body>
+</html>

@@ -6,10 +6,17 @@ import type { LevelConfig } from "./level";
  * copy applyMods hands it, one mod at a time in pick order — mods never see
  * or touch each other directly, but each sees the field values the previous
  * ones already changed, so order can matter ACROSS different mods too, not
- * just a mod compounding with itself (e.g. Premium then Half Shipments rounds
+ * just a mod compounding with itself (e.g. Premium then Micro Shipments rounds
  * -40% off a launchCost that already includes Premium's +$5, landing on a
- * different number than Half Shipments first). This is accepted roguelite
+ * different number than Micro Shipments first). This is accepted roguelite
  * behavior: drafts apply in the order picked.
+ *
+ * Mods run AFTER the run's ship upgrades (see run.ts's levelForRun and
+ * upgrades.ts) — a contract's multipliers compound on top of whatever ship you
+ * refitted, which is the intended reading. The two systems are deliberately
+ * different in kind: a mod is a hand you were DEALT (three seeded offers, often
+ * a trade-off), an upgrade is capital you CHOSE to spend from a fully-visible
+ * menu.
  */
 export interface ModDef {
   id: string;
@@ -19,6 +26,15 @@ export interface ModDef {
   kind: "boon" | "bane" | "tradeoff";
   /** Whether this mod can be drafted again after already being owned. */
   stackable: boolean;
+  /** Meta-progression unlock id (see meta.ts's UNLOCKS) that must be PURCHASED
+   *  for this mod to appear in the draft pool at all. Undefined = always
+   *  available. This is the seam that makes salvage spent in the Workshop
+   *  change what a run can BE, rather than just making it numerically stronger. */
+  unlock?: string;
+  /** Mod ids that must already be owned THIS RUN for this one to be offered — a
+   *  synergy prerequisite, not a cost. Used by the Autoloader, which only makes
+   *  sense on top of the micro build it is the endgame of. */
+  requiresMods?: string[];
   apply(cfg: LevelConfig): void;
 }
 
@@ -56,24 +72,52 @@ export const MODS: ModDef[] = [
     },
   },
   {
-    id: "half",
-    name: "Half Shipments",
-    desc: "Dominoes (2 cubes/piece), −40% launch cost. Precise little dominoes, cheaper launches, less material per shot.",
+    id: "micro",
+    name: "Micro Shipments",
+    desc: "2-cube dominoes · −40% launch cost · 30% lighter, and they shatter easily. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile below them.",
     kind: "tradeoff",
     stackable: false,
     apply(cfg) {
-      cfg.pieceCubes = 2;
+      cfg.pieceSize = "tiny";
       cfg.launchCost = Math.round(cfg.launchCost * 0.6);
     },
   },
   {
-    id: "bombs",
-    name: "Bomb Shipments",
-    desc: "Every Nth launch is a bomb (starts at 5, tightens by 1 per stack, floor 3) — great for clearing junk, pays nothing.",
+    id: "bulk",
+    name: "Bulk Shipments",
+    desc: "5-cube pentominoes · +50% launch cost · +$40 per line. Dense and rigid: they take a landing without breaking, and their weight presses the layers beneath them flat.",
     kind: "tradeoff",
-    stackable: true,
+    stackable: false,
+    unlock: "bulk",
     apply(cfg) {
-      cfg.bombEvery = cfg.bombEvery === 0 ? 5 : Math.max(3, cfg.bombEvery - 1);
+      cfg.pieceSize = "bulk";
+      cfg.launchCost = Math.round(cfg.launchCost * 1.5);
+      cfg.scorePerLine += 40;
+    },
+  },
+  {
+    id: "demo",
+    name: "Demolition Charges",
+    desc: "+2 charges per bay. Arm one (💥 / X) and your next launch fires a bomb FREE — no launch cost — refunding $8 per cube it vaporizes. Sells a dead junk pile back for cash. Stacks: +2 per bay.",
+    kind: "boon",
+    stackable: true,
+    unlock: "demo",
+    apply(cfg) {
+      cfg.bombCharges += 2;
+    },
+  },
+  {
+    id: "autoloader",
+    name: "Autoloader",
+    desc: "The cannon fires ITSELF every 420ms at a roughly-aimed spread, at half launch cost. Volume over precision — you will need Bond Breakers to flatten what it piles up.",
+    kind: "tradeoff",
+    stackable: false,
+    unlock: "auto",
+    requiresMods: ["micro"],
+    apply(cfg) {
+      cfg.autoLaunchMs = 420;
+      cfg.launchCost = Math.max(4, Math.round(cfg.launchCost * 0.5));
+      cfg.cooldownMs = Math.min(cfg.cooldownMs, 420);
     },
   },
   {
@@ -111,8 +155,8 @@ export const MODS: ModDef[] = [
   },
   {
     id: "heavy",
-    name: "Heavy Cargo",
-    desc: "×1.15 gravity, +$25 per line. Flatter arcs, better pay.",
+    name: "Ballast Load",
+    desc: "×1.15 gravity, +$25 per line. Flatter arcs, harder landings, better pay.",
     kind: "tradeoff",
     stackable: true,
     apply(cfg) {
@@ -181,18 +225,29 @@ export function applyMods(base: LevelConfig, ids: string[]): LevelConfig {
 
 /**
  * Deterministic draft of `count` modifier offers for a given run seed and
- * level. Non-stackable mods the player already owns are excluded from the
- * pool; everything else (stackable mods, and not-yet-owned non-stackables) is
- * eligible. Same seed + levelIndex + ownedIds always yields the same offers.
+ * level. The eligible pool excludes:
+ *  - non-stackable mods the player already owns,
+ *  - mods whose meta-progression `unlock` hasn't been purchased (see meta.ts),
+ *  - mods whose `requiresMods` synergy prerequisite isn't owned yet.
+ * Same seed + levelIndex + ownedIds + unlocks always yields the same offers.
+ *
+ * `unlocks` defaults to [] so headless callers (sim/) and any code that doesn't
+ * care about meta-progression see exactly the always-available pool.
  */
 export function draftOffers(
   seed: number,
   levelIndex: number,
   ownedIds: string[],
   count = 3,
+  unlocks: string[] = [],
 ): ModDef[] {
   const rng = mulberry32((seed ^ ((levelIndex + 1) * 0x9e3779b9)) >>> 0);
-  const eligible = MODS.filter((m) => m.stackable || !ownedIds.includes(m.id));
+  const eligible = MODS.filter((m) => {
+    if (!m.stackable && ownedIds.includes(m.id)) return false;
+    if (m.unlock && !unlocks.includes(m.unlock)) return false;
+    if (m.requiresMods && !m.requiresMods.every((r) => ownedIds.includes(r))) return false;
+    return true;
+  });
 
   // Fisher-Yates shuffle, then take the first `count` — same pattern as any
   // seeded shuffle, just with the local rng instead of Math.random.

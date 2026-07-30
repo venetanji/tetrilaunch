@@ -1,0 +1,159 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refit Stop — Tetrilaunch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+/* Mirrors app/src/ui/screens.ts refitScreen + app.css .modal--refit / .refit-*.
+   Tokens below are the CURRENT values from app/src/styles/tokens.css (the retro
+   pass: 2-3px radii, chunky borders, hard shadows) — not the pre-retro set some
+   older cards in this folder still carry. */
+:root{
+  --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
+  --line:#2e2e4a; --line-strong:#3d3d63;
+  --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
+  --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
+  --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
+  --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --fs-h1:clamp(28px,5vw,44px); --fs-h3:18px; --fs-sm:14px; --fs-xs:12px;
+  --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  /* Retro pass: square, steppy corners + chunky borders and hard shadows. */
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,0.85); --shadow-hard-lg:4px 4px 0 rgba(0,0,0,0.85);
+  --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
+  --ease:cubic-bezier(0.22,1,0.36,1); --dur:220ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-height:100vh}
+.eyebrow{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent)}
+.display{font-family:var(--font-display);font-weight:900;letter-spacing:0.08em;line-height:0.95}
+.muted{color:var(--text-muted)}
+.btn{font-family:var(--font-pixel);font-weight:700;letter-spacing:0.03em;text-transform:uppercase;font-size:11px;
+  border:var(--bw) solid transparent;border-radius:var(--r-pill);padding:14px 26px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);
+  color:var(--text);background:var(--surface-2);box-shadow:var(--shadow-hard-sm)}
+.btn--primary{background:linear-gradient(100deg,var(--accent),#38d6ff);color:var(--accent-ink);border-color:var(--accent-ink)}
+.btn:disabled{filter:grayscale(0.7) brightness(0.6);cursor:default}
+.chip{background:rgba(18,18,31,0.72);border:var(--bw) solid var(--line);border-radius:var(--r-md);padding:8px 14px;
+  display:flex;flex-direction:row;align-items:center;gap:10px;box-shadow:var(--shadow-hard-sm)}
+.chip__label{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted)}
+.chip__value{font-family:var(--font-mono);font-weight:700;font-size:20px}
+.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);
+  border:var(--bw) solid var(--line);color:var(--text);font-size:20px;
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-hard-sm)}
+.neon-backdrop{
+  background:
+    radial-gradient(120% 90% at 50% -10%,rgba(122,92,255,0.16),transparent 60%),
+    radial-gradient(90% 70% at 90% 110%,rgba(0,240,255,0.12),transparent 55%),
+    var(--bg);
+  position:relative;
+}
+.neon-backdrop::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,0.025) 0px,rgba(255,255,255,0.025) 1px,transparent 1px,transparent 3px);
+  mix-blend-mode:overlay;opacity:0.5;
+}
+.stage{position:relative;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.panel{background:linear-gradient(180deg,rgba(27,27,46,0.95),rgba(12,12,24,0.97));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-xl);box-shadow:var(--shadow-hard-lg)}
+.modal{width:min(900px,96vw);max-height:calc(100vh - 40px);padding:clamp(20px,4vw,40px);
+  display:flex;flex-direction:column;gap:var(--sp-4);overflow:hidden;text-align:left}
+.modal h2{font-family:var(--font-display);font-size:var(--fs-h1)}
+.refit__hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap}
+.refit__hdr > div:first-child{flex:1 1 320px;min-width:0}
+.refit__grid{flex:1 1 auto;min-height:120px;overflow-y:auto;padding:2px;
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.refit-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;
+  background:linear-gradient(180deg,rgba(27,27,46,0.95),rgba(12,12,24,0.97));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-hard-sm)}
+.refit-card--owned{border-color:rgba(0,240,255,0.45)}
+.refit-card__hdr{display:flex;align-items:center;gap:8px}
+.refit-card__glyph{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.04em;color:var(--accent-ink);
+  background:var(--accent);padding:4px 6px;border-radius:var(--r-sm);flex:none}
+.refit-card__name{font-family:var(--font-display);font-weight:700;font-size:15px;flex:1;min-width:0}
+.refit-card__pips{display:flex;gap:3px;flex:none}
+.refit-card__pips i{width:8px;height:8px;border-radius:50%;background:var(--surface-3);box-shadow:inset 0 0 0 1px rgba(0,0,0,.6)}
+.refit-card__pips i.on{background:var(--accent);box-shadow:0 0 6px rgba(0,240,255,.9)}
+.refit-card__blurb{color:var(--text-dim);font-size:var(--fs-xs);line-height:1.4}
+.refit-card__tiers{display:flex;flex-direction:column;gap:3px}
+.refit-card__tier{font-size:11px;color:var(--text-muted);padding:3px 6px;border-radius:var(--r-sm);border-left:2px solid var(--line)}
+.refit-card__tier b{font-family:var(--font-mono);color:var(--text-faint);margin-right:4px}
+.refit-card__tier.done{color:var(--text-faint);border-left-color:var(--accent);text-decoration:line-through}
+.refit-card__tier.next{color:var(--text);border-left-color:var(--warn);background:rgba(255,176,32,0.08)}
+.refit-card__foot{margin-top:auto;padding-top:4px}
+.refit-card__buy{width:100%;padding:8px 12px;font-size:10px}
+.refit-card__max{font-family:var(--font-pixel);font-size:9px;color:var(--success);letter-spacing:0.08em}
+</style>
+</head>
+<body>
+<div class="stage neon-backdrop">
+  <div class="panel modal">
+    <div class="refit__hdr">
+      <div>
+        <div class="eyebrow">Refit stop · after bay 3</div>
+        <h2 class="display">Yard &amp; Dry Dock</h2>
+        <p class="muted" style="margin:0">The compactor rig is your ship. Spend scrap; it lasts the run. Next up: Assembly Line.</p>
+      </div>
+      <div class="chip"><div class="chip__label">Scrap</div><div class="chip__value" style="color:var(--warn)">♻ 78</div></div>
+    </div>
+    <div class="refit__grid">
+      <!-- Stock track: no pips lit, tier 1 highlighted as the next purchase. -->
+      <div class="refit-card">
+        <div class="refit-card__hdr"><span class="refit-card__glyph">BAY</span><span class="refit-card__name">Bay Extension</span>
+          <span class="refit-card__pips"><i></i><i></i><i></i></span></div>
+        <p class="refit-card__blurb">Widens the compaction zone at the open stop — more room to land in, longer lines to sell.</p>
+        <div class="refit-card__tiers">
+          <div class="refit-card__tier next"><b>T1</b> +2 open cells (14)</div>
+          <div class="refit-card__tier"><b>T2</b> +4 open cells (16)</div>
+          <div class="refit-card__tier"><b>T3</b> +6 open cells (18)</div>
+        </div>
+        <div class="refit-card__foot"><button class="btn btn--primary refit-card__buy">♻ 20</button></div>
+      </div>
+      <!-- Part-bought track: one pip lit, T1 struck through, T2 highlighted. -->
+      <div class="refit-card refit-card--owned">
+        <div class="refit-card__hdr"><span class="refit-card__glyph">LCH</span><span class="refit-card__name">Launcher Coils</span>
+          <span class="refit-card__pips"><i class="on"></i><i></i><i></i></span></div>
+        <p class="refit-card__blurb">More muzzle energy and a lateral stabilizer — reach the back of the bay, and fight the weather.</p>
+        <div class="refit-card__tiers">
+          <div class="refit-card__tier done"><b>T1</b> +6% muzzle speed · 20% wind cancelled</div>
+          <div class="refit-card__tier next"><b>T2</b> +12% muzzle speed · 40% wind cancelled</div>
+          <div class="refit-card__tier"><b>T3</b> +18% muzzle speed · 60% wind cancelled</div>
+        </div>
+        <div class="refit-card__foot"><button class="btn btn--primary refit-card__buy">♻ 35</button></div>
+      </div>
+      <!-- Unaffordable: button disabled, price still shown. -->
+      <div class="refit-card">
+        <div class="refit-card__hdr"><span class="refit-card__glyph">HYD</span><span class="refit-card__name">Press Hydraulics</span>
+          <span class="refit-card__pips"><i></i><i></i><i></i></span></div>
+        <p class="refit-card__blurb">A harder, faster press — squares up a messy pile into sellable rows instead of leaving it wedged.</p>
+        <div class="refit-card__tiers">
+          <div class="refit-card__tier next"><b>T1</b> ×1.6 settle assist · +8% stroke speed</div>
+          <div class="refit-card__tier"><b>T2</b> ×2.2 settle assist · +16% stroke speed</div>
+          <div class="refit-card__tier"><b>T3</b> ×2.8 settle assist · +24% stroke speed</div>
+        </div>
+        <div class="refit-card__foot"><button class="btn btn--primary refit-card__buy" disabled>♻ 20</button></div>
+      </div>
+      <!-- Maxed track: all pips lit, MAX instead of a price. -->
+      <div class="refit-card refit-card--owned">
+        <div class="refit-card__hdr"><span class="refit-card__glyph">BND</span><span class="refit-card__name">Bond Emitter</span>
+          <span class="refit-card__pips"><i class="on"></i><i class="on"></i><i class="on"></i></span></div>
+        <p class="refit-card__blurb">Bond Breaker charges every bay — shatter the field flat on demand.</p>
+        <div class="refit-card__tiers">
+          <div class="refit-card__tier done"><b>T1</b> +1 charge per bay</div>
+          <div class="refit-card__tier done"><b>T2</b> +2 charges per bay</div>
+          <div class="refit-card__tier done"><b>T3</b> +3 charges per bay</div>
+        </div>
+        <div class="refit-card__foot"><span class="refit-card__max">MAX</span></div>
+      </div>
+    </div>
+    <button class="btn btn--primary">Undock →</button>
+  </div>
+</div>
+</body>
+</html>

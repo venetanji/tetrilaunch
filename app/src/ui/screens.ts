@@ -1,11 +1,20 @@
 import { PIECE_TYPES } from "../game/theme";
 import { LEVEL_1 } from "../game/level";
 import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
-import { toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML } from "./components";
+import {
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
+} from "./components";
+import {
+  MAX_TIER, UPGRADES, nextTierCost, scrapInvested, type UpgradeTiers,
+} from "../game/upgrades";
+import {
+  UNLOCKS, unlockAvailable, unlockById, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
+  SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, type MetaState,
+} from "../game/meta";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
-import type { PieceType } from "../game/theme";
+import type { PieceSize, PieceType } from "../game/theme";
 import type { ModDef } from "../game/mods";
 
 export function splashScreen(): string {
@@ -20,7 +29,7 @@ export function splashScreen(): string {
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
  *  the store entry point hides itself rather than offering a dead button. */
-export function menuScreen(best: number, store?: StoreState): string {
+export function menuScreen(best: number, salvage = 0, store?: StoreState): string {
   return `<div class="screen neon-backdrop">
     <div class="menu">
       <div class="menu__brand">
@@ -30,20 +39,25 @@ export function menuScreen(best: number, store?: StoreState): string {
         full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
         run that drafts stranger modifiers onto your bankroll every stop.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px;max-width:220px">
+          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
             <div class="chip__label">Best</div>
-            <div class="chip__value chip--accent" style="color:var(--accent)">${best}</div>
+            <div class="chip__value" style="color:var(--accent)">${best}</div>
           </div>
-          ${store?.pro ? proBadgeHTML() : ""}
+          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+            <div class="chip__label">Salvage</div>
+            <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
+          </div>
+          ${store?.unlimited ? unlimitedBadgeHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
         <button class="btn btn--primary btn--lg btn--block" data-action="play">▶ Play</button>
+        <button class="btn btn--secondary btn--block" data-action="workshop">⚙ Workshop</button>
         <button class="btn btn--secondary btn--block" data-action="howto">How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">Leaderboard</button>
         ${
-          store?.available && !store.pro
-            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Pro</button>`
+          store?.available && !store.unlimited
+            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Unlimited</button>`
             : ""
         }
         <button class="btn btn--ghost btn--block" data-action="settings">Settings</button>
@@ -56,13 +70,13 @@ export function menuScreen(best: number, store?: StoreState): string {
 export interface StoreState {
   /** SDK configured — i.e. native build with a key. */
   available: boolean;
-  /** The `pro` entitlement is active. */
-  pro: boolean;
+  /** The `unlimited` entitlement is active. */
+  unlimited: boolean;
 }
 
-function proBadgeHTML(): string {
-  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:140px">
-    <div class="chip__value" style="color:var(--warn, #ffe500)">★ PRO</div>
+function unlimitedBadgeHTML(): string {
+  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:190px">
+    <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
   </div>`;
 }
 
@@ -73,8 +87,10 @@ export function howtoScreen(): string {
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
-    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b> — going broke, or running out the timer, ends the run.`],
-    ["07", "Run the gauntlet", `Ten bays deep, each with a rising target, a stiffer clock, and stiffer joints. Clear a bay and <b>draft one of three modifiers</b> — it stacks for the rest of the run. Each bay funds a fresh <b>$250 float</b>, and any surplus you banked above the target carries on top — but so does every trade-off you picked up. Go broke or run out the clock and the run ends right there.`],
+    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
+    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is paid out at the end of <b>every</b> run — win or lose — and buys permanent unlocks in the Workshop.`],
+    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
+    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target, a tighter clock and stiffer joints. Clear one and <b>draft a modifier</b> from three — it stacks for the rest of the run. Shipments come in three sizes: <b>micro</b> dominoes are cheap and precise but too light to press the pile flat, <b>bulk</b> pentominoes are rigid and heavy, and standard tetrominoes sit between. Go broke or run out the clock and the run ends there.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
@@ -125,9 +141,9 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
 function purchaseRowsHTML(store: StoreState): string {
   return `<div style="display:flex;gap:8px;flex-wrap:wrap">
     ${
-      store.pro
+      store.unlimited
         ? `<button class="btn btn--secondary" style="flex:1" data-action="customer-center">Manage Subscription</button>`
-        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Pro</button>`
+        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Unlimited</button>`
     }
     <button class="btn btn--ghost" style="flex:1" data-action="restore" id="restore-btn">Restore Purchases</button>
   </div>`;
@@ -166,26 +182,46 @@ export function leaderboardScreen(rows: string): string {
 }
 
 /**
- * In-game HUD overlay — 1d "recycling-plant" layout. `bayNum` is the 1-based
- * bay currently playing (out of RUN_LEVELS); `timeLimitSec` gates whether a
- * Time readout renders at all (0 = no limit, e.g. never happens today but
- * kept level-driven for future ladder entries); `timeLeftMs`/`pieceCubes`/
- * `beltPreview` seed the initial render so it matches whatever main.ts's
- * syncHud takes over from frame 2. `modIds` is the run's full drafted-mod
- * pick history (run.ts's RunState.modIds) — rendered as chips in the plant
- * panel (see components.ts's runModsHTML).
+ * In-game HUD overlay — 1d "recycling-plant" layout, restructured around a
+ * clear INFORMATION HIERARCHY. The old plant readout gave funds/target a huge
+ * figure and then buried three equally-weighted small facts under it (combo,
+ * launch cost, launches left), which meant the two numbers that actually decide
+ * a shot — "can I still afford to shoot" and "is the cannon loaded" — read as
+ * footnotes. The tiers now are:
  *
- * The old single-row top chip bar is gone: funds/target/time/combo now live
- * in the RECYCLING PLANT panel bottom-left (below the cannon), the NEXT
- * preview rides a conveyor belt top-left, the power meter is a bar mounted
- * on the plant, and every button lives in one same-width vertically-centered
- * column in the letterbox gutter OUTSIDE the field's right wall (see
- * app.css's .side-rail). Two hydraulic
- * pistons "driving" the compactor toward the right wall are canvas-drawn
- * (see render.ts's drawPistons) since they must track the compactor's live
- * x-position every frame — nothing here positions them, this file only owns
- * the DOM chrome.
+ *   1. FUNDS / TARGET + goal bar   the bay objective. Biggest thing on screen.
+ *   2. LAUNCHES LEFT               how many shots the bankroll still buys.
+ *      Its own column, mono, large — and it goes DANGER-RED and pulses at
+ *      LOW_LAUNCH_WARN (3) or fewer, because that's the threshold where the
+ *      correct play changes from "keep feeding the bay" to "this shot has to
+ *      count". A number that changes your strategy deserves to change color.
+ *   3. TIME                        equal-weight column beside it, already had
+ *      its own red-pulse at 20s.
+ *   4. RELOAD                      a bar under the readout tracking the launch
+ *      cooldown, so "why didn't it fire" is answerable without guessing. The
+ *      canvas draws the same value as a ring around the cannon muzzle (see
+ *      render.ts's drawReloadRing) — that one is for mid-aim focus, this one is
+ *      for peripheral vision.
+ *   5. combo / launch cost         demoted to the small meta line.
+ *   6. run mods + ship plates      the build, bottom row.
+ *
+ * `bayNum` is the 1-based bay currently playing (out of RUN_LEVELS);
+ * `timeLimitSec` gates whether a Time readout renders at all (0 = no limit);
+ * `timeLeftMs`/`pieceSize`/`beltPreview` seed the initial render so it matches
+ * whatever main.ts's syncHud takes over from frame 2. `modIds` is the run's
+ * drafted-mod pick history and `tiers` its bought ship upgrades (see
+ * game/run.ts's RunState) — both rendered as chips/plates in the plant panel.
+ *
+ * Every button lives in one same-width column in the letterbox gutter OUTSIDE
+ * the field's right wall — or, on aspect ratios with no usable side gutter, in
+ * a reserved band or a horizontal bottom bar (see game/layout.ts and app.css's
+ * .side-rail / [data-layout] rules). Two hydraulic pistons "driving" the
+ * compactor are canvas-drawn (render.ts's drawPistons) since they track the
+ * compactor's live x every frame; this file only owns the DOM chrome.
  */
+/** Launches-left threshold at which the readout turns danger-red and pulses. */
+export const LOW_LAUNCH_WARN = 3;
+
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
    *  Game.beltPreview). */
@@ -193,62 +229,78 @@ export function hudHTML(opts: {
   target: number;
   score: number;
   /** Cost per launch this bay — shown in the plant readout together with how
-   *  many launches the current funds afford (#hud-shots, live-synced). */
+   *  many launches the current funds afford (#hud-launches, live-synced). */
   launchCost: number;
   bayNum: number;
   timeLimitSec: number;
   timeLeftMs: number;
-  pieceCubes: 2 | 4;
+  pieceSize: PieceSize;
   /** Whether this bay's run has the Bond Breaker ability drafted — shows its
-   *  glowing chip in the plant's mods row (see main.ts / game.ts's
+   *  glowing chip in the plant's ability row (see main.ts / game.ts's
    *  useBondBreaker). */
   bondBreakerOwned: boolean;
   /** Charges left this bay, shown on the chip. */
   bondCharges: number;
+  /** Whether Demolition Charges were drafted, and how many are left — same
+   *  two-trigger treatment as Bond Breaker (see the ability note below). */
+  demoOwned: boolean;
+  bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
    *  chips in the plant panel (see components.ts's runModsHTML). */
   modIds: string[];
+  /** The run's bought ship upgrade tiers — rendered as tier-pip plates
+   *  (components.ts's shipPlatesHTML). */
+  tiers: UpgradeTiers;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
-    pieceCubes, bondBreakerOwned, bondCharges, modIds,
+    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, modIds, tiers,
   } = opts;
   const beltNextHTML = beltPreview.bomb
     ? beltBombHTML()
-    : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceCubes);
+    : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize);
+  const launches = Math.floor(score / Math.max(1, launchCost));
   const timeBlock =
     timeLimitSec > 0
-      ? `<div class="pl-time" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
+      ? `<div class="pl-stat pl-time" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
       : "";
-  // Bond Breaker: only rendered when the run drafted the ability. TWO
-  // triggers share the same data-game="bond" click handling and are kept in
-  // sync by main.ts's syncHud via the shared .bond-trigger/.bond-trigger__count
-  // classes (both disable at 0 charges, both show the live count):
-  //  - a status chip in the plant's mods row (bondChip, styled like a mod —
-  //    matches the mockup, stays tappable)
-  //  - a dedicated icon button in the touch-only top-right rail (bondRailBtn),
-  //    the PRIMARY mobile control since there's no "B" key on a touchscreen.
+  // ABILITIES (Bond Breaker, Demolition Charges) each get TWO triggers on
+  // screen at once when drafted — a chip in the plant's ability row and a
+  // dedicated icon button in the touch rail (the rail is the PRIMARY mobile
+  // control: there's no keyboard on a touchscreen). Both share per-ability
+  // classes that main.ts's syncHud updates together, so neither can drift out
+  // of sync with the live charge count.
   const bondChip = bondBreakerOwned
-    ? `<button class="mod mod--bb k-boon bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
+    ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
         <span class="g">⚡</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
       </button>`
     : "";
   const bondRailBtn = bondBreakerOwned
     ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
+  const demoChip = demoOwned
+    ? `<button class="mod mod--demo demo-trigger" data-game="demo" id="demo-chip" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>
+        <span class="g">💥</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
+      </button>`
+    : "";
+  const demoRailBtn = demoOwned
+    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>💥<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
+    : "";
+  const plates = shipPlatesHTML(tiers);
   return `<div class="hud" id="hud">
-    <!-- right-side button rail: ONE same-width vertically-centered column
-         in the letterbox gutter outside the field's right wall (see
-         app.css's .side-rail) — every button on the same layer, max six:
-         fullscreen, pause, rotate CCW/CW, Bond Breaker (if drafted), and
-         the aim-state cancel ✕. There's no keyboard on mobile, so this
-         column IS the touch control surface. The ✕ is only visible
-         mid-drag (main.ts's syncHud toggles .hud--aiming) but its slot is
-         always reserved so appearing never shifts the other buttons under
-         a hovering thumb; a second finger taps it to abort the queued
-         launch — releasing the aim finger then fires nothing. Rotate taps
-         mid-drag do NOT cancel (see input.ts). Desktop hides the game
-         buttons, keeps fullscreen + pause top-anchored, and uses Q/E + B
+    <!-- button rail: ONE same-width column of at most seven buttons —
+         fullscreen, pause, rotate CCW/CW, Bond Breaker + Demolition (if
+         drafted), and the aim-state cancel ✕. Where it SITS is decided by the
+         layout solver (game/layout.ts): centered in the right letterbox gutter
+         when one is wide enough, in a reserved right band on near-16:9
+         viewports where there is no natural gutter, or as a horizontal strip in
+         the bottom band on tablet-ish aspects (see app.css's [data-layout]
+         rules). There's no keyboard on mobile, so this rail IS the touch
+         control surface. The ✕ is only visible mid-drag (main.ts's syncHud
+         toggles .hud--aiming) but its slot is always reserved so appearing
+         never shifts the other buttons under a hovering thumb; a second finger
+         taps it to abort the queued launch. Rotate taps mid-drag do NOT cancel
+         (see input.ts). Desktop hides the game buttons and uses Q/E + B/X
          instead (see the @media (pointer: fine) rule in app.css), per the
          kbd-hint strip down in .hud__bottom. -->
     <div class="side-rail">
@@ -257,6 +309,7 @@ export function hudHTML(opts: {
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
       ${bondRailBtn}
+      ${demoRailBtn}
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
     </div>
 
@@ -272,8 +325,8 @@ export function hudHTML(opts: {
       <div class="belt-piece" id="hud-next">${beltNextHTML}</div>
     </div>
 
-    <!-- the RECYCLING PLANT: PWR bar, funds/target/time/combo, and the run's
-         drafted mods (+ Bond Breaker), below the cannon. -->
+    <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
+         the run's build (drafted mods, ship plates, abilities). -->
     <div class="plant">
       <div class="pl-pwr"><span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
@@ -289,20 +342,39 @@ export function hudHTML(opts: {
             <div class="lbl">Funds / Target</div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
-            <div class="pl-meta">
-              <span>Combo <b id="hud-combo">×0</b></span>
-              <span class="pl-meta__sep">·</span>
-              <span>Launch $${launchCost}</span>
-              <span class="pl-meta__sep">·</span>
-              <span><b id="hud-shots">${Math.floor(score / launchCost)}</b> launches left</span>
-            </div>
+          </div>
+          <div class="pl-stat pl-launches" id="hud-launches-chip">
+            <div class="lbl">Launches</div>
+            <div class="v" id="hud-launches">${launches}</div>
           </div>
           ${timeBlock}
         </div>
+        <!-- Reload: fills as the launch cooldown runs down (see
+             cannon.reloadRatio). Goes .ready the instant the cannon can fire
+             again, which is the only state change that matters here. -->
+        <div class="pl-load" id="hud-load-row">
+          <span class="lbl">Reload</span>
+          <div class="pl-load__track"><i id="hud-load" style="width:100%"></i></div>
+        </div>
+        <div class="pl-meta">
+          <span>Combo <b id="hud-combo">×0</b></span>
+          <span class="pl-meta__sep">·</span>
+          <span>Launch $${launchCost}</span>
+          <span class="pl-meta__sep">·</span>
+          <span>Scrap <b id="hud-scrap">0</b></span>
+        </div>
+        <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
+             The row scrolls horizontally (a full run drafts more than fits), so
+             whatever is last gets cut off first — and the ability chips are the
+             only TAPPABLE things in here. Leading with them keeps the controls
+             reachable however long the build gets; a passive mod scrolling out
+             of view costs nothing but a glance. -->
         <div class="pl-mods" id="hud-mods">
-          <span class="lbl">Run mods</span>
-          ${runModsHTML(modIds)}
+          <span class="lbl">Build</span>
           ${bondChip}
+          ${demoChip}
+          ${plates}
+          ${runModsHTML(modIds)}
         </div>
       </div>
     </div>
@@ -317,9 +389,17 @@ export function hudHTML(opts: {
         <span class="kbd-hint__sep">·</span>
         <span class="kbd">Space</span> fire
         ${bondBreakerOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">B</span> break bonds' : ""}
+        ${demoOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">X</span> arm charge' : ""}
         <span class="kbd-hint__sep">·</span>
         drag to aim
       </div>
+    </div>
+    <!-- Settle banner: shown while the bay's funding target is met and the
+         field is still coming to rest (game.ts's Game.settling). Reassures the
+         player that the frozen-looking cannon is intentional and their last
+         shots still count. main.ts toggles .show. -->
+    <div class="settle-note" id="settle-note" aria-live="polite">
+      <span class="settle-note__dot"></span> Target met — letting the bay settle
     </div>
     ${dragHintHTML()}
   </div>`;
@@ -342,6 +422,163 @@ export function dragHintHTML(): string {
       <path d="M89,77 Q52,112 49,133" />
     </svg>
     <div class="drag-hint__dot"></div>
+  </div>`;
+}
+
+/**
+ * BAY CLEARED celebration — the beat between "the money landed" and "here are
+ * your cards". Plays over the settled (not frozen-mid-flight) field, on top of
+ * the canvas bayclear sweep FX (see render.ts's drawBayClearFx), then main.ts
+ * advances to the refit/draft after BAY_CLEAR_MS — or immediately on a tap, so
+ * a player who has seen it fifty times is never held up.
+ *
+ * Why this exists: the bay used to end the instant funds crossed the target,
+ * mid-flight, with the draft modal appearing over pieces still in the air. The
+ * player never got to see the line that won it pay out. Now the bay settles
+ * (game.ts's resolveWin) and then explicitly celebrates.
+ */
+export const BAY_CLEAR_MS = 1700;
+
+export function bayClearScreen(opts: {
+  bayNum: number;
+  bayName: string;
+  funds: number;
+  target: number;
+  lines: number;
+  scrap: number;
+}): string {
+  return `<div class="bayclear" id="bayclear" data-action="skip-bayclear">
+    <div class="bayclear__rays" aria-hidden="true"></div>
+    <div class="bayclear__card">
+      <div class="eyebrow">Bay ${opts.bayNum} · ${opts.bayName}</div>
+      <h2 class="bayclear__title display">BAY CLEARED</h2>
+      <div class="bayclear__stats">
+        <div class="stat"><b style="color:var(--accent)">$${opts.funds}</b><span>banked / ${opts.target}</span></div>
+        <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
+        <div class="stat"><b style="color:var(--warn)">♻ ${opts.scrap}</b><span>scrap</span></div>
+      </div>
+      <p class="muted bayclear__hint">tap to continue</p>
+    </div>
+  </div>`;
+}
+
+/**
+ * REFIT STOP — the FTL layer's shop, opened after every third bay (see
+ * run.ts's isRefitBay). Six systems, three tiers each, priced in scrap. Every
+ * track is always fully visible with its whole tier ladder spelled out, which
+ * is deliberately the OPPOSITE of the mod draft: a draft is a hand you were
+ * dealt, a refit is a plan you commit to, so the player needs to see the
+ * long-term shape of each track to plan toward one.
+ *
+ * Cards stay mounted after a purchase (main.ts re-renders in place) so buying
+ * tier 1 and immediately seeing tier 2's price is one continuous read.
+ */
+export function refitScreen(opts: {
+  bayNum: number;
+  nextBayName: string;
+  scrap: number;
+  tiers: UpgradeTiers;
+}): string {
+  const cards = UPGRADES.map((u) => {
+    const tier = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
+    const cost = nextTierCost(tier);
+    const affordable = cost !== null && opts.scrap >= cost;
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`,
+    ).join("");
+    const btn =
+      cost === null
+        ? `<span class="refit-card__max">MAX</span>`
+        : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>♻ ${cost}</button>`;
+    return `<div class="refit-card${tier > 0 ? " refit-card--owned" : ""}">
+      <div class="refit-card__hdr">
+        <span class="refit-card__glyph">${u.glyph}</span>
+        <span class="refit-card__name">${u.name}</span>
+        <span class="refit-card__pips">${pips}</span>
+      </div>
+      <p class="refit-card__blurb">${u.blurb}</p>
+      <div class="refit-card__tiers">
+        ${u.tiers
+          .map(
+            (t, i) =>
+              `<div class="refit-card__tier${i < tier ? " done" : ""}${i === tier ? " next" : ""}"><b>T${i + 1}</b> ${t}</div>`,
+          )
+          .join("")}
+      </div>
+      <div class="refit-card__foot">${btn}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal modal--refit pop" style="width:min(900px,96vw)">
+      <div class="refit__hdr">
+        <div style="text-align:left">
+          <div class="eyebrow">Refit stop · after bay ${opts.bayNum}</div>
+          <h2 class="display">Yard &amp; Dry Dock</h2>
+          <p class="muted" style="margin:0">The compactor rig is your ship. Spend scrap; it lasts the run. Next up: ${opts.nextBayName}.</p>
+        </div>
+        <div class="chip refit__scrap">
+          <div class="chip__label">Scrap</div>
+          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
+        </div>
+      </div>
+      <div class="refit__grid" id="refit-grid">${cards}</div>
+      <button class="btn btn--primary" data-action="refit-done">Undock →</button>
+    </div>
+  </div>`;
+}
+
+/**
+ * WORKSHOP — the meta layer, reached from the main menu between runs. Spends
+ * SALVAGE (earned by every finished run, won or lost — see meta.ts's
+ * salvageForRun) on permanent unlocks.
+ *
+ * Note what these buy: an unlock adds an OPTION (a new modifier enters the
+ * draft pool, a new consumable exists, the wind gets surveyed) rather than a
+ * flat stat bump. That's the design constraint that keeps a veteran's run
+ * harder-won than a beginner's rather than merely bigger-numbered, while still
+ * making a run that died in bay 3 worth having played.
+ */
+export function workshopScreen(meta: MetaState): string {
+  const cards = UNLOCKS.map((u) => {
+    const owned = meta.unlocks.includes(u.id);
+    const available = unlockAvailable(u, meta.unlocks);
+    const affordable = meta.salvage >= u.cost;
+    const gate = (u.requires ?? [])
+      .filter((r) => !meta.unlocks.includes(r))
+      .map((r) => unlockById(r)?.name ?? r);
+    const foot = owned
+      ? `<span class="shop-card__owned">✓ Owned</span>`
+      : !available
+        ? `<span class="shop-card__locked">Needs ${gate.join(", ")}</span>`
+        : `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`;
+    return `<div class="shop-card${owned ? " shop-card--owned" : ""}${!available && !owned ? " shop-card--gated" : ""}">
+      <div class="shop-card__name">${u.name}</div>
+      <p class="shop-card__desc">${u.desc}</p>
+      <div class="shop-card__foot">${foot}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="screen neon-backdrop">
+    <div class="workshop">
+      <div class="workshop__hdr">
+        <div style="text-align:left">
+          <div class="eyebrow">Between runs</div>
+          <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
+          <p class="muted" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+            <div class="chip__label">Salvage</div>
+            <div class="chip__value" style="color:var(--warn)">♻ ${meta.salvage}</div>
+          </div>
+          <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        </div>
+      </div>
+      <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
+      <div class="workshop__grid">${cards}</div>
+      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">▶ Start Run</button>
+    </div>
   </div>`;
 }
 
@@ -378,6 +615,12 @@ export function draftScreen(opts: {
   carry: number;
   offers: ModDef[];
   owned: ModDef[];
+  /** Unspent scrap — shown here too (not only at refit stops) so the player can
+   *  see capital accumulating between stops and plan the next refit. */
+  scrap: number;
+  /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
+   *  you), or null when no stop remains this run. */
+  baysToRefit: number | null;
 }): string {
   const cards = opts.offers
     .map(
@@ -398,9 +641,21 @@ export function draftScreen(opts: {
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
       <h2 class="display">Choose your contract</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
-      <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px;align-self:center;max-width:260px">
-        <div class="chip__label">Ended with $${opts.funds} — carries over</div>
-        <div class="chip__value">$${opts.carry}</div>
+      <div class="draft__bank">
+        <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip__label">Ended $${opts.funds} — carries</div>
+          <div class="chip__value">$${opts.carry}</div>
+        </div>
+        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip__label">Scrap${
+            opts.baysToRefit === null
+              ? ""
+              : opts.baysToRefit === 1
+                ? " — refit next bay"
+                : ` — refit in ${opts.baysToRefit} bays`
+          }</div>
+          <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
+        </div>
       </div>
       <div class="draft__cards">${cards || `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
       ${ownedRow}
@@ -463,6 +718,15 @@ export function endModal(opts: {
   bayName: string;
   /** True only for the bay-10 win — every other win routes to draftScreen instead. */
   runComplete: boolean;
+  /** Salvage this run just paid out (meta.ts's salvageForRun) and the player's
+   *  new total. Shown on EVERY end, including a loss — the whole point of the
+   *  meta layer is that a failed run still ships something back. */
+  salvageEarned: number;
+  salvageTotal: number;
+  /** Scrap earned across the run and the ship it bought — so the build reads as
+   *  an investment on the way out, not just a row of chips that vanished. */
+  scrapEarned: number;
+  tiers: UpgradeTiers;
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   const eyebrow = opts.runComplete
@@ -490,6 +754,20 @@ export function endModal(opts: {
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
+      </div>
+      <!-- Salvage payout. Deliberately prominent on a LOSS too: the run ending
+           is not the end of the progression, and the player should see the
+           consolation — and the door to spending it — before they see the
+           leaderboard. The breakdown restates meta.ts's formula term by term so
+           the reward never reads as an arbitrary number. -->
+      <div class="salvage-row">
+        <div class="salvage-row__amt">♻ +${opts.salvageEarned}</div>
+        <div class="salvage-row__body">
+          <b>Salvage recovered</b>
+          <span class="muted">${SALVAGE_FLOOR} base · ${opts.baysCleared}×${SALVAGE_PER_BAY} bays · ${Math.floor(opts.lines / 2)}×${SALVAGE_PER_2_LINES} lines${opts.runComplete ? ` · +${SALVAGE_RUN_COMPLETE_BONUS} full run` : ""} → <b>${opts.salvageTotal} banked</b></span>
+          <span class="muted">${opts.scrapEarned} scrap earned · ${scrapInvested(opts.tiers)} refitted into the ship</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>
       <div class="submit-row" id="submit-row">
         <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"

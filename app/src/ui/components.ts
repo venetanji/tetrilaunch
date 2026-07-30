@@ -1,6 +1,7 @@
-import { PIECE_COLORS, type PieceType } from "../game/theme";
+import { PIECE_COLORS, type PieceSize, type PieceType } from "../game/theme";
 import { pieceCells } from "../game/pieces";
 import { modById, type ModDef } from "../game/mods";
+import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 
 /**
  * One clockwise quarter-turn about the 4x4 preview grid's own center (y down):
@@ -36,13 +37,14 @@ function recenterInBox(cells: [number, number][]): [number, number][] {
   return cells.map(([x, y]) => [x + dx, y + dy]);
 }
 
-/** 4x4 mini render of a tetromino (next-piece preview, piece tiles).
- *  `pieceCubes` selects the base cell set via game/pieces's pieceCells — 2
- *  renders the "Half Shipments" domino, 4 the real tetromino shape. The
- *  rotate/recenter pipeline below is shape-agnostic, so either cell count
- *  flows through it unchanged. */
-export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, pieceCubes: 2 | 4 = 4): string {
-  const shape = pieceCells(type, pieceCubes);
+/** 4x4 mini render of a shipment (next-piece preview, piece tiles). `size`
+ *  selects the base cell set via game/pieces's pieceCells — "tiny" renders the
+ *  Micro Shipments domino, "std" the real tetromino, "bulk" the pentomino. The
+ *  rotate/recenter pipeline below is shape-agnostic (every PENTA_SHAPES entry
+ *  is chosen to fit this same 4x4 box — see theme.ts), so any cell count flows
+ *  through it unchanged. */
+export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, size: PieceSize = "std"): string {
+  const shape = pieceCells(type, size);
   const color = PIECE_COLORS[type];
   const turns = ((quarterTurns % 4) + 4) % 4;
   const rotated = shape.map((cell) => {
@@ -70,8 +72,8 @@ export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, piece
  *  screens.ts's hudHTML) — just the colored 4x4 grid, no label/type text,
  *  since the conveyor belt's own "◂ NEXT" tag already carries that meaning
  *  and there's no room for a full chip on the angled belt. */
-export function beltPieceHTML(type: PieceType, quarterTurns = 0, pieceCubes: 2 | 4 = 4): string {
-  return pieceCellsHTML(type, 1, quarterTurns, pieceCubes);
+export function beltPieceHTML(type: PieceType, quarterTurns = 0, size: PieceSize = "std"): string {
+  return pieceCellsHTML(type, 1, quarterTurns, size);
 }
 
 /** Belt equivalent of the bomb telegraph (see game.ts's nextIsBomb) — a
@@ -91,12 +93,14 @@ const MOD_GLYPHS: Record<string, { g: string; nm: string }> = {
   overclock: { g: "OC", nm: "O.CLOCK" },
   "wide-bay": { g: "WB", nm: "WIDE BAY" },
   sturdy: { g: "SD", nm: "STURDY" },
-  half: { g: "HS", nm: "HALF" },
-  bombs: { g: "BM", nm: "BOMBS" },
+  micro: { g: "µS", nm: "MICRO" },
+  bulk: { g: "BK", nm: "BULK" },
+  demo: { g: "DM", nm: "DEMO" },
+  autoloader: { g: "AL", nm: "AUTOLDR" },
   overtime: { g: "OT", nm: "O.TIME" },
   premium: { g: "PR", nm: "PREMIUM" },
   "short-lines": { g: "SL", nm: "SH.LINE" },
-  heavy: { g: "HC", nm: "HEAVY" },
+  heavy: { g: "BL", nm: "BALLAST" },
   rapid: { g: "RL", nm: "RAPID" },
   // Bond Breaker never renders through modChipHTML (see runModsHTML below —
   // it gets its own tappable glowing chip in screens.ts), but keep an entry
@@ -124,7 +128,10 @@ export function runModsHTML(modIds: string[]): string {
   const order: string[] = [];
   const counts = new Map<string, number>();
   for (const id of modIds) {
-    if (id === "bond-breaker") continue;
+    // Bond Breaker and Demolition Charges both get their own tappable,
+    // charge-counting chips in screens.ts's hudHTML — they're ABILITIES, not
+    // passive modifiers, so they don't belong in the passive chip row.
+    if (id === "bond-breaker" || id === "demo") continue;
     if (!counts.has(id)) order.push(id);
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
@@ -155,4 +162,26 @@ export function toggleHTML(id: string, label: string, desc: string, on: boolean)
 
 export function btn(action: string, label: string, variant = "secondary", extra = ""): string {
   return `<button class="btn btn--${variant}" data-action="${action}" ${extra}>${label}</button>`;
+}
+
+/**
+ * Compact ship-refit readout for the HUD: one small plate per UPGRADED system
+ * with its tier as pips. Only bought tracks render — a stock ship shows nothing
+ * rather than six empty plates, so the row grows as the run's build takes shape.
+ * See game/upgrades.ts for the tracks, and screens.ts's hudHTML for placement.
+ */
+export function shipPlatesHTML(tiers: UpgradeTiers): string {
+  const plates = UPGRADES.filter((u) => (tiers[u.id] ?? 0) > 0)
+    .map((u) => {
+      const tier = Math.min(MAX_TIER, tiers[u.id]);
+      const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+        `<i class="${i < tier ? "on" : ""}"></i>`,
+      ).join("");
+      return `<div class="ship-plate" title="${u.name} — tier ${tier}">
+        <span class="ship-plate__g">${u.glyph}</span>
+        <span class="ship-plate__pips">${pips}</span>
+      </div>`;
+    })
+    .join("");
+  return plates;
 }

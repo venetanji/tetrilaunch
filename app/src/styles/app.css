@@ -191,6 +191,14 @@ body.crt-off #app::after { display: none; }
   --field-w: 100vw;
   --field-h: 100vh;
   --fpx: calc(var(--field-w) / 1280);
+  /* Space available OUTSIDE the field on the right / bottom, and the rail's
+     button size — all three solved in JS (game/layout.ts) and published by
+     main.ts's onResize. The rail positions against --gutter-* instead of
+     re-deriving a gutter from --field-x, because in "snug" mode the usable band
+     is RESERVED rather than natural and the two numbers differ. */
+  --gutter-r: 0px;
+  --gutter-b: 0px;
+  --rail-btn: 52px;
 }
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
@@ -241,25 +249,37 @@ body.crt-off #app::after { display: none; }
    gesture needs the whole center. */
 .hud .hud__bottom { pointer-events: none; }
 
-/* ---------- Right-side button rail ----------
-   EVERY HUD button in one same-width column, centered in the letterbox
-   gutter OUTSIDE the field's right wall (the field is letterbox-centered,
-   so the right gutter is exactly --field-x wide — see main.ts's onResize).
-   ALL buttons sit on the same layer, one vertically-centered stack of at
-   most six at thumb height: fullscreen, pause, the accent-colored rotate
-   CCW/CW pair, Bond Breaker (if drafted), and the aim-state cancel ✕
-   (slot always reserved — see .cancel-aim-btn). --rail-btn tracks the
-   gutter width so the column narrows (never below the 44px WCAG tap
-   floor) instead of covering the field on near-16:9 viewports where the
-   gutter closes up. Desktop hides the game buttons and uses Q/E + B
-   instead (see the `@media (pointer: fine)` rule below), matching the
-   kbd-hint strip's bindings. */
+/* ---------- Button rail ----------
+   EVERY HUD button in one same-width group. WHERE that group sits is solved in
+   JS (game/layout.ts) and communicated as `data-layout` on <html> plus the
+   --gutter-r / --gutter-b / --rail-btn custom properties:
+
+     [data-layout="wide"]  a natural side gutter is wide enough -> vertical
+                           column centered in the right gutter. (Ultrawide and
+                           most landscape handsets.)
+     [data-layout="snug"]  no usable natural gutter (near-16:9) -> the solver
+                           RESERVED a right band and shrank the field to make
+                           room, so the same vertical column now has real space
+                           instead of sitting on top of the play field.
+     [data-layout="tall"]  a top/bottom band is the roomy one (4:3, 16:10
+                           tablets) -> horizontal strip centered in the bottom
+                           band, which is also a better thumb reach there than a
+                           far-right column.
+
+   The default rules below are the vertical form (wide + snug are identical once
+   --gutter-r is correct, which is the point of solving it in JS); the tall
+   override follows. Desktop hides the game buttons and uses Q/E + B/X instead
+   (see the `@media (pointer: fine)` rule below), matching the kbd-hint strip. */
 .side-rail {
-  --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), var(--tap-md));
   position: absolute;
   top: max(8px, env(safe-area-inset-top, 0px));
   bottom: max(8px, env(safe-area-inset-bottom, 0px));
-  right: max(calc(8px + env(safe-area-inset-right, 0px)), calc((var(--field-x) - var(--rail-btn)) / 2));
+  /* Centered in whatever right-hand space the solver produced, and never
+     narrower than the WCAG tap floor (--rail-btn is already clamped there). */
+  right: max(
+    calc(4px + env(safe-area-inset-right, 0px)),
+    calc((var(--gutter-r) - var(--rail-btn)) / 2)
+  );
   width: var(--rail-btn);
   z-index: 6;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -273,6 +293,25 @@ body.crt-off #app::after { display: none; }
   pointer-events: auto;
   width: var(--rail-btn); height: var(--rail-btn); font-size: 22px;
 }
+
+/* Tall layouts: a horizontal strip centered in the bottom band. The band is
+   either the natural letterbox gutter or one the solver reserved; either way
+   --gutter-b is its height, so this rule doesn't need to know which. */
+:root[data-layout="tall"] .side-rail {
+  flex-direction: row;
+  top: auto;
+  right: auto;
+  left: 0;
+  width: 100%;
+  height: var(--rail-btn);
+  bottom: max(
+    calc(4px + env(safe-area-inset-bottom, 0px)),
+    calc((var(--gutter-b) - var(--rail-btn)) / 2)
+  );
+}
+/* In the tall layout the kbd-hint would collide with the rail strip; the rail
+   is the control surface there, so the hint moves above the field instead. */
+:root[data-layout="tall"] .kbd-hint { bottom: auto; top: 2px; }
 
 /* Rotate pair in the accent color — the primary in-game touch controls,
    set apart from the neutral fullscreen/pause pair above them. */
@@ -326,6 +365,42 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
+/* Demolition charges (see screens.ts's hudHTML / game.ts's armBomb) — hazard
+   red so it reads as ordnance, not another utility. The .armed state is
+   load-bearing: while armed, the next trigger pull fires a BOMB instead of the
+   loaded piece, so both of this ability's triggers pulse and invert to make that
+   unmistakable. main.ts's syncAbility toggles it. */
+.demo-btn {
+  position: relative;
+  color: var(--danger);
+  border-color: rgba(255, 45, 85, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 45, 85, 0.26), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(255, 45, 85, 0.35), var(--shadow-hard-sm);
+}
+.demo-btn:hover { border-color: var(--danger); color: #ffb8c6; }
+.demo-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
+.demo-btn__count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 9px;
+  background: var(--danger); color: #1a0008;
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
+  text-align: center;
+}
+.demo-trigger.armed {
+  background: var(--danger);
+  color: #1a0008;
+  border-color: #fff;
+  animation: armed-pulse 700ms var(--ease) infinite;
+}
+@keyframes armed-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,85,0.7), var(--shadow-hard-sm); }
+  50% { box-shadow: 0 0 0 7px rgba(255,45,85,0), var(--shadow-hard-sm); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-trigger.armed { animation: none; outline: 2px solid #fff; }
+}
+
 /* Desktop keyboard-hint strip — replaces the touch rail entirely on
    fine-pointer devices (mouse/trackpad). Keys mirror input.ts's bindings
    exactly (Q/E rotate, W/S aim, A/D power, Space fire, B break bonds, drag
@@ -340,11 +415,15 @@ body.crt-off #app::after { display: none; }
 .kbd-hint__sep { opacity: 0.4; }
 
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/cancel; only fullscreen + pause remain,
-     back at their conventional top-right anchor. */
-  .side-rail { justify-content: flex-start; }
+  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain,
+     back at their conventional top-right anchor. Scoped away from the "tall"
+     layout: there the rail is a horizontal ROW, where `flex-start` would jam
+     the two buttons into the bottom-left corner instead of anchoring them at
+     the top of a column. */
+  :root:not([data-layout="tall"]) .side-rail { justify-content: flex-start; }
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
+  .side-rail .demo-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
     display: flex;
@@ -361,8 +440,13 @@ body.crt-off #app::after { display: none; }
    6 × tap-md 60px + gaps ≈ 400px) can overflow a ~400px-tall viewport —
    cap the rail's button size a notch lower (still above the 44px WCAG
    tap-target floor) and tighten the gap so the stack fits. */
+/* Short (landscape-phone) viewports: tighten the gap so a full seven-button
+   column still fits. The SIZE is no longer overridden here — game/layout.ts
+   already checks the column fits and falls back to the horizontal bottom strip
+   when it doesn't, which is a better answer than shrinking buttons toward the
+   tap-target floor. */
 @media (max-height: 480px) {
-  .side-rail { --rail-btn: clamp(var(--tap-min), calc(var(--field-x) - 12px), 48px); gap: 6px; }
+  .side-rail { gap: 5px; }
   .side-rail .icon-btn { font-size: 18px; }
 }
 
@@ -444,9 +528,22 @@ body.crt-off #app::after { display: none; }
      bottom-LEFT corner belongs to the plant; every button lives in the
      right-gutter rail outside the field (see .side-rail). */
   left: calc(var(--field-x) + 0.0167 * var(--field-w));
-  top: calc(var(--field-y) + 0.5407 * var(--field-h));
   width: calc(0.4708 * var(--field-w));
-  height: calc(0.4296 * var(--field-h));
+  /* BOTTOM-anchored with an auto height, not top-anchored with a fixed one.
+     The mockup's footprint is preserved by min-height (the panel is normally
+     exactly that tall), but if the content ever needs more room the panel grows
+     UPWARD into empty sky instead of clipping its own last row.
+
+     This is a structural fix for a real bug: at phone CSS viewports the funds
+     readout had essentially zero horizontal slack, so a 4-digit bankroll
+     ($1259 / 1700) wrapped onto a second line, pushed everything down, and cut
+     the build chips in half. The wrap is prevented below as well — but a fixed
+     height meant ANY future overflow (a longer label, wider font metrics, a
+     translation) would silently clip content, and that's the class of bug worth
+     designing out rather than re-tuning. */
+  bottom: calc(100% - var(--field-y) - 0.9703 * var(--field-h));
+  height: auto;
+  min-height: calc(0.4296 * var(--field-h));
   z-index: 6;
   border-radius: var(--r-md);
   border: var(--bw) solid var(--line-strong);
@@ -501,30 +598,70 @@ body.crt-off #app::after { display: none; }
 .plant__rivets { display: flex; gap: 5px; flex: none; }
 .plant__rivets i { width: max(4px, calc(6.7 * var(--fpx))); height: max(4px, calc(6.7 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 
-.pl-read { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
-.pl-funds .lbl, .pl-time .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+/* ---------- Plant readout: information hierarchy ----------
+   Three columns, weighted by how much each number changes the next decision:
+   the funds/target block takes all the leftover width (tier 1), launches-left
+   and time are equal fixed columns beside it (tier 2), and the reload bar +
+   meta line sit under them (tiers 4 and 5). See screens.ts's hudHTML for the
+   full rationale. */
+/* flex-wrap is the last-resort fallback: if a viewport is so narrow that the
+   three columns genuinely cannot share a row, the stat columns drop to a second
+   row — which the auto-height panel above can now absorb — rather than
+   squeezing the funds figure until it wraps. */
+.pl-read { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: max(4px, calc(12 * var(--fpx))); }
+.pl-funds { flex: 1 1 auto; min-width: 0; }
+.pl-funds .lbl { font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+/* The tier-2 columns are sized by their LABEL at phone scale, not their value
+   ("LAUNCHES" is 8 pixel-font glyphs; "22" is two mono digits) — and the pixel
+   font stops shrinking at its floor while the panel keeps shrinking, so these
+   labels were quietly eating the funds figure's width. Smaller and untracked:
+   they're column headings, not readouts. */
+.pl-stat .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(8.6 * var(--fpx))); letter-spacing: 0; text-transform: uppercase; color: var(--text-muted); }
 .pl-funds .v {
-  font-family: var(--font-mono); font-weight: 800; font-size: max(20px, calc(44 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 800; font-size: max(17px, calc(38 * var(--fpx)));
   color: var(--accent); text-shadow: var(--glow-accent); line-height: 0.95; margin-top: max(3px, calc(8 * var(--fpx)));
+  /* Never wrap: "$1259" and "/ 1700" are one reading, and a break between them
+     both misreads (1700 looks like a separate figure) and grows the panel. */
+  white-space: nowrap;
 }
 /* The target is the bay's whole objective — it reads at 0.75em of the funds
-   figure in goal-yellow (was a dim 0.55em afterthought), and the progress
-   bar spans the full readout width at nearly double thickness so distance-
-   to-goal is legible at a glance mid-aim. */
-.pl-funds .v .tgt { color: var(--piece-o); font-size: 0.75em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
+   figure in goal-yellow, and the progress bar spans the full readout width at
+   nearly double thickness so distance-to-goal is legible at a glance mid-aim. */
+.pl-funds .v .tgt { color: var(--piece-o); font-size: 0.62em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 .pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
+
+/* Tier-2 stat columns (launches, time) — same size and weight as each other so
+   neither reads as more important than the other; both escalate the same way. */
+/* The two tier-2 columns need to read as SEPARATE numbers — at a glance
+   "0" and "2:23" side by side can otherwise scan as one figure. A hairline rule
+   and real padding between them does that without adding another label. */
+.pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
+.pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
+.pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
+/* Urgency, shared by the launches counter (<= LOW_LAUNCH_WARN launches, see
+   main.ts's syncHud) and the clock (last 20s). One class, one look: both mean
+   "you are about to run out of the thing that lets you keep playing". */
+.pl-stat--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
+.pl-stat--danger .lbl { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .pl-stat--danger .v { animation: none; }
+}
+
+/* Reload — tier 4. Amber while the loader runs, flipping to the aim cyan the
+   instant the cannon can fire again (the only state change that matters here).
+   The canvas draws the same value as a ring at the muzzle, see
+   render.ts's drawReloadRing. */
+.pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); margin-top: max(4px, calc(8 * var(--fpx))); }
+.pl-load .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); flex: none; }
+.pl-load__track { flex: 1; height: max(4px, calc(7 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.pl-load__track i { display: block; height: 100%; width: 0%; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); transition: width 60ms linear; }
+.pl-load.ready .lbl { color: var(--accent); }
+.pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
+
 .pl-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .pl-meta b { color: var(--piece-o); font-weight: 700; }
 .pl-meta__sep { color: var(--text-faint); }
-.pl-time { text-align: right; flex: none; }
-.pl-time .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(32 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; }
-/* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud) — shares
-   the pulse-danger keyframe with the old .chip--danger usage. */
-.pl-time.chip--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .pl-time.chip--danger .v { animation: none; }
-}
 
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
@@ -581,10 +718,48 @@ body.crt-off #app::after { display: none; }
 }
 .mod--bb:hover:not(:disabled) { border-color: #9b82ff; }
 .mod--bb:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-/* No keyboard on touch — the chip's "B" key tag only makes sense with one. */
-@media (pointer: coarse) {
-  .mod--bb .key { display: none; }
+/* Demolition's plant-panel chip — the .mod--bb treatment in hazard red. */
+.mod--demo {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; margin: 0; padding: 0;
+  cursor: pointer;
+  width: max(44px, calc(74.7 * var(--fpx)));
+  background: linear-gradient(180deg, rgba(255,45,85,.32), rgba(255,45,85,.10));
+  border-color: var(--danger);
+  border-top-color: var(--danger);
 }
+.mod--demo .g { font-size: max(13px, calc(23 * var(--fpx))); }
+.mod--demo .stk { background: var(--danger); color: #1a0008; }
+.mod--demo .key {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: max(6px, calc(9.3 * var(--fpx))); background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-dim);
+}
+.mod--demo:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* No keyboard on touch — the chips' "B"/"X" key tags only make sense with one. */
+@media (pointer: coarse) {
+  .mod--bb .key, .mod--demo .key { display: none; }
+}
+
+/* Ship plates — one per UPGRADED system, tier shown as pips (see components.ts's
+   shipPlatesHTML). Visually distinct from the mod chips beside them (narrower,
+   cyan-topped, no name label) because they answer a different question: mods are
+   "what was I dealt", plates are "what did I build". */
+.ship-plate {
+  flex: none; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  width: max(30px, calc(46 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  border-radius: var(--r-sm);
+  background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  box-shadow: var(--shadow-hard-sm);
+}
+.ship-plate__g { font-family: var(--font-pixel); font-size: max(6px, calc(9 * var(--fpx))); color: var(--accent); letter-spacing: 0.02em; }
+.ship-plate__pips { display: flex; gap: 2px; }
+.ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
 /* ============================================================================
    CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
@@ -884,4 +1059,209 @@ body.crt-off #app::after { display: none; }
   .menu { grid-template-columns: 1fr; text-align: center; gap: var(--sp-4); }
   .menu__actions { margin: 0 auto; }
   .howto__grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   SETTLE NOTE — shown while the bay's funding target is met and the field is
+   still coming to rest (game.ts's Game.settling / main.ts's showSettleNote).
+   The cannon dims and stops accepting launches during that window, which
+   without a caption reads as a freeze/bug rather than "your last shots are
+   still counting". Anchored above the field's bottom edge, centered.
+   ========================================================================== */
+.settle-note {
+  position: absolute;
+  left: calc(var(--field-x) + var(--field-w) / 2);
+  top: calc(var(--field-y) + 0.14 * var(--field-h));
+  transform: translate(-50%, 0) scale(0.94);
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r-md);
+  background: rgba(4, 20, 14, 0.88);
+  border: var(--bw) solid var(--success);
+  box-shadow: var(--shadow-hard-sm), 0 0 18px rgba(0, 255, 156, 0.35);
+  font-family: var(--font-pixel); font-size: 10px; letter-spacing: 0.06em;
+  color: var(--success); white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  z-index: 7;
+}
+.settle-note.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.settle-note__dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); box-shadow: 0 0 8px var(--success);
+  animation: pulse-danger 900ms var(--ease) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settle-note__dot { animation: none; }
+}
+
+/* ============================================================================
+   BAY CLEARED celebration (see screens.ts's bayClearScreen). A short beat
+   between the settled field and the draft/refit modal, over the canvas sweep FX
+   (render.ts's drawBayClearFx). The whole layer is tappable to skip.
+   ========================================================================== */
+.bayclear {
+  position: absolute; inset: 0; z-index: var(--z-overlay);
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(60% 60% at 50% 45%, rgba(0, 255, 156, 0.16), rgba(4, 4, 10, 0.72) 70%);
+  cursor: pointer;
+  animation: fade var(--dur) var(--ease);
+  overflow: hidden;
+}
+/* Slow rotating light rays behind the card — cheap conic gradient, no assets. */
+.bayclear__rays {
+  position: absolute; left: 50%; top: 50%;
+  width: 200vmax; height: 200vmax; margin: -100vmax 0 0 -100vmax;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(0, 255, 156, 0.09) 0deg 6deg,
+    transparent 6deg 18deg
+  );
+  animation: bayclear-spin 14s linear infinite;
+  pointer-events: none;
+}
+@keyframes bayclear-spin { to { transform: rotate(1turn); } }
+
+.bayclear__card {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
+  padding: clamp(16px, 3.5vh, 32px) clamp(24px, 5vw, 56px);
+  /* Near-opaque: the canvas bayclear ring is drawn with `lighter` compositing
+     and blooms straight through anything translucent, which washed out the
+     stats. The card is the readable surface; the FX belongs around it. */
+  background: linear-gradient(180deg, rgba(8, 26, 19, 0.985), rgba(5, 10, 14, 0.99));
+  border: var(--bw-thick) solid var(--success);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg), 0 0 40px rgba(0, 255, 156, 0.3);
+  animation: bayclear-pop 520ms var(--ease) both;
+  text-align: center;
+}
+@keyframes bayclear-pop {
+  0% { opacity: 0; transform: scale(0.86) translateY(18px); }
+  60% { opacity: 1; transform: scale(1.03) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.bayclear__title {
+  font-size: clamp(26px, 6.5vh, 54px);
+  color: var(--success);
+  text-shadow: 0 0 16px rgba(0, 255, 156, 0.7), 0 0 44px rgba(0, 255, 156, 0.35);
+  letter-spacing: 0.06em;
+}
+.bayclear__stats { display: flex; gap: clamp(16px, 4vw, 40px); }
+.bayclear__hint { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); opacity: 0.85; }
+@media (prefers-reduced-motion: reduce) {
+  .bayclear__rays { animation: none; opacity: 0.4; }
+  .bayclear__card { animation: none; }
+}
+
+/* ============================================================================
+   REFIT STOP (see screens.ts's refitScreen) — the FTL shop. Six always-visible
+   system cards with their full tier ladder, so the player can plan a build
+   rather than react to an offer.
+   ========================================================================== */
+.modal--refit { text-align: left; }
+/* The title block takes the leftover width and the scrap chip stays pinned
+   right. Without `min-width: 0` the block's prose sets an intrinsic minimum
+   wide enough to push the chip onto its own line at some copy lengths — which
+   read as a layout bug that came and went depending on the next bay's name. */
+.refit__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.refit__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
+.refit__scrap { flex-direction: row !important; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* The grid is the modal's flexible scrollable region (same idiom as #lb-body):
+   it shrinks and scrolls before the header or the Undock button ever clip, so
+   both stay reachable on a short landscape-phone viewport. */
+.refit__grid {
+  flex: 1 1 auto; min-height: 120px; overflow-y: auto; padding: 2px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;
+}
+.refit-card {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+}
+.refit-card--owned { border-color: rgba(0,240,255,0.45); }
+.refit-card__hdr { display: flex; align-items: center; gap: 8px; }
+.refit-card__glyph {
+  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em;
+  color: var(--accent-ink); background: var(--accent);
+  padding: 4px 6px; border-radius: var(--r-sm); flex: none;
+}
+.refit-card__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; flex: 1; min-width: 0; }
+.refit-card__pips { display: flex; gap: 3px; flex: none; }
+.refit-card__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.refit-card__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
+.refit-card__blurb { color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.4; }
+.refit-card__tiers { display: flex; flex-direction: column; gap: 3px; }
+.refit-card__tier {
+  font-size: 11px; color: var(--text-muted);
+  padding: 3px 6px; border-radius: var(--r-sm);
+  border-left: 2px solid var(--line);
+}
+.refit-card__tier b { font-family: var(--font-mono); color: var(--text-faint); margin-right: 4px; }
+/* Bought tiers read as done; the NEXT tier is highlighted, because that's the
+   one the price on the button actually buys. */
+.refit-card__tier.done { color: var(--text-faint); border-left-color: var(--accent); text-decoration: line-through; }
+.refit-card__tier.next { color: var(--text); border-left-color: var(--warn); background: rgba(255,176,32,0.08); }
+.refit-card__foot { margin-top: auto; padding-top: 4px; }
+.refit-card__buy { width: 100%; padding: 8px 12px; font-size: 10px; }
+.refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+.refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
+
+/* ============================================================================
+   WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
+   ========================================================================== */
+.workshop { max-width: 980px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3); }
+.workshop__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.workshop__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
+.workshop__meta { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em; }
+.workshop__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.shop-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+}
+.shop-card--owned { border-color: rgba(0,255,156,0.5); }
+/* Gated unlocks stay VISIBLE (dimmed) rather than hidden — a locked capstone you
+   can see is a goal; one you can't is a surprise. */
+.shop-card--gated { opacity: 0.6; }
+.shop-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); }
+.shop-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; flex: 1; }
+.shop-card__foot { margin-top: auto; }
+.shop-card__foot .btn { width: 100%; }
+.shop-card__foot .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+.shop-card__owned { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.06em; }
+.shop-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--warn); letter-spacing: 0.04em; }
+
+/* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
+.draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
+.salvage-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: rgba(255, 176, 32, 0.08);
+  border: var(--bw) solid rgba(255, 176, 32, 0.45);
+  text-align: left;
+}
+.salvage-row__amt { font-family: var(--font-mono); font-weight: 800; font-size: 24px; color: var(--warn); flex: none; }
+.salvage-row__body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.salvage-row__body b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
+.salvage-row__body span { font-size: 11px; line-height: 1.35; }
+.salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
+
+/* Short (landscape-phone) viewports: the refit grid and the salvage row are the
+   two blocks most likely to overflow, so tighten both. */
+@media (max-height: 520px) {
+  .modal--refit { gap: var(--sp-2); }
+  .refit-card { padding: 8px 10px; gap: 4px; }
+  .refit-card__blurb { display: none; }
+  .refit-card__tier { font-size: 10px; padding: 2px 5px; }
+  .salvage-row { padding: 6px 10px; gap: var(--sp-2); }
+  .salvage-row__amt { font-size: 18px; }
+  .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
