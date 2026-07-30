@@ -161,9 +161,42 @@ testable rather than felt:
 
 Both failure modes are then measurable: if a full-budget rig can't clear it
 however well played, the Mark is impossible; if it clears while played badly, the
-Mark is free. `sim/sweep.ts` already sweeps bays × bots × mods, so it can measure
-this directly — which means the harness does triple duty: balance sweeps,
-Contract fairness gate, and Mark calibration.
+Mark is free. `sim/marks.ts` measures exactly this.
+
+### What the first calibration actually found
+
+It was run, and the answer was that **the ladder's own numbers are not a
+difficulty lever at all**. Three findings, all from `sim/marks.ts` with the `aim`
+bot and a 550-point rig:
+
+- **Target is a duration knob.** Raising bay 1's Mark 10 target from 2096 to
+  3536 produced *zero* extra losses — the bot played longer and scored 5852
+  instead of 2487. Once income per line beats spend per line, a competent player
+  reaches any target given time. Sweeps over 0.06–0.38 returned identical win
+  rates three times running.
+- **The clock doesn't bind.** Cutting bay 10's limit to 35% of stock still gave
+  3/3 wins; runs finish in 41–67s against limits of 150–240s.
+- **Compactor speed was actively harmful.** A faster sweep pushes pieces out
+  before they settle, so lost-piece penalties drain the bankroll: 3/3 wins became
+  1/3 (both "broke") with speed scaling on and a *lower* target. An erratic
+  bankruptcy tax, not a ramp. Now zero.
+
+Underneath all three: **a fully-kitted rig trivializes the existing ladder.** No
+multiplier on what a bay demands produces a graded response, because the rig has
+already outgrown the demand.
+
+So the section above is right about the *criterion* and wrong about the *lever*.
+Mark difficulty has to come from **content** — materials and hazards that change
+what the rig must DO — not from scaling what a bay asks for. `MARK_TARGET_STEP`
+stays at a modest 0.18 so a Mark isn't visibly identical to the one below, and is
+explicitly not to be tuned as if it controlled difficulty.
+
+That reorders the build plan: materials stop being step 4 and become the thing
+the Mark ladder is actually made of. It also means the ladder can't be finally
+tuned until they exist, and that the bot has a ceiling as an instrument — it
+cannot use Bond Breaker, Demolition, or tempo, so a track like MAGAZINE is
+invisible to it (a full 660 rig loses to a stock one purely because the bot
+fires on cooldown and goes broke). Human playtesting is not optional here.
 
 ## Rigs as FTL ships
 
@@ -355,15 +388,17 @@ Contract throughput.
 
 ## Build order
 
-1. **Mark ladder + build budget.** The spine — Contracts and monetization both
-   hang off it, it's mostly `run.ts`/`meta.ts`/`upgrades.ts`, and it's testable
-   headlessly. Ships with the sim calibration check above.
-2. **Stroke budgets.** Load-bearing for Contracts, and the first real mechanic
+1. ~~**Mark ladder + build budget.**~~ Done — the model layer, with the
+   calibration above. No UI yet.
+2. **Materials**, starting with slag and cryo. Promoted from fourth: the
+   calibration showed they are not flavour on top of a numeric ramp, they ARE
+   the ramp. The Mark ladder can't be finally tuned until they exist.
+3. **Stroke budgets.** Load-bearing for Contracts, and the first real mechanic
    the compactor itself gets.
-3. **Contract generator + sim validation**, together.
-4. **Materials**, starting with slag and cryo.
-5. **Rigs** beyond the Standard Hauler.
-6. **Daily seed + per-Contract boards** on the existing Worker.
+4. **Contract generator + sim validation**, together.
+5. **Loadout UI**, once the numbers it displays have stopped moving.
+6. **Rigs** beyond the Standard Hauler.
+7. **Daily seed + per-Contract boards** on the existing Worker.
 
 ## Scope for Shipaton
 

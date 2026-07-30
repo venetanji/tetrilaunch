@@ -262,14 +262,37 @@ export const SCRAP_PER_BAY = 10;
  * cliff), and windMax (weather is the bay's character, and the launcher track
  * is the sanctioned answer to it — see the BALANCE KNOBS note).
  *
- * FIRST PASS, uncalibrated. budgetForMark is linear from 1/10th of a full rig
- * at Mark 1 to the whole thing at Mark 10, so the demand curve has to be
- * roughly linear too or the ladder pulls apart at one end. The criterion to
- * tune against (docs/DESIGN.md): a full-Mark-N-budget rig played at the sim
- * bot's competence should fall JUST SHORT of the Mark N target.
+ * CALIBRATED — and the result was that these knobs do not calibrate anything.
+ * Measured with sim/marks.ts (aim bot, 550-point rig, 3 seeds):
+ *
+ *  - TARGET is a DURATION knob, not a difficulty one. Raising bay 1's Mark 10
+ *    target from 2096 to 3536 produced zero extra losses: the bot simply played
+ *    longer and scored 5852 instead of 2487. Once income per line exceeds spend
+ *    per line, a competent player reaches ANY target given time. Three separate
+ *    sweeps over 0.06-0.38 returned byte-identical win rates.
+ *  - The CLOCK doesn't bind either. Cutting bay 10's limit to 35% of stock (84s)
+ *    still gave 3/3 wins — runs finish in 41-67s against limits of 150-240s.
+ *  - SPEED was actively harmful and is now 0. A faster sweep pushes pieces out
+ *    before they settle, so the lost-piece penalty drains the bankroll: at bay 5
+ *    the same rig went from 3/3 wins to 1/3 (both losses "broke") with speed
+ *    scaling on and a LOWER target. That is an erratic bankruptcy tax, not a
+ *    difficulty ramp, and it swamped the other knobs — it is why two of those
+ *    sweeps looked flat before the target was even suspect.
+ *
+ * The finding underneath all three: a fully-kitted rig trivializes the existing
+ * ladder, so no multiplier on the ladder's own numbers produces a graded
+ * response. Mark difficulty has to come from CONTENT — materials and hazards
+ * that change what the rig must DO — not from scaling what a bay demands. See
+ * docs/DESIGN.md; this is now measured rather than asserted.
+ *
+ * TARGET_STEP is kept at a modest 0.18 because lengthening a bay is still mild
+ * pressure and it keeps a Mark from being visibly identical to the one below.
+ * It is NOT the difficulty lever and must not be tuned as if it were.
  */
 export const MARK_TARGET_STEP = 0.18;
-export const MARK_SPEED_STEP = 0.04;
+/** 0 by design — see above. Kept as a named seam rather than deleted so the
+ *  measurement that zeroed it stays attached to the knob it describes. */
+export const MARK_SPEED_STEP = 0;
 
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4

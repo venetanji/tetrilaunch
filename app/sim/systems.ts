@@ -195,9 +195,17 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   let barRises = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
     if (makeBaseLevel(0, m).targetScore <= makeBaseLevel(0, m - 1).targetScore) barRises = false;
-    if (makeBaseLevel(0, m).compactorSpeed <= makeBaseLevel(0, m - 1).compactorSpeed) barRises = false;
   }
-  check("every Mark raises the bay's demand", barRises);
+  check("every Mark raises the bay's target", barRises);
+  // Compactor speed is deliberately Mark-invariant (MARK_SPEED_STEP is 0).
+  // sim/marks.ts measured it as an erratic bankruptcy tax rather than a
+  // difficulty ramp: a faster sweep pushes pieces out before they settle, and
+  // the lost-piece penalty drains the bankroll. Asserted so re-enabling it is a
+  // deliberate act with a failing test to read, not a quiet regression.
+  check(
+    "compactor speed does not scale with Mark",
+    makeBaseLevel(0, MARK_COUNT).compactorSpeed === makeBaseLevel(0, 1).compactorSpeed,
+  );
   // Deliberately NOT scaled — these would compound with the target into a cliff.
   check(
     "launch cost and loss penalty are Mark-invariant",
