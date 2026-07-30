@@ -18,7 +18,9 @@ export function splashScreen(): string {
   </div>`;
 }
 
-export function menuScreen(best: number): string {
+/** `store` is absent on web and on native builds without a RevenueCat key —
+ *  the store entry point hides itself rather than offering a dead button. */
+export function menuScreen(best: number, store?: StoreState): string {
   return `<div class="screen neon-backdrop">
     <div class="menu">
       <div class="menu__brand">
@@ -27,18 +29,40 @@ export function menuScreen(best: number): string {
         <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
         full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
         run that drafts stranger modifiers onto your bankroll every stop.</p>
-        <div class="chip" style="flex-direction:row;align-items:center;gap:10px;max-width:220px">
-          <div class="chip__label">Best</div>
-          <div class="chip__value chip--accent" style="color:var(--accent)">${best}</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div class="chip" style="flex-direction:row;align-items:center;gap:10px;max-width:220px">
+            <div class="chip__label">Best</div>
+            <div class="chip__value chip--accent" style="color:var(--accent)">${best}</div>
+          </div>
+          ${store?.pro ? proBadgeHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
         <button class="btn btn--primary btn--lg btn--block" data-action="play">▶ Play</button>
         <button class="btn btn--secondary btn--block" data-action="howto">How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">Leaderboard</button>
+        ${
+          store?.available && !store.pro
+            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Pro</button>`
+            : ""
+        }
         <button class="btn btn--ghost btn--block" data-action="settings">Settings</button>
       </div>
     </div>
+  </div>`;
+}
+
+/** Store/entitlement state passed down from the RevenueCat layer. */
+export interface StoreState {
+  /** SDK configured — i.e. native build with a key. */
+  available: boolean;
+  /** The `pro` entitlement is active. */
+  pro: boolean;
+}
+
+function proBadgeHTML(): string {
+  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:140px">
+    <div class="chip__value" style="color:var(--warn, #ffe500)">★ PRO</div>
   </div>`;
 }
 
@@ -79,7 +103,7 @@ export function howtoScreen(): string {
   </div>`;
 }
 
-export function settingsScreen(s: Settings): string {
+export function settingsScreen(s: Settings, store?: StoreState): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal pop">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -89,8 +113,23 @@ export function settingsScreen(s: Settings): string {
       ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
       ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
       ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
+      ${store?.available ? purchaseRowsHTML(store) : ""}
       <button class="btn btn--secondary" data-action="menu">Done</button>
     </div>
+  </div>`;
+}
+
+/** Restore is always reachable (Apple requires it without a purchase first);
+ *  Manage opens RevenueCat's Customer Center, which only makes sense once
+ *  there's something to manage. */
+function purchaseRowsHTML(store: StoreState): string {
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap">
+    ${
+      store.pro
+        ? `<button class="btn btn--secondary" style="flex:1" data-action="customer-center">Manage Subscription</button>`
+        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Pro</button>`
+    }
+    <button class="btn btn--ghost" style="flex:1" data-action="restore" id="restore-btn">Restore Purchases</button>
   </div>`;
 }
 

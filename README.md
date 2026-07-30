@@ -48,10 +48,13 @@ app/                      Capacitor + Vite + TypeScript web app
   src/game/               matter.js physics port of main.py
     engine, pieces, cannon, compactor, lineClear, render, input, level, state, game
   src/ui/                 screens + components (menu, HUD, pause, end, settings, leaderboard)
-  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics)
+  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics),
+                          purchases (RevenueCat: entitlement, paywall, restore)
   src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
   worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
   capacitor.config.ts     native shell config
+  ios/                    committed Xcode project (see docs/ios.md)
+  resources/              icon/splash SVG sources → native asset catalogs
 design/                   design-system source (synced to claude.ai/design via /design-sync)
   foundations/ components/ screens/    HTML preview cards
 wrangler.jsonc            Worker config: static assets + D1 binding
@@ -60,8 +63,9 @@ main.py                   original pygame prototype (reference)
 ```
 
 **Tech:** matter.js (physics), HTML5 Canvas (gameplay render), HTML/CSS overlays (UI),
-vite-plugin-pwa (installable fullscreen web), Capacitor (`@capacitor/screen-orientation`,
-`@capacitor/haptics`), Cloudflare Workers + D1 (leaderboard).
+vite-plugin-pwa (installable fullscreen web), Capacitor 8 (`@capacitor/screen-orientation`,
+`@capacitor/haptics`), RevenueCat (`@revenuecat/purchases-capacitor` + paywalls, native
+only), Cloudflare Workers + D1 (leaderboard).
 
 ## 🚀 Develop
 
@@ -108,17 +112,35 @@ so it should not rebuild on every game commit:
   when `app/worker/`, `wrangler.jsonc`, or `migrations/` change (schema changes:
   `npm run db:migrate` first).
 
-### Native (Android / iOS)
+### Native (iOS / Android)
+
+The **iOS Xcode project is committed** at `app/ios/` (Capacitor 8 + SPM, bundle ID
+`com.tetrilaunch.app`, universal, landscape-only, icons generated from `app/resources/`).
+On a Mac with Xcode 16+ — no CocoaPods needed:
+
+```bash
+cd app
+npm install
+cp .env.example .env     # RevenueCat public SDK keys
+npm run ios:sync         # vite build → verify store bundle → copy into ios/
+npm run ios:open         # opens App.xcodeproj
+```
+
+Signing, RevenueCat/App Store Connect setup, TestFlight and the App Privacy answers are
+written up in **[docs/ios.md](docs/ios.md)**.
+
+Android isn't generated in the repo:
 
 ```bash
 cd app
 npm run build
-npx cap add android      # or: npx cap add ios
-npx cap sync
-npx cap open android     # build/run in Android Studio / Xcode
+npx cap add android
+npx cap sync android
+npx cap open android
 ```
 
-Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`.
+Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`
+(and declared landscape-only in the iOS `Info.plist`).
 
 ## 🎨 Design system
 
