@@ -210,9 +210,19 @@ class App {
       contract: this.contract
         ? {
             name: this.contract.name,
+            kind: this.contract.kind,
             goal: this.contract.goal,
             lines: g.linesTotal,
-            launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
+            // Whichever supply this Contract runs on — its shipment queue or
+            // its launch budget. Exactly one of the two is finite (see
+            // contracts.ts's levelForContract).
+            launchesLeft:
+              this.contract.kind === "pattern"
+                ? g.piecesLeft
+                : g.launchesLeft === Infinity
+                  ? 0
+                  : g.launchesLeft,
+            remaining: g.piecesRemaining,
           }
         : null,
     };
@@ -251,10 +261,19 @@ class App {
             S.contractEndModal({
               won: g.status === "won",
               name: this.contract.name,
+              kind: this.contract.kind,
               lines: g.linesTotal,
               goal: this.contract.goal,
-              launchesUsed: Math.min(this.contract.launches, g.shotsFired),
+              launchesUsed:
+                this.contract.kind === "pattern"
+                  ? g.shotsFired
+                  : Math.min(this.contract.launches, g.shotsFired),
               launches: this.contract.launches,
+              queue: this.contract.queue,
+              // Cubes short of what the remaining lines still need — the exact
+              // margin the attempt missed by, which is the one number worth
+              // reading off a failed pattern bay.
+              cubesWasted: Math.max(0, g.cubesRequired - g.cubesAvailable),
               award: this.contractAward,
               salvageTotal: this.meta.salvage,
             });
@@ -869,11 +888,20 @@ class App {
     // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so
     // the funds readout would sit at $0 with 0 launches for the whole bay.
     if (this.contract) {
+      const pattern = this.contract.kind === "pattern";
+      const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
-      set("#hud-launches", String(g.launchesLeft === Infinity ? 0 : g.launchesLeft));
+      set("#hud-launches", String(supply === Infinity ? 0 : supply));
       this.overlay
         .querySelector("#hud-launches-chip")
-        ?.classList.toggle("pl-stat--danger", g.launchesLeft <= 2);
+        ?.classList.toggle("pl-stat--danger", supply <= 2);
+      // The remaining manifest, re-rendered only when it actually changes —
+      // it's HTML (colored per piece type), so this can't go through `set`.
+      if (pattern) {
+        const tally = this.overlay.querySelector<HTMLElement>("#hud-queue");
+        const html = S.queueTallyHTML(g.piecesRemaining);
+        if (tally && tally.innerHTML !== html) tally.innerHTML = html;
+      }
     } else {
       set("#hud-score", "$" + g.score);
     }
@@ -924,13 +952,15 @@ class App {
     // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
     // grid, no label/type text (see components.ts's beltPieceHTML).
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${g.level.pieceSize}`;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
-          : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
+          : bp.empty
+            ? ""
+            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
       }
       this.lastNext = nextKey;
     }

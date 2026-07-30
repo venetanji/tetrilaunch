@@ -327,6 +327,51 @@ generated was unwinnable while its test passed.
 The compactor keeps its `strokes` counter — it is still the right unit for
 telemetry, and it is what a future "survive N presses" objective would use.
 
+### Pattern Contracts: the other objective kind
+
+A launch budget still asks the same *question* Deep Run asks — clear lines, here
+is your allowance. A **pattern Contract** asks a different one: here is the exact
+set of shipments that tiles the goal, land them. The queue stops being a random
+stream and becomes a designed object, which turns the bay into a planning
+problem rather than a physics grind — and it is an identity Deep Run can't copy,
+since its queue has to stay random for its own reasons.
+
+Built, and it occupies **slot 3 of the daily board** — converting a slot rather
+than adding one, because the daily count is what Unlimited sells and quietly
+raising it would be a monetization change wearing a content change's clothes.
+
+Three things this surfaced that are worth keeping written down.
+
+**The exactness needs no tiling proof, and that is specific to this game.** A
+tetromino puzzle would normally have to generate from a known-tiling template or
+risk emitting sets that are arithmetically exact and geometrically impossible.
+Here pieces don't keep their shape: the compactor shatters whatever it presses
+and rows fill slot-by-slot from *loose* cubes. So any multiset summing to
+`goal * CUBES_PER_LINE` is achievable, and what piece type actually changes is
+how hard the **delivery** is — I and O settle flat, S/Z/T tip and strand. That is
+what the tier ladder scales.
+
+**Exactness constrains piece size, arithmetically.** A queue is exact only if
+`goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only
+does at goals that are multiples of 5, putting the smallest legal bulk pattern at
+40 cubes. So pattern Contracts are std-only — not a preference, a consequence.
+
+**Zero waste needs a fail-fast signal or it is dead-man-walking.** With an exact
+manifest, one cube lost off the deck makes the attempt unwinnable *immediately*,
+but nothing would say so and the player keeps firing a bay that cannot be won.
+`Game.objectiveUnreachable` calls it the moment the arithmetic settles it —
+available cubes below required — and the end screen names the margin ("4 cubes
+never made it into a line"). Since a retry is free and takes seconds, ending a
+dead bay early is strictly kinder than letting it run out.
+
+The honest risk: measured efficiency — the share of launched cubes reaching a
+completed line — is **0.62 in the browser and 0.69 on device**, so zero waste
+asks for roughly **1.5x better than anyone has yet played**. That was accepted
+with the number on the table, because retries cost nothing. If it proves tedious
+rather than satisfying the fix is `SPARE_SHIPMENTS`, a single constant — not a
+loosening of the physics tolerances, which would quietly change every other mode
+too.
+
 ## Materials — the content engine
 
 Match-3 games get thousands of levels out of one verb by never adding mechanics

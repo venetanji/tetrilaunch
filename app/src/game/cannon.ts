@@ -43,9 +43,18 @@ export class Cannon {
 
   private seq: PieceType[];
   private cooldownMs: number;
+  /** True when `seq` is a FINITE inventory (level.pieceQueue — a pattern
+   *  Contract's exact shipment list) rather than a bag that cycles forever.
+   *  Everything downstream keys off this: the cannon runs dry, and Game.shoot
+   *  stops firing (see Game.piecesLeft). */
+  readonly finite: boolean;
+  /** Shipments taken off a finite queue so far. Unused when !finite. */
+  private consumed = 0;
 
   constructor(level: LevelConfig) {
-    this.seq = level.pieceSequence ?? PIECE_TYPES;
+    const queue = level.pieceQueue;
+    this.finite = !!queue && queue.length > 0;
+    this.seq = this.finite ? queue! : (level.pieceSequence ?? PIECE_TYPES);
     this.cooldownMs = level.cooldownMs;
     const mult = level.launchPower > 0 ? level.launchPower : 1;
     this.speedMin = SPEED_MIN * mult;
@@ -105,6 +114,25 @@ export class Cannon {
     return ((Math.round(this.pieceRotation / (Math.PI / 2)) % 4) + 4) % 4;
   }
 
+  /** Shipments still in a finite queue, or Infinity when the bag cycles. */
+  get piecesLeft(): number {
+    return this.finite ? Math.max(0, this.seq.length - this.consumed) : Infinity;
+  }
+
+  /** What is still coming, in order — the remaining multiset a pattern
+   *  Contract's HUD shows in full. Empty when the bag cycles (there is no
+   *  "remaining" to speak of). */
+  get remaining(): PieceType[] {
+    return this.finite ? this.seq.slice(this.consumed) : [];
+  }
+
+  /** True when a shipment follows the loaded one. False on the last piece of a
+   *  finite queue, so the belt can show an empty track rather than promising a
+   *  NEXT that will never arrive. */
+  get hasNext(): boolean {
+    return this.piecesLeft > 1;
+  }
+
   canShoot(now: number): boolean {
     return now - this.lastShot >= this.cooldownMs;
   }
@@ -139,6 +167,7 @@ export class Cannon {
 
   markShot(now: number): void {
     this.markCooldown(now);
+    this.consumed += 1;
     this.pieceIndex = (this.pieceIndex + 1) % this.seq.length;
     this.currentType = this.nextType;
     this.nextType = this.seq[(this.pieceIndex + 1) % this.seq.length];

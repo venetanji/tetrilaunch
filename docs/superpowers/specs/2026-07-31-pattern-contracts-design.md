@@ -1,7 +1,8 @@
 # Pattern Contracts: exact-inventory puzzles
 
 **Date:** 2026-07-31
-**Status:** approved, not yet implemented
+**Status:** implemented, with two departures — see [As built](#as-built) at the
+foot of this file.
 
 ## Why
 
@@ -131,3 +132,43 @@ between "tune the tolerance" and "add a spare".
   treadmill reason `contracts.ts` already records.
 - Non-line objectives (deliver a crate, clear all slag).
 - Changing Deep Run's queue, which stays random.
+
+## As built
+
+Everything above holds except where noted here.
+
+**The tiling template was dropped, because the premise was wrong for this game.**
+The spec requires generating from a known-tiling template or risk sets that are
+"arithmetically exact and geometrically impossible". That is the right worry for
+a tetromino puzzle where pieces keep their shape — but here they don't:
+`pieces.ts`'s `breakJointsInBand` shatters whatever the compactor presses, and
+`lineClear.ts` fills a row slot-by-slot from *loose* cubes. So no multiset
+summing to `goal * CUBES_PER_LINE` can be geometrically impossible. Only delivery
+can fail. The tier pool (I/O → +L/J → all seven) survives, because piece type
+still decides how hard delivery is — which is what it was really scaling.
+
+**Piece size is std-only, on arithmetic rather than taste.** A queue is exact
+only if `goal * 8` divides by the piece's cube count. 4 always does; bulk's 5
+only does at goals that are multiples of 5, making the smallest legal bulk
+pattern 40 cubes. Micro divides fine but is the size playtesting already found
+tedious, and tedium is the failure mode a zero-waste objective sits nearest to.
+
+**Added, not in the spec: provable-infeasibility detection.** With an exact
+manifest, one lost cube ends the attempt *immediately* — but nothing said so, and
+the player would keep firing a bay that could not be won. `Game.objectiveUnreachable`
+compares available cubes (field, minus those already blinking out, plus the
+queue) against what the unmet lines still demand, and calls the bay about a
+second later — long enough to watch the cube that killed it blink out. It is
+monotone by construction, so it cannot flicker: a line clear drops both sides by
+the same 8. This is what makes the spec's own "you lost by one cube is the
+feedback that makes a retry interesting" actually reach the player, and what
+makes free retries a fast loop rather than a slow one.
+
+The spec's other UI notes are built as written: the card lists the exact set, the
+HUD shows the full remaining multiset rather than a count, and the end screen
+names the margin. The order is re-rolled per attempt via an unseeded default
+`rng` argument on `levelForContract`, with the seeded path kept for tests.
+
+**Still unmeasured:** whether zero waste is achievable in practice. The 0.62/0.69
+efficiency gap the spec flags is unchanged, and nobody has yet cleared a pattern
+Contract by hand. `SPARE_SHIPMENTS` is the constant that answers it.

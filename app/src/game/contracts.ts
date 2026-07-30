@@ -31,12 +31,23 @@
  */
 import { makeBaseLevel, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
-import type { PieceSize } from "./theme";
+import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
 
-/** Objectives a Contract can ask for. Deliberately small to start: every one of
- *  these has to be legible in a single line of HUD copy, and a Contract the
- *  player can't restate in their own words is a bad Contract. */
-export type ObjectiveKind = "lines";
+/**
+ * Objectives a Contract can ask for. Deliberately small: every one of these has
+ * to be legible in a single line of HUD copy, and a Contract the player can't
+ * restate in their own words is a bad Contract.
+ *
+ *  - "lines"   — clear N lines, you have M launches. A budgeted version of what
+ *                Deep Run asks for.
+ *  - "pattern" — here is the EXACT set of shipments that tiles the goal, land
+ *                them. No launch budget, because the queue is the budget; the
+ *                piece queue stops being a random stream and becomes a designed
+ *                object, which turns the bay into a planning problem instead of
+ *                a physics grind. Deep Run can't copy this — its queue has to
+ *                stay random for its own reasons.
+ */
+export type ObjectiveKind = "lines" | "pattern";
 
 export interface Contract {
   /** Stable id — the daily seed plus its slot, so a Contract can be recorded,
@@ -48,9 +59,15 @@ export interface Contract {
   kind: ObjectiveKind;
   /** Lines required. */
   goal: number;
-  /** Launches allowed. Derived from the goal via the feasibility model in
-   *  `launchesFor`, never rolled — see the note there. */
+  /** Launches allowed, for a "lines" Contract. Derived from the goal via the
+   *  feasibility model in `launchesFor`, never rolled — see the note there.
+   *  0 on a "pattern" Contract, which is limited by its queue instead. */
   launches: number;
+  /** The exact shipment inventory of a "pattern" Contract, in canonical order
+   *  (the SET, which is what the card advertises and what the id reproduces).
+   *  The ORDER it is played in is re-rolled per attempt — see levelForContract.
+   *  Empty on a "lines" Contract. */
+  queue: PieceType[];
   pieceSize: PieceSize;
   /** Lateral wind cap, 0 for a calm bay. */
   windMax: number;
@@ -152,7 +169,104 @@ export function launchesFor(goal: number, cubesPerPiece: number, slack: number):
   return Math.max(3, Math.ceil((cubesNeeded / cubesPerLaunch) * slack));
 }
 
+/* -------------------------------------------------------------------------
+ * PATTERN CONTRACTS — exact-inventory puzzles.
+ *
+ * The queue is precisely the cubes the goal needs and not one more. One
+ * shipment off the side, or one shatter that strands a cube, and the attempt
+ * is over (game.ts's objectiveUnreachable calls it the moment it becomes true,
+ * rather than letting a dead bay run on).
+ *
+ * That is a demanding ask and the number says so: measured efficiency — the
+ * share of launched cubes reaching a completed line — is 0.62 in the browser
+ * and 0.69 on device, so about a third of fired cubes currently go nowhere.
+ * Zero waste asks for roughly 1.5x better than anyone has yet played. It is
+ * taken with that on the table because retrying costs nothing and takes
+ * seconds; if it turns out merely tedious rather than satisfying, the fix is
+ * SPARE_SHIPMENTS below, not a nudge to the physics tolerances.
+ *
+ * One thing this game does NOT need, which a tetromino puzzle normally would:
+ * a tiling proof. Pieces do not keep their shape here — the compactor shatters
+ * whatever it presses (pieces.ts's breakJointsInBand) and lineClear.ts fills
+ * rows slot by slot from LOOSE cubes. So geometry never makes an exact set
+ * impossible; only delivery does. Piece TYPE still matters for how hard that
+ * delivery is, which is what the tier pool below scales.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Spare shipments granted above the exact requirement. 0 is the design: the
+ * inventory is exactly the cubes needed. This is the single constant the spec
+ * names as the fix if playtesting says zero waste is unfun — one spare piece
+ * is a change of tolerance the player can feel, where loosening the physics
+ * would quietly change every other mode too.
+ */
+export const SPARE_SHIPMENTS = 0;
+
+/**
+ * Which piece types a tier draws from. I and O settle flat and pack cleanly;
+ * L and J need a rotation thought through; S, Z and T tip, wedge and strand
+ * cubes. With no tiling constraint to worry about, this IS the difficulty
+ * ladder for a pattern Contract.
+ */
+function patternPool(tier: number): PieceType[] {
+  if (tier <= 2) return ["I", "O"];
+  if (tier <= 5) return ["I", "O", "L", "J"];
+  return [...PIECE_TYPES];
+}
+
+/**
+ * Lines a pattern Contract asks for. Lower than a "lines" Contract's goal and
+ * it climbs far more slowly, because zero waste makes every additional line a
+ * multiplicative risk rather than an additive one: a 4-line pattern needs 32
+ * consecutive cubes placed perfectly, not 4 independent tries at 8.
+ */
+function patternGoal(tier: number): number {
+  return 2 + Math.min(2, Math.floor((Math.max(1, tier) - 1) / 3));
+}
+
+/**
+ * Build the exact inventory for `goal` lines. Std tetrominoes only, and that is
+ * an arithmetic constraint rather than a preference: a queue is exact only if
+ * `goal * CUBES_PER_LINE` divides by the piece's cube count. 4 always divides
+ * 8*goal; 5 (bulk) only does when goal is a multiple of 5, which would put the
+ * smallest legal bulk pattern at 40 cubes. Micro (2) divides fine but is the
+ * size playtesting found tedious (docs/DESIGN.md), and tedium is the exact
+ * failure mode a zero-waste objective is already closest to.
+ */
+function patternQueue(goal: number, tier: number, rng: () => number): PieceType[] {
+  const pool = patternPool(tier);
+  const count = (goal * CUBES_PER_LINE) / SIZE_SPEC.std.cubes + SPARE_SHIPMENTS;
+  const picked = Array.from({ length: count }, () => pool[Math.floor(rng() * pool.length)]);
+  // Canonical order, so the card, the id and any leaderboard all describe the
+  // same set the same way. What the player actually receives is shuffled per
+  // attempt (levelForContract) — see the note there.
+  return picked.sort((a, b) => PIECE_TYPES.indexOf(a) - PIECE_TYPES.indexOf(b));
+}
+
+function generatePatternContract(seed: number, tier: number, slot: number): Contract {
+  const rng = mulberry32(seed + slot * 7919);
+  const goal = patternGoal(tier);
+  const queue = patternQueue(goal, tier, rng);
+  return {
+    id: `${seed}-${tier}-${slot}`,
+    seed: seed + slot * 7919,
+    tier,
+    name: NAMES[(seed + slot * 3) % NAMES.length],
+    kind: "pattern",
+    goal,
+    launches: 0,
+    queue,
+    pieceSize: "std",
+    // Never any wind, at any tier. A zero-waste objective plus a lateral force
+    // the player can't fully cancel is not a puzzle, it's a dice roll — so the
+    // difficulty budget has nothing to spend here either.
+    windMax: 0,
+    brief: `${queue.length} shipments, no waste`,
+  };
+}
+
 export function generateContract(seed: number, tier: number, slot = 0): Contract {
+  if (slot % DAILY_COUNT === PATTERN_SLOT) return generatePatternContract(seed, tier, slot);
   const rng = mulberry32(seed + slot * 7919);
   let budget = budgetForTier(tier);
 
@@ -190,7 +304,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   // higher tiers — every Contract ends up carrying nearly the same set. Leading
   // with a rotated axis makes the daily set read as curated, which is also just
   // a better offer: pick the challenge you feel like, not the least-bad roll.
-  const LEAD: (keyof typeof COST)[][] = [["wind"], ["bulk", "micro"], ["tightLaunches"]];
+  const LEAD: (keyof typeof COST)[][] = [["wind"], ["bulk", "micro", "tightLaunches"]];
   const lead = LEAD[slot % LEAD.length];
   const ordered = [
     ...options.filter((o) => lead.includes(o.id)),
@@ -223,6 +337,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
     kind: "lines",
     goal,
     launches,
+    queue: [],
     pieceSize,
     windMax,
     brief: notes.length ? notes.join(" · ") : "clean bay",
@@ -240,6 +355,16 @@ export function dailySeed(d = new Date()): number {
 
 export const DAILY_COUNT = 3;
 
+/**
+ * Which daily slot is the pattern Contract. Fixed rather than rolled so the
+ * board always offers one of each flavour — a player who wants the planning
+ * puzzle can find it every day, and one who doesn't still has two launch-budget
+ * Contracts. It CONVERTS a slot rather than adding a fourth: the daily count is
+ * what Unlimited sells (docs/DESIGN.md), so quietly raising it would be a
+ * monetization change wearing a content change's clothes.
+ */
+export const PATTERN_SLOT = 2;
+
 export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
   return Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
 }
@@ -256,8 +381,19 @@ export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
  * targetScore is set unreachably high rather than to 0: the funds path must
  * never be what ends a Contract, and a 0 target would win the bay on the first
  * frame. objectiveLines is the real win condition (see game.ts's objectiveMet).
+ *
+ * `rng` orders a pattern Contract's queue and defaults to Math.random — i.e.
+ * UNSEEDED, deliberately, which is the one place a Contract is not reproducible
+ * from its id. The set is seeded and shared; the order is re-rolled on every
+ * attempt. The alternative is worse than it looks: if the order were seeded
+ * too, then one unlucky permutation would make that Contract permanently
+ * unwinnable for every player who drew it, and free retries would hand back the
+ * identical bad order forever. That is the same defect class as the launch
+ * budgets that turned out 35% infeasible, and it is undetectable without
+ * solving the physics. Re-rolling costs a determinism the leaderboard doesn't
+ * need — the SET is the challenge, and everyone gets the same one.
  */
-export function levelForContract(c: Contract): LevelConfig {
+export function levelForContract(c: Contract, rng: () => number = Math.random): LevelConfig {
   const cfg = makeBaseLevel(Math.min(9, c.tier));
   cfg.id = 1;
   cfg.name = c.name;
@@ -265,10 +401,19 @@ export function levelForContract(c: Contract): LevelConfig {
   cfg.timeLimitSec = 0;
   cfg.targetScore = Number.MAX_SAFE_INTEGER;
   cfg.objectiveLines = c.goal;
-  cfg.launchBudget = c.launches;
   cfg.pieceSize = c.pieceSize;
   cfg.windMax = c.windMax;
   cfg.windGust = c.windMax * 0.025;
+  // The two limits are alternatives, never both: a pattern bay is bounded by
+  // its queue and a lines bay by its launch budget, and a bay carrying both
+  // would be counting the same limit twice under two names.
+  if (c.kind === "pattern") {
+    cfg.launchBudget = 0;
+    cfg.pieceQueue = shuffleSeeded(c.queue, rng);
+  } else {
+    cfg.launchBudget = c.launches;
+    cfg.pieceQueue = null;
+  }
   // Nothing is spent, so nothing needs to be earned back.
   cfg.startingFunds = 0;
   cfg.penaltyPerLostPiece = 0;

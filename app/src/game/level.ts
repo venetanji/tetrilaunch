@@ -45,6 +45,16 @@ export interface LevelConfig {
   launchCost: number;
   /** Fixed piece order (sequential, like the original). null => 7-bag shuffle later. */
   pieceSequence: PieceType[] | null;
+  /** A FINITE inventory of shipments, consumed in order and never repeated —
+   *  the whole supply this bay will ever get. null (every Deep Run bay, and
+   *  every launch-budget Contract) means pieceSequence cycles forever instead.
+   *
+   *  This is what a PATTERN Contract runs on (see contracts.ts): the queue is
+   *  chosen to tile the goal EXACTLY, so the puzzle is planning where each
+   *  known shipment goes rather than firing until the pile happens to resolve.
+   *  It replaces launchBudget rather than stacking with it — the queue IS the
+   *  budget, and a bay carrying both would be counting the same limit twice. */
+  pieceQueue: PieceType[] | null;
   /** Fire cooldown in ms. */
   cooldownMs: number;
   /** Countdown for the level, in seconds; 0 = no limit. A roguelite-run knob:
@@ -337,6 +347,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     startingFunds: 250,
     launchCost: 25 + i * 2,
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
+    pieceQueue: null,
     cooldownMs: 900,
     timeLimitSec: 150 + i * 10,
     pieceSize: "std",

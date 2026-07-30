@@ -1,4 +1,4 @@
-import { PIECE_TYPES } from "../game/theme";
+import { PIECE_COLORS, PIECE_TYPES } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
@@ -256,17 +256,34 @@ export function hudHTML(opts: {
   /** Present only in CONTRACT mode. A Contract has no bankroll and no clock, so
    *  the funds/launches readout would show $0 and 0 launches forever; this
    *  swaps in the two numbers that actually govern it — lines toward the goal,
-   *  and launches left. */
-  contract?: { name: string; goal: number; lines: number; launchesLeft: number } | null;
+   *  and whichever supply limit the Contract runs on.
+   *
+   *  On a PATTERN Contract that limit is the shipment queue, and `remaining`
+   *  carries the whole rest of it rather than just a count: planning against
+   *  the full set is the mode, so showing only "4 left" would hide the part
+   *  the player is actually reasoning about. */
+  contract?: {
+    name: string;
+    kind: "lines" | "pattern";
+    goal: number;
+    lines: number;
+    launchesLeft: number;
+    remaining: PieceType[];
+  } | null;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, modIds, tiers,
     contract,
   } = opts;
+  // An empty belt is the honest render for the last shipment of a finite queue
+  // — there IS no next piece, and drawing one would promise a shot that never
+  // comes (see game.ts's BeltPreview.empty).
   const beltNextHTML = beltPreview.bomb
     ? beltBombHTML()
-    : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize);
+    : beltPreview.empty
+      ? ""
+      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize);
   const launches = Math.floor(score / Math.max(1, launchCost));
   const timeBlock =
     timeLimitSec > 0
@@ -356,7 +373,7 @@ export function hudHTML(opts: {
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
-            <div class="lbl">Launches</div>
+            <div class="lbl">${contract.kind === "pattern" ? "Shipments" : "Launches"}</div>
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>`
               : `<div class="pl-funds">
@@ -381,7 +398,11 @@ export function hudHTML(opts: {
         <div class="pl-meta">
           <span>Combo <b id="hud-combo">×0</b></span>
           <span class="pl-meta__sep">·</span>
-          <span>Launch $${launchCost}</span>
+          ${
+            contract?.kind === "pattern"
+              ? `<span>Left <b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></span>`
+              : `<span>Launch $${launchCost}</span>`
+          }
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>
         </div>
@@ -823,10 +844,17 @@ export function contractsScreen(opts: {
   const cards = opts.contracts
     .map((c, i) => {
       const done = opts.cleared.includes(c.id);
+      // A pattern Contract advertises its exact inventory, because the whole
+      // offer is "here is what you get — can you place it?". Knowing the set
+      // before you accept is the planning the mode is made of.
+      const ask =
+        c.kind === "pattern"
+          ? `<p>${queueTallyHTML(c.queue)} <b>→ ${c.goal}</b> lines</p>`
+          : `<p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>`;
       return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
         <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
         <b>${c.name}</b>
-        <p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>
+        ${ask}
         <p class="muted" style="font-size:12px">${c.brief}</p>
       </button>`;
     })
@@ -841,8 +869,8 @@ export function contractsScreen(opts: {
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
       </div>
       <p class="muted" style="margin:0">
-        No clock, no launch costs — the press is the only budget. Fail as many
-        times as you like; nothing is lost.
+        No clock, no launch costs — your supply of shipments is the only budget.
+        Fail as many times as you like; nothing is lost.
       </p>
       <div class="howto__grid">${cards}</div>
     </div>
@@ -853,9 +881,32 @@ export function contractsScreen(opts: {
 export interface ContractCard {
   id: string;
   name: string;
+  kind: "lines" | "pattern";
   goal: number;
   launches: number;
+  /** The exact inventory, for a pattern Contract. Empty otherwise. */
+  queue: PieceType[];
   brief: string;
+}
+
+/**
+ * A shipment multiset as a compact tally — `I×3 O×1`, each letter in its own
+ * piece colour. Used everywhere a pattern Contract's set is stated: the card
+ * (what you're accepting), the HUD (what's left), the end screen (what you
+ * had). One renderer so those three can never disagree about the same set.
+ *
+ * Text rather than piece glyphs on purpose: at 5-8 shipments a row of little
+ * shape grids reads as decoration, while a tally reads as an inventory — and
+ * an inventory is the thing being planned against.
+ */
+export function queueTallyHTML(queue: readonly PieceType[]): string {
+  if (!queue.length) return `<span class="muted">—</span>`;
+  return PIECE_TYPES.filter((t) => queue.includes(t))
+    .map((t) => {
+      const n = queue.filter((q) => q === t).length;
+      return `<span style="color:${PIECE_COLORS[t]};font-weight:700">${t}</span>×${n}`;
+    })
+    .join(" ");
 }
 
 /**
@@ -875,14 +926,22 @@ export interface ContractCard {
 export function contractEndModal(opts: {
   won: boolean;
   name: string;
+  kind: "lines" | "pattern";
   lines: number;
   goal: number;
   launchesUsed: number;
   launches: number;
+  /** Pattern only: the exact set the attempt was given, and how many cubes went
+   *  somewhere other than a completed line. */
+  queue: PieceType[];
+  cubesWasted: number;
   /** Null on a loss. `firstClear` false = cleared before, so it paid nothing. */
   award: { salvage: number; firstClear: boolean } | null;
   salvageTotal: number;
 }): string {
+  const pattern = opts.kind === "pattern";
+  const supplyLabel = pattern ? "Shipments" : "Launches";
+  const supplyTotal = pattern ? opts.queue.length : opts.launches;
   const stats = `
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
       <div class="chip" style="flex-direction:row;gap:10px">
@@ -890,17 +949,35 @@ export function contractEndModal(opts: {
         <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
       </div>
       <div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">Launches</div>
-        <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${opts.launches}</div>
+        <div class="chip__label">${supplyLabel}</div>
+        <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</div>
       </div>
+      ${
+        pattern
+          ? `<div class="chip" style="flex-direction:row;gap:10px">
+        <div class="chip__label">Manifest</div>
+        <div class="chip__value" style="font-size:var(--fs-sm)">${queueTallyHTML(opts.queue)}</div>
+      </div>`
+          : ""
+      }
     </div>`;
 
   if (!opts.won) {
+    // A pattern Contract almost never ends with an empty queue and an unmet
+    // goal — it ends the moment the cubes to finish it stop existing. Saying
+    // how many were lost is the whole feedback: "you were one cube short" is
+    // what makes the retry a decision rather than another roll.
+    const heading = pattern ? "Manifest short" : "Out of launches";
+    const why = pattern
+      ? opts.cubesWasted > 0
+        ? `<b>${opts.cubesWasted}</b> cube${opts.cubesWasted === 1 ? "" : "s"} never made it into a line — with an exact manifest, that's the whole margin.`
+        : "The manifest ran out before the goal did."
+      : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
       <div class="panel modal pop" style="width:min(460px,94vw)">
         <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
-        <h2 class="display" style="font-size:var(--fs-h1)">Out of launches</h2>
-        <p class="muted" style="margin:2px 0 0">Nothing lost — a Contract costs you nothing to retry.</p>
+        <h2 class="display" style="font-size:var(--fs-h1)">${heading}</h2>
+        <p class="muted" style="margin:2px 0 0">${why}</p>
         ${stats}
         <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
         <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
@@ -910,7 +987,9 @@ export function contractEndModal(opts: {
 
   // Spare launches are the only skill expression left once it's cleared, so
   // they're called out — it's what makes replaying a paid Contract interesting.
-  const spare = opts.launches - opts.launchesUsed;
+  // A pattern Contract has no spare by construction, so clearing one at all IS
+  // the flourish and the copy says that instead.
+  const spare = pattern ? 0 : opts.launches - opts.launchesUsed;
   const reward = opts.award?.firstClear
     ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
          <div class="chip__label" style="color:var(--success)">Salvage banked</div>
@@ -929,7 +1008,11 @@ export function contractEndModal(opts: {
         ✓ Contract Complete
       </h2>
       <p class="muted" style="margin:2px 0 0">
-        ${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.
+        ${
+          pattern
+            ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
+            : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
+        }
       </p>
       ${stats}
       <div style="margin:0 0 14px">${reward}</div>

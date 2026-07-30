@@ -28,6 +28,7 @@ import {
 } from "../src/game/run";
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
+  SPARE_SHIPMENTS,
 } from "../src/game/contracts";
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
@@ -268,6 +269,10 @@ section("Contracts (contracts.ts)");
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
+        // Pattern Contracts are bounded by their queue, not a launch budget,
+        // and their feasibility is exact rather than statistical — they get
+        // their own block below.
+        if (c.kind !== "lines") continue;
         const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes * PLANNING_EFFICIENCY;
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
@@ -309,17 +314,88 @@ section("Contracts (contracts.ts)");
     const cfg = levelForContract(c);
     check(`${c.name}: no launch cost`, cfg.launchCost === 0);
     check(`${c.name}: no clock`, cfg.timeLimitSec === 0);
-    check(`${c.name}: launch budget set`, cfg.launchBudget === c.launches && cfg.launchBudget > 0);
     check(`${c.name}: line objective set`, cfg.objectiveLines === c.goal);
     // A funds target of 0 would win the bay on frame one; it must be
     // unreachable so the objective is the only thing that can end it.
     check(`${c.name}: funds target unreachable`, cfg.targetScore > 1e9);
+    // Exactly ONE supply limit, whichever kind this is. A bay carrying both a
+    // queue and a launch budget would count the same limit twice under two
+    // names, and whichever ran out first would end it for the wrong stated
+    // reason.
+    const budgeted = cfg.launchBudget > 0;
+    const queued = (cfg.pieceQueue?.length ?? 0) > 0;
+    check(`${c.name}: exactly one supply limit`, budgeted !== queued);
+    if (c.kind === "lines") {
+      check(`${c.name}: launch budget set`, cfg.launchBudget === c.launches && budgeted);
+    } else {
+      check(`${c.name}: queue set`, cfg.pieceQueue?.length === c.queue.length);
+    }
   }
 
   // Deep Run must be untouched by any of this.
   const deep = makeBaseLevel(0);
   check("Deep Run bays have no launch budget", deep.launchBudget === 0);
   check("Deep Run bays win on funds", deep.objectiveLines === 0);
+  check("Deep Run bays draw from an endless bag", deep.pieceQueue === null);
+}
+
+// ---------------------------------------------------------------------------
+section("Pattern Contracts (contracts.ts)");
+// ---------------------------------------------------------------------------
+{
+  // EXACTNESS is the whole mechanic. A queue one cube over is a different (and
+  // easier) game; one cube under is unwinnable from frame one, which is the
+  // single worst thing this generator can emit — and unlike a launch budget,
+  // it's arithmetic, so it can be proved rather than estimated.
+  let everInexact = false;
+  let everWindy = false;
+  let everBudgeted = false;
+  let everOffPool = false;
+  let patterns = 0;
+  for (let tier = 1; tier <= 12; tier++) {
+    for (let seed = 20260101; seed < 20260101 + 40; seed++) {
+      for (const c of dailyContracts(tier, seed)) {
+        if (c.kind !== "pattern") continue;
+        patterns += 1;
+        const cubes = c.queue.length * SIZE_SPEC[c.pieceSize].cubes;
+        if (cubes !== c.goal * CUBES_PER_LINE + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
+          everInexact = true;
+        }
+        if (c.windMax !== 0) everWindy = true;
+        if (c.launches !== 0) everBudgeted = true;
+        // Low tiers stay on the two shapes that settle flat. Drawing an S into
+        // a tier-1 zero-waste bay is the same unfairness as tier-1 crosswind.
+        if (tier <= 2 && c.queue.some((t) => t !== "I" && t !== "O")) everOffPool = true;
+      }
+    }
+  }
+  check(`the daily board offers pattern Contracts (${patterns} sampled)`, patterns > 0);
+  check("every pattern queue tiles its goal exactly", !everInexact);
+  check("pattern Contracts are always calm", !everWindy);
+  check("pattern Contracts carry no launch budget", !everBudgeted);
+  check("low tiers draw only the flat-settling shapes", !everOffPool);
+
+  const c = dailyContracts(6, 20260730).find((x) => x.kind === "pattern")!;
+  // The SET is the shared challenge and must be reproducible from the id. The
+  // ORDER must NOT be: one unlucky permutation would otherwise make this
+  // Contract permanently unwinnable for everyone who drew it, and free retries
+  // would hand back the identical bad order forever.
+  const again = dailyContracts(6, 20260730).find((x) => x.kind === "pattern")!;
+  check("the set is stable for a Contract id", JSON.stringify(c.queue) === JSON.stringify(again.queue));
+
+  // Deterministic stand-in for Math.random, so "the order is re-rolled" is
+  // tested rather than hoped for — a fixed permutation would pass a
+  // same-multiset check while failing the property that matters.
+  let n = 0;
+  const fakeRng = () => ((n = (n * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const a = levelForContract(c, fakeRng).pieceQueue!;
+  const b = levelForContract(c, fakeRng).pieceQueue!;
+  check("an attempt receives the whole set", a.length === c.queue.length);
+  check(
+    "an attempt receives exactly the advertised multiset",
+    JSON.stringify([...a].sort()) === JSON.stringify([...c.queue].sort()),
+  );
+  check("the play order is re-rolled per attempt", JSON.stringify(a) !== JSON.stringify(b));
 
   // --- Contract payout -----------------------------------------------------
   let payoutMonotone = true;

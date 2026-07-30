@@ -7,6 +7,7 @@ import {
   updateBreakableJoints,
   breakJointsInBand,
   removeConstraintsFor,
+  SIZE_SPEC,
   type Cube,
 } from "./pieces";
 import {
@@ -26,9 +27,10 @@ const DT = 1000 / 60;
 
 export type GameStatus = "playing" | "won" | "lost";
 
-/** Why a bay ended badly. "launches" is Contract-only — the launch budget ran
- *  out (see level.ts's launchBudget); the other three are Deep Run's. */
-export type LossReason = "topout" | "broke" | "time" | "launches";
+/** Why a bay ended badly. "launches" and "pieces" are both Contract-only — the
+ *  launch budget ran out (level.ts's launchBudget), or the finite shipment
+ *  queue did (level.ts's pieceQueue). The other three are Deep Run's. */
+export type LossReason = "topout" | "broke" | "time" | "launches" | "pieces";
 
 /** Everything worth knowing about one launch, for playtest telemetry
  *  (lib/telemetry.ts). `wait` is the load-bearing field: ms spent between the
@@ -71,6 +73,10 @@ export interface BeltPreview {
   bomb: boolean;
   type: PieceType;
   quarterTurns: number;
+  /** True when nothing follows the loaded shot — the last shipment of a finite
+   *  queue is at the muzzle. The belt draws an empty track rather than a piece
+   *  that is never coming. Always false on a cycling bag. */
+  empty: boolean;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -148,6 +154,14 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
  *  window's NORMAL exit is "field at rest AND a pressing stroke completed" —
  *  see resolveWin; this is only the backstop. */
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
+
+/** How long (physics steps) a provably-dead exact-inventory bay keeps running
+ *  before it is called (see the pieces branch in update()). ~1s: long enough
+ *  that the cube that killed the attempt is visibly blinking out when the modal
+ *  arrives — "you lost by one cube" is the feedback that makes the retry
+ *  interesting — and short enough that nobody is made to play out a bay whose
+ *  outcome is already decided. */
+const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
 
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
  *  ~9 degrees. Wide enough that consecutive shots genuinely scatter across the
@@ -251,6 +265,10 @@ export class Game {
    *  shot most likely to complete the objective. Judging the bay the instant
    *  shotsFired hits the budget would lose on the winning move. */
   private launchesUpStep: number | null = null;
+  /** Game.stepCount when the shipment queue ran out — or when the objective
+   *  first became arithmetically unreachable, whichever came first. Null on
+   *  every bay whose bag cycles forever. */
+  private piecesUpStep: number | null = null;
   /** Game.stepCount when the funding target was met and the SETTLE window
    *  opened, or null while the bay is still being played. The bay is NOT won
    *  the instant funds cross the target: shots already in the air have been
@@ -281,6 +299,61 @@ export class Game {
   get launchesLeft(): number {
     if (this.level.launchBudget <= 0) return Infinity;
     return Math.max(0, this.level.launchBudget - this.shotsFired);
+  }
+
+  /** Shipments left in this bay's finite queue, or Infinity when the piece bag
+   *  cycles forever (every Deep Run bay — see level.ts's pieceQueue). */
+  get piecesLeft(): number {
+    return this.cannon.piecesLeft;
+  }
+
+  /** The shipments still to come, in order — what a pattern Contract's HUD
+   *  shows in full, since planning against the whole remaining set is the
+   *  point of the mode. Empty on a cycling bag. */
+  get piecesRemaining(): PieceType[] {
+    return this.cannon.remaining;
+  }
+
+  /** Cubes that could still reach a completed line: everything on the field
+   *  that isn't already blinking out, plus everything still in the queue.
+   *
+   *  A deliberate UPPER bound — a cube wedged somewhere hopeless is counted,
+   *  because "hopeless" isn't provable and a false loss is far worse than a
+   *  late one. What IS provable is the other direction, which is all
+   *  objectiveUnreachable needs. */
+  get cubesAvailable(): number {
+    let live = 0;
+    for (const c of this.cubes) if (c.blinkStart === null) live += 1;
+    if (this.piecesLeft === Infinity) return Infinity;
+    return live + this.piecesLeft * SIZE_SPEC[this.level.pieceSize].cubes;
+  }
+
+  /** Cubes the unmet part of a line objective still demands. Reads the
+   *  compactor's own minimum-line width rather than a copy of it, so the two
+   *  can't drift (contracts.ts's CUBES_PER_LINE is pinned to it by a test). */
+  get cubesRequired(): number {
+    const linesLeft = Math.max(0, this.level.objectiveLines - this.linesTotal);
+    return linesLeft * this.level.compactorMinLineCells;
+  }
+
+  /**
+   * True once the objective is arithmetically out of reach: not enough cubes
+   * exist, anywhere, to finish the lines still owed.
+   *
+   * This only ever fires on an EXACT-INVENTORY bay (a pattern Contract, whose
+   * queue is sized to tile the goal with zero waste), and it exists because
+   * such a bay dies silently. Lose one cube off the deck on the second shot
+   * and the attempt is already over — but nothing says so, and the player
+   * keeps firing a bay that cannot be won. Since a retry is free and instant,
+   * calling it immediately is strictly kinder than letting it run out.
+   *
+   * Monotone by construction, so it can never flicker: clearing a line drops
+   * available and required by the same CUBES_PER_LINE, and every other event
+   * (a cube lost, a shipment spent) can only lower the margin.
+   */
+  get objectiveUnreachable(): boolean {
+    if (this.level.objectiveLines <= 0) return false;
+    return this.cubesAvailable < this.cubesRequired;
   }
 
   /** This bay's win condition, met. A CONTRACT is won on lines cleared; a Deep
@@ -394,9 +467,19 @@ export class Game {
    *  unrotated — markShot resets pieceRotation when it loads. */
   get beltPreview(): BeltPreview {
     if (this.bombArmed) {
-      return { bomb: false, type: this.cannon.currentType, quarterTurns: this.cannon.quarterTurns };
+      return {
+        bomb: false,
+        type: this.cannon.currentType,
+        quarterTurns: this.cannon.quarterTurns,
+        empty: false,
+      };
     }
-    return { bomb: false, type: this.cannon.nextType, quarterTurns: 0 };
+    return {
+      bomb: false,
+      type: this.cannon.nextType,
+      quarterTurns: 0,
+      empty: !this.cannon.hasNext,
+    };
   }
 
   /**
@@ -560,6 +643,10 @@ export class Game {
     // Budget spent (Contracts). Same rule as the clock: what's airborne still
     // lands, but nothing new leaves the cannon.
     if (this.launchesLeft <= 0) return false;
+    // Queue's dry (pattern Contracts). A bomb is exempt: it's a consumable
+    // drafted separately, not a shipment off the manifest — but nothing can
+    // draft one into a Contract today, so this is a guard, not a feature.
+    if (this.piecesLeft <= 0 && !this.bombArmed) return false;
     if (!this.cannon.canShoot(now)) return false;
 
     // An armed demolition charge fires FREE — it's a consumable, already paid
@@ -782,6 +869,32 @@ export class Game {
     ) {
       this.lossReason = "broke";
       this.setStatus("lost");
+    } else if (this.piecesLeft <= 0 || this.objectiveUnreachable) {
+      // EXACT-INVENTORY bay (pattern Contract). Two different endings share one
+      // verdict because they are the same fact arriving at different times:
+      // the shipments that could finish this bay no longer exist.
+      //
+      //   queue empty      — overtime, exactly like the launch budget below:
+      //                      the last shipment is still airborne and is the one
+      //                      most likely to close the goal, so wait for a
+      //                      completed press and a field at rest.
+      //   unreachable      — the arithmetic already settled it (see
+      //                      objectiveUnreachable). Nothing that happens next
+      //                      can change the answer, so the only reason to wait
+      //                      at all is to let the player SEE the cube they just
+      //                      lost blink out. A second is enough for that;
+      //                      making them play out a dead bay is not kindness.
+      if (this.piecesUpStep === null) this.piecesUpStep = this.stepCount;
+      const waited = this.stepCount - this.piecesUpStep;
+      const strokeDone = this.lastFullAdvanceStep > this.piecesUpStep;
+      const done = this.objectiveUnreachable
+        ? waited > UNREACHABLE_GRACE_STEPS
+        : (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
+          waited > this.brokeGraceSteps;
+      if (done) {
+        this.lossReason = "pieces";
+        this.setStatus("lost");
+      }
     } else if (this.launchesLeft <= 0) {
       // Budget spent — but the last launch is still airborne, so this is
       // overtime, not a verdict. Identical settle gate to the clock below:
