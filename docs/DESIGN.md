@@ -41,17 +41,36 @@ problem with the same work.
 | Daily cap | yes (see below) | **never** |
 | Role | training, economy, the daily habit | the exam |
 
-Contracts deliberately strip out time and money pressure: they are *puzzles*, and
-a puzzle you can be rushed out of isn't one. What replaces that pressure is the
-**stroke budget** (see below) — without some budget a Contract is brute-forceable
-by firing until the pile happens to resolve, which is why strokes are
-load-bearing here rather than a flourish.
+Contracts deliberately strip out time and money pressure. They are meant to be
+the *easy, positive, replayable* half — challenges you return to, not a thing
+that can beat you. A puzzle you can be rushed out of isn't a puzzle. What
+replaces that pressure is the **stroke budget** (see below); without some budget
+a Contract is brute-forceable by firing until the pile happens to resolve, which
+is why strokes are load-bearing here rather than a flourish.
 
-One asymmetry falls out of that and is worth keeping: with no launch cost, the
-**reactor** track is inert in Contracts. So Contracts teach materials and
-geometry while Deep Run additionally tests economy and pressure — a loadout can't
-be fully tuned from Contract experience alone, which is part of what keeps Deep
-Run a real exam.
+Deep Run keeps its clock for the opposite reason, and it's worth stating so it
+isn't later mistaken for an inherited default: **time pressure is what makes
+aiming a skill.** Given unlimited time, a good player solves every shot; given a
+clock, they have to solve it *fast*, and that's the thing an exam should test.
+
+So the division is: **Contracts test placement, Deep Run tests placement under
+pressure.** Contracts are where a new material is safe to learn; Deep Run is
+where you have to use it quickly.
+
+### What Contracts cannot teach
+
+Two of the six tracks are invisible without a clock and a bankroll:
+
+- **Reactor** — no launch cost means the economy track does nothing.
+- **Magazine** — no clock means faster reload buys less waiting, not more
+  throughput against a limit.
+
+So Contracts exercise the spatial half of the rig (bay, hydraulics, bonds,
+launcher) and leave the tempo/economy half untested. That's a feature for Deep
+Run's status as a real exam, but it has a direct consequence: **a player spends
+part of their budget with no information to go on**, and their first attempt at a
+new Mark is partly reconnaissance. That is fine for a roguelite — FTL works the
+same way — but it is the argument that settles free respec (see Settled).
 
 Contracts are where you *build* the rig. Deep Run is where you find out whether
 the rig you built is good enough. Neither mode is the "real" game.
@@ -358,7 +377,14 @@ down when judges ask where it goes next.
   The build budget is what makes that fair — normalization comes from everyone at
   a Mark having the same points to spend, not from the run overwriting your
   choices. Contracts would be pointless otherwise.
-- **Contracts have no clock and no bankroll.** Strokes are the constraint.
+- **Contracts have no clock and no bankroll.** Strokes are the constraint, and
+  the mode's character is easy, positive and replayable.
+- **Deep Run keeps both the clock and the bankroll.** Time pressure is what makes
+  aiming a skill rather than a solved problem, so it's the exam's core test.
+- **The budget respecs for free.** Contracts can't exercise the reactor or
+  magazine tracks, so part of the budget is always spent without information;
+  charging for a correction would punish a decision the player had no way to
+  make well.
 
 ## Open questions
 
@@ -371,6 +397,3 @@ down when judges ask where it goes next.
   count at three; a separate one lets Contracts and Deep Run pay independently.
 - **What do the three daily Contracts refresh against** — wall-clock midnight, or
   24h from first completion? The former is fairer, the latter retains better.
-- **Does the budget respec freely, or cost something?** Free respec is the better
-  UI beat and encourages experimenting; a cost makes the choice weightier. Free
-  is the assumption until it proves too loose.
