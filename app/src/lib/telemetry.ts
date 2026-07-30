@@ -34,6 +34,11 @@ export interface BayRecord {
   bay: number;
   mark: number;
   seed: number;
+  /** Which half of the game this bay came from. A Contract has no clock and no
+   *  bankroll, so pooling it with Deep Run bays makes both the clock and the
+   *  bankroll analyses meaningless — sim/playtest.ts splits on this. Absent in
+   *  sessions recorded before this field existed; the analyser infers those. */
+  mode: "run" | "contract";
   target: number;
   timeLimitSec: number;
   cooldownMs: number;
@@ -150,7 +155,8 @@ export function startRun(mark: number, loadout: UpgradeTiers, unlocks: string[])
 }
 
 export function startBay(cfg: {
-  bay: number; mark: number; seed: number; target: number; timeLimitSec: number;
+  bay: number; mark: number; seed: number; mode: "run" | "contract";
+  target: number; timeLimitSec: number;
   cooldownMs: number; launchCost: number; scorePerLine: number;
   tiers: UpgradeTiers; mods: string[]; pieceSize: string;
 }): void {

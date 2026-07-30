@@ -460,6 +460,7 @@ class App {
       bay: this.run.levelIndex + 1,
       mark: this.run.mark,
       seed: this.run.seed,
+      mode: "run",
       target: cfg.targetScore,
       timeLimitSec: cfg.timeLimitSec,
       cooldownMs: cfg.cooldownMs,
@@ -532,7 +533,8 @@ class App {
     }, c.seed);
     telemetry.startRun(0, {} as UpgradeTiers, []);
     telemetry.startBay({
-      bay: 1, mark: c.tier, seed: c.seed, target: cfg.objectiveLines,
+      bay: 1, mark: c.tier, seed: c.seed, mode: "contract",
+      target: cfg.objectiveLines,
       timeLimitSec: 0, cooldownMs: cfg.cooldownMs, launchCost: 0,
       scorePerLine: cfg.scorePerLine, tiers: {} as UpgradeTiers,
       mods: [c.brief], pieceSize: cfg.pieceSize,
