@@ -31,12 +31,27 @@ problem with the same work.
 |---|---|---|
 | Shape | procedurally generated single bays | the 10-bay run, permadeath |
 | Session | 60–120s | 25–40 min |
+| Clock | **none** | yes — `timeLimitSec` |
+| Bankroll | **none** — launches are free | yes — funds are the target |
+| Constraint | **stroke budget** | funds + clock |
 | Failure | costs nothing, retry freely | ends the run |
 | Earns | permanent rig upgrades | leaderboard rank, the next Mark |
 | Board | per-contract, seeded | per-Mark global board |
 | Purchasable power | **none** | **none** |
 | Daily cap | yes (see below) | **never** |
 | Role | training, economy, the daily habit | the exam |
+
+Contracts deliberately strip out time and money pressure: they are *puzzles*, and
+a puzzle you can be rushed out of isn't one. What replaces that pressure is the
+**stroke budget** (see below) — without some budget a Contract is brute-forceable
+by firing until the pile happens to resolve, which is why strokes are
+load-bearing here rather than a flourish.
+
+One asymmetry falls out of that and is worth keeping: with no launch cost, the
+**reactor** track is inert in Contracts. So Contracts teach materials and
+geometry while Deep Run additionally tests economy and pressure — a loadout can't
+be fully tuned from Contract experience alone, which is part of what keeps Deep
+Run a real exam.
 
 Contracts are where you *build* the rig. Deep Run is where you find out whether
 the rig you built is good enough. Neither mode is the "real" game.
@@ -46,36 +61,84 @@ the rig you built is good enough. Neither mode is the "real" game.
 1. Run Contracts. They pay the permanent currency and teach one material at a time.
 2. Spend it on your rig — pick a direction, because you cannot afford every track.
 3. Attempt **Deep Run at Mark 1**. This is a gated exam, not an endless score chase.
-4. Beat it. That unlocks Mark 2 Contracts *and* raises your rig's ceiling.
+4. Beat it. That unlocks Mark 2 Contracts *and* raises your build budget.
 5. Repeat. Each Mark is harder, introduces new materials, and demands a build.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
 into the next Mark, you beat your way into it. That's what makes a Mark N clear
 mean the same thing for every player who has one.
 
-## Rig tier ceilings — the integrity rule
+## The build budget — the integrity rule
 
 This is the load-bearing rule of the whole design, so it goes first.
 
-> **Mark N unlocks rig tier ceiling N. Contracts fill you toward the ceiling.
-> Only beating Mark N raises it.**
+> **Mark N grants a fixed upgrade budget, spent freely across the six tracks.
+> Contracts unlock what you may spend it *on*. Only beating Mark N raises the
+> budget.**
 
-Without it the design has a leak. Contracts grant permanent upgrades, and
-Unlimited grants more Contracts per day, so paying would mean a stronger rig
-sooner — and the Mark 5 board would quietly become a ranking of who ran the most
-Contracts. With it:
+### Why a budget and not a tier cap
 
-- Everyone who arrives at Mark N converges on the same maximum rig.
-- Paying compresses *time-to-ceiling*. It can never buy a higher ceiling.
-- Leaderboards segment per Mark, so a Mark 5 clear is the same achievement for a
-  whale and a free player.
+The obvious version of this rule caps the tier of each track at the player's
+Mark. That doesn't work, and the reason is worth recording because the fix looks
+like a detail and isn't.
+
+**A per-track cap normalizes the maximum rig, not the actual one.** Two players
+at Mark 5 are both "capped" when one has every track maxed and the other has two
+tracks maxed and four empty — but the first is strictly stronger. The distance
+between them is grind time, which is exactly what Unlimited sells, so the
+leaderboard leak returns in a milder form.
+
+There are only two escapes, and one is bad:
+
+- **Let everyone eventually max every track at their Mark.** True normalization,
+  but then "pick a direction for your rig" is a delay before convergence rather
+  than a choice, and the FTL feel is gone.
+- **Budget the total.** Keeps normalization *and* build diversity, which
+  otherwise look like they're in tension.
+
+### How it works
+
+`MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so six
+tracks fully maxed is **660 points**. The Mark sets how many of those you get.
+First-pass: Mark 1 ≈ 66 (one track to tier 2, or three opened at tier 1), scaling
+to 660 at Mark 10 — the arc from "you can afford one system" to "you can afford
+everything" *is* the ladder, which is FTL's own shape. One number per Mark, no
+second cap to reason about.
+
+What it buys:
+
+- **Every rig at Mark N has identical total power.** Real normalization.
+- **Builds stay genuinely different**, because the budget forces the choice.
+- **Contracts still matter enormously** — they unlock which tracks, tiers,
+  materials and rigs *exist* to spend on. Unlimited buys breadth of options and
+  speed of access, never total power.
+- **The loadout is respec-able before each Deep Run attempt** — the "choose your
+  ship layout" beat, and a natural UI moment.
 
 Stated in the product's own words, and worth saying out loud in the UI: **you
 can pay to progress faster, never to rank higher.**
 
-The rule also solves a design problem for free. Once a player caps their rig for
-the current Mark, further Contract income has nowhere to go — which is exactly
-the pressure that sends it into *other rigs*.
+### It layers over the existing refit stops
+
+The budget sets your **starting** tiers. In-run scrap still buys tiers at the
+refit stops after bays 3/6/9 exactly as `ECONOMY.md` describes, and the Mark sets
+where that can top out. Permanent loadout plus in-run improvisation is more FTL
+than either alone, and none of the tuning already done is wasted.
+
+### Calibrating a Mark
+
+The difficulty of Mark N is set against the budget, and the criterion is
+testable rather than felt:
+
+> A rig built with the **full** Mark-N budget, played at the **sim bot's**
+> competence, should fall **just short** of the Mark N target. The gap is what
+> skill fills.
+
+Both failure modes are then measurable: if a full-budget rig can't clear it
+however well played, the Mark is impossible; if it clears while played badly, the
+Mark is free. `sim/sweep.ts` already sweeps bays × bots × mods, so it can measure
+this directly — which means the harness does triple duty: balance sweeps,
+Contract fairness gate, and Mark calibration.
 
 ## Rigs as FTL ships
 
@@ -97,8 +160,9 @@ Twin-Press earns its place by turning a hazard into a playable identity, which i
 how a small mechanic set stretches a long way.
 
 Rigs are bought with the permanent currency and each carries its own tier
-progress. The ceiling rule applies per rig, so a second rig starts from scratch
-and is a genuine investment rather than a free power spike.
+progress. The build budget is shared, but each rig's unlocked tracks are its
+own, so a second rig starts sparse and is a genuine investment rather than a free
+power spike.
 
 ## The Mark ladder
 
@@ -110,7 +174,7 @@ A Mark is a difficulty tier of Deep Run *and* a content gate. Each one:
 2. **Unlocks the next Contract tier.**
 3. **Adds one material or hazard to both content pools.** An option, never a
    stat — the constraint `meta.ts` already commits to, extended to the ladder.
-4. **Raises Deep Run's base difficulty *and* the rig ceiling together.**
+4. **Raises Deep Run's base difficulty *and* the build budget together.**
 
 Point 4 is what keeps the ladder honest: a Mark raises the floor and the bar at
 once, so a Mark 9 player isn't posting inflated numbers, they're playing a harder
@@ -138,16 +202,21 @@ Add a name generator past index 9 and Deep Run runs endless past bay 10, which i
 what a score board actually needs — unbounded headroom so the top of each Mark's
 board is a skill expression rather than a completion checkmark.
 
-## Strokes: the third constraint
+## Strokes: the constraint Contracts run on
 
-Tetrilaunch constrains funds and time. Candy Crush's real engine is
+Deep Run constrains funds and time. Candy Crush's real engine is
 **moves-limited** puzzles, and the native translation here is a **compactor
 stroke budget** — "clear this in 6 strokes."
 
-It's worth adding for three reasons: it's readable at a glance in a way a
-countdown isn't, it makes tightly-specified short puzzles possible at all, and it
-is a constraint on *the compactor*, which is the system that most needs to
-become something the player thinks about.
+In Contracts this is not one constraint among several, it is *the* constraint:
+with the clock and the bankroll both removed, a stroke budget is the only thing
+standing between a Contract and being brute-forced by volume. That makes it a
+prerequisite for Contracts existing at all, not a later refinement.
+
+It earns its place on merit too: it's readable at a glance in a way a countdown
+isn't, it makes tightly-specified short puzzles possible, and it is a constraint
+on *the compactor* — the system that most needs to become something the player
+thinks about.
 
 ## Materials — the content engine
 
@@ -215,8 +284,8 @@ One subscription, **Tetrilaunch Unlimited**. The entitlement identifier is
 `app/src/lib/purchases.ts` — it must match the dashboard byte for byte).
 
 **What it buys:** the daily Contract cap lifted, Contracts on demand, cosmetics,
-run history, cloud save. **What it never buys:** rig ceilings, Marks, leaderboard
-position, or anything usable in Deep Run.
+run history, cloud save. **What it never buys:** build budget, Marks,
+leaderboard position, or anything usable in Deep Run.
 
 ### The daily cap, designed not to feel like lives
 
@@ -254,18 +323,22 @@ one (Sign in with Apple being the low-friction route); and offline play needs
 awards queued under the run id as an idempotency key, with spends blocked while
 disconnected.
 
-Worth noting the ceiling rule makes selling salvage *safe* if it ever happens — a
-bundle can only accelerate a player toward the Mark N ceiling, never past it, so
-it is identical in effect to selling Contract throughput.
+Worth noting the budget rule makes selling salvage *safe* if it ever happens — a
+bundle can only accelerate a player toward options they can already afford to
+install, never past the Mark N budget, so it is identical in effect to selling
+Contract throughput.
 
 ## Build order
 
-1. **Mark ladder + rig tier ceilings.** The spine — Contracts and monetization
-   both hang off it, it's mostly `run.ts`/`meta.ts`, and it's testable headlessly.
-2. **Contract generator + sim validation**, together.
-3. **Materials**, starting with slag and cryo.
-4. **Rigs** beyond the Standard Hauler.
-5. **Daily seed + per-Contract boards** on the existing Worker.
+1. **Mark ladder + build budget.** The spine — Contracts and monetization both
+   hang off it, it's mostly `run.ts`/`meta.ts`/`upgrades.ts`, and it's testable
+   headlessly. Ships with the sim calibration check above.
+2. **Stroke budgets.** Load-bearing for Contracts, and the first real mechanic
+   the compactor itself gets.
+3. **Contract generator + sim validation**, together.
+4. **Materials**, starting with slag and cryo.
+5. **Rigs** beyond the Standard Hauler.
+6. **Daily seed + per-Contract boards** on the existing Worker.
 
 ## Scope for Shipaton
 
@@ -279,14 +352,25 @@ daily cap · one alternate rig.
 Everything else here is post-hackathon runway — which is worth having written
 down when judges ask where it goes next.
 
+## Settled
+
+- **You fly the rig you built.** Deep Run does not hand out a normalized loadout.
+  The build budget is what makes that fair — normalization comes from everyone at
+  a Mark having the same points to spend, not from the run overwriting your
+  choices. Contracts would be pointless otherwise.
+- **Contracts have no clock and no bankroll.** Strokes are the constraint.
+
 ## Open questions
 
 - **How many Marks?** Ten is a placeholder that rhymes with the ten bays. The
   real answer depends on how long a Mark takes to beat, which needs playtesting.
-- **Does Deep Run reset the rig, or fly the one you built?** The doc assumes you
-  fly what you built. The alternative — Deep Run normalizes every rig to the Mark
-  ceiling — makes the board even purer but makes Contracts feel pointless.
+- **How does the budget curve?** Linear 66/Mark to 660 is the first pass. A curve
+  that front-loads early Marks would make the first few feel snappier at the cost
+  of a flatter endgame.
 - **Contract currency: salvage, or a fourth currency?** Reusing salvage keeps the
   count at three; a separate one lets Contracts and Deep Run pay independently.
 - **What do the three daily Contracts refresh against** — wall-clock midnight, or
   24h from first completion? The former is fairer, the latter retains better.
+- **Does the budget respec freely, or cost something?** Free respec is the better
+  UI beat and encourages experimenting; a cost makes the choice weightier. Free
+  is the assumption until it proves too loose.
