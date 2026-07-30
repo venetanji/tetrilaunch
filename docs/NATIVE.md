@@ -16,22 +16,42 @@ must also hold in the browser — and a browser fix ships to native on the next
 
 | Piece | Status |
 |---|---|
-| `@capacitor/android`, `@capacitor/ios` platform packages | installed (devDeps) |
+| Capacitor **8.x** — `@capacitor/android`, `@capacitor/ios` platform packages | installed (devDeps) |
 | `capacitor.config.ts` — `androidScheme: https`, `contentInset: never`, scroll/zoom off | done |
 | Safe-area handling (notch / home indicator) | done — `lib/platform.ts` `applySafeAreaInsets()` → `game/layout.ts` |
 | Aspect-ratio layout solver (phone / tablet / ultrawide) | done — `game/layout.ts`, see below |
 | npm scripts (`android:open`, `android:apk`, `ios:open`, …) | done |
 | CI debug-APK build | done — `.github/workflows/android.yml` |
 | Landscape lock, haptics | already shipped (`@capacitor/screen-orientation`, `@capacitor/haptics`) |
+| In-app purchases | done — RevenueCat, native only (`src/lib/purchases.ts`, [docs/ios.md](ios.md)) |
+| iOS Xcode project, icons, `Info.plist` | **committed** at `app/ios/` — see [docs/ios.md](ios.md) |
 | **Signed release builds / store listings** | **not done — needs secrets, see below** |
 
-The generated `app/android/` and `app/ios/` directories are **gitignored on
-purpose**. They're derived artifacts: `npx cap add` regenerates them from
-`capacitor.config.ts` plus the installed plugins, so committing them means
-hand-maintaining native scaffolding that the CLI would otherwise own. The
-tradeoff is that any *manual* native edit (a custom `AndroidManifest.xml` entry,
-a Gradle tweak) would be lost — if that ever becomes necessary, commit the
-platform directory at that point and stop regenerating it.
+**`app/android/` is gitignored; `app/ios/` is committed.** They're treated
+differently on purpose. Android is still a pure derived artifact — `npx cap add
+android` regenerates it from `capacitor.config.ts` plus the installed plugins,
+and nothing in it is hand-edited, so CI rebuilding it from scratch every run is
+a feature (it proves `cap add` still works from a clean checkout).
+
+iOS crossed the line the moment it acquired manual edits the CLI doesn't own: a
+landscape-only, status-bar-hidden `Info.plist` with export-compliance declared,
+and a generated app-icon/launch-screen catalog. Regenerating that directory
+would throw all of it away, so it's committed and `cap sync` maintains only the
+parts it owns (`Package.swift`, the copied web assets — both gitignored inside
+`app/ios/.gitignore`).
+
+### Capacitor 8: SPM, not CocoaPods
+
+Capacitor 8 resolves iOS native dependencies through **Swift Package Manager**
+(`app/ios/App/CapApp-SPM/Package.swift`, rewritten by `cap sync`). Practical
+consequences, all of which invalidate older Capacitor instructions:
+
+- There is **no Podfile and no `pod install`**. CocoaPods is not required at all.
+- Open **`App.xcodeproj`** — the `.xcworkspace` that pods used to require no
+  longer exists.
+- The SPM packages point at `node_modules/` by relative path, so **`npm install`
+  must have run** before Xcode can resolve them.
+- The minimum deployment target is **iOS 15** (was 13 under Capacitor 6).
 
 ---
 
@@ -40,26 +60,34 @@ platform directory at that point and stop regenerating it.
 ```bash
 cd app
 npm install
-npm run build            # produces dist/ — cap sync copies this
+cp .env.example .env     # RevenueCat public SDK keys (optional — without them
+                         # the app runs fine and the store UI hides itself)
 
-npm run cap:add:android  # generates app/android/  (needs Android SDK)
-npm run cap:add:ios      # generates app/ios/      (needs macOS + Xcode)
+npm run cap:add:android  # generates app/android/  (needs the Android SDK)
+                         # iOS needs no equivalent — app/ios/ is committed
 ```
 
 ## Day-to-day
 
 ```bash
-npm run android:open     # build + sync + open in Android Studio
-npm run android:run      # build + sync + run on a connected device/emulator
-npm run android:apk      # build + sync + assembleDebug -> an installable APK
+npm run android:sync     # build + verify + sync
+npm run android:open     # …then open in Android Studio
+npm run android:run      # …then run on a connected device/emulator
+npm run android:apk      # …then assembleDebug -> an installable APK
 
-npm run ios:open         # build + sync + open in Xcode
-npm run ios:run          # build + sync + run on a simulator/device
+npm run ios:sync         # build + verify + copy into app/ios/
+npm run ios:open         # open App.xcodeproj (no build — sync first)
+npm run ios:run          # build + verify + sync + run on a simulator/device
 ```
 
-`npm run cap:sync` is `build && cap sync` — it rebuilds the web bundle *first*,
-which is the step that's easy to forget and produces the classic "my change
-isn't in the app" confusion.
+The `*:sync` scripts rebuild the web bundle *first*, which is the step that's
+easy to forget and produces the classic "my change isn't in the app" confusion.
+They also run `npm run verify:store`, which asserts the RevenueCat SDK actually
+survived into `dist/` — see [docs/ios.md](ios.md) for why a build can silently
+drop it.
+
+Adding or updating a Capacitor plugin means re-running `*:sync`: that's what
+rewrites `Package.swift` on iOS and the Gradle deps on Android.
 
 The debug APK lands at:
 
@@ -69,11 +97,13 @@ app/android/app/build/outputs/apk/debug/app-debug.apk
 
 ### Requirements
 
-- **Android**: JDK 17, Android SDK (platform 34+, build-tools 34+). Android
-  Studio installs all of it; CI installs it via `android-actions/setup-android`.
-- **iOS**: macOS, Xcode 15+, CocoaPods. There is no way around the macOS
-  requirement — an iOS build cannot be produced on Linux, which is why CI only
-  covers Android.
+- **Android**: **JDK 21** and the Android SDK (Capacitor 8 builds with AGP 8.13,
+  `compileSdk 36`, `minSdk 24`, and sets source/target compatibility to Java 21 —
+  JDK 17 will not build it). Android Studio installs all of it; CI installs it
+  via `android-actions/setup-android`.
+- **iOS**: macOS and **Xcode 16+**. No CocoaPods — see the SPM note above. There
+  is no way around the macOS requirement — an iOS build cannot be produced on
+  Linux, which is why CI only covers Android.
 
 ---
 
@@ -95,14 +125,23 @@ than half-implemented:
    `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` as repo secrets, then extend the
    workflow with a `assembleRelease` job that writes `android/keystore.properties`
    from them. Play requires an `.aab` (`bundleRelease`), not an APK.
-2. **iOS signing** — an Apple Developer account, an App Store Connect API key,
-   and a macOS runner. `fastlane match` or Xcode Cloud is the usual answer.
-3. **Icons and splash screens** — `app/public/icons/icon.svg` is currently the
-   only icon asset and it's an SVG; both stores want a raster set.
-   `@capacitor/assets` generates every size from one 1024×1024 PNG.
+2. **iOS signing** — done manually in Xcode today (automatic signing, pick your
+   team; the full walkthrough is in [docs/ios.md](ios.md)). Automating it needs
+   an App Store Connect API key and a macOS runner — `xcodebuild
+   -allowProvisioningUpdates`, Xcode Cloud, or `fastlane match`.
+3. **Icons and splash screens** — **done for iOS**: `app/resources/{icon,splash}.svg`
+   rasterise into the Xcode asset catalogs via `npm run assets:generate`
+   (`@capacitor/assets`). The same sources can feed Android by adding `--android`
+   to that script once `app/android/` exists.
 4. **Store metadata** — screenshots at each required device size, descriptions,
    content rating, privacy declaration. The app collects a player-entered name
-   for the leaderboard, which is a disclosable data collection on both stores.
+   for the leaderboard *and* now sells in-app purchases, both of which are
+   disclosable on either store; the worked-out App Privacy answers are in
+   [docs/ios.md](ios.md).
+5. **Release-build env** — `VITE_REVENUECAT_*` keys must be present in the
+   environment for any build you intend to ship, or the store quietly disables
+   itself. `verify:store` catches the SDK being dropped entirely, but it cannot
+   tell a missing key from a deliberate keyless build.
 
 ---
 
