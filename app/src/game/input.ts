@@ -110,6 +110,13 @@ export class InputController {
     if (!g || g.status !== "playing" || g.paused) return;
     const k = e.key.toLowerCase();
     this.keys.add(k);
+    // Aim/power (tickKeys below) WANT the held state, so the key is recorded
+    // above before this guard. The discrete actions must not repeat: OS key
+    // repeat delivers a keydown every ~30ms while held, which would rapid-fire
+    // the cannon at its cooldown rate and — worse — spend every Bond Breaker
+    // charge on one leaned-on B. In a Contract that empties the launch budget,
+    // which is the whole bay.
+    if (e.repeat) return;
     if (k === " " || e.code === "Space") {
       e.preventDefault();
       g.shoot(performance.now());
