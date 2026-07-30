@@ -1,4 +1,5 @@
 import { PIECE_TYPES } from "../game/theme";
+import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
@@ -51,7 +52,8 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
         </div>
       </div>
       <div class="menu__actions">
-        <button class="btn btn--primary btn--lg btn--block" data-action="play">▶ Play</button>
+        <button class="btn btn--primary btn--lg btn--block" data-action="play">▶ Deep Run</button>
+        <button class="btn btn--secondary btn--block" data-action="contracts">📋 Contracts</button>
         <button class="btn btn--secondary btn--block" data-action="workshop">⚙ Workshop</button>
         <button class="btn btn--secondary btn--block" data-action="howto">How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">Leaderboard</button>
@@ -251,10 +253,16 @@ export function hudHTML(opts: {
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
   tiers: UpgradeTiers;
+  /** Present only in CONTRACT mode. A Contract has no bankroll and no clock, so
+   *  the funds/launches readout would show $0 and 0 launches forever; this
+   *  swaps in the two numbers that actually govern it — lines toward the goal,
+   *  and press strokes left. */
+  contract?: { name: string; goal: number; lines: number; strokesLeft: number } | null;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, modIds, tiers,
+    contract,
   } = opts;
   const beltNextHTML = beltPreview.bomb
     ? beltBombHTML()
@@ -334,11 +342,24 @@ export function hudHTML(opts: {
       </div>
       <div class="plant__body">
         <div class="plant__hdr">
-          <div class="plant__title"><b>◊</b> Recycling Plant <span class="plant__bay">· Bay ${bayNum}/10</span></div>
+          <div class="plant__title"><b>◊</b> Recycling Plant <span class="plant__bay">· ${
+            contract ? contract.name : `Bay ${bayNum}/10`
+          }</span></div>
           <div class="plant__rivets"><i></i><i></i><i></i></div>
         </div>
         <div class="pl-read">
-          <div class="pl-funds">
+          ${
+            contract
+              ? `<div class="pl-funds">
+            <div class="lbl">Lines / Goal</div>
+            <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
+            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+          </div>
+          <div class="pl-stat pl-launches" id="hud-launches-chip">
+            <div class="lbl">Strokes</div>
+            <div class="v" id="hud-launches">${contract.strokesLeft}</div>
+          </div>`
+              : `<div class="pl-funds">
             <div class="lbl">Funds / Target</div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
@@ -346,7 +367,8 @@ export function hudHTML(opts: {
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">Launches</div>
             <div class="v" id="hud-launches">${launches}</div>
-          </div>
+          </div>`
+          }
           ${timeBlock}
         </div>
         <!-- Reload: fills as the launch cooldown runs down (see
@@ -673,7 +695,7 @@ export function draftScreen(opts: {
  * visual. Coin spread/delays are inline per-coin (a fixed multiplicative
  * scatter, no randomness) so the rain fills the screen from frame one.
  */
-function loseFxHTML(reason: "topout" | "broke" | "time"): string {
+function loseFxHTML(reason: LossReason): string {
   if (reason === "time") {
     return `<div class="lose-fx lose-fx--time" aria-hidden="true">
       <div class="lose-fx__vignette"></div>
@@ -712,7 +734,7 @@ export function endModal(opts: {
   name: string;
   rows: string;
   /** Why the run ended in a loss ("topout" keeps the classic path). Unused when won. */
-  reason?: "topout" | "broke" | "time" | null;
+  reason?: LossReason | null;
   /** 1-based bay the run reached (cleared, if won+runComplete; attempted, if lost). */
   bayNum: number;
   bayName: string;
@@ -737,7 +759,9 @@ export function endModal(opts: {
         ? "Out of funds — the bay stays unpaid"
         : opts.reason === "time"
           ? "Time's up — the bay went dark"
-          : "The compactor won this round";
+          : opts.reason === "strokes"
+            ? "Out of strokes — the press is done"
+            : "The compactor won this round";
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
   return `<div class="modal-scrim" id="scrim">
     ${loseFx}
@@ -779,6 +803,89 @@ export function endModal(opts: {
         <button class="btn btn--primary" data-action="restart">Play Again</button>
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
+    </div>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * CONTRACTS — the generated, retryable half (see game/contracts.ts).
+ * ------------------------------------------------------------------------ */
+
+/** The day's Contract board. Failure costs nothing here, so the copy leans on
+ *  "pick one and try it" rather than warning the player about anything. */
+export function contractsScreen(opts: {
+  contracts: ContractCard[];
+  tier: number;
+  /** ids already cleared today — shown as a tick rather than hidden, so the
+   *  board reads as progress rather than a shrinking list. */
+  cleared: string[];
+}): string {
+  const cards = opts.contracts
+    .map((c, i) => {
+      const done = opts.cleared.includes(c.id);
+      return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
+        <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
+        <b>${c.name}</b>
+        <p><b>${c.goal}</b> lines in <b>${c.strokes}</b> strokes</p>
+        <p class="muted" style="font-size:12px">${c.brief}</p>
+      </button>`;
+    })
+    .join("");
+  return `<div class="screen neon-backdrop">
+    <div class="howto">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
+          <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
+        </div>
+        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+      </div>
+      <p class="muted" style="margin:0">
+        No clock, no launch costs — the press is the only budget. Fail as many
+        times as you like; nothing is lost.
+      </p>
+      <div class="howto__grid">${cards}</div>
+    </div>
+  </div>`;
+}
+
+/** Just the fields the board needs, so screens.ts doesn't import the generator. */
+export interface ContractCard {
+  id: string;
+  name: string;
+  goal: number;
+  strokes: number;
+  brief: string;
+}
+
+/** End-of-Contract modal. Deliberately lighter than endModal: there is no run
+ *  to have lost, so the only choices are retry or go back. */
+export function contractEndModal(opts: {
+  won: boolean;
+  name: string;
+  lines: number;
+  goal: number;
+  strokesUsed: number;
+  strokes: number;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal pop" style="width:min(460px,94vw)">
+      <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">
+        ${opts.won ? "Contract complete" : "Out of strokes"}
+      </div>
+      <h2 class="display" style="font-size:var(--fs-h1)">${opts.name}</h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
+        <div class="chip" style="flex-direction:row;gap:10px">
+          <div class="chip__label">Lines</div>
+          <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
+        </div>
+        <div class="chip" style="flex-direction:row;gap:10px">
+          <div class="chip__label">Strokes</div>
+          <div class="chip__value" style="color:var(--warn)">${opts.strokesUsed}/${opts.strokes}</div>
+        </div>
+      </div>
+      <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
+      <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
     </div>
   </div>`;
 }

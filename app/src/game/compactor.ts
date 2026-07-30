@@ -19,6 +19,12 @@ export class Compactor {
   speed: number;
   /** +1 = advancing right (applying pressure), -1 = retreating left. */
   dir: 1 | -1 = 1;
+  /** Completed PRESS strokes — incremented when the bar reaches its full
+   *  advance, i.e. once per crushing pass. This is the unit a Contract is
+   *  budgeted in (level.ts's strokeBudget): counting presses rather than round
+   *  trips means the count ticks at the moment the player can see something
+   *  happen, which is what makes "3 strokes left" readable. */
+  strokes = 0;
   /** Body-center X at the open/left stop (zone = compactorOpenCells). */
   readonly leftX: number;
   /** Body-center X at the full-advance/right stop (zone = compactorMinLineCells). */
@@ -64,6 +70,10 @@ export class Compactor {
     let x = this.body.position.x + this.speed * this.dir;
     if (x >= this.rightX) {
       x = this.rightX;
+      // Count the press only on the step it actually completes — the bar sits
+      // pinned at rightX for one step before reversing, and dir is still +1
+      // here, so this fires exactly once per stroke.
+      if (this.dir === 1) this.strokes += 1;
       this.dir = -1;
     } else if (x <= this.leftX) {
       x = this.leftX;
@@ -74,6 +84,7 @@ export class Compactor {
 
   reset(): void {
     this.dir = 1;
+    this.strokes = 0;
     Matter.Body.setPosition(this.body, { x: this.leftX, y: this.yCenter });
   }
 }

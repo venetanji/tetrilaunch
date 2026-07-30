@@ -57,6 +57,33 @@ So the division is: **Contracts test placement, Deep Run tests placement under
 pressure.** Contracts are where a new material is safe to learn; Deep Run is
 where you have to use it quickly.
 
+### Playtest findings (Android build, first sitting)
+
+Two results from actually playing it, both of which change what's written above.
+
+**MAGAZINE is a combo track, not a standalone one.** It only pays off alongside
+the Autoloader and cheap launches — i.e. it is the *no-aim* build's tempo, not a
+general upgrade. That reframes the sim result rather than contradicting it: the
+bots fire a fixed arc on cooldown, which makes them a fair model of the spray
+build, and what they showed is that **spray currently goes broke**. Sim and human
+agree. So the earlier decision to exclude MAGAZINE from calibration as a bot
+artefact was wrong in its reasoning — the right reading is that the strategy is
+economically non-viable at present launch costs, and its cost structure is the
+thing to fix.
+
+It also means the aim-time metric in `lib/telemetry.ts` will be **bimodal** for
+any player who switches between aiming and spraying. A single median smears the
+two together and hides exactly the distinction that matters.
+
+**The 2-cube (micro) payload is tedious.** Not merely weak — unfun to play. That
+is a problem no balance number will reach, and it undercuts the Autoloader
+endgame described in `ECONOMY.md`, since that endgame is built on micro. Either
+micro needs a reason to be interesting at the moment of firing, or the spray
+build needs a different payload to live on.
+
+Both point the same way: **the no-aim build is the one that needs design work**,
+and it is the build the Contracts half is least able to teach.
+
 ### What Contracts cannot teach
 
 Two of the six tracks are invisible without a clock and a bankroll:

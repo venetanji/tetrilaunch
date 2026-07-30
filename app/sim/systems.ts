@@ -25,6 +25,7 @@ import {
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
+import { dailyContracts, levelForContract, DAILY_COUNT } from "../src/game/contracts";
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
@@ -229,6 +230,70 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   const source = { ...newTiers(), bay: 1 };
   newRun(1, [], 0, source, 2).tiers.bay = 3;
   check("newRun copies the loadout rather than aliasing it", source.bay === 1);
+}
+
+// ---------------------------------------------------------------------------
+section("Contracts (contracts.ts)");
+// ---------------------------------------------------------------------------
+{
+  // A daily set must regenerate identically or a per-Contract board is
+  // meaningless — every player has to be playing the same bay.
+  check(
+    "the same day regenerates identically",
+    JSON.stringify(dailyContracts(3, 20260730)) === JSON.stringify(dailyContracts(3, 20260730)),
+  );
+  check(
+    "a different day differs",
+    JSON.stringify(dailyContracts(3, 20260730)) !== JSON.stringify(dailyContracts(3, 20260731)),
+  );
+  check("a day offers DAILY_COUNT contracts", dailyContracts(1).length === DAILY_COUNT);
+
+  // The single worst thing this generator could emit is an impossible
+  // Contract, so the stroke budget is derived from the goal rather than rolled.
+  let everImpossible = false;
+  let everNegativeWind = false;
+  let tierOneTooWindy = false;
+  for (let tier = 1; tier <= 12; tier++) {
+    for (let seed = 20260101; seed < 20260101 + 40; seed++) {
+      for (const c of dailyContracts(tier, seed)) {
+        if (c.strokes < c.goal) everImpossible = true;
+        if (c.windMax < 0) everNegativeWind = true;
+        if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
+      }
+    }
+  }
+  check("no contract ever asks for more lines than strokes", !everImpossible);
+  check("wind is never negative", !everNegativeWind);
+  // Tier 1 drawing bay-8 weather is the "unfair and you saw it coming" failure
+  // the wind rework existed to remove.
+  check("tier 1 stays gentle", !tierOneTooWindy);
+
+  // The day's three must be three different problems, not three rolls of one
+  // die — that's the difference between a curated board and a shuffle.
+  const day = dailyContracts(4, 20260730);
+  check(
+    "the day's contracts differ from each other",
+    new Set(day.map((c) => `${c.pieceSize}|${c.windMax > 0}|${c.strokes}|${c.goal}`)).size > 1,
+  );
+  check("names within a day are distinct", new Set(day.map((c) => c.name)).size === day.length);
+
+  // Contracts carry NEITHER of Deep Run's pressures. If either leaks in, the
+  // mode silently stops being the relaxed half.
+  for (const c of dailyContracts(5, 20260730)) {
+    const cfg = levelForContract(c);
+    check(`${c.name}: no launch cost`, cfg.launchCost === 0);
+    check(`${c.name}: no clock`, cfg.timeLimitSec === 0);
+    check(`${c.name}: stroke budget set`, cfg.strokeBudget === c.strokes && cfg.strokeBudget > 0);
+    check(`${c.name}: line objective set`, cfg.objectiveLines === c.goal);
+    // A funds target of 0 would win the bay on frame one; it must be
+    // unreachable so the objective is the only thing that can end it.
+    check(`${c.name}: funds target unreachable`, cfg.targetScore > 1e9);
+  }
+
+  // Deep Run must be untouched by any of this.
+  const deep = makeBaseLevel(0);
+  check("Deep Run bays have no stroke budget", deep.strokeBudget === 0);
+  check("Deep Run bays win on funds", deep.objectiveLines === 0);
 }
 
 // ---------------------------------------------------------------------------

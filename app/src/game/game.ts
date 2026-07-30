@@ -26,6 +26,10 @@ const DT = 1000 / 60;
 
 export type GameStatus = "playing" | "won" | "lost";
 
+/** Why a bay ended badly. "strokes" is Contract-only — the press budget ran
+ *  out (see level.ts's strokeBudget); the other three are Deep Run's. */
+export type LossReason = "topout" | "broke" | "time" | "strokes";
+
 /** Everything worth knowing about one launch, for playtest telemetry
  *  (lib/telemetry.ts). `wait` is the load-bearing field: ms spent between the
  *  cannon becoming ready and the player actually firing, i.e. aim time. The sim
@@ -184,7 +188,7 @@ export class Game {
   lostTotal = 0;
   status: GameStatus = "playing";
   /** Which condition triggered a "lost" status, for end-of-run copy. */
-  lossReason: "topout" | "broke" | "time" | null = null;
+  lossReason: LossReason | null = null;
   aiming = false;
   paused = false;
 
@@ -264,6 +268,29 @@ export class Game {
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
    *  (update doesn't run while paused). */
   private stepCount = 0;
+
+  /** Press strokes still available, or Infinity when this bay isn't budgeted
+   *  (every Deep Run bay — see level.ts's strokeBudget). */
+  get strokesLeft(): number {
+    if (this.level.strokeBudget <= 0) return Infinity;
+    return Math.max(0, this.level.strokeBudget - this.compactor.strokes);
+  }
+
+  /** This bay's win condition, met. A CONTRACT is won on lines cleared; a Deep
+   *  Run bay on funds banked. Kept as one accessor so update() has a single
+   *  win test rather than a mode branch buried in the resolution ladder. */
+  get objectiveMet(): boolean {
+    if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
+    return this.score >= this.target;
+  }
+
+  /** 0..1 progress toward whichever objective this bay is running, for the HUD. */
+  get objectiveProgress(): number {
+    if (this.level.objectiveLines > 0) {
+      return Math.min(1, this.linesTotal / this.level.objectiveLines);
+    }
+    return this.target > 0 ? Math.min(1, this.score / this.target) : 0;
+  }
 
   /** ms elapsed in this bay, counted in physics steps rather than wall clock so
    *  it is pause-safe by construction (update() doesn't run while paused). The
@@ -730,7 +757,7 @@ export class Game {
     // window can no longer be LOST either (resolveWin's early return), because
     // the money is already banked; the only thing left to determine is when the
     // dust stops.
-    if (this.score >= this.target || this.winPendingStep !== null) {
+    if (this.objectiveMet || this.winPendingStep !== null) {
       if (this.winPendingStep === null) {
         this.winPendingStep = this.stepCount;
         this.events.onSettleStart?.();
@@ -744,6 +771,13 @@ export class Game {
       this.stepCount - this.brokeSinceStep > this.brokeGraceSteps
     ) {
       this.lossReason = "broke";
+      this.setStatus("lost");
+    } else if (this.strokesLeft <= 0) {
+      // Budget spent. Checked after the win test above, so the very stroke that
+      // completes the objective still counts as a clear rather than a loss —
+      // the press that finishes the job is the one that would exhaust the
+      // budget, and losing on it would read as a bug to the player.
+      this.lossReason = "strokes";
       this.setStatus("lost");
     } else if (this.timeLeftMs <= 0) {
       // Overtime — not an instant loss: launches already paid for get to
