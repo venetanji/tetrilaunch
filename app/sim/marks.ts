@@ -77,17 +77,34 @@ function spread(order: UpgradeId[], budget: number): UpgradeTiers {
   return tiers;
 }
 
+/**
+ * MAGAZINE is excluded from every build here, and that needs justifying.
+ *
+ * The bots fire whenever the cooldown allows, so a shorter cooldown just makes
+ * them spend faster. Measured on bay 5 at Mark 1 over 4 seeds: a stock rig wins
+ * 3/4, a full 660-point rig wins 0/4, and dropping ONLY magazine from that full
+ * rig restores it to 3/4. The full rig even clears more lines (8.8 vs 6.5) — it
+ * goes broke anyway, because spraying onto a pile that hasn't settled costs more
+ * shots per line. A human spends tempo selectively and gains from it; the bot
+ * cannot, so for this harness the track reads as a self-inflicted wound.
+ *
+ * Consequence for anything measured here: these builds top out at 550 of the
+ * 660-point ladder, so a Mark's difficulty is being judged against a rig missing
+ * one track. That biases the result toward "too hard" — a human who spends
+ * tempo well will find a calibrated Mark easier than the number suggests.
+ * MAGAZINE's real value needs human playtesting; the sim cannot see it.
+ */
+const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher", "bonds"];
+
 const ARCHETYPES: Record<string, (budget: number) => UpgradeTiers> = {
-  // The economy build: buy the target, then the tempo to reach it.
-  economy: (b) => focused(["reactor", "magazine", "hydraulics", "bay", "launcher", "bonds"], b),
+  // The economy build: buy the rate, then the press that realises it.
+  economy: (b) => focused(["reactor", "hydraulics", "bay", "launcher", "bonds"], b),
   // The spatial build: more room to land in, and a press that squares it up.
-  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher", "magazine", "bonds"], b),
+  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher", "bonds"], b),
   // The power build: reach the back of the bay and fight the weather.
-  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay", "magazine", "bonds"], b),
-  // The tempo build: shots per minute over shot quality.
-  tempo: (b) => focused(["magazine", "reactor", "hydraulics", "bay", "launcher", "bonds"], b),
+  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay", "bonds"], b),
   // A little of everything — the instinctive first spend.
-  spread: (b) => spread(["bay", "launcher", "hydraulics", "magazine", "reactor", "bonds"], b),
+  spread: (b) => spread(CALIBRATION_TRACKS, b),
 };
 
 // ---------------------------------------------------------------------------
