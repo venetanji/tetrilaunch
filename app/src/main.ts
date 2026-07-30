@@ -11,6 +11,7 @@ import {
   markUnlocked, safeLoadout, salvageForRun, unlockAvailable, unlockById, type MetaState,
 } from "./game/meta";
 import { render } from "./game/render";
+import * as telemetry from "./lib/telemetry";
 import { computeLayout } from "./game/layout";
 
 import { InputController } from "./game/input";
@@ -132,6 +133,24 @@ class App {
     // draft/end screens directly (pick-mod/skip-mod/restart etc.) without
     // having to play a full bay every time. Stripped from production builds.
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__tl = this;
+
+    // Playtest recorder console handle. Deliberately NOT DEV-gated: a playtest
+    // sitting should be possible against a preview or production build, since
+    // that's what a player actually experiences. Recording still has to be
+    // switched on by hand and nothing ever leaves the device — see
+    // lib/telemetry.ts's privacy note.
+    (window as unknown as Record<string, unknown>).__playtest = {
+      on: (label?: string) => {
+        telemetry.enable(true);
+        if (label) telemetry.setLabel(label);
+        return "recording ON — play some runs, then __playtest.download()";
+      },
+      off: () => { telemetry.enable(false); return "recording OFF"; },
+      status: () => ({ recording: telemetry.recording(), ...telemetry.summary() }),
+      download: () => telemetry.download(),
+      json: () => telemetry.exportJSON(),
+      clear: () => { telemetry.clear(); return "cleared"; },
+    };
   }
 
   private destroy(): void {
@@ -365,6 +384,7 @@ class App {
     );
     this.submitted = false;
     this.lastSalvage = 0;
+    telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
     this.startLevel();
   }
 
@@ -375,14 +395,31 @@ class App {
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
-    this.game = new Game(levelForRun(this.run), {
-      onShoot: () => { void tapHaptic(); this.dismissDragHint(); },
-      onLineClear: () => { void successHaptic(); this.flashGoal(); },
+    const cfg = levelForRun(this.run);
+    this.game = new Game(cfg, {
+      onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
+      onLineClear: (n) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+        void successHaptic(); this.flashGoal();
+      },
       onPieceLost: () => { void impactHaptic(); },
-      onBondBreak: () => { void impactHaptic(); },
+      onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
       onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
+    telemetry.startBay({
+      bay: this.run.levelIndex + 1,
+      mark: this.run.mark,
+      seed: this.run.seed,
+      target: cfg.targetScore,
+      timeLimitSec: cfg.timeLimitSec,
+      cooldownMs: cfg.cooldownMs,
+      launchCost: cfg.launchCost,
+      scorePerLine: cfg.scorePerLine,
+      tiers: this.run.tiers,
+      mods: this.run.modIds,
+      pieceSize: cfg.pieceSize,
+    });
     this.setState("playing");
     this.armDragHint();
   }
@@ -424,6 +461,16 @@ class App {
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
     if (!g || !this.run) return;
+    if (s === "won" || s === "lost") {
+      telemetry.endBay({
+        result: s,
+        reason: g.lossReason,
+        secs: g.elapsedMs / 1000,
+        lines: g.linesTotal,
+        lostPieces: g.lostTotal,
+        endScore: g.score,
+      });
+    }
     if (s === "won") {
       void successHaptic();
       this.showSettleNote(false);
@@ -508,6 +555,7 @@ class App {
       bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
       mark: markBeaten,
     };
+    telemetry.endRun(won, this.lastSalvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
     this.refreshBoard();
@@ -525,6 +573,7 @@ class App {
     if (cost === null) return;
     const next = buyUpgrade(this.run, id as UpgradeId, cost, MAX_TIER);
     if (!next) return;
+    telemetry.refit(this.run.levelIndex + 1, this.run.scrap, id);
     this.run = next;
     void successHaptic();
     this.refreshRefit();
@@ -642,6 +691,7 @@ class App {
       this.acc += dt;
       while (this.acc >= STEP) {
         g.update(now);
+        telemetry.sampleFunds(g.score, g.elapsedMs);
         this.acc -= STEP;
       }
       this.syncHud(g);
@@ -840,7 +890,7 @@ class App {
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
-    else if (a === "demo") { if (g.armBomb()) void tapHaptic(); }
+    else if (a === "demo") { if (g.armBomb()) { telemetry.ability("bomb-arm", g.elapsedMs); void tapHaptic(); } }
     else if (a === "cancel") this.input.cancelAim();
   }
 

@@ -20,15 +20,35 @@ import {
 import type { LevelConfig } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
-import type { PieceType } from "./theme";
+import type { PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
 export type GameStatus = "playing" | "won" | "lost";
 
+/** Everything worth knowing about one launch, for playtest telemetry
+ *  (lib/telemetry.ts). `wait` is the load-bearing field: ms spent between the
+ *  cannon becoming ready and the player actually firing, i.e. aim time. The sim
+ *  bots fire the instant the cooldown clears, so theirs is always 0 — this is
+ *  the measurement that tells us whether a human is cooldown-bound at all. */
+export interface ShotInfo {
+  /** ms since this bay began, on the pause-safe physics clock. */
+  t: number;
+  /** Aim time in ms, or null for a bay's first shot (nothing to measure from). */
+  wait: number | null;
+  angle: number;
+  power: number;
+  type: PieceType;
+  size: PieceSize;
+  rot: number;
+  /** Funds BEFORE the launch cost is deducted. */
+  funds: number;
+  bomb: boolean;
+}
+
 export interface GameEvents {
   onLineClear?: (lines: number) => void;
-  onShoot?: () => void;
+  onShoot?: (info: ShotInfo) => void;
   onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
   /** Fired when the Bond Breaker ability successfully discharges (see
@@ -244,6 +264,13 @@ export class Game {
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
    *  (update doesn't run while paused). */
   private stepCount = 0;
+
+  /** ms elapsed in this bay, counted in physics steps rather than wall clock so
+   *  it is pause-safe by construction (update() doesn't run while paused). The
+   *  timeline every telemetry record is stamped against. */
+  get elapsedMs(): number {
+    return this.stepCount * DT;
+  }
   private liveBombs: Bomb[] = [];
   private pendingDetonations = new Set<Matter.Body>();
   private readonly onCollisionStart: (e: Matter.IEventCollision<Matter.Engine>) => void;
@@ -505,6 +532,22 @@ export class Game {
     const firingBomb = this.bombArmed && this.bombCharges > 0;
     if (!firingBomb && this.score < this.level.launchCost) return false;
 
+    // Captured BEFORE markShot/markCooldown move the cannon's clock forward.
+    // lastShot starts at a large negative sentinel, so a bay's first shot has
+    // no meaningful ready time and reports null rather than a nonsense wait.
+    const readyAt = this.cannon.readyAt();
+    const shot: ShotInfo = {
+      t: this.elapsedMs,
+      wait: readyAt > 0 ? Math.max(0, now - readyAt) : null,
+      angle: this.cannon.angle,
+      power: this.cannon.power,
+      type: this.cannon.currentType,
+      size: this.level.pieceSize,
+      rot: this.cannon.pieceRotation,
+      funds: this.score,
+      bomb: firingBomb,
+    };
+
     this.shotsFired += 1;
 
     if (firingBomb) {
@@ -531,7 +574,7 @@ export class Game {
       this.cannon.markShot(now);
     }
 
-    this.events.onShoot?.();
+    this.events.onShoot?.(shot);
     this.updateTrajectory();
     return true;
   }

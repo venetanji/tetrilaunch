@@ -108,6 +108,17 @@ export class Cannon {
   canShoot(now: number): boolean {
     return now - this.lastShot >= this.cooldownMs;
   }
+
+  /** The moment this cannon became (or becomes) able to fire again. Exposed for
+   *  telemetry: firing time minus this is how long the player spent AIMING
+   *  rather than reloading, which is the one number separating a human from the
+   *  sim bots — the bots fire the instant the cooldown clears, so for them it is
+   *  always 0 and MAGAZINE reads as pure throughput. If a human's aim time
+   *  routinely exceeds the cooldown, the cooldown never binds and the track is
+   *  worth nothing to them either. See lib/telemetry.ts. */
+  readyAt(): number {
+    return this.lastShot + this.cooldownMs;
+  }
   cooldownRemaining(now: number): number {
     return Math.max(0, this.cooldownMs - (now - this.lastShot));
   }
