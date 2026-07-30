@@ -47,7 +47,7 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
           </div>
-          ${store?.pro ? proBadgeHTML() : ""}
+          ${store?.unlimited ? unlimitedBadgeHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
@@ -56,8 +56,8 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
         <button class="btn btn--secondary btn--block" data-action="howto">How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">Leaderboard</button>
         ${
-          store?.available && !store.pro
-            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Pro</button>`
+          store?.available && !store.unlimited
+            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Unlimited</button>`
             : ""
         }
         <button class="btn btn--ghost btn--block" data-action="settings">Settings</button>
@@ -70,13 +70,13 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
 export interface StoreState {
   /** SDK configured — i.e. native build with a key. */
   available: boolean;
-  /** The `pro` entitlement is active. */
-  pro: boolean;
+  /** The `unlimited` entitlement is active. */
+  unlimited: boolean;
 }
 
-function proBadgeHTML(): string {
-  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:140px">
-    <div class="chip__value" style="color:var(--warn, #ffe500)">★ PRO</div>
+function unlimitedBadgeHTML(): string {
+  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:190px">
+    <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
   </div>`;
 }
 
@@ -141,9 +141,9 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
 function purchaseRowsHTML(store: StoreState): string {
   return `<div style="display:flex;gap:8px;flex-wrap:wrap">
     ${
-      store.pro
+      store.unlimited
         ? `<button class="btn btn--secondary" style="flex:1" data-action="customer-center">Manage Subscription</button>`
-        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Pro</button>`
+        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Unlimited</button>`
     }
     <button class="btn btn--ghost" style="flex:1" data-action="restore" id="restore-btn">Restore Purchases</button>
   </div>`;

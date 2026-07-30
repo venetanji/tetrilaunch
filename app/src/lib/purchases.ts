@@ -9,8 +9,13 @@ import type { CustomerInfo } from "@revenuecat/purchases-capacitor";
 import { isNative } from "./platform";
 
 /** Entitlement identifier as configured in the RevenueCat dashboard. Whatever
- *  products/offerings are attached to it, the app only ever asks "is it on?". */
-export const PRO_ENTITLEMENT = "pro";
+ *  products/offerings are attached to it, the app only ever asks "is it on?".
+ *
+ *  Must match the dashboard **byte for byte** — spaces and capitals included.
+ *  A mismatch fails silently in the worst possible way: the purchase succeeds,
+ *  the receipt validates, and `entitlements.active[…]` is simply undefined, so
+ *  the player is charged and nothing unlocks. */
+export const UNLIMITED_ENTITLEMENT = "Tetrilaunch Unlimited";
 
 /** Publishable SDK keys (`appl_…` / `goog_…`). These are *public* by design —
  *  RevenueCat's secret keys are the ones that never leave a server — but they
@@ -20,11 +25,11 @@ const KEYS = {
   android: import.meta.env.VITE_REVENUECAT_ANDROID_KEY as string | undefined,
 };
 
-type ProListener = (pro: boolean) => void;
+type UnlimitedListener = (unlimited: boolean) => void;
 
 let ready = false;
-let pro = false;
-const listeners = new Set<ProListener>();
+let unlimited = false;
+const listeners = new Set<UnlimitedListener>();
 
 /**
  * Load (once) every module the store needs.
@@ -52,14 +57,14 @@ function sdk(): ReturnType<typeof loadSdk> {
   return (sdkPromise ??= loadSdk());
 }
 
-function setPro(next: boolean): void {
-  if (next === pro) return;
-  pro = next;
+function setUnlimited(next: boolean): void {
+  if (next === unlimited) return;
+  unlimited = next;
   for (const l of listeners) l(next);
 }
 
-function readPro(info: CustomerInfo): boolean {
-  return info.entitlements.active[PRO_ENTITLEMENT] !== undefined;
+function readUnlimited(info: CustomerInfo): boolean {
+  return info.entitlements.active[UNLIMITED_ENTITLEMENT] !== undefined;
 }
 
 /** True once configure() has succeeded — i.e. we're native and a key was
@@ -68,13 +73,13 @@ export function purchasesReady(): boolean {
   return ready;
 }
 
-export function isPro(): boolean {
-  return pro;
+export function isUnlimited(): boolean {
+  return unlimited;
 }
 
 /** Subscribe to entitlement changes (purchase, restore, expiry, or a renewal
  *  RevenueCat pushes down). Returns an unsubscribe. */
-export function onProChange(fn: ProListener): () => void {
+export function onUnlimitedChange(fn: UnlimitedListener): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
@@ -98,9 +103,9 @@ export async function initPurchases(): Promise<void> {
     ready = true;
     // Renewals, expiries and purchases made on another device arrive on this
     // listener, so nothing polls.
-    await Purchases.addCustomerInfoUpdateListener((info) => setPro(readPro(info)));
+    await Purchases.addCustomerInfoUpdateListener((info) => setUnlimited(readUnlimited(info)));
     const { customerInfo } = await Purchases.getCustomerInfo();
-    setPro(readPro(customerInfo));
+    setUnlimited(readUnlimited(customerInfo));
   } catch (err) {
     console.warn("[purchases] configure failed", err);
   }
@@ -114,7 +119,7 @@ export async function initPurchases(): Promise<void> {
 export async function presentPaywall(): Promise<boolean> {
   try {
     const { RevenueCatUI, PAYWALL_RESULT } = await sdk();
-    if (!ready) return pro;
+    if (!ready) return unlimited;
     const { result } = await RevenueCatUI.presentPaywall();
     if (result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED) {
       await refresh();
@@ -122,7 +127,7 @@ export async function presentPaywall(): Promise<boolean> {
   } catch (err) {
     console.warn("[purchases] paywall failed", err);
   }
-  return pro;
+  return unlimited;
 }
 
 /**
@@ -146,17 +151,17 @@ export async function presentCustomerCenter(): Promise<void> {
 export async function restorePurchases(): Promise<boolean> {
   try {
     const { Purchases } = await sdk();
-    if (!ready) return pro;
+    if (!ready) return unlimited;
     const { customerInfo } = await Purchases.restorePurchases();
-    setPro(readPro(customerInfo));
+    setUnlimited(readUnlimited(customerInfo));
   } catch (err) {
     console.warn("[purchases] restore failed", err);
   }
-  return pro;
+  return unlimited;
 }
 
 async function refresh(): Promise<void> {
   const { Purchases } = await sdk();
   const { customerInfo } = await Purchases.getCustomerInfo();
-  setPro(readPro(customerInfo));
+  setUnlimited(readUnlimited(customerInfo));
 }

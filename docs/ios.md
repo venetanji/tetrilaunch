@@ -70,8 +70,11 @@ npm run ios:open              # opens ios/App/App.xcodeproj
    both to RevenueCat.
 3. Point **App Store Server Notifications V2** at the URL RevenueCat gives you.
 4. Create your products in App Store Connect, then in RevenueCat attach them to an
-   **offering** and an **entitlement** named **`pro`** (that string is
-   `PRO_ENTITLEMENT` in `app/src/lib/purchases.ts` — change both together).
+   **offering** and an **entitlement** whose identifier is exactly
+   **`Tetrilaunch Unlimited`** — that string is `UNLIMITED_ENTITLEMENT` in
+   `app/src/lib/purchases.ts` and the two must match byte for byte, spaces and
+   capitals included. A mismatch fails silently in the worst way: the purchase
+   goes through, the receipt validates, and nothing unlocks.
 5. Build a **paywall** for the offering. The app calls `presentPaywall()`, so pricing,
    copy and layout are all remote-configured and need no app update.
 
@@ -99,18 +102,26 @@ otherwise invisible until someone taps Unlock and nothing happens.
 | Function | Used by |
 |---|---|
 | `initPurchases()` | boot (`main.ts` constructor), fire-and-forget |
-| `isPro()` / `onProChange()` | menu PRO badge, store button visibility |
-| `presentPaywall()` | "★ Unlock Pro" — menu and Settings |
+| `isUnlimited()` / `onUnlimitedChange()` | menu UNLIMITED badge, store button visibility |
+| `presentPaywall()` | "★ Unlock Unlimited" — menu and Settings |
 | `restorePurchases()` | "Restore Purchases" — Settings |
 | `presentCustomerCenter()` | "Manage Subscription" — Settings, when entitled |
 
 Off-native every one of them is a no-op and `purchasesReady()` stays false, so the web
 build renders exactly as before.
 
-**The `pro` entitlement currently unlocks a badge and nothing else** — what you actually
-sell is still an open product decision. Candidates that don't disturb balance: cosmetic
-cube/neon skins (non-consumable), a Pro subscription (daily seed, wider draft pool),
-consumable continues.
+**The entitlement currently unlocks a badge and nothing else** — the product design is
+tracked separately, but the intent is: Unlimited lifts the daily cap on Contracts, so it
+buys *progression speed*, never power. Rig strength is capped per Mark and only beating
+a Mark raises the ceiling, which is what keeps the leaderboard purchase-neutral.
+
+**Virtual currencies** are worth knowing about for later: RevenueCat can hold a
+persistent balance (a natural home for salvage), but the client SDK is **read-only**
+(`getVirtualCurrencies()`), and every deposit or spend goes through Developer API v2
+with a *secret* key — server-side only. That means the Cloudflare Worker, never the app.
+It earns its keep the moment you sell a currency bundle, because Apple does not restore
+consumables and a lost grant means a player paid for nothing. Until something is
+purchasable, the existing Worker + D1 is the simpler home for salvage.
 
 ### Sandbox testing
 

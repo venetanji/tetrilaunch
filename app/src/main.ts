@@ -27,7 +27,7 @@ import {
   applySafeAreaInsets,
 } from "./lib/platform";
 import {
-  initPurchases, purchasesReady, isPro, onProChange,
+  initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
   presentPaywall, presentCustomerCenter, restorePurchases,
 } from "./lib/purchases";
 
@@ -79,7 +79,7 @@ class App {
   private dragHintShownThisSession = false;
 
   /** Unsubscribe for the RevenueCat entitlement listener. */
-  private offProChange: (() => void) | null = null;
+  private offUnlimitedChange: (() => void) | null = null;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -118,7 +118,7 @@ class App {
       if (this.state === "menu" || this.state === "settings") this.renderOverlay();
     };
     void initPurchases().then(restoreScreen);
-    this.offProChange = onProChange(restoreScreen);
+    this.offUnlimitedChange = onUnlimitedChange(restoreScreen);
 
     this.setState("splash");
     window.setTimeout(() => {
@@ -139,7 +139,7 @@ class App {
     this.game?.destroy();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
-    this.offProChange?.();
+    this.offUnlimitedChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
@@ -173,7 +173,7 @@ class App {
   }
 
   private storeState(): S.StoreState {
-    return { available: purchasesReady(), pro: isPro() };
+    return { available: purchasesReady(), unlimited: isUnlimited() };
   }
 
   private renderOverlay(): void {
