@@ -1,5 +1,6 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { newMeta, type MetaState } from "../game/meta";
+import { newTiers, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
   sound: boolean;
@@ -69,6 +70,24 @@ export function loadMeta(): MetaState {
     meta.salvage = Number.isFinite(meta.salvage) ? Math.max(0, Math.floor(meta.salvage)) : 0;
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;
+    meta.mark = Number.isFinite(meta.mark) ? Math.max(0, Math.floor(meta.mark)) : 0;
+    // The loadout gates how strong a rig may be, so it gets the strictest read
+    // of anything here: a non-object, or any track that isn't a finite number,
+    // drops the whole thing back to stock rather than being partially trusted.
+    // Whether it fits the Mark's budget is checked separately at the point of
+    // use (meta.ts's safeLoadout) — that rule can change between builds, and a
+    // save written under the old one shouldn't be silently rewritten on load.
+    const rawLoadout = meta.loadout as unknown;
+    if (!rawLoadout || typeof rawLoadout !== "object" || Array.isArray(rawLoadout)) {
+      meta.loadout = newTiers();
+    } else {
+      const tiers = newTiers();
+      for (const key of Object.keys(tiers) as (keyof UpgradeTiers & string)[]) {
+        const v = (rawLoadout as Record<string, unknown>)[key];
+        tiers[key] = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+      }
+      meta.loadout = tiers;
+    }
     return meta;
   } catch {
     return newMeta();

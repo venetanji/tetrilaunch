@@ -16,9 +16,12 @@ import { Game } from "../src/game/game";
 import { makeBaseLevel } from "../src/game/level";
 import { applyMods, draftOffers, MODS } from "../src/game/mods";
 import {
-  applyUpgrades, newTiers, nextTierCost, scrapInvested, MAX_TIER, TIER_COSTS, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
+  budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
-import { salvageForRun, UNLOCKS, unlockAvailable } from "../src/game/meta";
+import {
+  markUnlocked, newMeta, safeLoadout, salvageForRun, UNLOCKS, unlockAvailable,
+} from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
@@ -111,10 +114,113 @@ section("Ship upgrades (upgrades.ts)");
   );
   const full = TIER_COSTS.reduce((a, b) => a + b, 0);
   check(
-    "scrapInvested totals a maxed track",
-    scrapInvested({ ...newTiers(), bay: MAX_TIER }) === full,
-    String(scrapInvested({ ...newTiers(), bay: MAX_TIER })),
+    "tiersCost totals a maxed track",
+    tiersCost({ ...newTiers(), bay: MAX_TIER }) === full,
+    String(tiersCost({ ...newTiers(), bay: MAX_TIER })),
   );
+}
+
+// ---------------------------------------------------------------------------
+section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The budget is DERIVED from the price ladder, so a re-price can't leave a
+  // stale total behind.
+  check(
+    "FULL_BUILD_COST is every track maxed",
+    FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
+    String(FULL_BUILD_COST),
+  );
+  check("a full rig costs 660", FULL_BUILD_COST === 660, String(FULL_BUILD_COST));
+
+  // Monotone, and the ladder spans "one system" to "everything".
+  let monotone = true;
+  for (let m = 2; m <= MARK_COUNT; m++) if (budgetForMark(m) <= budgetForMark(m - 1)) monotone = false;
+  check("budget rises with every Mark", monotone);
+  check("the top Mark affords a full rig", budgetForMark(MARK_COUNT) === FULL_BUILD_COST);
+  check(
+    "Mark 1 affords roughly one system",
+    budgetForMark(1) >= TIER_COSTS[0] && budgetForMark(1) < FULL_BUILD_COST / 5,
+    String(budgetForMark(1)),
+  );
+  // Out-of-range Marks clamp rather than producing a negative or runaway budget
+  // — meta.mark comes off localStorage and can be anything.
+  check("budget clamps below Mark 1", budgetForMark(0) === budgetForMark(1) && budgetForMark(-5) === budgetForMark(1));
+  check("budget clamps above the ladder", budgetForMark(MARK_COUNT + 99) === FULL_BUILD_COST);
+
+  // Legality: the budget is the ONLY cap, so a loadout may pile everything into
+  // one track as long as it fits.
+  const oneTrackMaxed = { ...newTiers(), hydraulics: MAX_TIER };
+  check("a single maxed track is legal once affordable", loadoutLegal(oneTrackMaxed, MARK_COUNT));
+  check("...and illegal at Mark 1", !loadoutLegal(oneTrackMaxed, 1));
+  check("an empty loadout is always legal", loadoutLegal(newTiers(), 1));
+  check(
+    "a full rig is illegal below the top Mark",
+    !loadoutLegal(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never, MARK_COUNT - 1),
+  );
+  check("a tier above MAX_TIER is rejected", !loadoutLegal({ ...newTiers(), bay: MAX_TIER + 1 }, MARK_COUNT));
+  check("a negative tier is rejected", !loadoutLegal({ ...newTiers(), bay: -1 }, MARK_COUNT));
+  check("a fractional tier is rejected", !loadoutLegal({ ...newTiers(), bay: 1.5 }, MARK_COUNT));
+
+  // buyLoadoutTier mirrors run.ts's buyUpgrade: never mutates, refuses when the
+  // next tier doesn't fit.
+  const start = newTiers();
+  const one = buyLoadoutTier(start, "bay", 1);
+  check("buyLoadoutTier returns a new object", one !== null && one !== start);
+  check("buyLoadoutTier raises the tier", one!.bay === 1);
+  check("buyLoadoutTier does not mutate the input", start.bay === 0);
+  check("buyLoadoutTier refuses a maxed track", buyLoadoutTier({ ...newTiers(), bay: MAX_TIER }, "bay", MARK_COUNT) === null);
+  // Mark 1's budget (66) buys 20+35 = 55 but not the 55-point third tier.
+  const twoTiers = buyLoadoutTier(buyLoadoutTier(newTiers(), "bay", 1)!, "bay", 1);
+  check("Mark 1 affords two tiers of a track", twoTiers !== null && twoTiers.bay === 2);
+  check("Mark 1 cannot afford the third", buyLoadoutTier(twoTiers!, "bay", 1) === null);
+
+  // safeLoadout is the gate that stops a hand-edited save flying an illegal rig.
+  const cheat = { ...newMeta(), mark: 0, loadout: { ...newTiers(), reactor: MAX_TIER, bay: MAX_TIER } };
+  check("safeLoadout drops an over-budget loadout to stock", tiersCost(safeLoadout(cheat)) === 0);
+  const honest = { ...newMeta(), mark: 0, loadout: { ...newTiers(), bay: 1 } };
+  check("safeLoadout keeps a legal loadout", safeLoadout(honest).bay === 1);
+  check("safeLoadout copies rather than aliases", safeLoadout(honest) !== honest.loadout);
+
+  check("markUnlocked is one above the best clear", markUnlocked({ ...newMeta(), mark: 3 }) === 4);
+  check("markUnlocked starts at 1", markUnlocked(newMeta()) === 1);
+  check("markUnlocked holds at the top", markUnlocked({ ...newMeta(), mark: MARK_COUNT }) === MARK_COUNT);
+
+  // The ladder must raise the floor and the bar TOGETHER. Mark 1 is stock, so
+  // every tuned constant in makeBaseLevel survives at the bottom.
+  check(
+    "Mark 1 is byte-identical to the stock ladder",
+    JSON.stringify(makeBaseLevel(4, 1)) === JSON.stringify(makeBaseLevel(4)),
+  );
+  let barRises = true;
+  for (let m = 2; m <= MARK_COUNT; m++) {
+    if (makeBaseLevel(0, m).targetScore <= makeBaseLevel(0, m - 1).targetScore) barRises = false;
+    if (makeBaseLevel(0, m).compactorSpeed <= makeBaseLevel(0, m - 1).compactorSpeed) barRises = false;
+  }
+  check("every Mark raises the bay's demand", barRises);
+  // Deliberately NOT scaled — these would compound with the target into a cliff.
+  check(
+    "launch cost and loss penalty are Mark-invariant",
+    makeBaseLevel(5, MARK_COUNT).launchCost === makeBaseLevel(5, 1).launchCost &&
+      makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
+  );
+
+  // A run flies the loadout it was handed, and the Mark reaches the level.
+  const loaded = newRun(9, [], 0, { ...newTiers(), launcher: 2 }, 3);
+  check("newRun seeds tiers from the loadout", loaded.tiers.launcher === 2);
+  check("newRun records the Mark", loaded.mark === 3);
+  check(
+    "the loadout survives into the level config",
+    levelForRun(loaded).launchPower > makeBaseLevel(0, 3).launchPower,
+  );
+  check(
+    "levelForRun uses the run's Mark",
+    levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore === makeBaseLevel(0, 4).targetScore,
+  );
+  check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, null).mark === 3);
+  const source = { ...newTiers(), bay: 1 };
+  newRun(1, [], 0, source, 2).tiers.bay = 3;
+  check("newRun copies the loadout rather than aliasing it", source.bay === 1);
 }
 
 // ---------------------------------------------------------------------------

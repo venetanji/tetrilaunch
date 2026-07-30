@@ -5,7 +5,7 @@ import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
 } from "./components";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, scrapInvested, type UpgradeTiers,
+  MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockById, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
@@ -765,7 +765,7 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Salvage recovered</b>
           <span class="muted">${SALVAGE_FLOOR} base · ${opts.baysCleared}×${SALVAGE_PER_BAY} bays · ${Math.floor(opts.lines / 2)}×${SALVAGE_PER_2_LINES} lines${opts.runComplete ? ` · +${SALVAGE_RUN_COMPLETE_BONUS} full run` : ""} → <b>${opts.salvageTotal} banked</b></span>
-          <span class="muted">${opts.scrapEarned} scrap earned · ${scrapInvested(opts.tiers)} refitted into the ship</span>
+          <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>

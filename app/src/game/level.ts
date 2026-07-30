@@ -248,15 +248,43 @@ export const WIND_GUST_FRACTION = 0.025;
 export const SCRAP_PER_LINE = 2;
 export const SCRAP_PER_BAY = 10;
 
-export function makeBaseLevel(i: number): LevelConfig {
+/**
+ * MARK SCALING — how much harder bay `i` gets per Mark above the first.
+ *
+ * The Mark ladder raises the floor and the bar TOGETHER: a Mark hands the
+ * player a bigger build budget (upgrades.ts's budgetForMark) and this is the
+ * matching rise in what a bay demands. Without it a Mark would just be free
+ * power and every board above Mark 1 would be easier than the one below it.
+ *
+ * Only the two knobs that state the bay's DEMAND are scaled — the funding
+ * target and the press tempo. Deliberately not scaled: launchCost and
+ * penaltyPerLostPiece (which would compound with the target into a difficulty
+ * cliff), and windMax (weather is the bay's character, and the launcher track
+ * is the sanctioned answer to it — see the BALANCE KNOBS note).
+ *
+ * FIRST PASS, uncalibrated. budgetForMark is linear from 1/10th of a full rig
+ * at Mark 1 to the whole thing at Mark 10, so the demand curve has to be
+ * roughly linear too or the ladder pulls apart at one end. The criterion to
+ * tune against (docs/DESIGN.md): a full-Mark-N-budget rig played at the sim
+ * bot's competence should fall JUST SHORT of the Mark N target.
+ */
+export const MARK_TARGET_STEP = 0.18;
+export const MARK_SPEED_STEP = 0.04;
+
+export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
   // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
   const windMax = i < 3 ? 0 : 0.06 + (i - 3) * 0.04;
+  // Mark 1 is stock, so every existing number and every tuned constant below
+  // is preserved exactly at the bottom of the ladder.
+  const marksAbove = Math.max(0, Math.floor(mark) - 1);
+  const targetMult = 1 + MARK_TARGET_STEP * marksAbove;
+  const speedMult = 1 + MARK_SPEED_STEP * marksAbove;
   return {
     id: i + 1,
     name: LEVEL_NAMES[i],
     gravity: 1,
-    compactorSpeed: 1.2 + i * 0.05,
+    compactorSpeed: (1.2 + i * 0.05) * speedMult,
     compactorOpenCells: 12,
     compactorMinLineCells: 8,
     compactorWidth: 26,
@@ -265,7 +293,7 @@ export function makeBaseLevel(i: number): LevelConfig {
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
-    targetScore: targetScoreFor(i),
+    targetScore: Math.round(targetScoreFor(i) * targetMult),
     startingFunds: 250,
     launchCost: 25 + i * 2,
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],

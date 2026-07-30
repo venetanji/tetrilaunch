@@ -140,9 +140,15 @@ can pay to progress faster, never to rank higher.**
 ### It layers over the existing refit stops
 
 The budget sets your **starting** tiers. In-run scrap still buys tiers at the
-refit stops after bays 3/6/9 exactly as `ECONOMY.md` describes, and the Mark sets
-where that can top out. Permanent loadout plus in-run improvisation is more FTL
-than either alone, and none of the tuning already done is wasted.
+refit stops after bays 3/6/9 exactly as `ECONOMY.md` describes. Permanent loadout
+plus in-run improvisation is more FTL than either alone, and none of the tuning
+already done is wasted.
+
+In-run refits are deliberately **not** budget-capped — they're bounded by
+`MAX_TIER` and by the scrap a run actually earns, which is a function of how well
+it's being played. That's the right thing to leave uncapped: the permanent layer
+is what needed normalizing, because it's the one a subscription can accelerate.
+Scrap is earned by playing well, and rewarding that is the point.
 
 ### Calibrating a Mark
 

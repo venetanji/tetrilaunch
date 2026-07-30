@@ -179,13 +179,86 @@ export function applyUpgrades(cfg: LevelConfig, tiers: UpgradeTiers): void {
   }
 }
 
-/** Total scrap sunk into a set of tiers — shown on the refit/end screens so a
- *  run's build reads as an investment, not just a list of chips. */
-export function scrapInvested(tiers: UpgradeTiers): number {
+/**
+ * Ladder cost of a set of tiers. Serves two masters, which is why it isn't
+ * named for either: in-run it's the scrap sunk into the ship (shown on the
+ * refit/end screens so a build reads as an investment rather than a list of
+ * chips), and out of run it's the BUILD BUDGET a permanent loadout spends
+ * (see budgetForMark).
+ */
+export function tiersCost(tiers: UpgradeTiers): number {
   let total = 0;
   for (const def of UPGRADES) {
     const tier = Math.min(MAX_TIER, tiers[def.id] ?? 0);
     for (let t = 0; t < tier; t++) total += TIER_COSTS[t];
   }
   return total;
+}
+
+/* ---------------------------------------------------------------------------
+ * BUILD BUDGET — the permanent, out-of-run layer (see docs/DESIGN.md).
+ *
+ * A Mark grants a fixed number of ladder points, spent freely across the six
+ * tracks. This is deliberately a budget on the TOTAL rather than a cap on each
+ * track's tier, and the difference is the whole point: a per-track cap
+ * normalizes the MAXIMUM rig, not the actual one, so two players at the same
+ * Mark can sit far apart on power with the gap being nothing but grind time —
+ * which is exactly what a subscription that sells throughput would then be
+ * selling. Budgeting the total makes every rig at a Mark equal in power and
+ * different in shape, which is the FTL reading and the honest one for a
+ * leaderboard.
+ * ------------------------------------------------------------------------- */
+
+/** Ladder cost of every track maxed: 6 tracks x (20+35+55) = 660. Derived, not
+ *  typed in, so re-pricing TIER_COSTS or adding a seventh system can't leave a
+ *  stale constant behind. */
+export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
+
+/** Marks in the ladder. Placeholder that rhymes with RUN_LEVELS; the real
+ *  number depends on how long a Mark takes to beat (see docs/DESIGN.md's open
+ *  questions). */
+export const MARK_COUNT = 10;
+
+/**
+ * Ladder points available at `mark` (1-based). Linear from one-system money at
+ * Mark 1 to a fully-kitted rig at MARK_COUNT — the arc from "you can afford one
+ * system" to "you can afford everything" IS the progression.
+ *
+ * FIRST PASS, uncalibrated. The criterion this has to satisfy (docs/DESIGN.md):
+ * a rig built with the full Mark-N budget, played at the sim bot's competence,
+ * should fall JUST SHORT of the Mark N target — if it can't clear at any skill
+ * the Mark is impossible, and if it clears while played badly the Mark is free.
+ * Tune against sim/sweep.ts, not by feel.
+ */
+export function budgetForMark(mark: number): number {
+  const m = Math.max(1, Math.min(MARK_COUNT, Math.floor(mark)));
+  return Math.round((FULL_BUILD_COST * m) / MARK_COUNT);
+}
+
+/** True when `tiers` is a legal loadout at `mark` — i.e. it fits the budget and
+ *  no track exceeds MAX_TIER. Validated rather than trusted because the loadout
+ *  round-trips through localStorage, where anyone can edit it. */
+export function loadoutLegal(tiers: UpgradeTiers, mark: number): boolean {
+  for (const def of UPGRADES) {
+    const tier = tiers[def.id] ?? 0;
+    if (tier < 0 || tier > MAX_TIER || !Number.isInteger(tier)) return false;
+  }
+  return tiersCost(tiers) <= budgetForMark(mark);
+}
+
+/** Buy one tier of `id` against the budget, or null when it can't be bought —
+ *  maxed, or the next tier doesn't fit what's left. Mirrors run.ts's
+ *  buyUpgrade so the loadout screen and the refit screen can render a disabled
+ *  card from the same rule instead of each re-deriving affordability. */
+export function buyLoadoutTier(
+  tiers: UpgradeTiers,
+  id: UpgradeId,
+  mark: number,
+): UpgradeTiers | null {
+  const tier = tiers[id] ?? 0;
+  const cost = nextTierCost(tier);
+  if (cost === null) return null;
+  const next = { ...tiers, [id]: tier + 1 };
+  if (tiersCost(next) > budgetForMark(mark)) return null;
+  return next;
 }

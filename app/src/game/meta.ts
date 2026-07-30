@@ -20,6 +20,10 @@
  * ceiling honest while still paying out for failure.
  */
 
+import {
+  budgetForMark, loadoutLegal, MARK_COUNT, newTiers, type UpgradeTiers,
+} from "./upgrades";
+
 export interface UnlockDef {
   id: string;
   name: string;
@@ -89,10 +93,41 @@ export interface MetaState {
   runs: number;
   /** Deepest bay ever REACHED (1-based), win or lose. */
   bestBay: number;
+  /** Highest Deep Run MARK beaten. 0 = never completed a run, so the Mark
+   *  currently attemptable is `markUnlocked(meta)` = this + 1.
+   *
+   *  A Mark is a gate, not a treadmill: it is raised by BEATING the previous
+   *  one, never by grinding Contracts. That's what makes a given Mark clear
+   *  mean the same thing for every player who holds one, and it's why nothing
+   *  purchasable may touch this field (see docs/DESIGN.md). */
+  mark: number;
+  /** The permanent loadout — the upgrade tiers a Deep Run STARTS from, bought
+   *  against the current Mark's build budget (upgrades.ts's budgetForMark).
+   *  In-run scrap still refits on top of this at the usual stops. */
+  loadout: UpgradeTiers;
 }
 
 export function newMeta(): MetaState {
-  return { salvage: 0, unlocks: [], runs: 0, bestBay: 0 };
+  return { salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0, loadout: newTiers() };
+}
+
+/** The Mark the player may currently attempt: one above their best clear, held
+ *  at MARK_COUNT once the ladder is finished. */
+export function markUnlocked(meta: MetaState): number {
+  return Math.min(MARK_COUNT, meta.mark + 1);
+}
+
+/** Ladder points the player has to spend on a loadout right now. */
+export function markBudget(meta: MetaState): number {
+  return budgetForMark(markUnlocked(meta));
+}
+
+/** The loadout to actually fly, with an illegal one (a stale save from before a
+ *  re-price, or a hand-edited localStorage entry) falling back to stock rather
+ *  than being flown as-is. Cheating the budget is the one thing that would make
+ *  a Mark clear mean nothing, so it's checked at the point of use. */
+export function safeLoadout(meta: MetaState): UpgradeTiers {
+  return loadoutLegal(meta.loadout, markUnlocked(meta)) ? { ...meta.loadout } : newTiers();
 }
 
 /** Salvage award weights. Exported so the end-of-run modal can show the same

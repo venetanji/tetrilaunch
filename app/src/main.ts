@@ -8,7 +8,7 @@ import {
 import { draftOffers, modById, type ModDef } from "./game/mods";
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  salvageForRun, unlockAvailable, unlockById, type MetaState,
+  markUnlocked, safeLoadout, salvageForRun, unlockAvailable, unlockById, type MetaState,
 } from "./game/meta";
 import { render } from "./game/render";
 import { computeLayout } from "./game/layout";
@@ -356,7 +356,13 @@ class App {
     // change this run's draft pool, and the run never has to reach back into
     // localStorage.
     const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
-    this.run = newRun(Date.now() >>> 0, this.meta.unlocks, startingScrap);
+    this.run = newRun(
+      Date.now() >>> 0,
+      this.meta.unlocks,
+      startingScrap,
+      safeLoadout(this.meta),
+      markUnlocked(this.meta),
+    );
     this.submitted = false;
     this.lastSalvage = 0;
     this.startLevel();
@@ -490,11 +496,17 @@ class App {
     const baysCleared = this.run.levelIndex + (won ? 1 : 0);
     const lines = this.run.linesTotal + g.linesTotal;
     this.lastSalvage = salvageForRun(baysCleared, lines, won);
+    // Beating a run is the ONLY thing that raises a Mark — no amount of
+    // Contract grinding or purchasing touches it (docs/DESIGN.md). Guarded with
+    // max() rather than +1 so replaying an already-beaten Mark for a better
+    // board placing can't ratchet the ladder forward a second time.
+    const markBeaten = won ? Math.max(this.meta.mark, this.run.mark) : this.meta.mark;
     this.meta = {
       ...this.meta,
       salvage: this.meta.salvage + this.lastSalvage,
       runs: this.meta.runs + 1,
       bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
+      mark: markBeaten,
     };
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
