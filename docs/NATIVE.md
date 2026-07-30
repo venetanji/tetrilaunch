@@ -97,6 +97,7 @@ app/android/app/build/outputs/apk/debug/app-debug.apk
 
 ### Requirements
 
+- **Node**: **22+** — the Capacitor 8 CLI refuses to run on older.
 - **Android**: **JDK 21** and the Android SDK (Capacitor 8 builds with AGP 8.13,
   `compileSdk 36`, `minSdk 24`, and sets source/target compatibility to Java 21 —
   JDK 17 will not build it). Android Studio installs all of it; CI installs it

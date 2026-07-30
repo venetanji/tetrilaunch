@@ -26,7 +26,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22+, not 20: the Capacitor 8 CLI hard-fails with
+          # "The Capacitor CLI requires NodeJS >=22.0.0".
+          node-version: "22"
           cache: npm
           cache-dependency-path: app/package-lock.json
 
