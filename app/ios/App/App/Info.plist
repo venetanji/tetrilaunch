@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CAPACITOR_DEBUG</key>
+	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
@@ -52,9 +54,9 @@
 	<false/>
 	<key>UIRequiresFullScreen</key>
 	<true/>
-	<!-- Only HTTPS traffic (the leaderboard API) — exempt encryption. Declared
-	     here so App Store Connect stops asking the export-compliance question
-	     on every upload. -->
+	<!-- Only HTTPS traffic (leaderboard API + StoreKit/RevenueCat) — exempt
+	     encryption. Declared here so App Store Connect stops asking the
+	     export-compliance question on every upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

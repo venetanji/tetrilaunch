@@ -10,6 +10,12 @@ dist/
 .wrangler/
 .dev.vars
 
+# local env (RevenueCat keys) — see app/.env.example
+.env
+.env.local
+app/.env
+app/.env.local
+
 # capacitor native platforms
 # app/ios/ IS committed — it carries the Xcode project, Info.plist tweaks and
 # app icons, so a Mac only needs `pod install` to build. Its own

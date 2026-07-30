@@ -16,6 +16,10 @@ import {
   lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
 } from "./lib/platform";
+import {
+  initPurchases, purchasesReady, isPro, onProChange,
+  presentPaywall, presentCustomerCenter, restorePurchases,
+} from "./lib/purchases";
 
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "leaderboard"
@@ -54,6 +58,9 @@ class App {
   private dragHintTimer: number | null = null;
   private dragHintShownThisSession = false;
 
+  /** Unsubscribe for the RevenueCat entitlement listener. */
+  private offProChange: (() => void) | null = null;
+
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <canvas id="game"></canvas>
@@ -82,6 +89,17 @@ class App {
 
     lockLandscape();
     this.onResize();
+
+    // Store setup is fire-and-forget: it resolves after the splash on a cold
+    // start, so re-render if the player is sitting on a screen that shows
+    // store UI. Entitlement changes (renewal, expiry, a purchase on another
+    // device) land on the same path.
+    const restoreScreen = (): void => {
+      if (this.state === "menu" || this.state === "settings") this.renderOverlay();
+    };
+    void initPurchases().then(restoreScreen);
+    this.offProChange = onProChange(restoreScreen);
+
     this.setState("splash");
     window.setTimeout(() => {
       if (this.state === "splash") this.setState("menu");
@@ -100,6 +118,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    this.offProChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
     document.removeEventListener("webkitfullscreenchange", this.onFullscreenChange);
   }
@@ -129,13 +148,19 @@ class App {
     };
   }
 
+  private storeState(): S.StoreState {
+    return { available: purchasesReady(), pro: isPro() };
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
-      case "menu": this.overlay.innerHTML = S.menuScreen(loadBest()); break;
+      case "menu": this.overlay.innerHTML = S.menuScreen(loadBest(), this.storeState()); break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
-      case "settings": this.overlay.innerHTML = S.settingsScreen(this.settings); break;
+      case "settings":
+        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
+        break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
         break;
@@ -506,6 +531,9 @@ class App {
       case "restart": this.startGame(); break;
       case "restart-bay": this.restartBay(); break;
       case "submit-score": void this.onSubmitScore(); break;
+      case "paywall": void this.onPaywall(); break;
+      case "customer-center": void presentCustomerCenter(); break;
+      case "restore": void this.onRestore(); break;
       case "pick-mod":
         if (this.state === "draft") this.advanceAfterDraft(el.getAttribute("data-mod"));
         break;
@@ -547,6 +575,23 @@ class App {
     (this.settings as unknown as Record<string, boolean>)[key] = next;
     saveSettings(this.settings);
     void tapHaptic();
+  }
+
+  /** The paywall itself is native UI configured in the RevenueCat dashboard —
+   *  the re-render comes from the entitlement listener, so there's nothing to
+   *  do here but celebrate. */
+  private async onPaywall(): Promise<void> {
+    if (await presentPaywall()) void successHaptic();
+  }
+
+  /** Restore is the one store action with no UI of its own, so it has to say
+   *  something itself — a silent no-op reads as a broken button. */
+  private async onRestore(): Promise<void> {
+    const btn = this.overlay.querySelector<HTMLButtonElement>("#restore-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Restoring…"; }
+    const restored = await restorePurchases();
+    if (restored) { void successHaptic(); return; } // listener re-renders
+    if (btn) { btn.disabled = false; btn.textContent = "Nothing to restore"; }
   }
 
   private async onSubmitScore(): Promise<void> {

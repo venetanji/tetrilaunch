@@ -11,7 +11,7 @@
     "cap:sync": "cap sync",
     "cap:add:android": "cap add android",
     "cap:add:ios": "cap add ios",
-    "ios:sync": "npm run build && cap sync ios",
+    "ios:sync": "npm run build && node scripts/verify-store-bundle.mjs && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "npm run build && cap run ios",
     "assets:generate": "node scripts/rasterize-assets.mjs && capacitor-assets generate --ios --assetPath resources",
@@ -19,15 +19,17 @@
     "sim:perf": "tsx sim/perf.ts"
   },
   "dependencies": {
-    "@capacitor/core": "^6.1.2",
-    "@capacitor/haptics": "^6.0.1",
-    "@capacitor/ios": "^6.2.1",
-    "@capacitor/screen-orientation": "^6.0.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/screen-orientation": "^8.0.1",
+    "@revenuecat/purchases-capacitor": "^13.2.5",
+    "@revenuecat/purchases-capacitor-ui": "^13.2.5",
     "matter-js": "^0.20.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^6.1.2",
+    "@capacitor/cli": "^8.4.2",
+    "@capacitor/ios": "^8.4.2",
     "@types/matter-js": "^0.19.7",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",

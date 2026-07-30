@@ -48,7 +48,8 @@ app/                      Capacitor + Vite + TypeScript web app
   src/game/               matter.js physics port of main.py
     engine, pieces, cannon, compactor, lineClear, render, input, level, state, game
   src/ui/                 screens + components (menu, HUD, pause, end, settings, leaderboard)
-  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics)
+  src/lib/                api (leaderboard), store (settings/name), platform (orientation/haptics),
+                          purchases (RevenueCat: entitlement, paywall, restore)
   src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
   worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
   capacitor.config.ts     native shell config
@@ -62,8 +63,9 @@ main.py                   original pygame prototype (reference)
 ```
 
 **Tech:** matter.js (physics), HTML5 Canvas (gameplay render), HTML/CSS overlays (UI),
-vite-plugin-pwa (installable fullscreen web), Capacitor (`@capacitor/screen-orientation`,
-`@capacitor/haptics`), Cloudflare Workers + D1 (leaderboard).
+vite-plugin-pwa (installable fullscreen web), Capacitor 8 (`@capacitor/screen-orientation`,
+`@capacitor/haptics`), RevenueCat (`@revenuecat/purchases-capacitor` + paywalls, native
+only), Cloudflare Workers + D1 (leaderboard).
 
 ## 🚀 Develop
 
@@ -112,19 +114,20 @@ so it should not rebuild on every game commit:
 
 ### Native (iOS / Android)
 
-The **iOS Xcode project is committed** at `app/ios/` (bundle ID `com.tetrilaunch.app`,
-universal, landscape-only, icons generated from `app/resources/`). On a Mac with Xcode
-and CocoaPods:
+The **iOS Xcode project is committed** at `app/ios/` (Capacitor 8 + SPM, bundle ID
+`com.tetrilaunch.app`, universal, landscape-only, icons generated from `app/resources/`).
+On a Mac with Xcode 16+ — no CocoaPods needed:
 
 ```bash
 cd app
 npm install
-npm run ios:sync         # vite build → copy into ios/ → pod install
-npm run ios:open         # opens App.xcworkspace
+cp .env.example .env     # RevenueCat public SDK keys
+npm run ios:sync         # vite build → verify store bundle → copy into ios/
+npm run ios:open         # opens App.xcodeproj
 ```
 
-Signing, App Store Connect, TestFlight and the App Privacy answers are written up in
-**[docs/ios.md](docs/ios.md)**.
+Signing, RevenueCat/App Store Connect setup, TestFlight and the App Privacy answers are
+written up in **[docs/ios.md](docs/ios.md)**.
 
 Android isn't generated in the repo:
 
