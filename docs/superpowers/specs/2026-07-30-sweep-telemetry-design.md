@@ -93,7 +93,10 @@ interface SweepRecord {
   t: number;          // Game.elapsedMs at the right stop
   n: number;          // sweep index within the bay
   zoneCells: number;  // zone width at full advance
-  zoneCubes: number;  // settled cubes in the zone
+  // ALL cubes in the zone regardless of motion — not just resting ones.
+  // restingFrac below is the share of these under SETTLE; defining zoneCubes
+  // as "settled" would make that fraction circular.
+  zoneCubes: number;
   joined: number;     // still bonded to a neighbour (unshattered)
 
   // Angular deviation from nearest axis-aligned orientation, radians
