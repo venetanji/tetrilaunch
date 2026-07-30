@@ -256,8 +256,8 @@ export function hudHTML(opts: {
   /** Present only in CONTRACT mode. A Contract has no bankroll and no clock, so
    *  the funds/launches readout would show $0 and 0 launches forever; this
    *  swaps in the two numbers that actually govern it — lines toward the goal,
-   *  and press strokes left. */
-  contract?: { name: string; goal: number; lines: number; strokesLeft: number } | null;
+   *  and launches left. */
+  contract?: { name: string; goal: number; lines: number; launchesLeft: number } | null;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
@@ -356,8 +356,8 @@ export function hudHTML(opts: {
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
-            <div class="lbl">Strokes</div>
-            <div class="v" id="hud-launches">${contract.strokesLeft}</div>
+            <div class="lbl">Launches</div>
+            <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>`
               : `<div class="pl-funds">
             <div class="lbl">Funds / Target</div>
@@ -759,8 +759,8 @@ export function endModal(opts: {
         ? "Out of funds — the bay stays unpaid"
         : opts.reason === "time"
           ? "Time's up — the bay went dark"
-          : opts.reason === "strokes"
-            ? "Out of strokes — the press is done"
+          : opts.reason === "launches"
+            ? "Out of launches — the bay is done"
             : "The compactor won this round";
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
   return `<div class="modal-scrim" id="scrim">
@@ -826,7 +826,7 @@ export function contractsScreen(opts: {
       return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
         <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
         <b>${c.name}</b>
-        <p><b>${c.goal}</b> lines in <b>${c.strokes}</b> strokes</p>
+        <p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>
         <p class="muted" style="font-size:12px">${c.brief}</p>
       </button>`;
     })
@@ -854,7 +854,7 @@ export interface ContractCard {
   id: string;
   name: string;
   goal: number;
-  strokes: number;
+  launches: number;
   brief: string;
 }
 
@@ -865,13 +865,13 @@ export function contractEndModal(opts: {
   name: string;
   lines: number;
   goal: number;
-  strokesUsed: number;
-  strokes: number;
+  launchesUsed: number;
+  launches: number;
 }): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop" style="width:min(460px,94vw)">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">
-        ${opts.won ? "Contract complete" : "Out of strokes"}
+        ${opts.won ? "Contract complete" : "Out of launches"}
       </div>
       <h2 class="display" style="font-size:var(--fs-h1)">${opts.name}</h2>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
@@ -880,8 +880,8 @@ export function contractEndModal(opts: {
           <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
         </div>
         <div class="chip" style="flex-direction:row;gap:10px">
-          <div class="chip__label">Strokes</div>
-          <div class="chip__value" style="color:var(--warn)">${opts.strokesUsed}/${opts.strokes}</div>
+          <div class="chip__label">Launches</div>
+          <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${opts.launches}</div>
         </div>
       </div>
       <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>

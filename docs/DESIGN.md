@@ -33,7 +33,7 @@ problem with the same work.
 | Session | 60–120s | 25–40 min |
 | Clock | **none** | yes — `timeLimitSec` |
 | Bankroll | **none** — launches are free | yes — funds are the target |
-| Constraint | **stroke budget** | funds + clock |
+| Constraint | **launch budget** | funds + clock |
 | Failure | costs nothing, retry freely | ends the run |
 | Earns | permanent rig upgrades | leaderboard rank, the next Mark |
 | Board | per-contract, seeded | per-Mark global board |
@@ -44,9 +44,9 @@ problem with the same work.
 Contracts deliberately strip out time and money pressure. They are meant to be
 the *easy, positive, replayable* half — challenges you return to, not a thing
 that can beat you. A puzzle you can be rushed out of isn't a puzzle. What
-replaces that pressure is the **stroke budget** (see below); without some budget
+replaces that pressure is the **launch budget** (see below); without some budget
 a Contract is brute-forceable by firing until the pile happens to resolve, which
-is why strokes are load-bearing here rather than a flourish.
+is why the budget is load-bearing here rather than a flourish.
 
 Deep Run keeps its clock for the opposite reason, and it's worth stating so it
 isn't later mistaken for an inherited default: **time pressure is what makes
@@ -275,7 +275,7 @@ Beyond the existing `makeBaseLevel(i)` ramp:
 
 - **Compactor tempo** — faster sweeps, shorter dwell.
 - **Tolerance** — `compactorMinLineCells` rises, slot alignment narrows.
-- **Stroke budgets** — see below.
+- **Launch budgets** — see below.
 - **Materials** — one new type per Mark, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
 
@@ -287,21 +287,45 @@ Add a name generator past index 9 and Deep Run runs endless past bay 10, which i
 what a score board actually needs — unbounded headroom so the top of each Mark's
 board is a skill expression rather than a completion checkmark.
 
-## Strokes: the constraint Contracts run on
+## Launches: the constraint Contracts run on
 
 Deep Run constrains funds and time. Candy Crush's real engine is
-**moves-limited** puzzles, and the native translation here is a **compactor
-stroke budget** — "clear this in 6 strokes."
+**moves-limited** puzzles, and the native translation here is a **launch
+budget** — "clear 4 lines in 12 launches."
 
 In Contracts this is not one constraint among several, it is *the* constraint:
-with the clock and the bankroll both removed, a stroke budget is the only thing
-standing between a Contract and being brute-forced by volume. That makes it a
-prerequisite for Contracts existing at all, not a later refinement.
+with the clock and the bankroll both removed, the launch budget is the only
+thing standing between a Contract and being brute-forced by volume. That makes
+it a prerequisite for Contracts existing at all, not a later refinement.
 
 It earns its place on merit too: it's readable at a glance in a way a countdown
-isn't, it makes tightly-specified short puzzles possible, and it is a constraint
-on *the compactor* — the system that most needs to become something the player
-thinks about.
+isn't, it makes tightly-specified short puzzles possible, and a move is the unit
+players already think in.
+
+### Why not compactor strokes
+
+The first build of this budgeted **compactor press strokes**, which was wrong
+twice over, and both faults are worth recording so they aren't reintroduced.
+
+**A stroke budget is a disguised clock.** The bar advances on a wall clock
+whether or not you act, so strokes drain while you deliberate. You could lose a
+Contract by thinking — in the one mode whose premise is that it can't rush you.
+That contradicts "a puzzle you can be rushed out of isn't a puzzle" directly.
+
+**It priced the same Contract differently per player.** Because strokes elapse
+at a fixed rate, a fast player fits more shots inside the budget than a slow
+one. Measured aim time on device is ~1446ms against a 900ms cooldown, so a
+deliberate player was materially penalised for deliberating.
+
+A launch budget has neither fault: it is spent only by acting, and it is worth
+exactly the same to everyone. It is also checkable in closed form — a line needs
+`CUBES_PER_LINE` cubes and a launch delivers `SIZE_SPEC[size].cubes` of them —
+which is what lets `sim/systems.ts` *prove* no generated Contract is impossible.
+The stroke-based version could not be proved, and in fact 35% of what it
+generated was unwinnable while its test passed.
+
+The compactor keeps its `strokes` counter — it is still the right unit for
+telemetry, and it is what a future "survive N presses" objective would use.
 
 ## Materials — the content engine
 
@@ -331,8 +355,8 @@ Authored bays were considered and **rejected** — a hand-tuned map is a content
 treadmill nobody on this project has time to feed. A Contract is instead
 **seed + template + difficulty budget**:
 
-- **Objective** — reach $X · N lines in M strokes · clear all slag · deliver a
-  marked crate to the floor · precision (≤K launches) · survive N strokes losing
+- **Objective** — reach $X · N lines in M launches · clear all slag · deliver a
+  marked crate to the floor · precision (≤K launches) · survive N presses losing
   ≤K pieces
 - **Materials** — drawn from the pool unlocked at the player's Mark
 - **Complication** — one, occasionally two: wind character, hazard, pre-seeded
@@ -420,8 +444,7 @@ Contract throughput.
 2. **Materials**, starting with slag and cryo. Promoted from fourth: the
    calibration showed they are not flavour on top of a numeric ramp, they ARE
    the ramp. The Mark ladder can't be finally tuned until they exist.
-3. **Stroke budgets.** Load-bearing for Contracts, and the first real mechanic
-   the compactor itself gets.
+3. **Launch budgets.** Load-bearing for Contracts.
 4. **Contract generator + sim validation**, together.
 5. **Loadout UI**, once the numbers it displays have stopped moving.
 6. **Rigs** beyond the Standard Hauler.
@@ -433,7 +456,7 @@ The window is Aug 1 – Sep 30 and the iOS ship is concurrent, so the minimum th
 reads as "Candy Crush meets FTL" to a judge:
 
 Mark ladder with visible rig changes · generated Contracts across three tiers ·
-stroke-limited objectives · two materials (slag, cryo) · Unlimited with the
+launch-limited objectives · two materials (slag, cryo) · Unlimited with the
 daily cap · one alternate rig.
 
 Everything else here is post-hackathon runway — which is worth having written
@@ -445,7 +468,7 @@ down when judges ask where it goes next.
   The build budget is what makes that fair — normalization comes from everyone at
   a Mark having the same points to spend, not from the run overwriting your
   choices. Contracts would be pointless otherwise.
-- **Contracts have no clock and no bankroll.** Strokes are the constraint, and
+- **Contracts have no clock and no bankroll.** Launches are the constraint, and
   the mode's character is easy, positive and replayable.
 - **Deep Run keeps both the clock and the bankroll.** Time pressure is what makes
   aiming a skill rather than a solved problem, so it's the exam's core test.

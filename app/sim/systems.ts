@@ -25,7 +25,9 @@ import {
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
-import { dailyContracts, levelForContract, DAILY_COUNT } from "../src/game/contracts";
+import {
+  dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
+} from "../src/game/contracts";
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
@@ -249,20 +251,43 @@ section("Contracts (contracts.ts)");
   check("a day offers DAILY_COUNT contracts", dailyContracts(1).length === DAILY_COUNT);
 
   // The single worst thing this generator could emit is an impossible
-  // Contract, so the stroke budget is derived from the goal rather than rolled.
+  // Contract, so the launch budget is derived from the goal rather than rolled.
+  //
+  // The predecessor of this check asserted only `strokes >= goal` — at least
+  // one compactor press per line. That bound is far below what the game
+  // actually demands: measured play needs ~2.9 launches per line, so the test
+  // passed while 35% of generated Contracts were unwinnable. The real test is
+  // the cube budget: a line spans CUBES_PER_LINE cubes, a launch delivers
+  // SIZE_SPEC[size].cubes, and only PLANNING_EFFICIENCY of what's fired lands
+  // in a completed line.
   let everImpossible = false;
   let everNegativeWind = false;
   let tierOneTooWindy = false;
+  let worstRatio = Infinity;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
-        if (c.strokes < c.goal) everImpossible = true;
+        const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes * PLANNING_EFFICIENCY;
+        const demand = c.goal * CUBES_PER_LINE;
+        worstRatio = Math.min(worstRatio, supply / demand);
+        if (supply < demand) everImpossible = true;
         if (c.windMax < 0) everNegativeWind = true;
         if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
       }
     }
   }
-  check("no contract ever asks for more lines than strokes", !everImpossible);
+  check("every contract can supply the cubes its goal needs", !everImpossible);
+  // Not merely >= 1: a Contract is the forgiving half of the game, so even the
+  // tightest generated one must leave room for an imperfect attempt.
+  check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.05);
+
+  // CUBES_PER_LINE is a constant in contracts.ts but a consequence of the
+  // compactor's geometry. If the min-line stop ever moves, every budget the
+  // generator has ever emitted is silently wrong.
+  check(
+    "CUBES_PER_LINE matches the compactor's min-line stop",
+    CUBES_PER_LINE === makeBaseLevel(0).compactorMinLineCells,
+  );
   check("wind is never negative", !everNegativeWind);
   // Tier 1 drawing bay-8 weather is the "unfair and you saw it coming" failure
   // the wind rework existed to remove.
@@ -273,7 +298,7 @@ section("Contracts (contracts.ts)");
   const day = dailyContracts(4, 20260730);
   check(
     "the day's contracts differ from each other",
-    new Set(day.map((c) => `${c.pieceSize}|${c.windMax > 0}|${c.strokes}|${c.goal}`)).size > 1,
+    new Set(day.map((c) => `${c.pieceSize}|${c.windMax > 0}|${c.launches}|${c.goal}`)).size > 1,
   );
   check("names within a day are distinct", new Set(day.map((c) => c.name)).size === day.length);
 
@@ -283,7 +308,7 @@ section("Contracts (contracts.ts)");
     const cfg = levelForContract(c);
     check(`${c.name}: no launch cost`, cfg.launchCost === 0);
     check(`${c.name}: no clock`, cfg.timeLimitSec === 0);
-    check(`${c.name}: stroke budget set`, cfg.strokeBudget === c.strokes && cfg.strokeBudget > 0);
+    check(`${c.name}: launch budget set`, cfg.launchBudget === c.launches && cfg.launchBudget > 0);
     check(`${c.name}: line objective set`, cfg.objectiveLines === c.goal);
     // A funds target of 0 would win the bay on frame one; it must be
     // unreachable so the objective is the only thing that can end it.
@@ -292,7 +317,7 @@ section("Contracts (contracts.ts)");
 
   // Deep Run must be untouched by any of this.
   const deep = makeBaseLevel(0);
-  check("Deep Run bays have no stroke budget", deep.strokeBudget === 0);
+  check("Deep Run bays have no launch budget", deep.launchBudget === 0);
   check("Deep Run bays win on funds", deep.objectiveLines === 0);
 }
 

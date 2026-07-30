@@ -7,11 +7,21 @@
  * easy, positive, replayable half — a puzzle you return to, not a thing that can
  * beat you.
  *
- * What replaces time and money pressure is the STROKE BUDGET. With launches free
- * and nothing counting down, a Contract would otherwise be brute-forceable by
- * firing until the pile happens to resolve — so the compactor's own press count
- * becomes the constraint, which is both the readable unit ("clear this in 6
- * strokes") and a reason for the player to think about the compactor at all.
+ * What replaces time and money pressure is the LAUNCH BUDGET: a Contract gives
+ * you N launches to hit the goal. Firing is still free — you just have a finite
+ * number of shipments to do it with.
+ *
+ * This used to be a budget of compactor PRESS STROKES, which was wrong twice
+ * over. Strokes elapse on a wall clock whether or not you fire, so the budget
+ * was a hidden timer — you could lose a Contract by thinking, in the one mode
+ * whose whole premise is that it can't rush you. And because strokes pass at a
+ * fixed rate, a slower player got fewer shots inside the same budget, so the
+ * identical Contract was harder for them. Measured aim time on device is 1446ms
+ * against a 900ms cooldown, so that penalty landed on real players.
+ *
+ * Launches have neither problem: the budget is spent only by acting, and it is
+ * worth exactly the same to a fast player and a slow one. It is also checkable
+ * in closed form, which is what makes the feasibility guarantee below possible.
  *
  * Generated rather than authored. A hand-built map is a content treadmill nobody
  * on this project has time to feed, so a Contract is seed + template + a
@@ -20,6 +30,7 @@
  * randomness — difficulty is a number we spend, not an accident of the roll.
  */
 import { makeBaseLevel, type LevelConfig } from "./level";
+import { SIZE_SPEC } from "./pieces";
 import type { PieceSize } from "./theme";
 
 /** Objectives a Contract can ask for. Deliberately small to start: every one of
@@ -37,7 +48,9 @@ export interface Contract {
   kind: ObjectiveKind;
   /** Lines required. */
   goal: number;
-  strokes: number;
+  /** Launches allowed. Derived from the goal via the feasibility model in
+   *  `launchesFor`, never rolled — see the note there. */
+  launches: number;
   pieceSize: PieceSize;
   /** Lateral wind cap, 0 for a calm bay. */
   windMax: number;
@@ -83,24 +96,61 @@ export function budgetForTier(tier: number): number {
 }
 
 /** Cost of each complication, in difficulty-budget points. */
-const COST = { wind: 2, micro: 2, bulk: 1, tightStrokes: 2 } as const;
+const COST = { wind: 2, micro: 2, bulk: 1, tightLaunches: 2 } as const;
 
 const NAMES = [
   "Backlog Clearance", "Night Shift", "Overflow Dock", "Salvage Lot",
   "Quota Run", "Short Haul", "Scrap Line", "Holding Bay",
 ] as const;
 
-/**
- * Generate one Contract from a seed and tier.
+/* -------------------------------------------------------------------------
+ * FEASIBILITY
  *
- * The stroke budget is derived from the goal rather than rolled independently:
- * a Contract that asks for 5 lines in 3 strokes is not hard, it's impossible,
- * and an impossible Contract is the single worst thing a generator can emit.
- * STROKES_PER_LINE is the slack a competent player is expected to need; the
- * `tightStrokes` complication is the only thing that cuts it, and only when the
- * budget can pay for it.
+ * An impossible Contract is the single worst thing this generator can emit, so
+ * the budget is derived from the goal rather than rolled beside it.
+ *
+ * A clearable line spans the compaction zone at full advance —
+ * `compactorMinLineCells` = 8 cubes. So the cubes a goal requires is
+ * `goal * 8`, and the cubes a launch delivers is `SIZE_SPEC[size].cubes`. What
+ * separates those two numbers is how much of what you fire actually ends up in
+ * a completed line: cubes are lost off the wrong side, and whatever is left in
+ * a part-built row when the bay ends is waste.
+ *
+ * The measured value, from the OnePlus 12 playtest session (67 shots, 23 lines,
+ * std pieces): 23*8 / 67*4 = 0.687.
+ *
+ * PLANNING_EFFICIENCY is deliberately set BELOW that. The measurement is one
+ * session, on one device, at one piece size, by one player — and the cost of
+ * being wrong is asymmetric. Too generous a budget makes a Contract slightly
+ * dull; too tight makes it unwinnable, which for "the easy, positive,
+ * replayable half" is fatal. It should be revisited per piece size once the
+ * sweep telemetry lands (docs/superpowers/specs/2026-07-30-sweep-telemetry-design.md),
+ * since bulk pentominoes almost certainly pack worse than std tetrominoes.
+ * ---------------------------------------------------------------------- */
+
+/** Cubes needed to span the compaction zone at full advance — one line. Kept
+ *  in sync with level.ts's compactorMinLineCells by a test in sim/systems.ts. */
+export const CUBES_PER_LINE = 8;
+
+/** Share of launched cubes that reach a completed line. Conservative; see above. */
+export const PLANNING_EFFICIENCY = 0.6;
+
+/** Headroom over the bare feasibility floor. A Contract is meant to be
+ *  winnable on a decent attempt, not a perfect one. */
+const SLACK = 1.25;
+const SLACK_TIGHT = 1.05;
+
+/**
+ * Launches required for `goal` lines of `size` pieces, at `slack` headroom.
+ * Exported so sim/systems.ts asserts against the same function the generator
+ * uses — a feasibility guarantee that re-derives the number independently would
+ * only prove the two copies agree.
  */
-const STROKES_PER_LINE = 2.2;
+export function launchesFor(goal: number, cubesPerPiece: number, slack: number): number {
+  const cubesNeeded = goal * CUBES_PER_LINE;
+  const cubesPerLaunch = cubesPerPiece * PLANNING_EFFICIENCY;
+  return Math.max(3, Math.ceil((cubesNeeded / cubesPerLaunch) * slack));
+}
 
 export function generateContract(seed: number, tier: number, slot = 0): Contract {
   const rng = mulberry32(seed + slot * 7919);
@@ -110,7 +160,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
 
   let pieceSize: PieceSize = "std";
   let windMax = 0;
-  let strokeSlack = STROKES_PER_LINE;
+  let slack = SLACK;
   const notes: string[] = [];
 
   // Wind scales with tier rather than rolling free. A first-tier Contract
@@ -121,7 +171,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   const options: { id: keyof typeof COST; apply: () => void; note: string }[] = [
     { id: "bulk", apply: () => { pieceSize = "bulk"; }, note: "bulk pentominoes" },
     { id: "wind", apply: () => { windMax = windCap * (0.6 + rng() * 0.4); }, note: "crosswind" },
-    { id: "tightStrokes", apply: () => { strokeSlack = STROKES_PER_LINE - 0.5; }, note: "tight press budget" },
+    { id: "tightLaunches", apply: () => { slack = SLACK_TIGHT; }, note: "tight launch budget" },
     // Micro is generated but rare: playtesting found the 2-cube payload tedious
     // rather than merely weak (see docs/DESIGN.md), so it stays in the pool as a
     // known-rough option instead of being a third of every draw.
@@ -140,7 +190,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   // higher tiers — every Contract ends up carrying nearly the same set. Leading
   // with a rotated axis makes the daily set read as curated, which is also just
   // a better offer: pick the challenge you feel like, not the least-bad roll.
-  const LEAD: (keyof typeof COST)[][] = [["wind"], ["bulk", "micro"], ["tightStrokes"]];
+  const LEAD: (keyof typeof COST)[][] = [["wind"], ["bulk", "micro"], ["tightLaunches"]];
   const lead = LEAD[slot % LEAD.length];
   const ordered = [
     ...options.filter((o) => lead.includes(o.id)),
@@ -160,7 +210,10 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
     notes.push(opt.note);
   }
 
-  const strokes = Math.max(3, Math.ceil(goal * strokeSlack));
+  // Computed AFTER the complication loop: piece size decides how many cubes a
+  // launch delivers, so a budget fixed before it would be wrong for every
+  // Contract that drew bulk or micro.
+  const launches = launchesFor(goal, SIZE_SPEC[pieceSize].cubes, slack);
 
   return {
     id: `${seed}-${tier}-${slot}`,
@@ -169,7 +222,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
     name: NAMES[(seed + slot * 3) % NAMES.length],
     kind: "lines",
     goal,
-    strokes,
+    launches,
     pieceSize,
     windMax,
     brief: notes.length ? notes.join(" · ") : "clean bay",
@@ -212,7 +265,7 @@ export function levelForContract(c: Contract): LevelConfig {
   cfg.timeLimitSec = 0;
   cfg.targetScore = Number.MAX_SAFE_INTEGER;
   cfg.objectiveLines = c.goal;
-  cfg.strokeBudget = c.strokes;
+  cfg.launchBudget = c.launches;
   cfg.pieceSize = c.pieceSize;
   cfg.windMax = c.windMax;
   cfg.windGust = c.windMax * 0.025;

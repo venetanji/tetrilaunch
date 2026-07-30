@@ -128,15 +128,19 @@ export interface LevelConfig {
    *  aimed. The endgame of the tiny/micro build: volume over precision, which
    *  only pays off if you can flatten the resulting mess (Bond Breakers). */
   autoLaunchMs: number;
-  /** Compactor PRESS strokes this bay allows; 0 = unlimited, which is every
-   *  Deep Run bay. This is the constraint CONTRACTS run on instead of a clock
-   *  and a bankroll (see docs/DESIGN.md): with launches free and no countdown,
-   *  a Contract would otherwise be brute-forceable by firing until the pile
-   *  happens to resolve. Strokes are also the readable unit — "clear this in 6
-   *  strokes" is a thing you can plan against in a way a countdown isn't, and
-   *  it is a constraint on the compactor, which is the system that most needed
-   *  to become something the player thinks about. */
-  strokeBudget: number;
+  /** Launches this bay allows; 0 = unlimited, which is every Deep Run bay.
+   *  This is the constraint CONTRACTS run on instead of a clock and a bankroll
+   *  (see docs/DESIGN.md): firing costs nothing, but you get a finite number of
+   *  shipments, so a Contract can't be brute-forced by launching until the pile
+   *  happens to resolve.
+   *
+   *  It is deliberately NOT a budget of compactor press strokes, which is what
+   *  this was first built as. Strokes advance on a wall clock whether or not
+   *  the player acts, which made the budget a disguised timer in the one mode
+   *  that is supposed to have none — and made the same Contract harder for a
+   *  slower player, since fewer of their shots fit inside it. A launch budget
+   *  is spent only by acting and is worth the same to everyone. */
+  launchBudget: number;
   /** Lines needed to clear a CONTRACT; 0 = this bay is won on funds
    *  (targetScore), which is the Deep Run condition. Contracts carry no
    *  bankroll, so funds can't be their objective. */
@@ -350,7 +354,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
     bondBreakerCharges: 0,
-    strokeBudget: 0,
+    launchBudget: 0,
     objectiveLines: 0,
   };
 }

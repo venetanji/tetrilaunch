@@ -205,7 +205,7 @@ class App {
             name: this.contract.name,
             goal: this.contract.goal,
             lines: g.linesTotal,
-            strokesLeft: g.strokesLeft === Infinity ? 0 : g.strokesLeft,
+            launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
           }
         : null,
     };
@@ -246,8 +246,8 @@ class App {
               name: this.contract.name,
               lines: g.linesTotal,
               goal: this.contract.goal,
-              strokesUsed: Math.min(this.contract.strokes, g.compactor.strokes),
-              strokes: this.contract.strokes,
+              launchesUsed: Math.min(this.contract.launches, g.shotsFired),
+              launches: this.contract.launches,
             });
         }
         break;
@@ -842,15 +842,15 @@ class App {
       const el = this.overlay.querySelector(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
-    // In a Contract these two slots hold lines and strokes instead of funds
+    // In a Contract these two slots hold lines and launches instead of funds
     // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so
     // the funds readout would sit at $0 with 0 launches for the whole bay.
     if (this.contract) {
       set("#hud-score", String(g.linesTotal));
-      set("#hud-launches", String(g.strokesLeft === Infinity ? 0 : g.strokesLeft));
+      set("#hud-launches", String(g.launchesLeft === Infinity ? 0 : g.launchesLeft));
       this.overlay
         .querySelector("#hud-launches-chip")
-        ?.classList.toggle("pl-stat--danger", g.strokesLeft <= 2);
+        ?.classList.toggle("pl-stat--danger", g.launchesLeft <= 2);
     } else {
       set("#hud-score", "$" + g.score);
     }

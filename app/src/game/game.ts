@@ -26,9 +26,9 @@ const DT = 1000 / 60;
 
 export type GameStatus = "playing" | "won" | "lost";
 
-/** Why a bay ended badly. "strokes" is Contract-only — the press budget ran
- *  out (see level.ts's strokeBudget); the other three are Deep Run's. */
-export type LossReason = "topout" | "broke" | "time" | "strokes";
+/** Why a bay ended badly. "launches" is Contract-only — the launch budget ran
+ *  out (see level.ts's launchBudget); the other three are Deep Run's. */
+export type LossReason = "topout" | "broke" | "time" | "launches";
 
 /** Everything worth knowing about one launch, for playtest telemetry
  *  (lib/telemetry.ts). `wait` is the load-bearing field: ms spent between the
@@ -245,6 +245,12 @@ export class Game {
    *  remains. Time-up is overtime, not an instant loss — see the time-up
    *  block in update(). */
   private timeUpStep: number | null = null;
+  /** Game.stepCount when the launch budget was first exhausted, or null.
+   *  Same overtime treatment as the clock, and for a sharper reason: the shot
+   *  that spends the last launch is still IN THE AIR, and it is exactly the
+   *  shot most likely to complete the objective. Judging the bay the instant
+   *  shotsFired hits the budget would lose on the winning move. */
+  private launchesUpStep: number | null = null;
   /** Game.stepCount when the funding target was met and the SETTLE window
    *  opened, or null while the bay is still being played. The bay is NOT won
    *  the instant funds cross the target: shots already in the air have been
@@ -269,11 +275,12 @@ export class Game {
    *  (update doesn't run while paused). */
   private stepCount = 0;
 
-  /** Press strokes still available, or Infinity when this bay isn't budgeted
-   *  (every Deep Run bay — see level.ts's strokeBudget). */
-  get strokesLeft(): number {
-    if (this.level.strokeBudget <= 0) return Infinity;
-    return Math.max(0, this.level.strokeBudget - this.compactor.strokes);
+  /** Launches still available, or Infinity when this bay isn't budgeted (every
+   *  Deep Run bay — see level.ts's launchBudget). Counts shotsFired, which
+   *  includes bombs: a bomb is a shipment you chose to spend. */
+  get launchesLeft(): number {
+    if (this.level.launchBudget <= 0) return Infinity;
+    return Math.max(0, this.level.launchBudget - this.shotsFired);
   }
 
   /** This bay's win condition, met. A CONTRACT is won on lines cleared; a Deep
@@ -550,6 +557,9 @@ export class Game {
     // Clock's out: overtime only settles what's already flying (see the
     // time-up block in update()) — no new launches.
     if (this.timeLeftMs <= 0) return false;
+    // Budget spent (Contracts). Same rule as the clock: what's airborne still
+    // lands, but nothing new leaves the cannon.
+    if (this.launchesLeft <= 0) return false;
     if (!this.cannon.canShoot(now)) return false;
 
     // An armed demolition charge fires FREE — it's a consumable, already paid
@@ -772,13 +782,22 @@ export class Game {
     ) {
       this.lossReason = "broke";
       this.setStatus("lost");
-    } else if (this.strokesLeft <= 0) {
-      // Budget spent. Checked after the win test above, so the very stroke that
-      // completes the objective still counts as a clear rather than a loss —
-      // the press that finishes the job is the one that would exhaust the
-      // budget, and losing on it would read as a bug to the player.
-      this.lossReason = "strokes";
-      this.setStatus("lost");
+    } else if (this.launchesLeft <= 0) {
+      // Budget spent — but the last launch is still airborne, so this is
+      // overtime, not a verdict. Identical settle gate to the clock below:
+      // wait for a completed pressing stroke AND a field at rest, so a line
+      // the final shipment completed gets crushed and counted, with the same
+      // capped grace so a never-resting pile can't stall forever. The win test
+      // above runs first, so finishing on the last launch is a clear.
+      if (this.launchesUpStep === null) this.launchesUpStep = this.stepCount;
+      const strokeDone = this.lastFullAdvanceStep > this.launchesUpStep;
+      if (
+        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
+        this.stepCount - this.launchesUpStep > this.brokeGraceSteps
+      ) {
+        this.lossReason = "launches";
+        this.setStatus("lost");
+      }
     } else if (this.timeLeftMs <= 0) {
       // Overtime — not an instant loss: launches already paid for get to
       // land and their lines to be pressed and paid before the run is
