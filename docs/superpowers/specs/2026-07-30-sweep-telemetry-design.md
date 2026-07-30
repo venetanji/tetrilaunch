@@ -62,11 +62,35 @@ Five changes, no new subsystem.
 
 | File | Change |
 |---|---|
-| `game/compactor.ts` | `update()` reports whether this step completed a press stroke |
+| `game/compactor.ts` | **No change** — `strokes` already exists (see below) |
 | `game/lineClear.ts` | Extract the shared gate predicate; add `diagnoseRows()`; `settleZoneCubes` returns assist accounting |
 | `game/game.ts` | Accumulate per-step assist stats; build and emit the record on stroke completion |
 | `lib/telemetry.ts` | `sweep(rec)` → `BayRecord.sweeps`; `endBay` stores `finalPile` |
 | `sim/playtest.ts` | New reporting section |
+
+### Detecting stroke completion: use `Compactor.strokes`
+
+The Contracts work (`9e6b2df`) added `Compactor.strokes`, incremented exactly
+once per completed press — on the step the bar reaches `rightX` while `dir` is
+still `+1`. That is precisely the signal this spec needs, so **`compactor.ts` is
+not modified**: `game.ts` records the last value it saw and emits a
+`SweepRecord` when it observes an increment.
+
+This matters beyond convenience. Contracts are *budgeted* in strokes
+(`level.ts`'s `strokeBudget`), so that counter is now load-bearing game logic.
+Changing `update()`'s signature to report stroke completion would duplicate an
+existing signal and risk disturbing the budget check.
+
+It also raises the value of this telemetry: in a Contract the press stroke is
+the scarce resource, so "what did the pile do on each stroke" is directly the
+thing the player is spending.
+
+### Contract vs Deep Run
+
+`BayRecord` gains `mode: "run" | "contract"`. Contract bays have no clock, no
+launch cost, and a stroke budget, so pooling their sweeps with Deep Run sweeps
+would corrupt every aggregate — `sim/playtest.ts` must group by mode, and the
+existing aim-time/economy sections must exclude Contract bays.
 
 ### The extraction is load-bearing
 
@@ -153,12 +177,15 @@ is local-only, exported by hand, and must never phone home.
 
 ## Testing
 
-Added to `sim/systems.ts`, which CI runs:
+Added to `sim/systems.ts`, which CI runs (and which already carries the
+Contracts generator sweep, so these append rather than restructure):
 
 1. A synthetic pile with known angles produces the expected `skew` statistics.
 2. A full row tilted past `ANGLE_TOL` is reported in `blocked` with the angle
    gate failing, and does **not** clear.
 3. A full, aligned, on-slot row clears and is **absent** from `blocked`.
+4. Emitting a sweep record does not perturb `Compactor.strokes` — Contracts
+   budget on that counter, so telemetry must be strictly an observer.
 
 (3) is what proves the extracted predicate did not change clear behaviour.
 
