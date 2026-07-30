@@ -67,6 +67,11 @@ export function loadMeta(): MetaState {
     const meta = { ...newMeta(), ...raw } as MetaState;
     if (!Array.isArray(meta.unlocks)) meta.unlocks = [];
     meta.unlocks = meta.unlocks.filter((u): u is string => typeof u === "string");
+    // Same defensive read as unlocks: this list decides whether a Contract pays
+    // again, so a corrupt value must fail CLOSED (empty = nothing claimed yet)
+    // rather than throw inside the award path on the first Contract win.
+    if (!Array.isArray(meta.claimedContracts)) meta.claimedContracts = [];
+    meta.claimedContracts = meta.claimedContracts.filter((c): c is string => typeof c === "string");
     meta.salvage = Number.isFinite(meta.salvage) ? Math.max(0, Math.floor(meta.salvage)) : 0;
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;

@@ -858,8 +858,20 @@ export interface ContractCard {
   brief: string;
 }
 
-/** End-of-Contract modal. Deliberately lighter than endModal: there is no run
- *  to have lost, so the only choices are retry or go back. */
+/**
+ * End-of-Contract modal.
+ *
+ * Win and loss are genuinely different screens, not one screen with a recoloured
+ * label. The earlier version differed only by a small eyebrow while the big
+ * heading showed the Contract's NAME — which carries no outcome — and offered
+ * "Try Again" as the primary action on a bay the player had just WON. Winning
+ * read like failing.
+ *
+ * So on a win the outcome is the headline, the payout is stated plainly (the
+ * player should never have to go to the Workshop to find out whether a clear
+ * counted), and the primary action moves forward to the board. Replaying stays
+ * available, worded as "Play Again" — it is practice, not another attempt.
+ */
 export function contractEndModal(opts: {
   won: boolean;
   name: string;
@@ -867,25 +879,62 @@ export function contractEndModal(opts: {
   goal: number;
   launchesUsed: number;
   launches: number;
+  /** Null on a loss. `firstClear` false = cleared before, so it paid nothing. */
+  award: { salvage: number; firstClear: boolean } | null;
+  salvageTotal: number;
 }): string {
+  const stats = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
+      <div class="chip" style="flex-direction:row;gap:10px">
+        <div class="chip__label">Lines</div>
+        <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
+      </div>
+      <div class="chip" style="flex-direction:row;gap:10px">
+        <div class="chip__label">Launches</div>
+        <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${opts.launches}</div>
+      </div>
+    </div>`;
+
+  if (!opts.won) {
+    return `<div class="modal-scrim" id="scrim">
+      <div class="panel modal pop" style="width:min(460px,94vw)">
+        <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
+        <h2 class="display" style="font-size:var(--fs-h1)">Out of launches</h2>
+        <p class="muted" style="margin:2px 0 0">Nothing lost — a Contract costs you nothing to retry.</p>
+        ${stats}
+        <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
+        <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+      </div>
+    </div>`;
+  }
+
+  // Spare launches are the only skill expression left once it's cleared, so
+  // they're called out — it's what makes replaying a paid Contract interesting.
+  const spare = opts.launches - opts.launchesUsed;
+  const reward = opts.award?.firstClear
+    ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
+         <div class="chip__label" style="color:var(--success)">Salvage banked</div>
+         <div class="chip__value" style="color:var(--warn);font-size:var(--fs-h2)">♻ +${opts.award.salvage}</div>
+         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} total · spend it in the Workshop</div>
+       </div>`
+    : `<div class="chip" style="gap:2px;padding:12px 14px">
+         <div class="chip__label">Already paid</div>
+         <div class="muted" style="font-size:var(--fs-sm)">This Contract paid its salvage on your first clear. Replays are free practice.</div>
+       </div>`;
+
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop" style="width:min(460px,94vw)">
-      <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">
-        ${opts.won ? "Contract complete" : "Out of launches"}
-      </div>
-      <h2 class="display" style="font-size:var(--fs-h1)">${opts.name}</h2>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
-        <div class="chip" style="flex-direction:row;gap:10px">
-          <div class="chip__label">Lines</div>
-          <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
-        </div>
-        <div class="chip" style="flex-direction:row;gap:10px">
-          <div class="chip__label">Launches</div>
-          <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${opts.launches}</div>
-        </div>
-      </div>
-      <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
-      <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+      <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
+      <h2 class="display neon-text" style="font-size:var(--fs-h1);color:var(--success)">
+        ✓ Contract Complete
+      </h2>
+      <p class="muted" style="margin:2px 0 0">
+        ${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.
+      </p>
+      ${stats}
+      <div style="margin:0 0 14px">${reward}</div>
+      <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
+      <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
     </div>
   </div>`;
 }

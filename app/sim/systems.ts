@@ -20,7 +20,8 @@ import {
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
 import {
-  markUnlocked, newMeta, safeLoadout, salvageForRun, UNLOCKS, unlockAvailable,
+  contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
+  UNLOCKS, unlockAvailable,
 } from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
@@ -319,6 +320,34 @@ section("Contracts (contracts.ts)");
   const deep = makeBaseLevel(0);
   check("Deep Run bays have no launch budget", deep.launchBudget === 0);
   check("Deep Run bays win on funds", deep.objectiveLines === 0);
+
+  // --- Contract payout -----------------------------------------------------
+  let payoutMonotone = true;
+  for (let t = 2; t <= 12; t++) {
+    if (salvageForContract(t) <= salvageForContract(t - 1)) payoutMonotone = false;
+  }
+  check("contract payout rises with tier", payoutMonotone);
+  check("payout clamps below tier 1", salvageForContract(0) === salvageForContract(1));
+
+  // A Contract must not out-earn the exam. Three dailies a day against a run
+  // that pays ~43 for a decent attempt: a week of tier-1 dailies should buy a
+  // visible slice of the unlock tree without trivialising it.
+  const treeCost = UNLOCKS.reduce((a, u) => a + u.cost, 0);
+  const weekOfDailies = 7 * DAILY_COUNT * salvageForContract(1);
+  check(
+    `a week of tier-1 dailies is a fraction of the tree (${weekOfDailies}/${treeCost})`,
+    weekOfDailies > 0 && weekOfDailies < treeCost * 0.6,
+    `${((weekOfDailies / treeCost) * 100).toFixed(0)}%`,
+  );
+
+  // The payout gate is meta.claimedContracts, and it must fail CLOSED: an
+  // unknown Contract is unpaid, a listed one is paid. If this ever inverted,
+  // every Contract would pay on every replay — the monetization leak the
+  // launch-budget spec exists to prevent.
+  const paid = { ...newMeta(), claimedContracts: ["20260730-1-0"] };
+  check("a claimed contract reads as claimed", contractClaimed(paid, "20260730-1-0"));
+  check("an unseen contract reads as unclaimed", !contractClaimed(paid, "20260730-1-1"));
+  check("a fresh save has claimed nothing", newMeta().claimedContracts.length === 0);
 }
 
 // ---------------------------------------------------------------------------

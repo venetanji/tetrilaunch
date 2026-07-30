@@ -105,10 +105,22 @@ export interface MetaState {
    *  against the current Mark's build budget (upgrades.ts's budgetForMark).
    *  In-run scrap still refits on top of this at the usual stops. */
   loadout: UpgradeTiers;
+  /** Contract ids already paid out. A Contract pays ONCE, ever.
+   *
+   *  This is a monetization invariant, not a balance preference. Unlimited buys
+   *  "the daily Contract cap lifted" (docs/DESIGN.md), so if every completion
+   *  paid, the subscription would buy salvage -> unlocks -> stronger Deep Runs,
+   *  which is the one thing it must never do. Paying each Contract once keeps
+   *  the subscription buying throughput rather than power, and leaves replaying
+   *  a cleared Contract as free practice. */
+  claimedContracts: string[];
 }
 
 export function newMeta(): MetaState {
-  return { salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0, loadout: newTiers() };
+  return {
+    salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
+    loadout: newTiers(), claimedContracts: [],
+  };
 }
 
 /** The Mark the player may currently attempt: one above their best clear, held
@@ -154,4 +166,36 @@ export function salvageForRun(baysCleared: number, totalLines: number, runComple
     Math.floor(totalLines / 2) * SALVAGE_PER_2_LINES +
     (runComplete ? SALVAGE_RUN_COMPLETE_BONUS : 0)
   );
+}
+
+/* -------------------------------------------------------------------------
+ * CONTRACT PAYOUT
+ *
+ * PROVISIONAL — these two numbers want playtesting, and the docs say so
+ * (docs/superpowers/specs/2026-07-31-contract-progression-persistence-design.md).
+ *
+ * Calibration they were picked against: a decent Deep Run pays ~43 salvage
+ * (5 bays, 31 lines, measured) over ~10 minutes, and the unlock tree runs
+ * 45-130 per entry. Three tier-1 dailies pay 18; three tier-5 dailies pay 42,
+ * about one Deep Run.
+ *
+ * Per MINUTE a Contract pays better than a Deep Run, which is intended: the
+ * daily cap is the throughput control, not the rate. What must stay true is
+ * that Contracts never become the fastest route to a full unlock tree, because
+ * the exam is meant to be where the tree gets paid for.
+ * ---------------------------------------------------------------------- */
+export const CONTRACT_SALVAGE_BASE = 6;
+export const CONTRACT_SALVAGE_PER_TIER = 2;
+
+/** Salvage for completing a Contract of `tier`. Scales with tier so the ladder
+ *  is worth climbing; independent of launches used, because a Contract is the
+ *  forgiving half and shaving the budget is its own reward. */
+export function salvageForContract(tier: number): number {
+  const t = Math.max(1, Math.floor(tier));
+  return CONTRACT_SALVAGE_BASE + (t - 1) * CONTRACT_SALVAGE_PER_TIER;
+}
+
+/** True once this Contract has paid out — replaying it is free practice. */
+export function contractClaimed(meta: MetaState, contractId: string): boolean {
+  return meta.claimedContracts.includes(contractId);
 }
