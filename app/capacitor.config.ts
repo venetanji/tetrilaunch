@@ -10,7 +10,12 @@ const config: CapacitorConfig = {
   },
   ios: {
     backgroundColor: "#07070f",
-    contentInset: "always",
+    // The canvas is full-bleed and the layout already pads itself with
+    // env(safe-area-inset-*) (index.html sets viewport-fit=cover), so let the
+    // web view own every pixel instead of insetting it for the status bar.
+    contentInset: "never",
+    // Suppress the WKWebView "rubber band" — the game field must not scroll.
+    scrollEnabled: false,
   },
   plugins: {
     ScreenOrientation: {

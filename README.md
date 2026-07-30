@@ -52,6 +52,8 @@ app/                      Capacitor + Vite + TypeScript web app
   src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
   worker/index.ts         Cloudflare Worker: serves the app + /api/scores (D1)
   capacitor.config.ts     native shell config
+  ios/                    committed Xcode project (see docs/ios.md)
+  resources/              icon/splash SVG sources → native asset catalogs
 design/                   design-system source (synced to claude.ai/design via /design-sync)
   foundations/ components/ screens/    HTML preview cards
 wrangler.jsonc            Worker config: static assets + D1 binding
@@ -108,17 +110,34 @@ so it should not rebuild on every game commit:
   when `app/worker/`, `wrangler.jsonc`, or `migrations/` change (schema changes:
   `npm run db:migrate` first).
 
-### Native (Android / iOS)
+### Native (iOS / Android)
+
+The **iOS Xcode project is committed** at `app/ios/` (bundle ID `com.tetrilaunch.app`,
+universal, landscape-only, icons generated from `app/resources/`). On a Mac with Xcode
+and CocoaPods:
+
+```bash
+cd app
+npm install
+npm run ios:sync         # vite build → copy into ios/ → pod install
+npm run ios:open         # opens App.xcworkspace
+```
+
+Signing, App Store Connect, TestFlight and the App Privacy answers are written up in
+**[docs/ios.md](docs/ios.md)**.
+
+Android isn't generated in the repo:
 
 ```bash
 cd app
 npm run build
-npx cap add android      # or: npx cap add ios
-npx cap sync
-npx cap open android     # build/run in Android Studio / Xcode
+npx cap add android
+npx cap sync android
+npx cap open android
 ```
 
-Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`.
+Orientation is locked to landscape at runtime via `@capacitor/screen-orientation`
+(and declared landscape-only in the iOS `Info.plist`).
 
 ## 🎨 Design system
 
