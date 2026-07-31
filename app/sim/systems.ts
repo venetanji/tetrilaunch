@@ -756,6 +756,91 @@ section("Demolition charges + settle window (game.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("Compactor phase telemetry (compactor.ts, game.ts)");
+// ---------------------------------------------------------------------------
+// `wait` alone cannot tell aiming apart from waiting out a stroke, because the
+// compactor's round trip and the median gap between shots are both ~4.5s.
+// ShotInfo therefore carries the bar's phase at the launch. These pin the two
+// properties the analysis depends on: the phase is a truthful 0..1 reading of
+// the live bar, and capturing it perturbs nothing (Contracts are BUDGETED in
+// Compactor.strokes, so an observer that miscounts strokes breaks the mode).
+{
+  const DT = 1000 / 60;
+  const cfg = makeBaseLevel(0);
+  const gp = new Game(cfg, {}, 3);
+  const c = gp.compactor;
+
+  check("phase reads 0 at the open stop", Math.abs(c.phase - 0) < 1e-9, `${c.phase}`);
+
+  // Drive one full round trip and watch the phase, direction and stroke count.
+  let t = 0;
+  let sawFullAdvance = false;
+  let minPhase = Infinity, maxPhase = -Infinity;
+  let outOfRange = 0;
+  const strokesAtStart = c.strokes;
+  const cycle = Math.ceil(c.cycleSteps);
+  for (let i = 0; i < cycle + 2; i++) {
+    gp.update((t += DT));
+    minPhase = Math.min(minPhase, c.phase);
+    maxPhase = Math.max(maxPhase, c.phase);
+    if (c.phase < -1e-9 || c.phase > 1 + 1e-9) outOfRange++;
+    if (c.phase >= 1 - 1e-9) sawFullAdvance = true;
+  }
+  check("phase stays inside 0..1 across a full cycle", outOfRange === 0, `${outOfRange} readings outside`);
+  check("phase reaches full advance", sawFullAdvance, `max ${maxPhase.toFixed(3)}`);
+  check("phase returns toward the open stop", minPhase < 0.05, `min ${minPhase.toFixed(3)}`);
+  check(
+    "one cycle completes exactly one press stroke",
+    c.strokes - strokesAtStart === 1,
+    `${c.strokes - strokesAtStart} strokes in ${cycle} steps`,
+  );
+
+  // A shot must carry the LIVE bar reading, not a constant. Fire across the
+  // cycle and require the recorded phases to actually differ.
+  const seen: { phase: number; dir: number; stroke: number; live: number }[] = [];
+  const gs = new Game(makeBaseLevel(0), {
+    onShoot: (info) => seen.push({
+      phase: info.cphase, dir: info.cdir, stroke: info.cstroke, live: gs.compactor.phase,
+    }),
+  }, 7);
+  let ts = 0;
+  const period = Math.ceil(gs.compactor.cycleSteps);
+  // Spread the launches over two cycles so both directions are sampled. The
+  // cannon has its own cooldown, so this fires when it can rather than every
+  // step; that is fine, the assertion is about variety, not count.
+  for (let i = 0; i < period * 2; i++) {
+    gs.update((ts += DT));
+    if (i % 11 === 0) gs.shoot(ts);
+  }
+  check("shots were recorded with phase", seen.length >= 4, `${seen.length} shots`);
+  check(
+    "each shot's phase matches the live compactor",
+    seen.every((s) => Math.abs(s.phase - s.live) < 1e-9),
+    `${seen.filter((s) => Math.abs(s.phase - s.live) >= 1e-9).length} mismatched`,
+  );
+  check(
+    "recorded phase varies across the cycle (not a constant)",
+    new Set(seen.map((s) => s.phase.toFixed(3))).size > 2,
+    `${new Set(seen.map((s) => s.phase.toFixed(3))).size} distinct phases`,
+  );
+  check("both stroke directions are sampled", new Set(seen.map((s) => s.dir)).size === 2,
+    `dirs ${[...new Set(seen.map((s) => s.dir))].join(",")}`);
+  check("stroke index is non-decreasing across shots",
+    seen.every((s, i) => i === 0 || s.stroke >= seen[i - 1].stroke));
+
+  // The observer must not move the counter Contracts spend.
+  const quiet = new Game(makeBaseLevel(0), {}, 7);
+  const loud = new Game(makeBaseLevel(0), { onShoot: () => { /* reads phase */ } }, 7);
+  let tq = 0;
+  for (let i = 0; i < period * 2; i++) { quiet.update((tq += DT)); loud.update(tq); }
+  check("reading phase does not perturb the stroke count",
+    quiet.compactor.strokes === loud.compactor.strokes,
+    `${quiet.compactor.strokes} vs ${loud.compactor.strokes}`);
+
+  for (const game of [gp, gs, quiet, loud]) game.destroy();
+}
+
+// ---------------------------------------------------------------------------
 section("Layout solver (layout.ts)");
 // ---------------------------------------------------------------------------
 {

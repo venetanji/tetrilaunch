@@ -505,6 +505,9 @@ class App {
       cooldownMs: cfg.cooldownMs,
       launchCost: cfg.launchCost,
       scorePerLine: cfg.scorePerLine,
+      compactorSpeed: cfg.compactorSpeed,
+      compactorOpenCells: cfg.compactorOpenCells,
+      compactorMinLineCells: cfg.compactorMinLineCells,
       tiers: this.run.tiers,
       mods: this.run.modIds,
       pieceSize: cfg.pieceSize,
@@ -576,6 +579,9 @@ class App {
       target: cfg.objectiveLines,
       timeLimitSec: 0, cooldownMs: cfg.cooldownMs, launchCost: 0,
       scorePerLine: cfg.scorePerLine, tiers: {} as UpgradeTiers,
+      compactorSpeed: cfg.compactorSpeed,
+      compactorOpenCells: cfg.compactorOpenCells,
+      compactorMinLineCells: cfg.compactorMinLineCells,
       mods: [c.brief], pieceSize: cfg.pieceSize,
     });
     this.setState("playing");

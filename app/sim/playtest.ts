@@ -22,10 +22,18 @@
 //  4. HOW CLOSE TO BROKE? An end-of-bay total hides a near-death at 40s.
 import * as fs from "node:fs";
 
-interface Shot { t: number; wait: number | null; funds: number; bomb: boolean; power: number; angle: number }
+interface Shot {
+  t: number; wait: number | null; funds: number; bomb: boolean; power: number; angle: number;
+  /** Compactor phase/direction/stroke at the launch. Absent in sessions
+   *  recorded before section 6 existed — see `hasPhase`. */
+  cphase?: number; cdir?: 1 | -1; cstroke?: number;
+}
 interface Bay extends ModeTag {
   bay: number; mark: number; target: number; timeLimitSec: number; cooldownMs: number;
   launchCost: number; scorePerLine: number; mods: string[]; pieceSize: string;
+  /** Compactor geometry, for turning a phase back into seconds. Absent in
+   *  sessions recorded before section 6 existed. */
+  compactorSpeed?: number; compactorOpenCells?: number; compactorMinLineCells?: number;
   shots: Shot[]; funds: { t: number; v: number }[]; lineClears: { t: number; lines: number }[];
   abilities: { t: number; kind: string }[];
   result: "won" | "lost" | null; reason: string | null; secs: number;
@@ -95,11 +103,18 @@ if (!waits.length) {
   console.log(`   cooldown-bound (fired within ${BOUND_MS}ms of ready): ${pct(bound / waits.length)} of ${waits.length} shots`);
   const cds = [...new Set(bays.map((b) => b.cooldownMs))].sort((a, b) => a - b);
   console.log(`   cooldowns seen: ${cds.join(", ")}ms`);
+  // This number alone CANNOT settle MAGAZINE, and an earlier version of this
+  // script wrongly claimed it could. `wait` is time between the cannon becoming
+  // ready and the player firing — but the player is not necessarily aiming for
+  // all of it. The compactor's round trip is ~4.4s at bay 1, and the median gap
+  // between shots is ~4.5s, so a long wait is equally consistent with a slow
+  // aim and with holding fire for a usable window. Section 6 separates them;
+  // this section now reports the quantity without the verdict.
   const verdict = bound / waits.length > 0.5
-    ? "MAGAZINE is real — the gun is the constraint more often than not."
+    ? "the gun is the constraint on most shots — MAGAZINE is real"
     : bound / waits.length > 0.2
-      ? "MAGAZINE is situational — it binds on a minority of shots."
-      : "MAGAZINE looks DEAD for a human — aim time dominates the cooldown.";
+      ? "the gun binds on a minority of shots"
+      : "the gun rarely binds *on its own* — but see section 6 before pricing MAGAZINE";
   console.log(`   -> ${verdict}`);
 }
 
@@ -180,6 +195,95 @@ const bond = bays.reduce((a, b) => a + b.abilities.filter((x) => x.kind === "bon
 const bomb = bays.reduce((a, b) => a + b.abilities.filter((x) => x.kind === "bomb-arm").length, 0);
 console.log("\n5. ABILITIES  (invisible to the sim bots)");
 console.log(`   Bond Breaker used ${bond}x · Demolition armed ${bomb}x across ${bays.length} bays`);
+
+// ---------------------------------------------------------------------------
+// 6. The compactor window — what section 1 cannot see.
+// ---------------------------------------------------------------------------
+// The bar ping-pongs between the open stop and full advance at a constant
+// speed, so the field is only worth shooting into for part of each cycle. That
+// makes "aim time" two different behaviours wearing one number: aiming, and
+// waiting out a stroke. Three things separate them.
+//
+//  a. WHERE in the stroke shots land. Aiming freely produces a flat phase
+//     distribution; waiting for a window produces a peak.
+//  b. HOW MANY shots fit in one stroke. This is the quantity MAGAZINE raises
+//     if the window, not the aim, is what bounds throughput.
+//  c. Whether shots inside a burst are pinned to the cooldown. A gap sitting on
+//     the cooldown is the gun refusing a shot the player wanted to take —
+//     which is MAGAZINE's actual value, and is invisible to section 1 because
+//     that shot's `wait` is small but its predecessors' are huge.
+const phaseBays = bays.filter((b) => b.compactorSpeed !== undefined && b.shots.some((s) => s.cphase !== undefined));
+console.log("\n6. COMPACTOR WINDOW");
+if (!phaseBays.length) {
+  console.log("   no phase data — this session predates it (replay to collect)");
+} else {
+  // Cycle period: the bar covers (open - minLine) cells each way at `speed` px
+  // per physics step, at 60Hz. Matches Compactor.cycleSteps.
+  const CELL = 40;
+  const STEP_MS = 1000 / 60;
+  const periods = phaseBays.map((b) =>
+    (2 * (b.compactorOpenCells! - b.compactorMinLineCells!) * CELL / b.compactorSpeed!) * STEP_MS);
+  console.log(`   cycle ${Math.min(...periods).toFixed(0)}-${Math.max(...periods).toFixed(0)}ms across ${phaseBays.length} bays`);
+
+  // (a) Phase histogram, split by direction. 0 = open stop, 1 = full advance.
+  const shots = phaseBays.flatMap((b) => b.shots).filter((s) => s.cphase !== undefined);
+  const BUCKETS = 10;
+  for (const [label, dir] of [["pressing  (opening -> shut)", 1], ["retreating (shut -> opening)", -1]] as const) {
+    const ss = shots.filter((s) => s.cdir === dir);
+    if (!ss.length) continue;
+    const h = new Array(BUCKETS).fill(0);
+    for (const s of ss) h[Math.min(BUCKETS - 1, Math.floor(s.cphase! * BUCKETS))]++;
+    const peak = Math.max(...h);
+    console.log(`   ${label} — ${ss.length} shots (${pct(ss.length / shots.length)})`);
+    console.log(`     phase 0.0${" ".repeat(3)}${h.map((n) => String(Math.round(9 * n / Math.max(1, peak)))).join("")}${" ".repeat(3)}1.0   (0-9 scale, peak ${peak})`);
+  }
+  // A flat distribution would put 1/BUCKETS in every bucket; measure how far
+  // from flat this is, so "there is a window" is a number and not a squint.
+  const all = new Array(BUCKETS).fill(0);
+  for (const s of shots) all[Math.min(BUCKETS - 1, Math.floor(s.cphase! * BUCKETS))]++;
+  const flat = shots.length / BUCKETS;
+  const tvd = all.reduce((a, n) => a + Math.abs(n - flat), 0) / (2 * shots.length);
+  console.log(`   deviation from a flat phase distribution: ${pct(tvd)} (0% = shoots anywhere, high = a real window)`);
+
+  // (b) Shots per press stroke.
+  const perStroke: number[] = [];
+  for (const b of phaseBays) {
+    const counts = new Map<number, number>();
+    for (const s of b.shots) if (s.cstroke !== undefined) counts.set(s.cstroke, (counts.get(s.cstroke) ?? 0) + 1);
+    perStroke.push(...counts.values());
+  }
+  const multi = perStroke.filter((n) => n >= 2).length;
+  console.log(`   shots per stroke (strokes that saw >=1 shot): median ${quantile(perStroke, 0.5).toFixed(1)} · max ${Math.max(...perStroke)}`);
+  console.log(`   strokes carrying 2+ shots: ${multi}/${perStroke.length} (${pct(multi / Math.max(1, perStroke.length))})`);
+
+  // (c) Within-stroke gaps against the cooldown. THE MAGAZINE test: a gap at
+  // the cooldown is a shot the gun delayed, and a shorter cooldown would have
+  // let it land earlier inside the same window.
+  let burstGaps = 0, pinned = 0;
+  for (const b of phaseBays) {
+    const byStroke = new Map<number, Shot[]>();
+    for (const s of b.shots) if (s.cstroke !== undefined) {
+      if (!byStroke.has(s.cstroke)) byStroke.set(s.cstroke, []);
+      byStroke.get(s.cstroke)!.push(s);
+    }
+    for (const g of byStroke.values()) {
+      g.sort((x, y) => x.t - y.t);
+      for (let i = 1; i < g.length; i++) {
+        burstGaps++;
+        // Within 20% of the cooldown = the gun, not the player, set this gap.
+        if (g[i].t - g[i - 1].t <= b.cooldownMs * 1.2) pinned++;
+      }
+    }
+  }
+  if (burstGaps) {
+    console.log(`   gaps inside a stroke pinned to the cooldown: ${pinned}/${burstGaps} (${pct(pinned / burstGaps)})`);
+    console.log(`   -> ${pinned / burstGaps > 0.5
+      ? "MAGAZINE is real INSIDE the window even if section 1 says otherwise"
+      : "even inside a window the player, not the gun, sets the pace"}`);
+  } else {
+    console.log("   no stroke saw two shots — the window never fits a second launch");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Per-bay table.

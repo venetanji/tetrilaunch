@@ -66,6 +66,17 @@ export class Compactor {
     return ((this.rightX - this.leftX) * 2) / this.speed;
   }
 
+  /** Where in the stroke the bar is: 0 at the open stop, 1 at full advance.
+   *  Pure observer, used by playtest telemetry (lib/telemetry.ts) to ask what
+   *  the compactor was doing when the player chose to fire. Combined with
+   *  `dir` it is the full phase — 0.5 rising and 0.5 falling are the same
+   *  position but opposite halves of the cycle, and the player treats them
+   *  very differently: one is a closing window, the other an opening one. */
+  get phase(): number {
+    const span = this.rightX - this.leftX;
+    return span > 0 ? (this.x - this.leftX) / span : 0;
+  }
+
   update(): void {
     let x = this.body.position.x + this.speed * this.dir;
     if (x >= this.rightX) {

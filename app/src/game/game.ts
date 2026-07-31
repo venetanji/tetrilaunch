@@ -50,6 +50,20 @@ export interface ShotInfo {
   /** Funds BEFORE the launch cost is deducted. */
   funds: number;
   bomb: boolean;
+  /** Compactor phase at the instant of the launch: 0 = open stop, 1 = full
+   *  advance, with `cdir` saying which way it was travelling. Recorded because
+   *  `wait` alone cannot tell aiming apart from WAITING: the bar's round trip
+   *  is 4.4s at bay 1 and the median gap between shots is ~4.5s, so a long
+   *  `wait` is equally consistent with a slow aim and with a player holding
+   *  fire for a usable window. Phase separates them — a player aiming freely
+   *  fires at a uniform phase, one waiting for a window fires at a clustered
+   *  one. */
+  cphase: number;
+  cdir: 1 | -1;
+  /** Compactor.strokes at the launch — completed press strokes so far. Gives
+   *  shots-per-stroke directly, which is the quantity MAGAZINE would actually
+   *  raise if the window (not aim time) is what bounds throughput. */
+  cstroke: number;
 }
 
 export interface GameEvents {
@@ -670,6 +684,9 @@ export class Game {
       rot: this.cannon.pieceRotation,
       funds: this.score,
       bomb: firingBomb,
+      cphase: this.compactor.phase,
+      cdir: this.compactor.dir,
+      cstroke: this.compactor.strokes,
     };
 
     this.shotsFired += 1;

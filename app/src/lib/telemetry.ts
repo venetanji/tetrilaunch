@@ -44,6 +44,16 @@ export interface BayRecord {
   cooldownMs: number;
   launchCost: number;
   scorePerLine: number;
+  /** Compactor geometry, so a shot's `cphase` can be turned back into seconds
+   *  offline. The bar covers (open - minLine) cells each way at `speed` px per
+   *  physics step, which is the whole cycle period — without these three a
+   *  phase is a number with no duration attached, and the question we are
+   *  asking ("is the shooting window long enough for a second shot?") is
+   *  precisely a question about duration. Absent in sessions recorded before
+   *  this field existed; the analyser skips those rather than guessing. */
+  compactorSpeed: number;
+  compactorOpenCells: number;
+  compactorMinLineCells: number;
   tiers: UpgradeTiers;
   mods: string[];
   pieceSize: string;
@@ -158,6 +168,7 @@ export function startBay(cfg: {
   bay: number; mark: number; seed: number; mode: "run" | "contract";
   target: number; timeLimitSec: number;
   cooldownMs: number; launchCost: number; scorePerLine: number;
+  compactorSpeed: number; compactorOpenCells: number; compactorMinLineCells: number;
   tiers: UpgradeTiers; mods: string[]; pieceSize: string;
 }): void {
   if (!recording() || !run) return;
