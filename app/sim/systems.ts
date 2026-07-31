@@ -31,6 +31,7 @@ import {
   SPARE_SHIPMENTS,
 } from "../src/game/contracts";
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
+import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
@@ -353,7 +354,9 @@ section("Pattern Contracts (contracts.ts)");
   let everWindy = false;
   let everBudgeted = false;
   let everOffPool = false;
+  let everUntileable = false;
   let patterns = 0;
+  const varietyByTier = new Map<number, number>();
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
@@ -363,6 +366,15 @@ section("Pattern Contracts (contracts.ts)");
         if (cubes !== c.goal * CUBES_PER_LINE + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
           everInexact = true;
         }
+        // The cube COUNT above is necessary but nowhere near sufficient: the
+        // generator shipped [I, O, J, J] for two lines, which counts perfectly
+        // and tiles nothing. Re-solved here with an independent search rather
+        // than trusting the one that built it — a guarantee re-derived by the
+        // same route it was produced by proves only that the code is itself.
+        const lineCells = makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
+        if (!tilesRegion(c.queue, c.goal, lineCells)) everUntileable = true;
+        varietyByTier.set(tier, Math.max(varietyByTier.get(tier) ?? 0, new Set(c.queue).size));
+
         if (c.windMax !== 0) everWindy = true;
         if (c.launches !== 0) everBudgeted = true;
         // Low tiers stay on the two shapes that settle flat. Drawing an S into
@@ -372,10 +384,45 @@ section("Pattern Contracts (contracts.ts)");
     }
   }
   check(`the daily board offers pattern Contracts (${patterns} sampled)`, patterns > 0);
-  check("every pattern queue tiles its goal exactly", !everInexact);
+  check("every pattern queue holds exactly the goal's cubes", !everInexact);
+  check("every pattern queue tiles its goal region", !everUntileable);
   check("pattern Contracts are always calm", !everWindy);
   check("pattern Contracts carry no launch budget", !everBudgeted);
   check("low tiers draw only the flat-settling shapes", !everOffPool);
+
+  // Difficulty is the number of DIFFERENT shapes in one Contract, so the ladder
+  // has to actually climb — a generator that always found a single-shape tiling
+  // would pass every check above while offering the same puzzle at every tier.
+  check("a low tier can be a single-shape Contract", varietyByTier.get(1) === 1);
+  check(
+    `shape variety climbs with tier (${[1, 3, 5, 7].map((t) => varietyByTier.get(t)).join(" -> ")})`,
+    varietyByTier.get(3)! > varietyByTier.get(1)! &&
+      varietyByTier.get(5)! > varietyByTier.get(3)! &&
+      varietyByTier.get(7)! > varietyByTier.get(5)!,
+  );
+
+  // The tiling checker is now load-bearing for feasibility, so it gets its own
+  // evidence: one that answered "yes" unconditionally would silently bless every
+  // regression above. These are the exact sets the old generator shipped.
+  check("checker rejects the [I,O,J,J] Contract that shipped", !tilesRegion(["I", "O", "J", "J"], 2, 8));
+  check("checker rejects [I,I,I,T,S,Z] over three lines", !tilesRegion(["I", "I", "I", "T", "S", "Z"], 3, 8));
+  check("checker accepts a known-good pair of rows", tilesRegion(["I", "I", "O", "O"], 2, 8));
+  check("checker accepts four L shipments", tilesRegion(["L", "L", "L", "L"], 2, 8));
+  // S and Z tile no rectangle at all, and four T pieces need four rows, not two
+  // — the two facts that make "just widen the pool" the wrong difficulty knob.
+  check("checker rejects S/Z-only rows", !tilesRegion(["S", "S", "Z", "Z"], 2, 8));
+  check("checker rejects four T over two rows", !tilesRegion(["T", "T", "T", "T"], 2, 8));
+  check("checker accepts four T over four rows", tilesRegion(["T", "T", "T", "T"], 4, 4));
+  // Wrong cube count is rejected on arithmetic before any search runs.
+  check("checker rejects a queue that can't fill the area", !tilesRegion(["I", "O"], 2, 8));
+
+  // The width the inventory is sized to must be the width the bay actually
+  // demands at full advance. If those ever part company, every pattern Contract
+  // is off by a cube per line — the same defect class the tiling bug was.
+  check(
+    "pattern inventories are sized to the bay's own line width",
+    makeBaseLevel(0).compactorMinLineCells === CUBES_PER_LINE,
+  );
 
   const c = dailyContracts(6, 20260730).find((x) => x.kind === "pattern")!;
   // The SET is the shared challenge and must be reproducible from the id. The

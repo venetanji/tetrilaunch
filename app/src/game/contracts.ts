@@ -31,6 +31,7 @@
  */
 import { makeBaseLevel, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
+import { tilingQueue } from "./tiling";
 import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
 
 /**
@@ -185,12 +186,22 @@ export function launchesFor(goal: number, cubesPerPiece: number, slack: number):
  * seconds; if it turns out merely tedious rather than satisfying, the fix is
  * SPARE_SHIPMENTS below, not a nudge to the physics tolerances.
  *
- * One thing this game does NOT need, which a tetromino puzzle normally would:
- * a tiling proof. Pieces do not keep their shape here — the compactor shatters
- * whatever it presses (pieces.ts's breakJointsInBand) and lineClear.ts fills
- * rows slot by slot from LOOSE cubes. So geometry never makes an exact set
- * impossible; only delivery does. Piece TYPE still matters for how hard that
- * delivery is, which is what the tier pool below scales.
+ * This used to claim the game needed no tiling proof, on the grounds that
+ * pieces don't keep their shape — the compactor shatters whatever it presses
+ * (pieces.ts's breakJointsInBand) and lineClear.ts fills rows slot by slot from
+ * LOOSE cubes, so geometry could never make an exact set impossible.
+ *
+ * That was wrong, and it shipped Contracts nobody could win. Shattering lets a
+ * piece's cubes separate; it does not move a cube sideways under an overhang,
+ * and it certainly doesn't conjure one to fill a hole. Zero waste means every
+ * launched cube has to land inside a completed row, which makes the goal a
+ * `goal` x `lineCells` rectangle — and a set that tiles no such rectangle is
+ * unwinnable however it shatters. The generator emitted [I, O, J, J] for two
+ * lines and [I, I, I, T, S, Z] for three; neither tiles.
+ *
+ * So the inventory is now built FROM a tiling (tiling.ts) rather than rolled
+ * and hoped over, and sim/systems.ts re-checks every generated queue with an
+ * independent solver.
  * ---------------------------------------------------------------------- */
 
 /**
@@ -203,10 +214,15 @@ export function launchesFor(goal: number, cubesPerPiece: number, slack: number):
 export const SPARE_SHIPMENTS = 0;
 
 /**
- * Which piece types a tier draws from. I and O settle flat and pack cleanly;
- * L and J need a rotation thought through; S, Z and T tip, wedge and strand
- * cubes. With no tiling constraint to worry about, this IS the difficulty
- * ladder for a pattern Contract.
+ * Which piece types a tier is ALLOWED to draw from. I and O settle flat and
+ * pack cleanly; L and J need a rotation thought through; S, Z and T tip, wedge
+ * and strand cubes.
+ *
+ * This is now the softer half of the ladder — it bounds which shapes can turn
+ * up, while `patternVariety` decides how many different ones a single Contract
+ * mixes. Pool alone was a poor difficulty axis: it scaled per-shipment delivery
+ * risk, which a pattern Contract already punishes hardest, rather than the
+ * planning the mode is actually about.
  */
 function patternPool(tier: number): PieceType[] {
   if (tier <= 2) return ["I", "O"];
@@ -215,38 +231,97 @@ function patternPool(tier: number): PieceType[] {
 }
 
 /**
+ * How many DIFFERENT shipment types one Contract mixes — the real difficulty
+ * ladder here. Four O shipments making two rows is a puzzle you can see whole;
+ * the same two rows out of four different shapes has to be planned, because
+ * each shape constrains where the next can go. That scales the thinking rather
+ * than the delivery risk, which is the right axis for a planning mode.
+ *
+ * A ceiling, not a quota: tiling.ts prefers a queue that spends it but will
+ * settle for one shape fewer rather than fail (see EXACT_ATTEMPTS there).
+ */
+function patternVariety(tier: number): number {
+  return 1 + Math.min(3, Math.floor((Math.max(1, tier) - 1) / 2));
+}
+
+/**
  * Lines a pattern Contract asks for. Lower than a "lines" Contract's goal and
  * it climbs far more slowly, because zero waste makes every additional line a
  * multiplicative risk rather than an additive one: a 4-line pattern needs 32
  * consecutive cubes placed perfectly, not 4 independent tries at 8.
+ *
+ * Nudged up when the region's area doesn't divide by 4. A queue is exact only
+ * if `goal * lineCells` is a whole number of std tetrominoes, and it is also a
+ * precondition for tiling at all — no set of 4-cube pieces fills an area that
+ * isn't a multiple of 4. At today's 8-cell line every goal qualifies; this
+ * exists so a narrower line (mods.ts's Short Lines takes it to 6, and level.ts
+ * calls it a tunable seam) can't silently produce a Contract that is short a
+ * cube by arithmetic.
  */
-function patternGoal(tier: number): number {
-  return 2 + Math.min(2, Math.floor((Math.max(1, tier) - 1) / 3));
+function patternGoal(tier: number, lineCells: number): number {
+  let goal = 2 + Math.min(2, Math.floor((Math.max(1, tier) - 1) / 3));
+  while ((goal * lineCells) % SIZE_SPEC.std.cubes !== 0) goal++;
+  return goal;
 }
 
 /**
- * Build the exact inventory for `goal` lines. Std tetrominoes only, and that is
- * an arithmetic constraint rather than a preference: a queue is exact only if
- * `goal * CUBES_PER_LINE` divides by the piece's cube count. 4 always divides
- * 8*goal; 5 (bulk) only does when goal is a multiple of 5, which would put the
- * smallest legal bulk pattern at 40 cubes. Micro (2) divides fine but is the
- * size playtesting found tedious (docs/DESIGN.md), and tedium is the exact
- * failure mode a zero-waste objective is already closest to.
+ * Build the exact inventory for `goal` lines, as a tiling of the goal region.
+ *
+ * Std tetrominoes only, and that is an arithmetic constraint rather than a
+ * preference: a queue is exact only if the region's area divides by the piece's
+ * cube count. 4 always divides 8*goal; 5 (bulk) only does when goal is a
+ * multiple of 5, which would put the smallest legal bulk pattern at 40 cubes.
+ * Micro (2) divides fine but is the size playtesting found tedious
+ * (docs/DESIGN.md), and tedium is the exact failure mode a zero-waste objective
+ * is already closest to.
+ *
+ * The all-I fallback can only fire if `tilingQueue` fails outright, which it
+ * cannot for these pools — every one contains I, and a stack of horizontal I
+ * pieces tiles any region whose width divides by 4. It is here because the
+ * alternative to a dull Contract is an impossible one.
  */
-function patternQueue(goal: number, tier: number, rng: () => number): PieceType[] {
-  const pool = patternPool(tier);
-  const count = (goal * CUBES_PER_LINE) / SIZE_SPEC.std.cubes + SPARE_SHIPMENTS;
-  const picked = Array.from({ length: count }, () => pool[Math.floor(rng() * pool.length)]);
+function patternQueue(
+  goal: number,
+  tier: number,
+  lineCells: number,
+  rng: () => number,
+): PieceType[] {
+  const cubes = SIZE_SPEC.std.cubes;
+  const tiled = tilingQueue(goal, lineCells, patternPool(tier), rng, patternVariety(tier));
+  const queue = tiled ?? Array.from({ length: (goal * lineCells) / cubes }, () => "I" as PieceType);
+
+  for (let i = 0; i < SPARE_SHIPMENTS; i++) queue.push(queue[Math.floor(rng() * queue.length)]);
+
   // Canonical order, so the card, the id and any leaderboard all describe the
   // same set the same way. What the player actually receives is shuffled per
   // attempt (levelForContract) — see the note there.
-  return picked.sort((a, b) => PIECE_TYPES.indexOf(a) - PIECE_TYPES.indexOf(b));
+  return queue.sort((a, b) => PIECE_TYPES.indexOf(a) - PIECE_TYPES.indexOf(b));
+}
+
+/**
+ * Cells a line spans in the bay this Contract will actually be played in.
+ *
+ * Read from the level rather than assumed to be CUBES_PER_LINE, because the
+ * inventory is sized to it exactly and a wrong value is an unwinnable Contract
+ * rather than a slightly-off one. Mirrors levelForContract's own tier clamp so
+ * the two can never disagree.
+ *
+ * A row can CLEAR wider than this — the zone grows to compactorOpenCells as the
+ * bar retreats, and lineClear.ts requires whatever the zone is at that moment.
+ * The inventory can't be planned around that: a wider row eats more cubes than
+ * a zero-waste budget has, so building one costs the player a later line. The
+ * minimum is the only width guaranteed to be on offer every single sweep, which
+ * makes it the only width an exact inventory can be sized to.
+ */
+function lineCellsForTier(tier: number): number {
+  return makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
 }
 
 function generatePatternContract(seed: number, tier: number, slot: number): Contract {
   const rng = mulberry32(seed + slot * 7919);
-  const goal = patternGoal(tier);
-  const queue = patternQueue(goal, tier, rng);
+  const lineCells = lineCellsForTier(tier);
+  const goal = patternGoal(tier, lineCells);
+  const queue = patternQueue(goal, tier, lineCells, rng);
   return {
     id: `${seed}-${tier}-${slot}`,
     seed: seed + slot * 7919,
@@ -261,7 +336,11 @@ function generatePatternContract(seed: number, tier: number, slot: number): Cont
     // the player can't fully cancel is not a puzzle, it's a dice roll — so the
     // difficulty budget has nothing to spend here either.
     windMax: 0,
-    brief: `${queue.length} shipments, no waste`,
+    // Shape count is called out because it, not the shipment count, is what
+    // makes one pattern Contract harder than another (see patternVariety).
+    brief: `${queue.length} shipments · ${new Set(queue).size} shape${
+      new Set(queue).size === 1 ? "" : "s"
+    }, no waste`,
   };
 }
 
