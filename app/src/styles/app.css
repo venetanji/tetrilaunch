@@ -1076,6 +1076,23 @@ body.crt-off #app::after { display: none; }
 .step p { color: var(--text-dim); font-size: var(--fs-sm); }
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
+/* ---------- Contracts ---------- */
+/* A card that is ALSO a <button> does not inherit page text colour — the UA
+   gives every button `color: buttontext`, which is black, and these panels are
+   near-black. The contract card's own children mostly set a colour and so
+   looked fine, but the Contract NAME is a bare <b>: it rendered #000 on #07070f
+   at a contrast ratio of 1.05:1, i.e. invisible. Measured on device, and the
+   only real contrast failure in the app.
+   Set on the element rather than the <b> so nothing added to this card later
+   inherits black by default, and kept off `.panel` itself so the many non-button
+   panels are untouched. */
+button.panel { color: var(--text); }
+.contract-card { text-align: center; cursor: pointer; }
+/* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
+   Contract stays replayable after it is cleared, so this must not read as
+   "spent". */
+.contract-card--done { border-color: var(--accent); }
+
 /* ---------- Splash ---------- */
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); height: 100%; }
 .splash .display { font-size: var(--fs-display); animation: pop 600ms var(--ease); }
