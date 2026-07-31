@@ -1135,13 +1135,21 @@ button.panel { color: var(--text); }
 
 /* ---------- Name input ---------- */
 .submit-row { display: flex; gap: var(--sp-2); }
+/* min-width:0 is load-bearing, not tidying. `flex: 1` sets the BASIS to 0 but
+   leaves the automatic minimum size at auto, and for an <input> that resolves
+   to its intrinsic size attribute width (~20 characters = 263px), not to the
+   basis. In the landscape end modal the side column is 293px, so the input
+   would not shrink and shoved Submit 69px past the panel edge, where it was
+   clipped. The button then gets flex:none so the label sets its width. */
 .name-input {
-  flex: 1; background: var(--surface-3); border: var(--bw) solid var(--line-strong);
+  flex: 1; min-width: 0;
+  background: var(--surface-3); border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md); color: var(--text); padding: 12px 16px;
   font-family: var(--font-display); font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
   font-size: 16px; text-align: center; outline: none;
 }
 .name-input:focus { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); }
+.submit-row .btn { flex: none; }
 .submit-row.done { display: none; }
 
 /* Small screens: stack menu */
