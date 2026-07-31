@@ -578,7 +578,7 @@ export function refitScreen(opts: {
       cost === null || step === null
         ? `<span class="refit-card__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
-            <span class="refit-card__arrow refit-card__arrow--${step.dir}" aria-hidden="true">${step.dir === "up" ? "▲" : "▼"}</span>
+            <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
             <span class="refit-card__price">♻ ${cost}</span>
           </button>`;
@@ -743,6 +743,13 @@ export function draftScreen(opts: {
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
+  /** Daily Contracts cleared, and how many earn the third draft card. Drawn as
+   *  an empty slot rather than left out: two cards with no explanation reads as
+   *  the game having run out of modifiers, which is what actually happens late
+   *  in a run — the locked slot says this one is earnable. Omit to draw no
+   *  slot at all (the late-run case, where the pool really is exhausted). */
+  contractsCleared?: number;
+  contractsForThirdSlot?: number;
 }): string {
   const cards = opts.offers
     .map(
@@ -753,6 +760,18 @@ export function draftScreen(opts: {
       </button>`,
     )
     .join("");
+  // The locked third slot, shown only while it is still earnable AND the pool
+  // could actually fill it — a run that has exhausted its modifiers is short of
+  // cards for a different reason, and promising a third one there would lie.
+  const need = opts.contractsForThirdSlot ?? 0;
+  const have = opts.contractsCleared ?? 0;
+  const lockedSlot = need > 0 && have < need && opts.offers.length >= 2
+    ? `<div class="mod-card mod-card--locked">
+        <div class="mod-card__kind">locked</div>
+        <div class="mod-card__name">Third pick</div>
+        <p class="mod-card__desc">Clear ${need} Contracts to draft from three. ${have}/${need} done.</p>
+      </div>`
+    : "";
   const ownedRow = opts.owned.length
     ? `<div class="run-mods"><span>Run modifiers:</span>${opts.owned
         .map((m) => `<span class="run-mods__chip">${m.name}</span>`)
@@ -779,7 +798,7 @@ export function draftScreen(opts: {
           <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="draft__cards">${cards || `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
+      <div class="draft__cards">${cards ? cards + lockedSlot : `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
       ${ownedRow}
       <button class="btn btn--ghost" data-action="skip-mod">Skip — no modifier</button>
     </div>

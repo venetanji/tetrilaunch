@@ -291,6 +291,28 @@ export function salvageForContract(tier: number): number {
   return CONTRACT_SALVAGE_BASE + (t - 1) * CONTRACT_SALVAGE_PER_TIER;
 }
 
+/** Draft cards offered before the third slot is earned, and the number of
+ *  cleared Contracts that earns it. */
+export const DRAFT_BASE_SLOTS = 2;
+export const DRAFT_FULL_SLOTS = 3;
+export const DRAFT_THIRD_SLOT_CONTRACTS = 5;
+
+/**
+ * How many modifier cards a draft offers.
+ *
+ * Three was the whole pool for a new player: only four modifiers are free, and
+ * three of them appeared every single draft, so run one's "choice" was really a
+ * fixed list in a shuffled order. Two of four is a genuine pick (six possible
+ * pairs) and leaves the third card as something to earn.
+ *
+ * It is earned by clearing daily Contracts rather than by spending salvage,
+ * deliberately: salvage is grindable and buys OPTIONS, whereas a wider draft
+ * changes every future run, so it should cost play rather than currency.
+ */
+export function draftSlots(claimedContracts: string[]): number {
+  return claimedContracts.length >= DRAFT_THIRD_SLOT_CONTRACTS ? DRAFT_FULL_SLOTS : DRAFT_BASE_SLOTS;
+}
+
 /** True once this Contract has paid out — replaying it is free practice. */
 export function contractClaimed(meta: MetaState, contractId: string): boolean {
   return meta.claimedContracts.includes(contractId);

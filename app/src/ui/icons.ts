@@ -26,7 +26,13 @@ export type IconName =
   // codes — "BAY", "LCH", "HYD" — which were text pretending to be glyphs: they
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
-  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds";
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds"
+  // Direction of a value change on the refit buy button. These were the text
+  // glyphs ▲/▼, which sat off-centre against the pixel label beside them for
+  // exactly the reason in the header note: a font glyph carries the font's own
+  // metrics, and those do not line up with a different family at a different
+  // size. An SVG on a known 16x16 box does.
+  | "up" | "down";
 
 /** Inner markup per icon. Shapes that read better solid are filled; the rest
  *  stroke, and the wrapper supplies the shared stroke attributes. */
@@ -67,6 +73,10 @@ const PATHS: Record<IconName, string> = {
   reactor: `<path d="M6 7h4v4H6z" fill="currentColor" stroke="none"/><path d="M3 13V10"/><path d="M8 13v-1"/><path d="M13 13V4"/><path d="M3 5l2-2 2 2"/>`,
   // Bond Emitter: a joint at the centre throwing bonds outward — the shatter.
   bonds: `<path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/>`,
+  // Solid triangles, centred on the 16x16 box so both read at the same optical
+  // height whichever way they point.
+  up: `<path d="M8 4l5 8H3z" fill="currentColor" stroke="none"/>`,
+  down: `<path d="M8 12L3 4h10z" fill="currentColor" stroke="none"/>`,
 };
 
 /**

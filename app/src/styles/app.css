@@ -986,6 +986,16 @@ body.crt-off #app::after { display: none; }
 .mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 4px 4px 0 rgba(255,45,85,0.45); }
 .mod-card--bane .mod-card__kind { color: var(--danger); background: rgba(255,45,85,0.12); }
 
+/* The unearned third slot. Deliberately inert — no data-action, dashed and
+   dimmed — so it reads as a space that will fill rather than a card to click. */
+.mod-card--locked {
+  border-style: dashed; border-color: var(--line); opacity: 0.62;
+  cursor: default; box-shadow: none;
+}
+.mod-card--locked:hover { transform: none; }
+.mod-card--locked .mod-card__kind { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+.mod-card--locked .mod-card__name { color: var(--text-muted); }
+
 .mod-card--tradeoff { border-color: rgba(0,240,255,0.35); }
 .mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: 4px 4px 0 rgba(0,240,255,0.45); }
 .mod-card--tradeoff .mod-card__kind { color: var(--accent); background: rgba(0,240,255,0.12); }
@@ -1355,7 +1365,7 @@ button.panel { color: var(--text); }
   width: 100%; padding: 8px 12px; font-size: 10px;
   display: flex; align-items: center; gap: 6px;
 }
-.refit-card__arrow { flex: none; font-size: 9px; line-height: 1; }
+.refit-card__arrow { flex: none; display: flex; align-items: center; }
 .refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }

@@ -8,8 +8,8 @@ import {
 import { draftOffers, modById, type ModDef } from "./game/mods";
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  contractClaimed, markUnlocked, safeLoadout, salvageForContract, salvageForRun,
-  unlockAvailable, unlockById, type MetaState,
+  contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract, salvageForRun,
+  unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -353,6 +353,10 @@ class App {
               // be played; 1 means "clear this one and you dock". Null late in a
               // run when no stop remains.
               baysToRefit: baysUntilRefit(this.run.levelIndex),
+              // Only meaningful while the third slot is still unearned; the
+              // screen hides the locked card once it is.
+              contractsCleared: this.meta.claimedContracts.length,
+              contractsForThirdSlot: DRAFT_THIRD_SLOT_CONTRACTS,
             });
         }
         break;
@@ -643,7 +647,8 @@ class App {
         // loop keeps re-rendering the settled field (and its bayclear sweep FX)
         // behind the banner until startLevel() tears it down.
         this.pendingOffers = draftOffers(
-          this.run.seed, this.run.levelIndex, this.run.modIds, 3, this.run.unlocks,
+          this.run.seed, this.run.levelIndex, this.run.modIds,
+          draftSlots(this.meta.claimedContracts), this.run.unlocks,
         );
         this.setState("bayclear");
         this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);

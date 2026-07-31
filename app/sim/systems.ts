@@ -21,7 +21,8 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
-  UNLOCKS, unlockAvailable, MARK_COUNT,
+  UNLOCKS, unlockAvailable, MARK_COUNT, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
+  DRAFT_THIRD_SLOT_CONTRACTS,
 } from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
@@ -619,6 +620,38 @@ section("Draft gating (mods.ts + meta.ts)");
     MODS.filter((m) => !m.unlock).map((m) => m.id).join(","),
   );
   check("a player who owns nothing is still offered a draft", FREE.every((id) => locked.has(id)));
+
+  // --- Draft width -----------------------------------------------------------
+  // Three slots against four free mods meant a new player was shown three of
+  // the four every draft: the same list, reshuffled, with no real pick. Two of
+  // four is six possible pairs, and the third card becomes something to earn.
+  check("a new player drafts from two", draftSlots([]) === DRAFT_BASE_SLOTS, String(draftSlots([])));
+  check(
+    "the third slot needs the full count",
+    draftSlots(new Array(DRAFT_THIRD_SLOT_CONTRACTS - 1).fill("c")) === DRAFT_BASE_SLOTS,
+  );
+  check(
+    "clearing enough Contracts earns the third slot",
+    draftSlots(new Array(DRAFT_THIRD_SLOT_CONTRACTS).fill("c")) === DRAFT_FULL_SLOTS,
+  );
+  check(
+    "more Contracts never widen it further",
+    draftSlots(new Array(DRAFT_THIRD_SLOT_CONTRACTS * 4).fill("c")) === DRAFT_FULL_SLOTS,
+  );
+  // The point of narrowing to two: the free pool must still out-number the
+  // slots, or run one is a fixed list again.
+  check(
+    "the free pool out-numbers the starting slots",
+    MODS.filter((m) => !m.unlock).length > DRAFT_BASE_SLOTS,
+    `${MODS.filter((m) => !m.unlock).length} free vs ${DRAFT_BASE_SLOTS} slots`,
+  );
+  check(
+    "a two-slot draft returns two distinct mods",
+    (() => {
+      const o = draftOffers(1234, 0, [], DRAFT_BASE_SLOTS, []);
+      return o.length === DRAFT_BASE_SLOTS && new Set(o.map((m) => m.id)).size === DRAFT_BASE_SLOTS;
+    })(),
+  );
 
   // --- Mark gating: the monetization invariant -----------------------------
   // Salvage is grindable (Unlimited sells uncapped dailies); a Mark is not. So
