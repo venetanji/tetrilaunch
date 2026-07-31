@@ -10,7 +10,7 @@ import {
   MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
 } from "../game/upgrades";
 import {
-  UNLOCKS, unlockAvailable, unlockById, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
+  UNLOCKS, unlockAvailable, unlockGates, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
   SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, type MetaState,
 } from "../game/meta";
 import type { Settings } from "../lib/store";
@@ -623,33 +623,59 @@ export function refitScreen(opts: {
  * harder-won than a beginner's rather than merely bigger-numbered, while still
  * making a run that died in bay 3 worth having played.
  */
+/**
+ * The Workshop.
+ *
+ * OWNED UNLOCKS DO NOT GET A CARD. They collapse into one compact strip, and
+ * that is a deliberate inversion of what this screen used to do. It is a shop:
+ * what you already own is reference, what you can buy is the merchandise, and
+ * giving both the same 209px card meant the screen grew as the player
+ * progressed — exactly backwards, and by eleven unlocks it was four screens of
+ * scrolling on a landscape phone. Collapsing owned entries makes the Workshop
+ * get SHORTER the further in you are, and puts the decision you actually came
+ * here to make at the top.
+ */
 export function workshopScreen(meta: MetaState): string {
-  const cards = UNLOCKS.map((u) => {
-    const owned = meta.unlocks.includes(u.id);
-    const available = unlockAvailable(u, meta.unlocks);
-    const affordable = meta.salvage >= u.cost;
-    const gate = (u.requires ?? [])
-      .filter((r) => !meta.unlocks.includes(r))
-      .map((r) => unlockById(r)?.name ?? r);
-    const foot = owned
-      ? `<span class="shop-card__owned">✓ Owned</span>`
-      : !available
-        ? `<span class="shop-card__locked">Needs ${gate.join(", ")}</span>`
-        : `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`;
-    return `<div class="shop-card${owned ? " shop-card--owned" : ""}${!available && !owned ? " shop-card--gated" : ""}">
+  // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
+  // main.ts's onBuyUnlock enforces the gate against this same field, so any
+  // derivation here would risk offering a button the purchase path refuses.
+  const mark = meta.mark;
+  const owned = UNLOCKS.filter((u) => meta.unlocks.includes(u.id));
+  const forSale = UNLOCKS.filter((u) => !meta.unlocks.includes(u.id))
+    .sort((a, b) => a.rank - b.rank || a.cost - b.cost);
+
+  const cards = forSale
+    .map((u) => {
+      const available = unlockAvailable(u, meta.unlocks, mark);
+      const affordable = meta.salvage >= u.cost;
+      const gates = unlockGates(u, meta.unlocks, mark);
+      const foot = available
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
+        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
       <div class="shop-card__name">${u.name}</div>
       <p class="shop-card__desc">${u.desc}</p>
       <div class="shop-card__foot">${foot}</div>
     </div>`;
-  }).join("");
+    })
+    .join("");
 
-  return `<div class="screen neon-backdrop">
+  const ownedStrip = owned.length
+    ? `<div class="workshop__owned">
+        <span class="workshop__owned-label">✓ Owned</span>
+        ${owned.map((u) => `<span class="workshop__owned-item">${u.name}</span>`).join("")}
+      </div>`
+    : "";
+
+  const done = !forSale.length;
+
+  return `<div class="screen screen--fit neon-backdrop">
     <div class="workshop">
       <div class="workshop__hdr">
         <div style="text-align:left">
           <div class="eyebrow">Between runs</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
-          <p class="muted" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+          <p class="muted workshop__blurb" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
@@ -660,8 +686,11 @@ export function workshopScreen(meta: MetaState): string {
         </div>
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
-      <div class="workshop__grid">${cards}</div>
-      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">▶ Start Run</button>
+      ${ownedStrip}
+      ${done
+        ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
+        : `<div class="workshop__grid">${cards}</div>`}
+      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
 }

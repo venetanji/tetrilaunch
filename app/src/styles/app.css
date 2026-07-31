@@ -1347,6 +1347,56 @@ button.panel { color: var(--text); }
 .shop-card__owned { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.06em; }
 .shop-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--warn); letter-spacing: 0.04em; }
 
+/* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
+   shop, so what you own is reference and what you can buy is the merchandise.
+   It also means the screen gets SHORTER as you progress rather than longer. */
+.workshop__owned {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-md);
+  border: var(--bw) solid rgba(0,255,156,0.3);
+  background: rgba(0,255,156,0.05);
+}
+.workshop__owned-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  color: var(--success); flex: none;
+}
+.workshop__owned-item { font-size: 11px; color: var(--text-dim); }
+.workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
+
+/* Short (landscape-phone) viewports. Eleven unlocks cannot all show a paragraph
+   in 360px, so the card gives up description length rather than the screen
+   giving up fitting: the blurb goes (it explains the screen, not the goods),
+   the columns narrow, and the desc clamps to three lines with the full text
+   still one tap away on a taller screen. */
+@media (max-height: 460px) {
+  .workshop { gap: var(--sp-2); padding-block: var(--sp-2); }
+  .workshop__blurb { display: none; }
+  .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
+  /* Eleven unlocks, each with an explanation of what it does, genuinely do not
+     fit 360px — and cutting the explanation is the wrong trade, because it is
+     the only thing that tells you what you are buying. So the PAGE stops
+     scrolling and the card area becomes the only scroller: salvage, the owned
+     strip and Start Run stay pinned and on-screen at every ownership state,
+     and the shopping happens inside a region instead of running off the
+     bottom. Scoped by .screen--fit so the other screens keep page scrolling. */
+  .screen--fit { overflow: hidden; }
+  .screen--fit .workshop { height: 100%; min-height: 0; }
+  .workshop__grid {
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px;
+    flex: 1; min-height: 0; overflow-y: auto;
+    align-content: start;
+  }
+  .shop-card { padding: 8px 10px; gap: 5px; border-radius: var(--r-md); }
+  .shop-card__name { font-size: 12px; }
+  .shop-card__desc {
+    font-size: 10px; line-height: 1.3;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .shop-card__foot .btn { padding: 5px 10px; font-size: 9px; }
+}
+
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
 .draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .salvage-row {

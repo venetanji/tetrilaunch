@@ -21,7 +21,7 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
-  UNLOCKS, unlockAvailable,
+  UNLOCKS, unlockAvailable, MARK_COUNT,
 } from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
@@ -596,8 +596,68 @@ section("Draft gating (mods.ts + meta.ts)");
     "unlock prerequisites all resolve to real unlocks",
     UNLOCKS.every((u) => (u.requires ?? []).every((r) => UNLOCKS.some((o) => o.id === r))),
   );
-  check("gated unlocks are unavailable until their prereq is owned", !unlockAvailable(UNLOCKS.find((u) => u.id === "auto")!, []));
-  check("gated unlocks unlock with their prereq", unlockAvailable(UNLOCKS.find((u) => u.id === "auto")!, ["demo"]));
+  const auto = UNLOCKS.find((u) => u.id === "auto")!;
+  check("gated unlocks are unavailable until their prereq is owned", !unlockAvailable(auto, []));
+  check("gated unlocks unlock with their prereq", unlockAvailable(auto, ["demo", "micro"]));
+
+  // --- Modifiers as the tree ----------------------------------------------
+  // Every mod's `unlock` must name a real UNLOCK, or it is unreachable forever:
+  // draftOffers filters on an id nothing can ever buy.
+  check(
+    "every mod's unlock id resolves to a real unlock",
+    MODS.every((m) => !m.unlock || UNLOCKS.some((u) => u.id === m.unlock)),
+    MODS.filter((m) => m.unlock && !UNLOCKS.some((u) => u.id === m.unlock)).map((m) => m.id).join(","),
+  );
+  // The free four are what a player who has bought NOTHING gets offered. If this
+  // ever empties, run one has no draft at all — the on-ramp the whole gating
+  // scheme is supposed to protect.
+  const FREE = ["overtime", "premium", "wide-bay", "rapid"];
+  check(
+    "exactly the four plain tradeoffs stay free",
+    JSON.stringify(MODS.filter((m) => !m.unlock).map((m) => m.id).sort()) ===
+      JSON.stringify([...FREE].sort()),
+    MODS.filter((m) => !m.unlock).map((m) => m.id).join(","),
+  );
+  check("a player who owns nothing is still offered a draft", FREE.every((id) => locked.has(id)));
+
+  // --- Mark gating: the monetization invariant -----------------------------
+  // Salvage is grindable (Unlimited sells uncapped dailies); a Mark is not. So
+  // the tree must NOT be completable by money alone, at any Mark below the top.
+  const markGated = UNLOCKS.filter((u) => u.requiresMark !== undefined);
+  check(`the tree's tail is Mark-gated (${markGated.length} unlocks)`, markGated.length > 0);
+  check(
+    "no amount of salvage buys a Mark-gated unlock below its Mark",
+    markGated.every((u) => !unlockAvailable(u, UNLOCKS.map((o) => o.id), u.requiresMark! - 1)),
+  );
+  check(
+    "a Mark-gated unlock opens at its Mark",
+    markGated.every((u) => unlockAvailable(u, UNLOCKS.map((o) => o.id), u.requiresMark!)),
+  );
+  check(
+    "every Mark gate is inside the ladder",
+    markGated.every((u) => u.requiresMark! >= 1 && u.requiresMark! <= MARK_COUNT),
+  );
+
+  // --- Shape of the ladder --------------------------------------------------
+  const total = UNLOCKS.reduce((a, u) => a + u.cost, 0);
+  check(`the tree costs ${total} salvage`, total === 1400, String(total));
+  // Rank is what the Workshop groups by, and it promises rising price. A rank-2
+  // unlock cheaper than a rank-1 would sort into a band it undercuts.
+  const maxOf = (r: number) => Math.max(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
+  const minOf = (r: number) => Math.min(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
+  check("rank 2 is dearer than rank 1", minOf(2) > maxOf(1));
+  check("rank 3 is dearer than rank 2", minOf(3) > maxOf(2));
+  check("only rank 3 carries a Mark gate", markGated.every((u) => u.rank === 3));
+  // Rank 1 is the on-ramp, so a first option has to stay within a couple of
+  // runs however much the tail inflates. Two rather than one is not a rounding
+  // of ambition: a decent run (5 bays, 31 lines) pays 43 against a 45 floor, so
+  // the cheapest unlock has ALWAYS been a hair over one run. Left at its real
+  // value rather than repriced to flatter the check.
+  const decentRun = salvageForRun(5, 31, false);
+  check(
+    `the cheapest unlock is ~${(minOf(1) / decentRun).toFixed(1)} runs (${minOf(1)} vs ${decentRun})`,
+    minOf(1) <= decentRun * 2,
+  );
 }
 
 // ---------------------------------------------------------------------------

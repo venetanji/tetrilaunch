@@ -767,7 +767,11 @@ class App {
     const def = unlockById(id);
     if (!def) return;
     if (this.meta.unlocks.includes(id)) return;
-    if (!unlockAvailable(def, this.meta.unlocks)) return;
+    // Marks BEATEN, not the Mark attemptable — a capstone gated on Mark 3 must
+    // need three clears, not two clears and permission to try the third. This
+    // is the purchase path, so it is where the gate has to actually hold: the
+    // Workshop's disabled button is presentation, this is enforcement.
+    if (!unlockAvailable(def, this.meta.unlocks, this.meta.mark)) return;
     if (this.meta.salvage < def.cost) return;
     this.meta = {
       ...this.meta,

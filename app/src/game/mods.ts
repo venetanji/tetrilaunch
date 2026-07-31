@@ -29,7 +29,17 @@ export interface ModDef {
   /** Meta-progression unlock id (see meta.ts's UNLOCKS) that must be PURCHASED
    *  for this mod to appear in the draft pool at all. Undefined = always
    *  available. This is the seam that makes salvage spent in the Workshop
-   *  change what a run can BE, rather than just making it numerically stronger. */
+   *  change what a run can BE, rather than just making it numerically stronger.
+   *
+   *  Most mods now carry one — the modifier list IS the unlock tree. Note what
+   *  is bought: the right for a mod to be OFFERED, never the mod itself. The
+   *  draft still deals three and you still choose, so salvage buys an option
+   *  rather than power, which is the constraint meta.ts sets out.
+   *
+   *  Exactly four are left free — Overtime, Premium Contracts, Wide Bay, Rapid
+   *  Loader. They are the plain tradeoffs, none of which defines a build, so a
+   *  player who has bought nothing still gets a real draft on their first run
+   *  instead of an empty one. */
   unlock?: string;
   /** Mod ids that must already be owned THIS RUN for this one to be offered — a
    *  synergy prerequisite, not a cost. Used by the Autoloader, which only makes
@@ -44,6 +54,7 @@ export const MODS: ModDef[] = [
     name: "Overclock",
     desc: "Compactor moves 50% faster · −20s on the clock",
     kind: "tradeoff",
+    unlock: "overclock",
     stackable: true,
     apply(cfg) {
       cfg.compactorSpeed *= 1.5;
@@ -65,6 +76,7 @@ export const MODS: ModDef[] = [
     name: "Sturdy Shipments",
     desc: "×1.35 joint break stretch, +0.05 joint stiffness. Pieces hold together — clean if you aim well, but they won't shatter into fillers.",
     kind: "tradeoff",
+    unlock: "sturdy",
     stackable: true,
     apply(cfg) {
       cfg.jointBreakStretch *= 1.35;
@@ -76,6 +88,7 @@ export const MODS: ModDef[] = [
     name: "Micro Shipments",
     desc: "2-cube dominoes · −40% launch cost · 30% lighter, and they shatter easily. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile below them.",
     kind: "tradeoff",
+    unlock: "micro",
     stackable: false,
     apply(cfg) {
       cfg.pieceSize = "tiny";
@@ -147,6 +160,7 @@ export const MODS: ModDef[] = [
     name: "Short Lines",
     desc: "−1 cell needed per line (floor 6), −$25 per line (floor $50)",
     kind: "tradeoff",
+    unlock: "short-lines",
     stackable: true,
     apply(cfg) {
       cfg.compactorMinLineCells = Math.max(6, cfg.compactorMinLineCells - 1);
@@ -158,6 +172,7 @@ export const MODS: ModDef[] = [
     name: "Ballast Load",
     desc: "×1.15 gravity, +$25 per line. Flatter arcs, harder landings, better pay.",
     kind: "tradeoff",
+    unlock: "heavy",
     stackable: true,
     apply(cfg) {
       cfg.gravity *= 1.15;
@@ -169,6 +184,7 @@ export const MODS: ModDef[] = [
     name: "Bond Breaker",
     desc: "Gain a Bond Breaker charge each bay. Press B (or tap the ⚡ button) to shatter every joint on the field into loose cubes — they settle flatter and the compactor packs them into lines far more easily. Stacks: +1 charge per bay.",
     kind: "boon",
+    unlock: "bond-breaker",
     stackable: true,
     apply(cfg) {
       cfg.bondBreakerCharges += 1;
