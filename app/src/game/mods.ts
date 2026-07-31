@@ -33,13 +33,15 @@ export interface ModDef {
    *
    *  Most mods now carry one — the modifier list IS the unlock tree. Note what
    *  is bought: the right for a mod to be OFFERED, never the mod itself. The
-   *  draft still deals three and you still choose, so salvage buys an option
-   *  rather than power, which is the constraint meta.ts sets out.
+   *  draft still deals a choice and you still make it, so salvage buys an
+   *  option rather than power, which is the constraint meta.ts sets out.
    *
-   *  Exactly four are left free — Overtime, Premium Contracts, Wide Bay, Rapid
-   *  Loader. They are the plain tradeoffs, none of which defines a build, so a
-   *  player who has bought nothing still gets a real draft on their first run
-   *  instead of an empty one. */
+   *  Exactly four are left free — Overtime, Premium Contracts, Ballast Load,
+   *  Rapid Loader. They are the plain tradeoffs, none of which defines a build,
+   *  so a player who has bought nothing still gets a real draft on their first
+   *  run instead of an empty one. Four matters against meta.ts's DRAFT_BASE_SLOTS
+   *  of two: the free pool has to out-number the slots or run one deals the same
+   *  hand every time. */
   unlock?: string;
   /** Mod ids that must already be owned THIS RUN for this one to be offered — a
    *  synergy prerequisite, not a cost. Used by the Autoloader, which only makes

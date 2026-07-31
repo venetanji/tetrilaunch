@@ -58,12 +58,13 @@ export interface UnlockDef {
  *
  * Every modifier except four now costs salvage to put IN THE DRAFT POOL. That
  * distinction is the whole design: salvage buys the right for a modifier to be
- * offered, never the modifier itself. You are still dealt three and still
- * choose, so a purchase adds an option rather than power, which is the rule
+ * offered, never the modifier itself. You are still dealt a choice and still
+ * make it, so a purchase adds an option rather than power, which is the rule
  * this file's header sets out. The four left free — Overtime, Premium
- * Contracts, Wide Bay, Rapid Loader — are the plain tradeoffs, none of which
- * defines a build, so a player who owns nothing still gets a real roguelite
- * loop on their first run.
+ * Contracts, Ballast Load, Rapid Loader — are the plain tradeoffs, none of
+ * which defines a build, so a player who owns nothing still gets a real
+ * roguelite loop on their first run. Four against DRAFT_BASE_SLOTS' two is
+ * deliberate: a free pool the same size as the draft is not a choice.
  *
  * Rank 1 keeps the prices it always had. The player who most needs a first
  * option is the one with the least salvage, so the on-ramp does not move.
