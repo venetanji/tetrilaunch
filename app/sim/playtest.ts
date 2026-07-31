@@ -245,26 +245,52 @@ if (!phaseBays.length) {
   const tvd = all.reduce((a, n) => a + Math.abs(n - flat), 0) / (2 * shots.length);
   console.log(`   deviation from a flat phase distribution: ${pct(tvd)} (0% = shoots anywhere, high = a real window)`);
 
-  // (b) Shots per press stroke.
-  const perStroke: number[] = [];
-  for (const b of phaseBays) {
-    const counts = new Map<number, number>();
-    for (const s of b.shots) if (s.cstroke !== undefined) counts.set(s.cstroke, (counts.get(s.cstroke) ?? 0) + 1);
-    perStroke.push(...counts.values());
-  }
-  const multi = perStroke.filter((n) => n >= 2).length;
-  console.log(`   shots per stroke (strokes that saw >=1 shot): median ${quantile(perStroke, 0.5).toFixed(1)} · max ${Math.max(...perStroke)}`);
-  console.log(`   strokes carrying 2+ shots: ${multi}/${perStroke.length} (${pct(multi / Math.max(1, perStroke.length))})`);
+  // Is the direction split explicable as a phase-blind player? Both halves of
+  // the cycle take the same time (same speed each way), so a player ignoring
+  // the bar produces 50/50. A large z is the cleanest evidence of a window.
+  const retreatN = shots.filter((s) => s.cdir === -1).length;
+  const z = (retreatN - shots.length / 2) / Math.sqrt(shots.length * 0.25);
+  console.log(`   retreat/press split ${retreatN}/${shots.length - retreatN} — z=${z.toFixed(2)} vs the 50/50 a phase-blind player gives`);
 
-  // (c) Within-stroke gaps against the cooldown. THE MAGAZINE test: a gap at
+  // (b) Shots per WINDOW. A window is a HALF cycle: `cstroke` ticks at full
+  // advance, so one cstroke value spans retreat+press — a whole round trip, and
+  // grouping on it alone would silently report shots per cycle under a
+  // "per window" label. Group on (cstroke, direction).
+  const perWindow: number[] = [];
+  for (const b of phaseBays) {
+    const counts = new Map<string, number>();
+    for (const s of b.shots) if (s.cstroke !== undefined) {
+      const k = `${s.cstroke}|${s.cdir}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    perWindow.push(...counts.values());
+  }
+  const multi = perWindow.filter((n) => n >= 2).length;
+  console.log(`   shots per window (half cycle, windows that saw >=1 shot): mean ${(perWindow.reduce((a, n) => a + n, 0) / perWindow.length).toFixed(2)} · max ${Math.max(...perWindow)}`);
+  console.log(`   windows carrying 2+ shots: ${multi}/${perWindow.length} (${pct(multi / Math.max(1, perWindow.length))})`);
+
+  // Capacity vs use. This is what actually prices MAGAZINE: if the window
+  // already holds more shots than the player takes, a shorter cooldown is
+  // selling headroom nobody is against.
+  const medWindow = quantile(periods, 0.5) / 2;
+  const medCd = quantile(phaseBays.map((b) => b.cooldownMs), 0.5);
+  const capacity = Math.floor(medWindow / medCd) + 1;
+  const usedMean = perWindow.reduce((a, n) => a + n, 0) / perWindow.length;
+  console.log(`   window ${medWindow.toFixed(0)}ms holds ${capacity} shots at the ${medCd.toFixed(0)}ms cooldown; the player takes ${usedMean.toFixed(2)}`);
+  if (usedMean < capacity - 0.5) {
+    console.log(`   -> the window is NOT full — a faster gun sells headroom that is already unused`);
+  }
+
+  // (c) Within-window gaps against the cooldown. THE MAGAZINE test: a gap at
   // the cooldown is a shot the gun delayed, and a shorter cooldown would have
   // let it land earlier inside the same window.
   let burstGaps = 0, pinned = 0;
   for (const b of phaseBays) {
-    const byStroke = new Map<number, Shot[]>();
+    const byStroke = new Map<string, Shot[]>();
     for (const s of b.shots) if (s.cstroke !== undefined) {
-      if (!byStroke.has(s.cstroke)) byStroke.set(s.cstroke, []);
-      byStroke.get(s.cstroke)!.push(s);
+      const k = `${s.cstroke}|${s.cdir}`;
+      if (!byStroke.has(k)) byStroke.set(k, []);
+      byStroke.get(k)!.push(s);
     }
     for (const g of byStroke.values()) {
       g.sort((x, y) => x.t - y.t);
@@ -276,12 +302,12 @@ if (!phaseBays.length) {
     }
   }
   if (burstGaps) {
-    console.log(`   gaps inside a stroke pinned to the cooldown: ${pinned}/${burstGaps} (${pct(pinned / burstGaps)})`);
+    console.log(`   gaps inside a window pinned to the cooldown: ${pinned}/${burstGaps} (${pct(pinned / burstGaps)})`);
     console.log(`   -> ${pinned / burstGaps > 0.5
       ? "MAGAZINE is real INSIDE the window even if section 1 says otherwise"
       : "even inside a window the player, not the gun, sets the pace"}`);
   } else {
-    console.log("   no stroke saw two shots — the window never fits a second launch");
+    console.log("   no window saw two shots — the window never fits a second launch");
   }
 }
 
