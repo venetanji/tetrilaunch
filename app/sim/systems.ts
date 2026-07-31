@@ -611,7 +611,7 @@ section("Draft gating (mods.ts + meta.ts)");
   // The free four are what a player who has bought NOTHING gets offered. If this
   // ever empties, run one has no draft at all — the on-ramp the whole gating
   // scheme is supposed to protect.
-  const FREE = ["overtime", "premium", "wide-bay", "rapid"];
+  const FREE = ["overtime", "premium", "heavy", "rapid"];
   check(
     "exactly the four plain tradeoffs stay free",
     JSON.stringify(MODS.filter((m) => !m.unlock).map((m) => m.id).sort()) ===

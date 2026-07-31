@@ -62,16 +62,6 @@ export const MODS: ModDef[] = [
     },
   },
   {
-    id: "wide-bay",
-    name: "Wide Bay",
-    desc: "+2 open-bay cells (cap 18)",
-    kind: "tradeoff",
-    stackable: true,
-    apply(cfg) {
-      cfg.compactorOpenCells = Math.min(18, cfg.compactorOpenCells + 2);
-    },
-  },
-  {
     id: "sturdy",
     name: "Sturdy Shipments",
     desc: "×1.35 joint break stretch, +0.05 joint stiffness. Pieces hold together — clean if you aim well, but they won't shatter into fillers.",
@@ -86,7 +76,7 @@ export const MODS: ModDef[] = [
   {
     id: "micro",
     name: "Micro Shipments",
-    desc: "2-cube dominoes · −40% launch cost · 30% lighter, and they shatter easily. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile below them.",
+    desc: "2-cube dominoes · −40% launch cost. Cheap, precise, brittle — and too light to square up the pile below them.",
     kind: "tradeoff",
     unlock: "micro",
     stackable: false,
@@ -98,7 +88,7 @@ export const MODS: ModDef[] = [
   {
     id: "bulk",
     name: "Bulk Shipments",
-    desc: "5-cube pentominoes · +50% launch cost · +$40 per line. Dense and rigid: they take a landing without breaking, and their weight presses the layers beneath them flat.",
+    desc: "5-cube pentominoes · +50% launch cost · +$40 per line. Rigid, and heavy enough that landing presses the layers below flat.",
     kind: "tradeoff",
     stackable: false,
     unlock: "bulk",
@@ -111,7 +101,7 @@ export const MODS: ModDef[] = [
   {
     id: "demo",
     name: "Demolition Charges",
-    desc: "+2 charges per bay. Arm one (💥 / X) and your next launch fires a bomb FREE — no launch cost — refunding $8 per cube it vaporizes. Sells a dead junk pile back for cash. Stacks: +2 per bay.",
+    desc: "+2 charges per bay. Arm one (💥 / X) and the next launch is a FREE bomb, refunding $8 per cube it vaporizes. Sells a dead pile back for cash.",
     kind: "boon",
     stackable: true,
     unlock: "demo",
@@ -122,7 +112,7 @@ export const MODS: ModDef[] = [
   {
     id: "autoloader",
     name: "Autoloader",
-    desc: "The cannon fires ITSELF every 420ms at a roughly-aimed spread, at half launch cost. Volume over precision — you will need Bond Breakers to flatten what it piles up.",
+    desc: "Fires itself every 420ms at a rough spread, at half launch cost. Volume over precision — bring Bond Breakers.",
     kind: "tradeoff",
     stackable: false,
     unlock: "auto",
@@ -172,7 +162,6 @@ export const MODS: ModDef[] = [
     name: "Ballast Load",
     desc: "×1.15 gravity, +$25 per line. Flatter arcs, harder landings, better pay.",
     kind: "tradeoff",
-    unlock: "heavy",
     stackable: true,
     apply(cfg) {
       cfg.gravity *= 1.15;
@@ -182,7 +171,7 @@ export const MODS: ModDef[] = [
   {
     id: "bond-breaker",
     name: "Bond Breaker",
-    desc: "Gain a Bond Breaker charge each bay. Press B (or tap the ⚡ button) to shatter every joint on the field into loose cubes — they settle flatter and the compactor packs them into lines far more easily. Stacks: +1 charge per bay.",
+    desc: "+1 charge per bay. Press B (or ⚡) to shatter every joint into loose cubes — they settle flatter and pack into lines far more easily.",
     kind: "boon",
     unlock: "bond-breaker",
     stackable: true,

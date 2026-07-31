@@ -5,7 +5,7 @@ import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
 } from "./components";
-import { icon } from "./icons";
+import { icon, type IconName } from "./icons";
 import {
   MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
 } from "../game/upgrades";
@@ -570,25 +570,34 @@ export function refitScreen(opts: {
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < tier ? "on" : ""}"></i>`,
     ).join("");
+    // The button carries the whole purchase: which way the number moves, by how
+    // much, and what it costs. Previously it said only "♻ 120", so the price
+    // was on the button and the thing being bought was three lines above it.
+    const step = cost === null ? null : u.step(tier);
     const btn =
-      cost === null
+      cost === null || step === null
         ? `<span class="refit-card__max">MAX</span>`
-        : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>♻ ${cost}</button>`;
-    return `<div class="refit-card${tier > 0 ? " refit-card--owned" : ""}">
+        : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
+            <span class="refit-card__arrow refit-card__arrow--${step.dir}" aria-hidden="true">${step.dir === "up" ? "▲" : "▼"}</span>
+            <span class="refit-card__delta">${step.text}</span>
+            <span class="refit-card__price">♻ ${cost}</span>
+          </button>`;
+    // One line, and it states what the ship HAS rather than what a purchase
+    // would add. The full three-line ladder cost 43px per card and six of them
+    // overflowed the grid by 145px on a 360px-tall phone; two of those lines
+    // described purchases the player could not make yet. The pips carry
+    // progress, the button carries the change, and the ladder survives in
+    // `title` for where hover exists.
+    const now = `<div class="refit-card__now">${u.current(tier)}</div>`;
+    const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
+    return `<div class="refit-card${tier > 0 ? " refit-card--owned" : ""}" title="${u.name} — ${ladder}">
       <div class="refit-card__hdr">
-        <span class="refit-card__glyph">${u.glyph}</span>
+        <span class="refit-card__glyph">${icon(u.id as IconName, 15)}</span>
         <span class="refit-card__name">${u.name}</span>
         <span class="refit-card__pips">${pips}</span>
       </div>
       <p class="refit-card__blurb">${u.blurb}</p>
-      <div class="refit-card__tiers">
-        ${u.tiers
-          .map(
-            (t, i) =>
-              `<div class="refit-card__tier${i < tier ? " done" : ""}${i === tier ? " next" : ""}"><b>T${i + 1}</b> ${t}</div>`,
-          )
-          .join("")}
-      </div>
+      <div class="refit-card__tiers">${now}</div>
       <div class="refit-card__foot">${btn}</div>
     </div>`;
   }).join("");

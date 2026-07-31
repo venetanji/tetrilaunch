@@ -21,7 +21,12 @@
  */
 
 export type IconName =
-  | "play" | "contracts" | "workshop" | "howto" | "leaderboard" | "settings" | "star";
+  | "play" | "contracts" | "workshop" | "howto" | "leaderboard" | "settings" | "star"
+  // One per upgrade track (upgrades.ts's UPGRADES). These replaced three-letter
+  // codes — "BAY", "LCH", "HYD" — which were text pretending to be glyphs: they
+  // needed reading rather than recognising, and at refit-card size the reading
+  // cost was the whole point of the header.
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds";
 
 /** Inner markup per icon. Shapes that read better solid are filled; the rest
  *  stroke, and the wrapper supplies the shared stroke attributes. */
@@ -46,6 +51,22 @@ const PATHS: Record<IconName, string> = {
     `<path d="M9 6.5h2.5v3H9z" fill="currentColor"/>` +
     `<path d="M5.5 10.5h2.5v3H5.5z" fill="currentColor"/>`,
   star: `<path d="M8 2l1.8 4.2 4.2.4-3.2 2.9 1 4.5L8 11.6 4.2 14l1-4.5L2 6.6l4.2-.4z" fill="currentColor" stroke="none"/>`,
+
+  // ---- upgrade tracks ----
+  // Bay Extension: the wall, and the compaction zone widening away from it.
+  // The arrow points the way the open stop actually moves.
+  bay: `<path d="M13 2v12"/><path d="M3 8h8"/><path d="M6 5L3 8l3 3"/>`,
+  // Launcher Coils: a barrel with the coil windings stacked along it, angled up
+  // the way the cannon sits.
+  launcher: `<path d="M2 12l9-9"/><path d="M4 9l2 2"/><path d="M6 7l2 2"/><path d="M8 5l2 2"/><path d="M11 2h3v3z" fill="currentColor" stroke="none"/>`,
+  // Press Hydraulics: the compactor face with the ram behind it, pressing down.
+  hydraulics: `<path d="M2 12h12"/><path d="M4 9h8v3H4z" fill="currentColor" stroke="none"/><path d="M8 2v5"/><path d="M6 4l2-2 2 2"/>`,
+  // Loader Magazine: a belt of three shells feeding the breech.
+  magazine: `<path d="M2 6h12v6H2z"/><path d="M5 6V3"/><path d="M8 6V3"/><path d="M11 6V3"/>`,
+  // Reactor Output: a core with output rising off it — the funds engine.
+  reactor: `<path d="M6 7h4v4H6z" fill="currentColor" stroke="none"/><path d="M3 13V10"/><path d="M8 13v-1"/><path d="M13 13V4"/><path d="M3 5l2-2 2 2"/>`,
+  // Bond Emitter: a joint at the centre throwing bonds outward — the shatter.
+  bonds: `<path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/>`,
 };
 
 /**

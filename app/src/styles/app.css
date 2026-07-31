@@ -1006,10 +1006,25 @@ body.crt-off #app::after { display: none; }
 .modal--draft .draft__cards { flex: 1 1 auto; min-height: 96px; overflow-y: auto; padding: 2px; }
 @media (max-height: 520px) {
   .modal--draft { gap: var(--sp-2); }
-  .modal--draft .mod-card { padding: 8px 12px; gap: 4px; }
-  .modal--draft .mod-card__name { font-size: 15px; }
-  .modal--draft .mod-card__desc { font-size: 11px; line-height: 1.35; }
-  .modal--draft .draft__cards { gap: 8px; }
+  .modal--draft .mod-card { padding: 7px 10px; gap: 3px; }
+  .modal--draft .mod-card__name { font-size: 13px; }
+  /* Clamped rather than shrunk further: a mod's description is the only thing
+     that says what you are picking, so it keeps a readable size and gives up
+     its tail. Three lines covers every mod in MODS except the Autoloader's,
+     which is the longest by some way. */
+  .modal--draft .mod-card__desc {
+    font-size: 10px; line-height: 1.3;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .modal--draft .mod-card__kind { font-size: 7px; padding: 1px 5px; }
+  .modal--draft .draft__cards { gap: 7px; }
+  /* Owned modifiers wrap to a second row once a run has 6+ of them, and that
+     second row was what pushed the card grid into scrolling. The chips carry
+     no description, so they can go small without losing anything. */
+  .run-mods { gap: 4px; font-size: 9px; }
+  .run-mods__chip { padding: 2px 7px; font-size: 7px; }
+  .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
 
 /* ---------- Game-over FX (see screens.ts's loseFxHTML) ----------
@@ -1301,10 +1316,13 @@ button.panel { color: var(--text); }
 }
 .refit-card--owned { border-color: rgba(0,240,255,0.45); }
 .refit-card__hdr { display: flex; align-items: center; gap: 8px; }
+/* Was a filled pixel-font chip holding a three-letter code ("BAY", "LCH"). The
+   code had to be READ to be useful, which is the one thing a glyph should not
+   need; it now holds an SVG (ui/icons.ts) that inherits the accent instead of
+   painting a block of it, so the header reads name-first. */
 .refit-card__glyph {
-  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em;
-  color: var(--accent-ink); background: var(--accent);
-  padding: 4px 6px; border-radius: var(--r-sm); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); flex: none;
 }
 .refit-card__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; flex: 1; min-width: 0; }
 .refit-card__pips { display: flex; gap: 3px; flex: none; }
@@ -1322,8 +1340,24 @@ button.panel { color: var(--text); }
    one the price on the button actually buys. */
 .refit-card__tier.done { color: var(--text-faint); border-left-color: var(--accent); text-decoration: line-through; }
 .refit-card__tier.next { color: var(--text); border-left-color: var(--warn); background: rgba(255,176,32,0.08); }
+/* The ship's CURRENT setting on this track — absolute, not a delta, because the
+   button beside it is the delta. */
+.refit-card__now {
+  font-size: 11px; color: var(--text);
+  padding: 3px 6px; border-radius: var(--r-sm);
+  border-left: 2px solid var(--accent); background: rgba(0,240,255,0.06);
+}
 .refit-card__foot { margin-top: auto; padding-top: 4px; }
-.refit-card__buy { width: 100%; padding: 8px 12px; font-size: 10px; }
+/* Three parts on one row: direction, what changes, what it costs. The delta is
+   the flexible one, so a long effect string ellipsises instead of pushing the
+   price off the button. */
+.refit-card__buy {
+  width: 100%; padding: 8px 12px; font-size: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.refit-card__arrow { flex: none; font-size: 9px; line-height: 1; }
+.refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
 
@@ -1425,9 +1459,20 @@ button.panel { color: var(--text); }
    two blocks most likely to overflow, so tighten both. */
 @media (max-height: 520px) {
   .modal--refit { gap: var(--sp-2); }
-  .refit-card { padding: 8px 10px; gap: 4px; }
+  .refit-card { padding: 7px 9px; gap: 3px; }
   .refit-card__blurb { display: none; }
   .refit-card__tier { font-size: 10px; padding: 2px 5px; }
+  .refit-card__now { font-size: 9px; padding: 2px 5px; }
+  /* Six cards in two rows against ~200px of grid. The header type and the buy
+     button are what set the card's height once the blurb is gone, so both come
+     down rather than the grid gaining another scroller — a stop the player
+     visits every few bays should not need scrolling to see what it sells. */
+  .refit-card__name { font-size: 12px; }
+  .refit-card__hdr { gap: 6px; }
+  .refit-card__pips i { width: 6px; height: 6px; }
+  .refit-card__foot { padding-top: 2px; }
+  .refit-card__buy { padding: 5px 8px; font-size: 9px; }
+  .refit__grid { gap: 7px; min-height: 0; }
   .salvage-row { padding: 6px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }

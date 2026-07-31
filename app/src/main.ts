@@ -22,6 +22,7 @@ import { InputController } from "./game/input";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
+import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
   loadMeta, saveMeta, type Settings,
@@ -505,7 +506,7 @@ class App {
       cooldownMs: cfg.cooldownMs,
       launchCost: cfg.launchCost,
       scorePerLine: cfg.scorePerLine,
-      compactorSpeed: cfg.compactorSpeed,
+      compactorSpeed: compactorSpeedFor(cfg),
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
       tiers: this.run.tiers,
@@ -579,7 +580,7 @@ class App {
       target: cfg.objectiveLines,
       timeLimitSec: 0, cooldownMs: cfg.cooldownMs, launchCost: 0,
       scorePerLine: cfg.scorePerLine, tiers: {} as UpgradeTiers,
-      compactorSpeed: cfg.compactorSpeed,
+      compactorSpeed: compactorSpeedFor(cfg),
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
       mods: [c.brief], pieceSize: cfg.pieceSize,

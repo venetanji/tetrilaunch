@@ -12,6 +12,31 @@ import type { LevelConfig } from "./level";
  * widening zone. Pieces that bounce all the way back out toward the launcher
  * decay; nothing is deleted just for the bar passing over it.
  */
+/** The stock stroke span in cells — makeBaseLevel's 12 open minus 8 min-line. */
+const STOCK_SPAN_CELLS = 4;
+
+/**
+ * The speed the bar actually travels at, normalised so the ROUND TRIP takes the
+ * same time at any bay width.
+ *
+ * `compactorOpenCells` used to set two unrelated things at once: how much room
+ * the player has to land in, and how long a cycle takes. Bay Extension T3 took
+ * the cycle from 4.4s to 11.1s — measured — so a card advertising "more room to
+ * land in" was also handing over a compactor 2.5x slower, against a fixed bay
+ * clock. Worse, playtest telemetry shows a player fires about once per stroke
+ * and waits out the rest, so a longer window buys no extra shots; it only
+ * spaces them further apart.
+ *
+ * Scaling speed with the span separates the two: width is width, and pace stays
+ * whatever `compactorSpeed` says it is. Hydraulics still multiplies this — its
+ * "+8% stroke speed" now genuinely means a faster press instead of partially
+ * cancelling a self-inflicted slowdown.
+ */
+export function compactorSpeedFor(level: LevelConfig): number {
+  const span = Math.max(1, level.compactorOpenCells - level.compactorMinLineCells);
+  return level.compactorSpeed * (span / STOCK_SPAN_CELLS);
+}
+
 export class Compactor {
   body: Matter.Body;
   width: number;
@@ -32,7 +57,7 @@ export class Compactor {
   readonly yCenter: number;
 
   constructor(world: Matter.World, level: LevelConfig) {
-    this.speed = level.compactorSpeed;
+    this.speed = compactorSpeedFor(level);
     this.width = level.compactorWidth;
     this.height = Math.round(WORLD.height * level.compactorHeightFrac);
     this.leftX = WALL_INNER - level.compactorOpenCells * CELL - this.width / 2;

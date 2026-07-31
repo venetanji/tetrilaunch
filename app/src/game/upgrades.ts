@@ -42,9 +42,20 @@ export interface UpgradeDef {
   glyph: string;
   /** One-line "what system is this" for the refit card header. */
   blurb: string;
-  /** Per-tier effect copy, index 0 = tier 1. Shown on the refit card so the
-   *  player can see the whole ladder before committing to tier 1. */
+  /** Per-tier effect copy, index 0 = tier 1. The refit card no longer prints
+   *  the whole ladder (three lines x six cards overflowed a landscape phone by
+   *  145px), so this now feeds the card's `title` for hover and stays the one
+   *  place the ladder is written down. */
   tiers: [string, string, string];
+  /** What the ship HAS on this track at `tier`, in absolute terms (tier 0 =
+   *  stock). The card used to show only deltas, which meant a player could see
+   *  "+2 open cells" without ever being told the bay was 12 to begin with. */
+  current(tier: number): string;
+  /** The step from `tier` to `tier + 1`, for the buy button: which way the
+   *  number moves and by how much. `dir` is the direction of the NUMBER, not a
+   *  judgement — a shorter cooldown is an improvement that reads "down". Never
+   *  called at MAX_TIER, where there is no next step to describe. */
+  step(tier: number): { dir: "up" | "down"; text: string };
   /** Mutate `cfg` for a track sitting at `tier` (1..MAX_TIER). Never called
    *  with tier 0 — applyUpgrades skips unbought tracks entirely, so each
    *  implementation can assume it has work to do. */
@@ -58,6 +69,11 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "BAY",
     blurb: "Widens the compaction zone at the open stop — more room to land in, longer lines to sell.",
     tiers: ["+2 open cells (14)", "+4 open cells (16)", "+6 open cells (18)"],
+    // 12 is makeBaseLevel's stock width and, now that Wide Bay is gone, the
+    // only thing that moves it is this track — so the reading is exact rather
+    // than an estimate that a draft could silently invalidate.
+    current: (t) => `${12 + 2 * t} open cells`,
+    step: () => ({ dir: "up", text: "+2 cells" }),
     apply(cfg, tier) {
       // 12 stock -> 14/16/18. This is the "extend to 18" lever, now EARNED
       // capital instead of a random Wide Bay offer: a wide bay is the standard
@@ -76,6 +92,8 @@ export const UPGRADES: UpgradeDef[] = [
       "+12% muzzle speed · 40% wind cancelled",
       "+18% muzzle speed · 60% wind cancelled",
     ],
+    current: (t) => (t === 0 ? "stock coils" : `+${6 * t}% speed · ${20 * t}% wind`),
+    step: () => ({ dir: "up", text: "+6% power" }),
     apply(cfg, tier) {
       // The wind counter. A stock launcher at max power lands at x~1228 (see
       // cannon.ts's SPEED_MAX note); a strong steady headwind can pull that
@@ -97,6 +115,8 @@ export const UPGRADES: UpgradeDef[] = [
       "×2.2 settle assist · +16% stroke speed",
       "×2.8 settle assist · +24% stroke speed",
     ],
+    current: (t) => (t === 0 ? "stock press" : `×${(1 + 0.6 * t).toFixed(1)} assist · +${8 * t}% stroke`),
+    step: () => ({ dir: "up", text: "+0.6 assist" }),
     apply(cfg, tier) {
       // Settle assist is what converts "nearly a line" into a payout (see
       // lineClear.ts's settleZoneCubes) — the direct upgrade for a build that
@@ -113,6 +133,10 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "MAG",
     blurb: "Faster reload — more shots inside the same clock.",
     tiers: ["−15% cooldown", "−30% cooldown", "−45% cooldown"],
+    current: (t) => (t === 0 ? "stock reload" : `−${15 * t}% cooldown`),
+    // The one track whose number falls. The arrow reports the number, so this
+    // reads "down" even though a shorter cooldown is the improvement.
+    step: () => ({ dir: "down", text: "−15% reload" }),
     apply(cfg, tier) {
       cfg.cooldownMs = Math.max(120, Math.round(cfg.cooldownMs * (1 - 0.15 * tier)));
     },
@@ -127,6 +151,8 @@ export const UPGRADES: UpgradeDef[] = [
       "+$120 float · +$30 per line",
       "+$180 float · +$45 per line",
     ],
+    current: (t) => (t === 0 ? "stock reactor" : `+$${60 * t} float · +$${15 * t}/line`),
+    step: () => ({ dir: "up", text: "+$60 float" }),
     apply(cfg, tier) {
       cfg.startingFunds += 60 * tier;
       cfg.scorePerLine += 15 * tier;
@@ -138,6 +164,8 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "BND",
     blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
     tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
+    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
+    step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose

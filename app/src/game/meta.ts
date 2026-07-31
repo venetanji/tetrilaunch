@@ -112,13 +112,6 @@ export const UNLOCKS: UnlockDef[] = [
     desc: "Adds Sturdy Shipments to the draft pool: pieces that survive landings which would shatter a tetromino. Clean if you aim well — and a liability when you needed them to break into fillers.",
   },
   {
-    id: "heavy",
-    name: "Ballast Contract",
-    cost: 120,
-    rank: 2,
-    desc: "Adds Ballast Load to the draft pool: heavier gravity for better pay per line. Flatter arcs, harder landings, and a pile that presses itself flatter.",
-  },
-  {
     id: "overclock",
     name: "Press Overclock",
     cost: 140,
@@ -135,7 +128,7 @@ export const UNLOCKS: UnlockDef[] = [
   {
     id: "bond-breaker",
     name: "Bond Breaker Rig",
-    cost: 260,
+    cost: 320,
     rank: 3,
     requiresMark: 2,
     desc: "Adds Bond Breakers to the draft pool: a charge each bay that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.",
@@ -143,7 +136,7 @@ export const UNLOCKS: UnlockDef[] = [
   {
     id: "auto",
     name: "Autoloader Rig",
-    cost: 300,
+    cost: 360,
     rank: 3,
     requires: ["demo", "micro"],
     requiresMark: 3,

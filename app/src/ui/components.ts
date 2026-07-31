@@ -91,7 +91,6 @@ export function beltBombHTML(): string {
  *  auto-derived id-slice glyph in modChipHTML below instead of crashing. */
 const MOD_GLYPHS: Record<string, { g: string; nm: string }> = {
   overclock: { g: "OC", nm: "O.CLOCK" },
-  "wide-bay": { g: "WB", nm: "WIDE BAY" },
   sturdy: { g: "SD", nm: "STURDY" },
   micro: { g: "µS", nm: "MICRO" },
   bulk: { g: "BK", nm: "BULK" },
