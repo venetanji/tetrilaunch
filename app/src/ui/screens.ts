@@ -886,8 +886,10 @@ export function endModal(opts: {
 export function contractsScreen(opts: {
   contracts: ContractCard[];
   tier: number;
-  /** ids already cleared today — shown as a tick rather than hidden, so the
-   *  board reads as progress rather than a shrinking list. */
+  /** Every Contract id ever cleared (meta.claimedContracts), not just today's —
+   *  an id embeds its daily seed, so only today's can match today's board and
+   *  the caller doesn't have to prune. Shown as a tick rather than hidden, so
+   *  the board reads as progress rather than a shrinking list. */
   cleared: string[];
 }): string {
   const cards = opts.contracts

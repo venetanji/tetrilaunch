@@ -35,7 +35,7 @@ import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
-import { endBoard, fullBoard, END_BOARD_TOP } from "../src/ui/screens";
+import { endBoard, fullBoard, END_BOARD_TOP, contractsScreen } from "../src/ui/screens";
 import type { ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -473,6 +473,29 @@ section("Pattern Contracts (contracts.ts)");
   check("a claimed contract reads as claimed", contractClaimed(paid, "20260730-1-0"));
   check("an unseen contract reads as unclaimed", !contractClaimed(paid, "20260730-1-1"));
   check("a fresh save has claimed nothing", newMeta().claimedContracts.length === 0);
+
+  // The board's tick reads that SAME persisted list. It used to read a
+  // session-only array, so clearing a Contract and coming back later showed an
+  // untouched board — the progress was recorded and then not displayed.
+  const board = dailyContracts(1, 20260730);
+  const ticked = contractsScreen({ contracts: board, tier: 1, cleared: [board[1].id] });
+  const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
+  check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
+  check("its slot number is replaced by the tick", ticked.includes(">✓<"));
+  check("an unplayed board shows no ticks", !untouched.includes("contract-card--done"));
+  check(
+    "only the cleared slot is ticked",
+    (ticked.match(/contract-card--done/g) ?? []).length === 1,
+  );
+  // Ids embed the daily seed, so the caller can hand over EVERY clear it has
+  // ever recorded and yesterday's can't tick today's board. That is what lets
+  // the tick be persistent without anyone having to prune the list at midnight.
+  const yesterday = dailyContracts(1, 20260729).map((c) => c.id);
+  check(
+    "yesterday's clears don't tick today's board",
+    !contractsScreen({ contracts: board, tier: 1, cleared: yesterday })
+      .includes("contract-card--done"),
+  );
 }
 
 // ---------------------------------------------------------------------------

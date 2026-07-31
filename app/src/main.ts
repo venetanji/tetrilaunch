@@ -74,11 +74,6 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
-  /** Contract ids cleared today, so the board can tick them off. Session-only
-   *  for now — the daily reset and its persistence are a separate piece.
-   *  NOTE this is NOT what gates the payout: meta.claimedContracts is, because
-   *  a payout must survive a reload and this does not. */
-  private contractsCleared: string[] = [];
   /** Salvage paid by the Contract just finished, and whether this attempt is
    *  the one that earned it — the end modal has to distinguish "you just banked
    *  8" from "you cleared it again, already paid". Null until one resolves. */
@@ -256,7 +251,12 @@ class App {
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
           tier: markUnlocked(this.meta),
-          cleared: this.contractsCleared,
+          // The PERSISTED clear list, not a session one. A Contract id embeds
+          // the daily seed and tier, so today's board only ever matches today's
+          // clears and the ticks reset themselves at the rollover — while a
+          // tick that lived in memory vanished on any reload, which is exactly
+          // when the player comes back to see what they'd already done.
+          cleared: this.meta.claimedContracts,
         });
         break;
       case "contract-end":
@@ -596,12 +596,10 @@ class App {
       telemetry.endRun(s === "won", 0);
       if (s === "won") {
         void successHaptic();
-        if (!this.contractsCleared.includes(this.contract.id)) {
-          this.contractsCleared.push(this.contract.id);
-        }
-        // Pay ONCE per Contract, ever. Gated on persisted meta rather than the
-        // session list above, so a reload can't re-open the payout — see
-        // meta.ts's claimedContracts for why that matters to monetization.
+        // Pay ONCE per Contract, ever, and record the clear in the same place —
+        // meta.claimedContracts is both the payout gate and what ticks the
+        // board, so the two can't drift apart. See meta.ts for why the payout
+        // side of that matters to monetization.
         const already = contractClaimed(this.meta, this.contract.id);
         const award = salvageForContract(this.contract.tier);
         if (!already) {
