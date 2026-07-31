@@ -1,8 +1,19 @@
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-// Landscape, fullscreen, installable PWA. Capacitor consumes the same dist/.
-export default defineConfig({
+// Landscape, fullscreen, installable PWA. Capacitor consumes the same dist/ —
+// but WITHOUT the service worker, which is what `--mode native` selects.
+//
+// A service worker earns its keep on the web by making the app work offline. In
+// the Capacitor shell every asset is already on the device, so it caches local
+// files against local files and buys nothing. What it does buy is a stale-code
+// hazard: `adb install -r` preserves app data, so the old worker survives the
+// update and keeps serving the previous bundle from its precache. Capacitor
+// serves from https://localhost with no cache headers for the WebView to
+// revalidate sw.js against, so the update check never wins. In testing this
+// shipped the previous build twice in a row; in release it would mean an update
+// silently runs old code until something evicts the cache.
+export default defineConfig(({ mode }) => ({
   base: "./",
   build: {
     outDir: "dist",
@@ -15,6 +26,7 @@ export default defineConfig({
   },
   plugins: [
     VitePWA({
+      disable: mode === "native",
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
@@ -38,4 +50,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

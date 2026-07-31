@@ -6,6 +6,31 @@ import { setSafeAreaInsets, type Insets } from "../game/layout";
 
 export const isNative = Capacitor.isNativePlatform();
 
+/** Evict any service worker inside the native shell.
+ *
+ *  Native builds no longer ship one (vite.config.ts disables the PWA plugin for
+ *  `--mode native`), but a shell that was updated from an older build still has
+ *  the OLD worker registered, and it keeps serving that build's precache — the
+ *  app data survives `install -r`. Dropping the plugin removes the thing that
+ *  would otherwise have replaced it, so without this an already-updated device
+ *  would be pinned to its stale bundle permanently.
+ *
+ *  Safe to run every launch: once the registration and caches are gone this
+ *  finds nothing and costs nothing. Web is untouched — there the worker is the
+ *  point. Failures are swallowed because a WebView that refuses the API is no
+ *  worse off than before; it simply has nothing to purge. */
+export async function purgeNativeServiceWorker(): Promise<void> {
+  if (!isNative) return;
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
+    await Promise.all(regs.map((r) => r.unregister()));
+    const keys = (await caches?.keys?.()) ?? [];
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch {
+    /* no SW API, or a WebView that denies it — nothing cached, nothing to do */
+  }
+}
+
 /** Lock to landscape on native; best-effort on web. */
 export async function lockLandscape(): Promise<void> {
   try {
