@@ -29,7 +29,7 @@ import {
 import {
   lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
-  applySafeAreaInsets,
+  applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
@@ -129,6 +129,11 @@ class App {
 
     lockLandscape();
     this.onResize();
+
+    // Fire-and-forget: nothing downstream waits on it, and on web it is a
+    // no-op. See platform.ts — a native shell updated from an older build is
+    // still pinned to that build's service-worker precache until this runs.
+    void purgeNativeServiceWorker();
 
     // Store setup is fire-and-forget: it resolves after the splash on a cold
     // start, so re-render if the player is sitting on a screen that shows
@@ -284,7 +289,9 @@ class App {
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
         break;
       case "leaderboard":
-        this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
+        this.overlay.innerHTML = S.leaderboardScreen(
+          S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
+        );
         break;
       case "playing":
         if (g) { this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)); this.lastNext = null; }
@@ -360,7 +367,11 @@ class App {
               baysCleared: this.run.levelIndex + (this.state === "won" ? 1 : 0),
               funds: g.score,
               best: loadBest(),
-              name: loadName(), rows: S.leaderboardRowsHTML(this.cachedBoard, loadName() || undefined),
+              name: loadName(),
+              rows: S.leaderboardRowsHTML(
+                S.endBoard(this.cachedBoard, loadName() || undefined),
+                loadName() || undefined,
+              ),
               reason: g.lossReason,
               bayNum: this.run.levelIndex + 1,
               bayName: g.level.name,
@@ -825,7 +836,15 @@ class App {
    *  once the fetch lands. */
   private renderBoardRows(highlight?: string): void {
     const body = this.overlay.querySelector("#lb-body");
-    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, highlight);
+    if (!body) return;
+    // Both the standalone screen and the end modal render into #lb-body, so the
+    // slice is chosen by state rather than inferred from `highlight`: the screen
+    // lists everyone, the modal shows the top 5 plus the player's own row, which
+    // is what keeps it inside a 360px landscape viewport without scrolling.
+    const rows = this.state === "leaderboard"
+      ? S.fullBoard(this.cachedBoard)
+      : S.endBoard(this.cachedBoard, highlight);
+    body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
   }
 
   private async refreshBoard(): Promise<void> {

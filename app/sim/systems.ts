@@ -34,6 +34,8 @@ import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
+import { endBoard, fullBoard, END_BOARD_TOP } from "../src/ui/screens";
+import type { ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
 
@@ -758,6 +760,71 @@ section("HUD readout widths (the $1000+ wrap regression)");
       );
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * END-MODAL BOARD SLICE
+ *
+ * The run end modal shows the top 5 plus the player's own row when they placed
+ * outside it, because six rows is a height the layout can guarantee at 360px
+ * and ten is not. The slice is pure, so it is checkable without a DOM — which
+ * the rest of this file has none of.
+ *
+ * The rank carried here is the property that matters: it comes from the FULL
+ * board, not the sliced array, so a player at #23 renders as #23 and not as #6.
+ * ------------------------------------------------------------------------ */
+{
+  section("End-modal leaderboard slice");
+
+  const entry = (name: string, score: number): ScoreEntry => ({
+    name, score, level: 1, lines: 10, created_at: 0,
+  });
+  const board = ["ACE", "NOVA", "RUST", "ZED", "KAI", "ORB", "FLUX", "VOLT", "HEX", "GIO"]
+    .map((n, i) => entry(n, 24680 - i * 1900));
+
+  const outside = endBoard(board, "GIO");
+  check(
+    "player outside the top 5 gets 6 rows",
+    outside.length === END_BOARD_TOP + 1,
+    `got ${outside.length}`,
+  );
+  check(
+    "their row is last and carries its TRUE rank",
+    outside[outside.length - 1].entry.name === "GIO" && outside[outside.length - 1].rank === 10,
+    `got ${outside[outside.length - 1].entry.name} at rank ${outside[outside.length - 1].rank}`,
+  );
+  check(
+    "the jump from #5 to #10 is marked",
+    outside[outside.length - 1].gapBefore,
+    "a discontiguous row must not read as the next rank down",
+  );
+  check(
+    "no duplicate rows",
+    new Set(outside.map((r) => r.rank)).size === outside.length,
+    "a rank appears twice",
+  );
+
+  const inside = endBoard(board, "ZED"); // rank 4
+  check("player inside the top 5 gets exactly 5 rows", inside.length === END_BOARD_TOP,
+    `got ${inside.length}`);
+  check("…and is not appended a second time",
+    inside.filter((r) => r.entry.name === "ZED").length === 1);
+
+  // Adjacent case: rank 6 sits directly under rank 5, so there is no jump to mark.
+  const sixth = endBoard(board, "ORB");
+  check("rank 6 is shown without a gap marker",
+    sixth.length === END_BOARD_TOP + 1 && !sixth[sixth.length - 1].gapBefore);
+
+  check("a short board returns every row", endBoard(board.slice(0, 3), "GIO").length === 3);
+  check("an empty board returns nothing", endBoard([], "GIO").length === 0);
+  check("no name returns just the top 5", endBoard(board).length === END_BOARD_TOP);
+  check("an unknown name returns just the top 5", endBoard(board, "NOBODY").length === END_BOARD_TOP);
+
+  check(
+    "the standalone board still ranks every entry in order",
+    fullBoard(board).length === board.length &&
+      fullBoard(board).every((r, i) => r.rank === i + 1 && !r.gapBefore),
+  );
 }
 
 console.log(

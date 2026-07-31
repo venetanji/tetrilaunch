@@ -888,6 +888,56 @@ body.crt-off #app::after { display: none; }
   .submit-row .btn { padding: 8px 14px; }
 }
 
+/* ============================================================================
+   RUN END MODAL (.end) — one column tall, two columns short.
+   Tightening alone could not save this one. On a landscape phone the panel
+   wanted 367px of content in 321px, which put Play Again/Menu at y=376 in a
+   360px window — the primary action of the screen, off-screen — while
+   #lb-body collapsed to its 64px floor holding 531px of rows.
+   The panel was also 560px wide in a 792px viewport. That is the real
+   diagnosis: one narrow column is the wrong shape where width is abundant and
+   height is scarce, so the fix spends width to buy height.
+   ========================================================================== */
+.end { display: grid; grid-template-columns: 1fr; width: min(560px, 94vw); }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* Tall viewports keep the original single-column reading order (outcome,
+   submit, board, actions) purely from DOM order — no grid areas needed. */
+
+@media (max-height: 480px) {
+  .end {
+    /* Asymmetric on measured evidence, not taste. The salvage block nearly
+       doubles in height as it narrows (56px at 560 wide, 109px at 355) because
+       its breakdown line and Workshop button reflow, while a leaderboard row is
+       a single line and is comfortable at 330px. Equal columns would hand the
+       width to the side that does not need it. */
+    grid-template-columns: 1.15fr 0.85fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "main side" "actions side";
+    column-gap: var(--sp-4);
+    width: min(920px, 94vw);
+    text-align: left;
+  }
+  .end__main { grid-area: main; }
+  .end__side { grid-area: side; }
+  /* Bottom-left rather than spanning the panel: a full-width action row costs
+     its 39px out of BOTH columns' budget, which pushes the board back into
+     scrolling. It also lands at the end of the natural reading order. */
+  .end__actions { grid-area: actions; align-self: end; }
+  .end .stat-row { justify-content: flex-start; gap: var(--sp-5); }
+  .end .end__actions { justify-content: flex-start; }
+  /* With the top-5 slice this never engages; it stays as a backstop, but
+     min-height:0 means it can no longer be forced into the 64px crush. */
+  .end #lb-body { min-height: 0; }
+  /* Six rows have to fit ~253px of column, so the row is rebuilt compact: the
+     score drops from 18px to 15px because it, not the padding, was setting the
+     row height (a 18px mono line is 25px of the old 47.7px row). Everything
+     stays above the 11px the rest of the modal's chrome already uses. */
+  .end .lb { gap: 4px; }
+  .end .lb__row { padding: 5px 12px; grid-template-columns: 30px 1fr auto auto; gap: var(--sp-2); }
+  .end .lb__score { font-size: 15px; }
+  .end .lb__gap { font-size: 10px; padding: 0; }
+}
+
 /* ---------- Draft modal (mod cards) ---------- */
 .draft__cards {
   display: grid;
@@ -1051,6 +1101,12 @@ body.crt-off #app::after { display: none; }
   background: rgba(255,255,255,0.03); border: var(--bw) solid var(--line);
 }
 .lb__row--me { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); background: rgba(0,240,255,0.08); }
+/* Marks the jump in a discontiguous slice, so the player's own row reading #23
+   directly under #5 does not scan as #6. */
+.lb__gap {
+  text-align: center; line-height: 1; letter-spacing: 0.2em;
+  color: var(--text-muted); font-size: 12px; padding: 1px 0;
+}
 .lb__rank { font-family: var(--font-pixel); font-weight: 700; font-size: 13px; color: var(--text-dim); }
 .lb__name { font-family: var(--font-pixel); font-weight: 700; font-size: 11px; letter-spacing: 0.03em; }
 .lb__lines { font-size: var(--fs-xs); color: var(--text-muted); }

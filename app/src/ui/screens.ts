@@ -151,16 +151,56 @@ function purchaseRowsHTML(store: StoreState): string {
   </div>`;
 }
 
-export function leaderboardRowsHTML(entries: ScoreEntry[], highlight?: string): string {
-  if (!entries.length) {
+/** One rendered board line. `rank` is the player's TRUE standing, carried
+ *  explicitly rather than derived from array position — the end modal shows a
+ *  discontiguous slice, where the last row might be #23 sitting under #5.
+ *  `gapBefore` marks that jump so it reads as a jump and not as #6. */
+export interface BoardRow {
+  entry: ScoreEntry;
+  rank: number;
+  gapBefore: boolean;
+}
+
+/** Every entry, ranked by position — the standalone Leaderboard screen. */
+export function fullBoard(entries: ScoreEntry[]): BoardRow[] {
+  return entries.map((entry, i) => ({ entry, rank: i + 1, gapBefore: false }));
+}
+
+/** The top 5, plus the player's own row when they placed outside it.
+ *
+ *  Six rows is a height the end modal can guarantee at 360px; ten is not, at
+ *  any column width that also leaves room for the outcome. The full board stays
+ *  one tap away on the Leaderboard screen.
+ *
+ *  Matching is by name, which is all a score carries — so a player sharing a
+ *  name with a top-5 entry is treated as already shown. That is the same
+ *  assumption `highlight` has always made. */
+export function endBoard(entries: ScoreEntry[], name?: string): BoardRow[] {
+  const top = entries.slice(0, END_BOARD_TOP).map((entry, i) => ({
+    entry, rank: i + 1, gapBefore: false,
+  }));
+  if (!name) return top;
+  const mineAt = entries.findIndex((e) => e.name === name);
+  if (mineAt < 0 || mineAt < END_BOARD_TOP) return top;
+  return [
+    ...top,
+    { entry: entries[mineAt], rank: mineAt + 1, gapBefore: mineAt > END_BOARD_TOP },
+  ];
+}
+
+export const END_BOARD_TOP = 5;
+
+export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): string {
+  if (!rows.length) {
     return `<div class="muted" style="padding:20px;text-align:center">No scores yet — be the first!</div>`;
   }
   const medals = ["🥇", "🥈", "🥉"];
-  return `<div class="lb">${entries
-    .map((e, i) => {
+  return `<div class="lb">${rows
+    .map(({ entry: e, rank, gapBefore }) => {
       const me = highlight && e.name === highlight;
-      return `<div class="lb__row${me ? " lb__row--me" : ""}">
-        <span class="lb__rank">${medals[i] ?? i + 1}</span>
+      return `${gapBefore ? `<div class="lb__gap" aria-hidden="true">⋯</div>` : ""}
+      <div class="lb__row${me ? " lb__row--me" : ""}">
+        <span class="lb__rank">${medals[rank - 1] ?? rank}</span>
         <span class="lb__name">${e.name}</span>
         <span class="lb__lines">${e.lines} lines</span>
         <span class="lb__score">${e.score}</span>
@@ -784,9 +824,15 @@ export function endModal(opts: {
             ? "Out of launches — the bay is done"
             : "The compactor won this round";
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
+  // Three top-level regions, always emitted in this order. A tall viewport
+  // grids them into ONE column, which reproduces the original reading order
+  // (outcome, submit, board, actions). A short landscape viewport grids them
+  // into two, with the actions moving under the outcome so the board gets the
+  // full column height — see app.css's `.end` rules.
   return `<div class="modal-scrim" id="scrim">
     ${loseFx}
-    <div class="panel modal pop" style="width:min(560px,94vw)">
+    <div class="panel modal end pop">
+      <div class="end__main">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
       ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum} — ${opts.bayName}</p>` : ""}
@@ -814,13 +860,16 @@ export function endModal(opts: {
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>
-      <div class="submit-row" id="submit-row">
-        <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
-          value="${opts.name}" autocomplete="off" spellcheck="false" />
-        <button class="btn btn--primary" data-action="submit-score">Submit</button>
       </div>
-      <div id="lb-body">${opts.rows}</div>
-      <div class="row">
+      <div class="end__side">
+        <div class="submit-row" id="submit-row">
+          <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
+            value="${opts.name}" autocomplete="off" spellcheck="false" />
+          <button class="btn btn--primary" data-action="submit-score">Submit</button>
+        </div>
+        <div id="lb-body">${opts.rows}</div>
+      </div>
+      <div class="row end__actions">
         <button class="btn btn--primary" data-action="restart">Play Again</button>
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
