@@ -903,6 +903,38 @@ section("Compactor phase telemetry (compactor.ts, game.ts)");
 
   check("phase reads 0 at the open stop", Math.abs(c.phase - 0) < 1e-9, `${c.phase}`);
 
+  // Bay width must not set the pace. openCells used to drive both the room to
+  // land in AND the cycle length, so Bay Extension T3 took the round trip from
+  // 4.4s to 11.1s while its card advertised only "more room" — and the phase
+  // telemetry shows a player fires about once per stroke, so a longer window
+  // buys no shots, it only spaces them out.
+  const cycleAt = (open: number, minLine: number): number => {
+    const lv = { ...makeBaseLevel(0), compactorOpenCells: open, compactorMinLineCells: minLine };
+    const gg = new Game(lv, {}, 3);
+    const steps = gg.compactor.cycleSteps;
+    gg.destroy();
+    return steps;
+  };
+  const stockCycle = cycleAt(12, 8);
+  for (const [open, minLine] of [[14, 8], [16, 8], [18, 8], [18, 6], [12, 6]] as const) {
+    check(
+      `cycle holds at ${open} open / ${minLine} min-line`,
+      Math.abs(cycleAt(open, minLine) - stockCycle) < 1e-6,
+      `${(cycleAt(open, minLine) * (1000 / 60) / 1000).toFixed(2)}s vs ${(stockCycle * (1000 / 60) / 1000).toFixed(2)}s`,
+    );
+  }
+  // ...but Hydraulics still genuinely speeds the press up, which is what its
+  // "+8% stroke speed" tier copy promises.
+  const hydLevel = makeBaseLevel(0);
+  applyUpgrades(hydLevel, { ...newTiers(), hydraulics: MAX_TIER });
+  const hyd = new Game(hydLevel, {}, 3);
+  check(
+    "hydraulics still shortens the cycle",
+    hyd.compactor.cycleSteps < stockCycle * 0.95,
+    `${hyd.compactor.cycleSteps.toFixed(0)} vs ${stockCycle.toFixed(0)} steps`,
+  );
+  hyd.destroy();
+
   // Drive one full round trip and watch the phase, direction and stroke count.
   let t = 0;
   let sawFullAdvance = false;
