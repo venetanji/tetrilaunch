@@ -5,6 +5,7 @@ import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
 } from "./components";
+import { icon } from "./icons";
 import {
   MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
 } from "../game/upgrades";
@@ -52,17 +53,17 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
         </div>
       </div>
       <div class="menu__actions">
-        <button class="btn btn--primary btn--lg btn--block" data-action="play">▶ Deep Run</button>
-        <button class="btn btn--secondary btn--block" data-action="contracts">📋 Contracts</button>
-        <button class="btn btn--secondary btn--block" data-action="workshop">⚙ Workshop</button>
-        <button class="btn btn--secondary btn--block" data-action="howto">How to Play</button>
-        <button class="btn btn--secondary btn--block" data-action="leaderboard">Leaderboard</button>
+        <button class="btn btn--primary btn--lg btn--block" data-action="play">${icon("play")}Deep Run</button>
+        <button class="btn btn--secondary btn--block" data-action="contracts">${icon("contracts")}Contracts</button>
+        <button class="btn btn--secondary btn--block" data-action="workshop">${icon("workshop")}Workshop</button>
+        <button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>
+        <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
         ${
           store?.available && !store.unlimited
-            ? `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Unlimited</button>`
+            ? `<button class="btn btn--secondary btn--block" data-action="paywall">${icon("star")}Unlock Unlimited</button>`
             : ""
         }
-        <button class="btn btn--ghost btn--block" data-action="settings">Settings</button>
+        <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
   </div>`;

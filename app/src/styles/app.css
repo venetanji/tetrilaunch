@@ -104,6 +104,10 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard);
 }
 .btn:active { transform: translate(2px, 2px); box-shadow: none; }
+/* Never let a long label squeeze the glyph out of square, and never let the
+   glyph's own line box add height to the button — `block` kills the inline
+   descender gap an inline SVG otherwise contributes. */
+.ico { flex: none; display: block; }
 .btn--primary {
   background: linear-gradient(100deg, var(--accent), #38d6ff);
   color: var(--accent-ink);
@@ -1157,8 +1161,13 @@ button.panel { color: var(--text); }
   .menu__brand { gap: var(--sp-2); }
   .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
   .menu__actions { gap: var(--sp-2); }
-  .btn { padding: 10px 18px; }
-  .btn--lg { font-size: 12px; padding: 12px 24px; }
+  /* Sized down again once the options carried icons: a glyph does some of the
+     label's identifying work, so the button no longer has to be the only thing
+     making the option findable. The rail is six buttons tall on a 360px-high
+     phone, and every pixel here is one the brand column also wants. */
+  .btn { padding: 7px 14px; font-size: 10px; }
+  .btn--lg { font-size: 11px; padding: 9px 18px; }
+  .ico { width: 13px; height: 13px; }
 }
 
 /* ============================================================================
