@@ -240,6 +240,13 @@ function patternPool(tier: number): PieceType[] {
  * A ceiling, not a quota: tiling.ts prefers a queue that spends it but will
  * settle for one shape fewer rather than fail (see EXACT_ATTEMPTS there).
  */
+/** How often a pattern Contract ships dominoes instead of tetrominoes, and the
+ *  tier from which they can appear at all. Roughly one board slot in three, so
+ *  a day's board mixes the two rather than committing to either — and never at
+ *  tier 1, where the player is still learning what "no waste" costs. */
+export const TINY_PATTERN_CHANCE = 0.34;
+export const TINY_PATTERN_MIN_TIER = 2;
+
 function patternVariety(tier: number): number {
   return 1 + Math.min(3, Math.floor((Math.max(1, tier) - 1) / 2));
 }
@@ -258,36 +265,56 @@ function patternVariety(tier: number): number {
  * calls it a tunable seam) can't silently produce a Contract that is short a
  * cube by arithmetic.
  */
-function patternGoal(tier: number, lineCells: number): number {
+function patternGoal(tier: number, lineCells: number, size: PieceSize): number {
   let goal = 2 + Math.min(2, Math.floor((Math.max(1, tier) - 1) / 3));
-  while ((goal * lineCells) % SIZE_SPEC.std.cubes !== 0) goal++;
+  // Tiny scales on the SHARED goal ladder and gets no bonus on top of it.
+  // pieceCells returns one fixed domino whatever the type, so a domino
+  // Contract has exactly one distinct shape and patternVariety has nothing to
+  // grade — but the doubling is already inherent, because half-size shipments
+  // means twice as many of them for the same goal (a goal of 4 is 8 tetrominoes
+  // or 16 dominoes). Stacking an extra goal bonus on that compounded it to 24
+  // perfect placements at tier 9, which against a measured 23% Contract clear
+  // rate is a lottery rather than a puzzle.
+  while ((goal * lineCells) % SIZE_SPEC[size].cubes !== 0) goal++;
   return goal;
+}
+
+/**
+ * The payload size a pattern Contract ships.
+ *
+ * Tiny appears as a MIXED VARIANT at any tier rather than as a difficulty step,
+ * because a domino Contract is not harder than a tetromino one — it is a
+ * different test. Std is planning plus delivery; tiny is delivery alone, and
+ * the telemetry says delivery is where Contracts actually fail (26 of 35 losses
+ * were "ran out of pieces", not a queue nobody could arrange).
+ *
+ * Bulk is deliberately absent. Pentominoes tile a 10-wide line at every goal
+ * from 2 to 6, but at the 8-wide line every tier actually ships, `goal * 8`
+ * divides by 5 only at goal 5 — a 40-cube, 8-shipment monster or nothing. It
+ * becomes available the day a wider line does.
+ */
+function patternSize(tier: number, rng: () => number): PieceSize {
+  return rng() < TINY_PATTERN_CHANCE && tier >= TINY_PATTERN_MIN_TIER ? "tiny" : "std";
 }
 
 /**
  * Build the exact inventory for `goal` lines, as a tiling of the goal region.
  *
- * Std tetrominoes only, and that is an arithmetic constraint rather than a
- * preference: a queue is exact only if the region's area divides by the piece's
- * cube count. 4 always divides 8*goal; 5 (bulk) only does when goal is a
- * multiple of 5, which would put the smallest legal bulk pattern at 40 cubes.
- * Micro (2) divides fine but is the size playtesting found tedious
- * (docs/DESIGN.md), and tedium is the exact failure mode a zero-waste objective
- * is already closest to.
- *
  * The all-I fallback can only fire if `tilingQueue` fails outright, which it
- * cannot for these pools — every one contains I, and a stack of horizontal I
- * pieces tiles any region whose width divides by 4. It is here because the
- * alternative to a dull Contract is an impossible one.
+ * cannot for these sizes — every std pool contains I and a stack of horizontal
+ * I pieces tiles any region whose width divides by 4, and a domino tiles any
+ * even area at all. It is here because the alternative to a dull Contract is an
+ * impossible one.
  */
 function patternQueue(
   goal: number,
   tier: number,
   lineCells: number,
   rng: () => number,
+  size: PieceSize,
 ): PieceType[] {
-  const cubes = SIZE_SPEC.std.cubes;
-  const tiled = tilingQueue(goal, lineCells, patternPool(tier), rng, patternVariety(tier));
+  const cubes = SIZE_SPEC[size].cubes;
+  const tiled = tilingQueue(goal, lineCells, patternPool(tier), rng, patternVariety(tier), size);
   const queue = tiled ?? Array.from({ length: (goal * lineCells) / cubes }, () => "I" as PieceType);
 
   for (let i = 0; i < SPARE_SHIPMENTS; i++) queue.push(queue[Math.floor(rng() * queue.length)]);
@@ -320,8 +347,10 @@ function lineCellsForTier(tier: number): number {
 function generatePatternContract(seed: number, tier: number, slot: number): Contract {
   const rng = mulberry32(seed + slot * 7919);
   const lineCells = lineCellsForTier(tier);
-  const goal = patternGoal(tier, lineCells);
-  const queue = patternQueue(goal, tier, lineCells, rng);
+  const size = patternSize(tier, rng);
+  const goal = patternGoal(tier, lineCells, size);
+  const queue = patternQueue(goal, tier, lineCells, rng, size);
+  const shapes = new Set(queue).size;
   return {
     id: `${seed}-${tier}-${slot}`,
     seed: seed + slot * 7919,
@@ -331,16 +360,18 @@ function generatePatternContract(seed: number, tier: number, slot: number): Cont
     goal,
     launches: 0,
     queue,
-    pieceSize: "std",
+    pieceSize: size,
     // Never any wind, at any tier. A zero-waste objective plus a lateral force
     // the player can't fully cancel is not a puzzle, it's a dice roll — so the
     // difficulty budget has nothing to spend here either.
     windMax: 0,
-    // Shape count is called out because it, not the shipment count, is what
-    // makes one pattern Contract harder than another (see patternVariety).
-    brief: `${queue.length} shipments · ${new Set(queue).size} shape${
-      new Set(queue).size === 1 ? "" : "s"
-    }, no waste`,
+    // Std calls out the SHAPE count, because that (not the shipment count) is
+    // what makes one tetromino pattern harder than another. Tiny has exactly
+    // one shape by construction, so "1 shape" there would read as a bug rather
+    // than a difficulty — it names the payload instead.
+    brief: size === "tiny"
+      ? `${queue.length} shipments · dominoes, no waste`
+      : `${queue.length} shipments · ${shapes} shape${shapes === 1 ? "" : "s"}, no waste`,
   };
 }
 

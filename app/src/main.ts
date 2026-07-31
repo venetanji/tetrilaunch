@@ -97,6 +97,12 @@ class App {
   /** Unsubscribe for the RevenueCat entitlement listener. */
   private offUnlimitedChange: (() => void) | null = null;
 
+  /** Pointer currently holding the Autoloader trigger, or null. Tracked by id
+   *  because the release can land anywhere — a thumb that slides off the button
+   *  still has to stop the burst, so the listener is on window, not the
+   *  button. */
+  private autoPointerId: number | null = null;
+
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <canvas id="game"></canvas>
@@ -119,6 +125,8 @@ class App {
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
+    window.addEventListener("pointerup", this.onGlobalPointerUp);
+    window.addEventListener("pointercancel", this.onGlobalPointerUp);
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -185,6 +193,10 @@ class App {
 
   // ---------------- state / rendering ----------------
   private setState(s: AppState): void {
+    // Leaving play drops the Autoloader trigger: the rail button is about to
+    // be replaced by a modal, so its pointerup will never arrive and the burst
+    // would resume the moment play did.
+    if (s !== "playing") this.releaseAutoTrigger();
     this.state = s;
     this.renderOverlay();
     this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
@@ -203,6 +215,7 @@ class App {
       timeLeftMs: g.timeLeftMs,
       pieceSize: g.level.pieceSize,
       bondBreakerOwned: g.level.bondBreakerCharges > 0,
+      autoloaderOwned: g.level.autoLaunchMs > 0,
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
@@ -1107,8 +1120,33 @@ class App {
     // primary pointer's synthesized click is skipped via onClick's
     // detail check, so pressing can't double-fire.
     e.preventDefault();
-    this.onGameAction(el.getAttribute("data-game")!);
+    const act = el.getAttribute("data-game")!;
+    // The one HELD control on the rail: press starts the burst, and release
+    // (anywhere — see onGlobalPointerUp) ends it.
+    if (act === "auto") {
+      this.autoPointerId = e.pointerId;
+      this.game?.setAutoHeld(true);
+      void tapHaptic();
+      return;
+    }
+    this.onGameAction(act);
   };
+
+  /** Ends an Autoloader burst on release, on the window rather than the button
+   *  so a thumb that drifts off mid-hold cannot leave the trigger stuck down. */
+  private onGlobalPointerUp = (e: PointerEvent): void => {
+    if (this.autoPointerId === null || e.pointerId !== this.autoPointerId) return;
+    this.autoPointerId = null;
+    this.game?.setAutoHeld(false);
+  };
+
+  /** Drops the Autoloader trigger unconditionally — used whenever the game
+   *  leaves "playing" (pause, win, loss, menu), since no pointerup is coming
+   *  for a button that just stopped existing. */
+  private releaseAutoTrigger(): void {
+    this.autoPointerId = null;
+    this.game?.setAutoHeld(false);
+  }
 
   private onGameAction(a: string): void {
     const g = this.game;

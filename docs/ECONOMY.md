@@ -115,13 +115,23 @@ they were launched with.
 ## The Autoloader (micro endgame)
 
 Gated behind the `auto` salvage unlock **and** owning Micro Shipments this run.
-The cannon fires itself every 420ms at a ±9° spread around wherever the player
-left it, at half launch cost, with a random rotation. Fast, cheap, probabilistic
-— explicitly not trying to be a good player.
+**Hold** the rail trigger (or `F`) and the cannon fires every 420ms at a ±9°
+spread around wherever you are pointing, at half launch cost, with a random
+rotation. Fast, cheap, probabilistic — explicitly not trying to be a good player.
 
 It only works on top of the build it belongs to: cheap enough payloads to survive
-the waste, and Bond Breakers (or Hydraulics) to flatten what it piles up. Grabbing
-the slingshot suspends it, so manual control is always one touch away.
+the waste, and Bond Breakers (or Hydraulics) to flatten what it piles up.
+
+It used to fire on a free-running timer, and that was a real bug rather than a
+balance problem. Measured on device, one Autoloader bay threw **34 lost pieces
+from 32 shots** (106%, against an 11% baseline) at **16 shots per line**, and
+its launches were spread evenly across the compactor cycle (z=0.71 retreat vs
+press) while the same player's manual shots were strongly biased toward the open
+window (z=4.27). A metronome cannot see the compactor, so it spent about half
+its shots firing into a shut bay and paying the lost-piece penalty. Holding a
+trigger puts the WHEN in the player's hands and leaves the WHERE scattered,
+which is the upgrade's identity: a stream you point and time, never a better
+cannon.
 
 ## Salvage always pays
 
@@ -148,5 +158,6 @@ Everything is a named constant with a comment:
 
 `npm run sim:balance` sweeps bays × bots × mods. Two caveats it can't see past:
 the bots never use abilities (Bond Breaker, Demolition read as 0 delta), and the
-Autoloader *fights the bot for the cannon*, so its sweep numbers measure a
-conflict that doesn't exist in real play. Both need human playtesting.
+Autoloader is now a held trigger no bot holds, so it reads as a clean 0 delta
+too rather than the old *fight for the cannon* whose sweep numbers measured a
+conflict that didn't exist in real play. All three need human playtesting.

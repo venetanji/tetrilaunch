@@ -371,6 +371,32 @@ body.crt-off #app::after { display: none; }
   background: radial-gradient(circle at 35% 30%, rgba(255, 210, 63, 0.28), rgba(18, 18, 31, 0.85) 65%);
   box-shadow: 0 0 10px rgba(255, 210, 63, 0.35), var(--shadow-hard-sm);
 }
+/* Autoloader trigger. The only rail control that is HELD rather than tapped, so
+   it says so: a persistent :active state that stays lit for the whole burst,
+   and a key badge instead of a charge count because it has no charges — it
+   spends funds for as long as you hold it. */
+.auto-btn {
+  position: relative;
+  color: var(--accent);
+  border-color: rgba(0, 240, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(0, 240, 255, 0.22), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), var(--shadow-hard-sm);
+  touch-action: none;
+}
+.auto-btn:active {
+  color: var(--accent-ink); background: var(--accent);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.85);
+}
+.auto-btn__key {
+  position: absolute; bottom: -5px; right: -5px;
+  font-family: var(--font-pixel); font-size: 7px; line-height: 1;
+  padding: 2px 3px; border-radius: var(--r-sm);
+  background: var(--surface-3); color: var(--text-muted);
+  border: var(--bw) solid var(--line);
+}
+/* Touch has no keyboard, so the hint is desktop-only. */
+@media (pointer: coarse) { .auto-btn__key { display: none; } }
+
 .bond-btn:hover { border-color: #ffd23f; color: #fff0b8; }
 .bond-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
 .bond-btn__count {
@@ -441,6 +467,7 @@ body.crt-off #app::after { display: none; }
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
+  .side-rail .auto-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
     display: flex;
@@ -463,7 +490,12 @@ body.crt-off #app::after { display: none; }
    when it doesn't, which is a better answer than shrinking buttons toward the
    tap-target floor. */
 @media (max-height: 480px) {
-  .side-rail { gap: 5px; }
+  /* A fully drafted rail is now EIGHT buttons tall (fullscreen, pause, two
+     rotates, Bond Breaker, Demolition, the Autoloader trigger, and the aim-state
+     cancel). At 39px each the 5px gap put the stack at 347px against a 344px
+     rail — 3px over. 4px gaps bring it to 340 and leave the button size alone,
+     which is the part a thumb actually needs. */
+  .side-rail { gap: 4px; }
   .side-rail .icon-btn { font-size: 18px; }
 }
 

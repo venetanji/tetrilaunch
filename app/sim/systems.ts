@@ -29,7 +29,7 @@ import {
 } from "../src/game/run";
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
-  SPARE_SHIPMENTS,
+  SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
 } from "../src/game/contracts";
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
@@ -358,6 +358,11 @@ section("Pattern Contracts (contracts.ts)");
   let everUntileable = false;
   let patterns = 0;
   const varietyByTier = new Map<number, number>();
+  const sizesSeen = new Set<string>();
+  const tinyByTier = new Map<number, number[]>();
+  const stdByTier = new Map<number, number[]>();
+  let tinyEverMultiShape = false;
+  let tinyBelowMinTier = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
@@ -373,8 +378,19 @@ section("Pattern Contracts (contracts.ts)");
         // than trusting the one that built it — a guarantee re-derived by the
         // same route it was produced by proves only that the code is itself.
         const lineCells = makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
-        if (!tilesRegion(c.queue, c.goal, lineCells)) everUntileable = true;
+        if (!tilesRegion(c.queue, c.goal, lineCells, c.pieceSize)) everUntileable = true;
         varietyByTier.set(tier, Math.max(varietyByTier.get(tier) ?? 0, new Set(c.queue).size));
+        sizesSeen.add(c.pieceSize);
+        if (c.pieceSize === "tiny") {
+          (tinyByTier.get(tier) ?? tinyByTier.set(tier, []).get(tier)!).push(c.goal);
+          // A domino ignores its type (pieces.ts's pieceCells), so a tiny
+          // Contract that reported several "shapes" would be describing a
+          // distinction the player cannot see on the field.
+          if (new Set(c.queue).size > 1 && !c.brief.includes("dominoes")) tinyEverMultiShape = true;
+          if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = true;
+        } else {
+          (stdByTier.get(tier) ?? stdByTier.set(tier, []).get(tier)!).push(c.goal);
+        }
 
         if (c.windMax !== 0) everWindy = true;
         if (c.launches !== 0) everBudgeted = true;
@@ -394,6 +410,31 @@ section("Pattern Contracts (contracts.ts)");
   // Difficulty is the number of DIFFERENT shapes in one Contract, so the ladder
   // has to actually climb — a generator that always found a single-shape tiling
   // would pass every check above while offering the same puzzle at every tier.
+  // --- Payload sizes -------------------------------------------------------
+  // Tiny is a MIXED variant, so a board must be able to produce either.
+  check("pattern Contracts ship more than one payload size", sizesSeen.size > 1,
+    [...sizesSeen].join(","));
+  check("pattern Contracts still ship tetrominoes", sizesSeen.has("std"));
+  check("pattern Contracts can ship dominoes", sizesSeen.has("tiny"));
+  check("dominoes never appear below their minimum tier", !tinyBelowMinTier);
+  check("a domino Contract never advertises a shape count", !tinyEverMultiShape);
+  // Tiny cannot scale on shape variety (one shape by construction), so it has
+  // to scale on goal instead, or every tier ships the identical Contract.
+  const tinyMax = (t: number) => Math.max(...(tinyByTier.get(t) ?? [0]));
+  check(
+    `domino goals climb with tier (${[2, 5, 9].map(tinyMax).join(" -> ")})`,
+    tinyMax(9) > tinyMax(2),
+    `${tinyMax(2)} -> ${tinyMax(9)}`,
+  );
+  // And a domino Contract must be strictly more DELIVERY than a std one: the
+  // whole reason it is interesting is that it needs about twice the shipments.
+  const stdMax = (t: number) => Math.max(...(stdByTier.get(t) ?? [0]));
+  check(
+    "a domino Contract asks for at least as many lines as a tetromino one",
+    tinyMax(5) >= stdMax(5),
+    `tiny ${tinyMax(5)} vs std ${stdMax(5)}`,
+  );
+
   check("a low tier can be a single-shape Contract", varietyByTier.get(1) === 1);
   check(
     `shape variety climbs with tier (${[1, 3, 5, 7].map((t) => varietyByTier.get(t)).join(" -> ")})`,
@@ -776,16 +817,73 @@ section("Demolition charges + settle window (game.ts)");
   );
   check("windAverage exposes the raw prevailing wind", Math.abs(stab.windAverage) <= windy.windMax);
 
-  // Autoloader fires without any bot driving it.
+  // Autoloader is a HELD trigger, not a timer. The old version fired on its own
+  // every 420ms and could not see the compactor: on device one Autoloader bay
+  // threw 34 lost pieces from 32 shots (106% vs an 11% baseline) at 16 shots
+  // per line, its launches spread evenly across the cycle (z=0.71) while the
+  // same player's manual shots clustered in the open window (z=4.27).
   const autoCfg = applyMods(makeBaseLevel(0), ["micro", "autoloader"]);
   let autoShots = 0;
   const g4 = new Game(autoCfg, { onShoot: () => { autoShots += 1; } }, 5);
   let at = 0;
   for (let i = 0; i < 600; i++) g4.update((at += DT));
-  check("the autoloader self-fires", autoShots > 3, `${autoShots} shots in 10s`);
-  check("the autoloader spends funds", g4.score < autoCfg.startingFunds);
+  check("an untriggered autoloader fires NOTHING", autoShots === 0, `${autoShots} shots in 10s`);
+  check("an untriggered autoloader spends nothing", g4.score === autoCfg.startingFunds);
 
-  for (const game of [g, g2, g3, bare, stab, g4]) game.destroy();
+  // Held: fires, at roughly the configured cadence.
+  const heldShots: number[] = [];
+  const g5 = new Game(autoCfg, { onShoot: (i) => heldShots.push(i.t) }, 5);
+  g5.setAutoHeld(true);
+  let ht = 0;
+  for (let i = 0; i < 600; i++) g5.update((ht += DT));
+  check("a held autoloader fires", heldShots.length > 3, `${heldShots.length} shots in 10s`);
+  check(
+    "the first shot leaves immediately on press",
+    heldShots.length > 0 && heldShots[0] < autoCfg.autoLaunchMs,
+    `first at ${heldShots[0]?.toFixed(0)}ms vs ${autoCfg.autoLaunchMs}ms cadence`,
+  );
+  const gaps = heldShots.slice(1).map((t, i) => t - heldShots[i]);
+  check(
+    "held fire keeps the configured cadence",
+    gaps.every((g) => g >= autoCfg.autoLaunchMs - DT && g <= autoCfg.autoLaunchMs + 4 * DT),
+    `gaps ${gaps.map((g) => g.toFixed(0)).join(",")} vs ${autoCfg.autoLaunchMs}`,
+  );
+
+  // Releasing stops it within one cadence.
+  const before = heldShots.length;
+  g5.setAutoHeld(false);
+  for (let i = 0; i < 600; i++) g5.update((ht += DT));
+  check("releasing stops the burst", heldShots.length === before, `${heldShots.length - before} extra`);
+
+  // Aiming must NOT suppress it — holding the trigger while dragging is the
+  // whole mechanic, and the old timer bailed out on `aiming`.
+  let aimShots = 0;
+  const g6 = new Game(autoCfg, { onShoot: () => { aimShots += 1; } }, 5);
+  g6.aiming = true;
+  g6.setAutoHeld(true);
+  let mt = 0;
+  for (let i = 0; i < 300; i++) g6.update((mt += DT));
+  check("the trigger works while aiming", aimShots > 1, `${aimShots} shots while aiming`);
+
+  // Shots carry the auto flag so telemetry can separate rig from player.
+  const tagged: boolean[] = [];
+  const g7 = new Game(autoCfg, { onShoot: (i) => tagged.push(i.auto) }, 5);
+  let tt = 0;
+  g7.shoot((tt += DT));                       // manual
+  g7.setAutoHeld(true);
+  for (let i = 0; i < 200; i++) g7.update((tt += DT));
+  check("a manual shot is not tagged auto", tagged[0] === false, String(tagged[0]));
+  check("trigger shots are tagged auto", tagged.slice(1).every((x) => x === true) && tagged.length > 1,
+    tagged.join(","));
+
+  // The funds floor still holds — a held trigger must not overdraw.
+  const g8 = new Game({ ...autoCfg, startingFunds: autoCfg.launchCost * 2 }, {}, 5);
+  g8.setAutoHeld(true);
+  let ft = 0;
+  for (let i = 0; i < 900; i++) g8.update((ft += DT));
+  check("a held trigger stops at the funds floor", g8.score < autoCfg.launchCost, String(g8.score));
+
+  for (const game of [g, g2, g3, bare, stab, g4, g5, g6, g7, g8]) game.destroy();
 }
 
 // ---------------------------------------------------------------------------

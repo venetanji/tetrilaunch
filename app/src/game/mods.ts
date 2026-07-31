@@ -112,7 +112,7 @@ export const MODS: ModDef[] = [
   {
     id: "autoloader",
     name: "Autoloader",
-    desc: "Fires itself every 420ms at a rough spread, at half launch cost. Volume over precision — bring Bond Breakers.",
+    desc: "HOLD the ⚡F trigger to fire every 420ms at a rough spread, half launch cost. Volume over precision — bring Bond Breakers.",
     kind: "tradeoff",
     stackable: false,
     unlock: "auto",

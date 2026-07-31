@@ -64,6 +64,10 @@ export interface ShotInfo {
    *  shots-per-stroke directly, which is the quantity MAGAZINE would actually
    *  raise if the window (not aim time) is what bounds throughput. */
   cstroke: number;
+  /** True when the Autoloader trigger fired this shot rather than the player.
+   *  Both share a bay, so without this the rig's scatter and the player's aim
+   *  pool into one meaningless average. */
+  auto: boolean;
 }
 
 export interface GameEvents {
@@ -290,10 +294,26 @@ export class Game {
    *  pressing stroke, and freezing the field mid-flight to slam a modal up
    *  reads as the game snatching the moment away. See resolveWin. */
   private winPendingStep: number | null = null;
-  /** Autoloader: Game.stepCount of its last self-fired shot (see
+  /** Autoloader: Game.stepCount of its last auto-fired shot (see
    *  stepAutoLaunch). Steps, not wall-clock, for the same pause-safety reason
    *  as the bomb timers. */
   private lastAutoStep = -99999;
+  /**
+   * Autoloader trigger: true while the player is holding it down.
+   *
+   * The rig used to fire on a free-running 420ms timer, which made it a
+   * metronome that ignored the compactor. Measured on device, one autoloader
+   * bay threw 34 lost pieces from 32 shots (106%, against an 11% baseline) at
+   * 16 shots per line, and its shots were spread evenly across the compactor
+   * cycle (z=0.71 retreat-vs-press) while the same player's manual shots were
+   * strongly biased toward the open window (z=4.27). It was firing into a shut
+   * bay roughly half the time and paying the lost-piece penalty for it.
+   *
+   * Holding a trigger puts the WHEN back in the player's hands while leaving
+   * the WHERE scattered, which is the upgrade's whole identity: a fast, sloppy
+   * stream you point and time, never a better cannon.
+   */
+  autoHeld = false;
   /** Seeded RNG for the Autoloader's aim spread — separate stream from the
    *  wind's so adding/removing the mod can't shift the weather for a seed. */
   private readonly autoRng: () => number;
@@ -645,7 +665,11 @@ export class Game {
     );
   }
 
-  shoot(now: number): boolean {
+  /** `auto` marks a shot the Autoloader trigger fired rather than the player's
+   *  own launch, so telemetry can tell the rig's output from the player's — the
+   *  first autoloader bay could only be identified by its mod list and its
+   *  434ms metronome, which will not work now that its cadence is the player's. */
+  shoot(now: number, auto = false): boolean {
     if (this.status !== "playing" || this.paused) return false;
     // Target already met: the SETTLE window only lets what's ALREADY flying
     // land (see resolveWin) — spending more on a bay you've won is never what
@@ -687,6 +711,7 @@ export class Game {
       cphase: this.compactor.phase,
       cdir: this.compactor.dir,
       cstroke: this.compactor.strokes,
+      auto,
     };
 
     this.shotsFired += 1;
@@ -721,21 +746,24 @@ export class Game {
   }
 
   /**
-   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): once
-   * per level.autoLaunchMs the cannon fires ITSELF, re-rolling its aim inside a
-   * band around wherever the player left it rather than shooting the exact same
-   * arc forever. Fast, cheap and PROBABILISTIC — it is not trying to be a good
-   * player, it's trading precision for volume, which is why it only works on
-   * top of a build that can flatten the resulting mess (Bond Breakers) and
-   * cheap enough payloads (micro shipments) to survive the waste.
+   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): while the
+   * trigger is HELD, the cannon fires every level.autoLaunchMs, re-rolling its
+   * aim inside a band around wherever the player is pointing rather than
+   * shooting the exact same arc forever. Fast, cheap and PROBABILISTIC — it is
+   * not trying to be a good player, it's trading precision for volume, which is
+   * why it only works on top of a build that can flatten the resulting mess
+   * (Bond Breakers) and cheap enough payloads (micro shipments) to survive the
+   * waste.
    *
-   * Skipped entirely while the player is actively aiming, so grabbing the
-   * slingshot always takes manual control back mid-bay instead of fighting the
-   * rig for the cannon.
+   * Deliberately NOT skipped while aiming. The old timer version bailed out on
+   * `this.aiming`, so "grab the slingshot to take back control" was the only
+   * control the player had — and holding the trigger while dragging is now the
+   * whole point: the burst follows the live aim, so you can sweep a stream
+   * across the zone as the compactor opens it.
    */
   private stepAutoLaunch(now: number): void {
     const interval = this.level.autoLaunchMs;
-    if (interval <= 0 || this.aiming || this.settling) return;
+    if (interval <= 0 || !this.autoHeld || this.settling) return;
     const stepsPerMs = 1 / DT;
     if (this.stepCount - this.lastAutoStep < interval * stepsPerMs) return;
     if (!this.cannon.canShoot(now)) return;
@@ -752,7 +780,19 @@ export class Game {
     for (let i = 0; i < turns; i++) this.cannon.rotateRight();
 
     this.lastAutoStep = this.stepCount;
-    this.shoot(now);
+    this.shoot(now, true);
+  }
+
+  /**
+   * Press or release the Autoloader trigger (rail button, or a held key on
+   * desktop). Pressing resets the cadence clock so the FIRST shot leaves
+   * immediately rather than up to 420ms later — the player is pressing because
+   * the window is open now, and a trigger that fires on its own schedule
+   * instead of theirs would reintroduce exactly the problem this replaced.
+   */
+  setAutoHeld(held: boolean): void {
+    if (held && !this.autoHeld) this.lastAutoStep = -99999;
+    this.autoHeld = held;
   }
 
   private spawnBomb(): void {

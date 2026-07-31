@@ -287,6 +287,9 @@ export function hudHTML(opts: {
   /** Whether Demolition Charges were drafted, and how many are left — same
    *  two-trigger treatment as Bond Breaker (see the ability note below). */
   demoOwned: boolean;
+  /** True when this bay has the Autoloader (level.autoLaunchMs > 0). Adds a
+   *  HELD trigger to the rail — the rig no longer fires on its own. */
+  autoloaderOwned: boolean;
   bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
    *  chips in the plant panel (see components.ts's runModsHTML). */
@@ -314,7 +317,7 @@ export function hudHTML(opts: {
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
-    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, modIds, tiers,
+    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, modIds, tiers,
     contract,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
@@ -352,6 +355,13 @@ export function hudHTML(opts: {
   const demoRailBtn = demoOwned
     ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>💥<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
+  // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
+  // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
+  // right thumb at rest, because it is the only rail control meant to be held
+  // through a whole compactor window rather than jabbed.
+  const autoRailBtn = autoloaderOwned
+    ? `<button class="icon-btn auto-btn" data-game="auto" id="auto-btn" aria-label="Autoloader — hold to fire">${icon("launcher", 17)}<span class="auto-btn__key">F</span></button>`
+    : "";
   const plates = shipPlatesHTML(tiers);
   return `<div class="hud" id="hud">
     <!-- button rail: ONE same-width column of at most seven buttons —
@@ -376,6 +386,7 @@ export function hudHTML(opts: {
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
       ${bondRailBtn}
       ${demoRailBtn}
+      ${autoRailBtn}
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
     </div>
 
@@ -474,6 +485,7 @@ export function hudHTML(opts: {
         <span class="kbd">Space</span> fire
         ${bondBreakerOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">B</span> break bonds' : ""}
         ${demoOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">X</span> arm charge' : ""}
+        ${autoloaderOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">F</span> hold to autofire' : ""}
         <span class="kbd-hint__sep">·</span>
         drag to aim
       </div>

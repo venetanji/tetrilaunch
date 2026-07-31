@@ -29,7 +29,8 @@
  * arrangement and a landed one. This rules out the impossible; it does not
  * promise the easy.
  */
-import { PIECE_SHAPES, type PieceType } from "./theme";
+import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
+import { pieceCells, SIZE_SPEC } from "./pieces";
 
 export type Cell = readonly [number, number];
 
@@ -55,17 +56,22 @@ function rotateCW(cells: Cell[]): Cell[] {
  * Pieces rotate freely in flight, so all four quarter-turns are legal; the
  * de-duplication is only to stop the solver exploring O four times over.
  */
-export const ORIENTATIONS: Record<PieceType, Cell[][]> = (() => {
-  const out = {} as Record<PieceType, Cell[][]>;
-  for (const type of Object.keys(PIECE_SHAPES) as PieceType[]) {
-    const seen: Cell[][] = [];
-    let cells = normalize(PIECE_SHAPES[type]);
-    for (let i = 0; i < 4; i++) {
-      const key = JSON.stringify(cells);
-      if (!seen.some((s) => JSON.stringify(s) === key)) seen.push(cells);
-      cells = rotateCW(cells);
+export const ORIENTATIONS: Record<PieceSize, Record<PieceType, Cell[][]>> = (() => {
+  const sizes: PieceSize[] = ["tiny", "std", "bulk"];
+  const out = {} as Record<PieceSize, Record<PieceType, Cell[][]>>;
+  for (const size of sizes) {
+    const bySize = {} as Record<PieceType, Cell[][]>;
+    for (const type of PIECE_TYPES) {
+      const seen: Cell[][] = [];
+      let cells = normalize(pieceCells(type, size) as Cell[]);
+      for (let i = 0; i < 4; i++) {
+        const key = JSON.stringify(cells);
+        if (!seen.some((t) => JSON.stringify(t) === key)) seen.push(cells);
+        cells = rotateCW(cells);
+      }
+      bySize[type] = seen;
     }
-    out[type] = seen;
+    out[size] = bySize;
   }
   return out;
 })();
@@ -120,6 +126,10 @@ function search(
   supply: Supply,
   placed: PieceType[],
   budget: { nodes: number },
+  /** Which shape table to draw from — a domino, a tetromino or a pentomino
+   *  (pieces.ts's pieceCells). Ahead of the optional `rng` because optional
+   *  parameters must come last. */
+  size: PieceSize,
   rng?: () => number,
 ): boolean {
   if (remaining === 0) return true;
@@ -130,7 +140,8 @@ function search(
   const tx = target % cols;
 
   for (const type of supply.available()) {
-    const orientations = rng ? shuffled(ORIENTATIONS[type], rng) : ORIENTATIONS[type];
+    const table = ORIENTATIONS[size][type];
+    const orientations = rng ? shuffled(table, rng) : table;
     for (const cells of orientations) {
       const [ax, ay] = cells[0];
       const covered: number[] = [];
@@ -154,7 +165,7 @@ function search(
       for (const at of covered) grid[at] = 1;
       supply.take(type);
       placed.push(type);
-      if (search(grid, rows, cols, remaining - cells.length, supply, placed, budget, rng)) {
+      if (search(grid, rows, cols, remaining - cells.length, supply, placed, budget, size, rng)) {
         return true;
       }
       placed.pop();
@@ -165,18 +176,25 @@ function search(
   return false;
 }
 
-const CUBES_PER_PIECE = 4;
-
 /**
- * True when this exact multiset of tetrominoes tiles a `rows` x `cols`
- * rectangle with no gaps and nothing left over.
+ * True when this exact multiset of shipments tiles a `rows` x `cols` rectangle
+ * with no gaps and nothing left over.
  *
  * Independent of `tilingQueue` on purpose: the generator's guarantee is worth
  * something only if the test re-derives it by a different route than the one
  * that built the answer.
+ *
+ * `size` picks the shape table. A domino run is trivially tileable on any even
+ * area and a pentomino run needs a width divisible into 5s, so the counting
+ * check below is per-size rather than a constant 4.
  */
-export function tilesRegion(queue: readonly PieceType[], rows: number, cols: number): boolean {
-  if (queue.length * CUBES_PER_PIECE !== rows * cols) return false;
+export function tilesRegion(
+  queue: readonly PieceType[],
+  rows: number,
+  cols: number,
+  size: PieceSize = "std",
+): boolean {
+  if (queue.length * SIZE_SPEC[size].cubes !== rows * cols) return false;
 
   const counts = new Map<PieceType, number>();
   for (const type of queue) counts.set(type, (counts.get(type) ?? 0) + 1);
@@ -195,6 +213,7 @@ export function tilesRegion(queue: readonly PieceType[], rows: number, cols: num
     supply,
     [],
     { nodes: 0 },
+    size,
   );
 }
 
@@ -217,6 +236,12 @@ const EXACT_ATTEMPTS = 6;
  * thinking rather than the piece-by-piece delivery risk — the right axis for a
  * mode whose premise is planning.
  *
+ * It is NOT the ladder for `tiny`, though: pieceCells returns one fixed domino
+ * for every type, so a domino run has exactly one distinct shape and this dial
+ * has nothing to grade. Tiny Contracts scale on goal instead (contracts.ts's
+ * patternGoal), which is the honest axis for them — every domino packing works,
+ * so their whole difficulty is landing twice as many shipments perfectly.
+ *
  * Null is reachable in principle — a pool of only S and Z tiles no rectangle —
  * but not from the pools the generator actually uses, since every tier's pool
  * contains I, `cols` is 8, and a stack of horizontal I pieces tiles any height.
@@ -229,6 +254,7 @@ export function tilingQueue(
   pool: readonly PieceType[],
   rng: () => number,
   maxDistinct = pool.length,
+  size: PieceSize = "std",
 ): PieceType[] | null {
   const cap = Math.max(1, Math.min(maxDistinct, pool.length));
 
@@ -265,6 +291,7 @@ export function tilingQueue(
       supply,
       placed,
       { nodes: 0 },
+      size,
       rng,
     );
     if (!ok) continue;
