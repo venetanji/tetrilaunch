@@ -1,7 +1,26 @@
 # Workshop: modifiers as the unlock tree
 
 **Date:** 2026-07-31
-**Status:** approved
+**Status:** approved, shipped — **amended in part** (see below)
+
+> **Amendments since approval.** This document is kept as the record of the
+> decision, not of the current code. Three things moved afterwards, all of them
+> downstream of deleting the Wide Bay modifier (it and Bay Extension both clamped
+> at 18 open cells, so drafting it on a refitted ship did nothing):
+>
+> - **The free four are now Overtime, Premium Contracts, Ballast Load, Rapid
+>   Loader.** Ballast Load took Wide Bay's place, so its "Ballast Contract" unlock
+>   (120) left the tree — **eleven unlocks became ten**.
+> - **The tail was repriced to hold the total at 1400**: Bond Breaker Rig 260 →
+>   320, Autoloader Rig 300 → 360. The Mark gates are unchanged, and they are
+>   still what enforces constraint (2).
+> - **The draft deals two offers, not three**, with a third slot earned at five
+>   cleared daily Contracts (`meta.ts`'s `draftSlots`). The free pool has to
+>   out-number the slots or run one deals the same hand every time — which is why
+>   removing Wide Bay required promoting a replacement rather than just dropping
+>   to three.
+>
+> `meta.ts` is the source of truth for prices and gates.
 
 ## Problem
 

@@ -12,10 +12,24 @@ clears them away.
 
 ## 🎮 How it plays
 
-- **A run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
+**Two halves.** *Deep Run* is the exam — long, permadeath, it can beat you.
+*Contracts* are the opposite by design: short, free to fail, endlessly retryable.
+
+- **Deep Run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
   compactor, pricier launches, a tighter clock. Each bay has its own **funding
   target** and **countdown**; bank the target before the clock or the bankroll
   runs out.
+- **Ten Marks** are the difficulty ladder over Deep Run. Each one hands you a
+  larger **build budget** to spend on the ship before you launch, and the Mark you
+  may attempt is always **one above your best clear**. Nothing purchasable raises
+  it — a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth
+  the same for everyone.
+- **Three daily Contracts** — one bay, **no clock, no launch cost**, failing costs
+  nothing and you can retry forever. What replaces time and money pressure is a
+  **launch budget**: N shipments to hit the goal. One of the three is a **pattern
+  Contract** — instead of a budget you're handed the *exact* inventory that tiles
+  the goal, so every single cube has to end up inside a completed row. **Zero
+  waste.** They're generated from a daily seed, so everyone gets the same three.
 - **Three currencies, three horizons** (see [docs/ECONOMY.md](docs/ECONOMY.md)):
   - **Funds `$`** last one bay. They pay for launches and *are* the bay's target.
   - **Scrap `♻`** lasts one run (2/line, 10/bay). Spent on the **ship**.
@@ -26,16 +40,20 @@ clears them away.
   Extension** (12→18 open cells), **Launcher Coils** (muzzle power + a wind
   stabilizer), **Press Hydraulics**, **Loader Magazine**, **Reactor Output**,
   **Bond Emitter**. Upgrades last the whole run.
-- **Draft a modifier after every bay** — 1 of 3 seeded offers (or skip):
-  Overclock, Wide Bay, Sturdy/Micro/Bulk Shipments, Demolition Charges,
-  Autoloader, Overtime, Premium Contracts, Short Lines, Ballast Load, Bond
-  Breaker, Rapid Loader. Mods **stack for the rest of the run**, and compound on
-  top of whatever ship you refitted.
+- **Draft a modifier after every bay** — **2 seeded offers** (or skip), and a
+  **third slot once you've cleared 5 daily Contracts**. Twelve mods: Overclock,
+  Sturdy/Micro/Bulk Shipments, Demolition Charges, Autoloader, Overtime, Premium
+  Contracts, Short Lines, Ballast Load, Bond Breaker, Rapid Loader. Most need a
+  **Workshop unlock before they can be OFFERED** — salvage buys the option, never
+  the mod, so the draft still deals you a real choice. Four stay free (Overtime,
+  Premium Contracts, Ballast Load, Rapid Loader) so a first run isn't an empty
+  one. Mods **stack for the rest of the run**, and compound on top of whatever
+  ship you refitted.
 - **Drag to aim** — direction sets the launch angle, distance sets the power. A
   dotted **parabola** previews the flight; release to fire. Keyboard on desktop:
   `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate, `B` bond breaker, `X` arm a
-  demolition charge. The **ceiling is open** — max-power lobs arc above the screen
-  and fall back in.
+  demolition charge, `F` **hold** the Autoloader trigger. The **ceiling is open** —
+  max-power lobs arc above the screen and fall back in.
 - **Shipments come in three sizes**, and size changes weight and rigidity as well
   as shape. **Micro** dominoes are cheap, precise and brittle — but too light for
   their own weight to square up the pile below them. **Bulk** pentominoes are
@@ -217,7 +235,20 @@ modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   per cube vaporized.
 - **Three payload sizes** — micro dominoes / tetrominoes / bulk pentominoes,
   differing in weight and rigidity as well as shape, with the Autoloader as the
-  micro build's endgame.
+  micro build's endgame — a **held** trigger (`⚡`/`F`) at 420ms, so volume is
+  something you commit to for a burst rather than a mode you switch on.
+- **Contracts** — the short, generated, retryable half. Three a day from a shared
+  seed, budgeted in launches rather than strokes so thinking is free. **Pattern
+  Contracts** hand you an exact inventory and demand zero waste; a backtracking
+  tiler (`tiling.ts`) *proves* the queue fills the goal before the Contract ships,
+  because the one failure this mode can't survive is an unwinnable puzzle.
+- **The Mark ladder** — ten difficulty steps over Deep Run, each with its own
+  build budget, each raised only by beating the one below. Calibrated with a
+  headless harness (`sim/`), which is also how we learned the ladder's original
+  knobs weren't difficulty at all.
+- **Playtest telemetry** — opt-in, per-origin, recording what the sim bots
+  structurally cannot: real aim time, where in the compactor's sweep each shot is
+  taken, which rows get rejected and why.
 - **Settle-then-celebrate** — the bay no longer ends mid-flight; it settles, pays
   out, then plays a BAY CLEARED beat.
 - **Aspect-ratio layout solver** + safe-area handling, so the controls stop being
@@ -232,15 +263,22 @@ Next steps:
 1. **Playtest the refit balance.** `TIER_COSTS` (20/35/55) against
    `SCRAP_PER_LINE`/`SCRAP_PER_BAY` (2/10) is a first guess: it lands the player
    at ~78 scrap by the first stop, i.e. one track nearly maxed or two opened.
-   Tune until each stop is a real dilemma. The sweep can't measure this — bots
-   never use abilities and the Autoloader fights them for the cannon.
+   Tune until each stop is a real dilemma. The sweep can't measure this — the
+   bots never use abilities, and they never hold the Autoloader trigger, so both
+   read as a clean 0 delta.
 2. **Draft depth** — rarity weights and synergy tags on `ModDef` (tempo mods more
    likely once you own Overclock), a scrap-priced reroll, and 1–2 pure banes with
    a signing bonus for risk players.
-3. **More mutators** — gravity flips, a second mini-compactor, sticky cubes,
-   golden cubes (5× payout slot), shielded cubes that need a demolition charge.
-4. **Daily seed** — a shared `RunState.seed` so everyone drafts the same offers,
-   with a per-seed leaderboard.
+3. **Materials** — the next phase, and the one the difficulty ladder is waiting
+   on. **Slag** (occupies a slot, can never complete a line), **Cryo** (must be
+   struck before it will compact), then Rebar, Volatile, Tar, Magnetic. Each is a
+   cube *type*, not a new system — the match-3 trick of getting a thousand levels
+   out of one verb. See
+   [docs/DESIGN.md](docs/DESIGN.md#materials--the-content-engine); the older
+   wishlist here (gravity flips, a second mini-compactor, golden cubes) is
+   superseded by it.
+4. **Daily seed for Deep Run** — Contracts already share one; give the run itself
+   a `RunState.seed` so everyone drafts the same offers, with a per-seed board.
 5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`;
    implement the bag in `Cannon`, seeded from the run.
 6. **Audio** — the Sound FX / Music toggles exist but nothing is wired up

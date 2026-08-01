@@ -733,8 +733,14 @@ export function pauseModal(): string {
 
 /**
  * Draft modal shown between bays: freezes the just-cleared field behind a
- * scrim and offers a choice of up to 3 modifiers (fewer late in a run, once
- * the non-stackable pool thins out — render whatever `offers` holds). Picking
+ * scrim and offers a choice of 2 modifiers — 3 once the player has cleared
+ * DRAFT_THIRD_SLOT_CONTRACTS dailies (meta.ts's draftSlots), and fewer late in
+ * a run once the non-stackable pool thins out. Render whatever `offers` holds.
+ *
+ * The heading says "modifier", not "contract". It used to say the latter, which
+ * was harmless flavour until Contracts became an actual mode — at which point a
+ * draft card titled "Choose your contract" sitting above copy that reads "Clear
+ * 5 Contracts" was naming two unrelated things the same way. Picking
  * a card or skipping both hand off to main.ts's "pick-mod"/"skip-mod"
  * actions, which advance the run and start the next bay.
  */
@@ -792,7 +798,7 @@ export function draftScreen(opts: {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
-      <h2 class="display">Choose your contract</h2>
+      <h2 class="display">Choose a modifier</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
       <div class="draft__bank">
         <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">

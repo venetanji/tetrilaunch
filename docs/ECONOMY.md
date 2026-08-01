@@ -51,7 +51,7 @@ price ladder of **20 / 35 / 55** scrap (110 for a full track).
 
 | Track | Tiers | What it's for |
 |---|---|---|
-| **BAY** | +2 / +4 / +6 open cells (→18) | The "extend to 18" lever, now earned capital rather than a random Wide Bay offer. |
+| **BAY** | +2 / +4 / +6 open cells (→18) | The "extend to 18" lever, and now the only one — the draft's old Wide Bay offer is gone, so width is earned capital rather than a roll. Buys **room only**: `compactorSpeedFor` scales the bar's speed with its span, so a wider bay no longer stretches the press cycle. It used to — T3 took the cycle from 4.4s to 11.1s while the card advertised nothing but space, which made the most expensive purchase in the track a stealth *difficulty cut*. |
 | **LAUNCHER** | +6/12/18% muzzle speed · 20/40/60% wind cancelled | **The wind answer.** More speed to throw through a headwind, plus a stabilizer that cancels part of it outright. |
 | **HYDRAULICS** | ×1.6/2.2/2.8 settle assist · +8/16/24% stroke | Turns "nearly a line" into a payout. The upgrade for builds that land loose cubes. |
 | **MAGAZINE** | −15/30/45% cooldown | Tempo. |
