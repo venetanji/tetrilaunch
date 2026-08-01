@@ -998,7 +998,7 @@ class App {
     // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
     // grid, no label/type text (see components.ts's beltPieceHTML).
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}`;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}:${bp.material}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
@@ -1006,7 +1006,7 @@ class App {
           ? beltBombHTML()
           : bp.empty
             ? ""
-            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
+            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
       }
       this.lastNext = nextKey;
     }

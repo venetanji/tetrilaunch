@@ -12,9 +12,18 @@
  * numbers compose the way the design says", which is the class of bug that a
  * balance sweep passes right over.
  */
+import Matter from "matter-js";
 import { Game } from "../src/game/game";
-import { makeBaseLevel } from "../src/game/level";
-import { applyMods, draftOffers, MODS } from "../src/game/mods";
+import { makeBaseLevel, materialMixFor, MATERIAL_SCHEDULE } from "../src/game/level";
+import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
+import { Cannon } from "../src/game/cannon";
+import { Compactor } from "../src/game/compactor";
+import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
+import {
+  fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
+} from "../src/game/lineClear";
+import type { Cube } from "../src/game/pieces";
+import type { Material } from "../src/game/theme";
 import {
   applyUpgrades, newTiers, nextTierCost, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
@@ -1202,6 +1211,265 @@ section("HUD readout widths (the $1000+ wrap regression)");
     "the standalone board still ranks every entry in order",
     fullBoard(board).length === board.length &&
       fullBoard(board).every((r, i) => r.rank === i + 1 && !r.gapBefore),
+  );
+}
+
+section("Materials (theme.ts / level.ts / lineClear.ts)");
+{
+  // ---- The schedule: what appears, when, and what must stay clean ----------
+
+  // Mark 1 is the baseline every player learns the game on. If a material can
+  // reach it, "stock" stops meaning anything and the ladder has no floor.
+  const mark1Clean = Array.from({ length: 10 }, (_, i) => materialMixFor(i, 1))
+    .every((m) => m.slag === 0 && m.cryo === 0);
+  check("Mark 1 is entirely free of materials", mark1Clean);
+
+  check("slag waits for Mark 2", materialMixFor(9, 1).slag === 0 && materialMixFor(9, 2).slag > 0);
+  check("cryo waits for Mark 3", materialMixFor(9, 2).cryo === 0 && materialMixFor(9, 3).cryo > 0);
+  check(
+    "one new material per Mark, in the design's order",
+    MATERIAL_SCHEDULE.slag.firstMark < MATERIAL_SCHEDULE.cryo.firstMark,
+  );
+
+  // Every run opens clean regardless of Mark, so the player establishes a
+  // rhythm before the bay starts arguing with them.
+  check(
+    "bay 1 is clean at every Mark",
+    Array.from({ length: MARK_COUNT }, (_, m) => materialMixFor(0, m + 1))
+      .every((mix) => mix.slag === 0 && mix.cryo === 0),
+  );
+
+  // The cap is the safety rail: without it the ramp keeps climbing and a deep
+  // bay at a high Mark drowns in dead cubes.
+  const deepest = materialMixFor(50, MARK_COUNT);
+  check("slag stays under its cap", deepest.slag <= MATERIAL_SCHEDULE.slag.cap);
+  check("cryo stays under its cap", deepest.cryo <= MATERIAL_SCHEDULE.cryo.cap);
+  check(
+    "slag is rarer than cryo — it is the one that cannot be recovered",
+    MATERIAL_SCHEDULE.slag.cap < MATERIAL_SCHEDULE.cryo.cap,
+  );
+  check(
+    "the mix never exceeds certainty",
+    deepest.slag + deepest.cryo < 1,
+    `${(deepest.slag + deepest.cryo).toFixed(3)}`,
+  );
+
+  // A ramp that isn't monotone would make a later bay easier than an earlier
+  // one, which reads as a bug to a player even when it's within the cap.
+  const slagRamp = Array.from({ length: 10 }, (_, i) => materialMixFor(i, MARK_COUNT).slag);
+  check("the slag ramp never decreases", slagRamp.every((v, i) => i === 0 || v >= slagRamp[i - 1]));
+
+  // ---- fillsSlots: the single definition of "worth a slot" -----------------
+
+  const cube = (material: Material, struck = material !== "cryo"): Cube =>
+    ({ material, struck }) as Cube;
+
+  check("standard fills slots", fillsSlots(cube("standard")));
+  check("slag NEVER fills a slot", !fillsSlots(cube("slag")));
+  check("slag stays dead even if something strikes it", !fillsSlots(cube("slag", true)));
+  check("cold cryo does not fill a slot", !fillsSlots(cube("cryo", false)));
+  check("struck cryo does", fillsSlots(cube("cryo", true)));
+
+  // ---- The queue promises what it delivers --------------------------------
+
+  const matLevel = makeBaseLevel(9, MARK_COUNT);
+  check(
+    "a high-Mark deep bay actually carries materials",
+    matLevel.materialMix.slag > 0 && matLevel.materialMix.cryo > 0,
+  );
+
+  // The preview is the whole basis on which cryo is fair: you must be able to
+  // sequence around a shipment you can see coming.
+  const c1 = new Cannon(matLevel, 1234);
+  const promised: Material[] = [];
+  const delivered: Material[] = [];
+  for (let i = 0; i < 60; i++) {
+    promised.push(c1.nextMaterial);
+    c1.markShot(0);
+    delivered.push(c1.currentMaterial);
+  }
+  check(
+    "the NEXT preview is exactly what the next shot loads",
+    promised.every((m, i) => m === delivered[i]),
+  );
+
+  // Same seed, same stream — a shared seed has to mean the same bay.
+  const a = new Cannon(matLevel, 99);
+  const b = new Cannon(matLevel, 99);
+  const streamA: Material[] = [];
+  const streamB: Material[] = [];
+  for (let i = 0; i < 80; i++) {
+    streamA.push(a.currentMaterial);
+    streamB.push(b.currentMaterial);
+    a.markShot(0);
+    b.markShot(0);
+  }
+  check("the material stream is deterministic for a seed", streamA.join() === streamB.join());
+  check("a seeded bay actually rolls some non-standard shipments",
+    streamA.some((m) => m !== "standard"), streamA.slice(0, 12).join(","));
+
+  // A zero mix must be byte-identical to the pre-materials game, or every bay
+  // below the gates has quietly changed.
+  const clean = new Cannon(makeBaseLevel(9, 1), 7);
+  const cleanStream: Material[] = [];
+  for (let i = 0; i < 100; i++) {
+    cleanStream.push(clean.currentMaterial);
+    clean.markShot(0);
+  }
+  check("a zero mix yields only standard shipments", cleanStream.every((m) => m === "standard"));
+
+  // ---- Contracts stay clean, and that is a feasibility guarantee ----------
+
+  let contractMixes = 0;
+  let dirtyContracts = 0;
+  for (let tier = 1; tier <= 9; tier++) {
+    for (const c of dailyContracts(tier, 20260801)) {
+      const cfg = levelForContract(c, mulberry32(tier * 31 + 7));
+      contractMixes++;
+      if (cfg.materialMix.slag !== 0 || cfg.materialMix.cryo !== 0) dirtyContracts++;
+    }
+  }
+  check(
+    "every generated Contract is material-free (its budget model assumes every cube can count)",
+    dirtyContracts === 0 && contractMixes > 0,
+    `${contractMixes} contracts checked`,
+  );
+
+  // ---- The rule, through the real line-clear check ------------------------
+
+  // Hand-built rows through the ACTUAL updateLineClear rather than a
+  // reimplementation of it — the claim being tested is that slag and cold cryo
+  // deny a line in the real code path, and a mock of that path would prove
+  // nothing about it.
+  const rowLevel = makeBaseLevel(0);
+  const buildRow = (materials: Material[]) => {
+    const phys = createPhysics(rowLevel);
+    const compactor = new Compactor(phys.world, rowLevel);
+    while (compactor.x < compactor.rightX) compactor.update(); // drive to full advance
+    // update() flips dir to -1 on the tick it ARRIVES at the right stop, so a
+    // bar driven here is already retreating. Every press test below wants the
+    // advancing stroke — the one that actually touches the pile — so restore it
+    // explicitly. (Without this, shatterColdCryo returns early and the
+    // "survives the press" cases pass for the wrong reason.)
+    compactor.dir = 1;
+    const cubes: Cube[] = [];
+    const rowY = WORLD.height - CELL / 2; // bottom row
+    materials.forEach((material, k) => {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(phys.world, body);
+      cubes.push({
+        body, type: "O", color: "#fff", blinkStart: null,
+        material, struck: material !== "cryo",
+      });
+    });
+    return { phys, compactor, cubes };
+  };
+
+  const need = rowLevel.compactorMinLineCells;
+  const allStd: Material[] = Array.from({ length: need }, () => "standard" as Material);
+
+  const good = buildRow(allStd);
+  check(
+    "a full row of standard shipments still clears (the baseline is intact)",
+    updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
+  );
+
+  const withSlag = buildRow(allStd.map((m, i) => (i === 3 ? "slag" : m)));
+  check(
+    "one slag cube denies the whole row",
+    updateLineClear(withSlag.phys.world, withSlag.cubes, withSlag.compactor, rowLevel, []).lines === 0,
+  );
+
+  const withCold = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
+  check(
+    "one COLD cryo cube denies the row",
+    updateLineClear(withCold.phys.world, withCold.cubes, withCold.compactor, rowLevel, []).lines === 0,
+  );
+
+  // ...and the same row clears once it has been struck. This is the pair that
+  // makes cryo a sequencing puzzle rather than a second slag.
+  const thawed = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
+  for (const c of thawed.cubes) if (c.material === "cryo") c.struck = true;
+  check(
+    "striking the cryo cube makes the identical row clear",
+    updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, []).lines === 1,
+  );
+
+  // ---- Striking ------------------------------------------------------------
+
+  const strikeSet = buildRow(["cryo", "standard"]);
+  const [cryoCube, other] = strikeSet.cubes;
+  Matter.Body.setVelocity(other.body, { x: CRYO_STRIKE_SPEED * 0.4, y: 0 });
+  strikeCryo(strikeSet.cubes, cryoCube.body, other.body);
+  check("a gentle nudge does not thaw cryo", !cryoCube.struck);
+
+  Matter.Body.setVelocity(other.body, { x: CRYO_STRIKE_SPEED * 2, y: 0 });
+  strikeCryo(strikeSet.cubes, cryoCube.body, other.body);
+  check("a hard strike thaws it", cryoCube.struck);
+
+  // The asymmetry that makes cryo cost a shipment. Measured, not assumed: with
+  // a symmetric rule every cryo cube thawed on the landing impact of the shot
+  // that delivered it, and the material did nothing whatsoever.
+  const arriving = buildRow(["cryo", "standard"]);
+  Matter.Body.setVelocity(arriving.cubes[0].body, { x: -CRYO_STRIKE_SPEED * 4, y: 0 });
+  strikeCryo(arriving.cubes, arriving.cubes[0].body, arriving.cubes[1].body);
+  check(
+    "cryo does NOT thaw on its own arrival — it must be struck at rest",
+    !arriving.cubes[0].struck,
+  );
+
+  const notMine = buildRow(["cryo", "standard", "standard"]);
+  Matter.Body.setVelocity(notMine.cubes[2].body, { x: CRYO_STRIKE_SPEED * 3, y: 0 });
+  strikeCryo(notMine.cubes, notMine.cubes[1].body, notMine.cubes[2].body);
+  check(
+    "a hard hit elsewhere does not thaw an untouched cryo cube",
+    !notMine.cubes[0].struck,
+  );
+
+  // ---- The cold press shatters ---------------------------------------------
+
+  const press = buildRow(["cryo", "standard", "standard"]);
+  // Put the cold cube exactly against the bar's face so the press lands on it.
+  const face = press.compactor.x + press.compactor.width / 2;
+  Matter.Body.setPosition(press.cubes[0].body, {
+    x: face + CELL / 2,
+    y: press.cubes[0].body.position.y,
+  });
+  const before = press.cubes.length;
+  const neighbourVy = press.cubes[1].body.velocity.y;
+  const shatter = shatterColdCryo(press.phys.world, press.cubes, press.compactor, []);
+  check("pressing cold cryo shatters it", shatter.cubes.length === 1 && press.cubes.length === before - 1);
+  check("the shattered cube's row is reported", shatter.rows.length === 1);
+  check(
+    "its row-mates are knocked off their slots",
+    press.cubes.some((c) => c.body.velocity.y < neighbourVy),
+  );
+
+  // A thawed cryo cube in the same position is just a cube — no shatter.
+  const safe = buildRow(["cryo", "standard"]);
+  safe.cubes[0].struck = true;
+  Matter.Body.setPosition(safe.cubes[0].body, {
+    x: safe.compactor.x + safe.compactor.width / 2 + CELL / 2,
+    y: safe.cubes[0].body.position.y,
+  });
+  check(
+    "a THAWED cryo cube survives the press",
+    shatterColdCryo(safe.phys.world, safe.cubes, safe.compactor, []).cubes.length === 0,
+  );
+
+  // The retreat stroke touches nothing, so it must not shatter anything either.
+  const retreat = buildRow(["cryo", "standard"]);
+  Matter.Body.setPosition(retreat.cubes[0].body, {
+    x: retreat.compactor.x + retreat.compactor.width / 2 + CELL / 2,
+    y: retreat.cubes[0].body.position.y,
+  });
+  retreat.compactor.dir = -1;
+  check(
+    "the retreating bar shatters nothing",
+    shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
 }
 

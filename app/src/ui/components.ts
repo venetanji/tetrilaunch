@@ -1,4 +1,6 @@
-import { PIECE_COLORS, type PieceSize, type PieceType } from "../game/theme";
+import {
+  MATERIAL_SPEC, PIECE_COLORS, type Material, type PieceSize, type PieceType,
+} from "../game/theme";
 import { pieceCells } from "../game/pieces";
 import { modById, type ModDef } from "../game/mods";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
@@ -43,9 +45,20 @@ function recenterInBox(cells: [number, number][]): [number, number][] {
  *  rotate/recenter pipeline below is shape-agnostic (every PENTA_SHAPES entry
  *  is chosen to fit this same 4x4 box — see theme.ts), so any cell count flows
  *  through it unchanged. */
-export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, size: PieceSize = "std"): string {
+export function pieceCellsHTML(
+  type: PieceType,
+  gap = 1,
+  quarterTurns = 0,
+  size: PieceSize = "std",
+  /** What the shipment is made of. The preview MUST carry this: cryo is only a
+   *  fair puzzle if you can sequence around it before firing, and slag is only
+   *  a decision if you know it's coming rather than discovering it on landing.
+   *  Defaults to standard so tiles that preview a shape rather than a specific
+   *  shipment (the how-to screen, piece chips) are unaffected. */
+  material: Material = "standard",
+): string {
   const shape = pieceCells(type, size);
-  const color = PIECE_COLORS[type];
+  const color = MATERIAL_SPEC[material].color ?? PIECE_COLORS[type];
   const turns = ((quarterTurns % 4) + 4) % 4;
   const rotated = shape.map((cell) => {
     let c = cell;
@@ -72,8 +85,13 @@ export function pieceCellsHTML(type: PieceType, gap = 1, quarterTurns = 0, size:
  *  screens.ts's hudHTML) — just the colored 4x4 grid, no label/type text,
  *  since the conveyor belt's own "◂ NEXT" tag already carries that meaning
  *  and there's no room for a full chip on the angled belt. */
-export function beltPieceHTML(type: PieceType, quarterTurns = 0, size: PieceSize = "std"): string {
-  return pieceCellsHTML(type, 1, quarterTurns, size);
+export function beltPieceHTML(
+  type: PieceType,
+  quarterTurns = 0,
+  size: PieceSize = "std",
+  material: Material = "standard",
+): string {
+  return pieceCellsHTML(type, 1, quarterTurns, size, material);
 }
 
 /** Belt equivalent of the bomb telegraph (see game.ts's nextIsBomb) — a

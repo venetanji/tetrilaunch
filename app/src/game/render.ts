@@ -415,30 +415,91 @@ function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void 
   const color = cube.blinkStart !== null ? "#ff6464" : cube.color;
   const dark = shade(color, -70);
   const light = shade(color, 45);
+  // A cube's material is legible from its color alone (theme.ts's
+  // MATERIAL_SPEC), but the two that CHANGE ITS WORTH get a second, non-color
+  // cue as well: color alone would leave a colour-blind player reading slag as
+  // just another shipment, and the whole mechanic is knowing which cubes count.
+  const slag = cube.material === "slag";
+  const cold = cube.material === "cryo" && !cube.struck;
 
   ctx.save();
   ctx.translate(b.position.x, b.position.y);
   ctx.rotate(b.angle);
   const h = CELL / 2;
 
+  // Slag is inert, so it does not glow — every live shipment on the field does.
+  // Cold cryo glows harder than it will once thawed: the frost is the warning.
   ctx.shadowColor = color;
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = slag ? 0 : cold ? 22 : 16;
   roundRect(ctx, -h, -h, CELL, CELL, 5);
   ctx.fillStyle = color;
   ctx.fill();
   ctx.shadowBlur = 0;
 
-  // Per-type interior pattern (ported from main.py draw_square_piece)
   ctx.save();
   roundRect(ctx, -h, -h, CELL, CELL, 5);
   ctx.clip();
-  drawPattern(ctx, cube.type, -h, -h, CELL, dark, light);
+  if (slag) {
+    // Rubble hatching instead of the type pattern — slag has no shipment
+    // identity left to advertise, which is precisely its point.
+    drawSlagFace(ctx, -h, CELL, dark, light);
+  } else {
+    // Per-type interior pattern (ported from main.py draw_square_piece)
+    drawPattern(ctx, cube.type, -h, -h, CELL, dark, light);
+    // Frost crystals over the type pattern, so a cryo O still reads as an O.
+    // They vanish the instant it thaws — that transition IS the feedback that
+    // the strike landed, and the row is now completable.
+    if (cold) drawFrost(ctx, -h, CELL);
+  }
   ctx.restore();
 
   ctx.lineWidth = 2.5;
   ctx.strokeStyle = light;
   roundRect(ctx, -h, -h, CELL, CELL, 5);
   ctx.stroke();
+  ctx.restore();
+}
+
+/** Slag's interior: coarse diagonal rubble, deliberately irregular and matte.
+ *  Derived from the cube's own local coords so it is stable under rotation
+ *  rather than shimmering as the cube tumbles. */
+function drawSlagFace(
+  ctx: CanvasRenderingContext2D,
+  o: number,
+  size: number,
+  dark: string,
+  light: string,
+): void {
+  ctx.fillStyle = dark;
+  ctx.fillRect(o, o, size, size);
+  ctx.strokeStyle = light;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.5;
+  for (let i = -1; i < 4; i++) {
+    const s = o + i * (size / 3);
+    ctx.beginPath();
+    ctx.moveTo(s, o + size);
+    ctx.lineTo(s + size * 0.55, o);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Cold cryo's frost: a few white needles radiating from the cube's center.
+ *  Drawn only while frozen (see drawCube) so thawing is a visible event. */
+function drawFrost(ctx: CanvasRenderingContext2D, o: number, size: number): void {
+  const c = o + size / 2;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(c, c);
+    ctx.lineTo(c + Math.cos(a) * size * 0.36, c + Math.sin(a) * size * 0.36);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
