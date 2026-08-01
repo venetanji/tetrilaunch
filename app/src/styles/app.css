@@ -104,6 +104,10 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard);
 }
 .btn:active { transform: translate(2px, 2px); box-shadow: none; }
+/* Never let a long label squeeze the glyph out of square, and never let the
+   glyph's own line box add height to the button — `block` kills the inline
+   descender gap an inline SVG otherwise contributes. */
+.ico { flex: none; display: block; }
 .btn--primary {
   background: linear-gradient(100deg, var(--accent), #38d6ff);
   color: var(--accent-ink);
@@ -172,8 +176,21 @@ body.crt-off #app::after { display: none; }
   padding: clamp(20px, 4vw, 60px);
 }
 .menu__brand, .menu__actions { min-width: 0; }
-.menu__brand { display: flex; flex-direction: column; gap: var(--sp-4); }
-.menu__title { font-size: clamp(30px, 6.2vw, 66px); letter-spacing: 0.01em; overflow-wrap: anywhere; }
+/* The title has to fit the BRAND COLUMN, not the viewport — the column is only
+   ~1.2fr of a two-column grid, so on a landscape phone it is under half the
+   window. Sizing off vw made TETRILAUNCH 49px inside a 342px column, which
+   needs 41px, and it broke mid-word into "TETRILAUN / CH". Container units
+   measure the thing that actually constrains it. Orbitron renders the word at
+   8.33x the font size, so 12cqw is the exact fit and 11.5cqw keeps a margin
+   for a fallback face. The vw declaration below stays as the pre-container-
+   query fallback; `overflow-wrap` is the backstop if a wider font loads. */
+.menu__brand { display: flex; flex-direction: column; gap: var(--sp-4); container-type: inline-size; }
+.menu__title {
+  font-size: clamp(30px, 6.2vw, 66px);
+  font-size: clamp(24px, 11.5cqw, 66px);
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
 .menu__sub { color: var(--text-dim); font-size: var(--fs-h3); max-width: 46ch; }
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
@@ -354,6 +371,32 @@ body.crt-off #app::after { display: none; }
   background: radial-gradient(circle at 35% 30%, rgba(255, 210, 63, 0.28), rgba(18, 18, 31, 0.85) 65%);
   box-shadow: 0 0 10px rgba(255, 210, 63, 0.35), var(--shadow-hard-sm);
 }
+/* Autoloader trigger. The only rail control that is HELD rather than tapped, so
+   it says so: a persistent :active state that stays lit for the whole burst,
+   and a key badge instead of a charge count because it has no charges — it
+   spends funds for as long as you hold it. */
+.auto-btn {
+  position: relative;
+  color: var(--accent);
+  border-color: rgba(0, 240, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(0, 240, 255, 0.22), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.3), var(--shadow-hard-sm);
+  touch-action: none;
+}
+.auto-btn:active {
+  color: var(--accent-ink); background: var(--accent);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.85);
+}
+.auto-btn__key {
+  position: absolute; bottom: -5px; right: -5px;
+  font-family: var(--font-pixel); font-size: 7px; line-height: 1;
+  padding: 2px 3px; border-radius: var(--r-sm);
+  background: var(--surface-3); color: var(--text-muted);
+  border: var(--bw) solid var(--line);
+}
+/* Touch has no keyboard, so the hint is desktop-only. */
+@media (pointer: coarse) { .auto-btn__key { display: none; } }
+
 .bond-btn:hover { border-color: #ffd23f; color: #fff0b8; }
 .bond-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
 .bond-btn__count {
@@ -424,6 +467,7 @@ body.crt-off #app::after { display: none; }
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
+  .side-rail .auto-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
     display: flex;
@@ -446,7 +490,12 @@ body.crt-off #app::after { display: none; }
    when it doesn't, which is a better answer than shrinking buttons toward the
    tap-target floor. */
 @media (max-height: 480px) {
-  .side-rail { gap: 5px; }
+  /* A fully drafted rail is now EIGHT buttons tall (fullscreen, pause, two
+     rotates, Bond Breaker, Demolition, the Autoloader trigger, and the aim-state
+     cancel). At 39px each the 5px gap put the stack at 347px against a 344px
+     rail — 3px over. 4px gaps bring it to 340 and leave the button size alone,
+     which is the part a thumb actually needs. */
+  .side-rail { gap: 4px; }
   .side-rail .icon-btn { font-size: 18px; }
 }
 
@@ -875,6 +924,56 @@ body.crt-off #app::after { display: none; }
   .submit-row .btn { padding: 8px 14px; }
 }
 
+/* ============================================================================
+   RUN END MODAL (.end) — one column tall, two columns short.
+   Tightening alone could not save this one. On a landscape phone the panel
+   wanted 367px of content in 321px, which put Play Again/Menu at y=376 in a
+   360px window — the primary action of the screen, off-screen — while
+   #lb-body collapsed to its 64px floor holding 531px of rows.
+   The panel was also 560px wide in a 792px viewport. That is the real
+   diagnosis: one narrow column is the wrong shape where width is abundant and
+   height is scarce, so the fix spends width to buy height.
+   ========================================================================== */
+.end { display: grid; grid-template-columns: 1fr; width: min(560px, 94vw); }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* Tall viewports keep the original single-column reading order (outcome,
+   submit, board, actions) purely from DOM order — no grid areas needed. */
+
+@media (max-height: 480px) {
+  .end {
+    /* Asymmetric on measured evidence, not taste. The salvage block nearly
+       doubles in height as it narrows (56px at 560 wide, 109px at 355) because
+       its breakdown line and Workshop button reflow, while a leaderboard row is
+       a single line and is comfortable at 330px. Equal columns would hand the
+       width to the side that does not need it. */
+    grid-template-columns: 1.15fr 0.85fr;
+    grid-template-rows: 1fr auto;
+    grid-template-areas: "main side" "actions side";
+    column-gap: var(--sp-4);
+    width: min(920px, 94vw);
+    text-align: left;
+  }
+  .end__main { grid-area: main; }
+  .end__side { grid-area: side; }
+  /* Bottom-left rather than spanning the panel: a full-width action row costs
+     its 39px out of BOTH columns' budget, which pushes the board back into
+     scrolling. It also lands at the end of the natural reading order. */
+  .end__actions { grid-area: actions; align-self: end; }
+  .end .stat-row { justify-content: flex-start; gap: var(--sp-5); }
+  .end .end__actions { justify-content: flex-start; }
+  /* With the top-5 slice this never engages; it stays as a backstop, but
+     min-height:0 means it can no longer be forced into the 64px crush. */
+  .end #lb-body { min-height: 0; }
+  /* Six rows have to fit ~253px of column, so the row is rebuilt compact: the
+     score drops from 18px to 15px because it, not the padding, was setting the
+     row height (a 18px mono line is 25px of the old 47.7px row). Everything
+     stays above the 11px the rest of the modal's chrome already uses. */
+  .end .lb { gap: 4px; }
+  .end .lb__row { padding: 5px 12px; grid-template-columns: 30px 1fr auto auto; gap: var(--sp-2); }
+  .end .lb__score { font-size: 15px; }
+  .end .lb__gap { font-size: 10px; padding: 0; }
+}
+
 /* ---------- Draft modal (mod cards) ---------- */
 .draft__cards {
   display: grid;
@@ -919,6 +1018,16 @@ body.crt-off #app::after { display: none; }
 .mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 4px 4px 0 rgba(255,45,85,0.45); }
 .mod-card--bane .mod-card__kind { color: var(--danger); background: rgba(255,45,85,0.12); }
 
+/* The unearned third slot. Deliberately inert — no data-action, dashed and
+   dimmed — so it reads as a space that will fill rather than a card to click. */
+.mod-card--locked {
+  border-style: dashed; border-color: var(--line); opacity: 0.62;
+  cursor: default; box-shadow: none;
+}
+.mod-card--locked:hover { transform: none; }
+.mod-card--locked .mod-card__kind { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+.mod-card--locked .mod-card__name { color: var(--text-muted); }
+
 .mod-card--tradeoff { border-color: rgba(0,240,255,0.35); }
 .mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: 4px 4px 0 rgba(0,240,255,0.45); }
 .mod-card--tradeoff .mod-card__kind { color: var(--accent); background: rgba(0,240,255,0.12); }
@@ -939,10 +1048,25 @@ body.crt-off #app::after { display: none; }
 .modal--draft .draft__cards { flex: 1 1 auto; min-height: 96px; overflow-y: auto; padding: 2px; }
 @media (max-height: 520px) {
   .modal--draft { gap: var(--sp-2); }
-  .modal--draft .mod-card { padding: 8px 12px; gap: 4px; }
-  .modal--draft .mod-card__name { font-size: 15px; }
-  .modal--draft .mod-card__desc { font-size: 11px; line-height: 1.35; }
-  .modal--draft .draft__cards { gap: 8px; }
+  .modal--draft .mod-card { padding: 7px 10px; gap: 3px; }
+  .modal--draft .mod-card__name { font-size: 13px; }
+  /* Clamped rather than shrunk further: a mod's description is the only thing
+     that says what you are picking, so it keeps a readable size and gives up
+     its tail. Three lines covers every mod in MODS except the Autoloader's,
+     which is the longest by some way. */
+  .modal--draft .mod-card__desc {
+    font-size: 10px; line-height: 1.3;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .modal--draft .mod-card__kind { font-size: 7px; padding: 1px 5px; }
+  .modal--draft .draft__cards { gap: 7px; }
+  /* Owned modifiers wrap to a second row once a run has 6+ of them, and that
+     second row was what pushed the card grid into scrolling. The chips carry
+     no description, so they can go small without losing anything. */
+  .run-mods { gap: 4px; font-size: 9px; }
+  .run-mods__chip { padding: 2px 7px; font-size: 7px; }
+  .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
 
 /* ---------- Game-over FX (see screens.ts's loseFxHTML) ----------
@@ -1013,6 +1137,23 @@ body.crt-off #app::after { display: none; }
 .step p { color: var(--text-dim); font-size: var(--fs-sm); }
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
+/* ---------- Contracts ---------- */
+/* A card that is ALSO a <button> does not inherit page text colour — the UA
+   gives every button `color: buttontext`, which is black, and these panels are
+   near-black. The contract card's own children mostly set a colour and so
+   looked fine, but the Contract NAME is a bare <b>: it rendered #000 on #07070f
+   at a contrast ratio of 1.05:1, i.e. invisible. Measured on device, and the
+   only real contrast failure in the app.
+   Set on the element rather than the <b> so nothing added to this card later
+   inherits black by default, and kept off `.panel` itself so the many non-button
+   panels are untouched. */
+button.panel { color: var(--text); }
+.contract-card { text-align: center; cursor: pointer; }
+/* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
+   Contract stays replayable after it is cleared, so this must not read as
+   "spent". */
+.contract-card--done { border-color: var(--accent); }
+
 /* ---------- Splash ---------- */
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); height: 100%; }
 .splash .display { font-size: var(--fs-display); animation: pop 600ms var(--ease); }
@@ -1038,6 +1179,12 @@ body.crt-off #app::after { display: none; }
   background: rgba(255,255,255,0.03); border: var(--bw) solid var(--line);
 }
 .lb__row--me { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); background: rgba(0,240,255,0.08); }
+/* Marks the jump in a discontiguous slice, so the player's own row reading #23
+   directly under #5 does not scan as #6. */
+.lb__gap {
+  text-align: center; line-height: 1; letter-spacing: 0.2em;
+  color: var(--text-muted); font-size: 12px; padding: 1px 0;
+}
 .lb__rank { font-family: var(--font-pixel); font-weight: 700; font-size: 13px; color: var(--text-dim); }
 .lb__name { font-family: var(--font-pixel); font-weight: 700; font-size: 11px; letter-spacing: 0.03em; }
 .lb__lines { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -1045,13 +1192,21 @@ body.crt-off #app::after { display: none; }
 
 /* ---------- Name input ---------- */
 .submit-row { display: flex; gap: var(--sp-2); }
+/* min-width:0 is load-bearing, not tidying. `flex: 1` sets the BASIS to 0 but
+   leaves the automatic minimum size at auto, and for an <input> that resolves
+   to its intrinsic size attribute width (~20 characters = 263px), not to the
+   basis. In the landscape end modal the side column is 293px, so the input
+   would not shrink and shoved Submit 69px past the panel edge, where it was
+   clipped. The button then gets flex:none so the label sets its width. */
 .name-input {
-  flex: 1; background: var(--surface-3); border: var(--bw) solid var(--line-strong);
+  flex: 1; min-width: 0;
+  background: var(--surface-3); border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md); color: var(--text); padding: 12px 16px;
   font-family: var(--font-display); font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
   font-size: 16px; text-align: center; outline: none;
 }
 .name-input:focus { border-color: var(--accent); box-shadow: var(--shadow-hard-sm); }
+.submit-row .btn { flex: none; }
 .submit-row.done { display: none; }
 
 /* Small screens: stack menu */
@@ -1059,6 +1214,25 @@ body.crt-off #app::after { display: none; }
   .menu { grid-template-columns: 1fr; text-align: center; gap: var(--sp-4); }
   .menu__actions { margin: 0 auto; }
   .howto__grid { grid-template-columns: 1fr; }
+}
+
+/* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed
+   off it. A 1080p phone at dpr 3 is 792x360 CSS px — too wide to trip the
+   720px rule above, but only 360px tall, where the menu wanted 387px and
+   silently clipped the Best/Salvage chips off the bottom edge. Desktop-sized
+   padding and button spacing are what overflow; the type scale is fine. */
+@media (max-height: 460px) {
+  .menu { padding: clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
+  .menu__brand { gap: var(--sp-2); }
+  .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
+  .menu__actions { gap: var(--sp-2); }
+  /* Sized down again once the options carried icons: a glyph does some of the
+     label's identifying work, so the button no longer has to be the only thing
+     making the option findable. The rail is six buttons tall on a 360px-high
+     phone, and every pixel here is one the brand column also wants. */
+  .btn { padding: 7px 14px; font-size: 10px; }
+  .btn--lg { font-size: 11px; padding: 9px 18px; }
+  .ico { width: 13px; height: 13px; }
 }
 
 /* ============================================================================
@@ -1184,10 +1358,13 @@ body.crt-off #app::after { display: none; }
 }
 .refit-card--owned { border-color: rgba(0,240,255,0.45); }
 .refit-card__hdr { display: flex; align-items: center; gap: 8px; }
+/* Was a filled pixel-font chip holding a three-letter code ("BAY", "LCH"). The
+   code had to be READ to be useful, which is the one thing a glyph should not
+   need; it now holds an SVG (ui/icons.ts) that inherits the accent instead of
+   painting a block of it, so the header reads name-first. */
 .refit-card__glyph {
-  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em;
-  color: var(--accent-ink); background: var(--accent);
-  padding: 4px 6px; border-radius: var(--r-sm); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent); flex: none;
 }
 .refit-card__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; flex: 1; min-width: 0; }
 .refit-card__pips { display: flex; gap: 3px; flex: none; }
@@ -1205,8 +1382,24 @@ body.crt-off #app::after { display: none; }
    one the price on the button actually buys. */
 .refit-card__tier.done { color: var(--text-faint); border-left-color: var(--accent); text-decoration: line-through; }
 .refit-card__tier.next { color: var(--text); border-left-color: var(--warn); background: rgba(255,176,32,0.08); }
+/* The ship's CURRENT setting on this track — absolute, not a delta, because the
+   button beside it is the delta. */
+.refit-card__now {
+  font-size: 11px; color: var(--text);
+  padding: 3px 6px; border-radius: var(--r-sm);
+  border-left: 2px solid var(--accent); background: rgba(0,240,255,0.06);
+}
 .refit-card__foot { margin-top: auto; padding-top: 4px; }
-.refit-card__buy { width: 100%; padding: 8px 12px; font-size: 10px; }
+/* Three parts on one row: direction, what changes, what it costs. The delta is
+   the flexible one, so a long effect string ellipsises instead of pushing the
+   price off the button. */
+.refit-card__buy {
+  width: 100%; padding: 8px 12px; font-size: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.refit-card__arrow { flex: none; display: flex; align-items: center; }
+.refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
 
@@ -1238,6 +1431,56 @@ body.crt-off #app::after { display: none; }
 .shop-card__owned { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.06em; }
 .shop-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--warn); letter-spacing: 0.04em; }
 
+/* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
+   shop, so what you own is reference and what you can buy is the merchandise.
+   It also means the screen gets SHORTER as you progress rather than longer. */
+.workshop__owned {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-md);
+  border: var(--bw) solid rgba(0,255,156,0.3);
+  background: rgba(0,255,156,0.05);
+}
+.workshop__owned-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  color: var(--success); flex: none;
+}
+.workshop__owned-item { font-size: 11px; color: var(--text-dim); }
+.workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
+
+/* Short (landscape-phone) viewports. Eleven unlocks cannot all show a paragraph
+   in 360px, so the card gives up description length rather than the screen
+   giving up fitting: the blurb goes (it explains the screen, not the goods),
+   the columns narrow, and the desc clamps to three lines with the full text
+   still one tap away on a taller screen. */
+@media (max-height: 460px) {
+  .workshop { gap: var(--sp-2); padding-block: var(--sp-2); }
+  .workshop__blurb { display: none; }
+  .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
+  /* Eleven unlocks, each with an explanation of what it does, genuinely do not
+     fit 360px — and cutting the explanation is the wrong trade, because it is
+     the only thing that tells you what you are buying. So the PAGE stops
+     scrolling and the card area becomes the only scroller: salvage, the owned
+     strip and Start Run stay pinned and on-screen at every ownership state,
+     and the shopping happens inside a region instead of running off the
+     bottom. Scoped by .screen--fit so the other screens keep page scrolling. */
+  .screen--fit { overflow: hidden; }
+  .screen--fit .workshop { height: 100%; min-height: 0; }
+  .workshop__grid {
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px;
+    flex: 1; min-height: 0; overflow-y: auto;
+    align-content: start;
+  }
+  .shop-card { padding: 8px 10px; gap: 5px; border-radius: var(--r-md); }
+  .shop-card__name { font-size: 12px; }
+  .shop-card__desc {
+    font-size: 10px; line-height: 1.3;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .shop-card__foot .btn { padding: 5px 10px; font-size: 9px; }
+}
+
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
 .draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .salvage-row {
@@ -1258,9 +1501,20 @@ body.crt-off #app::after { display: none; }
    two blocks most likely to overflow, so tighten both. */
 @media (max-height: 520px) {
   .modal--refit { gap: var(--sp-2); }
-  .refit-card { padding: 8px 10px; gap: 4px; }
+  .refit-card { padding: 7px 9px; gap: 3px; }
   .refit-card__blurb { display: none; }
   .refit-card__tier { font-size: 10px; padding: 2px 5px; }
+  .refit-card__now { font-size: 9px; padding: 2px 5px; }
+  /* Six cards in two rows against ~200px of grid. The header type and the buy
+     button are what set the card's height once the blurb is gone, so both come
+     down rather than the grid gaining another scroller — a stop the player
+     visits every few bays should not need scrolling to see what it sells. */
+  .refit-card__name { font-size: 12px; }
+  .refit-card__hdr { gap: 6px; }
+  .refit-card__pips i { width: 6px; height: 6px; }
+  .refit-card__foot { padding-top: 2px; }
+  .refit-card__buy { padding: 5px 8px; font-size: 9px; }
+  .refit__grid { gap: 7px; min-height: 0; }
   .salvage-row { padding: 6px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }

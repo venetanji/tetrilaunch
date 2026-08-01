@@ -6,6 +6,60 @@ import { setSafeAreaInsets, type Insets } from "../game/layout";
 
 export const isNative = Capacitor.isNativePlatform();
 
+/** One reload per page session is all this is allowed. Without the guard a
+ *  worker that survives the purge would send the shell into a boot loop, which
+ *  is a far worse failure than the stale bundle it is trying to fix. */
+const PURGE_RELOAD_FLAG = "tl.sw-purge-reloaded";
+
+/** Evict any service worker inside the native shell.
+ *
+ *  Native builds no longer ship one (vite.config.ts disables the PWA plugin for
+ *  `--mode native`), but a shell updated from an older build still has the OLD
+ *  worker registered and keeps serving that build's precache — app data
+ *  survives `install -r`. Dropping the plugin removes the thing that would
+ *  otherwise have replaced it, so without this an already-updated device would
+ *  be pinned to its stale bundle permanently.
+ *
+ *  WHY THE RELOAD. Unregistering alone does not work, and measuring on device
+ *  is the only way that shows up. The worker precaches index.html, so on every
+ *  launch the shell boots from the OLD HTML rather than the one inside the APK
+ *  — and that old HTML still carries the `registerSW.js` tag the native build
+ *  no longer emits. So each launch went: worker serves stale HTML -> stale HTML
+ *  re-registers the worker -> this function unregisters it -> next launch
+ *  repeats, forever. The page doing the unregistering was itself served by the
+ *  thing it was trying to remove.
+ *
+ *  Reloading breaks that. Once the registration and caches are gone, nothing
+ *  intercepts the next request, so the reload boots the APK's real index.html,
+ *  which has no registration script — and there is nothing left to resurrect.
+ *  Costs one flicker, once, on the single launch after an upgrade.
+ *
+ *  Safe to run every launch: with no worker registered and no client
+ *  controlling the page, this finds nothing, reloads nothing and costs nothing.
+ *  Web is untouched — there the worker is the point. Failures are swallowed
+ *  because a WebView that denies the API has nothing cached to purge either. */
+export async function purgeNativeServiceWorker(): Promise<void> {
+  if (!isNative) return;
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations?.()) ?? [];
+    // The controller matters as much as the registration list: it is what says
+    // THIS page was served by a worker, and therefore that its HTML may be the
+    // stale copy that re-registers one.
+    const wasWorkerBacked = regs.length > 0 || !!navigator.serviceWorker?.controller;
+
+    await Promise.all(regs.map((r) => r.unregister()));
+    const keys = (await caches?.keys?.()) ?? [];
+    await Promise.all(keys.map((k) => caches.delete(k)));
+
+    if (!wasWorkerBacked) return;
+    if (sessionStorage.getItem(PURGE_RELOAD_FLAG)) return;
+    sessionStorage.setItem(PURGE_RELOAD_FLAG, "1");
+    location.reload();
+  } catch {
+    /* no SW API, or a WebView that denies it — nothing cached, nothing to do */
+  }
+}
+
 /** Lock to landscape on native; best-effort on web. */
 export async function lockLandscape(): Promise<void> {
   try {

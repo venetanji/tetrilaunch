@@ -7,6 +7,7 @@ import {
   updateBreakableJoints,
   breakJointsInBand,
   removeConstraintsFor,
+  SIZE_SPEC,
   type Cube,
 } from "./pieces";
 import {
@@ -20,15 +21,58 @@ import {
 import type { LevelConfig } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
-import type { PieceType } from "./theme";
+import type { PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
 export type GameStatus = "playing" | "won" | "lost";
 
+/** Why a bay ended badly. "launches" and "pieces" are both Contract-only — the
+ *  launch budget ran out (level.ts's launchBudget), or the finite shipment
+ *  queue did (level.ts's pieceQueue). The other three are Deep Run's. */
+export type LossReason = "topout" | "broke" | "time" | "launches" | "pieces";
+
+/** Everything worth knowing about one launch, for playtest telemetry
+ *  (lib/telemetry.ts). `wait` is the load-bearing field: ms spent between the
+ *  cannon becoming ready and the player actually firing, i.e. aim time. The sim
+ *  bots fire the instant the cooldown clears, so theirs is always 0 — this is
+ *  the measurement that tells us whether a human is cooldown-bound at all. */
+export interface ShotInfo {
+  /** ms since this bay began, on the pause-safe physics clock. */
+  t: number;
+  /** Aim time in ms, or null for a bay's first shot (nothing to measure from). */
+  wait: number | null;
+  angle: number;
+  power: number;
+  type: PieceType;
+  size: PieceSize;
+  rot: number;
+  /** Funds BEFORE the launch cost is deducted. */
+  funds: number;
+  bomb: boolean;
+  /** Compactor phase at the instant of the launch: 0 = open stop, 1 = full
+   *  advance, with `cdir` saying which way it was travelling. Recorded because
+   *  `wait` alone cannot tell aiming apart from WAITING: the bar's round trip
+   *  is 4.4s at bay 1 and the median gap between shots is ~4.5s, so a long
+   *  `wait` is equally consistent with a slow aim and with a player holding
+   *  fire for a usable window. Phase separates them — a player aiming freely
+   *  fires at a uniform phase, one waiting for a window fires at a clustered
+   *  one. */
+  cphase: number;
+  cdir: 1 | -1;
+  /** Compactor.strokes at the launch — completed press strokes so far. Gives
+   *  shots-per-stroke directly, which is the quantity MAGAZINE would actually
+   *  raise if the window (not aim time) is what bounds throughput. */
+  cstroke: number;
+  /** True when the Autoloader trigger fired this shot rather than the player.
+   *  Both share a bay, so without this the rig's scatter and the player's aim
+   *  pool into one meaningless average. */
+  auto: boolean;
+}
+
 export interface GameEvents {
   onLineClear?: (lines: number) => void;
-  onShoot?: () => void;
+  onShoot?: (info: ShotInfo) => void;
   onPieceLost?: (count: number) => void;
   onStatus?: (status: GameStatus) => void;
   /** Fired when the Bond Breaker ability successfully discharges (see
@@ -47,6 +91,10 @@ export interface BeltPreview {
   bomb: boolean;
   type: PieceType;
   quarterTurns: number;
+  /** True when nothing follows the loaded shot — the last shipment of a finite
+   *  queue is at the muzzle. The belt draws an empty track rather than a piece
+   *  that is never coming. Always false on a cycling bag. */
+  empty: boolean;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -125,6 +173,14 @@ const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
  *  see resolveWin; this is only the backstop. */
 const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 
+/** How long (physics steps) a provably-dead exact-inventory bay keeps running
+ *  before it is called (see the pieces branch in update()). ~1s: long enough
+ *  that the cube that killed the attempt is visibly blinking out when the modal
+ *  arrives — "you lost by one cube" is the feedback that makes the retry
+ *  interesting — and short enough that nobody is made to play out a bay whose
+ *  outcome is already decided. */
+const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
+
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
  *  ~9 degrees. Wide enough that consecutive shots genuinely scatter across the
  *  bay (that's the mechanic), tight enough that where the player points the
@@ -164,7 +220,7 @@ export class Game {
   lostTotal = 0;
   status: GameStatus = "playing";
   /** Which condition triggered a "lost" status, for end-of-run copy. */
-  lossReason: "topout" | "broke" | "time" | null = null;
+  lossReason: LossReason | null = null;
   aiming = false;
   paused = false;
 
@@ -221,6 +277,16 @@ export class Game {
    *  remains. Time-up is overtime, not an instant loss — see the time-up
    *  block in update(). */
   private timeUpStep: number | null = null;
+  /** Game.stepCount when the launch budget was first exhausted, or null.
+   *  Same overtime treatment as the clock, and for a sharper reason: the shot
+   *  that spends the last launch is still IN THE AIR, and it is exactly the
+   *  shot most likely to complete the objective. Judging the bay the instant
+   *  shotsFired hits the budget would lose on the winning move. */
+  private launchesUpStep: number | null = null;
+  /** Game.stepCount when the shipment queue ran out — or when the objective
+   *  first became arithmetically unreachable, whichever came first. Null on
+   *  every bay whose bag cycles forever. */
+  private piecesUpStep: number | null = null;
   /** Game.stepCount when the funding target was met and the SETTLE window
    *  opened, or null while the bay is still being played. The bay is NOT won
    *  the instant funds cross the target: shots already in the air have been
@@ -228,10 +294,26 @@ export class Game {
    *  pressing stroke, and freezing the field mid-flight to slam a modal up
    *  reads as the game snatching the moment away. See resolveWin. */
   private winPendingStep: number | null = null;
-  /** Autoloader: Game.stepCount of its last self-fired shot (see
+  /** Autoloader: Game.stepCount of its last auto-fired shot (see
    *  stepAutoLaunch). Steps, not wall-clock, for the same pause-safety reason
    *  as the bomb timers. */
   private lastAutoStep = -99999;
+  /**
+   * Autoloader trigger: true while the player is holding it down.
+   *
+   * The rig used to fire on a free-running 420ms timer, which made it a
+   * metronome that ignored the compactor. Measured on device, one autoloader
+   * bay threw 34 lost pieces from 32 shots (106%, against an 11% baseline) at
+   * 16 shots per line, and its shots were spread evenly across the compactor
+   * cycle (z=0.71 retreat-vs-press) while the same player's manual shots were
+   * strongly biased toward the open window (z=4.27). It was firing into a shut
+   * bay roughly half the time and paying the lost-piece penalty for it.
+   *
+   * Holding a trigger puts the WHEN back in the player's hands while leaving
+   * the WHERE scattered, which is the upgrade's whole identity: a fast, sloppy
+   * stream you point and time, never a better cannon.
+   */
+  autoHeld = false;
   /** Seeded RNG for the Autoloader's aim spread — separate stream from the
    *  wind's so adding/removing the mod can't shift the weather for a seed. */
   private readonly autoRng: () => number;
@@ -244,6 +326,92 @@ export class Game {
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
    *  (update doesn't run while paused). */
   private stepCount = 0;
+
+  /** Launches still available, or Infinity when this bay isn't budgeted (every
+   *  Deep Run bay — see level.ts's launchBudget). Counts shotsFired, which
+   *  includes bombs: a bomb is a shipment you chose to spend. */
+  get launchesLeft(): number {
+    if (this.level.launchBudget <= 0) return Infinity;
+    return Math.max(0, this.level.launchBudget - this.shotsFired);
+  }
+
+  /** Shipments left in this bay's finite queue, or Infinity when the piece bag
+   *  cycles forever (every Deep Run bay — see level.ts's pieceQueue). */
+  get piecesLeft(): number {
+    return this.cannon.piecesLeft;
+  }
+
+  /** The shipments still to come, in order — what a pattern Contract's HUD
+   *  shows in full, since planning against the whole remaining set is the
+   *  point of the mode. Empty on a cycling bag. */
+  get piecesRemaining(): PieceType[] {
+    return this.cannon.remaining;
+  }
+
+  /** Cubes that could still reach a completed line: everything on the field
+   *  that isn't already blinking out, plus everything still in the queue.
+   *
+   *  A deliberate UPPER bound — a cube wedged somewhere hopeless is counted,
+   *  because "hopeless" isn't provable and a false loss is far worse than a
+   *  late one. What IS provable is the other direction, which is all
+   *  objectiveUnreachable needs. */
+  get cubesAvailable(): number {
+    let live = 0;
+    for (const c of this.cubes) if (c.blinkStart === null) live += 1;
+    if (this.piecesLeft === Infinity) return Infinity;
+    return live + this.piecesLeft * SIZE_SPEC[this.level.pieceSize].cubes;
+  }
+
+  /** Cubes the unmet part of a line objective still demands. Reads the
+   *  compactor's own minimum-line width rather than a copy of it, so the two
+   *  can't drift (contracts.ts's CUBES_PER_LINE is pinned to it by a test). */
+  get cubesRequired(): number {
+    const linesLeft = Math.max(0, this.level.objectiveLines - this.linesTotal);
+    return linesLeft * this.level.compactorMinLineCells;
+  }
+
+  /**
+   * True once the objective is arithmetically out of reach: not enough cubes
+   * exist, anywhere, to finish the lines still owed.
+   *
+   * This only ever fires on an EXACT-INVENTORY bay (a pattern Contract, whose
+   * queue is sized to tile the goal with zero waste), and it exists because
+   * such a bay dies silently. Lose one cube off the deck on the second shot
+   * and the attempt is already over — but nothing says so, and the player
+   * keeps firing a bay that cannot be won. Since a retry is free and instant,
+   * calling it immediately is strictly kinder than letting it run out.
+   *
+   * Monotone by construction, so it can never flicker: clearing a line drops
+   * available and required by the same CUBES_PER_LINE, and every other event
+   * (a cube lost, a shipment spent) can only lower the margin.
+   */
+  get objectiveUnreachable(): boolean {
+    if (this.level.objectiveLines <= 0) return false;
+    return this.cubesAvailable < this.cubesRequired;
+  }
+
+  /** This bay's win condition, met. A CONTRACT is won on lines cleared; a Deep
+   *  Run bay on funds banked. Kept as one accessor so update() has a single
+   *  win test rather than a mode branch buried in the resolution ladder. */
+  get objectiveMet(): boolean {
+    if (this.level.objectiveLines > 0) return this.linesTotal >= this.level.objectiveLines;
+    return this.score >= this.target;
+  }
+
+  /** 0..1 progress toward whichever objective this bay is running, for the HUD. */
+  get objectiveProgress(): number {
+    if (this.level.objectiveLines > 0) {
+      return Math.min(1, this.linesTotal / this.level.objectiveLines);
+    }
+    return this.target > 0 ? Math.min(1, this.score / this.target) : 0;
+  }
+
+  /** ms elapsed in this bay, counted in physics steps rather than wall clock so
+   *  it is pause-safe by construction (update() doesn't run while paused). The
+   *  timeline every telemetry record is stamped against. */
+  get elapsedMs(): number {
+    return this.stepCount * DT;
+  }
   private liveBombs: Bomb[] = [];
   private pendingDetonations = new Set<Matter.Body>();
   private readonly onCollisionStart: (e: Matter.IEventCollision<Matter.Engine>) => void;
@@ -333,9 +501,19 @@ export class Game {
    *  unrotated — markShot resets pieceRotation when it loads. */
   get beltPreview(): BeltPreview {
     if (this.bombArmed) {
-      return { bomb: false, type: this.cannon.currentType, quarterTurns: this.cannon.quarterTurns };
+      return {
+        bomb: false,
+        type: this.cannon.currentType,
+        quarterTurns: this.cannon.quarterTurns,
+        empty: false,
+      };
     }
-    return { bomb: false, type: this.cannon.nextType, quarterTurns: 0 };
+    return {
+      bomb: false,
+      type: this.cannon.nextType,
+      quarterTurns: 0,
+      empty: !this.cannon.hasNext,
+    };
   }
 
   /**
@@ -487,7 +665,11 @@ export class Game {
     );
   }
 
-  shoot(now: number): boolean {
+  /** `auto` marks a shot the Autoloader trigger fired rather than the player's
+   *  own launch, so telemetry can tell the rig's output from the player's — the
+   *  first autoloader bay could only be identified by its mod list and its
+   *  434ms metronome, which will not work now that its cadence is the player's. */
+  shoot(now: number, auto = false): boolean {
     if (this.status !== "playing" || this.paused) return false;
     // Target already met: the SETTLE window only lets what's ALREADY flying
     // land (see resolveWin) — spending more on a bay you've won is never what
@@ -496,6 +678,13 @@ export class Game {
     // Clock's out: overtime only settles what's already flying (see the
     // time-up block in update()) — no new launches.
     if (this.timeLeftMs <= 0) return false;
+    // Budget spent (Contracts). Same rule as the clock: what's airborne still
+    // lands, but nothing new leaves the cannon.
+    if (this.launchesLeft <= 0) return false;
+    // Queue's dry (pattern Contracts). A bomb is exempt: it's a consumable
+    // drafted separately, not a shipment off the manifest — but nothing can
+    // draft one into a Contract today, so this is a guard, not a feature.
+    if (this.piecesLeft <= 0 && !this.bombArmed) return false;
     if (!this.cannon.canShoot(now)) return false;
 
     // An armed demolition charge fires FREE — it's a consumable, already paid
@@ -504,6 +693,26 @@ export class Game {
     // and returned nothing, so it was never the right call at any funds level.
     const firingBomb = this.bombArmed && this.bombCharges > 0;
     if (!firingBomb && this.score < this.level.launchCost) return false;
+
+    // Captured BEFORE markShot/markCooldown move the cannon's clock forward.
+    // lastShot starts at a large negative sentinel, so a bay's first shot has
+    // no meaningful ready time and reports null rather than a nonsense wait.
+    const readyAt = this.cannon.readyAt();
+    const shot: ShotInfo = {
+      t: this.elapsedMs,
+      wait: readyAt > 0 ? Math.max(0, now - readyAt) : null,
+      angle: this.cannon.angle,
+      power: this.cannon.power,
+      type: this.cannon.currentType,
+      size: this.level.pieceSize,
+      rot: this.cannon.pieceRotation,
+      funds: this.score,
+      bomb: firingBomb,
+      cphase: this.compactor.phase,
+      cdir: this.compactor.dir,
+      cstroke: this.compactor.strokes,
+      auto,
+    };
 
     this.shotsFired += 1;
 
@@ -531,27 +740,30 @@ export class Game {
       this.cannon.markShot(now);
     }
 
-    this.events.onShoot?.();
+    this.events.onShoot?.(shot);
     this.updateTrajectory();
     return true;
   }
 
   /**
-   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): once
-   * per level.autoLaunchMs the cannon fires ITSELF, re-rolling its aim inside a
-   * band around wherever the player left it rather than shooting the exact same
-   * arc forever. Fast, cheap and PROBABILISTIC — it is not trying to be a good
-   * player, it's trading precision for volume, which is why it only works on
-   * top of a build that can flatten the resulting mess (Bond Breakers) and
-   * cheap enough payloads (micro shipments) to survive the waste.
+   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): while the
+   * trigger is HELD, the cannon fires every level.autoLaunchMs, re-rolling its
+   * aim inside a band around wherever the player is pointing rather than
+   * shooting the exact same arc forever. Fast, cheap and PROBABILISTIC — it is
+   * not trying to be a good player, it's trading precision for volume, which is
+   * why it only works on top of a build that can flatten the resulting mess
+   * (Bond Breakers) and cheap enough payloads (micro shipments) to survive the
+   * waste.
    *
-   * Skipped entirely while the player is actively aiming, so grabbing the
-   * slingshot always takes manual control back mid-bay instead of fighting the
-   * rig for the cannon.
+   * Deliberately NOT skipped while aiming. The old timer version bailed out on
+   * `this.aiming`, so "grab the slingshot to take back control" was the only
+   * control the player had — and holding the trigger while dragging is now the
+   * whole point: the burst follows the live aim, so you can sweep a stream
+   * across the zone as the compactor opens it.
    */
   private stepAutoLaunch(now: number): void {
     const interval = this.level.autoLaunchMs;
-    if (interval <= 0 || this.aiming || this.settling) return;
+    if (interval <= 0 || !this.autoHeld || this.settling) return;
     const stepsPerMs = 1 / DT;
     if (this.stepCount - this.lastAutoStep < interval * stepsPerMs) return;
     if (!this.cannon.canShoot(now)) return;
@@ -568,7 +780,19 @@ export class Game {
     for (let i = 0; i < turns; i++) this.cannon.rotateRight();
 
     this.lastAutoStep = this.stepCount;
-    this.shoot(now);
+    this.shoot(now, true);
+  }
+
+  /**
+   * Press or release the Autoloader trigger (rail button, or a held key on
+   * desktop). Pressing resets the cadence clock so the FIRST shot leaves
+   * immediately rather than up to 420ms later — the player is pressing because
+   * the window is open now, and a trigger that fires on its own schedule
+   * instead of theirs would reintroduce exactly the problem this replaced.
+   */
+  setAutoHeld(held: boolean): void {
+    if (held && !this.autoHeld) this.lastAutoStep = -99999;
+    this.autoHeld = held;
   }
 
   private spawnBomb(): void {
@@ -687,7 +911,7 @@ export class Game {
     // window can no longer be LOST either (resolveWin's early return), because
     // the money is already banked; the only thing left to determine is when the
     // dust stops.
-    if (this.score >= this.target || this.winPendingStep !== null) {
+    if (this.objectiveMet || this.winPendingStep !== null) {
       if (this.winPendingStep === null) {
         this.winPendingStep = this.stepCount;
         this.events.onSettleStart?.();
@@ -702,6 +926,48 @@ export class Game {
     ) {
       this.lossReason = "broke";
       this.setStatus("lost");
+    } else if (this.piecesLeft <= 0 || this.objectiveUnreachable) {
+      // EXACT-INVENTORY bay (pattern Contract). Two different endings share one
+      // verdict because they are the same fact arriving at different times:
+      // the shipments that could finish this bay no longer exist.
+      //
+      //   queue empty      — overtime, exactly like the launch budget below:
+      //                      the last shipment is still airborne and is the one
+      //                      most likely to close the goal, so wait for a
+      //                      completed press and a field at rest.
+      //   unreachable      — the arithmetic already settled it (see
+      //                      objectiveUnreachable). Nothing that happens next
+      //                      can change the answer, so the only reason to wait
+      //                      at all is to let the player SEE the cube they just
+      //                      lost blink out. A second is enough for that;
+      //                      making them play out a dead bay is not kindness.
+      if (this.piecesUpStep === null) this.piecesUpStep = this.stepCount;
+      const waited = this.stepCount - this.piecesUpStep;
+      const strokeDone = this.lastFullAdvanceStep > this.piecesUpStep;
+      const done = this.objectiveUnreachable
+        ? waited > UNREACHABLE_GRACE_STEPS
+        : (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
+          waited > this.brokeGraceSteps;
+      if (done) {
+        this.lossReason = "pieces";
+        this.setStatus("lost");
+      }
+    } else if (this.launchesLeft <= 0) {
+      // Budget spent — but the last launch is still airborne, so this is
+      // overtime, not a verdict. Identical settle gate to the clock below:
+      // wait for a completed pressing stroke AND a field at rest, so a line
+      // the final shipment completed gets crushed and counted, with the same
+      // capped grace so a never-resting pile can't stall forever. The win test
+      // above runs first, so finishing on the last launch is a clear.
+      if (this.launchesUpStep === null) this.launchesUpStep = this.stepCount;
+      const strokeDone = this.lastFullAdvanceStep > this.launchesUpStep;
+      if (
+        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
+        this.stepCount - this.launchesUpStep > this.brokeGraceSteps
+      ) {
+        this.lossReason = "launches";
+        this.setStatus("lost");
+      }
     } else if (this.timeLeftMs <= 0) {
       // Overtime — not an instant loss: launches already paid for get to
       // land and their lines to be pressed and paid before the run is

@@ -45,6 +45,16 @@ export interface LevelConfig {
   launchCost: number;
   /** Fixed piece order (sequential, like the original). null => 7-bag shuffle later. */
   pieceSequence: PieceType[] | null;
+  /** A FINITE inventory of shipments, consumed in order and never repeated —
+   *  the whole supply this bay will ever get. null (every Deep Run bay, and
+   *  every launch-budget Contract) means pieceSequence cycles forever instead.
+   *
+   *  This is what a PATTERN Contract runs on (see contracts.ts): the queue is
+   *  chosen to tile the goal EXACTLY, so the puzzle is planning where each
+   *  known shipment goes rather than firing until the pile happens to resolve.
+   *  It replaces launchBudget rather than stacking with it — the queue IS the
+   *  budget, and a bay carrying both would be counting the same limit twice. */
+  pieceQueue: PieceType[] | null;
   /** Fire cooldown in ms. */
   cooldownMs: number;
   /** Countdown for the level, in seconds; 0 = no limit. A roguelite-run knob:
@@ -128,6 +138,23 @@ export interface LevelConfig {
    *  aimed. The endgame of the tiny/micro build: volume over precision, which
    *  only pays off if you can flatten the resulting mess (Bond Breakers). */
   autoLaunchMs: number;
+  /** Launches this bay allows; 0 = unlimited, which is every Deep Run bay.
+   *  This is the constraint CONTRACTS run on instead of a clock and a bankroll
+   *  (see docs/DESIGN.md): firing costs nothing, but you get a finite number of
+   *  shipments, so a Contract can't be brute-forced by launching until the pile
+   *  happens to resolve.
+   *
+   *  It is deliberately NOT a budget of compactor press strokes, which is what
+   *  this was first built as. Strokes advance on a wall clock whether or not
+   *  the player acts, which made the budget a disguised timer in the one mode
+   *  that is supposed to have none — and made the same Contract harder for a
+   *  slower player, since fewer of their shots fit inside it. A launch budget
+   *  is spent only by acting and is worth the same to everyone. */
+  launchBudget: number;
+  /** Lines needed to clear a CONTRACT; 0 = this bay is won on funds
+   *  (targetScore), which is the Deep Run condition. Contracts carry no
+   *  bankroll, so funds can't be their objective. */
+  objectiveLines: number;
   /** Bond Breaker charges granted at the START of this bay — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
    *  useBondBreaker). 0 = the player never drafted it. Each charge is a
@@ -248,15 +275,66 @@ export const WIND_GUST_FRACTION = 0.025;
 export const SCRAP_PER_LINE = 2;
 export const SCRAP_PER_BAY = 10;
 
-export function makeBaseLevel(i: number): LevelConfig {
+/**
+ * MARK SCALING — how much harder bay `i` gets per Mark above the first.
+ *
+ * The Mark ladder raises the floor and the bar TOGETHER: a Mark hands the
+ * player a bigger build budget (upgrades.ts's budgetForMark) and this is the
+ * matching rise in what a bay demands. Without it a Mark would just be free
+ * power and every board above Mark 1 would be easier than the one below it.
+ *
+ * Only the two knobs that state the bay's DEMAND are scaled — the funding
+ * target and the press tempo. Deliberately not scaled: launchCost and
+ * penaltyPerLostPiece (which would compound with the target into a difficulty
+ * cliff), and windMax (weather is the bay's character, and the launcher track
+ * is the sanctioned answer to it — see the BALANCE KNOBS note).
+ *
+ * CALIBRATED — and the result was that these knobs do not calibrate anything.
+ * Measured with sim/marks.ts (aim bot, 550-point rig, 3 seeds):
+ *
+ *  - TARGET is a DURATION knob, not a difficulty one. Raising bay 1's Mark 10
+ *    target from 2096 to 3536 produced zero extra losses: the bot simply played
+ *    longer and scored 5852 instead of 2487. Once income per line exceeds spend
+ *    per line, a competent player reaches ANY target given time. Three separate
+ *    sweeps over 0.06-0.38 returned byte-identical win rates.
+ *  - The CLOCK doesn't bind either. Cutting bay 10's limit to 35% of stock (84s)
+ *    still gave 3/3 wins — runs finish in 41-67s against limits of 150-240s.
+ *  - SPEED was actively harmful and is now 0. A faster sweep pushes pieces out
+ *    before they settle, so the lost-piece penalty drains the bankroll: at bay 5
+ *    the same rig went from 3/3 wins to 1/3 (both losses "broke") with speed
+ *    scaling on and a LOWER target. That is an erratic bankruptcy tax, not a
+ *    difficulty ramp, and it swamped the other knobs — it is why two of those
+ *    sweeps looked flat before the target was even suspect.
+ *
+ * The finding underneath all three: a fully-kitted rig trivializes the existing
+ * ladder, so no multiplier on the ladder's own numbers produces a graded
+ * response. Mark difficulty has to come from CONTENT — materials and hazards
+ * that change what the rig must DO — not from scaling what a bay demands. See
+ * docs/DESIGN.md; this is now measured rather than asserted.
+ *
+ * TARGET_STEP is kept at a modest 0.18 because lengthening a bay is still mild
+ * pressure and it keeps a Mark from being visibly identical to the one below.
+ * It is NOT the difficulty lever and must not be tuned as if it were.
+ */
+export const MARK_TARGET_STEP = 0.18;
+/** 0 by design — see above. Kept as a named seam rather than deleted so the
+ *  measurement that zeroed it stays attached to the knob it describes. */
+export const MARK_SPEED_STEP = 0;
+
+export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
   // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
   const windMax = i < 3 ? 0 : 0.06 + (i - 3) * 0.04;
+  // Mark 1 is stock, so every existing number and every tuned constant below
+  // is preserved exactly at the bottom of the ladder.
+  const marksAbove = Math.max(0, Math.floor(mark) - 1);
+  const targetMult = 1 + MARK_TARGET_STEP * marksAbove;
+  const speedMult = 1 + MARK_SPEED_STEP * marksAbove;
   return {
     id: i + 1,
     name: LEVEL_NAMES[i],
     gravity: 1,
-    compactorSpeed: 1.2 + i * 0.05,
+    compactorSpeed: (1.2 + i * 0.05) * speedMult,
     compactorOpenCells: 12,
     compactorMinLineCells: 8,
     compactorWidth: 26,
@@ -265,10 +343,11 @@ export function makeBaseLevel(i: number): LevelConfig {
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
-    targetScore: targetScoreFor(i),
+    targetScore: Math.round(targetScoreFor(i) * targetMult),
     startingFunds: 250,
     launchCost: 25 + i * 2,
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
+    pieceQueue: null,
     cooldownMs: 900,
     timeLimitSec: 150 + i * 10,
     pieceSize: "std",
@@ -286,6 +365,8 @@ export function makeBaseLevel(i: number): LevelConfig {
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
     bondBreakerCharges: 0,
+    launchBudget: 0,
+    objectiveLines: 0,
   };
 }
 

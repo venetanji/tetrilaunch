@@ -28,6 +28,7 @@ export class InputController {
     window.addEventListener("pointercancel", this.onPointerCancel);
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("blur", this.onBlur);
     this.raf = requestAnimationFrame(this.tickKeys);
   }
 
@@ -38,6 +39,7 @@ export class InputController {
     window.removeEventListener("pointercancel", this.onPointerCancel);
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onBlur);
     cancelAnimationFrame(this.raf);
   }
 
@@ -110,6 +112,13 @@ export class InputController {
     if (!g || g.status !== "playing" || g.paused) return;
     const k = e.key.toLowerCase();
     this.keys.add(k);
+    // Aim/power (tickKeys below) WANT the held state, so the key is recorded
+    // above before this guard. The discrete actions must not repeat: OS key
+    // repeat delivers a keydown every ~30ms while held, which would rapid-fire
+    // the cannon at its cooldown rate and — worse — spend every Bond Breaker
+    // charge on one leaned-on B. In a Contract that empties the launch budget,
+    // which is the whole bay.
+    if (e.repeat) return;
     if (k === " " || e.code === "Space") {
       e.preventDefault();
       g.shoot(performance.now());
@@ -120,10 +129,23 @@ export class InputController {
     // X arms/disarms a demolition charge — the next launch then fires the bomb
     // along the current aim instead of the loaded piece (see game.ts's armBomb).
     if (k === "x") g.armBomb();
+    // Autoloader: HELD, not tapped. setAutoHeld is idempotent, so OS key repeat
+    // (which fires keydown every ~30ms) re-asserts the same state instead of
+    // restarting the burst cadence on every repeat.
+    if (k === "f") g.setAutoHeld(true);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.keys.delete(e.key.toLowerCase());
+    const k = e.key.toLowerCase();
+    this.keys.delete(k);
+    if (k === "f") this.game()?.setAutoHeld(false);
+  };
+
+  /** A window that loses focus never delivers keyup, so an alt-tab mid-burst
+   *  would leave the trigger held down until the player pressed F again. */
+  private onBlur = (): void => {
+    this.keys.clear();
+    this.game()?.setAutoHeld(false);
   };
 
   // Continuous keyboard aim/power (web fallback).

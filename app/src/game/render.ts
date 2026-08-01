@@ -338,8 +338,8 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
  * step, same as the bar itself. Two heights, spread inside the compactor's
  * own half-height band (c.top..c.top+c.height) at the mockup's fractions,
  * so they never desync if compactorHeightFrac changes. The bar CAN sweep
- * left of the default mount under "Wide Bay" stacking (leftX bottoms out at
- * 547 < 616 with compactorOpenCells 18 — see mods.ts), which used to bury
+ * left of the default mount on a widened bay (leftX bottoms out at 547 < 616
+ * at compactorOpenCells 18 — Bay Extension T3, see upgrades.ts), which used to bury
  * the head inside the barrel; the whole rig now slides left per-level so
  * the barrel tip always clears the bar's leftmost face (see drawPistons).
  */
@@ -355,8 +355,8 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
   // Mount the rig at the mockup's 616 when the bay allows, but slide it left
   // for wide bays: the barrel tip must stay clear of the bar's LEFTMOST face
   // (c.leftX is the open stop) plus the head's width, or the head would
-  // sweep through the housing on full retreat (Wide Bay at 18 open cells
-  // puts that face at 534, 175px left of the default barrel tip).
+  // sweep through the housing on full retreat (a fully-extended bay at 18 open
+  // cells puts that face at 534, 175px left of the default barrel tip).
   const minFace = c.leftX - c.width / 2;
   const mountX = Math.min(PISTON_BARREL_X, minFace - PISTON_HEAD_W - PISTON_BARREL_LEN - 6);
   for (const frac of PISTON_Y_FRACS) {

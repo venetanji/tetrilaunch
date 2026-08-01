@@ -42,9 +42,20 @@ export interface UpgradeDef {
   glyph: string;
   /** One-line "what system is this" for the refit card header. */
   blurb: string;
-  /** Per-tier effect copy, index 0 = tier 1. Shown on the refit card so the
-   *  player can see the whole ladder before committing to tier 1. */
+  /** Per-tier effect copy, index 0 = tier 1. The refit card no longer prints
+   *  the whole ladder (three lines x six cards overflowed a landscape phone by
+   *  145px), so this now feeds the card's `title` for hover and stays the one
+   *  place the ladder is written down. */
   tiers: [string, string, string];
+  /** What the ship HAS on this track at `tier`, in absolute terms (tier 0 =
+   *  stock). The card used to show only deltas, which meant a player could see
+   *  "+2 open cells" without ever being told the bay was 12 to begin with. */
+  current(tier: number): string;
+  /** The step from `tier` to `tier + 1`, for the buy button: which way the
+   *  number moves and by how much. `dir` is the direction of the NUMBER, not a
+   *  judgement — a shorter cooldown is an improvement that reads "down". Never
+   *  called at MAX_TIER, where there is no next step to describe. */
+  step(tier: number): { dir: "up" | "down"; text: string };
   /** Mutate `cfg` for a track sitting at `tier` (1..MAX_TIER). Never called
    *  with tier 0 — applyUpgrades skips unbought tracks entirely, so each
    *  implementation can assume it has work to do. */
@@ -58,6 +69,11 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "BAY",
     blurb: "Widens the compaction zone at the open stop — more room to land in, longer lines to sell.",
     tiers: ["+2 open cells (14)", "+4 open cells (16)", "+6 open cells (18)"],
+    // 12 is makeBaseLevel's stock width and, now that Wide Bay is gone, the
+    // only thing that moves it is this track — so the reading is exact rather
+    // than an estimate that a draft could silently invalidate.
+    current: (t) => `${12 + 2 * t} open cells`,
+    step: () => ({ dir: "up", text: "+2 cells" }),
     apply(cfg, tier) {
       // 12 stock -> 14/16/18. This is the "extend to 18" lever, now EARNED
       // capital instead of a random Wide Bay offer: a wide bay is the standard
@@ -76,6 +92,8 @@ export const UPGRADES: UpgradeDef[] = [
       "+12% muzzle speed · 40% wind cancelled",
       "+18% muzzle speed · 60% wind cancelled",
     ],
+    current: (t) => (t === 0 ? "stock coils" : `+${6 * t}% speed · ${20 * t}% wind`),
+    step: () => ({ dir: "up", text: "+6% power" }),
     apply(cfg, tier) {
       // The wind counter. A stock launcher at max power lands at x~1228 (see
       // cannon.ts's SPEED_MAX note); a strong steady headwind can pull that
@@ -97,6 +115,8 @@ export const UPGRADES: UpgradeDef[] = [
       "×2.2 settle assist · +16% stroke speed",
       "×2.8 settle assist · +24% stroke speed",
     ],
+    current: (t) => (t === 0 ? "stock press" : `×${(1 + 0.6 * t).toFixed(1)} assist · +${8 * t}% stroke`),
+    step: () => ({ dir: "up", text: "+0.6 assist" }),
     apply(cfg, tier) {
       // Settle assist is what converts "nearly a line" into a payout (see
       // lineClear.ts's settleZoneCubes) — the direct upgrade for a build that
@@ -113,6 +133,10 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "MAG",
     blurb: "Faster reload — more shots inside the same clock.",
     tiers: ["−15% cooldown", "−30% cooldown", "−45% cooldown"],
+    current: (t) => (t === 0 ? "stock reload" : `−${15 * t}% cooldown`),
+    // The one track whose number falls. The arrow reports the number, so this
+    // reads "down" even though a shorter cooldown is the improvement.
+    step: () => ({ dir: "down", text: "−15% reload" }),
     apply(cfg, tier) {
       cfg.cooldownMs = Math.max(120, Math.round(cfg.cooldownMs * (1 - 0.15 * tier)));
     },
@@ -127,6 +151,8 @@ export const UPGRADES: UpgradeDef[] = [
       "+$120 float · +$30 per line",
       "+$180 float · +$45 per line",
     ],
+    current: (t) => (t === 0 ? "stock reactor" : `+$${60 * t} float · +$${15 * t}/line`),
+    step: () => ({ dir: "up", text: "+$60 float" }),
     apply(cfg, tier) {
       cfg.startingFunds += 60 * tier;
       cfg.scorePerLine += 15 * tier;
@@ -138,6 +164,8 @@ export const UPGRADES: UpgradeDef[] = [
     glyph: "BND",
     blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
     tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
+    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
+    step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
@@ -179,13 +207,86 @@ export function applyUpgrades(cfg: LevelConfig, tiers: UpgradeTiers): void {
   }
 }
 
-/** Total scrap sunk into a set of tiers — shown on the refit/end screens so a
- *  run's build reads as an investment, not just a list of chips. */
-export function scrapInvested(tiers: UpgradeTiers): number {
+/**
+ * Ladder cost of a set of tiers. Serves two masters, which is why it isn't
+ * named for either: in-run it's the scrap sunk into the ship (shown on the
+ * refit/end screens so a build reads as an investment rather than a list of
+ * chips), and out of run it's the BUILD BUDGET a permanent loadout spends
+ * (see budgetForMark).
+ */
+export function tiersCost(tiers: UpgradeTiers): number {
   let total = 0;
   for (const def of UPGRADES) {
     const tier = Math.min(MAX_TIER, tiers[def.id] ?? 0);
     for (let t = 0; t < tier; t++) total += TIER_COSTS[t];
   }
   return total;
+}
+
+/* ---------------------------------------------------------------------------
+ * BUILD BUDGET — the permanent, out-of-run layer (see docs/DESIGN.md).
+ *
+ * A Mark grants a fixed number of ladder points, spent freely across the six
+ * tracks. This is deliberately a budget on the TOTAL rather than a cap on each
+ * track's tier, and the difference is the whole point: a per-track cap
+ * normalizes the MAXIMUM rig, not the actual one, so two players at the same
+ * Mark can sit far apart on power with the gap being nothing but grind time —
+ * which is exactly what a subscription that sells throughput would then be
+ * selling. Budgeting the total makes every rig at a Mark equal in power and
+ * different in shape, which is the FTL reading and the honest one for a
+ * leaderboard.
+ * ------------------------------------------------------------------------- */
+
+/** Ladder cost of every track maxed: 6 tracks x (20+35+55) = 660. Derived, not
+ *  typed in, so re-pricing TIER_COSTS or adding a seventh system can't leave a
+ *  stale constant behind. */
+export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
+
+/** Marks in the ladder. Placeholder that rhymes with RUN_LEVELS; the real
+ *  number depends on how long a Mark takes to beat (see docs/DESIGN.md's open
+ *  questions). */
+export const MARK_COUNT = 10;
+
+/**
+ * Ladder points available at `mark` (1-based). Linear from one-system money at
+ * Mark 1 to a fully-kitted rig at MARK_COUNT — the arc from "you can afford one
+ * system" to "you can afford everything" IS the progression.
+ *
+ * FIRST PASS, uncalibrated. The criterion this has to satisfy (docs/DESIGN.md):
+ * a rig built with the full Mark-N budget, played at the sim bot's competence,
+ * should fall JUST SHORT of the Mark N target — if it can't clear at any skill
+ * the Mark is impossible, and if it clears while played badly the Mark is free.
+ * Tune against sim/sweep.ts, not by feel.
+ */
+export function budgetForMark(mark: number): number {
+  const m = Math.max(1, Math.min(MARK_COUNT, Math.floor(mark)));
+  return Math.round((FULL_BUILD_COST * m) / MARK_COUNT);
+}
+
+/** True when `tiers` is a legal loadout at `mark` — i.e. it fits the budget and
+ *  no track exceeds MAX_TIER. Validated rather than trusted because the loadout
+ *  round-trips through localStorage, where anyone can edit it. */
+export function loadoutLegal(tiers: UpgradeTiers, mark: number): boolean {
+  for (const def of UPGRADES) {
+    const tier = tiers[def.id] ?? 0;
+    if (tier < 0 || tier > MAX_TIER || !Number.isInteger(tier)) return false;
+  }
+  return tiersCost(tiers) <= budgetForMark(mark);
+}
+
+/** Buy one tier of `id` against the budget, or null when it can't be bought —
+ *  maxed, or the next tier doesn't fit what's left. Mirrors run.ts's
+ *  buyUpgrade so the loadout screen and the refit screen can render a disabled
+ *  card from the same rule instead of each re-deriving affordability. */
+export function buyLoadoutTier(
+  tiers: UpgradeTiers,
+  id: UpgradeId,
+  mark: number,
+): UpgradeTiers | null {
+  const tier = tiers[id] ?? 0;
+  const cost = nextTierCost(tier);
+  if (cost === null) return null;
+  const next = { ...tiers, [id]: tier + 1 };
+  if (tiersCost(next) > budgetForMark(mark)) return null;
+  return next;
 }

@@ -19,6 +19,7 @@ must also hold in the browser — and a browser fix ships to native on the next
 | Capacitor **8.x** — `@capacitor/android`, `@capacitor/ios` platform packages | installed (devDeps) |
 | `capacitor.config.ts` — `androidScheme: https`, `contentInset: never`, scroll/zoom off | done |
 | Safe-area handling (notch / home indicator) | done — `lib/platform.ts` `applySafeAreaInsets()` → `game/layout.ts` |
+| Android fullscreen (sticky immersive + display cutout) | done — `native/android/MainActivity.java` via `scripts/patch-android.mjs` |
 | Aspect-ratio layout solver (phone / tablet / ultrawide) | done — `game/layout.ts`, see below |
 | npm scripts (`android:open`, `android:apk`, `ios:open`, …) | done |
 | CI debug-APK build | done — `.github/workflows/android.yml` |
@@ -28,10 +29,24 @@ must also hold in the browser — and a browser fix ships to native on the next
 | **Signed release builds / store listings** | **not done — needs secrets, see below** |
 
 **`app/android/` is gitignored; `app/ios/` is committed.** They're treated
-differently on purpose. Android is still a pure derived artifact — `npx cap add
+differently on purpose. Android stays a derived artifact — `npx cap add
 android` regenerates it from `capacitor.config.ts` plus the installed plugins,
-and nothing in it is hand-edited, so CI rebuilding it from scratch every run is
-a feature (it proves `cap add` still works from a clean checkout).
+so CI rebuilding it from scratch every run is a feature (it proves `cap add`
+still works from a clean checkout).
+
+Android *does* now need two edits the CLI doesn't own (see
+[Fullscreen](#fullscreen-the-system-bars-are-not-capacitors-problem) below), but
+rather than committing the directory and losing that property, they're
+re-applied by **`npm run patch:android`** (`scripts/patch-android.mjs`) from
+sources that *are* committed:
+
+- `app/native/android/MainActivity.java` — copied over the generated stub
+- two theme items injected into the generated `res/values/styles.xml`
+
+The patch is idempotent and runs automatically as the last step of
+`cap:add:android` and every `android:*` script, plus as its own CI step. If a
+future Capacitor release restructures `styles.xml`, the patch **fails loudly**
+rather than quietly producing an APK with the bars back over the play field.
 
 iOS crossed the line the moment it acquired manual edits the CLI doesn't own: a
 landscape-only, status-bar-hidden `Info.plist` with export-compliance declared,
@@ -146,6 +161,43 @@ than half-implemented:
 
 ---
 
+## Fullscreen: the system bars are not Capacitor's problem
+
+A landscape-locked, letterboxed game wants the whole panel. Nothing in the
+default stack gives it that:
+
+- `lib/platform.ts`'s `requestFullscreen` / `autoEnterFullscreenForRun` is a
+  **browser** path. It early-returns on standalone and Capacitor contexts by
+  design, because the Fullscreen API does nothing inside a WebView.
+- Capacitor's generated `MainActivity` is a bare `BridgeActivity`, and
+  `AppTheme.NoActionBar` sets no fullscreen attributes. `windowNoTitle` removes
+  the *action* bar, not the *system* bars.
+
+So the status and navigation bars sit on top of the field. Measured on a
+OnePlus 12: the activity got **2256×1080 of a 2376×1080 panel** — 120px, about
+5% of the field, spent on chrome the game never uses.
+
+`native/android/MainActivity.java` fixes it with
+`WindowInsetsControllerCompat.hide(systemBars())`, re-applied on every
+`onWindowFocusChanged(true)` because Android silently restores the bars after an
+unlock or a task switch and never notifies the app.
+
+Two details that are load-bearing rather than cosmetic:
+
+- **`setDecorFitsSystemWindows(false)`** is what makes `env(safe-area-inset-*)`
+  report the cutout to the WebView. Left at its default, the decor consumes the
+  insets and the layout solver reads zeros — so it would reserve nothing and put
+  the button rail under the notch.
+- **`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`**, not the default. A transient bar
+  overlays; a non-transient one *resizes* the WebView. A resize mid-run re-fits
+  the world and moves the aim origin out from under the player's finger.
+
+iOS needs none of this: `Info.plist` declares the app status-bar-hidden and
+landscape-only, which is exactly the kind of manual edit that got `app/ios/`
+committed in the first place.
+
+---
+
 ## Display: what the layout solver does, and why native needed it
 
 The field is authored at a fixed 1280×720 and letterboxed. The old HUD assumed
@@ -200,8 +252,10 @@ only be confirmed on device:
   indicator, both left- and right-hand rotations.
 - Android gesture navigation: the bottom-edge swipe zone vs. the `tall`-mode
   rail strip.
-- Android WebView cutout: Capacitor's default is `shortEdges`; if a device
-  letterboxes instead, `env(safe-area-inset-*)` reports 0 and there's nothing to
-  do — but worth confirming.
+- Android WebView cutout: `patch-android.mjs` sets `shortEdges` explicitly.
+  Capacitor sets **no** cutout mode of its own — the generated manifest and
+  themes leave it at the platform default, which letterboxes and blacks out the
+  whole notch column in landscape. (An earlier revision of this document claimed
+  Capacitor defaulted to `shortEdges`. It does not.)
 - Sustained framerate with 200+ cubes on a mid-range phone (`npm run sim:perf`
   measures the step cost on desktop; a phone GPU is the untested half).

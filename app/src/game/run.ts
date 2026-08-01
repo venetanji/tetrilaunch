@@ -38,17 +38,30 @@ export interface RunState {
   /** Total scrap earned this run, spent or not — a stat for the end screen, so
    *  a run that banked and never refitted still reads as having earned it. */
   scrapEarned: number;
-  /** Ship upgrade tier per system (see upgrades.ts). All 0 at run start unless
-   *  a meta unlock front-loads one. */
+  /** Ship upgrade tier per system (see upgrades.ts). Seeded at run start from
+   *  the player's permanent LOADOUT (meta.ts's safeLoadout, bought against the
+   *  Mark's build budget), then raised further by in-run scrap at refit stops.
+   *  All 0 only for a stock rig at Mark 1. */
   tiers: UpgradeTiers;
   /** Meta-progression unlock ids owned by the PLAYER (not the run) — copied in
    *  at run start so draftOffers and levelForRun can gate content without
    *  reaching into localStorage mid-run, and so a Workshop purchase made after
    *  a run began can't retroactively change that run's draft pool. */
   unlocks: string[];
+  /** The Mark this run is being flown at (1-based). Fixed at run start: it
+   *  scales every bay's difficulty (see level.ts's makeBaseLevel) and it is
+   *  what the run's leaderboard entry is filed under, so a run can't change
+   *  which board it's competing on halfway through. */
+  mark: number;
 }
 
-export function newRun(seed: number, unlocks: string[] = [], startingScrap = 0): RunState {
+export function newRun(
+  seed: number,
+  unlocks: string[] = [],
+  startingScrap = 0,
+  loadout: UpgradeTiers = newTiers(),
+  mark = 1,
+): RunState {
   return {
     seed,
     levelIndex: 0,
@@ -57,8 +70,12 @@ export function newRun(seed: number, unlocks: string[] = [], startingScrap = 0):
     linesTotal: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
-    tiers: newTiers(),
+    // The permanent loadout is where the ship STARTS, not a bonus on top of a
+    // stock one: in-run scrap refits from here at the usual stops. Copied, not
+    // aliased — a run must never write back into saved meta state.
+    tiers: { ...loadout },
     unlocks: [...unlocks],
+    mark,
   };
 }
 
@@ -96,7 +113,7 @@ export function baysUntilRefit(levelIndex: number): number | null {
  *  (see upgrades.ts's header). The carry is added dead last so it's never
  *  scaled by either — it's cash in hand, not a rate. */
 export function levelForRun(run: RunState): LevelConfig {
-  const base = makeBaseLevel(run.levelIndex);
+  const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyMods(base, run.modIds);
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
@@ -129,6 +146,7 @@ export function advanceRun(
     scrapEarned: run.scrapEarned + scrapEarned,
     tiers: { ...run.tiers },
     unlocks: [...run.unlocks],
+    mark: run.mark,
   };
 }
 

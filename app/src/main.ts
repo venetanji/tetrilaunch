@@ -8,15 +8,21 @@ import {
 import { draftOffers, modById, type ModDef } from "./game/mods";
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  salvageForRun, unlockAvailable, unlockById, type MetaState,
+  contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract, salvageForRun,
+  unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
 } from "./game/meta";
+import {
+  dailyContracts, levelForContract, type Contract,
+} from "./game/contracts";
 import { render } from "./game/render";
+import * as telemetry from "./lib/telemetry";
 import { computeLayout } from "./game/layout";
 
 import { InputController } from "./game/input";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
+import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
   loadMeta, saveMeta, type Settings,
@@ -24,7 +30,7 @@ import {
 import {
   lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
-  applySafeAreaInsets,
+  applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
 import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
@@ -33,7 +39,8 @@ import {
 
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
-  | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost";
+  | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
+  | "contracts" | "contract-end";
 
 const STEP = 1000 / 60;
 
@@ -64,6 +71,15 @@ class App {
    *  taps through it first. */
   private bayClearTimer: number | null = null;
 
+  /** The Contract being played, or null in Deep Run. Its presence is what puts
+   *  the whole app in Contract mode: no run advances, no salvage is paid, and
+   *  a loss costs nothing (see onGameStatus). */
+  private contract: Contract | null = null;
+  /** Salvage paid by the Contract just finished, and whether this attempt is
+   *  the one that earned it — the end modal has to distinguish "you just banked
+   *  8" from "you cleared it again, already paid". Null until one resolves. */
+  private contractAward: { salvage: number; firstClear: boolean } | null = null;
+
   private dpr = 1;
   private last = 0;
   private acc = 0;
@@ -80,6 +96,12 @@ class App {
 
   /** Unsubscribe for the RevenueCat entitlement listener. */
   private offUnlimitedChange: (() => void) | null = null;
+
+  /** Pointer currently holding the Autoloader trigger, or null. Tracked by id
+   *  because the release can land anywhere — a thumb that slides off the button
+   *  still has to stop the burst, so the listener is on window, not the
+   *  button. */
+  private autoPointerId: number | null = null;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -103,12 +125,19 @@ class App {
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
+    window.addEventListener("pointerup", this.onGlobalPointerUp);
+    window.addEventListener("pointercancel", this.onGlobalPointerUp);
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
     lockLandscape();
     this.onResize();
+
+    // Fire-and-forget: nothing downstream waits on it, and on web it is a
+    // no-op. See platform.ts — a native shell updated from an older build is
+    // still pinned to that build's service-worker precache until this runs.
+    void purgeNativeServiceWorker();
 
     // Store setup is fire-and-forget: it resolves after the splash on a cold
     // start, so re-render if the player is sitting on a screen that shows
@@ -132,6 +161,24 @@ class App {
     // draft/end screens directly (pick-mod/skip-mod/restart etc.) without
     // having to play a full bay every time. Stripped from production builds.
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__tl = this;
+
+    // Playtest recorder console handle. Deliberately NOT DEV-gated: a playtest
+    // sitting should be possible against a preview or production build, since
+    // that's what a player actually experiences. Recording still has to be
+    // switched on by hand and nothing ever leaves the device — see
+    // lib/telemetry.ts's privacy note.
+    (window as unknown as Record<string, unknown>).__playtest = {
+      on: (label?: string) => {
+        telemetry.enable(true);
+        if (label) telemetry.setLabel(label);
+        return "recording ON — play some runs, then __playtest.download()";
+      },
+      off: () => { telemetry.enable(false); return "recording OFF"; },
+      status: () => ({ recording: telemetry.recording(), ...telemetry.summary() }),
+      download: () => telemetry.download(),
+      json: () => telemetry.exportJSON(),
+      clear: () => { telemetry.clear(); return "cleared"; },
+    };
   }
 
   private destroy(): void {
@@ -146,6 +193,10 @@ class App {
 
   // ---------------- state / rendering ----------------
   private setState(s: AppState): void {
+    // Leaving play drops the Autoloader trigger: the rail button is about to
+    // be replaced by a modal, so its pointerup will never arrive and the burst
+    // would resume the moment play did.
+    if (s !== "playing") this.releaseAutoTrigger();
     this.state = s;
     this.renderOverlay();
     this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
@@ -164,12 +215,38 @@ class App {
       timeLeftMs: g.timeLeftMs,
       pieceSize: g.level.pieceSize,
       bondBreakerOwned: g.level.bondBreakerCharges > 0,
+      autoloaderOwned: g.level.autoLaunchMs > 0,
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
       modIds: this.run?.modIds ?? [],
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
+      contract: this.contract
+        ? {
+            name: this.contract.name,
+            kind: this.contract.kind,
+            goal: this.contract.goal,
+            lines: g.linesTotal,
+            // Whichever supply this Contract runs on — its shipment queue or
+            // its launch budget. Exactly one of the two is finite (see
+            // contracts.ts's levelForContract).
+            launchesLeft:
+              this.contract.kind === "pattern"
+                ? g.piecesLeft
+                : g.launchesLeft === Infinity
+                  ? 0
+                  : g.launchesLeft,
+            remaining: g.piecesRemaining,
+          }
+        : null,
     };
+  }
+
+  /** The day's Contracts at the player's current tier. Tier tracks the Mark
+   *  ladder, so clearing a Mark opens harder Contracts — the loop's other half
+   *  (see docs/DESIGN.md). */
+  private todaysContracts(): Contract[] {
+    return dailyContracts(markUnlocked(this.meta));
   }
 
   private storeState(): S.StoreState {
@@ -184,12 +261,51 @@ class App {
         this.overlay.innerHTML = S.menuScreen(loadBest(), this.meta.salvage, this.storeState());
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      case "contracts":
+        this.overlay.innerHTML = S.contractsScreen({
+          contracts: this.todaysContracts(),
+          tier: markUnlocked(this.meta),
+          // The PERSISTED clear list, not a session one. A Contract id embeds
+          // the daily seed and tier, so today's board only ever matches today's
+          // clears and the ticks reset themselves at the rollover — while a
+          // tick that lived in memory vanished on any reload, which is exactly
+          // when the player comes back to see what they'd already done.
+          cleared: this.meta.claimedContracts,
+        });
+        break;
+      case "contract-end":
+        if (g && this.contract) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.contractEndModal({
+              won: g.status === "won",
+              name: this.contract.name,
+              kind: this.contract.kind,
+              lines: g.linesTotal,
+              goal: this.contract.goal,
+              launchesUsed:
+                this.contract.kind === "pattern"
+                  ? g.shotsFired
+                  : Math.min(this.contract.launches, g.shotsFired),
+              launches: this.contract.launches,
+              queue: this.contract.queue,
+              // Cubes short of what the remaining lines still need — the exact
+              // margin the attempt missed by, which is the one number worth
+              // reading off a failed pattern bay.
+              cubesWasted: Math.max(0, g.cubesRequired - g.cubesAvailable),
+              award: this.contractAward,
+              salvageTotal: this.meta.salvage,
+            });
+        }
+        break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
         break;
       case "leaderboard":
-        this.overlay.innerHTML = S.leaderboardScreen(S.leaderboardRowsHTML(this.cachedBoard));
+        this.overlay.innerHTML = S.leaderboardScreen(
+          S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
+        );
         break;
       case "playing":
         if (g) { this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)); this.lastNext = null; }
@@ -250,6 +366,10 @@ class App {
               // be played; 1 means "clear this one and you dock". Null late in a
               // run when no stop remains.
               baysToRefit: baysUntilRefit(this.run.levelIndex),
+              // Only meaningful while the third slot is still unearned; the
+              // screen hides the locked card once it is.
+              contractsCleared: this.meta.claimedContracts.length,
+              contractsForThirdSlot: DRAFT_THIRD_SLOT_CONTRACTS,
             });
         }
         break;
@@ -265,7 +385,11 @@ class App {
               baysCleared: this.run.levelIndex + (this.state === "won" ? 1 : 0),
               funds: g.score,
               best: loadBest(),
-              name: loadName(), rows: S.leaderboardRowsHTML(this.cachedBoard, loadName() || undefined),
+              name: loadName(),
+              rows: S.leaderboardRowsHTML(
+                S.endBoard(this.cachedBoard, loadName() || undefined),
+                loadName() || undefined,
+              ),
               reason: g.lossReason,
               bayNum: this.run.levelIndex + 1,
               bayName: g.level.name,
@@ -356,9 +480,17 @@ class App {
     // change this run's draft pool, and the run never has to reach back into
     // localStorage.
     const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
-    this.run = newRun(Date.now() >>> 0, this.meta.unlocks, startingScrap);
+    this.run = newRun(
+      Date.now() >>> 0,
+      this.meta.unlocks,
+      startingScrap,
+      safeLoadout(this.meta),
+      markUnlocked(this.meta),
+    );
+    this.contract = null;
     this.submitted = false;
     this.lastSalvage = 0;
+    telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
     this.startLevel();
   }
 
@@ -369,14 +501,35 @@ class App {
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
-    this.game = new Game(levelForRun(this.run), {
-      onShoot: () => { void tapHaptic(); this.dismissDragHint(); },
-      onLineClear: () => { void successHaptic(); this.flashGoal(); },
+    const cfg = levelForRun(this.run);
+    this.game = new Game(cfg, {
+      onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
+      onLineClear: (n) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+        void successHaptic(); this.flashGoal();
+      },
       onPieceLost: () => { void impactHaptic(); },
-      onBondBreak: () => { void impactHaptic(); },
+      onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
       onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
+    telemetry.startBay({
+      bay: this.run.levelIndex + 1,
+      mark: this.run.mark,
+      seed: this.run.seed,
+      mode: "run",
+      target: cfg.targetScore,
+      timeLimitSec: cfg.timeLimitSec,
+      cooldownMs: cfg.cooldownMs,
+      launchCost: cfg.launchCost,
+      scorePerLine: cfg.scorePerLine,
+      compactorSpeed: compactorSpeedFor(cfg),
+      compactorOpenCells: cfg.compactorOpenCells,
+      compactorMinLineCells: cfg.compactorMinLineCells,
+      tiers: this.run.tiers,
+      mods: this.run.modIds,
+      pieceSize: cfg.pieceSize,
+    });
     this.setState("playing");
     this.armDragHint();
   }
@@ -415,9 +568,89 @@ class App {
     return finalRunScore(cleared, (this.run?.linesTotal ?? 0) + g.linesTotal, g.score);
   }
 
+  /**
+   * Begin a Contract. Deliberately a separate path from startGame(): a Contract
+   * has no RunState at all — no carried funds, no drafted mods, no refit stops,
+   * nothing to advance — so routing it through the run machinery would mean
+   * guarding every one of those with "unless it's a contract". Clearing
+   * this.run is what keeps the two modes from bleeding into each other.
+   */
+  private startContract(c: Contract): void {
+    this.game?.destroy();
+    this.run = null;
+    this.contract = c;
+    const cfg = levelForContract(c);
+    this.game = new Game(cfg, {
+      onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
+      onLineClear: (n) => {
+        telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
+        void successHaptic(); this.flashGoal();
+      },
+      onPieceLost: () => { void impactHaptic(); },
+      onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
+      onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
+      onStatus: (s) => this.onGameStatus(s),
+    }, c.seed);
+    telemetry.startRun(0, {} as UpgradeTiers, []);
+    telemetry.startBay({
+      bay: 1, mark: c.tier, seed: c.seed, mode: "contract",
+      target: cfg.objectiveLines,
+      timeLimitSec: 0, cooldownMs: cfg.cooldownMs, launchCost: 0,
+      scorePerLine: cfg.scorePerLine, tiers: {} as UpgradeTiers,
+      compactorSpeed: compactorSpeedFor(cfg),
+      compactorOpenCells: cfg.compactorOpenCells,
+      compactorMinLineCells: cfg.compactorMinLineCells,
+      mods: [c.brief], pieceSize: cfg.pieceSize,
+    });
+    this.setState("playing");
+    this.armDragHint();
+  }
+
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
-    if (!g || !this.run) return;
+    if (!g) return;
+    // CONTRACT: no run to advance, no salvage, no leaderboard. A loss here is
+    // free by design — the whole point of the mode is that you can retry it.
+    if (this.contract) {
+      if (s !== "won" && s !== "lost") return;
+      telemetry.endBay({
+        result: s, reason: g.lossReason, secs: g.elapsedMs / 1000,
+        lines: g.linesTotal, lostPieces: g.lostTotal, endScore: g.score,
+      });
+      telemetry.endRun(s === "won", 0);
+      if (s === "won") {
+        void successHaptic();
+        // Pay ONCE per Contract, ever, and record the clear in the same place —
+        // meta.claimedContracts is both the payout gate and what ticks the
+        // board, so the two can't drift apart. See meta.ts for why the payout
+        // side of that matters to monetization.
+        const already = contractClaimed(this.meta, this.contract.id);
+        const award = salvageForContract(this.contract.tier);
+        if (!already) {
+          this.meta.salvage += award;
+          this.meta.claimedContracts.push(this.contract.id);
+          saveMeta(this.meta);
+        }
+        this.contractAward = { salvage: award, firstClear: !already };
+      } else {
+        void impactHaptic();
+        this.contractAward = null;
+      }
+      this.showSettleNote(false);
+      this.setState("contract-end");
+      return;
+    }
+    if (!this.run) return;
+    if (s === "won" || s === "lost") {
+      telemetry.endBay({
+        result: s,
+        reason: g.lossReason,
+        secs: g.elapsedMs / 1000,
+        lines: g.linesTotal,
+        lostPieces: g.lostTotal,
+        endScore: g.score,
+      });
+    }
     if (s === "won") {
       void successHaptic();
       this.showSettleNote(false);
@@ -427,7 +660,8 @@ class App {
         // loop keeps re-rendering the settled field (and its bayclear sweep FX)
         // behind the banner until startLevel() tears it down.
         this.pendingOffers = draftOffers(
-          this.run.seed, this.run.levelIndex, this.run.modIds, 3, this.run.unlocks,
+          this.run.seed, this.run.levelIndex, this.run.modIds,
+          draftSlots(this.meta.claimedContracts), this.run.unlocks,
         );
         this.setState("bayclear");
         this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);
@@ -490,12 +724,19 @@ class App {
     const baysCleared = this.run.levelIndex + (won ? 1 : 0);
     const lines = this.run.linesTotal + g.linesTotal;
     this.lastSalvage = salvageForRun(baysCleared, lines, won);
+    // Beating a run is the ONLY thing that raises a Mark — no amount of
+    // Contract grinding or purchasing touches it (docs/DESIGN.md). Guarded with
+    // max() rather than +1 so replaying an already-beaten Mark for a better
+    // board placing can't ratchet the ladder forward a second time.
+    const markBeaten = won ? Math.max(this.meta.mark, this.run.mark) : this.meta.mark;
     this.meta = {
       ...this.meta,
       salvage: this.meta.salvage + this.lastSalvage,
       runs: this.meta.runs + 1,
       bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
+      mark: markBeaten,
     };
+    telemetry.endRun(won, this.lastSalvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
     this.refreshBoard();
@@ -513,6 +754,7 @@ class App {
     if (cost === null) return;
     const next = buyUpgrade(this.run, id as UpgradeId, cost, MAX_TIER);
     if (!next) return;
+    telemetry.refit(this.run.levelIndex + 1, this.run.scrap, id);
     this.run = next;
     void successHaptic();
     this.refreshRefit();
@@ -550,7 +792,11 @@ class App {
     const def = unlockById(id);
     if (!def) return;
     if (this.meta.unlocks.includes(id)) return;
-    if (!unlockAvailable(def, this.meta.unlocks)) return;
+    // Marks BEATEN, not the Mark attemptable — a capstone gated on Mark 3 must
+    // need three clears, not two clears and permission to try the third. This
+    // is the purchase path, so it is where the gate has to actually hold: the
+    // Workshop's disabled button is presentation, this is enforcement.
+    if (!unlockAvailable(def, this.meta.unlocks, this.meta.mark)) return;
     if (this.meta.salvage < def.cost) return;
     this.meta = {
       ...this.meta,
@@ -591,7 +837,16 @@ class App {
    *  keeping the run's carried surplus and drafted mods exactly as they were
    *  at this bay's entry. */
   private restartBay(): void {
-    if (this.state !== "paused" || !this.run) return;
+    if (this.state !== "paused") return;
+    // Restarting a Contract re-generates the same bay from its seed, which is
+    // the whole point of the mode — retry the identical puzzle, not a reroll.
+    if (this.contract) {
+      this.startContract(this.contract);
+      this.last = performance.now();
+      this.acc = 0;
+      return;
+    }
+    if (!this.run) return;
     this.startLevel();
     this.last = performance.now();
     this.acc = 0;
@@ -608,7 +863,15 @@ class App {
    *  once the fetch lands. */
   private renderBoardRows(highlight?: string): void {
     const body = this.overlay.querySelector("#lb-body");
-    if (body) body.innerHTML = S.leaderboardRowsHTML(this.cachedBoard, highlight);
+    if (!body) return;
+    // Both the standalone screen and the end modal render into #lb-body, so the
+    // slice is chosen by state rather than inferred from `highlight`: the screen
+    // lists everyone, the modal shows the top 5 plus the player's own row, which
+    // is what keeps it inside a 360px landscape viewport without scrolling.
+    const rows = this.state === "leaderboard"
+      ? S.fullBoard(this.cachedBoard)
+      : S.endBoard(this.cachedBoard, highlight);
+    body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
   }
 
   private async refreshBoard(): Promise<void> {
@@ -630,6 +893,7 @@ class App {
       this.acc += dt;
       while (this.acc >= STEP) {
         g.update(now);
+        telemetry.sampleFunds(g.score, g.elapsedMs);
         this.acc -= STEP;
       }
       this.syncHud(g);
@@ -666,7 +930,27 @@ class App {
       const el = this.overlay.querySelector(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
-    set("#hud-score", "$" + g.score);
+    // In a Contract these two slots hold lines and launches instead of funds
+    // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so
+    // the funds readout would sit at $0 with 0 launches for the whole bay.
+    if (this.contract) {
+      const pattern = this.contract.kind === "pattern";
+      const supply = pattern ? g.piecesLeft : g.launchesLeft;
+      set("#hud-score", String(g.linesTotal));
+      set("#hud-launches", String(supply === Infinity ? 0 : supply));
+      this.overlay
+        .querySelector("#hud-launches-chip")
+        ?.classList.toggle("pl-stat--danger", supply <= 2);
+      // The remaining manifest, re-rendered only when it actually changes —
+      // it's HTML (colored per piece type), so this can't go through `set`.
+      if (pattern) {
+        const tally = this.overlay.querySelector<HTMLElement>("#hud-queue");
+        const html = S.queueTallyHTML(g.piecesRemaining);
+        if (tally && tally.innerHTML !== html) tally.innerHTML = html;
+      }
+    } else {
+      set("#hud-score", "$" + g.score);
+    }
     set("#hud-combo", "×" + g.combo);
     set("#hud-scrap", String(g.scrapEarned));
 
@@ -676,14 +960,19 @@ class App {
     // bay" to "this shot has to count". Computed from funds, so it also drops
     // when a mod raises launchCost — the warning tracks affordability, not a
     // separate ammo counter.
-    const launches = Math.floor(g.score / Math.max(1, g.level.launchCost));
-    set("#hud-launches", String(launches));
-    this.overlay
-      .querySelector("#hud-launches-chip")
-      ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+    if (!this.contract) {
+      const launches = Math.floor(g.score / Math.max(1, g.level.launchCost));
+      set("#hud-launches", String(launches));
+      this.overlay
+        .querySelector("#hud-launches-chip")
+        ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+    }
 
+    // objectiveProgress reads whichever win condition this bay is running, so
+    // the bar works for a Contract's line goal and a Deep Run's funds target
+    // without the HUD needing to know which mode it's in.
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
-    if (goal) goal.style.width = Math.min(100, (g.score / g.target) * 100) + "%";
+    if (goal) goal.style.width = Math.min(100, g.objectiveProgress * 100) + "%";
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
     const powerPct = Math.round(g.cannon.powerRatio * 100);
@@ -709,13 +998,15 @@ class App {
     // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
     // grid, no label/type text (see components.ts's beltPieceHTML).
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${g.level.pieceSize}`;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
-          : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
+          : bp.empty
+            ? ""
+            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
       }
       this.lastNext = nextKey;
     }
@@ -781,7 +1072,17 @@ class App {
       case "settings": this.setState("settings"); break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
       case "workshop": this.setState("workshop"); break;
-      case "menu": this.setState("menu"); break;
+      case "contracts": this.setState("contracts"); break;
+      case "contract": {
+        const slot = Number(el.getAttribute("data-slot") ?? "0");
+        const c = this.todaysContracts()[slot];
+        if (c) this.startContract(c);
+        break;
+      }
+      case "contract-retry":
+        if (this.contract) this.startContract(this.contract);
+        break;
+      case "menu": this.contract = null; this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
@@ -819,8 +1120,33 @@ class App {
     // primary pointer's synthesized click is skipped via onClick's
     // detail check, so pressing can't double-fire.
     e.preventDefault();
-    this.onGameAction(el.getAttribute("data-game")!);
+    const act = el.getAttribute("data-game")!;
+    // The one HELD control on the rail: press starts the burst, and release
+    // (anywhere — see onGlobalPointerUp) ends it.
+    if (act === "auto") {
+      this.autoPointerId = e.pointerId;
+      this.game?.setAutoHeld(true);
+      void tapHaptic();
+      return;
+    }
+    this.onGameAction(act);
   };
+
+  /** Ends an Autoloader burst on release, on the window rather than the button
+   *  so a thumb that drifts off mid-hold cannot leave the trigger stuck down. */
+  private onGlobalPointerUp = (e: PointerEvent): void => {
+    if (this.autoPointerId === null || e.pointerId !== this.autoPointerId) return;
+    this.autoPointerId = null;
+    this.game?.setAutoHeld(false);
+  };
+
+  /** Drops the Autoloader trigger unconditionally — used whenever the game
+   *  leaves "playing" (pause, win, loss, menu), since no pointerup is coming
+   *  for a button that just stopped existing. */
+  private releaseAutoTrigger(): void {
+    this.autoPointerId = null;
+    this.game?.setAutoHeld(false);
+  }
 
   private onGameAction(a: string): void {
     const g = this.game;
@@ -828,7 +1154,7 @@ class App {
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
-    else if (a === "demo") { if (g.armBomb()) void tapHaptic(); }
+    else if (a === "demo") { if (g.armBomb()) { telemetry.ability("bomb-arm", g.elapsedMs); void tapHaptic(); } }
     else if (a === "cancel") this.input.cancelAim();
   }
 

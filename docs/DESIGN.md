@@ -33,7 +33,7 @@ problem with the same work.
 | Session | 60–120s | 25–40 min |
 | Clock | **none** | yes — `timeLimitSec` |
 | Bankroll | **none** — launches are free | yes — funds are the target |
-| Constraint | **stroke budget** | funds + clock |
+| Constraint | **launch budget** | funds + clock |
 | Failure | costs nothing, retry freely | ends the run |
 | Earns | permanent rig upgrades | leaderboard rank, the next Mark |
 | Board | per-contract, seeded | per-Mark global board |
@@ -44,9 +44,9 @@ problem with the same work.
 Contracts deliberately strip out time and money pressure. They are meant to be
 the *easy, positive, replayable* half — challenges you return to, not a thing
 that can beat you. A puzzle you can be rushed out of isn't a puzzle. What
-replaces that pressure is the **stroke budget** (see below); without some budget
+replaces that pressure is the **launch budget** (see below); without some budget
 a Contract is brute-forceable by firing until the pile happens to resolve, which
-is why strokes are load-bearing here rather than a flourish.
+is why the budget is load-bearing here rather than a flourish.
 
 Deep Run keeps its clock for the opposite reason, and it's worth stating so it
 isn't later mistaken for an inherited default: **time pressure is what makes
@@ -56,6 +56,33 @@ clock, they have to solve it *fast*, and that's the thing an exam should test.
 So the division is: **Contracts test placement, Deep Run tests placement under
 pressure.** Contracts are where a new material is safe to learn; Deep Run is
 where you have to use it quickly.
+
+### Playtest findings (Android build, first sitting)
+
+Two results from actually playing it, both of which change what's written above.
+
+**MAGAZINE is a combo track, not a standalone one.** It only pays off alongside
+the Autoloader and cheap launches — i.e. it is the *no-aim* build's tempo, not a
+general upgrade. That reframes the sim result rather than contradicting it: the
+bots fire a fixed arc on cooldown, which makes them a fair model of the spray
+build, and what they showed is that **spray currently goes broke**. Sim and human
+agree. So the earlier decision to exclude MAGAZINE from calibration as a bot
+artefact was wrong in its reasoning — the right reading is that the strategy is
+economically non-viable at present launch costs, and its cost structure is the
+thing to fix.
+
+It also means the aim-time metric in `lib/telemetry.ts` will be **bimodal** for
+any player who switches between aiming and spraying. A single median smears the
+two together and hides exactly the distinction that matters.
+
+**The 2-cube (micro) payload is tedious.** Not merely weak — unfun to play. That
+is a problem no balance number will reach, and it undercuts the Autoloader
+endgame described in `ECONOMY.md`, since that endgame is built on micro. Either
+micro needs a reason to be interesting at the moment of firing, or the spray
+build needs a different payload to live on.
+
+Both point the same way: **the no-aim build is the one that needs design work**,
+and it is the build the Contracts half is least able to teach.
 
 ### What Contracts cannot teach
 
@@ -140,9 +167,15 @@ can pay to progress faster, never to rank higher.**
 ### It layers over the existing refit stops
 
 The budget sets your **starting** tiers. In-run scrap still buys tiers at the
-refit stops after bays 3/6/9 exactly as `ECONOMY.md` describes, and the Mark sets
-where that can top out. Permanent loadout plus in-run improvisation is more FTL
-than either alone, and none of the tuning already done is wasted.
+refit stops after bays 3/6/9 exactly as `ECONOMY.md` describes. Permanent loadout
+plus in-run improvisation is more FTL than either alone, and none of the tuning
+already done is wasted.
+
+In-run refits are deliberately **not** budget-capped — they're bounded by
+`MAX_TIER` and by the scrap a run actually earns, which is a function of how well
+it's being played. That's the right thing to leave uncapped: the permanent layer
+is what needed normalizing, because it's the one a subscription can accelerate.
+Scrap is earned by playing well, and rewarding that is the point.
 
 ### Calibrating a Mark
 
@@ -155,9 +188,42 @@ testable rather than felt:
 
 Both failure modes are then measurable: if a full-budget rig can't clear it
 however well played, the Mark is impossible; if it clears while played badly, the
-Mark is free. `sim/sweep.ts` already sweeps bays × bots × mods, so it can measure
-this directly — which means the harness does triple duty: balance sweeps,
-Contract fairness gate, and Mark calibration.
+Mark is free. `sim/marks.ts` measures exactly this.
+
+### What the first calibration actually found
+
+It was run, and the answer was that **the ladder's own numbers are not a
+difficulty lever at all**. Three findings, all from `sim/marks.ts` with the `aim`
+bot and a 550-point rig:
+
+- **Target is a duration knob.** Raising bay 1's Mark 10 target from 2096 to
+  3536 produced *zero* extra losses — the bot played longer and scored 5852
+  instead of 2487. Once income per line beats spend per line, a competent player
+  reaches any target given time. Sweeps over 0.06–0.38 returned identical win
+  rates three times running.
+- **The clock doesn't bind.** Cutting bay 10's limit to 35% of stock still gave
+  3/3 wins; runs finish in 41–67s against limits of 150–240s.
+- **Compactor speed was actively harmful.** A faster sweep pushes pieces out
+  before they settle, so lost-piece penalties drain the bankroll: 3/3 wins became
+  1/3 (both "broke") with speed scaling on and a *lower* target. An erratic
+  bankruptcy tax, not a ramp. Now zero.
+
+Underneath all three: **a fully-kitted rig trivializes the existing ladder.** No
+multiplier on what a bay demands produces a graded response, because the rig has
+already outgrown the demand.
+
+So the section above is right about the *criterion* and wrong about the *lever*.
+Mark difficulty has to come from **content** — materials and hazards that change
+what the rig must DO — not from scaling what a bay asks for. `MARK_TARGET_STEP`
+stays at a modest 0.18 so a Mark isn't visibly identical to the one below, and is
+explicitly not to be tuned as if it controlled difficulty.
+
+That reorders the build plan: materials stop being step 4 and become the thing
+the Mark ladder is actually made of. It also means the ladder can't be finally
+tuned until they exist, and that the bot has a ceiling as an instrument — it
+cannot use Bond Breaker, Demolition, or tempo, so a track like MAGAZINE is
+invisible to it (a full 660 rig loses to a stock one purely because the bot
+fires on cooldown and goes broke). Human playtesting is not optional here.
 
 ## Rigs as FTL ships
 
@@ -209,7 +275,7 @@ Beyond the existing `makeBaseLevel(i)` ramp:
 
 - **Compactor tempo** — faster sweeps, shorter dwell.
 - **Tolerance** — `compactorMinLineCells` rises, slot alignment narrows.
-- **Stroke budgets** — see below.
+- **Launch budgets** — see below.
 - **Materials** — one new type per Mark, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
 
@@ -221,21 +287,90 @@ Add a name generator past index 9 and Deep Run runs endless past bay 10, which i
 what a score board actually needs — unbounded headroom so the top of each Mark's
 board is a skill expression rather than a completion checkmark.
 
-## Strokes: the constraint Contracts run on
+## Launches: the constraint Contracts run on
 
 Deep Run constrains funds and time. Candy Crush's real engine is
-**moves-limited** puzzles, and the native translation here is a **compactor
-stroke budget** — "clear this in 6 strokes."
+**moves-limited** puzzles, and the native translation here is a **launch
+budget** — "clear 4 lines in 12 launches."
 
 In Contracts this is not one constraint among several, it is *the* constraint:
-with the clock and the bankroll both removed, a stroke budget is the only thing
-standing between a Contract and being brute-forced by volume. That makes it a
-prerequisite for Contracts existing at all, not a later refinement.
+with the clock and the bankroll both removed, the launch budget is the only
+thing standing between a Contract and being brute-forced by volume. That makes
+it a prerequisite for Contracts existing at all, not a later refinement.
 
 It earns its place on merit too: it's readable at a glance in a way a countdown
-isn't, it makes tightly-specified short puzzles possible, and it is a constraint
-on *the compactor* — the system that most needs to become something the player
-thinks about.
+isn't, it makes tightly-specified short puzzles possible, and a move is the unit
+players already think in.
+
+### Why not compactor strokes
+
+The first build of this budgeted **compactor press strokes**, which was wrong
+twice over, and both faults are worth recording so they aren't reintroduced.
+
+**A stroke budget is a disguised clock.** The bar advances on a wall clock
+whether or not you act, so strokes drain while you deliberate. You could lose a
+Contract by thinking — in the one mode whose premise is that it can't rush you.
+That contradicts "a puzzle you can be rushed out of isn't a puzzle" directly.
+
+**It priced the same Contract differently per player.** Because strokes elapse
+at a fixed rate, a fast player fits more shots inside the budget than a slow
+one. Measured aim time on device is ~1446ms against a 900ms cooldown, so a
+deliberate player was materially penalised for deliberating.
+
+A launch budget has neither fault: it is spent only by acting, and it is worth
+exactly the same to everyone. It is also checkable in closed form — a line needs
+`CUBES_PER_LINE` cubes and a launch delivers `SIZE_SPEC[size].cubes` of them —
+which is what lets `sim/systems.ts` *prove* no generated Contract is impossible.
+The stroke-based version could not be proved, and in fact 35% of what it
+generated was unwinnable while its test passed.
+
+The compactor keeps its `strokes` counter — it is still the right unit for
+telemetry, and it is what a future "survive N presses" objective would use.
+
+### Pattern Contracts: the other objective kind
+
+A launch budget still asks the same *question* Deep Run asks — clear lines, here
+is your allowance. A **pattern Contract** asks a different one: here is the exact
+set of shipments that tiles the goal, land them. The queue stops being a random
+stream and becomes a designed object, which turns the bay into a planning
+problem rather than a physics grind — and it is an identity Deep Run can't copy,
+since its queue has to stay random for its own reasons.
+
+Built, and it occupies **slot 3 of the daily board** — converting a slot rather
+than adding one, because the daily count is what Unlimited sells and quietly
+raising it would be a monetization change wearing a content change's clothes.
+
+Three things this surfaced that are worth keeping written down.
+
+**The exactness needs no tiling proof, and that is specific to this game.** A
+tetromino puzzle would normally have to generate from a known-tiling template or
+risk emitting sets that are arithmetically exact and geometrically impossible.
+Here pieces don't keep their shape: the compactor shatters whatever it presses
+and rows fill slot-by-slot from *loose* cubes. So any multiset summing to
+`goal * CUBES_PER_LINE` is achievable, and what piece type actually changes is
+how hard the **delivery** is — I and O settle flat, S/Z/T tip and strand. That is
+what the tier ladder scales.
+
+**Exactness constrains piece size, arithmetically.** A queue is exact only if
+`goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only
+does at goals that are multiples of 5, putting the smallest legal bulk pattern at
+40 cubes. So pattern Contracts are std-only — not a preference, a consequence.
+
+**Zero waste needs a fail-fast signal or it is dead-man-walking.** With an exact
+manifest, one cube lost off the deck makes the attempt unwinnable *immediately*,
+but nothing would say so and the player keeps firing a bay that cannot be won.
+`Game.objectiveUnreachable` calls it the moment the arithmetic settles it —
+available cubes below required — and the end screen names the margin ("4 cubes
+never made it into a line"). Since a retry is free and takes seconds, ending a
+dead bay early is strictly kinder than letting it run out.
+
+The honest risk: measured efficiency — the share of launched cubes reaching a
+completed line — is **0.62 in the browser and 0.69 on device**, so zero waste
+asks for roughly **1.5x better than anyone has yet played**. That was accepted
+with the number on the table, because retries cost nothing. If it proves tedious
+rather than satisfying the fix is `SPARE_SHIPMENTS`, a single constant — not a
+loosening of the physics tolerances, which would quietly change every other mode
+too.
 
 ## Materials — the content engine
 
@@ -265,8 +400,8 @@ Authored bays were considered and **rejected** — a hand-tuned map is a content
 treadmill nobody on this project has time to feed. A Contract is instead
 **seed + template + difficulty budget**:
 
-- **Objective** — reach $X · N lines in M strokes · clear all slag · deliver a
-  marked crate to the floor · precision (≤K launches) · survive N strokes losing
+- **Objective** — reach $X · N lines in M launches · clear all slag · deliver a
+  marked crate to the floor · precision (≤K launches) · survive N presses losing
   ≤K pieces
 - **Materials** — drawn from the pool unlocked at the player's Mark
 - **Complication** — one, occasionally two: wind character, hazard, pre-seeded
@@ -349,15 +484,16 @@ Contract throughput.
 
 ## Build order
 
-1. **Mark ladder + build budget.** The spine — Contracts and monetization both
-   hang off it, it's mostly `run.ts`/`meta.ts`/`upgrades.ts`, and it's testable
-   headlessly. Ships with the sim calibration check above.
-2. **Stroke budgets.** Load-bearing for Contracts, and the first real mechanic
-   the compactor itself gets.
-3. **Contract generator + sim validation**, together.
-4. **Materials**, starting with slag and cryo.
-5. **Rigs** beyond the Standard Hauler.
-6. **Daily seed + per-Contract boards** on the existing Worker.
+1. ~~**Mark ladder + build budget.**~~ Done — the model layer, with the
+   calibration above. No UI yet.
+2. **Materials**, starting with slag and cryo. Promoted from fourth: the
+   calibration showed they are not flavour on top of a numeric ramp, they ARE
+   the ramp. The Mark ladder can't be finally tuned until they exist.
+3. **Launch budgets.** Load-bearing for Contracts.
+4. **Contract generator + sim validation**, together.
+5. **Loadout UI**, once the numbers it displays have stopped moving.
+6. **Rigs** beyond the Standard Hauler.
+7. **Daily seed + per-Contract boards** on the existing Worker.
 
 ## Scope for Shipaton
 
@@ -365,7 +501,7 @@ The window is Aug 1 – Sep 30 and the iOS ship is concurrent, so the minimum th
 reads as "Candy Crush meets FTL" to a judge:
 
 Mark ladder with visible rig changes · generated Contracts across three tiers ·
-stroke-limited objectives · two materials (slag, cryo) · Unlimited with the
+launch-limited objectives · two materials (slag, cryo) · Unlimited with the
 daily cap · one alternate rig.
 
 Everything else here is post-hackathon runway — which is worth having written
@@ -377,7 +513,7 @@ down when judges ask where it goes next.
   The build budget is what makes that fair — normalization comes from everyone at
   a Mark having the same points to spend, not from the run overwriting your
   choices. Contracts would be pointless otherwise.
-- **Contracts have no clock and no bankroll.** Strokes are the constraint, and
+- **Contracts have no clock and no bankroll.** Launches are the constraint, and
   the mode's character is easy, positive and replayable.
 - **Deep Run keeps both the clock and the bankroll.** Time pressure is what makes
   aiming a skill rather than a solved problem, so it's the exam's core test.
