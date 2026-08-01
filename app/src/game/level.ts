@@ -1,4 +1,4 @@
-import type { PieceSize, PieceType } from "./theme";
+import type { Material, PieceSize, PieceType } from "./theme";
 
 /**
  * A single level's tunables. This is the primary ROADMAP SEAM: future levels and
@@ -71,6 +71,16 @@ export interface LevelConfig {
    *  more brittle) and "bulk" isn't just "bigger" (it's also heavier and more
    *  rigid). The Micro/Bulk Shipments modifiers set this. */
   pieceSize: PieceSize;
+  /** Probability that a given shipment arrives as each non-standard MATERIAL
+   *  (theme.ts's Material). Everything not claimed here is standard, so an
+   *  all-zero mix — every bay before materials are introduced, and every
+   *  pattern Contract — behaves exactly as it did before materials existed.
+   *
+   *  A per-shipment ROLL rather than a fixed count per bay: the player should
+   *  not be able to count slag off and know the rest of the bay is clean, and
+   *  the next-shipment preview already tells them what is actually coming, which
+   *  is the information that matters for planning. See materialMixFor. */
+  materialMix: MaterialMix;
   /** Demolition charges granted at the START of this bay — armed with the 💥
    *  control, then fired by the next launch INSTEAD of the loaded piece (see
    *  game.ts's armBomb/shoot). Charges are free to fire (they do NOT cost
@@ -321,6 +331,62 @@ export const MARK_TARGET_STEP = 0.18;
  *  measurement that zeroed it stays attached to the knob it describes. */
 export const MARK_SPEED_STEP = 0;
 
+/** Per-shipment probability of each non-standard material. See
+ *  LevelConfig.materialMix. */
+export type MaterialMix = Record<Exclude<Material, "standard">, number>;
+
+/** A bay with no materials at all — the pre-materials behaviour, and the
+ *  explicit default for every caller that builds a LevelConfig by hand. */
+export const NO_MATERIALS: MaterialMix = { slag: 0, cryo: 0 };
+
+/**
+ * Which Mark first introduces each material, and how it ramps once it has.
+ *
+ * This is the answer to the finding recorded above: the Mark ladder's numeric
+ * knobs do not produce difficulty, so the ladder is graded by CONTENT instead.
+ * Mark 1 is deliberately clean — a player's first ladder rung must be the game
+ * as it has always played, or the baseline they learn on is not the baseline.
+ *
+ * One material per Mark, per docs/DESIGN.md. Slag arrives first because it is
+ * the simplest to read (a dead cube, visibly grey, nothing to learn beyond
+ * "this one is worthless"), and cryo second because it asks for a sequencing
+ * habit the player will not have until slag has taught them to look at what a
+ * shipment IS before firing it.
+ *
+ *  - `firstMark` — the Mark at which the material starts appearing at all.
+ *  - `firstBay`  — the bay index within a run before which it never appears, so
+ *                  even a high Mark opens on clean bays and the player gets a
+ *                  few shipments to establish rhythm.
+ *  - `base`/`step`/`cap` — the ramp across bays once both gates are past.
+ *
+ * Slag is rarer and capped lower than cryo for a reason that is not
+ * cosmetic: cryo is RECOVERABLE (strike it and it counts), slag is not. A slag
+ * cube in the wrong slot costs a demolition charge or a lost-piece penalty, so
+ * its rate is the one that can quietly make a bay unwinnable.
+ */
+export const MATERIAL_SCHEDULE: Record<
+  Exclude<Material, "standard">,
+  { firstMark: number; firstBay: number; base: number; step: number; cap: number }
+> = {
+  slag: { firstMark: 2, firstBay: 3, base: 0.05, step: 0.01, cap: 0.12 },
+  cryo: { firstMark: 3, firstBay: 2, base: 0.06, step: 0.012, cap: 0.16 },
+};
+
+/**
+ * The material mix for bay `i` (0-based) at `mark`. Pure and total: every bay
+ * below a material's gates returns 0 for it, which is what keeps Mark 1 and the
+ * opening bays of every run byte-identical to the pre-materials game.
+ */
+export function materialMixFor(i: number, mark = 1): MaterialMix {
+  const mix: MaterialMix = { ...NO_MATERIALS };
+  for (const key of Object.keys(MATERIAL_SCHEDULE) as (keyof MaterialMix)[]) {
+    const s = MATERIAL_SCHEDULE[key];
+    if (mark < s.firstMark || i < s.firstBay) continue;
+    mix[key] = Math.min(s.cap, s.base + s.step * (i - s.firstBay));
+  }
+  return mix;
+}
+
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
   // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
@@ -351,6 +417,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     cooldownMs: 900,
     timeLimitSec: 150 + i * 10,
     pieceSize: "std",
+    materialMix: materialMixFor(i, mark),
     bombCharges: 0,
     salvagePerCube: 8,
     launchPower: 1,

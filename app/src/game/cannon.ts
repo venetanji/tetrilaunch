@@ -1,7 +1,8 @@
 import Matter from "matter-js";
 import { WORLD } from "./engine";
-import { PIECE_TYPES, type PieceType } from "./theme";
-import type { LevelConfig } from "./level";
+import { PIECE_TYPES, type Material, type PieceType } from "./theme";
+import { mulberry32 } from "./mods";
+import type { LevelConfig, MaterialMix } from "./level";
 
 // Launch speeds in px/step (matter velocity units). Drag distance maps here.
 export const SPEED_MIN = 9;
@@ -31,6 +32,14 @@ export class Cannon {
   pieceIndex = 0;
   currentType: PieceType;
   nextType: PieceType;
+  /** What the loaded shipment and the one behind it are MADE of (theme.ts's
+   *  Material). Rolled one ahead of the muzzle for the same reason the type is:
+   *  the next-shipment preview has to promise exactly what the next trigger
+   *  pull produces. A material the player only discovers after firing would be
+   *  a slot machine, not a puzzle — cryo in particular is only fair if you can
+   *  see it coming and sequence around it. */
+  currentMaterial: Material;
+  nextMaterial: Material;
 
   /** This bay's usable speed range — SPEED_MIN/SPEED_MAX scaled by the
    *  LAUNCHER upgrade track's launchPower (see upgrades.ts / level.ts). BOTH
@@ -51,7 +60,13 @@ export class Cannon {
   /** Shipments taken off a finite queue so far. Unused when !finite. */
   private consumed = 0;
 
-  constructor(level: LevelConfig) {
+  /** Seeded so a bay's material stream is reproducible — same run seed and bay
+   *  gives the same shipments, which is what lets a daily Contract or a shared
+   *  seed mean the same thing for two players. */
+  private matRng: () => number;
+  private mix: MaterialMix;
+
+  constructor(level: LevelConfig, seed: number = level.id) {
     const queue = level.pieceQueue;
     this.finite = !!queue && queue.length > 0;
     this.seq = this.finite ? queue! : (level.pieceSequence ?? PIECE_TYPES);
@@ -62,6 +77,31 @@ export class Cannon {
     this.power = this.speedMin;
     this.currentType = this.seq[0];
     this.nextType = this.seq[1 % this.seq.length];
+    this.mix = level.materialMix;
+    // Distinct salt from the wind and autoloader streams (game.ts) so adding a
+    // material to a bay can't shift its weather for the same seed.
+    this.matRng = mulberry32((seed ^ 0x2f9a1b3d ^ (level.id * 0xc2b2ae35)) >>> 0);
+    this.currentMaterial = this.rollMaterial();
+    this.nextMaterial = this.rollMaterial();
+  }
+
+  /**
+   * Roll one shipment's material against the bay's mix (level.ts's
+   * materialMixFor). Independent per shipment — the player must not be able to
+   * count slag off and conclude the rest of the bay is clean.
+   *
+   * The roll walks the mix in a fixed key order and consumes exactly ONE random
+   * number regardless of outcome, so the stream stays aligned for a seed even
+   * when the mix changes between bays.
+   */
+  private rollMaterial(): Material {
+    const r = this.matRng();
+    let acc = 0;
+    for (const key of ["slag", "cryo"] as const) {
+      acc += this.mix?.[key] ?? 0;
+      if (r < acc) return key;
+    }
+    return "standard";
   }
 
   get tip(): Matter.Vector {
@@ -171,6 +211,8 @@ export class Cannon {
     this.pieceIndex = (this.pieceIndex + 1) % this.seq.length;
     this.currentType = this.nextType;
     this.nextType = this.seq[(this.pieceIndex + 1) % this.seq.length];
+    this.currentMaterial = this.nextMaterial;
+    this.nextMaterial = this.rollMaterial();
     this.pieceRotation = 0;
   }
 }

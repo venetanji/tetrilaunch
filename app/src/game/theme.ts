@@ -73,6 +73,74 @@ export const PIECE_COLORS: Record<PieceType, string> = {
   Z: "#ff2d55",
 };
 
+/**
+ * MATERIAL — what a shipment is MADE of, orthogonal to its shape (PieceType)
+ * and its size class (PieceSize).
+ *
+ * This is the content engine described in docs/DESIGN.md: match-3 games get
+ * thousands of levels out of one verb by never adding mechanics and always
+ * adding TILE TYPES. Every material here is a rule about how a cube interacts
+ * with the line-clear check in lineClear.ts — none of them adds a system, a
+ * screen, or a new player verb, and that is the point. A material is content on
+ * the engine that already exists.
+ *
+ * A material belongs to a whole SHIPMENT, not to individual cubes within one.
+ * Per-cube mixing was rejected: the next-shipment preview and the pattern
+ * Contract tiler (tiling.ts) both reason about a piece as one object, and a
+ * queue entry that meant "an O, but two of its cubes are dead" is not something
+ * either could show or plan around.
+ *
+ *  - "standard" — an ordinary shipment. The baseline every other material is a
+ *                 deviation from, and the only material a bay is guaranteed.
+ *  - "slag"     — occupies a slot and can NEVER count toward a line. It is the
+ *                 chocolate: it does not threaten you, it takes up room, and
+ *                 the answer is a demolition charge or shoving it left out of
+ *                 the zone and eating the lost-piece penalty. Pure denial, no
+ *                 timer, no escalation.
+ *  - "cryo"     — arrives frozen and will not compact until it has been STRUCK
+ *                 (see pieces.ts's Cube.struck). Pressed while still cold it
+ *                 shatters, and takes its row's alignment with it. The answer
+ *                 is sequencing: land something on it, THEN build the row.
+ *
+ * The remaining four from the design table (rebar, volatile, tar, magnetic) are
+ * deliberately not here yet — DESIGN.md's build order ships slag and cryo
+ * first, because those two are what the Mark ladder's calibration is waiting on.
+ */
+export type Material = "standard" | "slag" | "cryo";
+
+export const MATERIALS: Material[] = ["standard", "slag", "cryo"];
+
+/**
+ * Per-material presentation and rule flags, read by both the renderer and
+ * lineClear. One table so a material can never look like one thing and behave
+ * like another.
+ *
+ * `color` of null means "keep the shipment's own PieceType color" — only
+ * standard does that. Slag and cryo override it outright, because a material
+ * the player cannot identify at a glance is a trap rather than a puzzle: both
+ * of these change what a cube is WORTH, and that has to be readable from across
+ * the bay while it is still in the air.
+ */
+export const MATERIAL_SPEC: Record<
+  Material,
+  {
+    name: string;
+    color: string | null;
+    /** Can a cube of this material ever fill a line slot? False for slag. */
+    countsForLines: boolean;
+    /** Must this cube be struck before it counts? True for cryo. */
+    needsStrike: boolean;
+  }
+> = {
+  standard: { name: "Standard", color: null, countsForLines: true, needsStrike: false },
+  // Dead grey-brown. Deliberately the only unsaturated thing on the field —
+  // every real shipment is neon, so slag reads as inert without needing a label.
+  slag: { name: "Slag", color: "#6d6a7c", countsForLines: false, needsStrike: false },
+  // Pale ice. Bright enough to stay legible in flight, cold enough to read as
+  // a different substance rather than another piece color.
+  cryo: { name: "Cryo", color: "#9fe8ff", countsForLines: true, needsStrike: true },
+};
+
 export const COLORS = {
   bg: "#07070f",
   grid: "rgba(122,92,255,0.08)",

@@ -29,7 +29,7 @@
  * spends a scalar derived from the tier. That is what separates this from
  * randomness — difficulty is a number we spend, not an accident of the roll.
  */
-import { makeBaseLevel, type LevelConfig } from "./level";
+import { makeBaseLevel, NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
 import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
@@ -527,5 +527,19 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
   // Nothing is spent, so nothing needs to be earned back.
   cfg.startingFunds = 0;
   cfg.penaltyPerLostPiece = 0;
+  // NO MATERIALS in Contracts — set explicitly rather than left to inherit,
+  // because inheriting it is only true by accident (makeBaseLevel defaults to
+  // Mark 1, which is below every material's firstMark) and would silently stop
+  // being true the day a Contract is generated at a Mark.
+  //
+  // This is a feasibility guarantee, not a taste call. Both Contract kinds
+  // derive their limit from a model that assumes every launched cube CAN reach
+  // a completed row: a pattern queue tiles the goal exactly, and `launchesFor`
+  // prices a lines budget off cubes-needed ÷ efficiency. Slag satisfies neither
+  // — it is a shipment that can never count — so dropping it into either would
+  // reintroduce exactly the defect class that once made 35% of generated
+  // Contracts unwinnable. Materials reach Contracts when the budget model
+  // accounts for them, and not before. See docs/DESIGN.md's "both pools".
+  cfg.materialMix = { ...NO_MATERIALS };
   return cfg;
 }

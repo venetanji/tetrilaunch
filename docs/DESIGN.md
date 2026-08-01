@@ -380,8 +380,8 @@ introduction order:
 
 | Material | Behaviour | Answers with |
 |---|---|---|
-| **Slag** | occupies a slot, can never count toward a line | Demolition, or shove it out |
-| **Cryo** | must be struck before it will compact; pressed cold it shatters the line | sequencing |
+| **Slag** ✅ | occupies a slot, can never count toward a line | Demolition, or shove it out |
+| **Cryo** ✅ | must be struck before it will compact; pressed cold it shatters the line | sequencing |
 | **Rebar** | joints never break — a rigid anchor | building around it |
 | **Volatile** | detonates on hard impact, taking neighbours | soft landings, or deliberate chains |
 | **Tar** | bonds permanently on contact; Bond Breaker won't split it | avoidance |
@@ -393,6 +393,24 @@ noise.
 
 None of these need a new system. All of them are content on the engine that
 exists.
+
+✅ **Slag and cryo are built** — see
+[the spec](superpowers/specs/2026-08-01-materials-slag-cryo-design.md). A
+material is a property of a whole shipment (`theme.ts`'s `Material`), introduced
+one per Mark on a per-shipment roll (`level.ts`'s `materialMixFor`), and enforced
+in exactly one place: `lineClear.ts`'s `fillsSlots`. Mark 1 stays entirely clean.
+
+Two things the build settled that this table could not:
+
+- **Striking cryo is asymmetric.** A cryo cube thaws only when it is already at
+  rest and something fast hits it. The symmetric rule was tried first and every
+  cryo cube arrived pre-thawed on the landing impact of its own delivery shot —
+  the material did nothing. The asymmetry is what makes it cost a shipment.
+- **Contracts get no materials yet.** "In both pools" is deferred, not dropped.
+  Both Contract kinds size their limit from a model assuming every launched cube
+  can reach a completed row; slag breaks that, and would reintroduce the defect
+  class that once made 35% of Contracts unwinnable. Materials arrive there when
+  the budget model accounts for them.
 
 ## Procedural Contracts
 
@@ -486,9 +504,12 @@ Contract throughput.
 
 1. ~~**Mark ladder + build budget.**~~ Done — the model layer, with the
    calibration above. No UI yet.
-2. **Materials**, starting with slag and cryo. Promoted from fourth: the
-   calibration showed they are not flavour on top of a numeric ramp, they ARE
-   the ramp. The Mark ladder can't be finally tuned until they exist.
+2. ~~**Materials**, starting with slag and cryo.~~ Done — both ship, gated one
+   per Mark, with Contracts explicitly excluded until their budget model can
+   price a cube that never counts. Promoted from fourth because the calibration
+   showed they are not flavour on top of a numeric ramp, they ARE the ramp. The
+   Mark ladder's final tuning is now unblocked, and wants play rather than
+   another sweep — the bots cannot use a demolition charge on slag.
 3. **Launch budgets.** Load-bearing for Contracts.
 4. **Contract generator + sim validation**, together.
 5. **Loadout UI**, once the numbers it displays have stopped moving.

@@ -12,6 +12,9 @@ import {
 } from "./pieces";
 import {
   updateLineClear,
+  strikeCryo,
+  shatterColdCryo,
+  type CryoShatter,
   markLostPieces,
   updateBlinking,
   resetLineClear,
@@ -21,7 +24,7 @@ import {
 import type { LevelConfig } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
-import type { PieceSize, PieceType } from "./theme";
+import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
@@ -82,6 +85,10 @@ export interface GameEvents {
    *  opens (see update()'s win handling) — the UI stops accepting launches and
    *  shows the settling readout, well before onStatus("won") lands. */
   onSettleStart?: () => void;
+  /** Fired when cryo reaches the press still frozen and breaks (lineClear.ts's
+   *  shatterColdCryo). Distinct from onLineClear because it is the OPPOSITE
+   *  outcome — the row was lost, not paid — and wants its own cue. */
+  onCryoShatter?: (shatter: CryoShatter) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -95,6 +102,11 @@ export interface BeltPreview {
    *  queue is at the muzzle. The belt draws an empty track rather than a piece
    *  that is never coming. Always false on a cycling bag. */
   empty: boolean;
+  /** What the previewed shipment is made of (theme.ts's Material) — the belt
+   *  colors the tile by it, so slag and cryo are visible one shot before they
+   *  reach the muzzle. That lead time is what makes them planning problems
+   *  rather than surprises. */
+  material: Material;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -446,7 +458,7 @@ export class Game {
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
-    this.cannon = new Cannon(level);
+    this.cannon = new Cannon(level, seed);
     this.compactor = new Compactor(this.phys.world, level);
     this.gAccel = this.phys.engine.gravity.y * this.phys.engine.gravity.scale * DT * DT;
     // Cap guards degenerate level configs (e.g. a near-zero compactorSpeed
@@ -469,6 +481,11 @@ export class Game {
             }
           }
         }
+        // Cryo thaws on a hard enough impact. Done here rather than in the
+        // per-step loop because the relative speed of a collision only exists
+        // at the moment matter reports it — a step later both bodies have
+        // already exchanged momentum and read as slow.
+        strikeCryo(this.cubes, pair.bodyA, pair.bodyB);
       }
     };
     Matter.Events.on(this.phys.engine, "collisionStart", this.onCollisionStart);
@@ -506,6 +523,7 @@ export class Game {
         type: this.cannon.currentType,
         quarterTurns: this.cannon.quarterTurns,
         empty: false,
+        material: this.cannon.currentMaterial,
       };
     }
     return {
@@ -513,6 +531,7 @@ export class Game {
       type: this.cannon.nextType,
       quarterTurns: 0,
       empty: !this.cannon.hasNext,
+      material: this.cannon.nextMaterial,
     };
   }
 
@@ -734,6 +753,7 @@ export class Game {
         this.level.jointStiffness,
         this.level.pieceSize,
         this.level.jointBreakStretch,
+        this.cannon.currentMaterial,
       );
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);
@@ -857,6 +877,19 @@ export class Game {
     // when a cube wedges tilted against the wall.
     if (pressing) {
       settleZoneCubes(this.cubes, this.compactor, this.level);
+    }
+
+    // Cryo that reached the press still frozen breaks, and takes its row's
+    // alignment with it. Runs BEFORE the clear check so a row containing cold
+    // cryo can never be evaluated as complete on the same step it shatters.
+    const shattered = shatterColdCryo(
+      this.phys.world,
+      this.cubes,
+      this.compactor,
+      this.constraints,
+    );
+    if (shattered.cubes.length) {
+      this.events.onCryoShatter?.(shattered);
     }
 
     // Cubes are ONLY removed when a full row is crushed against the wall on the
