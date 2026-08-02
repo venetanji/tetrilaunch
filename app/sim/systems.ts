@@ -13,7 +13,7 @@
  * balance sweep passes right over.
  */
 import Matter from "matter-js";
-import { Game } from "../src/game/game";
+import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import { makeBaseLevel, materialMixFor, MATERIAL_SCHEDULE } from "../src/game/level";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import { Cannon } from "../src/game/cannon";
@@ -892,7 +892,64 @@ section("Demolition charges + settle window (game.ts)");
   for (let i = 0; i < 900; i++) g8.update((ft += DT));
   check("a held trigger stops at the funds floor", g8.score < autoCfg.launchCost, String(g8.score));
 
-  for (const game of [g, g2, g3, bare, stab, g4, g5, g6, g7, g8]) game.destroy();
+  // The player's aim ANCHORS the burst, and survives it.
+  //
+  // This is the regression that made the mod read as useless on device. The
+  // jittered angle used to be written back into the cannon, so each shot's
+  // spread compounded on the last and the burst random-walked away from
+  // wherever the player was pointing — at the far end pinning against the
+  // +/-60deg cone limit and firing the same wasted shot over and over. The
+  // power axis was worse: re-rolled across the whole upper 55% of the band
+  // every shot, so the drag's power did literally nothing. Measured across 5
+  // autoloader bays: 6.72 shots per line against 2.94 in hand-fired bays, and
+  // 23.4% of shipments lost to the wrong side against a 10.3% baseline.
+  const AIM_ANGLE = 0.35;
+  // Funds ARE the score, so a bankroll big enough to sustain a long burst also
+  // wins the bay on the first shot — the target has to move with it.
+  const rich = { ...autoCfg, startingFunds: 100_000, targetScore: 10_000_000 };
+  function burst(angle: number, powerFrac: number) {
+    const shots: { angle: number; power: number }[] = [];
+    const game = new Game(rich, { onShoot: (i) => shots.push({ angle: i.angle, power: i.power }) }, 5);
+    game.cannon.angle = angle;
+    const band = game.cannon.speedMax - game.cannon.speedMin;
+    game.cannon.power = game.cannon.speedMin + band * powerFrac;
+    game.setAutoHeld(true);
+    let t = 0;
+    for (let i = 0; i < 900; i++) game.update((t += DT));
+    return { game, shots, band, aimPower: game.cannon.speedMin + band * powerFrac };
+  }
+
+  const b1 = burst(AIM_ANGLE, 0.7);
+  check("a held burst leaves the player's aim untouched",
+    b1.game.cannon.angle === AIM_ANGLE && b1.game.cannon.power === b1.aimPower,
+    `${b1.game.cannon.angle.toFixed(4)}/${b1.game.cannon.power.toFixed(2)} vs ${AIM_ANGLE}/${b1.aimPower.toFixed(2)}`);
+  check("every burst shot stays inside the aim spread",
+    b1.shots.length > 5 && b1.shots.every((s) => Math.abs(s.angle - AIM_ANGLE) <= AUTO_SPREAD_RAD + 1e-9),
+    `${b1.shots.length} shots, worst ${Math.max(...b1.shots.map((s) => Math.abs(s.angle - AIM_ANGLE))).toFixed(4)} vs ${AUTO_SPREAD_RAD}`);
+  // The walk's signature: late shots further off-aim than early ones. Compare
+  // the second half of the burst against the first — a walk diverges, a spread
+  // does not.
+  const half = Math.floor(b1.shots.length / 2);
+  const off = (s: { angle: number }) => Math.abs(s.angle - AIM_ANGLE);
+  const early = b1.shots.slice(0, half).reduce((a, s) => a + off(s), 0) / half;
+  const late = b1.shots.slice(half).reduce((a, s) => a + off(s), 0) / (b1.shots.length - half);
+  check("the burst does not drift off aim over time", late <= early * 2 + 1e-9,
+    `early ${early.toFixed(4)} vs late ${late.toFixed(4)} rad off aim`);
+  check("the burst still genuinely scatters",
+    new Set(b1.shots.map((s) => s.angle.toFixed(6))).size > 3,
+    `${new Set(b1.shots.map((s) => s.angle.toFixed(6))).size} distinct angles`);
+
+  // Power now tracks the drag instead of ignoring it.
+  check("every burst shot stays inside the power jitter",
+    b1.shots.every((s) => Math.abs(s.power - b1.aimPower) <= AUTO_POWER_JITTER * b1.band + 1e-9),
+    `worst ${Math.max(...b1.shots.map((s) => Math.abs(s.power - b1.aimPower))).toFixed(3)} vs ${(AUTO_POWER_JITTER * b1.band).toFixed(3)}`);
+  const b2 = burst(AIM_ANGLE, 0.4);
+  const mean = (xs: number[]) => xs.reduce((a, x) => a + x, 0) / xs.length;
+  check("a softer drag throws a softer burst",
+    mean(b2.shots.map((s) => s.power)) < mean(b1.shots.map((s) => s.power)),
+    `${mean(b2.shots.map((s) => s.power)).toFixed(2)} vs ${mean(b1.shots.map((s) => s.power)).toFixed(2)}`);
+
+  for (const game of [g, g2, g3, bare, stab, g4, g5, g6, g7, g8, b1.game, b2.game]) game.destroy();
 }
 
 // ---------------------------------------------------------------------------
