@@ -136,6 +136,17 @@ section("Ship upgrades (upgrades.ts)");
     tiersCost({ ...newTiers(), bay: MAX_TIER }) === full,
     String(tiersCost({ ...newTiers(), bay: MAX_TIER })),
   );
+
+  // Demolition is a TRACK, not only a drafted card. Installing a system has to
+  // actually grant the thing the system is named for, or a Workshop purchase
+  // buys nothing — which is the bug this whole layer exists to fix.
+  const demoCfg = makeBaseLevel(0);
+  applyUpgrades(demoCfg, { ...newTiers(), demolition: 2 });
+  check("the demolition track grants charges", demoCfg.bombCharges === 2, String(demoCfg.bombCharges));
+  const demoStock = makeBaseLevel(0);
+  applyUpgrades(demoStock, newTiers());
+  check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
+  check("a full rig now costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +160,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
     String(FULL_BUILD_COST),
   );
-  check("a full rig costs 660", FULL_BUILD_COST === 660, String(FULL_BUILD_COST));
+  check("a full rig costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
 
   // Monotone, and the ladder spans "one system" to "everything".
   let monotone = true;
