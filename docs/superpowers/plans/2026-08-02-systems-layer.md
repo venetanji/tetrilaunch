@@ -12,6 +12,41 @@
 
 ---
 
+## Progress — resume at Task 3
+
+Branch `systems-layer`, based on `materials`. Suite green, `tsc` clean at every
+commit.
+
+| Task | Status | Commit |
+|---|---|---|
+| 1 — demolition track | **done**, spec + quality reviewed | `a0a6c6e` |
+| 2 — refit cannot install | **done**, spec + quality reviewed | `1a80530` |
+| 3 — `INSTALLS` table | not started | — |
+| 4 — `buyInstall` + budget cap | not started | — |
+| 5 — retire the pricing check | not started | — |
+| 6 — Workshop sells installs | not started | — |
+| 7 — wire the purchase | not started | — |
+
+Check count is **370** at Task 2. Note this branch does NOT carry PR #20's seven
+contract-modal checks, so it reads lower than a branch that does — the baseline
+here is 360, not 367.
+
+### Two things the next session needs to know
+
+**`src/ui/icons.ts` has no `demolition` entry.** `refitScreen` calls
+`icon(u.id as IconName, 15)` over every entry in `UPGRADES`, so the new track
+renders a blank glyph. `tsc` cannot catch this: a string-literal union assertion
+only requires the two unions to share **one** member, not to overlap. No test
+covers `refitScreen` either. Fix it in Task 6, where the card becomes
+user-facing.
+
+**Task 2 left a known dead button, on purpose.** The refit card still prices a
+tier-0 track as a live 20-scrap button that now taps to nothing, because
+`buyUpgrade` refuses tier 0. Task 7's step 2 replaces it with a "Not installed"
+state. Do not treat it as a regression.
+
+---
+
 ## Working agreements
 
 - All paths are relative to `C:\Users\giova\dev\tetrilaunch\app`.
