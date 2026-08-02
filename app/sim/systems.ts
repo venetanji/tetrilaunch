@@ -21,7 +21,7 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
-  UNLOCKS, unlockAvailable, MARK_COUNT, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
+  UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS,
 } from "../src/game/meta";
 import {
