@@ -194,10 +194,27 @@ const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
 
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
- *  ~9 degrees. Wide enough that consecutive shots genuinely scatter across the
- *  bay (that's the mechanic), tight enough that where the player points the
- *  cannon still decides which HALF of the bay gets buried. */
-const AUTO_SPREAD_RAD = 0.16;
+ *  ~5.7 degrees. Wide enough that consecutive shots genuinely scatter (that's
+ *  the mechanic), tight enough that where the player points the cannon still
+ *  decides where the burst lands, not merely which half of the bay it ruins. */
+export const AUTO_SPREAD_RAD = 0.1;
+
+/** Autoloader power spread, as a +/- fraction of the ship's speed band, around
+ *  whatever power the player is holding.
+ *
+ *  This used to re-roll uniformly across the WHOLE upper 55% of the band on
+ *  every shot, which meant the drag's power axis did nothing at all: measured
+ *  on device, a held burst threw between 17.7 and 33.0 px/step. Range goes as
+ *  v^2, so that is a ~3.5x spread in landing distance — the single biggest
+ *  reason a burst scattered across the entire bay no matter how it was aimed. */
+export const AUTO_POWER_JITTER = 0.08;
+
+/** Floor for autoloader power, as a fraction of the speed band. Purely a guard
+ *  against the one strictly-wasted outcome — holding the trigger at a bay's
+ *  untouched default power (speedMin) dribbles shipments onto the cannon's own
+ *  feet. Above it the player's drag is obeyed exactly, including deliberately
+ *  short shots. */
+const AUTO_POWER_FLOOR = 0.25;
 
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
@@ -789,18 +806,41 @@ export class Game {
     if (!this.cannon.canShoot(now)) return;
     if (this.score < this.level.launchCost) return;
 
-    // Aim spread: +/-AUTO_SPREAD_RAD around the player's angle and the upper
-    // half of the power band, clamped to the cannon's own cone/limits.
-    const angle = this.cannon.angle + (this.autoRng() * 2 - 1) * AUTO_SPREAD_RAD;
-    this.cannon.angle = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, angle));
-    const lo = this.cannon.speedMin + (this.cannon.speedMax - this.cannon.speedMin) * 0.45;
-    this.cannon.power = lo + this.autoRng() * (this.cannon.speedMax - lo);
+    // The player's aim is the ANCHOR of the burst and survives it: the jitter
+    // below is applied for this one shot and restored immediately after.
+    //
+    // The jittered angle used to be written straight back into cannon.angle,
+    // which made the aim a random WALK rather than a spread — every shot's
+    // jitter compounded on the last, so a held trigger drifted away from
+    // wherever the player was pointing and, at the far end, pinned against the
+    // +/-60deg cone limit and fired the same wasted shot repeatedly. Together
+    // with a power axis that ignored the drag entirely (see AUTO_POWER_JITTER),
+    // that is what made the mod read as erratic. Measured on device before this
+    // fix: 6.72 shots per line in autoloader bays against 2.94 in hand-fired
+    // ones, and 23.4% of shipments lost to the wrong side against 10.3%.
+    const aimAngle = this.cannon.angle;
+    const aimPower = this.cannon.power;
+    const cone = Math.PI / 3;
+    const band = this.cannon.speedMax - this.cannon.speedMin;
+    const floor = this.cannon.speedMin + band * AUTO_POWER_FLOOR;
+
+    const angle = aimAngle + (this.autoRng() * 2 - 1) * AUTO_SPREAD_RAD;
+    this.cannon.angle = Math.max(-cone, Math.min(cone, angle));
+    const power = aimPower + (this.autoRng() * 2 - 1) * AUTO_POWER_JITTER * band;
+    this.cannon.power = Math.max(floor, Math.min(this.cannon.speedMax, power));
     // A random quarter-turn too: the rig doesn't care how the piece lands.
+    // Not restored, because markShot already resets pieceRotation to 0.
     const turns = Math.floor(this.autoRng() * 4);
     for (let i = 0; i < turns; i++) this.cannon.rotateRight();
 
     this.lastAutoStep = this.stepCount;
     this.shoot(now, true);
+
+    this.cannon.angle = aimAngle;
+    this.cannon.power = aimPower;
+    // shoot() drew the trajectory from the jittered aim; redraw it from the
+    // player's, so the dotted arc keeps showing where THEY are pointing.
+    this.updateTrajectory();
   }
 
   /**
