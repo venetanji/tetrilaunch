@@ -1069,6 +1069,45 @@ body.crt-off #app::after { display: none; }
   .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
 
+/* ---------- End-of-Contract modal (screens.ts's contractEndModal) ----------
+   The phone this is played on is LANDSCAPE — 792x360 CSS px — which leaves
+   `.modal` about 322px of height. Stacked in a single column the win screen
+   measured 477px and therefore SCROLLED: a screen whose entire job is to say
+   you won and how much you banked was hiding its own payout below the fold.
+
+   The fix is to spend the axis that is actually free. There is width going
+   spare (the panel was pinned at 460px inside a 792px viewport) and no height
+   at all, so the stat chips, the payout and the two buttons lay out in ROWS.
+   Each row wraps on its own flex-basis rather than at a breakpoint, so a
+   genuinely narrow (portrait) viewport still gets the original stack without a
+   second set of rules to keep in sync. */
+.modal--contract-end { width: min(720px, 94vw); }
+.modal--contract-end .ce__cols,
+.modal--contract-end .ce__stats,
+.modal--contract-end .ce__btns { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+/* Stats take twice the slack: there are up to three of them against the
+   payout's one, and when they wrap to three rows they set the whole row's
+   height (the payout only stretches to match). */
+.modal--contract-end .ce__stats { flex: 2 1 260px; align-content: flex-start; }
+.modal--contract-end .ce__reward { flex: 1 1 200px; display: flex; }
+.modal--contract-end .ce__reward > .chip { flex: 1 1 auto; justify-content: center; }
+.modal--contract-end .ce__btns > .btn { flex: 1 1 200px; }
+
+/* Short viewports: the display heading is the largest block on the screen and
+   the one carrying the least per pixel — the eyebrow above it already names
+   the Contract and the outcome. */
+@media (max-height: 480px) {
+  .modal--contract-end h2 { font-size: var(--fs-h2); }
+}
+
+/* Shorter still (a 320px-tall landscape phone). The chips are the only thing
+   left with slack once the heading has shrunk, and their padding is the part
+   that costs height without carrying information. */
+@media (max-height: 400px) {
+  .modal--contract-end .chip { padding: 5px 10px; }
+  .modal--contract-end .ce__reward > .chip { padding: 7px 10px; }
+}
+
 /* ---------- Game-over FX (see screens.ts's loseFxHTML) ----------
    Full-screen animated backdrop inside the scrim, behind the modal panel.
    Pure CSS, pointer-events: none — the modal stays fully interactive. */

@@ -23,7 +23,7 @@ import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
-import type { Material } from "../src/game/theme";
+import type { Material, PieceType } from "../src/game/theme";
 import {
   applyUpgrades, newTiers, nextTierCost, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
@@ -45,7 +45,7 @@ import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
-import { endBoard, fullBoard, END_BOARD_TOP, contractsScreen } from "../src/ui/screens";
+import { endBoard, fullBoard, END_BOARD_TOP, contractsScreen, contractEndModal } from "../src/ui/screens";
 import type { ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -547,6 +547,31 @@ section("Pattern Contracts (contracts.ts)");
     !contractsScreen({ contracts: board, tier: 1, cleared: yesterday })
       .includes("contract-card--done"),
   );
+
+  // The end-of-Contract modal's layout hooks. Measured in a real WebView at the
+  // device's 792x360 landscape viewport, the win screen stacked to 477px inside
+  // a 322px box and SCROLLED — the payout sat below the fold on the screen whose
+  // job is to report it. app.css lays the stats, the payout and the buttons out
+  // in wrapping ROWS off these three classes; heights can only be checked in a
+  // browser, but their absence can be caught here.
+  const endOpts = {
+    name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
+    launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
+    cubesWasted: 0, salvageTotal: 66,
+  };
+  const ceWin = contractEndModal({ ...endOpts, won: true, award: { salvage: 60, firstClear: true } });
+  const ceLoss = contractEndModal({ ...endOpts, won: false, award: null });
+  for (const [label, html] of [["win", ceWin], ["loss", ceLoss]] as const) {
+    check(`the ${label} contract modal opts into the end-of-Contract layout`,
+      html.includes("modal--contract-end"));
+    check(`its ${label} stats and buttons sit in the wrapping rows`,
+      html.includes("ce__cols") && html.includes("ce__stats") && html.includes("ce__btns"));
+    // The inline width is what pinned the panel to 460px inside a 792px
+    // viewport — the whole reason it had no room to lay out sideways.
+    check(`the ${label} modal takes its width from CSS, not an inline cap`,
+      !html.includes("width:min(460px"));
+  }
+  check("only a won contract shows a payout block", ceWin.includes("ce__reward") && !ceLoss.includes("ce__reward"));
 }
 
 // ---------------------------------------------------------------------------
