@@ -1149,7 +1149,7 @@ export function contractEndModal(opts: {
   const supplyLabel = pattern ? "Shipments" : "Launches";
   const supplyTotal = pattern ? opts.queue.length : opts.launches;
   const stats = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
+    <div class="ce__stats">
       <div class="chip" style="flex-direction:row;gap:10px">
         <div class="chip__label">Lines</div>
         <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
@@ -1180,13 +1180,15 @@ export function contractEndModal(opts: {
         : "The manifest ran out before the goal did."
       : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
-      <div class="panel modal pop" style="width:min(460px,94vw)">
+      <div class="panel modal modal--contract-end pop">
         <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
-        <h2 class="display" style="font-size:var(--fs-h1)">${heading}</h2>
+        <h2 class="display">${heading}</h2>
         <p class="muted" style="margin:2px 0 0">${why}</p>
-        ${stats}
-        <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
-        <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+        <div class="ce__cols">${stats}</div>
+        <div class="ce__btns">
+          <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
+          <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+        </div>
       </div>
     </div>`;
   }
@@ -1208,9 +1210,9 @@ export function contractEndModal(opts: {
        </div>`;
 
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal pop" style="width:min(460px,94vw)">
+    <div class="panel modal modal--contract-end pop">
       <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
-      <h2 class="display neon-text" style="font-size:var(--fs-h1);color:var(--success)">
+      <h2 class="display neon-text" style="color:var(--success)">
         ✓ Contract Complete
       </h2>
       <p class="muted" style="margin:2px 0 0">
@@ -1220,10 +1222,11 @@ export function contractEndModal(opts: {
             : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
         }
       </p>
-      ${stats}
-      <div style="margin:0 0 14px">${reward}</div>
-      <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
-      <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+      <div class="ce__cols">${stats}<div class="ce__reward">${reward}</div></div>
+      <div class="ce__btns">
+        <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
+        <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+      </div>
     </div>
   </div>`;
 }
