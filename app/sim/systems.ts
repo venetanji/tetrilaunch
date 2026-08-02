@@ -585,18 +585,40 @@ section("Refit cadence + run economy (run.ts)");
   // Ending at/under target carries no debt.
   check("no debt carries", advanceRun(run, 500, 800, 0, 0, null).carry === 0);
 
-  // Buying an upgrade deducts scrap and never mutates the input.
-  const before = { ...run.tiers };
-  const bought = buyUpgrade(run, "launcher", TIER_COSTS[0], MAX_TIER);
-  check("buyUpgrade returns a new state", bought !== null && bought !== run);
-  check("buyUpgrade deducts scrap", bought!.scrap === 26 - TIER_COSTS[0]);
-  check("buyUpgrade raises the tier", bought!.tiers.launcher === 1);
-  check("buyUpgrade does not mutate the input", JSON.stringify(run.tiers) === JSON.stringify(before) && run.scrap === 26);
-  check("buyUpgrade refuses when broke", buyUpgrade(newRun(1), "bay", 20, MAX_TIER) === null);
+  // Buying an upgrade deducts scrap and never mutates the input. The track
+  // under test is seeded at tier 1 and priced at the tier-2 rung, because a
+  // refit can only raise a system the Workshop already installed.
+  const refit = { ...run, scrap: 60, tiers: { ...run.tiers, launcher: 1 } };
+  const before = { ...refit.tiers };
+  const bought = buyUpgrade(refit, "launcher", TIER_COSTS[1], MAX_TIER);
+  check("buyUpgrade returns a new state", bought !== null && bought !== refit);
+  check("buyUpgrade deducts scrap", bought!.scrap === 60 - TIER_COSTS[1]);
+  check("buyUpgrade raises the tier", bought!.tiers.launcher === 2);
+  check("buyUpgrade does not mutate the input",
+    JSON.stringify(refit.tiers) === JSON.stringify(before) && refit.scrap === 60);
+  // Installed, so this can only be refused for poverty — the reason under test.
+  check(
+    "buyUpgrade refuses when broke",
+    buyUpgrade(newRun(1, [], 0, { ...newTiers(), bay: 1 }), "bay", TIER_COSTS[1], MAX_TIER) === null,
+  );
   check(
     "buyUpgrade refuses a maxed track",
     buyUpgrade({ ...newRun(1), scrap: 999, tiers: { ...newTiers(), bay: MAX_TIER } }, "bay", 20, MAX_TIER) === null,
   );
+
+  // Refit TIERS an installed system; it does not install one. In-run scrap is
+  // uncapped, so a scrap install would route around the Mark's build budget —
+  // the cap that makes two rigs at one Mark equal in power. Both runs are given
+  // the whole ladder's price so poverty can never be the reason for a refusal,
+  // and both prices are read off nextTierCost so a re-price can't turn either
+  // check into a tautology.
+  const flush = TIER_COSTS.reduce((a, b) => a + b, 0);
+  const stockRun = newRun(1, [], flush);
+  check("refit cannot install an uninstalled system",
+    buyUpgrade(stockRun, "demolition", nextTierCost(0)!, MAX_TIER) === null);
+  const installedRun = newRun(1, [], flush, { ...newTiers(), demolition: 1 });
+  check("refit can tier a system that IS installed",
+    buyUpgrade(installedRun, "demolition", nextTierCost(1)!, MAX_TIER)?.tiers.demolition === 2);
 
   // Upgrades apply BEFORE mods, so a mod's multiplier compounds over the ship.
   const withShip = levelForRun({

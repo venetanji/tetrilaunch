@@ -151,11 +151,18 @@ export function advanceRun(
 }
 
 /** Buy one tier of a system at a refit stop. Returns a NEW RunState with the
- *  tier raised and the scrap deducted, or null when it can't be bought (maxed,
- *  or not enough scrap) — the caller renders that as a disabled card rather
- *  than needing to duplicate the affordability rules. */
+ *  tier raised and the scrap deducted, or null when it can't be bought (not
+ *  installed, maxed, or not enough scrap) — the caller renders that as a
+ *  disabled card rather than needing to duplicate the affordability rules. */
 export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, maxTier: number): RunState | null {
   const tier = run.tiers[id] ?? 0;
+  // Tier 0 means the ship doesn't carry the system at all. A refit raises one
+  // it already has, 1 -> 3; putting one aboard is a loadout purchase made
+  // against the Mark's build budget (upgrades.ts's buyLoadoutTier). In-run
+  // scrap has no such budget, so letting it install would route around the cap
+  // that makes two rigs at the same Mark equal in power — see upgrades.ts's
+  // BUILD BUDGET note for why that equality is the load-bearing one.
+  if (tier <= 0) return null;
   if (tier >= maxTier) return null;
   if (run.scrap < cost) return null;
   return {
