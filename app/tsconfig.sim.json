@@ -1,0 +1,18 @@
+// Typecheck pass for the sim/ harness (systems, sweep, marks, playtest, bots,
+// runner, perf). Separate from tsconfig.json rather than just another entry in
+// its "include" because the harness needs Node's globals — process, node:fs —
+// and folding "node" into the base "types" would hand those to src/ too, where
+// a stray process.env would then typecheck happily and die in the browser.
+//
+// Everything else is inherited, moduleResolution "bundler" included: the
+// harness imports src/ extensionlessly and tsx resolves it the same way.
+//
+// Wired into `npm run typecheck`, which `npm run build` gates on — so CI fails
+// on a broken harness instead of finding out at `npm run test`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "vite-plugin-pwa/client", "node"]
+  },
+  "include": ["sim"]
+}
