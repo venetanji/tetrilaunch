@@ -2,7 +2,7 @@ import {
   MATERIAL_SPEC, PIECE_COLORS, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
-import { modById, type ModDef } from "../game/mods";
+import { HAZARDS, type HazardDef, type HazardId, type Ratchets } from "../game/hazards";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 
 /**
@@ -100,62 +100,52 @@ export function beltBombHTML(): string {
   return `<div class="next__bomb-tile" aria-label="Next: bomb">💣</div>`;
 }
 
-/** Stable 2-letter glyph + tiny pixel-font name per drafted-mod id, shown as
- *  a chip in the recycling-plant HUD panel (see screens.ts's hudHTML / the
- *  1d layout, and game/mods.ts's MODS). Kept as an explicit table rather
- *  than derived from `name` each render, so a chip's glyph/label never
- *  shifts if a mod's display copy changes — "stable per mod id" per the 1d
- *  design brief. Anything not listed here (a future mod) falls back to an
- *  auto-derived id-slice glyph in modChipHTML below instead of crashing. */
-const MOD_GLYPHS: Record<string, { g: string; nm: string }> = {
-  overclock: { g: "OC", nm: "O.CLOCK" },
-  sturdy: { g: "SD", nm: "STURDY" },
-  micro: { g: "µS", nm: "MICRO" },
-  bulk: { g: "BK", nm: "BULK" },
-  demo: { g: "DM", nm: "DEMO" },
-  autoloader: { g: "AL", nm: "AUTOLDR" },
-  overtime: { g: "OT", nm: "O.TIME" },
-  premium: { g: "PR", nm: "PREMIUM" },
-  "short-lines": { g: "SL", nm: "SH.LINE" },
-  heavy: { g: "BL", nm: "BALLAST" },
-  rapid: { g: "RL", nm: "RAPID" },
-  // Bond Breaker never renders through modChipHTML (see runModsHTML below —
-  // it gets its own tappable glowing chip in screens.ts), but keep an entry
-  // for completeness/consistency with the id table.
-  "bond-breaker": { g: "BB", nm: "BOND BRK" },
+/** Stable 2-letter glyph + tiny pixel-font name per ratcheted AXIS, shown as a
+ *  chip in the recycling-plant HUD panel (see screens.ts's hudHTML and
+ *  game/hazards.ts's HAZARDS). Kept as an explicit table rather than derived
+ *  from `name` each render, so a chip's glyph never shifts if an axis's display
+ *  copy changes — "stable per id" per the 1d design brief. Anything not listed
+ *  falls back to an auto-derived id slice rather than crashing.
+ *
+ *  This row used to list drafted MODS. It lists the player's own difficulty
+ *  choices now, and that is a bigger change than the swap looks: the chips are
+ *  no longer a trophy shelf of what you were given, they are the running bill
+ *  for what you took on. Which is exactly what a player needs on screen while
+ *  deciding whether the next notch is affordable. */
+const AXIS_GLYPHS: Record<HazardId, { g: string; nm: string }> = {
+  target: { g: "QT", nm: "QUOTA" },
+  cost: { g: "$L", nm: "FUEL" },
+  time: { g: "CL", nm: "SHIFT" },
+  wind: { g: "WD", nm: "X.WIND" },
+  sweeper: { g: "SW", nm: "SWEEP" },
+  slag: { g: "SL", nm: "SLAG" },
+  cryo: { g: "CR", nm: "CRYO" },
+  rebar: { g: "RB", nm: "REBAR" },
+  volatile: { g: "VL", nm: "VOLATL" },
+  tar: { g: "TR", nm: "TAR" },
+  magnetic: { g: "MG", nm: "MAGNET" },
 };
 
-/** One run-mod chip: 2-letter glyph, tiny name, kind-colored top border
- *  (`.k-tradeoff`/`.k-boon`/`.k-bane`, matching ModDef.kind), and a ×N stack
- *  badge when `count` > 1 (only stackable mods can repeat — see
- *  mods.ts's ModDef.stackable). */
-function modChipHTML(mod: ModDef, count: number): string {
-  const glyph = MOD_GLYPHS[mod.id] ?? { g: mod.id.slice(0, 2).toUpperCase(), nm: mod.name.slice(0, 8).toUpperCase() };
+/** One ratchet chip: glyph, tiny name, and a ×N badge once an axis has been
+ *  taken more than once. Content axes get the `k-bane` treatment and number
+ *  axes `k-tradeoff`, so a glance separates "the belt is dirtier" from "the
+ *  numbers are worse" — they are answered by completely different systems. */
+function axisChipHTML(h: HazardDef, count: number): string {
+  const glyph = AXIS_GLYPHS[h.id] ?? {
+    g: h.id.slice(0, 2).toUpperCase(),
+    nm: h.name.slice(0, 8).toUpperCase(),
+  };
   const stack = count > 1 ? `<span class="stk">×${count}</span>` : "";
-  return `<div class="mod k-${mod.kind}" title="${mod.name}"><span class="g">${glyph.g}</span><span class="nm">${glyph.nm}</span>${stack}</div>`;
+  const kind = h.kind === "content" ? "bane" : "tradeoff";
+  return `<div class="mod k-${kind}" title="${h.name} ×${count}"><span class="g">${glyph.g}</span><span class="nm">${glyph.nm}</span>${stack}</div>`;
 }
 
-/** Run-mods chip row for the recycling-plant HUD panel — every drafted mod
- *  EXCEPT Bond Breaker (that one gets its own tappable glowing chip merged
- *  from the old standalone HUD button, see screens.ts's hudHTML), collapsed
- *  to one chip per id with a ×N stack badge for repeats, in first-drafted
- *  order. `modIds` is a run's full pick history (run.ts's RunState.modIds),
- *  which can list a stackable id more than once. */
-export function runModsHTML(modIds: string[]): string {
-  const order: string[] = [];
-  const counts = new Map<string, number>();
-  for (const id of modIds) {
-    // Bond Breaker and Demolition Charges both get their own tappable,
-    // charge-counting chips in screens.ts's hudHTML — they're ABILITIES, not
-    // passive modifiers, so they don't belong in the passive chip row.
-    if (id === "bond-breaker" || id === "demo") continue;
-    if (!counts.has(id)) order.push(id);
-    counts.set(id, (counts.get(id) ?? 0) + 1);
-  }
-  return order
-    .map((id) => modById(id))
-    .filter((m): m is ModDef => m != null)
-    .map((m) => modChipHTML(m, counts.get(m.id) ?? 1))
+/** Ratchet chip row for the recycling-plant HUD panel — one chip per axis the
+ *  run has ratcheted, in ladder order (HAZARDS), with a ×N badge for repeats. */
+export function runRatchetsHTML(ratchets: Ratchets): string {
+  return HAZARDS
+    .filter((h) => (ratchets[h.id] ?? 0) > 0)
+    .map((h) => axisChipHTML(h, ratchets[h.id] ?? 0))
     .join("");
 }
 

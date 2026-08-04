@@ -102,13 +102,39 @@ export const PIECE_COLORS: Record<PieceType, string> = {
  *                 shatters, and takes its row's alignment with it. The answer
  *                 is sequencing: land something on it, THEN build the row.
  *
- * The remaining four from the design table (rebar, volatile, tar, magnetic) are
- * deliberately not here yet — DESIGN.md's build order ships slag and cryo
- * first, because those two are what the Mark ladder's calibration is waiting on.
+ *  - "rebar"    — its joints NEVER break, at any stretch. Slag denies a slot;
+ *                 rebar denies a SHAPE. What lands is what you keep, so a bad
+ *                 landing cannot be squeezed, shoved or shattered into a better
+ *                 one, and the row has to be built around it. The answer is the
+ *                 Bond Emitter: a Bond Breaker charge is the one thing that
+ *                 splits it, which is why rebar is the material that finally
+ *                 gives that system a job beyond tidying a messy pile.
+ *  - "volatile" — detonates when it lands HARD, taking its neighbours with it.
+ *                 The only material whose cost is paid by the cubes already on
+ *                 the field rather than by itself, so it punishes a full bay far
+ *                 worse than an empty one. The answer is a soft landing —
+ *                 settleAssist, which the Press Hydraulics track raises — or
+ *                 deliberately chaining it into a pile you wanted gone anyway.
+ *  - "tar"      — welds permanently to whatever it touches on contact, and a
+ *                 Bond Breaker will NOT split the weld. The deliberate inverse
+ *                 of rebar: rebar is rigid and breakable, tar is the joint you
+ *                 cannot break. Avoidance is the real answer; Demolition is the
+ *                 expensive one, since a vaporized cube takes its welds with it.
+ *  - "magnetic" — snaps itself square against its neighbours as it settles. The
+ *                 HELPFUL blocker, and the reason the vocabulary is not
+ *                 uniformly hostile: it fills a slot you may not have wanted
+ *                 filled, but it squares the row while doing it. Like cryo it
+ *                 gets no counter system, and for the same reason — giving one
+ *                 to a material that is already doing you a favour would delete
+ *                 the only rung on the ladder that teaches a hazard can be
+ *                 welcome.
  */
-export type Material = "standard" | "slag" | "cryo";
+export type Material =
+  | "standard" | "slag" | "cryo" | "rebar" | "volatile" | "tar" | "magnetic";
 
-export const MATERIALS: Material[] = ["standard", "slag", "cryo"];
+export const MATERIALS: Material[] = [
+  "standard", "slag", "cryo", "rebar", "volatile", "tar", "magnetic",
+];
 
 /**
  * Per-material presentation and rule flags, read by both the renderer and
@@ -130,6 +156,22 @@ export const MATERIAL_SPEC: Record<
     countsForLines: boolean;
     /** Must this cube be struck before it counts? True for cryo. */
     needsStrike: boolean;
+    /** Are this shipment's joints exempt from the level's break-stretch check
+     *  entirely? True for rebar. A Bond Breaker still splits them — that is
+     *  deliberately the only thing that does, and it is what gives the Bond
+     *  Emitter track a job that isn't cosmetic. */
+    rigid?: boolean;
+    /** Does a hard landing detonate this cube, taking its neighbours? True for
+     *  volatile. The impact threshold and blast radius live in game.ts beside
+     *  the collision handler that measures them. */
+    detonates?: boolean;
+    /** Does this cube weld permanently to whatever it touches, surviving even a
+     *  Bond Breaker? True for tar. */
+    welds?: boolean;
+    /** Does this cube snap itself onto the slot grid as it settles? True for
+     *  magnetic — the one material that HELPS, and the reason the vocabulary
+     *  isn't uniformly hostile. */
+    aligns?: boolean;
   }
 > = {
   standard: { name: "Standard", color: null, countsForLines: true, needsStrike: false },
@@ -139,6 +181,19 @@ export const MATERIAL_SPEC: Record<
   // Pale ice. Bright enough to stay legible in flight, cold enough to read as
   // a different substance rather than another piece color.
   cryo: { name: "Cryo", color: "#9fe8ff", countsForLines: true, needsStrike: true },
+  // Structural orange — the colour of the thing itself, and the only warm
+  // saturated tone on the field, so "this one will not bend" reads in flight.
+  rebar: { name: "Rebar", color: "#ff8a1f", countsForLines: true, needsStrike: false, rigid: true },
+  // Hazard yellow-green, the one colour the palette otherwise refuses. It is a
+  // warning label, and it is the only material whose cost lands on cubes that
+  // were already safely down.
+  volatile: { name: "Volatile", color: "#d4ff3a", countsForLines: true, needsStrike: false, detonates: true },
+  // Near-black with just enough value to separate from the backdrop. Tar reads
+  // as an absence — the slot it took is not coming back.
+  tar: { name: "Tar", color: "#241f2e", countsForLines: true, needsStrike: false, welds: true },
+  // Cold steel-violet, deliberately close to the wall colour: magnetic is the
+  // one material that behaves like part of the bay rather than against it.
+  magnetic: { name: "Magnetic", color: "#8f9bd6", countsForLines: true, needsStrike: false, aligns: true },
 };
 
 export const COLORS = {

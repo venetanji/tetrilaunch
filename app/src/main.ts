@@ -5,11 +5,22 @@ import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
   RUN_LEVELS, type RunState,
 } from "./game/run";
-import { draftOffers, modById, type ModDef } from "./game/mods";
+import {
+  hazardOffers, hazardById, picksPerBay, HAZARDS,
+  type HazardDef, type HazardId, type Ratchets,
+} from "./game/hazards";
+
+/** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
+ *  so two runs with the same build produce byte-identical strings. */
+function axisNotchList(ratchets: Ratchets): string[] {
+  return HAZARDS
+    .filter((h) => (ratchets[h.id] ?? 0) > 0)
+    .map((h) => `${h.id}:${ratchets[h.id]}`);
+}
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  buyInstall, contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract,
-  salvageForRun, unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
+  buyInstall, contractClaimed, markUnlocked, safeLoadout, salvageForContract,
+  salvageForRun, unlockAvailable, unlockById, type MetaState,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -58,8 +69,14 @@ class App {
   /** The current roguelite run (seed, level index, carried surplus, drafted
    *  mods). Null only before the first "Play" — startGame() creates it. */
   private run: RunState | null = null;
-  /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
-  private pendingOffers: ModDef[] = [];
+  /** The difficulty axes on offer in the between-bay draft (hazards.ts). */
+  private pendingOffers: HazardDef[] = [];
+  /** Axes taken at THIS draft, before it closes. Mark 10 asks for two, so a
+   *  pick is banked here rather than applied straight to the run — otherwise
+   *  the first pick would re-render the modal with the second offer already
+   *  ratcheted, and a player who changed their mind mid-draft could not tell
+   *  which half of the choice had landed. */
+  private pendingPicks: HazardId[] = [];
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
@@ -224,7 +241,7 @@ class App {
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
-      modIds: this.run?.modIds ?? [],
+      ratchets: this.run?.ratchets ?? {},
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
       contract: this.contract
         ? {
@@ -349,9 +366,6 @@ class App {
         break;
       case "draft":
         if (g && this.run) {
-          const owned = this.run.modIds
-            .map(modById)
-            .filter((m): m is ModDef => m != null);
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
             S.draftScreen({
@@ -365,16 +379,14 @@ class App {
               // next bay's float is really getting (see advanceRun).
               carry: this.run.carry,
               offers: this.pendingOffers,
-              owned,
+              ratchets: this.run.ratchets,
+              picked: this.pendingPicks,
+              picksNeeded: picksPerBay(this.run.mark),
               scrap: this.run.scrap,
               // Bay-CLEARS until the next refit stop, counting the bay about to
               // be played; 1 means "clear this one and you dock". Null late in a
               // run when no stop remains.
               baysToRefit: baysUntilRefit(this.run.levelIndex),
-              // Only meaningful while the third slot is still unearned; the
-              // screen hides the locked card once it is.
-              contractsCleared: this.meta.claimedContracts.length,
-              contractsForThirdSlot: DRAFT_THIRD_SLOT_CONTRACTS,
             });
         }
         break;
@@ -532,7 +544,7 @@ class App {
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
       tiers: this.run.tiers,
-      mods: this.run.modIds,
+      notches: axisNotchList(this.run.ratchets),
       pieceSize: cfg.pieceSize,
     });
     this.setState("playing");
@@ -605,7 +617,7 @@ class App {
       compactorSpeed: compactorSpeedFor(cfg),
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
-      mods: [c.brief], pieceSize: cfg.pieceSize,
+      notches: [c.brief], pieceSize: cfg.pieceSize,
     });
     this.setState("playing");
     this.armDragHint();
@@ -664,10 +676,13 @@ class App {
         // NOT destroyed here — status "won" makes update() a no-op, so the rAF
         // loop keeps re-rendering the settled field (and its bayclear sweep FX)
         // behind the banner until startLevel() tears it down.
-        this.pendingOffers = draftOffers(
-          this.run.seed, this.run.levelIndex, this.run.modIds,
-          draftSlots(this.meta.claimedContracts), this.run.unlocks,
+        // The offer is a function of the run seed, the bay and the Mark — NOT of
+        // what the player owns. A hazard draft asks what you are prepared for,
+        // so the table has to be the same whatever you brought to it.
+        this.pendingOffers = hazardOffers(
+          this.run.seed, this.run.levelIndex, this.run.mark,
         );
+        this.pendingPicks = [];
         this.setState("bayclear");
         this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);
       } else {
@@ -712,7 +727,7 @@ class App {
       g.target,
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
-      null,
+      [],
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
@@ -838,13 +853,29 @@ class App {
     this.renderOverlay();
   }
 
-  /** "pick-mod"/"skip-mod": append the drafted pick (null for a skip) and start
-   *  the next bay. The bay itself was already banked into the run by
-   *  afterBayClear (so a refit stop could spend its scrap), so this ONLY records
-   *  the choice — it must not call advanceRun again or the run would skip a bay. */
-  private advanceAfterDraft(modId: string | null): void {
-    if (!this.run) return;
-    if (modId) this.run = { ...this.run, modIds: [...this.run.modIds, modId] };
+  /** "pick-hazard": bank one ratchet notch, and start the next bay once the
+   *  Mark's full quota of picks is in. The bay itself was already banked into
+   *  the run by afterBayClear (so a refit stop could spend its scrap), so this
+   *  ONLY records the choice — it must not call advanceRun again or the run
+   *  would skip a bay.
+   *
+   *  There is no skip. The ratchet is the price of the bay just cleared, and a
+   *  draft you can decline is a draft with a dominant option. */
+  private onPickHazard(id: string): void {
+    if (!this.run || this.state !== "draft") return;
+    if (!hazardById(id)) return;
+    // Only from the hand actually dealt — a stale or hand-edited data-hazard
+    // must not let a player ratchet an axis their Mark has not opened.
+    if (!this.pendingOffers.some((h) => h.id === id)) return;
+    this.pendingPicks = [...this.pendingPicks, id as HazardId];
+    if (this.pendingPicks.length < picksPerBay(this.run.mark)) {
+      this.renderOverlay();
+      return;
+    }
+    const ratchets = { ...this.run.ratchets };
+    for (const axis of this.pendingPicks) ratchets[axis] = (ratchets[axis] ?? 0) + 1;
+    this.run = { ...this.run, ratchets };
+    this.pendingPicks = [];
     this.startLevel();
   }
 
@@ -1122,11 +1153,8 @@ class App {
       case "paywall": void this.onPaywall(); break;
       case "customer-center": void presentCustomerCenter(); break;
       case "restore": void this.onRestore(); break;
-      case "pick-mod":
-        if (this.state === "draft") this.advanceAfterDraft(el.getAttribute("data-mod"));
-        break;
-      case "skip-mod":
-        if (this.state === "draft") this.advanceAfterDraft(null);
+      case "pick-hazard":
+        this.onPickHazard(el.getAttribute("data-hazard") ?? "");
         break;
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.

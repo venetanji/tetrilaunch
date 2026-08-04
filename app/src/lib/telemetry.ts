@@ -55,7 +55,9 @@ export interface BayRecord {
   compactorOpenCells: number;
   compactorMinLineCells: number;
   tiers: UpgradeTiers;
-  mods: string[];
+  /** Notches taken per axis, flattened to "id:n" (hazards.ts). Replaced the
+   *  drafted-mod list: a run's shape is now what the player ratcheted. */
+  notches: string[];
   pieceSize: string;
   shots: ShotRecord[];
   /** Sampled every SAMPLE_MS so a bay's funds curve can be plotted — "how close
@@ -169,13 +171,13 @@ export function startBay(cfg: {
   target: number; timeLimitSec: number;
   cooldownMs: number; launchCost: number; scorePerLine: number;
   compactorSpeed: number; compactorOpenCells: number; compactorMinLineCells: number;
-  tiers: UpgradeTiers; mods: string[]; pieceSize: string;
+  tiers: UpgradeTiers; notches: string[]; pieceSize: string;
 }): void {
   if (!recording() || !run) return;
   bay = {
     ...cfg,
     tiers: { ...cfg.tiers },
-    mods: [...cfg.mods],
+    notches: [...cfg.notches],
     shots: [],
     funds: [],
     lineClears: [],

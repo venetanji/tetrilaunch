@@ -14,7 +14,12 @@
  */
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
-import { makeBaseLevel, materialMixFor, MATERIAL_SCHEDULE } from "../src/game/level";
+import { makeBaseLevel } from "../src/game/level";
+import {
+  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
+  materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
+  CAPSTONE_MARK, type HazardId, type Ratchets,
+} from "../src/game/hazards";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import { Cannon } from "../src/game/cannon";
 import { Compactor } from "../src/game/compactor";
@@ -44,7 +49,7 @@ import {
 import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
-import { PIECE_TYPES } from "../src/game/theme";
+import { PIECE_TYPES, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
@@ -225,11 +230,15 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "Mark 1 is byte-identical to the stock ladder",
     JSON.stringify(makeBaseLevel(4, 1)) === JSON.stringify(makeBaseLevel(4)),
   );
-  let barRises = true;
+  // A Mark no longer raises the bar at all — MARK_TARGET_STEP is 0 and the
+  // three base axes are flat. This used to assert the opposite, and the
+  // inversion IS the hazard draft: difficulty comes from which axes the player
+  // ratchets, not from numbers the ladder moves behind their back.
+  let barFlat = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
-    if (makeBaseLevel(0, m).targetScore <= makeBaseLevel(0, m - 1).targetScore) barRises = false;
+    if (makeBaseLevel(0, m).targetScore !== makeBaseLevel(0, m - 1).targetScore) barFlat = false;
   }
-  check("every Mark raises the bay's target", barRises);
+  check("a Mark does not move the bay's target", barFlat);
   // Compactor speed is deliberately Mark-invariant (MARK_SPEED_STEP is 0).
   // sim/marks.ts measured it as an erratic bankruptcy tax rather than a
   // difficulty ramp: a faster sweep pushes pieces out before they settle, and
@@ -258,7 +267,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "levelForRun uses the run's Mark",
     levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore === makeBaseLevel(0, 4).targetScore,
   );
-  check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, null).mark === 3);
+  check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, []).mark === 3);
   const source = { ...newTiers(), bay: 1 };
   newRun(1, [], 0, source, 2).tiers.bay = 3;
   check("newRun copies the loadout rather than aliasing it", source.bay === 1);
@@ -731,14 +740,27 @@ section("Refit cadence + run economy (run.ts)");
   check("scrap-cache seeds starting scrap", newRun(1, [], 30).scrap === 30);
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
-  run = advanceRun(run, 950, 800, 8, 26, "premium");
+  run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
   check("overshoot carries as funds", run.carry === 150, String(run.carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
-  check("the drafted pick is recorded", run.modIds.join(",") === "premium");
+  check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
+  // The capstone hands two axes at once, and the same axis twice is a legal
+  // (and grim) pick — so the ratchet counts rather than collecting ids.
+  const twice = advanceRun(run, 800, 800, 0, 0, ["cost", "time"]);
+  check("a second notch on an axis stacks rather than replacing",
+    twice.ratchets.cost === 2 && twice.ratchets.time === 1);
+  check("advanceRun never mutates the run's ratchets", run.ratchets.cost === 1);
+  // A ratcheted run must actually play harder than a clean one at the same bay.
+  const clean = levelForRun({ ...run, ratchets: {} });
+  const notched = levelForRun({ ...run, ratchets: { target: 1, cost: 1, time: 1 } });
+  check("a ratcheted bay demands more than a clean one",
+    notched.targetScore > clean.targetScore
+      && notched.launchCost > clean.launchCost
+      && notched.timeLimitSec < clean.timeLimitSec);
 
   // Ending at/under target carries no debt.
-  check("no debt carries", advanceRun(run, 500, 800, 0, 0, null).carry === 0);
+  check("no debt carries", advanceRun(run, 500, 800, 0, 0, []).carry === 0);
 
   // Buying an upgrade deducts scrap and never mutates the input. The track
   // under test is seeded at tier 1 and priced at the tier-2 rung, because a
@@ -775,16 +797,23 @@ section("Refit cadence + run economy (run.ts)");
   check("refit can tier a system that IS installed",
     buyUpgrade(installedRun, "demolition", nextTierCost(1)!, MAX_TIER)?.tiers.demolition === 2);
 
-  // Upgrades apply BEFORE mods, so a mod's multiplier compounds over the ship.
+  // Upgrades apply BEFORE ratchets, and that ordering carries the design's
+  // central claim: a system does not delete a hazard, it makes one specific
+  // hazard cheap for you. The ship's numbers have to already be in the config
+  // when the notch lands on top of them, or a notch would be answering a stock
+  // rig no matter what the player installed.
   const withShip = levelForRun({
     ...newRun(7),
     levelIndex: 0,
-    tiers: { ...newTiers(), magazine: 1 },
-    modIds: ["rapid"],
+    tiers: { ...newTiers(), launcher: 2 },
+    ratchets: { wind: 2 },
   });
-  const stockCooldown = makeBaseLevel(0).cooldownMs;
-  const expected = Math.round(Math.max(120, Math.round(stockCooldown * 0.85)) * 0.65);
-  check("mods compound on top of upgrades", withShip.cooldownMs === expected, `${withShip.cooldownMs} vs ${expected}`);
+  const shipOnly = levelForRun({
+    ...newRun(7), levelIndex: 0, tiers: { ...newTiers(), launcher: 2 }, ratchets: {},
+  });
+  check("a notch lands on top of the refitted ship, not a stock one",
+    withShip.windMax > shipOnly.windMax && withShip.launchPower === shipOnly.launchPower,
+    `${withShip.windMax} vs ${shipOnly.windMax}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1461,48 +1490,136 @@ section("HUD readout widths (the $1000+ wrap regression)");
 
 section("Materials (theme.ts / level.ts / lineClear.ts)");
 {
-  // ---- The schedule: what appears, when, and what must stay clean ----------
+  // ---- The RATCHET, not a schedule ----------------------------------------
+  // Materials used to arrive on a per-Mark, per-bay probability ramp. They do
+  // not any more: a material appears only when the player ratchets its axis, so
+  // every check that asserted a schedule now asserts that there ISN'T one.
 
-  // Mark 1 is the baseline every player learns the game on. If a material can
-  // reach it, "stock" stops meaning anything and the ladder has no floor.
-  const mark1Clean = Array.from({ length: 10 }, (_, i) => materialMixFor(i, 1))
-    .every((m) => m.slag === 0 && m.cryo === 0);
-  check("Mark 1 is entirely free of materials", mark1Clean);
+  // The strongest statement the new model makes: no bay, at any Mark, at any
+  // depth, carries a material the player did not ask for. This is the check
+  // that would have caught the original bug from the other side — a material
+  // the ladder inflicts on someone who owns no answer to it.
+  const everyBayEveryMark = Array.from({ length: MARK_COUNT }, (_, m) =>
+    Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, m + 1))).flat();
+  check("no bay carries a material unless it was ratcheted",
+    everyBayEveryMark.every((cfg) =>
+      Object.values(cfg.materialMix).every((v) => v === 0)));
 
-  check("slag waits for Mark 2", materialMixFor(9, 1).slag === 0 && materialMixFor(9, 2).slag > 0);
-  check("cryo waits for Mark 3", materialMixFor(9, 2).cryo === 0 && materialMixFor(9, 3).cryo > 0);
-  check(
-    "one new material per Mark, in the design's order",
-    MATERIAL_SCHEDULE.slag.firstMark < MATERIAL_SCHEDULE.cryo.firstMark,
-  );
+  // The three base axes are flat now. A ramp nobody can lose to was only ever a
+  // longer bay — see level.ts's calibration note.
+  const bays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1));
+  check("the funding target is flat across a run",
+    bays.every((b) => b.targetScore === bays[0].targetScore), `${bays.map((b) => b.targetScore).join(",")}`);
+  check("launch cost is flat across a run",
+    bays.every((b) => b.launchCost === bays[0].launchCost));
+  check("the clock is flat across a run",
+    bays.every((b) => b.timeLimitSec === bays[0].timeLimitSec));
+  // A Mark no longer moves any of the ladder's numbers — it only changes which
+  // hazards and systems exist.
+  check("a Mark changes no number on the base ladder",
+    Array.from({ length: MARK_COUNT }, (_, m) => makeBaseLevel(5, m + 1))
+      .every((b) => b.targetScore === makeBaseLevel(5, 1).targetScore
+        && b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
 
-  // Every run opens clean regardless of Mark, so the player establishes a
-  // rhythm before the bay starts arguing with them.
-  check(
-    "bay 1 is clean at every Mark",
-    Array.from({ length: MARK_COUNT }, (_, m) => materialMixFor(0, m + 1))
-      .every((mix) => mix.slag === 0 && mix.cryo === 0),
-  );
+  // ---- The ladder: every Mark means something -----------------------------
+  check("Mark 1 opens exactly the three base axes",
+    hazardsForMark(1).length === 3
+      && hazardsForMark(1).every((h) => h.kind === "number"),
+    hazardsForMark(1).map((h) => h.id).join(","));
+  // The rung-by-rung promise: no Mark from 1 to 9 is a no-op.
+  let ladderGrows = true;
+  for (let m = 2; m <= 9; m++) {
+    if (hazardsForMark(m).length !== hazardsForMark(m - 1).length + 1) ladderGrows = false;
+  }
+  check("every Mark from 2 to 9 adds exactly one axis", ladderGrows,
+    Array.from({ length: 9 }, (_, m) => hazardsForMark(m + 1).length).join(","));
+  check("the capstone adds no axis and asks for two picks",
+    hazardsForMark(CAPSTONE_MARK).length === hazardsForMark(9).length
+      && picksPerBay(CAPSTONE_MARK) === 2 && picksPerBay(9) === 1);
+  check("every axis id is unique",
+    new Set(HAZARDS.map((h) => h.id)).size === HAZARDS.length);
+  check("every axis names its number in its own copy",
+    HAZARDS.filter((h) => h.kind === "number").every((h) => /\d/.test(h.desc)),
+    HAZARDS.filter((h) => h.kind === "number" && !/\d/.test(h.desc)).map((h) => h.id).join(","));
 
-  // The cap is the safety rail: without it the ramp keeps climbing and a deep
-  // bay at a high Mark drowns in dead cubes.
-  const deepest = materialMixFor(50, MARK_COUNT);
-  check("slag stays under its cap", deepest.slag <= MATERIAL_SCHEDULE.slag.cap);
-  check("cryo stays under its cap", deepest.cryo <= MATERIAL_SCHEDULE.cryo.cap);
-  check(
-    "slag is rarer than cryo — it is the one that cannot be recovered",
-    MATERIAL_SCHEDULE.slag.cap < MATERIAL_SCHEDULE.cryo.cap,
-  );
-  check(
-    "the mix never exceeds certainty",
-    deepest.slag + deepest.cryo < 1,
-    `${(deepest.slag + deepest.cryo).toFixed(3)}`,
-  );
+  // ---- Notches actually bite ----------------------------------------------
+  const flat = makeBaseLevel(0, 1);
+  check("a target notch raises the target by exactly one step",
+    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH);
+  check("notches stack linearly",
+    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3);
+  check("a cost notch raises the launch cost",
+    applyRatchets(flat, { cost: 2 }).launchCost === flat.launchCost + COST_NOTCH * 2);
+  check("a time notch cuts the clock",
+    applyRatchets(flat, { time: 1 }).timeLimitSec === flat.timeLimitSec - TIME_NOTCH);
+  // An axis that can reach an unplayable bay is a lose button, not a knob.
+  check("the clock never ratchets to nothing",
+    applyRatchets(flat, { time: 99 }).timeLimitSec > 0,
+    `${applyRatchets(flat, { time: 99 }).timeLimitSec}s`);
+  // Same rail on the other side: a bay must stay physically able to hold a
+  // sellable row however hard the sweeper is ratcheted.
+  const swept = applyRatchets(flat, { sweeper: 99 });
+  check("the bay never ratchets below a sellable line",
+    swept.compactorOpenCells >= swept.compactorMinLineCells,
+    `${swept.compactorOpenCells} open vs ${swept.compactorMinLineCells} needed`);
+  check("a sweeper notch speeds the press up",
+    applyRatchets(flat, { sweeper: 1 }).compactorSpeed > flat.compactorSpeed);
+  // Wind's texture has to ride its cap, or a ratcheted bay gets a stiff average
+  // with the gust profile of a calm one.
+  const windy = applyRatchets(flat, { wind: 2 });
+  check("a wind notch raises both the cap and its gust",
+    windy.windMax > flat.windMax && windy.windGust > 0);
 
-  // A ramp that isn't monotone would make a later bay easier than an earlier
-  // one, which reads as a bug to a player even when it's within the cap.
-  const slagRamp = Array.from({ length: 10 }, (_, i) => materialMixFor(i, MARK_COUNT).slag);
-  check("the slag ramp never decreases", slagRamp.every((v, i) => i === 0 || v >= slagRamp[i - 1]));
+  check("applyRatchets never mutates its input",
+    (() => { const before = flat.targetScore; applyRatchets(flat, { target: 5 }); return flat.targetScore === before; })());
+  check("an unknown axis id is ignored rather than crashing",
+    applyRatchets(flat, { nope: 3 } as unknown as Ratchets).targetScore === flat.targetScore);
+
+  // ---- Content axes --------------------------------------------------------
+  check("a content notch puts its material on the belt",
+    applyRatchets(flat, { slag: 1 }).materialMix.slag === materialRate(1));
+  check("a material rate rises with notches",
+    materialRate(2) > materialRate(1) && materialRate(3) > materialRate(2));
+  check("a material rate is capped however hard it is ratcheted",
+    materialRate(99) === MATERIAL_CAP && MATERIAL_CAP < 1);
+  // Every content axis must correspond to a real material, or the belt rolls a
+  // shipment made of a string nothing knows how to draw.
+  check("every content axis names a material the mix carries",
+    HAZARDS.filter((h) => h.kind === "content")
+      .every((h) => h.material !== undefined && h.material in flat.materialMix),
+    HAZARDS.filter((h) => h.kind === "content" && !(h.material! in flat.materialMix))
+      .map((h) => h.id).join(","));
+  // Even every axis maxed cannot fill the belt with hazards — a bay that is
+  // more hazard than cargo stops being a bay and starts being a wall.
+  const allMaxed = applyRatchets(flat, Object.fromEntries(
+    HAZARDS.filter((h) => h.kind === "content").map((h) => [h.id, 99])) as Ratchets);
+  check("the mix never reaches certainty even fully ratcheted",
+    Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0) < 1,
+    `${Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0).toFixed(2)}`);
+
+  // ---- The offer -----------------------------------------------------------
+  check("the offer is deterministic in the seed",
+    hazardOffers(99, 3, 6).map((h) => h.id).join(",")
+      === hazardOffers(99, 3, 6).map((h) => h.id).join(","));
+  check("the offer never exceeds what the Mark has opened",
+    Array.from({ length: MARK_COUNT }, (_, m) =>
+      hazardOffers(7, 2, m + 1).every((h) => h.mark <= m + 1)).every(Boolean));
+  // At most one material per hand: the content axes all read alike, and three
+  // at once is a pile-on rather than a choice between kinds of pressure.
+  let oneContentMax = true;
+  for (let m = 1; m <= MARK_COUNT; m++) {
+    for (let bay = 0; bay < 10; bay++) {
+      const offer = hazardOffers(1234 + bay, bay, m);
+      if (offer.filter((h) => h.kind === "content").length > 1) oneContentMax = false;
+      if (offer.length < picksPerBay(m)) oneContentMax = false;
+      if (new Set(offer.map((h) => h.id)).size !== offer.length) oneContentMax = false;
+    }
+  }
+  check("every hand holds at most one material, enough cards, and no duplicates", oneContentMax);
+  check("totalNotches counts every axis",
+    totalNotches({ target: 2, slag: 1, wind: 3 }) === 6 && totalNotches({}) === 0);
+  check("hazardById resolves every id and rejects junk",
+    HAZARDS.every((h) => hazardById(h.id) === h) && hazardById("nope") === undefined);
 
   // ---- fillsSlots: the single definition of "worth a slot" -----------------
 
@@ -1517,10 +1634,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- The queue promises what it delivers --------------------------------
 
-  const matLevel = makeBaseLevel(9, MARK_COUNT);
+  // A RATCHETED bay carries what was ratcheted onto it — and only that. The
+  // old form of this check asked a deep high-Mark bay to carry materials on its
+  // own; it deliberately no longer does.
+  const matLevel = applyRatchets(makeBaseLevel(9, MARK_COUNT), { slag: 2, cryo: 1 });
   check(
-    "a high-Mark deep bay actually carries materials",
-    matLevel.materialMix.slag > 0 && matLevel.materialMix.cryo > 0,
+    "a ratcheted bay carries exactly the materials that were ratcheted",
+    matLevel.materialMix.slag > 0 && matLevel.materialMix.cryo > 0
+      && matLevel.materialMix.rebar === 0 && matLevel.materialMix.tar === 0,
   );
 
   // The preview is the whole basis on which cryo is fair: you must be able to
@@ -1550,6 +1671,30 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     b.markShot(0);
   }
   check("the material stream is deterministic for a seed", streamA.join() === streamB.join());
+
+  // SIZE NORMALIZATION — the live bug the spec found. The roll is per SHIPMENT
+  // while the cost is per CUBE, so at one rate a 5-cube Bulk shipment ate 2.5x
+  // the dead cubes of a 2-cube Micro one, on top of Bulk's +50% launch cost and
+  // its 1.6 breakMult. Dead cubes per LAUNCH is the unit the player spends, so
+  // that is the unit held equal.
+  const deadCubesPerLaunch = (size: PieceSize): number => {
+    const cfg = { ...applyRatchets(makeBaseLevel(0, 1), { slag: 3 }), pieceSize: size };
+    const c = new Cannon(cfg, 4242);
+    let dead = 0;
+    const N = 4000;
+    for (let i = 0; i < N; i++) {
+      if (c.currentMaterial === "slag") dead += SIZE_SPEC[size].cubes;
+      c.markShot(0);
+    }
+    return dead / N;
+  };
+  const tiny = deadCubesPerLaunch("tiny");
+  const std = deadCubesPerLaunch("std");
+  const bulk = deadCubesPerLaunch("bulk");
+  const spread = Math.max(tiny, std, bulk) - Math.min(tiny, std, bulk);
+  check("a slag notch costs every shipment size the same cargo per launch",
+    spread < 0.12,
+    `tiny ${tiny.toFixed(2)} · std ${std.toFixed(2)} · bulk ${bulk.toFixed(2)}`);
   check("a seeded bay actually rolls some non-standard shipments",
     streamA.some((m) => m !== "standard"), streamA.slice(0, 12).join(","));
 

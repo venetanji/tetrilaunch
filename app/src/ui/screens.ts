@@ -3,7 +3,7 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runRatchetsHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -18,7 +18,9 @@ import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
-import type { ModDef } from "../game/mods";
+import {
+  totalNotches, type HazardDef, type HazardId, type Ratchets,
+} from "../game/hazards";
 
 export function splashScreen(): string {
   return `<div class="screen neon-backdrop">
@@ -293,8 +295,8 @@ export function hudHTML(opts: {
   autoloaderOwned: boolean;
   bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
-   *  chips in the plant panel (see components.ts's runModsHTML). */
-  modIds: string[];
+   *  chips in the plant panel (see components.ts's runRatchetsHTML). */
+  ratchets: Ratchets;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
   tiers: UpgradeTiers;
@@ -318,7 +320,7 @@ export function hudHTML(opts: {
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
-    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, modIds, tiers,
+    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
     contract,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
@@ -470,7 +472,7 @@ export function hudHTML(opts: {
           ${bondChip}
           ${demoChip}
           ${plates}
-          ${runModsHTML(modIds)}
+          ${runRatchetsHTML(ratchets)}
         </div>
       </div>
     </div>
@@ -811,17 +813,24 @@ export function pauseModal(): string {
 }
 
 /**
- * Draft modal shown between bays: freezes the just-cleared field behind a
- * scrim and offers a choice of 2 modifiers — 3 once the player has cleared
- * DRAFT_THIRD_SLOT_CONTRACTS dailies (meta.ts's draftSlots), and fewer late in
- * a run once the non-stackable pool thins out. Render whatever `offers` holds.
+ * Ratchet modal shown between bays: freezes the just-cleared field behind a
+ * scrim and asks which difficulty axis hardens for the rest of the run.
  *
- * The heading says "modifier", not "contract". It used to say the latter, which
- * was harmless flavour until Contracts became an actual mode — at which point a
- * draft card titled "Choose your contract" sitting above copy that reads "Clear
- * 5 Contracts" was naming two unrelated things the same way. Picking
- * a card or skipping both hand off to main.ts's "pick-mod"/"skip-mod"
- * actions, which advance the run and start the next bay.
+ * This replaced the modifier draft, and the inversion is the point. A mod was a
+ * hand you were DEALT — often with an upside, and skippable. A notch is pure
+ * cost, mandatory, and permanent. There is deliberately no skip button: a draft
+ * you can decline has a dominant option, and the design rests on the player
+ * paying for the bay they just cleared.
+ *
+ * The reward is implicit, and it was bought in the Workshop. A system does not
+ * delete a hazard, it makes ONE specific hazard cheap for you — so the question
+ * this modal really asks is "what have you prepared for?", and the axis you are
+ * equipped for is the one that costs you nothing. That is why every card names
+ * the exact number a notch adds: the player is pricing a choice, and a vague
+ * card turns a deliberate trade into a guess.
+ *
+ * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `picked` holds what
+ * has been taken so far at this draft so the second pass can show it.
  */
 export function draftScreen(opts: {
   bayNum: number;
@@ -832,57 +841,50 @@ export function draftScreen(opts: {
    *  the only part of `funds` that actually carries into the next bay's
    *  float (see run.ts's advanceRun). */
   carry: number;
-  offers: ModDef[];
-  owned: ModDef[];
+  offers: HazardDef[];
+  /** Every notch taken across the run so far, for the running tally. */
+  ratchets: Ratchets;
+  /** Axes taken at THIS draft already (Mark 10's first of two picks). */
+  picked: HazardId[];
+  /** How many notches this Mark demands before the next bay. */
+  picksNeeded: number;
   /** Unspent scrap — shown here too (not only at refit stops) so the player can
    *  see capital accumulating between stops and plan the next refit. */
   scrap: number;
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
-  /** Daily Contracts cleared, and how many earn the third draft card. Drawn as
-   *  an empty slot rather than left out: two cards with no explanation reads as
-   *  the game having run out of modifiers, which is what actually happens late
-   *  in a run — the locked slot says this one is earnable. Omit to draw no
-   *  slot at all (the late-run case, where the pool really is exhausted). */
-  contractsCleared?: number;
-  contractsForThirdSlot?: number;
 }): string {
+  const taken = totalNotches(opts.ratchets) + opts.picked.length;
   const cards = opts.offers
-    .map(
-      (m) => `<button class="mod-card mod-card--${m.kind}" data-action="pick-mod" data-mod="${m.id}">
-        <div class="mod-card__kind">${m.kind}</div>
-        <div class="mod-card__name">${m.name}</div>
-        <p class="mod-card__desc">${m.desc}</p>
-      </button>`,
-    )
+    .map((h) => {
+      // An axis already ratcheted says so on the card. Taking the same notch a
+      // second time is a legitimate build, but it is a different decision from
+      // taking it the first time, and the card has to admit which one it is.
+      const owned = (opts.ratchets[h.id] ?? 0) + opts.picked.filter((p) => p === h.id).length;
+      const stack = owned > 0 ? ` <span class="mod-card__stack">at ${owned}</span>` : "";
+      const kind = h.kind === "content" ? "bane" : "tradeoff";
+      return `<button class="mod-card mod-card--${kind}" data-action="pick-hazard" data-hazard="${h.id}">
+        <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
+        <div class="mod-card__name">${h.name}</div>
+        <p class="mod-card__desc">${h.desc}</p>
+      </button>`;
+    })
     .join("");
-  // The locked third slot, shown only while it is still earnable AND the pool
-  // could actually fill it — a run that has exhausted its modifiers is short of
-  // cards for a different reason, and promising a third one there would lie.
-  const need = opts.contractsForThirdSlot ?? 0;
-  const have = opts.contractsCleared ?? 0;
-  const lockedSlot = need > 0 && have < need && opts.offers.length >= 2
-    ? `<div class="mod-card mod-card--locked">
-        <div class="mod-card__kind">locked</div>
-        <div class="mod-card__name">Third pick</div>
-        <p class="mod-card__desc">Clear ${need} Contracts to draft from three. ${have}/${need} done.</p>
-      </div>`
-    : "";
-  const ownedRow = opts.owned.length
-    ? `<div class="run-mods"><span>Run modifiers:</span>${opts.owned
-        .map((m) => `<span class="run-mods__chip">${m.name}</span>`)
-        .join("")}</div>`
-    : "";
+  const remaining = opts.picksNeeded - opts.picked.length;
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
-      <h2 class="display">Choose a modifier</h2>
-      <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
+      <h2 class="display">${remaining > 1 ? `Ratchet ${remaining} axes` : "Ratchet one axis"}</h2>
+      <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
         <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Ended $${opts.funds} — carries</div>
           <div class="chip__value">$${opts.carry}</div>
+        </div>
+        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip__label">Notches taken</div>
+          <div class="chip__value">${taken}</div>
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Scrap${
@@ -895,9 +897,7 @@ export function draftScreen(opts: {
           <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="draft__cards">${cards ? cards + lockedSlot : `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
-      ${ownedRow}
-      <button class="btn btn--ghost" data-action="skip-mod">Skip — no modifier</button>
+      <div class="draft__cards">${cards}</div>
     </div>
   </div>`;
 }

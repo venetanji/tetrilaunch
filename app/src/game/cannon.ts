@@ -1,8 +1,16 @@
 import Matter from "matter-js";
 import { WORLD } from "./engine";
-import { PIECE_TYPES, type Material, type PieceType } from "./theme";
+import { PIECE_TYPES, type Material, type PieceSize, type PieceType } from "./theme";
 import { mulberry32 } from "./mods";
+import { SIZE_SPEC } from "./pieces";
 import type { LevelConfig, MaterialMix } from "./level";
+
+/** Fixed key order for the material roll. Every non-standard material, in
+ *  ladder order, so adding one is a single edit here and the earlier materials
+ *  keep their position in the cumulative walk. */
+const MATERIAL_ROLL_ORDER = [
+  "slag", "cryo", "rebar", "volatile", "tar", "magnetic",
+] as const;
 
 // Launch speeds in px/step (matter velocity units). Drag distance maps here.
 export const SPEED_MIN = 9;
@@ -65,6 +73,9 @@ export class Cannon {
    *  seed mean the same thing for two players. */
   private matRng: () => number;
   private mix: MaterialMix;
+  /** The bay's shipment size class, read once. The material roll is normalized
+   *  against it — see rollMaterial. */
+  private size: PieceSize;
 
   constructor(level: LevelConfig, seed: number = level.id) {
     const queue = level.pieceQueue;
@@ -78,6 +89,7 @@ export class Cannon {
     this.currentType = this.seq[0];
     this.nextType = this.seq[1 % this.seq.length];
     this.mix = level.materialMix;
+    this.size = level.pieceSize;
     // Distinct salt from the wind and autoloader streams (game.ts) so adding a
     // material to a bay can't shift its weather for the same seed.
     this.matRng = mulberry32((seed ^ 0x2f9a1b3d ^ (level.id * 0xc2b2ae35)) >>> 0);
@@ -86,19 +98,32 @@ export class Cannon {
   }
 
   /**
-   * Roll one shipment's material against the bay's mix (level.ts's
-   * materialMixFor). Independent per shipment — the player must not be able to
+   * Roll one shipment's material against the bay's mix (hazards.ts's content
+   * axes write it). Independent per shipment — the player must not be able to
    * count slag off and conclude the rest of the bay is clean.
    *
    * The roll walks the mix in a fixed key order and consumes exactly ONE random
    * number regardless of outcome, so the stream stays aligned for a seed even
    * when the mix changes between bays.
+   *
+   * SIZE-NORMALIZED, and this is a bug fix rather than a refinement. The roll is
+   * per SHIPMENT while the cost is per CUBE, and cube count is 2/4/5 by size
+   * class — so at an identical 11% rate a Bulk shipment ate 0.55 dead cubes
+   * against Micro's 0.22. Bulk is also the size that most resists coming apart
+   * (SIZE_SPEC.breakMult 1.6), so the blob was simultaneously the hardest to
+   * disperse, and it already pays +50% launch cost for its upside. That was an
+   * unpriced second tax on exactly the build least able to absorb it.
+   *
+   * Scaling by std-cubes/own-cubes equalizes dead cubes per LAUNCH, which is the
+   * unit the player actually spends. A Micro shipment is therefore slag more
+   * OFTEN and a Bulk one less often, and both lose the same cargo per shot.
    */
   private rollMaterial(): Material {
     const r = this.matRng();
+    const scale = SIZE_SPEC.std.cubes / SIZE_SPEC[this.size].cubes;
     let acc = 0;
-    for (const key of ["slag", "cryo"] as const) {
-      acc += this.mix?.[key] ?? 0;
+    for (const key of MATERIAL_ROLL_ORDER) {
+      acc += (this.mix?.[key] ?? 0) * scale;
       if (r < acc) return key;
     }
     return "standard";
