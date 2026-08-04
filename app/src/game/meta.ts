@@ -215,8 +215,14 @@ export interface InstallDef {
 }
 
 export const INSTALLS: InstallDef[] = [
-  { id: "reactor", cost: 20 },
-  { id: "launcher", cost: 20 },
+  // The two entry systems are priced UNDER a day of the easiest dailies (three
+  // tier-1 Contracts pay 18), not at it. The spec's pacing target is "a day's
+  // Contracts should fund roughly one install", and pricing the on-ramp at 20
+  // missed it by two — a player's first full day of Contracts would have bought
+  // nothing at all. Same reasoning as UNLOCKS' rank 1: the player who most needs
+  // a first system is the one with the least salvage.
+  { id: "reactor", cost: 15 },
+  { id: "launcher", cost: 15 },
   { id: "magazine", cost: 25 },
   { id: "bay", cost: 30, requiresMark: 1 },
   { id: "hydraulics", cost: 30, requiresMark: 1 },

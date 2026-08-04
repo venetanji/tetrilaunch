@@ -308,7 +308,8 @@ section("Installs — what salvage buys (meta.ts)");
   // An install grants tier 1 and charges salvage.
   const bought = buyInstall(freshMeta({ salvage: 100 }), "reactor");
   check("an install grants exactly tier 1", bought?.loadout.reactor === 1);
-  check("an install charges its salvage price", bought?.salvage === 80, String(bought?.salvage));
+  check("an install charges its salvage price",
+    bought?.salvage === 100 - installById("reactor")!.cost, String(bought?.salvage));
   check("an install the player cannot afford is refused",
     buyInstall(freshMeta({ salvage: 5 }), "reactor") === null);
   check("installing twice is refused", buyInstall(bought!, "reactor") === null);
@@ -594,15 +595,19 @@ section("Pattern Contracts (contracts.ts)");
   check("contract payout rises with tier", payoutMonotone);
   check("payout clamps below tier 1", salvageForContract(0) === salvageForContract(1));
 
-  // A Contract must not out-earn the exam. Three dailies a day against a run
-  // that pays ~43 for a decent attempt: a week of tier-1 dailies should buy a
-  // visible slice of the unlock tree without trivialising it.
-  const treeCost = UNLOCKS.reduce((a, u) => a + u.cost, 0);
-  const weekOfDailies = 7 * DAILY_COUNT * salvageForContract(1);
+  // The old check here asserted a week of dailies stayed under 60% of the
+  // unlock tree — the rule that Contracts must never be the fast route to a
+  // full tree. Installs deliberately invert it: a day of Contracts should fund
+  // about one install, because Contract salvage is now what buys the system the
+  // next Mark needs. The cap that replaced it is the BUILD BUDGET, which no
+  // amount of income moves (see meta.ts's buyInstall) — and which the Installs
+  // section above asserts directly rather than by pricing proxy.
+  const dayOfDailies = DAILY_COUNT * salvageForContract(1);
+  const cheapestInstall = Math.min(...INSTALLS.map((i) => i.cost));
   check(
-    `a week of tier-1 dailies is a fraction of the tree (${weekOfDailies}/${treeCost})`,
-    weekOfDailies > 0 && weekOfDailies < treeCost * 0.6,
-    `${((weekOfDailies / treeCost) * 100).toFixed(0)}%`,
+    `a day of Contracts funds about one install (${dayOfDailies} vs ${cheapestInstall})`,
+    dayOfDailies >= cheapestInstall && dayOfDailies < cheapestInstall * 3,
+    `${dayOfDailies} salvage/day against a ${cheapestInstall} install`,
   );
 
   // The payout gate is meta.claimedContracts, and it must fail CLOSED: an
