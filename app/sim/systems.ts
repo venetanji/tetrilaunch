@@ -18,7 +18,7 @@ import { makeBaseLevel } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
-  CAPSTONE_MARK, type HazardId, type Ratchets,
+  CAPSTONE_MARK, type Ratchets,
 } from "../src/game/hazards";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import { Cannon } from "../src/game/cannon";
@@ -1661,7 +1661,11 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // Rebar's joints are exempt from the break check at any stretch, which is the
   // mechanical statement of "what lands is what you keep".
   {
-    const w = Matter.Composite.create();
+    // An engine's world rather than a bare Composite: createTetrisPiece and
+    // updateBreakableJoints are typed against Matter.World, and a Composite has
+    // no gravity/bounds. Nothing steps this engine, so it stays the inert
+    // container these joint checks want.
+    const w = Matter.Engine.create().world;
     const rigid = createTetrisPiece(w, 200, 200, 0, { x: 0, y: 0 }, "T", 0.95, "std", 1.7, "rebar");
     const plain = createTetrisPiece(w, 200, 200, 0, { x: 0, y: 0 }, "T", 0.95, "std", 1.7, "standard");
     const limitOf = (c: Matter.Constraint): number =>
@@ -1754,7 +1758,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // asserted against updateBreakableJoints directly, because that is the
     // function a future change would most plausibly break it in.
     {
-      const w2 = Matter.Composite.create();
+      const w2 = Matter.Engine.create().world;
       const c = Matter.Constraint.create({ bodyA: at(700, 100), bodyB: at(700 + CELL, 100), length: CELL });
       (c as unknown as { restLength: number; welded: boolean }).restLength = CELL;
       (c as unknown as { welded: boolean }).welded = true;
