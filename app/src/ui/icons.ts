@@ -27,6 +27,13 @@ export type IconName =
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
+  // One per option unlock (meta.ts's UNLOCKS). Same id-is-the-icon-name
+  // convention as the tracks above: the shop card casts the id at the call
+  // site, so there is no glyph field on UnlockDef and meta.ts never imports
+  // from ui/. A row card leads with the glyph, so an unlock without one leaves
+  // a hole where every other row has its mark.
+  | "demo" | "bulk" | "survey" | "scrap-cache" | "micro"
+  | "sturdy" | "overclock" | "short-lines" | "bond-breaker" | "auto"
   // Direction of a value change on the refit buy button. These were the text
   // glyphs ▲/▼, which sat off-centre against the pixel label beside them for
   // exactly the reason in the header note: a font glyph carries the font's own
@@ -77,6 +84,62 @@ const PATHS: Record<IconName, string> = {
   // segments only — a curved fuse is the one shape in this set that would need
   // anti-aliasing to read, which is exactly what the pixel frame doesn't give.
   demolition: `<path d="M3 8h8v6H3z" fill="currentColor" stroke="none"/><path d="M9 8V5l3-2"/><path d="M12 3h2"/><path d="M12 3V1"/>`,
+
+  // ---- Option unlocks (meta.ts's UNLOCKS) ---------------------------------
+  // Demolition Licence: a detonation, not a charge — `demolition` above is the
+  // rack you install, this is the permit that puts the card in the draft. Four
+  // DIAGONAL spikes off a 4x4 core, where `bonds` throws four axis-aligned
+  // ones off a 2x2: at 13px the diagonal/orthogonal split is what separates
+  // them, so neither may drift toward the other's angles.
+  demo:
+    `<path d="M6 6h4v4H6z" fill="currentColor" stroke="none"/><path d="M4 4L2 2"/><path d="M12 4l2-2"/><path d="M4 12l-2 2"/><path d="M12 12l2 2"/>`,
+  // Bulk Freight: a five-cube pentomino as one solid mass. Filled because the
+  // mod's whole character is density (1.35x) — an outline would read light,
+  // which is what `micro` is.
+  bulk:
+    `<path d="M3 3h6v4H3z" fill="currentColor" stroke="none"/><path d="M3 7h10v4H3z" fill="currentColor" stroke="none"/>`,
+  // Weather Survey: three wind streaks of unequal length with a direction
+  // chevron. Deliberately unequal and short of the box — `settings` is three
+  // FULL-width rails with handles, and equal-length streaks would collide.
+  survey:
+    `<path d="M2 5h7"/><path d="M2 8h10"/><path d="M2 11h5"/><path d="M9 3l3 2-3 2"/>`,
+  // Scrap Cache: a crate with an X brace. The brace is the whole idea — a plain
+  // rect with a lid is `contracts`' clipboard at 13px, and nothing else in the
+  // set uses a diagonal cross.
+  "scrap-cache":
+    `<path d="M2 5h12v9H2z"/><path d="M2 5l12 9"/><path d="M14 5L2 14"/>`,
+  // Micro Freight: a two-cube domino, small and separated. The gap is load
+  // bearing — closed up it is one 6x3 bar, and the point is that this piece is
+  // two light cubes rather than one mass.
+  micro:
+    `<path d="M4 7h3v3H4z" fill="currentColor" stroke="none"/><path d="M9 7h3v3H9z" fill="currentColor" stroke="none"/>`,
+  // Reinforced Bonds: two blocks and the link that HOLDS, with two cross-ties.
+  // Reads as the opposite of `bond-breaker` below on purpose — same two blocks,
+  // intact link versus snapped one.
+  sturdy:
+    `<path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M11 6h3v4h-3z" fill="currentColor" stroke="none"/><path d="M5 8h6"/><path d="M7 6v4"/><path d="M9 6v4"/>`,
+  // Press Overclock: the press wall, and two chevrons for the sweep it now
+  // makes 50% faster. Stroked throughout so it cannot be mistaken for `auto`
+  // below, which is a filled block throwing filled shots.
+  overclock:
+    `<path d="M2 3v10"/><path d="M5 3l4 5-4 5"/><path d="M10 3l4 5-4 5"/>`,
+  // Line Recalibration: a full line for reference, and above it the same span
+  // closing inward — the row needs one fewer cube. Inward arrows rather than a
+  // shortened bar, because a bar that is merely shorter has nothing to be
+  // shorter THAN at 13px.
+  "short-lines":
+    `<path d="M2 6h5"/><path d="M9 6h5"/><path d="M5 4l2 2-2 2"/><path d="M11 4l-2 2 2 2"/><path d="M2 12h12"/>`,
+  // Bond Breaker: two blocks driven apart by a bolt. The bolt matches the ⚡
+  // the in-game button already uses for this mod, so the shop and the field
+  // agree on what it looks like.
+  "bond-breaker":
+    `<path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M11 6h3v4h-3z" fill="currentColor" stroke="none"/><path d="M8 3l-2 5h4l-2 5"/>`,
+  // Autoloader: the launcher block and two shots already away. Filled block +
+  // filled shots against `overclock`'s all-stroke wall + chevrons — the paint
+  // mode is the tell, since both are "a thing on the left throwing right".
+  auto:
+    `<path d="M2 4h3v8H2z" fill="currentColor" stroke="none"/><path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M11 7h2v2h-2z" fill="currentColor" stroke="none"/>`,
+
   // Solid triangles, centred on the 16x16 box so both read at the same optical
   // height whichever way they point.
   up: `<path d="M8 4l5 8H3z" fill="currentColor" stroke="none"/>`,

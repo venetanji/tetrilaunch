@@ -350,6 +350,14 @@ section("Installs — what salvage buys (meta.ts)");
     UPGRADES.every((u) => !icon(u.id as IconName).includes("undefined")),
     UPGRADES.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
 
+  // Same check, same reason, for the option unlocks. The Workshop row puts a
+  // glyph at the head of every card so Systems and Options share a left edge;
+  // an unlock with no icon renders a blank square and still typechecks, because
+  // a string-literal union assertion only requires the unions to SHARE a member.
+  check("every unlock has an icon",
+    UNLOCKS.every((u) => !icon(u.id as IconName).includes("undefined")),
+    UNLOCKS.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
+
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
   check("the Workshop shows the build budget", shop.includes("build budget"));
