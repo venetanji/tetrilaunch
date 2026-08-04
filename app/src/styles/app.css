@@ -1532,10 +1532,18 @@ button.panel { color: var(--text); }
      row layout exists to create. Two lines is what fits beside the body, and
      the leading gate is always the Mark — the one thing no amount of salvage
      can buy. The rest reads in full on a taller screen, same trade the desc
-     above already makes. */
+     above already makes.
+
+     96px was the first cap and it still starved the body: it left the name
+     117px, and "Bond Breaker Rig" wrapped to two lines inside that, taking its
+     row to 55px — the same broken rhythm the clamp above was added to fix, one
+     card over. 80px fits "Needs Mark 2" whole, and anything longer was already
+     truncated by the 2-line clamp at 96px too, so the cap costs nothing the
+     clamp was not already taking. Measured at 792x360 on a fresh save: every
+     row 42px, Options' overflow 30px -> 16px. */
   .shop-card__locked {
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    overflow: hidden; max-width: 96px; text-align: right; line-height: 1.25;
+    overflow: hidden; max-width: 80px; text-align: right; line-height: 1.25;
   }
   .workshop__tab { padding: 4px 2px; font-size: 8px; }
 }
