@@ -31,7 +31,7 @@ import {
 import {
   contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
-  DRAFT_THIRD_SLOT_CONTRACTS,
+  DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS,
 } from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
@@ -258,6 +258,24 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   const source = { ...newTiers(), bay: 1 };
   newRun(1, [], 0, source, 2).tiers.bay = 3;
   check("newRun copies the loadout rather than aliasing it", source.bay === 1);
+}
+
+// ---------------------------------------------------------------------------
+section("Installs — what salvage buys (meta.ts)");
+// ---------------------------------------------------------------------------
+{
+  // Every system must be installable, or a track exists that salvage can never
+  // reach and the refit menu shows a card nobody can ever use.
+  check("every upgrade track has exactly one install",
+    UPGRADES.every((u) => INSTALLS.filter((i) => i.id === u.id).length === 1) &&
+      INSTALLS.length === UPGRADES.length,
+    `${INSTALLS.length} installs vs ${UPGRADES.length} tracks`);
+  check("no install is priced at zero", INSTALLS.every((i) => i.cost > 0));
+  check("every Mark gate is inside the ladder",
+    INSTALLS.every((i) => i.requiresMark === undefined || (i.requiresMark >= 1 && i.requiresMark < MARK_COUNT)));
+  // Mark 1 must open enough systems to make a first shop trip a real choice.
+  check("at least two systems need no Mark at all",
+    INSTALLS.filter((i) => i.requiresMark === undefined).length >= 2);
 }
 
 // ---------------------------------------------------------------------------

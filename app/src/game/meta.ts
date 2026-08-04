@@ -21,7 +21,8 @@
  */
 
 import {
-  budgetForMark, loadoutLegal, MARK_COUNT, newTiers, type UpgradeTiers,
+  budgetForMark, loadoutLegal, MARK_COUNT, newTiers,
+  type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
 export { MARK_COUNT };
@@ -180,6 +181,57 @@ export function unlockGates(def: UnlockDef, owned: string[], mark: number): stri
     if (!owned.includes(r)) gates.push(unlockById(r)?.name ?? r);
   }
   return gates;
+}
+
+/**
+ * INSTALLS — what salvage actually buys.
+ *
+ * An install grants tier 1 of a ship system, permanently, in every run. It does
+ * NOT grant unbounded power: the purchase is charged against the Mark's build
+ * budget (see buyInstall), so salvage buys WHICH systems exist to spend budget
+ * on while the Mark caps HOW MUCH can be spent at all. That is DESIGN.md's
+ * load-bearing rule — "Contracts unlock what you may spend it on. Only beating
+ * Mark N raises the budget" — and it is what keeps uncapped Contract income
+ * from buying a permanently stronger rig.
+ *
+ * This is the answer to the thing an unlock could never do. An unlock puts a
+ * modifier in the DRAFT POOL; owning it and being offered it are different
+ * events, and simulated at two draft slots the demolition card reaches the
+ * table by bay 2 in only 39% of runs — while slag, the material it answers,
+ * lands from bay 4. An install is held, not dealt.
+ *
+ * Name and description are read from the track itself (upgradeById), so a
+ * system's copy lives in exactly one place.
+ */
+export interface InstallDef {
+  id: UpgradeId;
+  /** Salvage price. One-time; an install never stacks — tiers 2-3 cost scrap. */
+  cost: number;
+  /** Marks that must already have been BEATEN — the spec ladder's Mark minus
+   *  one, since `meta.mark` counts clears rather than the Mark being flown.
+   *  Same invariant as UnlockDef's field: a Mark is the one thing no amount of
+   *  salvage can buy. */
+  requiresMark?: number;
+}
+
+export const INSTALLS: InstallDef[] = [
+  { id: "reactor", cost: 20 },
+  { id: "launcher", cost: 20 },
+  { id: "magazine", cost: 25 },
+  { id: "bay", cost: 30, requiresMark: 1 },
+  { id: "hydraulics", cost: 30, requiresMark: 1 },
+  { id: "bonds", cost: 40, requiresMark: 2 },
+  // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
+  // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
+  // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one
+  // Mark beaten). Gating its only clean answer at 3 would ship a counter two
+  // Marks behind its hazard, which is strictly worse than today. Raise this to
+  // 3 in the same change that moves materials off the schedule.
+  { id: "demolition", cost: 40, requiresMark: 1 },
+];
+
+export function installById(id: string): InstallDef | undefined {
+  return INSTALLS.find((i) => i.id === id);
 }
 
 export interface MetaState {
