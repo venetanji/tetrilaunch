@@ -26,6 +26,7 @@ import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
+  volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material } from "../src/game/theme";
@@ -46,10 +47,12 @@ import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
 } from "../src/game/contracts";
-import { pieceCells, SIZE_SPEC } from "../src/game/pieces";
+import {
+  pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints,
+} from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
-import { PIECE_TYPES, type PieceSize } from "../src/game/theme";
+import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
@@ -1625,6 +1628,175 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   const cube = (material: Material, struck = material !== "cryo"): Cube =>
     ({ material, struck }) as Cube;
+
+  // ---- The four late materials (phase 3) -----------------------------------
+  // Each is a rule about how a cube interacts with the existing engine — none
+  // adds a system, a screen or a new player verb, which is the constraint the
+  // whole material vocabulary is built under.
+  check("every material the mix can roll has a spec",
+    MATERIALS.every((m) => MATERIAL_SPEC[m] !== undefined)
+      && MATERIALS.length === Object.keys(MATERIAL_SPEC).length);
+  check("every non-standard material is visually distinct",
+    new Set(MATERIALS.map((m) => MATERIAL_SPEC[m].color)).size === MATERIALS.length,
+    MATERIALS.map((m) => MATERIAL_SPEC[m].color).join(","));
+  // A material with no rule flag at all is indistinguishable from standard once
+  // it is on the field, which makes it a colour swap rather than content.
+  check("every non-standard material carries a rule, not just a colour",
+    MATERIALS.filter((m) => m !== "standard").every((m) => {
+      const sp = MATERIAL_SPEC[m];
+      return !sp.countsForLines || sp.needsStrike || sp.rigid || sp.detonates || sp.welds || sp.aligns;
+    }));
+  // The four late materials are answered by systems the ship already has, or
+  // deliberately by nothing — cryo and magnetic are the two rungs that teach a
+  // hazard is something you absorb rather than something you shop for.
+  check("rebar is rigid and nothing else", MATERIAL_SPEC.rebar.rigid === true
+    && MATERIAL_SPEC.rebar.countsForLines);
+  check("volatile detonates and still counts if it survives",
+    MATERIAL_SPEC.volatile.detonates === true && MATERIAL_SPEC.volatile.countsForLines);
+  check("tar welds", MATERIAL_SPEC.tar.welds === true);
+  check("magnetic is the helpful one — it aligns and blocks nothing",
+    MATERIAL_SPEC.magnetic.aligns === true && MATERIAL_SPEC.magnetic.countsForLines
+      && !MATERIAL_SPEC.magnetic.needsStrike);
+
+  // Rebar's joints are exempt from the break check at any stretch, which is the
+  // mechanical statement of "what lands is what you keep".
+  {
+    const w = Matter.Composite.create();
+    const rigid = createTetrisPiece(w, 200, 200, 0, { x: 0, y: 0 }, "T", 0.95, "std", 1.7, "rebar");
+    const plain = createTetrisPiece(w, 200, 200, 0, { x: 0, y: 0 }, "T", 0.95, "std", 1.7, "standard");
+    const limitOf = (c: Matter.Constraint): number =>
+      (c as unknown as { breakStretch: number }).breakStretch;
+    check("rebar joints never break, at any stretch",
+      rigid.constraints.every((c) => limitOf(c) === Infinity));
+    check("a standard piece keeps a finite break threshold",
+      plain.constraints.every((c) => Number.isFinite(limitOf(c))));
+    // Yank one cube far past any threshold and confirm only the standard piece
+    // lets go. Moving a single cube strains the joints it is part of, not all
+    // six of a T's pairs — so the assertion is "kept every joint" against "lost
+    // some", not a count.
+    const yank = (r: { cubes: Cube[]; constraints: Matter.Constraint[] }): number => {
+      const before = r.constraints.length;
+      Matter.Body.setPosition(r.cubes[0].body, { x: 9000, y: 9000 });
+      updateBreakableJoints(w, r.constraints, 1.7);
+      return before - r.constraints.length;
+    };
+    check("a rebar piece survives a stretch that shatters a standard one",
+      yank(rigid) === 0 && yank(plain) > 0,
+      `rebar lost ${yank(rigid)}, standard lost ${yank(plain)}`);
+  }
+
+  // Volatile needs a HARD impact — above cryo's strike speed, or the landing
+  // that thaws ice would also set off a bomb and volatile would stop being a
+  // landing the player can control.
+  check("volatile's trigger is harder than a cryo strike",
+    VOLATILE_TRIGGER_SPEED > CRYO_STRIKE_SPEED);
+  {
+    const bodyAt = (x: number, y: number, vx = 0): Matter.Body => {
+      const b = Matter.Bodies.rectangle(x, y, CELL, CELL);
+      Matter.Body.setVelocity(b, { x: vx, y: 0 });
+      return b;
+    };
+    const vol = bodyAt(100, 100, VOLATILE_TRIGGER_SPEED + 2);
+    const near = bodyAt(100 + CELL, 100);
+    const far = bodyAt(100 + CELL * 6, 100);
+    const field: Cube[] = [
+      { body: vol, material: "volatile", struck: true } as Cube,
+      { body: near, material: "standard", struck: true } as Cube,
+      { body: far, material: "standard", struck: true } as Cube,
+    ];
+    const blast = volatileBlast(field, vol, near);
+    check("a hard impact takes the volatile cube and its neighbour",
+      blast.length === 2 && blast.some((c) => c.body === vol) && blast.some((c) => c.body === near));
+    check("the blast does not reach across the bay",
+      !blast.some((c) => c.body === far));
+    const soft = bodyAt(300, 100, 1);
+    const softField: Cube[] = [
+      { body: soft, material: "volatile", struck: true } as Cube,
+      { body: bodyAt(300 + CELL, 100), material: "standard", struck: true } as Cube,
+    ];
+    check("a soft landing does not set volatile off",
+      volatileBlast(softField, softField[0].body, softField[1].body).length === 0);
+    // The answer to volatile is a soft landing, so a bay with no volatile in it
+    // must never produce a blast however hard the collision.
+    check("nothing detonates on a belt with no volatile",
+      volatileBlast([
+        { body: bodyAt(500, 100, 40), material: "standard", struck: true } as Cube,
+        { body: bodyAt(500 + CELL, 100), material: "slag", struck: true } as Cube,
+      ], bodyAt(500, 100, 40), bodyAt(500 + CELL, 100)).length === 0);
+  }
+
+  // Tar welds to what it settles against, and the weld is the joint nothing
+  // breaks. That exemption is the whole reason tar is a different problem from
+  // rebar rather than a re-skin of it.
+  {
+    const at = (x: number, y: number, vx = 0): Matter.Body => {
+      const b = Matter.Bodies.rectangle(x, y, CELL, CELL);
+      Matter.Body.setVelocity(b, { x: vx, y: 0 });
+      return b;
+    };
+    const stuck = at(100, 100);
+    const pile = at(100 + CELL, 100);
+    const field: Cube[] = [
+      { body: stuck, material: "tar", struck: true } as Cube,
+      { body: pile, material: "standard", struck: true } as Cube,
+    ];
+    check("tar welds to what it settles against", tarWelds(field, stuck, pile).length === 1);
+    check("two ordinary cubes never weld",
+      tarWelds([
+        { body: at(300, 100), material: "standard", struck: true } as Cube,
+        { body: at(300 + CELL, 100), material: "standard", struck: true } as Cube,
+      ], at(300, 100), at(300 + CELL, 100)).length === 0);
+    // Mid-air tar must not fuse with the shipment it was launched beside — it
+    // sticks to the PILE, which is what makes it a placement problem.
+    const flyA = at(500, 100, 30);
+    const flyB = at(500 + CELL, 100, 30);
+    // The weld survives the stretch check that breaks every ordinary joint —
+    // asserted against updateBreakableJoints directly, because that is the
+    // function a future change would most plausibly break it in.
+    {
+      const w2 = Matter.Composite.create();
+      const c = Matter.Constraint.create({ bodyA: at(700, 100), bodyB: at(700 + CELL, 100), length: CELL });
+      (c as unknown as { restLength: number; welded: boolean }).restLength = CELL;
+      (c as unknown as { welded: boolean }).welded = true;
+      const list = [c];
+      Matter.Body.setPosition(c.bodyA!, { x: 9000, y: 9000 });
+      updateBreakableJoints(w2, list, 1.7);
+      check("a tar weld survives a stretch that breaks any ordinary joint", list.length === 1);
+    }
+    check("tar does not weld to something still in flight",
+      tarWelds([
+        { body: flyA, material: "tar", struck: true } as Cube,
+        { body: flyB, material: "standard", struck: true } as Cube,
+      ], flyA, flyB).length === 0);
+  }
+
+  // Magnetic squares itself up once at rest — it fills a slot you may not have
+  // wanted filled, but it does the press's job on the way in.
+  {
+    const skew = Matter.Bodies.rectangle(200, 400, CELL, CELL);
+    Matter.Body.setAngle(skew, 0.24);
+    Matter.Body.setVelocity(skew, { x: 0, y: 0 });
+    const floorY = WORLD.height - WALL_INNER;
+    Matter.Body.setPosition(skew, { x: 200, y: floorY - CELL * 3 + 5 });
+    const mags: Cube[] = [{ body: skew, material: "magnetic", struck: true } as Cube];
+    alignMagnetic(mags, floorY);
+    check("a settled magnetic cube snaps to a quarter turn",
+      Math.abs(skew.angle % (Math.PI / 2)) < 1e-6, String(skew.angle));
+    check("a settled magnetic cube snaps onto the row grid",
+      Math.abs(((floorY - skew.position.y) / CELL) - Math.round((floorY - skew.position.y) / CELL)) < 1e-6);
+    // A moving one is still in play and must not be teleported mid-flight.
+    const flying = Matter.Bodies.rectangle(200, 200, CELL, CELL);
+    Matter.Body.setAngle(flying, 0.3);
+    Matter.Body.setVelocity(flying, { x: 6, y: 3 });
+    alignMagnetic([{ body: flying, material: "magnetic", struck: true } as Cube], floorY);
+    check("a magnetic cube in flight is left alone", Math.abs(flying.angle - 0.3) < 1e-9);
+    // And it must not reach through the material table to straighten anything else.
+    const other = Matter.Bodies.rectangle(200, 200, CELL, CELL);
+    Matter.Body.setAngle(other, 0.3);
+    Matter.Body.setVelocity(other, { x: 0, y: 0 });
+    alignMagnetic([{ body: other, material: "standard", struck: true } as Cube], floorY);
+    check("magnetic alignment touches only magnetic cubes", Math.abs(other.angle - 0.3) < 1e-9);
+  }
 
   check("standard fills slots", fillsSlots(cube("standard")));
   check("slag NEVER fills a slot", !fillsSlots(cube("slag")));

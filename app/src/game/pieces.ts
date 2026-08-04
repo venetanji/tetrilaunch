@@ -183,7 +183,16 @@ export function createTetrisPiece(
 
   // Connect every pair → a rigid-but-shatterable cluster.
   const stiffness = Math.max(0.5, Math.min(0.995, jointStiffness + spec.stiffnessDelta));
-  const pieceBreakStretch = Math.max(1.05, breakStretch * spec.breakMult);
+  // REBAR never comes apart on impact, at any stretch. Slag denies a slot;
+  // rebar denies a SHAPE — what lands is what you keep, so a bad landing cannot
+  // be squeezed or shoved into a better one and the row is built around it.
+  // Infinity rather than a very large number so the intent survives a future
+  // reader: updateBreakableJoints compares `cur > rest * limit`, and no finite
+  // stretch beats it. A Bond Breaker still splits these (see game.ts's
+  // useBondBreaker), which is deliberately the only thing that does.
+  const pieceBreakStretch = mat.rigid
+    ? Infinity
+    : Math.max(1.05, breakStretch * spec.breakMult);
   const constraints: Matter.Constraint[] = [];
   for (let i = 0; i < cubes.length; i++) {
     for (let j = i + 1; j < cubes.length; j++) {
@@ -276,7 +285,9 @@ export function updateBreakableJoints(
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
-    const meta = c as unknown as { restLength: number; breakStretch?: number };
+    const meta = c as unknown as { restLength: number; breakStretch?: number; welded?: boolean };
+    // A tar weld is permanent (game.ts's resolveTarWelds) — no stretch breaks it.
+    if (meta.welded) continue;
     const rest = meta.restLength || c.length;
     const limit = meta.breakStretch ?? breakStretch;
     const cur = dist(c.bodyA.position, c.bodyB.position);

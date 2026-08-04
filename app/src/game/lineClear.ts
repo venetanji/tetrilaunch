@@ -98,6 +98,118 @@ export function strikeCryo(cubes: Cube[], a: Matter.Body, b: Matter.Body): void 
   }
 }
 
+/** Relative impact speed at which a VOLATILE cube goes off. Above cryo's strike
+ *  threshold on purpose: the same landing that thaws ice must not be enough to
+ *  set off a bomb, or volatile would detonate on essentially every touch and
+ *  stop being a landing the player can control. */
+export const VOLATILE_TRIGGER_SPEED = 9.5;
+
+/** How far a detonation reaches, in cells. One cell of clearance around the
+ *  cube itself — volatile takes its NEIGHBOURS, not a crater. */
+export const VOLATILE_BLAST_CELLS = 1.6;
+
+/**
+ * Which cubes a volatile impact destroys, if any.
+ *
+ * Returns the volatile cube plus everything inside its blast, or an empty array
+ * when the impact was too soft to set it off. Pure — the caller removes the
+ * bodies and spawns the FX, because the physics world and the effects list both
+ * live on Game and this file deliberately touches neither.
+ *
+ * Volatile is the only material whose cost is paid by cubes that were ALREADY
+ * safely down, which is what makes it scale with how full the bay is rather
+ * than with the shipment itself. A soft landing is the answer — settleAssist,
+ * which Press Hydraulics raises — or deliberately chaining it into a pile that
+ * was never going to complete a row anyway.
+ */
+export function volatileBlast(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+): Cube[] {
+  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  if (rel < VOLATILE_TRIGGER_SPEED) return [];
+  const primed = cubes.find(
+    (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
+  );
+  if (!primed) return [];
+  const r = VOLATILE_BLAST_CELLS * CELL;
+  const p = primed.body.position;
+  return cubes.filter((c) => {
+    if (c === primed) return true;
+    const d = Math.hypot(c.body.position.x - p.x, c.body.position.y - p.y);
+    return d <= r;
+  });
+}
+
+/**
+ * Weld a TAR cube to whatever it just touched.
+ *
+ * Returns the pairs that should become permanent joints. Tar is the deliberate
+ * inverse of rebar: rebar is rigid and breakable, tar is the joint that cannot
+ * be broken at all — not by stretch, and not by a Bond Breaker. Avoidance is
+ * the real answer; Demolition is the expensive one, since vaporizing a cube
+ * takes its welds with it.
+ *
+ * Only welds to a cube that has effectively stopped, so tar sticks to the PILE
+ * rather than fusing mid-air with the shipment it was launched alongside.
+ */
+export function tarWelds(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+): Array<[Cube, Cube]> {
+  const ca = cubes.find((c) => c.body === a);
+  const cb = cubes.find((c) => c.body === b);
+  if (!ca || !cb || ca === cb) return [];
+  const sticky = MATERIAL_SPEC[ca.material].welds || MATERIAL_SPEC[cb.material].welds;
+  if (!sticky) return [];
+  const settled = (c: Cube): boolean => {
+    const v = c.body.velocity;
+    return v.x * v.x + v.y * v.y < SETTLE_SQ;
+  };
+  if (!settled(ca) && !settled(cb)) return [];
+  return [[ca, cb]];
+}
+
+/**
+ * Snap a MAGNETIC cube square once it has come to rest.
+ *
+ * The one material that HELPS, and the reason the vocabulary is not uniformly
+ * hostile: it fills a slot you may not have wanted filled, but it squares the
+ * row while doing it. Rotation is pulled to the nearest quarter turn and the
+ * position onto the slot grid, which is exactly what lineClear's own candidate
+ * test asks for (isAxisAligned + the slot walk) — so a magnetic cube is one
+ * that has already done for itself what the press would otherwise have to
+ * beat out of it.
+ *
+ * Mutates the bodies, because that is what Matter.Body.setAngle/setPosition do
+ * and there is nothing to return.
+ */
+export function alignMagnetic(cubes: Cube[], floorY: number): void {
+  for (const cube of cubes) {
+    if (!MATERIAL_SPEC[cube.material].aligns) continue;
+    const v = cube.body.velocity;
+    if (v.x * v.x + v.y * v.y >= SETTLE_SQ) continue;
+    if (Math.abs(cube.body.angularVelocity) >= 0.02) continue;
+    const quarter = Math.PI / 2;
+    const snappedAngle = Math.round(cube.body.angle / quarter) * quarter;
+    if (Math.abs(snappedAngle - cube.body.angle) > 1e-4) {
+      Matter.Body.setAngle(cube.body, snappedAngle);
+      Matter.Body.setAngularVelocity(cube.body, 0);
+    }
+    // Rows are indexed off the floor, so the vertical snap has to use the same
+    // origin the line check does or a "squared" cube lands between two rows.
+    const rel = floorY - cube.body.position.y;
+    const row = Math.round(rel / CELL);
+    const targetY = floorY - row * CELL;
+    if (Math.abs(targetY - cube.body.position.y) > 0.5) {
+      Matter.Body.setPosition(cube.body, { x: cube.body.position.x, y: targetY });
+      Matter.Body.setVelocity(cube.body, { x: 0, y: 0 });
+    }
+  }
+}
+
 export function resetLineClear(): void {
   /* no persistent state */
 }

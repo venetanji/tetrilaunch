@@ -13,6 +13,10 @@ import {
 import {
   updateLineClear,
   strikeCryo,
+  volatileBlast,
+  tarWelds,
+  alignMagnetic,
+  VOLATILE_BLAST_CELLS,
   shatterColdCryo,
   type CryoShatter,
   markLostPieces,
@@ -443,6 +447,12 @@ export class Game {
   }
   private liveBombs: Bomb[] = [];
   private pendingDetonations = new Set<Matter.Body>();
+  /** Cubes caught in a volatile blast this step, removed once matter is out of
+   *  its solver (see resolveVolatile). A Set because one impact can be reported
+   *  as several pairs and a cube must only be destroyed once. */
+  private pendingBlast = new Set<Matter.Body>();
+  /** Tar welds discovered this step, created once the solver is done. */
+  private pendingWelds: Array<[Matter.Body, Matter.Body]> = [];
   private readonly onCollisionStart: (e: Matter.IEventCollision<Matter.Engine>) => void;
 
   /** Seeded RNG driving the wind drunk-walk (see stepWind) — kept private so
@@ -503,6 +513,17 @@ export class Game {
         // at the moment matter reports it — a step later both bodies have
         // already exchanged momentum and read as slow.
         strikeCryo(this.cubes, pair.bodyA, pair.bodyB);
+        // VOLATILE: a hard landing takes the cube and its neighbours. Queued
+        // rather than removed inline for the same reason bombs are — matter is
+        // mid-solve here, and deleting bodies out from under the pair loop
+        // corrupts the very iteration that found them.
+        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB);
+        for (const c of blast) this.pendingBlast.add(c.body);
+        // TAR: welds to whatever it settled against. Also deferred — adding a
+        // constraint during collisionStart is the same mid-solve mutation.
+        for (const [a, b] of tarWelds(this.cubes, pair.bodyA, pair.bodyB)) {
+          this.pendingWelds.push([a.body, b.body]);
+        }
       }
     };
     Matter.Events.on(this.phys.engine, "collisionStart", this.onCollisionStart);
@@ -615,7 +636,12 @@ export class Game {
    */
   useBondBreaker(now: number): boolean {
     if (this.status !== "playing" || this.paused || this.settling) return false;
-    if (this.bondCharges <= 0 || this.constraints.length === 0) return false;
+    // Count only what a Bond Breaker could actually break: a field held
+    // together entirely by tar welds must not silently eat a charge.
+    const breakable = this.constraints.filter(
+      (c) => !(c as unknown as { welded?: boolean }).welded,
+    ).length;
+    if (this.bondCharges <= 0 || breakable === 0) return false;
 
     // Remember which cubes were still joined so the shatter FX only sparks on
     // pieces that actually came apart, then tear down every joint (world +
@@ -625,8 +651,16 @@ export class Game {
       if (c.bodyA) joined.add(c.bodyA);
       if (c.bodyB) joined.add(c.bodyB);
     }
-    for (const c of this.constraints) Matter.Composite.remove(this.phys.world, c);
+    // Welds survive. Tar is the one joint a Bond Breaker cannot split, and
+    // that exemption is the whole reason tar is a different problem from rebar
+    // rather than a re-skin of it.
+    const survivors: Matter.Constraint[] = [];
+    for (const c of this.constraints) {
+      if ((c as unknown as { welded?: boolean }).welded) { survivors.push(c); continue; }
+      Matter.Composite.remove(this.phys.world, c);
+    }
     this.constraints.length = 0;
+    this.constraints.push(...survivors);
 
     let sx = 0;
     let sy = 0;
@@ -901,7 +935,13 @@ export class Game {
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
     // to retreat), so this records precisely the full-advance ticks.
     if (this.compactor.x >= this.compactor.rightX) this.lastFullAdvanceStep = this.stepCount;
+    this.resolveVolatile();
+    this.resolveTarWelds();
     updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
+    // MAGNETIC settles itself square. Run after the joints update so a cube
+    // that just came loose is snapped on the same step it stopped moving,
+    // rather than sitting crooked for one frame.
+    alignMagnetic(this.cubes, WORLD.height - WALL_INNER);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
     breakJointsInBand(
@@ -1162,6 +1202,76 @@ export class Game {
    * No lost-piece penalty (a deliberate demolition isn't a fumble) and combo is
    * left untouched.
    */
+  /**
+   * Destroy everything a volatile impact caught.
+   *
+   * Deliberately pays NO salvage, which is the whole difference between this
+   * and a demolition charge. A bomb is a tool the player aimed: it turns a dead
+   * pile into funds. A volatile detonation is a hazard that went off: it turns
+   * cargo the player already landed into nothing. Paying for it would make
+   * ratcheting the volatile axis an income strategy, which is the exact
+   * inversion of a hazard.
+   */
+  private resolveVolatile(): void {
+    if (!this.pendingBlast.size) return;
+    let cx = 0;
+    let cy = 0;
+    let n = 0;
+    for (let i = this.cubes.length - 1; i >= 0; i--) {
+      const b = this.cubes[i].body;
+      if (!this.pendingBlast.has(b)) continue;
+      cx += b.position.x;
+      cy += b.position.y;
+      n += 1;
+      removeConstraintsFor(this.phys.world, this.constraints, b);
+      Matter.Composite.remove(this.phys.world, b);
+      this.cubes.splice(i, 1);
+    }
+    this.pendingBlast.clear();
+    if (n) {
+      this.effects.push({
+        kind: "explosion", x: cx / n, y: cy / n,
+        r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: performance.now(),
+      });
+    }
+  }
+
+  /**
+   * Turn this step's tar contacts into permanent joints.
+   *
+   * A weld goes into `this.constraints` like any other joint, carrying a
+   * `welded` flag that updateBreakableJoints and useBondBreaker both refuse to
+   * touch — it is the joint that cannot be broken, which is exactly what
+   * separates tar from rebar (rigid, but a Bond Breaker splits it).
+   *
+   * Flagged-in-the-list rather than held in a separate one on purpose. Every
+   * path that destroys a cube — a line clearing, a demolition charge, a cryo
+   * shatter — already calls removeConstraintsFor against `constraints`, and a
+   * weld kept outside it would survive its own cube's removal and leave matter
+   * solving against a body no longer in the world.
+   */
+  private resolveTarWelds(): void {
+    if (!this.pendingWelds.length) return;
+    for (const [a, b] of this.pendingWelds) {
+      const exists = this.constraints.some(
+        (w) => (w.bodyA === a && w.bodyB === b) || (w.bodyA === b && w.bodyB === a),
+      );
+      if (exists) continue;
+      if (!this.cubes.some((c) => c.body === a) || !this.cubes.some((c) => c.body === b)) continue;
+      const c = Matter.Constraint.create({
+        bodyA: a, bodyB: b,
+        length: Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y),
+        stiffness: 0.95,
+        damping: 0.1,
+        render: { visible: false },
+      });
+      (c as unknown as { welded: boolean }).welded = true;
+      this.constraints.push(c);
+      Matter.Composite.add(this.phys.world, c);
+    }
+    this.pendingWelds.length = 0;
+  }
+
   private detonate(bombBody: Matter.Body, now: number): void {
     const idx = this.liveBombs.findIndex((b) => b.body === bombBody);
     if (idx === -1) return; // already handled this frame (multiple pairs, fuse+collision, ...)
