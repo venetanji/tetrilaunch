@@ -12,38 +12,62 @@
 
 ---
 
-## Progress — resume at Task 3
+## Progress — phase 1 complete
 
-Branch `systems-layer`, based on `materials`. Suite green, `tsc` clean at every
-commit.
+Branch `systems-layer`, based on `materials`. Suite green, `tsc` clean and
+`vite build` clean at every commit.
 
 | Task | Status | Commit |
 |---|---|---|
 | 1 — demolition track | **done**, spec + quality reviewed | `a0a6c6e` |
 | 2 — refit cannot install | **done**, spec + quality reviewed | `1a80530` |
-| 3 — `INSTALLS` table | not started | — |
-| 4 — `buyInstall` + budget cap | not started | — |
-| 5 — retire the pricing check | not started | — |
-| 6 — Workshop sells installs | not started | — |
-| 7 — wire the purchase | not started | — |
+| 3 — `INSTALLS` table | **done** | `c908101` |
+| 4 — `buyInstall` + budget cap | **done** | `38a8421` |
+| 5 — retire the pricing check | **done** | `9c3c3a3` |
+| 6 — Workshop sells installs | **done** | `53461cb` |
+| 7 — wire the purchase | **done** | `53461cb` |
 
-Check count is **370** at Task 2. Note this branch does NOT carry PR #20's seven
-contract-modal checks, so it reads lower than a branch that does — the baseline
-here is 360, not 367.
+Check count is **390**, up from 370 at Task 2. Note this branch does NOT carry
+PR #20's seven contract-modal checks, so it reads lower than a branch that does.
 
-### Two things the next session needs to know
+Tasks 6 and 7 landed as one commit: both touch `screens.ts` and `app.css`, and
+the refit card's tier-0 state (nominally Task 7) is what makes Task 6's shop the
+only place a system can be installed. Splitting them would have meant two
+commits neither of which rendered correctly.
 
-**`src/ui/icons.ts` has no `demolition` entry.** `refitScreen` calls
-`icon(u.id as IconName, 15)` over every entry in `UPGRADES`, so the new track
-renders a blank glyph. `tsc` cannot catch this: a string-literal union assertion
-only requires the two unions to share **one** member, not to overlap. No test
-covers `refitScreen` either. Fix it in Task 6, where the card becomes
-user-facing.
+### Three departures from the plan as written
 
-**Task 2 left a known dead button, on purpose.** The refit card still prices a
-tier-0 track as a live 20-scrap button that now taps to nothing, because
-`buyUpgrade` refuses tier 0. Task 7's step 2 replaces it with a "Not installed"
-state. Do not treat it as a regression.
+**Entry installs are 15 salvage, not 20.** Task 5's replacement check — "a day
+of Contracts funds about one install" — failed on first run: three tier-1
+dailies pay 18 and the cheapest install was 20, so a player's first full day of
+Contracts bought nothing at all. Repriced Reactor and Launcher to 15 rather than
+widening the bound, per the plan's own instruction to treat that failure as
+signal about pricing.
+
+**`installGates` reports the budget with its numbers** (`build budget 60/77`
+rather than `Mark 1 build budget`). Both reasons still show when both apply: at a
+low Mark they are usually the same wall seen from two sides, and the numbers are
+what explain a refusal to a player holding 400 salvage.
+
+**The refit grid went to four columns, and its header sentence is dropped on
+short viewports.** The seventh card started a third row reachable only by
+scrolling, so a half-cut card sat against the Undock button. Measured, not
+guessed: 4 columns at `minmax(168px, 1fr)` plus the freed header line puts seven
+cards back into two rows with 0px of overflow at 792x360.
+
+### Verified in a browser, not only headless
+
+Chromium at 792x360 (the OnePlus 12 viewport the layout specs measure against),
+driving the built page: 17 checks — buy an install, salvage drops by its price,
+the card moves to the Installed strip, the budget readout advances, a rich save
+at Mark 1 still stops at exactly three installs with 9944 salvage in hand, and
+nothing overflows the viewport. Plus 11 checks over `refitScreen` rendered from
+source at both a stock and a mixed loadout.
+
+The scripts are not committed — the repo has no browser-test harness and adding
+one is not this plan's job. What survives in `sim/systems.ts` is the part that
+belongs there: markup assertions on `workshopScreen` and `refitScreen`, and the
+every-track-has-a-glyph check that `tsc` structurally cannot make.
 
 ---
 

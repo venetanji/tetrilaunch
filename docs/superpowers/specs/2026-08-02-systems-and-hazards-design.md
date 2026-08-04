@@ -1,7 +1,10 @@
 # Systems and hazards: the Mark ladder as a tool ladder
 
 **Date:** 2026-08-02
-**Status:** approved (architecture), unbuilt
+**Status:** approved (architecture) — **sub-project 1 (systems layer) shipped**
+on branch `systems-layer`; the hazard draft and material counters are unbuilt.
+See `docs/superpowers/plans/2026-08-02-systems-layer.md` for what phase 1
+actually landed, including three departures from this document's numbers.
 
 ## Why this
 
