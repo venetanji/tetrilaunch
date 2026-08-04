@@ -48,7 +48,7 @@ import {
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
 } from "../src/game/contracts";
 import {
-  pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints,
+  pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
@@ -1562,9 +1562,21 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // Same rail on the other side: a bay must stay physically able to hold a
   // sellable row however hard the sweeper is ratcheted.
   const swept = applyRatchets(flat, { sweeper: 99 });
+  // STRICTLY greater, not >=. At equality compactor.ts's leftX and rightX are
+  // the same X — the press has zero travel, stops moving for the rest of the
+  // run and counts a phantom stroke every other step. The old >= admitted
+  // exactly that state, and a stock rig reached it at four notches.
   check("the bay never ratchets below a sellable line",
-    swept.compactorOpenCells >= swept.compactorMinLineCells,
+    swept.compactorOpenCells > swept.compactorMinLineCells,
     `${swept.compactorOpenCells} open vs ${swept.compactorMinLineCells} needed`);
+  // Asserted against the press itself, because that is where the damage landed:
+  // the config invariant above is only a proxy for "the bar can still move".
+  for (const n of [1, 4, 7, 99]) {
+    const cfg = applyRatchets(flat, { sweeper: n });
+    const c = new Compactor(Matter.Engine.create().world, cfg);
+    check(`the press still has stroke at ${n} sweeper notch${n === 1 ? "" : "es"}`,
+      c.rightX - c.leftX >= CELL, `travel ${(c.rightX - c.leftX).toFixed(1)}px`);
+  }
   check("a sweeper notch speeds the press up",
     applyRatchets(flat, { sweeper: 1 }).compactorSpeed > flat.compactorSpeed);
   // Wind's texture has to ride its cap, or a ratcheted bay gets a stiff average
@@ -1687,6 +1699,35 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("a rebar piece survives a stretch that shatters a standard one",
       yank(rigid) === 0 && yank(plain) > 0,
       `rebar lost ${yank(rigid)}, standard lost ${yank(plain)}`);
+
+    // The press was the hole in all of this. breakJointsInBand deletes on
+    // GEOMETRY alone and read no metadata, so the one thing rebar is sold on —
+    // "what lands is what you keep" — was undone by the bar sweeping over it,
+    // and a tar weld dissolved the same way. updateBreakableJoints honoured
+    // both exemptions; the press did not. A Bond Breaker is meant to be the
+    // only answer to either.
+    {
+      const w3 = Matter.Engine.create().world;
+      const bar = createTetrisPiece(w3, 300, 300, 0, { x: 0, y: 0 }, "O", 0.95, "std", 1.7, "rebar");
+      const soft = createTetrisPiece(w3, 300, 300, 0, { x: 0, y: 0 }, "O", 0.95, "std", 1.7, "standard");
+      const weld = Matter.Constraint.create({
+        bodyA: Matter.Bodies.rectangle(300, 300, CELL, CELL),
+        bodyB: Matter.Bodies.rectangle(300 + CELL, 300, CELL, CELL),
+        length: CELL,
+      });
+      (weld as unknown as { welded: boolean }).welded = true;
+      const welds = [weld];
+      // Band wide enough to cover every one of these bodies.
+      breakJointsInBand(w3, bar.constraints, 300, 0, 500);
+      breakJointsInBand(w3, soft.constraints, 300, 0, 500);
+      breakJointsInBand(w3, welds, 300, 0, 500);
+      check("the press does not break rebar joints",
+        bar.constraints.length === 6, `${bar.constraints.length}/6 left`);
+      check("the press DOES still shatter an ordinary piece",
+        soft.constraints.length === 0, `${soft.constraints.length} left`);
+      check("the press does not dissolve a tar weld",
+        welds.length === 1, `${welds.length} left`);
+    }
   }
 
   // Volatile needs a HARD impact — above cryo's strike speed, or the landing
@@ -1694,6 +1735,18 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // landing the player can control.
   check("volatile's trigger is harder than a cryo strike",
     VOLATILE_TRIGGER_SPEED > CRYO_STRIKE_SPEED);
+  // ...and that was the ONLY bound, which is how the trigger shipped at 9.5 —
+  // below the speed any launch can even arrive at. Measured over every angle
+  // and power the cannon produces, first contact runs 17.3 to 30.8, so a
+  // trigger outside that band is not a difficulty setting, it is an always-on
+  // or never-on switch: under it every volatile shipment detonates on arrival
+  // and countsForLines is dead code, over it volatile is inert. The band is a
+  // property of speedMax and gravity — if either moves, re-measure rather than
+  // widening these numbers.
+  const IMPACT_MIN = 17.3, IMPACT_MAX = 30.8;
+  check("volatile's trigger sits inside the impact speeds a launch can produce",
+    VOLATILE_TRIGGER_SPEED > IMPACT_MIN && VOLATILE_TRIGGER_SPEED < IMPACT_MAX,
+    `${VOLATILE_TRIGGER_SPEED} vs measured ${IMPACT_MIN}..${IMPACT_MAX}`);
   {
     const bodyAt = (x: number, y: number, vx = 0): Matter.Body => {
       const b = Matter.Bodies.rectangle(x, y, CELL, CELL);

@@ -236,6 +236,14 @@ export function breakJointsInBand(
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
+    // Same two exemptions updateBreakableJoints honours. Without them the press
+    // was the one thing that broke both — geometry alone, no metadata read — so
+    // a rebar piece it swept came apart and a tar weld it swept dissolved, which
+    // is exactly the property each material is sold on. A Bond Breaker is meant
+    // to be the only answer to either.
+    const meta = c as unknown as { breakStretch?: number; welded?: boolean };
+    if (meta.welded) continue;
+    if (meta.breakStretch === Infinity) continue;
     if (inBand(c.bodyA) || inBand(c.bodyB)) {
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);

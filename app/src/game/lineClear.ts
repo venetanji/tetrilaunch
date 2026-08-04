@@ -101,8 +101,18 @@ export function strikeCryo(cubes: Cube[], a: Matter.Body, b: Matter.Body): void 
 /** Relative impact speed at which a VOLATILE cube goes off. Above cryo's strike
  *  threshold on purpose: the same landing that thaws ice must not be enough to
  *  set off a bomb, or volatile would detonate on essentially every touch and
- *  stop being a landing the player can control. */
-export const VOLATILE_TRIGGER_SPEED = 9.5;
+ *  stop being a landing the player can control.
+ *
+ *  This was 9.5, which is BELOW the speed any launch can actually arrive at:
+ *  measured over every angle/power the cannon can produce, first-contact
+ *  relative speed runs 17.3 to 30.8, so every volatile shipment detonated on
+ *  arrival and countsForLines was dead code. The lever is launch POWER, whose
+ *  median impact runs 19.5 at power 0 to 25.5 at full — so 22 sits between the
+ *  two halves of the dial: lob it and it survives (67% of launches), fire it
+ *  hard and it goes off. Re-measure with sim/_volprobe.ts's method if the
+ *  cannon's speedMax or gravity ever move, because this number is only
+ *  meaningful relative to them. */
+export const VOLATILE_TRIGGER_SPEED = 22;
 
 /** How far a detonation reaches, in cells. One cell of clearance around the
  *  cube itself — volatile takes its NEIGHBOURS, not a crater. */
@@ -118,9 +128,14 @@ export const VOLATILE_BLAST_CELLS = 1.6;
  *
  * Volatile is the only material whose cost is paid by cubes that were ALREADY
  * safely down, which is what makes it scale with how full the bay is rather
- * than with the shipment itself. A soft landing is the answer — settleAssist,
- * which Press Hydraulics raises — or deliberately chaining it into a pile that
- * was never going to complete a row anyway.
+ * than with the shipment itself. A soft landing is the answer — a low-power
+ * lob, which lands around 19.5 against a hard shot's 25.5 — or deliberately
+ * chaining it into a pile that was never going to complete a row anyway.
+ *
+ * NOT settleAssist, which this comment used to name: that only scales
+ * settleZoneCubes' grind on cubes already at rest and does nothing to the speed
+ * a shipment arrives at. Measured across Press Hydraulics tiers 0-3, minimum
+ * impact speed moved 17.34 -> 17.56, i.e. not at all.
  */
 export function volatileBlast(
   cubes: Cube[],

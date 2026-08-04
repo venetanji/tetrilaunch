@@ -112,9 +112,12 @@ export const PIECE_COLORS: Record<PieceType, string> = {
  *  - "volatile" — detonates when it lands HARD, taking its neighbours with it.
  *                 The only material whose cost is paid by the cubes already on
  *                 the field rather than by itself, so it punishes a full bay far
- *                 worse than an empty one. The answer is a soft landing —
- *                 settleAssist, which the Press Hydraulics track raises — or
- *                 deliberately chaining it into a pile you wanted gone anyway.
+ *                 worse than an empty one. The answer is a soft landing — a
+ *                 low-power lob, since launch power is what moves impact speed
+ *                 (see lineClear.ts's VOLATILE_TRIGGER_SPEED) — or deliberately
+ *                 chaining it into a pile you wanted gone anyway. Press
+ *                 Hydraulics does NOT help here; settleAssist only grinds cubes
+ *                 that have already stopped.
  *  - "tar"      — welds permanently to whatever it touches on contact, and a
  *                 Bond Breaker will NOT split the weld. The deliberate inverse
  *                 of rebar: rebar is rigid and breakable, tar is the joint you

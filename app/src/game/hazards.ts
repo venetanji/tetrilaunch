@@ -201,8 +201,16 @@ export const HAZARDS: HazardDef[] = [
       cfg.compactorSpeed *= 1 + SWEEP_NOTCH * n;
       // Never below the line width the press is checking for, or the bay cannot
       // physically hold a sellable row and no amount of play fixes it.
+      //
+      // The floor is minLineCells + 1, not minLineCells: compactor.ts derives
+      // leftX from openCells and rightX from minLineCells, so at equality the
+      // two stops are the same X and the press has zero travel. It then never
+      // moves again while still counting a stroke every other step — measured
+      // 0px of travel and 300 strokes in 600 steps. Reachable on a stock rig at
+      // four notches (12 - 1*4 = 8 = minLineCells), which is a Deep Run that
+      // simply stops working, so the floor has to leave one cell of stroke.
       cfg.compactorOpenCells = Math.max(
-        cfg.compactorMinLineCells,
+        cfg.compactorMinLineCells + 1,
         cfg.compactorOpenCells - OPEN_CELL_NOTCH * n,
       );
     },
