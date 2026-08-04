@@ -1722,11 +1722,18 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       volatileBlast(softField, softField[0].body, softField[1].body).length === 0);
     // The answer to volatile is a soft landing, so a bay with no volatile in it
     // must never produce a blast however hard the collision.
+    // The pair handed to volatileBlast must be the SAME body objects that are
+    // in the field: it finds the primed cube by identity before it ever reads
+    // MATERIAL_SPEC. Calling bodyAt() a second time to build the arguments
+    // makes the lookup miss and the function return [] for any material at
+    // all, which is a check that passes no matter what volatile does.
+    const inertA = bodyAt(500, 100, 40);
+    const inertB = bodyAt(500 + CELL, 100);
     check("nothing detonates on a belt with no volatile",
       volatileBlast([
-        { body: bodyAt(500, 100, 40), material: "standard", struck: true } as Cube,
-        { body: bodyAt(500 + CELL, 100), material: "slag", struck: true } as Cube,
-      ], bodyAt(500, 100, 40), bodyAt(500 + CELL, 100)).length === 0);
+        { body: inertA, material: "standard", struck: true } as Cube,
+        { body: inertB, material: "slag", struck: true } as Cube,
+      ], inertA, inertB).length === 0);
   }
 
   // Tar welds to what it settles against, and the weld is the joint nothing
@@ -1745,11 +1752,17 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       { body: pile, material: "standard", struck: true } as Cube,
     ];
     check("tar welds to what it settles against", tarWelds(field, stuck, pile).length === 1);
+    // Same identity trap as the volatile check above: tarWelds looks the pair
+    // up in the field by object identity and bails at !ca || !cb, so building
+    // the arguments with a second at() call means `welds` is never consulted
+    // and the check would pass even with both cubes made of tar.
+    const plainA = at(300, 100);
+    const plainB = at(300 + CELL, 100);
     check("two ordinary cubes never weld",
       tarWelds([
-        { body: at(300, 100), material: "standard", struck: true } as Cube,
-        { body: at(300 + CELL, 100), material: "standard", struck: true } as Cube,
-      ], at(300, 100), at(300 + CELL, 100)).length === 0);
+        { body: plainA, material: "standard", struck: true } as Cube,
+        { body: plainB, material: "standard", struck: true } as Cube,
+      ], plainA, plainB).length === 0);
     // Mid-air tar must not fuse with the shipment it was launched beside — it
     // sticks to the PILE, which is what makes it a placement problem.
     const flyA = at(500, 100, 30);
@@ -1780,14 +1793,25 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const skew = Matter.Bodies.rectangle(200, 400, CELL, CELL);
     Matter.Body.setAngle(skew, 0.24);
     Matter.Body.setVelocity(skew, { x: 0, y: 0 });
-    const floorY = WORLD.height - WALL_INNER;
+    // The anchor game.ts passes. Asserting "an integer number of cells from
+    // whatever floorY we handed in" is what the first version of this check
+    // did, and alignMagnetic guarantees that for EVERY floorY — so it passed
+    // just as happily while game.ts was passing WORLD.height - WALL_INNER, an
+    // X coordinate that put the snap grid half a cell off the rows. The
+    // property worth asserting is the one lineClear actually reads: the cube
+    // has to land on a row CENTER, so measure against rowY, not against the
+    // input.
+    const floorY = WORLD.height - CELL / 2;
     Matter.Body.setPosition(skew, { x: 200, y: floorY - CELL * 3 + 5 });
     const mags: Cube[] = [{ body: skew, material: "magnetic", struck: true } as Cube];
     alignMagnetic(mags, floorY);
     check("a settled magnetic cube snaps to a quarter turn",
       Math.abs(skew.angle % (Math.PI / 2)) < 1e-6, String(skew.angle));
-    check("a settled magnetic cube snaps onto the row grid",
-      Math.abs(((floorY - skew.position.y) / CELL) - Math.round((floorY - skew.position.y) / CELL)) < 1e-6);
+    const rowCenters = Array.from({ length: 12 }, (_, r) => WORLD.height - CELL / 2 - r * CELL);
+    check("a settled magnetic cube snaps onto updateLineClear's row grid",
+      rowCenters.some((y) => Math.abs(skew.position.y - y) < 1e-6),
+      `y=${skew.position.y} nearest=${rowCenters.reduce((a, b) =>
+        Math.abs(b - skew.position.y) < Math.abs(a - skew.position.y) ? b : a)}`);
     // A moving one is still in play and must not be teleported mid-flight.
     const flying = Matter.Bodies.rectangle(200, 200, CELL, CELL);
     Matter.Body.setAngle(flying, 0.3);
@@ -1941,6 +1965,25 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check(
     "a full row of standard shipments still clears (the baseline is intact)",
     updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
+  );
+
+  // The end-to-end check the unit checks above could not make. alignMagnetic
+  // is only correct relative to the anchor its CALLER passes, so the property
+  // that matters is not "lands on a multiple of CELL" — it is "a magnetic row
+  // that has been through the align pass still fills its slots". game.ts was
+  // passing WORLD.height - WALL_INNER, an X coordinate, which snapped every
+  // magnetic cube exactly CELL/2 off the row grid: past Y_TOL, so the row
+  // silently stopped clearing and magnetic became a worse slag. Nudge the row
+  // off-grid the way a real landing leaves it, then align, then clear.
+  const magnets = buildRow(allStd.map(() => "magnetic" as Material));
+  for (const c of magnets.cubes) {
+    Matter.Body.setPosition(c.body, { x: c.body.position.x, y: c.body.position.y - 6 });
+    Matter.Body.setVelocity(c.body, { x: 0, y: 0 });
+  }
+  alignMagnetic(magnets.cubes, WORLD.height - CELL / 2);
+  check(
+    "a magnetic row survives the align pass and still clears",
+    updateLineClear(magnets.phys.world, magnets.cubes, magnets.compactor, rowLevel, []).lines === 1,
   );
 
   const withSlag = buildRow(allStd.map((m, i) => (i === 3 ? "slag" : m)));

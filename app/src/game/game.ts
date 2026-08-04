@@ -941,7 +941,10 @@ export class Game {
     // MAGNETIC settles itself square. Run after the joints update so a cube
     // that just came loose is snapped on the same step it stopped moving,
     // rather than sitting crooked for one frame.
-    alignMagnetic(this.cubes, WORLD.height - WALL_INNER);
+    // WORLD.height - CELL/2 is updateLineClear's row anchor (see its rowY).
+    // WALL_INNER is an X coordinate, so subtracting it here put the snap grid
+    // half a cell off the row grid and no magnetic cube could ever fill a slot.
+    alignMagnetic(this.cubes, WORLD.height - CELL / 2);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
     breakJointsInBand(
