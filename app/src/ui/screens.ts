@@ -686,8 +686,10 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
         ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}">
-      <div class="shop-card__name">${u.name}</div>
-      <p class="shop-card__desc">${u.desc}</p>
+      <div class="shop-card__body">
+        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
+        <p class="shop-card__desc">${u.desc}</p>
+      </div>
       <div class="shop-card__foot">${foot}</div>
     </div>`;
     })
@@ -719,8 +721,10 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
         ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>♻ ${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}">
-      <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
-      <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+      <div class="shop-card__body">
+        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
+        <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+      </div>
       <div class="shop-card__foot">${foot}</div>
     </div>`;
     })

@@ -383,6 +383,14 @@ section("Installs — what salvage buys (meta.ts)");
   for (const i of INSTALLS) { const n = buyInstall(allIn, i.id); if (n) allIn = n; }
   const shopFull = workshopScreen(allIn, "systems");
   check("an exhausted systems pane keeps its tabs", shopFull.includes(`data-tab="options"`));
+  // Both card kinds carry a glyph and a body wrapper, or the row layout has
+  // nothing to put in its tracks and Options rows sit at a different left edge
+  // from Systems rows.
+  check("an option card carries its glyph",
+    shopOpts.includes(`class="shop-card__name"><svg`),
+    shopOpts.slice(shopOpts.indexOf("shop-card__name"), shopOpts.indexOf("shop-card__name") + 80));
+  check("both card kinds wrap name and desc in a body",
+    shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
   check("a Mark-gated system is shown, locked, rather than hidden",
     shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
     shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");

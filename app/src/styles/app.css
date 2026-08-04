@@ -1429,6 +1429,10 @@ button.panel { color: var(--text); }
 .shop-card--gated { opacity: 0.6; }
 .shop-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); }
 .shop-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; flex: 1; }
+/* name + desc as one unit, so the row layout below has a single middle track
+   and the tall card keeps today's spacing (this carries the 8px the two used to
+   get from .shop-card's own column gap). */
+.shop-card__body { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
 .shop-card__foot { margin-top: auto; }
 .shop-card__foot .btn { width: 100%; }
 .shop-card__foot .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
@@ -1465,6 +1469,17 @@ button.panel { color: var(--text); }
 /* The budget, not the price, is what usually refuses a purchase here. */
 .workshop__budget { font-family: var(--font-mono); font-size: 10px; color: var(--warn); letter-spacing: 0; }
 
+/* The tab bar is fixed chrome above the scroller, not part of it. */
+.workshop__tabs { display: flex; align-items: center; gap: var(--sp-2); }
+.workshop__tab {
+  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--text-dim); background: none; border: none; cursor: pointer;
+  padding: 6px 2px; border-bottom: 2px solid transparent;
+}
+.workshop__tab--on { color: var(--text); border-bottom-color: var(--accent); }
+.workshop__tab b { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+.workshop__tabs .workshop__budget { margin-left: auto; }
+
 /* Short (landscape-phone) viewports. Eleven unlocks cannot all show a paragraph
    in 360px, so the card gives up description length rather than the screen
    giving up fitting: the blurb goes (it explains the screen, not the goods),
@@ -1487,18 +1502,36 @@ button.panel { color: var(--text); }
      sections of one list; scrolling them separately would mean the systems a
      player came to buy could sit below a fold inside a 60px box. */
   .workshop__shop { flex: 1; min-height: 0; overflow-y: auto; }
+  /* A row needs its full name, a readable desc fragment and a price on one
+     line; 148px columns would wrap the name. */
   .workshop__grid {
-    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px;
     align-content: start;
   }
-  .shop-card { padding: 8px 10px; gap: 5px; border-radius: var(--r-md); }
-  .shop-card__name { font-size: 12px; }
+  /* The card becomes a ROW. 122px of card in a 189px scroller meant 1.5 cards
+     visible; the leaderboard's row shape (a fixed trailing value against a
+     flexible body) takes it to ~40px. Two columns was measured and is WORSE —
+     see the spec: this content is width-scarce, not height-scarce. */
+  .shop-card {
+    display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: 8px; padding: 5px 10px; border-radius: var(--r-md);
+  }
+  .shop-card__body { gap: 2px; min-width: 0; }
+  .shop-card__name { font-size: 11px; display: flex; align-items: center; gap: 5px; }
   .shop-card__desc {
     font-size: 10px; line-height: 1.3;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
-    overflow: hidden;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
+    overflow: hidden; min-width: 0;
   }
-  .shop-card__foot .btn { padding: 5px 10px; font-size: 9px; }
+  /* margin-top:auto is declared OUTSIDE this query (see .shop-card__foot), and
+     an auto margin beats align-items — without this reset the price sinks to
+     the bottom of the row instead of centring against it. */
+  .shop-card__foot { margin-top: 0; }
+  .shop-card__foot .btn { width: auto; padding: 4px 8px; font-size: 9px; }
+  /* The gated branch replaces the button with a long text run. In an `auto`
+     track that run sizes the column and starves the body, so it is capped. */
+  .shop-card__locked { display: block; max-width: 96px; text-align: right; }
+  .workshop__tab { padding: 4px 2px; font-size: 8px; }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
