@@ -31,7 +31,8 @@ import {
 import {
   contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
-  DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS,
+  DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
+  buyInstall, markBudget, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
@@ -276,6 +277,65 @@ section("Installs — what salvage buys (meta.ts)");
   // Mark 1 must open enough systems to make a first shop trip a real choice.
   check("at least two systems need no Mark at all",
     INSTALLS.filter((i) => i.requiresMark === undefined).length >= 2);
+
+  const freshMeta = (over: Partial<MetaState> = {}): MetaState => ({ ...newMeta(), ...over });
+  const tooExpensiveForBudget = (m: MetaState, i: InstallDef): boolean =>
+    tiersCost({ ...m.loadout, [i.id]: 1 }) > markBudget(m);
+
+  // The monetization invariant, executable. No salvage total buys a system
+  // whose Mark has not been beaten.
+  const rich = freshMeta({ salvage: 99999 });
+  check("no amount of salvage buys a Mark-gated install below its Mark",
+    INSTALLS.filter((i) => i.requiresMark !== undefined)
+      .every((i) => !installAvailable(rich, i)));
+  const topMark = freshMeta({ salvage: 99999, mark: MARK_COUNT });
+  check("a Mark-gated install opens once its Mark is beaten",
+    INSTALLS.every((i) => installAvailable(topMark, i) || tooExpensiveForBudget(topMark, i)));
+
+  // The budget cap, executable. This is what stops installs being raw power.
+  let greedy = freshMeta({ salvage: 99999, mark: 0 });
+  for (const i of INSTALLS) {
+    const next = buyInstall(greedy, i.id);
+    if (next) greedy = next;
+  }
+  check("greedy installing never exceeds the Mark's build budget",
+    tiersCost(greedy.loadout) <= markBudget(greedy),
+    `${tiersCost(greedy.loadout)} vs ${markBudget(greedy)}`);
+  check("Mark 1 affords exactly three installs",
+    Object.values(greedy.loadout).filter((t) => t > 0).length === 3,
+    JSON.stringify(greedy.loadout));
+
+  // An install grants tier 1 and charges salvage.
+  const bought = buyInstall(freshMeta({ salvage: 100 }), "reactor");
+  check("an install grants exactly tier 1", bought?.loadout.reactor === 1);
+  check("an install charges its salvage price", bought?.salvage === 80, String(bought?.salvage));
+  check("an install the player cannot afford is refused",
+    buyInstall(freshMeta({ salvage: 5 }), "reactor") === null);
+  check("installing twice is refused", buyInstall(bought!, "reactor") === null);
+  const before = freshMeta({ salvage: 100 });
+  buyInstall(before, "reactor");
+  check("buyInstall never mutates its input",
+    before.loadout.reactor === 0 && before.salvage === 100);
+
+  // The locked copy the Workshop prints must name the gate the purchase path
+  // actually applies — one function, so the two can never drift.
+  const gated = INSTALLS.find((i) => i.requiresMark === 2)!;
+  check("installGates names the Mark a gated system waits on",
+    installGates(freshMeta(), gated).some((g) => g.includes("Mark 2")),
+    installGates(freshMeta(), gated).join(" · "));
+  check("installGates is empty for an available system",
+    installGates(freshMeta(), installById("reactor")!).length === 0);
+  // A spent budget refuses the next install on its own, with salvage to burn
+  // and no Mark left to blame — the cap has to bite where the gate does not.
+  const remaining = INSTALLS.filter((i) => (greedy.loadout[i.id] ?? 0) === 0);
+  check("a spent budget refuses every remaining install",
+    remaining.length > 0 && remaining.every((i) => buyInstall(greedy, i.id) === null),
+    `${remaining.length} left at ${tiersCost(greedy.loadout)}/${markBudget(greedy)}`);
+  const budgetBound = remaining.find((i) => i.requiresMark === undefined);
+  check("a budget block reads as a budget, not as a Mark",
+    budgetBound === undefined ||
+      installGates(greedy, budgetBound).some((g) => g.includes("budget")),
+    budgetBound && installGates(greedy, budgetBound).join(" · "));
 }
 
 // ---------------------------------------------------------------------------

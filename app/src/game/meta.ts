@@ -21,7 +21,7 @@
  */
 
 import {
-  budgetForMark, loadoutLegal, MARK_COUNT, newTiers,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
@@ -232,6 +232,50 @@ export const INSTALLS: InstallDef[] = [
 
 export function installById(id: string): InstallDef | undefined {
   return INSTALLS.find((i) => i.id === id);
+}
+
+/** True when `def` can be bought right now: its Mark is beaten, it isn't
+ *  already installed, and tier 1 of it still fits the Mark's build budget.
+ *  Deliberately does NOT check salvage — the Workshop renders a card the player
+ *  simply can't afford yet as a disabled price button, which reads differently
+ *  from a gated one. */
+export function installAvailable(meta: MetaState, def: InstallDef): boolean {
+  if (def.requiresMark !== undefined && meta.mark < def.requiresMark) return false;
+  if ((meta.loadout[def.id] ?? 0) > 0) return false;
+  return buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) !== null;
+}
+
+/** Why `def` is unavailable, as display strings. Derived from the same
+ *  conditions installAvailable enforces, so the Workshop's locked copy can
+ *  never describe a gate the purchase path does not actually apply. */
+export function installGates(meta: MetaState, def: InstallDef): string[] {
+  const out: string[] = [];
+  if (def.requiresMark !== undefined && meta.mark < def.requiresMark) {
+    out.push(`Mark ${def.requiresMark}`);
+  }
+  if ((meta.loadout[def.id] ?? 0) === 0 &&
+      buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
+    out.push(`Mark ${markUnlocked(meta)} build budget`);
+  }
+  return out;
+}
+
+/**
+ * Buy an install: charge salvage and set the track to tier 1. Returns null when
+ * gated, already owned, unaffordable, or over budget. Never mutates.
+ *
+ * The budget charge goes through `buyLoadoutTier` rather than being re-derived
+ * here, so the Workshop cannot be a second, laxer door into the same loadout
+ * that `safeLoadout` validates on the way out.
+ */
+export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
+  const def = installById(id);
+  if (!def) return null;
+  if (!installAvailable(meta, def)) return null;
+  if (meta.salvage < def.cost) return null;
+  const loadout = buyLoadoutTier(meta.loadout, id, markUnlocked(meta));
+  if (!loadout) return null;
+  return { ...meta, salvage: meta.salvage - def.cost, loadout };
 }
 
 export interface MetaState {
