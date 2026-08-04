@@ -8,8 +8,8 @@ import {
 import { draftOffers, modById, type ModDef } from "./game/mods";
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract, salvageForRun,
-  unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
+  buyInstall, contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract,
+  salvageForRun, unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -808,6 +808,21 @@ class App {
     this.renderOverlay();
   }
 
+  /** Workshop: install a ship system with salvage.
+   *
+   *  Every refusal — gated Mark, already installed, unaffordable, over the
+   *  Mark's build budget — lives in meta.ts's buyInstall, so a click the shop
+   *  should not have offered is a no-op here rather than a second copy of the
+   *  rules that could disagree with the first. */
+  private onBuyInstall(id: string): void {
+    const next = buyInstall(this.meta, id as UpgradeId);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void successHaptic();
+    this.renderOverlay();
+  }
+
   /** "pick-mod"/"skip-mod": append the drafted pick (null for a skip) and start
    *  the next bay. The bay itself was already banked into the run by
    *  afterBayClear (so a refit stop could spend its scrap), so this ONLY records
@@ -1104,6 +1119,7 @@ class App {
       case "buy-upgrade": this.onBuyUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
+      case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
     }
   };
 

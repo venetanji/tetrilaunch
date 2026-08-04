@@ -7,11 +7,12 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
+  MAX_TIER, UPGRADES, nextTierCost, tiersCost, upgradeById, type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
-  SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, type MetaState,
+  SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, INSTALLS, installAvailable, installGates,
+  markBudget, type MetaState,
 } from "../game/meta";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
@@ -586,8 +587,14 @@ export function refitScreen(opts: {
     // much, and what it costs. Previously it said only "♻ 120", so the price
     // was on the button and the thing being bought was three lines above it.
     const step = cost === null ? null : u.step(tier);
+    // Tier 0 is NOT INSTALLED, and refit cannot install (run.ts's buyUpgrade
+    // refuses it): a system is bought once, with salvage, in the Workshop. The
+    // card used to price tier 0 like any other rung, which after that rule
+    // landed meant a live 20-scrap button that tapped to nothing.
     const btn =
-      cost === null || step === null
+      tier === 0
+        ? `<span class="refit-card__locked">Not installed · Workshop</span>`
+        : cost === null || step === null
         ? `<span class="refit-card__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
@@ -620,7 +627,7 @@ export function refitScreen(opts: {
         <div style="text-align:left">
           <div class="eyebrow">Refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
-          <p class="muted" style="margin:0">The compactor rig is your ship. Spend scrap; it lasts the run. Next up: ${opts.nextBayName}.</p>
+          <p class="muted" style="margin:0"><span class="refit__hint">The compactor rig is your ship. Spend scrap; it lasts the run. </span>Next up: ${opts.nextBayName}.</p>
         </div>
         <div class="chip refit__scrap">
           <div class="chip__label">Scrap</div>
@@ -690,6 +697,40 @@ export function workshopScreen(meta: MetaState): string {
 
   const done = !forSale.length;
 
+  // ---- Systems -------------------------------------------------------------
+  // Installs sit ABOVE the unlock cards: a system is permanent power the player
+  // keeps, an unlock is an option that may or may not be dealt, and the shop
+  // should lead with the one that is guaranteed to matter. The budget readout
+  // rides on the section label because the cap, not the price, is what usually
+  // stops a purchase here — a player staring at 400 salvage and a greyed card
+  // needs to be told it is the Mark talking.
+  const installCards = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
+    .map((i) => {
+      const def = upgradeById(i.id)!;
+      const available = installAvailable(meta, i);
+      const affordable = meta.salvage >= i.cost;
+      const gates = installGates(meta, i);
+      const foot = available
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>♻ ${i.cost}</button>`
+        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
+      <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
+      <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+      <div class="shop-card__foot">${foot}</div>
+    </div>`;
+    })
+    .join("");
+
+  const installedStrip = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) > 0)
+    .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
+    .join("");
+
+  const installSection = installCards
+    ? `<div class="workshop__section-label">Systems <span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span></div>
+       <div class="workshop__grid">${installCards}</div>`
+    : `<div class="workshop__section-label">Systems</div>
+       <p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`;
+
   return `<div class="screen screen--fit neon-backdrop">
     <div class="workshop">
       <div class="workshop__hdr">
@@ -707,10 +748,17 @@ export function workshopScreen(meta: MetaState): string {
         </div>
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
+      ${installedStrip
+        ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+        : ""}
       ${ownedStrip}
-      ${done
-        ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
-        : `<div class="workshop__grid">${cards}</div>`}
+      <div class="workshop__shop">
+        ${installSection}
+        <div class="workshop__section-label">Options</div>
+        ${done
+          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
+          : `<div class="workshop__grid">${cards}</div>`}
+      </div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;

@@ -21,7 +21,7 @@
  */
 
 import {
-  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
@@ -253,7 +253,12 @@ export function installAvailable(meta: MetaState, def: InstallDef): boolean {
 
 /** Why `def` is unavailable, as display strings. Derived from the same
  *  conditions installAvailable enforces, so the Workshop's locked copy can
- *  never describe a gate the purchase path does not actually apply. */
+ *  never describe a gate the purchase path does not actually apply.
+ *
+ *  Both reasons can be true at once and both are shown, with the budget one
+ *  carrying its numbers: at a low Mark the two are usually the same wall seen
+ *  from different sides, and "Mark 2 · build budget 60/77" is the sentence that
+ *  actually explains why a player holding 400 salvage is being refused. */
 export function installGates(meta: MetaState, def: InstallDef): string[] {
   const out: string[] = [];
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) {
@@ -261,7 +266,7 @@ export function installGates(meta: MetaState, def: InstallDef): string[] {
   }
   if ((meta.loadout[def.id] ?? 0) === 0 &&
       buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
-    out.push(`Mark ${markUnlocked(meta)} build budget`);
+    out.push(`build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}`);
   }
   return out;
 }

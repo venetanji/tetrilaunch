@@ -26,7 +26,7 @@ export type IconName =
   // codes — "BAY", "LCH", "HYD" — which were text pretending to be glyphs: they
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
-  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds"
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
   // Direction of a value change on the refit buy button. These were the text
   // glyphs ▲/▼, which sat off-centre against the pixel label beside them for
   // exactly the reason in the header note: a font glyph carries the font's own
@@ -73,6 +73,10 @@ const PATHS: Record<IconName, string> = {
   reactor: `<path d="M6 7h4v4H6z" fill="currentColor" stroke="none"/><path d="M3 13V10"/><path d="M8 13v-1"/><path d="M13 13V4"/><path d="M3 5l2-2 2 2"/>`,
   // Bond Emitter: a joint at the centre throwing bonds outward — the shatter.
   bonds: `<path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/>`,
+  // Demolition Rack: a charge, solid, with a lit fuse running off it. Straight
+  // segments only — a curved fuse is the one shape in this set that would need
+  // anti-aliasing to read, which is exactly what the pixel frame doesn't give.
+  demolition: `<path d="M3 8h8v6H3z" fill="currentColor" stroke="none"/><path d="M9 8V5l3-2"/><path d="M12 3h2"/><path d="M12 3V1"/>`,
   // Solid triangles, centred on the 16x16 box so both read at the same optical
   // height whichever way they point.
   up: `<path d="M8 4l5 8H3z" fill="currentColor" stroke="none"/>`,

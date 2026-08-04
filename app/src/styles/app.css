@@ -1402,6 +1402,10 @@ button.panel { color: var(--text); }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
+/* Tier 0: the system isn't on the ship at all, and no amount of scrap puts it
+   there. Same weight as MAX — both say "nothing to buy here", in opposite
+   directions. */
+.refit-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 0.06em; }
 
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
@@ -1448,6 +1452,19 @@ button.panel { color: var(--text); }
 .workshop__owned-item { font-size: 11px; color: var(--text-dim); }
 .workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
 
+/* The shop proper: systems first, then options. One wrapper rather than two
+   loose grids because on a short viewport this is the ONLY scroller (see the
+   media query below) — two independently scrolling grids would each get half
+   the height and neither would show a whole card. */
+.workshop__shop { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+.workshop__section-label {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+/* The budget, not the price, is what usually refuses a purchase here. */
+.workshop__budget { font-family: var(--font-mono); font-size: 10px; color: var(--warn); letter-spacing: 0; }
+
 /* Short (landscape-phone) viewports. Eleven unlocks cannot all show a paragraph
    in 360px, so the card gives up description length rather than the screen
    giving up fitting: the blurb goes (it explains the screen, not the goods),
@@ -1466,9 +1483,12 @@ button.panel { color: var(--text); }
      bottom. Scoped by .screen--fit so the other screens keep page scrolling. */
   .screen--fit { overflow: hidden; }
   .screen--fit .workshop { height: 100%; min-height: 0; }
+  /* The scroller is the SHOP, not either grid. Systems and options are two
+     sections of one list; scrolling them separately would mean the systems a
+     player came to buy could sit below a fold inside a 60px box. */
+  .workshop__shop { flex: 1; min-height: 0; overflow-y: auto; }
   .workshop__grid {
     grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px;
-    flex: 1; min-height: 0; overflow-y: auto;
     align-content: start;
   }
   .shop-card { padding: 8px 10px; gap: 5px; border-radius: var(--r-md); }
@@ -1514,7 +1534,20 @@ button.panel { color: var(--text); }
   .refit-card__pips i { width: 6px; height: 6px; }
   .refit-card__foot { padding-top: 2px; }
   .refit-card__buy { padding: 5px 8px; font-size: 9px; }
-  .refit__grid { gap: 7px; min-height: 0; }
+  /* Four columns, not three. Six tracks were two tidy rows of three; the
+     seventh (Demolition Rack) started a third row that the grid could only
+     reach by scrolling, so the card sat half-cut against the Undock button —
+     a card you can see the top of reads as broken, not as scrollable. At
+     168px the same 792px-wide modal takes four across and seven cards are two
+     rows again. */
+  .refit__grid {
+    gap: 7px; min-height: 0;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  }
+  /* The sentence explains the SCREEN; "Next up: <bay>" is the only part that
+     changes and the only part worth a line of a 360px viewport. Dropping it
+     buys back the row the seventh card needs. Same trade as .workshop__blurb. */
+  .refit__hint { display: none; }
   .salvage-row { padding: 6px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }

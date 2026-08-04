@@ -46,7 +46,10 @@ import { tilesRegion } from "../src/game/tiling";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
-import { endBoard, fullBoard, END_BOARD_TOP, contractsScreen } from "../src/ui/screens";
+import {
+  endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
+} from "../src/ui/screens";
+import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -337,6 +340,37 @@ section("Installs — what salvage buys (meta.ts)");
     budgetBound === undefined ||
       installGates(greedy, budgetBound).some((g) => g.includes("budget")),
     budgetBound && installGates(greedy, budgetBound).join(" · "));
+
+  // --- what the screens actually render ------------------------------------
+  // Every track needs its own glyph. `refitScreen` casts the upgrade id to
+  // IconName, and a string-literal union assertion only requires the two unions
+  // to SHARE a member — so a track with no icon typechecks clean and renders a
+  // blank square. This is the check tsc cannot be.
+  check("every upgrade track has an icon",
+    UPGRADES.every((u) => !icon(u.id as IconName).includes("undefined")),
+    UPGRADES.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
+
+  const shop = workshopScreen(freshMeta({ salvage: 50 }));
+  check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
+  check("the Workshop shows the build budget", shop.includes("build budget"));
+  check("a Mark-gated system is shown, locked, rather than hidden",
+    shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
+    shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
+  const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
+  check("an install the player cannot afford is offered but disabled",
+    brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
+  const installedShop = workshopScreen(freshMeta({ loadout: { ...newTiers(), reactor: 1 } }));
+  check("an installed system leaves the shelf for the strip",
+    installedShop.includes("✓ Installed") &&
+      !installedShop.includes(`data-install="reactor"`));
+
+  // Refit prices tiers 2-3 only. Tier 0 used to render a live 20-scrap button
+  // that tapped to nothing once run.ts stopped letting scrap install.
+  const stockRefit = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: newTiers() });
+  check("an uninstalled track shows no refit button",
+    stockRefit.includes("Not installed") && !stockRefit.includes(`data-upgrade="reactor"`));
+  const oneUp = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 } });
+  check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
 }
 
 // ---------------------------------------------------------------------------
