@@ -1525,8 +1525,18 @@ button.panel { color: var(--text); }
   .shop-card__foot { margin-top: 0; }
   .shop-card__foot .btn { width: auto; padding: 4px 8px; font-size: 9px; }
   /* The gated branch replaces the button with a long text run. In an `auto`
-     track that run sizes the column and starves the body, so it is capped. */
-  .shop-card__locked { display: block; max-width: 96px; text-align: right; }
+     track that run sizes the column and starves the body, so it is capped —
+     and then CLAMPED, because the cap alone only moves the problem: measured
+     at 792x360, "Needs Mark 3 · Demolition Licence" wrapped to four lines
+     inside 96px and took its row from 42px to 50px, breaking the rhythm the
+     row layout exists to create. Two lines is what fits beside the body, and
+     the leading gate is always the Mark — the one thing no amount of salvage
+     can buy. The rest reads in full on a taller screen, same trade the desc
+     above already makes. */
+  .shop-card__locked {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden; max-width: 96px; text-align: right; line-height: 1.25;
+  }
   .workshop__tab { padding: 4px 2px; font-size: 8px; }
 }
 

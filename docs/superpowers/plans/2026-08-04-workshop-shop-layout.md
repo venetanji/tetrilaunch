@@ -68,7 +68,7 @@ Three ids are hyphenated (`short-lines`, `bond-breaker`, `scrap-cache`), so thei
 - Modify: `src/ui/icons.ts` (`IconName` at line 23-35, `PATHS` at 39)
 - Test: `sim/systems.ts` (beside the existing "every upgrade track has an icon" check, ~line 349)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `sim/systems.ts` immediately after the existing `every upgrade track has an icon` check:
 
@@ -84,12 +84,12 @@ Add to `sim/systems.ts` immediately after the existing `every upgrade track has 
 
 `UNLOCKS`, `icon` and `IconName` are all already imported in this file (lines 32 and 52).
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npx tsx sim/systems.ts`
 Expected: FAIL — `every unlock has an icon`, with all ten ids in the detail.
 
-- [ ] **Step 3: Extend the `IconName` union**
+- [x] **Step 3: Extend the `IconName` union**
 
 In `src/ui/icons.ts`, add a third group to the union, after the upgrade-track line (line 29) and before the `up`/`down` comment:
 
@@ -103,7 +103,7 @@ In `src/ui/icons.ts`, add a third group to the union, after the upgrade-track li
   | "sturdy" | "overclock" | "short-lines" | "bond-breaker" | "auto"
 ```
 
-- [ ] **Step 4: Add the ten paths**
+- [x] **Step 4: Add the ten paths**
 
 Append to the `PATHS` object in `src/ui/icons.ts`, after the `demolition` entry
 and before the `up`/`down` pair. Every path is straight-segment only, on the
@@ -166,17 +166,17 @@ and before the `up`/`down` pair. Every path is straight-segment only, on the
     `<path d="M2 4h3v8H2z" fill="currentColor" stroke="none"/><path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M11 7h2v2h-2z" fill="currentColor" stroke="none"/>`,
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `npx tsx sim/systems.ts`
 Expected: `All systems checks passed.`
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: exit 0, no output. `PATHS` is `Record<IconName, string>`, so a missing or misspelled key fails here.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/ui/icons.ts sim/systems.ts
@@ -197,7 +197,7 @@ worth committing on the way past.
 - Modify: `src/main.ts` (line 263, and the click switch at ~1119-1122)
 - Test: `sim/systems.ts` (the workshop markup checks, ~line 353)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Replace the existing `const shop = workshopScreen(freshMeta({ salvage: 50 }));` line and add below it:
 
@@ -229,12 +229,12 @@ Replace the existing `const shop = workshopScreen(freshMeta({ salvage: 50 }));` 
   check("an exhausted systems pane keeps its tabs", shopFull.includes(`data-tab="options"`));
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npx tsx sim/systems.ts`
 Expected: FAIL — `both tabs render on either pane` and the two pane-isolation checks. `workshopScreen` takes one argument today, so the second is ignored and both panes render identically.
 
-- [ ] **Step 3: Add the `tab` parameter and the tab bar**
+- [x] **Step 3: Add the `tab` parameter and the tab bar**
 
 In `src/ui/screens.ts`, change the signature at line 666:
 
@@ -251,7 +251,7 @@ and export the type just above the function:
 export type ShopTab = "systems" | "options";
 ```
 
-- [ ] **Step 4: Build the tab bar and the panes**
+- [x] **Step 4: Build the tab bar and the panes**
 
 Still in `workshopScreen`, replace the `installSection` const (lines 728-732) with the following, and leave `installCards`, `installedStrip`, `cards`, `ownedStrip` and `done` exactly as they are:
 
@@ -294,7 +294,7 @@ Still in `workshopScreen`, replace the `installSection` const (lines 728-732) wi
           : `<div class="workshop__grid">${cards}</div>`}`;
 ```
 
-- [ ] **Step 5: Rewrite the returned markup**
+- [x] **Step 5: Rewrite the returned markup**
 
 Replace the `return` block (lines 734-762) with:
 
@@ -324,7 +324,7 @@ Keep whatever the current header markup actually is — copy the `workshop__hdr`
 and `chip` blocks verbatim from the file rather than from this plan, which
 reproduces them only to show where `${tabBar}` and the pane sit.
 
-- [ ] **Step 6: Wire the state in `main.ts`**
+- [x] **Step 6: Wire the state in `main.ts`**
 
 Add the field beside the other App state:
 
@@ -364,7 +364,7 @@ opens the screen:
       case "shop-tab": this.onShopTab(el.getAttribute("data-tab") ?? ""); break;
 ```
 
-- [ ] **Step 7: Reset the tab when the screen opens**
+- [x] **Step 7: Reset the tab when the screen opens**
 
 Find `case "workshop": this.setState("workshop")` (~line 1089) and set the tab
 first, so re-entering the Workshop always lands on Systems:
@@ -373,17 +373,17 @@ first, so re-entering the Workshop always lands on Systems:
       case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
 ```
 
-- [ ] **Step 8: Run to verify it passes**
+- [x] **Step 8: Run to verify it passes**
 
 Run: `npx tsx sim/systems.ts`
 Expected: `All systems checks passed.`
 
-- [ ] **Step 9: Typecheck and build**
+- [x] **Step 9: Typecheck and build**
 
 Run: `npx tsc --noEmit && npx vite build`
 Expected: exit 0, clean build. If `ShopTab` is not found in `main.ts`, confirm it is exported from `screens.ts` and that `main.ts` imports the module as `S`.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/ui/screens.ts src/main.ts sim/systems.ts
@@ -402,7 +402,7 @@ closes it.
 - Modify: `src/styles/app.css` (base additions near 1418-1436; the row rules inside `@media (max-height: 460px)` at 1473-1502; new tab-bar rules)
 - Test: `sim/systems.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
   // Both card kinds carry a glyph and a body wrapper, or the row layout has
@@ -415,12 +415,12 @@ closes it.
     shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npx tsx sim/systems.ts`
 Expected: FAIL — both checks. Option cards have no glyph and neither card has a body wrapper.
 
-- [ ] **Step 3: Add the glyph and body wrapper to the option card**
+- [x] **Step 3: Add the glyph and body wrapper to the option card**
 
 In `src/ui/screens.ts`, replace the unlock card template (lines 683-687):
 
@@ -434,7 +434,7 @@ In `src/ui/screens.ts`, replace the unlock card template (lines 683-687):
     </div>`;
 ```
 
-- [ ] **Step 4: Add the body wrapper to the install card**
+- [x] **Step 4: Add the body wrapper to the install card**
 
 Replace the install card template (lines 716-720). The glyph is already inside
 `__name` — it stays there:
@@ -449,7 +449,7 @@ Replace the install card template (lines 716-720). The glyph is already inside
     </div>`;
 ```
 
-- [ ] **Step 5: Add the base wrapper rule**
+- [x] **Step 5: Add the base wrapper rule**
 
 In `src/styles/app.css`, after `.shop-card__desc` (line 1431), add:
 
@@ -460,7 +460,7 @@ In `src/styles/app.css`, after `.shop-card__desc` (line 1431), add:
 .shop-card__body { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
 ```
 
-- [ ] **Step 6: Add the tab-bar rules**
+- [x] **Step 6: Add the tab-bar rules**
 
 After `.workshop__budget` (line 1466), add:
 
@@ -477,7 +477,7 @@ After `.workshop__budget` (line 1466), add:
 .workshop__tabs .workshop__budget { margin-left: auto; }
 ```
 
-- [ ] **Step 7: Add the row rules inside the media query**
+- [x] **Step 7: Add the row rules inside the media query**
 
 Inside `@media (max-height: 460px)` (1473-1502), replace the `.shop-card`,
 `.shop-card__name`, `.shop-card__desc` and `.shop-card__foot .btn` rules
@@ -510,7 +510,7 @@ Inside `@media (max-height: 460px)` (1473-1502), replace the `.shop-card`,
   .workshop__tab { padding: 4px 2px; font-size: 8px; }
 ```
 
-- [ ] **Step 8: Widen the grid columns**
+- [x] **Step 8: Widen the grid columns**
 
 Still inside the media query, change `.workshop__grid` (1490-1493) from
 `minmax(148px, 1fr)` to:
@@ -525,12 +525,12 @@ Still inside the media query, change `.workshop__grid` (1490-1493) from
 A row needs its full name, a readable desc fragment and a price on one line;
 148px columns would wrap the name.
 
-- [ ] **Step 9: Run, typecheck, build**
+- [x] **Step 9: Run, typecheck, build**
 
 Run: `npx tsx sim/systems.ts && npx tsc --noEmit && npx vite build`
 Expected: `All systems checks passed.`, exit 0, clean build.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/ui/screens.ts src/styles/app.css sim/systems.ts
@@ -548,7 +548,7 @@ worse than no comment, because they read as reasons not to do what was just done
 - Modify: `src/styles/app.css` (1455-1458 and 1486-1489)
 - Modify: `design/screens/workshop.html`
 
-- [ ] **Step 1: Rewrite the `.workshop__shop` comment**
+- [x] **Step 1: Rewrite the `.workshop__shop` comment**
 
 Replace the block at 1455-1458 ("The shop proper: systems first, then options. One wrapper rather than two loose grids…") with:
 
@@ -559,7 +559,7 @@ Replace the block at 1455-1458 ("The shop proper: systems first, then options. O
    put while this scrolls. */
 ```
 
-- [ ] **Step 2: Rewrite the short-viewport scroller comment**
+- [x] **Step 2: Rewrite the short-viewport scroller comment**
 
 Replace the block at 1486-1489 ("The scroller is the SHOP, not either grid. Systems and options are two sections of one list…") with:
 
@@ -568,7 +568,7 @@ Replace the block at 1486-1489 ("The scroller is the SHOP, not either grid. Syst
      (see screens.ts's workshopScreen), so there is one grid here, not two. */
 ```
 
-- [ ] **Step 3: Regenerate the design mirror**
+- [x] **Step 3: Regenerate the design mirror**
 
 `design/screens/workshop.html` is a hand-maintained mirror that claims at line 10
 to reflect `screens.ts` + `app.css`. It carries its OWN copy of the styles
@@ -610,7 +610,7 @@ put a glyph at the head of each `.shop-card__name`, and add a tab bar above
     </div>
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/styles/app.css design/screens/workshop.html
@@ -626,12 +626,12 @@ plan exists to remove has to be re-measured the same way it was taken.
 
 **Files:** none — this task changes nothing.
 
-- [ ] **Step 1: Full verification**
+- [x] **Step 1: Full verification**
 
 Run: `npx tsc --noEmit && npx tsx sim/systems.ts && npx vite build`
 Expected: exit 0, `All systems checks passed.`, clean build.
 
-- [ ] **Step 2: Measure the overflow at the device viewport**
+- [x] **Step 2: Measure the overflow at the device viewport**
 
 Start the dev server, open the page at **792x360**, go to Workshop, and evaluate:
 
@@ -648,7 +648,7 @@ Then click the Options tab and re-run: `overflow` should be at or near 0 with te
 unowned unlocks. Anything above ~40px means the desc clamp or the column width
 needs one more turn — reconcile against the spec's tables rather than loosening.
 
-- [ ] **Step 3: Check the states the tables did not cover**
+- [x] **Step 3: Check the states the tables did not cover**
 
 At the same viewport, confirm by eye:
 - A gated card ("Needs Mark 2") does not push its row's price off the edge.
@@ -656,7 +656,7 @@ At the same viewport, confirm by eye:
 - A tall viewport (e.g. 1280x900) still shows the old vertical card: glyph inline in the name, full untruncated desc, price at the bottom.
 - The Options tab shows the "✓ Owned" strip and not "✓ Installed".
 
-- [ ] **Step 4: Commit anything the measurement forced**
+- [x] **Step 4: Commit anything the measurement forced**
 
 ```bash
 git add -A
@@ -680,3 +680,47 @@ If nothing changed, skip the commit.
 - Re-pricing `UNLOCKS` or `INSTALLS`.
 - The refit screen's four-column grid, which phase 1 already settled.
 - A browser test harness. The repo has none, and the measurement step above is the same one phase 1 used.
+
+---
+
+## Outcome — measured, not assumed
+
+Implemented on `claude/system-design-review-58ay1b`, off `systems-layer` at
+`99c18d5`. Re-measured in Chromium at 792x360 driving the dev server, the same
+way the spec's tables were produced:
+
+| | Systems | Options |
+|---|---|---|
+| `.workshop__shop` height | 160px | 160px |
+| content height | 160px | 180px |
+| **overflow** | **0px** (was 500px) | **20px** |
+| card | 42px | 42px |
+| columns | 3 | 3 |
+| page scroll | 0 | 0 |
+
+The scroller is 160px rather than the spec's 189px because the tab bar is new
+fixed chrome — the spec budgeted ~38px for it and it cost 29px.
+
+**One fix the measurement forced.** Task 3's `max-width: 96px` on
+`.shop-card__locked` stopped the gate text sizing the price track, but not
+growing the row: `Needs Mark 3 · Demolition Licence` wrapped to four lines
+inside that cap and took the Autoloader row to 50px against every other row's
+42px. The run is now clamped to two lines, same trade the desc above it already
+makes. Every row is 42px, and Options' overflow fell 28px -> 20px.
+
+**Options keeps 20px.** Ten cards over three columns is four rows: 4x42 + 3x4 =
+180 against a 160px pane. Closing it needs a fourth column, i.e. `minmax` below
+~182px, which is the width Task 3 widened *away* from so a row's name, desc
+fragment and price fit on one line. Inside the plan's own ~40px tolerance, and
+left rather than loosened, per Step 2's instruction.
+
+**One claim in "One departure from the spec" does not hold against the code.**
+It argues a hoisted glyph "lands on its own line above the name at tall — not
+today's appearance for Systems cards". It *is* today's appearance:
+`.ico` is `display: block` (app.css:110) and `.shop-card__name` is a plain block
+at tall, so the glyph already sat on its own line there before this change. The
+departure's conclusion still stands — `icon()` stays where it is — but for a
+weaker reason than the one recorded. Options cards now match Systems cards at
+tall, both with the glyph above the name. Making the pair inline at every
+viewport is a one-line base rule, deliberately NOT taken here because it would
+change the tall Systems card the "Done when" list pins as unchanged.
