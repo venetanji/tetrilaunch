@@ -358,9 +358,31 @@ section("Installs — what salvage buys (meta.ts)");
     UNLOCKS.every((u) => !icon(u.id as IconName).includes("undefined")),
     UNLOCKS.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
 
-  const shop = workshopScreen(freshMeta({ salvage: 50 }));
+  const shop = workshopScreen(freshMeta({ salvage: 50 }), "systems");
+  const shopOpts = workshopScreen(freshMeta({ salvage: 50 }), "options");
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
   check("the Workshop shows the build budget", shop.includes("build budget"));
+  // Tabs, and only the active pane. The whole 500px-of-overflow fix rests on
+  // the inactive section NOT being in the output — if both render, the shop is
+  // the same length it always was and the CSS is decoration.
+  check("both tabs render on either pane",
+    shop.includes(`data-tab="systems"`) && shop.includes(`data-tab="options"`) &&
+      shopOpts.includes(`data-tab="systems"`) && shopOpts.includes(`data-tab="options"`));
+  check("the systems pane omits the option cards",
+    shop.includes(`data-action="buy-install"`) && !shop.includes(`data-action="buy-unlock"`));
+  check("the options pane omits the install cards",
+    shopOpts.includes(`data-action="buy-unlock"`) && !shopOpts.includes(`data-action="buy-install"`));
+  check("the build budget survives on the systems tab", shop.includes("build budget"));
+  check("the active tab is marked for assistive tech",
+    shop.includes(`data-tab="systems" aria-selected="true"`) &&
+      shopOpts.includes(`data-tab="options" aria-selected="true"`));
+  // An empty pane must still show its tabs, or a player who has installed
+  // everything lands on a screen with no way back to the other half.
+  const richMeta = freshMeta({ salvage: 99999, mark: MARK_COUNT });
+  let allIn = richMeta;
+  for (const i of INSTALLS) { const n = buyInstall(allIn, i.id); if (n) allIn = n; }
+  const shopFull = workshopScreen(allIn, "systems");
+  check("an exhausted systems pane keeps its tabs", shopFull.includes(`data-tab="options"`));
   check("a Mark-gated system is shown, locked, rather than hidden",
     shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
     shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");

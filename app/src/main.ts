@@ -63,6 +63,11 @@ class App {
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
+  /** Which half of the Workshop shop is showing. Lives here, not in the DOM:
+   *  renderOverlay() rewrites overlay.innerHTML wholesale and both purchase
+   *  handlers call it, so a :checked-sibling or :target tab would snap back to
+   *  Systems on every buy (and :target would push history entries besides). */
+  private workshopTab: S.ShopTab = "systems";
   /** Salvage paid out by the run that just ended, held so the end modal can
    *  show the award without recomputing (and so re-rendering the modal — e.g.
    *  after the leaderboard fetch lands — can't pay it twice). */
@@ -260,7 +265,7 @@ class App {
       case "menu":
         this.overlay.innerHTML = S.menuScreen(loadBest(), this.meta.salvage, this.storeState());
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
@@ -823,6 +828,16 @@ class App {
     this.renderOverlay();
   }
 
+  /** Workshop: switch shop halves. Anything other than the two known ids is
+   *  ignored rather than defaulted, so a stale attribute cannot silently park
+   *  the player on Systems forever. */
+  private onShopTab(tab: string): void {
+    if (tab !== "systems" && tab !== "options") return;
+    if (tab === this.workshopTab) return;
+    this.workshopTab = tab;
+    this.renderOverlay();
+  }
+
   /** "pick-mod"/"skip-mod": append the drafted pick (null for a skip) and start
    *  the next bay. The bay itself was already banked into the run by
    *  afterBayClear (so a refit stop could spend its scrap), so this ONLY records
@@ -1086,7 +1101,7 @@ class App {
       case "howto": this.setState("howto"); break;
       case "settings": this.setState("settings"); break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
-      case "workshop": this.setState("workshop"); break;
+      case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
@@ -1120,6 +1135,7 @@ class App {
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
+      case "shop-tab": this.onShopTab(el.getAttribute("data-tab") ?? ""); break;
     }
   };
 

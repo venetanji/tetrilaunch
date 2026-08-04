@@ -663,7 +663,12 @@ export function refitScreen(opts: {
  * get SHORTER the further in you are, and puts the decision you actually came
  * here to make at the top.
  */
-export function workshopScreen(meta: MetaState): string {
+/** Which half of the shop is showing. Systems and Options are two lists of the
+ *  same kind of decision, and at 792x360 both at once is 689px of cards in a
+ *  189px window — see the spec's measurement table. */
+export type ShopTab = "systems" | "options";
+
+export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
@@ -725,11 +730,42 @@ export function workshopScreen(meta: MetaState): string {
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
     .join("");
 
-  const installSection = installCards
-    ? `<div class="workshop__section-label">Systems <span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span></div>
-       <div class="workshop__grid">${installCards}</div>`
-    : `<div class="workshop__section-label">Systems</div>
-       <p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`;
+  // The counts are what let the hidden half advertise itself. A tab that just
+  // says "Options" gives a player no reason to look, and the cheapest unlock
+  // they can afford is behind it.
+  const systemsBuyable = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0 &&
+    installAvailable(meta, i) && meta.salvage >= i.cost).length;
+  const optionsBuyable = forSale.filter((u) => unlockAvailable(u, meta.unlocks, mark) &&
+    meta.salvage >= u.cost).length;
+
+  const tabBtn = (id: ShopTab, label: string, n: number) =>
+    `<button class="workshop__tab${tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="shop-tab" data-tab="${id}" aria-selected="${tab === id}">${label}${n ? ` <b>${n}</b>` : ""}</button>`;
+
+  // The bar is a SIBLING of .workshop__shop, never a child: app.css makes
+  // .workshop__shop the scroller on short viewports, so a bar inside it
+  // scrolls away exactly when the player needs it.
+  const tabBar = `<div class="workshop__tabs" role="tablist">
+        ${tabBtn("systems", "Systems", systemsBuyable)}
+        ${tabBtn("options", "Options", optionsBuyable)}
+        ${tab === "systems"
+          ? `<span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span>`
+          : ""}
+      </div>`;
+
+  // Each strip belongs to its own pane. Left above the shop they would show the
+  // Installed list while the player is shopping for Options, and both would eat
+  // fixed chrome off the only scroller.
+  const pane = tab === "systems"
+    ? `${installedStrip
+          ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+          : ""}
+       ${installCards
+          ? `<div class="workshop__grid">${installCards}</div>`
+          : `<p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`}`
+    : `${ownedStrip}
+       ${done
+          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
+          : `<div class="workshop__grid">${cards}</div>`}`;
 
   return `<div class="screen screen--fit neon-backdrop">
     <div class="workshop">
@@ -748,17 +784,8 @@ export function workshopScreen(meta: MetaState): string {
         </div>
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
-      ${installedStrip
-        ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-        : ""}
-      ${ownedStrip}
-      <div class="workshop__shop">
-        ${installSection}
-        <div class="workshop__section-label">Options</div>
-        ${done
-          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
-          : `<div class="workshop__grid">${cards}</div>`}
-      </div>
+      ${tabBar}
+      <div class="workshop__shop" role="tabpanel">${pane}</div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
