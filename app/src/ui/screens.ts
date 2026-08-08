@@ -3,21 +3,23 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runModsHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runRatchetsHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, tiersCost, type UpgradeTiers,
+  MAX_TIER, UPGRADES, nextTierCost, tiersCost, upgradeById, type UpgradeTiers,
 } from "../game/upgrades";
 import {
-  UNLOCKS, unlockAvailable, unlockGates, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
-  SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, type MetaState,
+  UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
+  markBudget, type MetaState, type TierProgress,
 } from "../game/meta";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
-import type { ModDef } from "../game/mods";
+import {
+  totalNotches, type HazardDef, type HazardId, type Ratchets,
+} from "../game/hazards";
 
 export function splashScreen(): string {
   return `<div class="screen neon-backdrop">
@@ -31,7 +33,25 @@ export function splashScreen(): string {
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
  *  the store entry point hides itself rather than offering a dead button. */
-export function menuScreen(best: number, salvage = 0, store?: StoreState): string {
+export function menuScreen(
+  best: number,
+  salvage = 0,
+  store?: StoreState,
+  progress?: TierProgress,
+): string {
+  // The tier chip answers "where am I on the ladder and what's left" from the
+  // homepage (playtest call, 2026-08-08): the tier being flown, and the two
+  // halves that complete it — the Deep Run and the Contracts — as live ticks.
+  const tierChip = progress
+    ? `<div class="chip chip--tier">
+        <div class="chip__label">Tier</div>
+        <div class="chip__value" style="color:var(--accent)">${progress.tier}</div>
+        <div class="tier-chip__halves">
+          <span class="${progress.runDone ? "done" : ""}">${progress.runDone ? "✓" : "○"} Run</span>
+          <span class="${progress.contracts >= progress.needed ? "done" : ""}">${progress.contracts >= progress.needed ? "✓" : "○"} Contracts ${progress.contracts}/${progress.needed}</span>
+        </div>
+      </div>`
+    : "";
   return `<div class="screen neon-backdrop">
     <div class="menu">
       <div class="menu__brand">
@@ -41,6 +61,7 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
         full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
         run that drafts stranger modifiers onto your bankroll every stop.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          ${tierChip}
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
             <div class="chip__label">Best</div>
             <div class="chip__value" style="color:var(--accent)">${best}</div>
@@ -292,8 +313,8 @@ export function hudHTML(opts: {
   autoloaderOwned: boolean;
   bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
-   *  chips in the plant panel (see components.ts's runModsHTML). */
-  modIds: string[];
+   *  chips in the plant panel (see components.ts's runRatchetsHTML). */
+  ratchets: Ratchets;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
   tiers: UpgradeTiers;
@@ -317,7 +338,7 @@ export function hudHTML(opts: {
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
-    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, modIds, tiers,
+    pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
     contract,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
@@ -469,7 +490,7 @@ export function hudHTML(opts: {
           ${bondChip}
           ${demoChip}
           ${plates}
-          ${runModsHTML(modIds)}
+          ${runRatchetsHTML(ratchets)}
         </div>
       </div>
     </div>
@@ -586,8 +607,14 @@ export function refitScreen(opts: {
     // much, and what it costs. Previously it said only "♻ 120", so the price
     // was on the button and the thing being bought was three lines above it.
     const step = cost === null ? null : u.step(tier);
+    // Tier 0 is NOT INSTALLED, and refit cannot install (run.ts's buyUpgrade
+    // refuses it): a system is bought once, with salvage, in the Workshop. The
+    // card used to price tier 0 like any other rung, which after that rule
+    // landed meant a live 20-scrap button that tapped to nothing.
     const btn =
-      cost === null || step === null
+      tier === 0
+        ? `<span class="refit-card__locked">Not installed · Workshop</span>`
+        : cost === null || step === null
         ? `<span class="refit-card__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
@@ -620,7 +647,7 @@ export function refitScreen(opts: {
         <div style="text-align:left">
           <div class="eyebrow">Refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
-          <p class="muted" style="margin:0">The compactor rig is your ship. Spend scrap; it lasts the run. Next up: ${opts.nextBayName}.</p>
+          <p class="muted" style="margin:0"><span class="refit__hint">The compactor rig is your ship. Spend scrap; it lasts the run. </span>Next up: ${opts.nextBayName}.</p>
         </div>
         <div class="chip refit__scrap">
           <div class="chip__label">Scrap</div>
@@ -635,8 +662,8 @@ export function refitScreen(opts: {
 
 /**
  * WORKSHOP — the meta layer, reached from the main menu between runs. Spends
- * SALVAGE (earned by every finished run, won or lost — see meta.ts's
- * salvageForRun) on permanent unlocks.
+ * SALVAGE (banked on tier completion — see meta.ts's tierSalvage/advanceTier)
+ * on permanent unlocks.
  *
  * Note what these buy: an unlock adds an OPTION (a new modifier enters the
  * draft pool, a new consumable exists, the wind gets surveyed) rather than a
@@ -656,7 +683,12 @@ export function refitScreen(opts: {
  * get SHORTER the further in you are, and puts the decision you actually came
  * here to make at the top.
  */
-export function workshopScreen(meta: MetaState): string {
+/** Which half of the shop is showing. Systems and Options are two lists of the
+ *  same kind of decision, and at 792x360 both at once is 689px of cards in a
+ *  189px window — see the spec's measurement table. */
+export type ShopTab = "systems" | "options";
+
+export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
@@ -674,8 +706,10 @@ export function workshopScreen(meta: MetaState): string {
         ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}">
-      <div class="shop-card__name">${u.name}</div>
-      <p class="shop-card__desc">${u.desc}</p>
+      <div class="shop-card__body">
+        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
+        <p class="shop-card__desc">${u.desc}</p>
+      </div>
       <div class="shop-card__foot">${foot}</div>
     </div>`;
     })
@@ -689,6 +723,73 @@ export function workshopScreen(meta: MetaState): string {
     : "";
 
   const done = !forSale.length;
+
+  // ---- Systems -------------------------------------------------------------
+  // Installs sit ABOVE the unlock cards: a system is permanent power the player
+  // keeps, an unlock is an option that may or may not be dealt, and the shop
+  // should lead with the one that is guaranteed to matter. The budget readout
+  // rides on the section label because the cap, not the price, is what usually
+  // stops a purchase here — a player staring at 400 salvage and a greyed card
+  // needs to be told it is the Mark talking.
+  const installCards = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
+    .map((i) => {
+      const def = upgradeById(i.id)!;
+      const available = installAvailable(meta, i);
+      const affordable = meta.salvage >= i.cost;
+      const gates = installGates(meta, i);
+      const foot = available
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>♻ ${i.cost}</button>`
+        : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
+      <div class="shop-card__body">
+        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
+        <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+      </div>
+      <div class="shop-card__foot">${foot}</div>
+    </div>`;
+    })
+    .join("");
+
+  const installedStrip = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) > 0)
+    .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
+    .join("");
+
+  // The counts are what let the hidden half advertise itself. A tab that just
+  // says "Options" gives a player no reason to look, and the cheapest unlock
+  // they can afford is behind it.
+  const systemsBuyable = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0 &&
+    installAvailable(meta, i) && meta.salvage >= i.cost).length;
+  const optionsBuyable = forSale.filter((u) => unlockAvailable(u, meta.unlocks, mark) &&
+    meta.salvage >= u.cost).length;
+
+  const tabBtn = (id: ShopTab, label: string, n: number) =>
+    `<button class="workshop__tab${tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="shop-tab" data-tab="${id}" aria-selected="${tab === id}">${label}${n ? ` <b>${n}</b>` : ""}</button>`;
+
+  // The bar is a SIBLING of .workshop__shop, never a child: app.css makes
+  // .workshop__shop the scroller on short viewports, so a bar inside it
+  // scrolls away exactly when the player needs it.
+  const tabBar = `<div class="workshop__tabs" role="tablist">
+        ${tabBtn("systems", "Systems", systemsBuyable)}
+        ${tabBtn("options", "Options", optionsBuyable)}
+        ${tab === "systems"
+          ? `<span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span>`
+          : ""}
+      </div>`;
+
+  // Each strip belongs to its own pane. Left above the shop they would show the
+  // Installed list while the player is shopping for Options, and both would eat
+  // fixed chrome off the only scroller.
+  const pane = tab === "systems"
+    ? `${installedStrip
+          ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+          : ""}
+       ${installCards
+          ? `<div class="workshop__grid">${installCards}</div>`
+          : `<p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`}`
+    : `${ownedStrip}
+       ${done
+          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
+          : `<div class="workshop__grid">${cards}</div>`}`;
 
   return `<div class="screen screen--fit neon-backdrop">
     <div class="workshop">
@@ -707,10 +808,8 @@ export function workshopScreen(meta: MetaState): string {
         </div>
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
-      ${ownedStrip}
-      ${done
-        ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
-        : `<div class="workshop__grid">${cards}</div>`}
+      ${tabBar}
+      <div class="workshop__shop" role="tabpanel">${pane}</div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
@@ -732,17 +831,24 @@ export function pauseModal(): string {
 }
 
 /**
- * Draft modal shown between bays: freezes the just-cleared field behind a
- * scrim and offers a choice of 2 modifiers — 3 once the player has cleared
- * DRAFT_THIRD_SLOT_CONTRACTS dailies (meta.ts's draftSlots), and fewer late in
- * a run once the non-stackable pool thins out. Render whatever `offers` holds.
+ * Ratchet modal shown between bays: freezes the just-cleared field behind a
+ * scrim and asks which difficulty axis hardens for the rest of the run.
  *
- * The heading says "modifier", not "contract". It used to say the latter, which
- * was harmless flavour until Contracts became an actual mode — at which point a
- * draft card titled "Choose your contract" sitting above copy that reads "Clear
- * 5 Contracts" was naming two unrelated things the same way. Picking
- * a card or skipping both hand off to main.ts's "pick-mod"/"skip-mod"
- * actions, which advance the run and start the next bay.
+ * This replaced the modifier draft, and the inversion is the point. A mod was a
+ * hand you were DEALT — often with an upside, and skippable. A notch is pure
+ * cost, mandatory, and permanent. There is deliberately no skip button: a draft
+ * you can decline has a dominant option, and the design rests on the player
+ * paying for the bay they just cleared.
+ *
+ * The reward is implicit, and it was bought in the Workshop. A system does not
+ * delete a hazard, it makes ONE specific hazard cheap for you — so the question
+ * this modal really asks is "what have you prepared for?", and the axis you are
+ * equipped for is the one that costs you nothing. That is why every card names
+ * the exact number a notch adds: the player is pricing a choice, and a vague
+ * card turns a deliberate trade into a guess.
+ *
+ * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `picked` holds what
+ * has been taken so far at this draft so the second pass can show it.
  */
 export function draftScreen(opts: {
   bayNum: number;
@@ -753,57 +859,50 @@ export function draftScreen(opts: {
    *  the only part of `funds` that actually carries into the next bay's
    *  float (see run.ts's advanceRun). */
   carry: number;
-  offers: ModDef[];
-  owned: ModDef[];
+  offers: HazardDef[];
+  /** Every notch taken across the run so far, for the running tally. */
+  ratchets: Ratchets;
+  /** Axes taken at THIS draft already (Mark 10's first of two picks). */
+  picked: HazardId[];
+  /** How many notches this Mark demands before the next bay. */
+  picksNeeded: number;
   /** Unspent scrap — shown here too (not only at refit stops) so the player can
    *  see capital accumulating between stops and plan the next refit. */
   scrap: number;
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
-  /** Daily Contracts cleared, and how many earn the third draft card. Drawn as
-   *  an empty slot rather than left out: two cards with no explanation reads as
-   *  the game having run out of modifiers, which is what actually happens late
-   *  in a run — the locked slot says this one is earnable. Omit to draw no
-   *  slot at all (the late-run case, where the pool really is exhausted). */
-  contractsCleared?: number;
-  contractsForThirdSlot?: number;
 }): string {
+  const taken = totalNotches(opts.ratchets) + opts.picked.length;
   const cards = opts.offers
-    .map(
-      (m) => `<button class="mod-card mod-card--${m.kind}" data-action="pick-mod" data-mod="${m.id}">
-        <div class="mod-card__kind">${m.kind}</div>
-        <div class="mod-card__name">${m.name}</div>
-        <p class="mod-card__desc">${m.desc}</p>
-      </button>`,
-    )
+    .map((h) => {
+      // An axis already ratcheted says so on the card. Taking the same notch a
+      // second time is a legitimate build, but it is a different decision from
+      // taking it the first time, and the card has to admit which one it is.
+      const owned = (opts.ratchets[h.id] ?? 0) + opts.picked.filter((p) => p === h.id).length;
+      const stack = owned > 0 ? ` <span class="mod-card__stack">at ${owned}</span>` : "";
+      const kind = h.kind === "content" ? "bane" : "tradeoff";
+      return `<button class="mod-card mod-card--${kind}" data-action="pick-hazard" data-hazard="${h.id}">
+        <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
+        <div class="mod-card__name">${h.name}</div>
+        <p class="mod-card__desc">${h.desc}</p>
+      </button>`;
+    })
     .join("");
-  // The locked third slot, shown only while it is still earnable AND the pool
-  // could actually fill it — a run that has exhausted its modifiers is short of
-  // cards for a different reason, and promising a third one there would lie.
-  const need = opts.contractsForThirdSlot ?? 0;
-  const have = opts.contractsCleared ?? 0;
-  const lockedSlot = need > 0 && have < need && opts.offers.length >= 2
-    ? `<div class="mod-card mod-card--locked">
-        <div class="mod-card__kind">locked</div>
-        <div class="mod-card__name">Third pick</div>
-        <p class="mod-card__desc">Clear ${need} Contracts to draft from three. ${have}/${need} done.</p>
-      </div>`
-    : "";
-  const ownedRow = opts.owned.length
-    ? `<div class="run-mods"><span>Run modifiers:</span>${opts.owned
-        .map((m) => `<span class="run-mods__chip">${m.name}</span>`)
-        .join("")}</div>`
-    : "";
+  const remaining = opts.picksNeeded - opts.picked.length;
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
-      <h2 class="display">Choose a modifier</h2>
-      <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName}</p>
+      <h2 class="display">${remaining > 1 ? `Ratchet ${remaining} axes` : "Ratchet one axis"}</h2>
+      <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
         <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Ended $${opts.funds} — carries</div>
           <div class="chip__value">$${opts.carry}</div>
+        </div>
+        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip__label">Notches taken</div>
+          <div class="chip__value">${taken}</div>
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Scrap${
@@ -816,9 +915,7 @@ export function draftScreen(opts: {
           <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="draft__cards">${cards ? cards + lockedSlot : `<p class="muted">No modifiers left to draft — onward.</p>`}</div>
-      ${ownedRow}
-      <button class="btn btn--ghost" data-action="skip-mod">Skip — no modifier</button>
+      <div class="draft__cards">${cards}</div>
     </div>
   </div>`;
 }
@@ -877,10 +974,13 @@ export function endModal(opts: {
   bayName: string;
   /** True only for the bay-10 win — every other win routes to draftScreen instead. */
   runComplete: boolean;
-  /** Salvage this run just paid out (meta.ts's salvageForRun) and the player's
-   *  new total. Shown on EVERY end, including a loss — the whole point of the
-   *  meta layer is that a failed run still ships something back. */
-  salvageEarned: number;
+  /** The tier this run's end just COMPLETED (meta.ts's recordRunEnd), or null
+   *  when it only ticked progress — completion is the one salvage event now. */
+  tierCompleted: number | null;
+  /** Salvage that completion banked; 0 when tierCompleted is null. */
+  tierSalvage: number;
+  /** Where the (possibly new) current tier stands after this run. */
+  progress: TierProgress;
   salvageTotal: number;
   /** Scrap earned across the run and the ship it bought — so the build reads as
    *  an investment on the way out, not just a row of chips that vanished. */
@@ -922,20 +1022,33 @@ export function endModal(opts: {
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
       </div>
-      <!-- Salvage payout. Deliberately prominent on a LOSS too: the run ending
-           is not the end of the progression, and the player should see the
-           consolation — and the door to spending it — before they see the
-           leaderboard. The breakdown restates meta.ts's formula term by term so
-           the reward never reads as an arbitrary number. -->
-      <div class="salvage-row">
-        <div class="salvage-row__amt">♻ +${opts.salvageEarned}</div>
+      <!-- Tier progress. Deliberately prominent on a LOSS too: the run ending
+           is not the end of the progression, and the player should see what
+           the ladder still asks of them — or what a completion just banked —
+           before they see the leaderboard. Salvage is only paid on tier
+           completion (meta.ts), so this row is either the award or the
+           remaining checklist, never both. -->
+      ${
+        opts.tierCompleted !== null
+          ? `<div class="salvage-row salvage-row--tier-done">
+        <div class="salvage-row__amt">♻ +${opts.tierSalvage}</div>
         <div class="salvage-row__body">
-          <b>Salvage recovered</b>
-          <span class="muted">${SALVAGE_FLOOR} base · ${opts.baysCleared}×${SALVAGE_PER_BAY} bays · ${Math.floor(opts.lines / 2)}×${SALVAGE_PER_2_LINES} lines${opts.runComplete ? ` · +${SALVAGE_RUN_COMPLETE_BONUS} full run` : ""} → <b>${opts.salvageTotal} banked</b></span>
+          <b>Tier ${opts.tierCompleted} complete!</b>
+          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
           <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
-      </div>
+      </div>`
+          : `<div class="salvage-row">
+        <div class="salvage-row__amt salvage-row__amt--tier">T${opts.progress.tier}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${opts.progress.tier} progress</b>
+          <span class="muted">${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — complete both to bank <b>♻ ${opts.progress.award}</b> and open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
+      }
       </div>
       <div class="end__side">
         <div class="submit-row" id="submit-row">
@@ -1062,15 +1175,19 @@ export function contractEndModal(opts: {
    *  somewhere other than a completed line. */
   queue: PieceType[];
   cubesWasted: number;
-  /** Null on a loss. `firstClear` false = cleared before, so it paid nothing. */
-  award: { salvage: number; firstClear: boolean } | null;
+  /** Null on a loss. `firstClear` false = cleared before, so it counted for
+   *  nothing new; `completedTier` non-null = this clear finished the tier and
+   *  `salvage` is what that banked (see meta.ts's recordContractClear). */
+  award: { firstClear: boolean; completedTier: number | null; salvage: number } | null;
+  /** Where the (possibly new) current tier stands after this clear. */
+  progress: TierProgress;
   salvageTotal: number;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
   const supplyTotal = pattern ? opts.queue.length : opts.launches;
   const stats = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 14px">
+    <div class="ce__stats">
       <div class="chip" style="flex-direction:row;gap:10px">
         <div class="chip__label">Lines</div>
         <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
@@ -1101,13 +1218,15 @@ export function contractEndModal(opts: {
         : "The manifest ran out before the goal did."
       : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
-      <div class="panel modal pop" style="width:min(460px,94vw)">
+      <div class="panel modal modal--contract-end pop">
         <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
-        <h2 class="display" style="font-size:var(--fs-h1)">${heading}</h2>
+        <h2 class="display">${heading}</h2>
         <p class="muted" style="margin:2px 0 0">${why}</p>
-        ${stats}
-        <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
-        <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+        <div class="ce__cols">${stats}</div>
+        <div class="ce__btns">
+          <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
+          <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+        </div>
       </div>
     </div>`;
   }
@@ -1117,21 +1236,35 @@ export function contractEndModal(opts: {
   // A pattern Contract has no spare by construction, so clearing one at all IS
   // the flourish and the copy says that instead.
   const spare = pattern ? 0 : opts.launches - opts.launchesUsed;
-  const reward = opts.award?.firstClear
-    ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--success)">Salvage banked</div>
+  // Three outcomes, three chips: the clear COMPLETED the tier (the salvage
+  // moment — celebrate it), the clear ticked tier progress (say what's still
+  // missing), or it was a replay (free practice, nothing moved).
+  const p = opts.progress;
+  const reward =
+    opts.award?.firstClear && opts.award.completedTier !== null
+      ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
+         <div class="chip__label" style="color:var(--success)">Tier ${opts.award.completedTier} complete!</div>
          <div class="chip__value" style="color:var(--warn);font-size:var(--fs-h2)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} total · spend it in the Workshop</div>
+         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} banked · Tier ${p.tier} is open · spend it in the Workshop</div>
        </div>`
-    : `<div class="chip" style="gap:2px;padding:12px 14px">
-         <div class="chip__label">Already paid</div>
-         <div class="muted" style="font-size:var(--fs-sm)">This Contract paid its salvage on your first clear. Replays are free practice.</div>
+      : opts.award?.firstClear
+        ? `<div class="chip" style="border-color:var(--accent);gap:2px;padding:12px 14px">
+         <div class="chip__label" style="color:var(--accent)">Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</div>
+         <div class="muted" style="font-size:var(--fs-sm)">${
+           p.contracts >= p.needed
+             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier and bank ♻ ${p.award}.`
+             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier and bank ♻ ${p.award}.`
+         }</div>
+       </div>`
+        : `<div class="chip" style="gap:2px;padding:12px 14px">
+         <div class="chip__label">Already logged</div>
+         <div class="muted" style="font-size:var(--fs-sm)">This Contract counted on your first clear. Replays are free practice.</div>
        </div>`;
 
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal pop" style="width:min(460px,94vw)">
+    <div class="panel modal modal--contract-end pop">
       <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
-      <h2 class="display neon-text" style="font-size:var(--fs-h1);color:var(--success)">
+      <h2 class="display neon-text" style="color:var(--success)">
         ✓ Contract Complete
       </h2>
       <p class="muted" style="margin:2px 0 0">
@@ -1141,10 +1274,11 @@ export function contractEndModal(opts: {
             : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
         }
       </p>
-      ${stats}
-      <div style="margin:0 0 14px">${reward}</div>
-      <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
-      <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+      <div class="ce__cols">${stats}<div class="ce__reward">${reward}</div></div>
+      <div class="ce__btns">
+        <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
+        <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+      </div>
     </div>
   </div>`;
 }

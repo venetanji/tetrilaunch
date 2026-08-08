@@ -1069,6 +1069,45 @@ body.crt-off #app::after { display: none; }
   .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
 
+/* ---------- End-of-Contract modal (screens.ts's contractEndModal) ----------
+   The phone this is played on is LANDSCAPE — 792x360 CSS px — which leaves
+   `.modal` about 322px of height. Stacked in a single column the win screen
+   measured 477px and therefore SCROLLED: a screen whose entire job is to say
+   you won and how much you banked was hiding its own payout below the fold.
+
+   The fix is to spend the axis that is actually free. There is width going
+   spare (the panel was pinned at 460px inside a 792px viewport) and no height
+   at all, so the stat chips, the payout and the two buttons lay out in ROWS.
+   Each row wraps on its own flex-basis rather than at a breakpoint, so a
+   genuinely narrow (portrait) viewport still gets the original stack without a
+   second set of rules to keep in sync. */
+.modal--contract-end { width: min(720px, 94vw); }
+.modal--contract-end .ce__cols,
+.modal--contract-end .ce__stats,
+.modal--contract-end .ce__btns { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+/* Stats take twice the slack: there are up to three of them against the
+   payout's one, and when they wrap to three rows they set the whole row's
+   height (the payout only stretches to match). */
+.modal--contract-end .ce__stats { flex: 2 1 260px; align-content: flex-start; }
+.modal--contract-end .ce__reward { flex: 1 1 200px; display: flex; }
+.modal--contract-end .ce__reward > .chip { flex: 1 1 auto; justify-content: center; }
+.modal--contract-end .ce__btns > .btn { flex: 1 1 200px; }
+
+/* Short viewports: the display heading is the largest block on the screen and
+   the one carrying the least per pixel — the eyebrow above it already names
+   the Contract and the outcome. */
+@media (max-height: 480px) {
+  .modal--contract-end h2 { font-size: var(--fs-h2); }
+}
+
+/* Shorter still (a 320px-tall landscape phone). The chips are the only thing
+   left with slack once the heading has shrunk, and their padding is the part
+   that costs height without carrying information. */
+@media (max-height: 400px) {
+  .modal--contract-end .chip { padding: 5px 10px; }
+  .modal--contract-end .ce__reward > .chip { padding: 7px 10px; }
+}
+
 /* ---------- Game-over FX (see screens.ts's loseFxHTML) ----------
    Full-screen animated backdrop inside the scrim, behind the modal panel.
    Pure CSS, pointer-events: none — the modal stays fully interactive. */
@@ -1402,6 +1441,10 @@ button.panel { color: var(--text); }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
+/* Tier 0: the system isn't on the ship at all, and no amount of scrap puts it
+   there. Same weight as MAX — both say "nothing to buy here", in opposite
+   directions. */
+.refit-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 0.06em; }
 
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
@@ -1425,6 +1468,10 @@ button.panel { color: var(--text); }
 .shop-card--gated { opacity: 0.6; }
 .shop-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); }
 .shop-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; flex: 1; }
+/* name + desc as one unit, so the row layout below has a single middle track
+   and the tall card keeps today's spacing (this carries the 8px the two used to
+   get from .shop-card's own column gap). */
+.shop-card__body { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
 .shop-card__foot { margin-top: auto; }
 .shop-card__foot .btn { width: 100%; }
 .shop-card__foot .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
@@ -1448,37 +1495,96 @@ button.panel { color: var(--text); }
 .workshop__owned-item { font-size: 11px; color: var(--text-dim); }
 .workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
 
-/* Short (landscape-phone) viewports. Eleven unlocks cannot all show a paragraph
-   in 360px, so the card gives up description length rather than the screen
-   giving up fitting: the blurb goes (it explains the screen, not the goods),
-   the columns narrow, and the desc clamps to three lines with the full text
-   still one tap away on a taller screen. */
+/* The shop proper: one pane at a time, chosen by the tab bar above it. This was
+   a single scroller holding BOTH sections stacked, which is 689px of cards in a
+   189px window at 792x360. The tab bar is a sibling, not a child, so it stays
+   put while this scrolls. */
+.workshop__shop { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+/* The budget, not the price, is what usually refuses a purchase here. */
+.workshop__budget { font-family: var(--font-mono); font-size: 10px; color: var(--warn); letter-spacing: 0; }
+
+/* The tab bar is fixed chrome above the scroller, not part of it. */
+.workshop__tabs { display: flex; align-items: center; gap: var(--sp-2); }
+.workshop__tab {
+  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--text-dim); background: none; border: none; cursor: pointer;
+  padding: 6px 2px; border-bottom: 2px solid transparent;
+}
+.workshop__tab--on { color: var(--text); border-bottom-color: var(--accent); }
+.workshop__tab b { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+.workshop__tabs .workshop__budget { margin-left: auto; }
+
+/* Short (landscape-phone) viewports. The card gives up its SHAPE rather than
+   the screen giving up fitting: the blurb goes (it explains the screen, not the
+   goods), and the card turns from a 122px tile into a ~40px row — name, one
+   clamped line of desc, price. The columns get WIDER doing it, not narrower,
+   because a row is width-scarce where a tile was height-scarce. The full desc
+   is still one taller screen away. */
 @media (max-height: 460px) {
   .workshop { gap: var(--sp-2); padding-block: var(--sp-2); }
   .workshop__blurb { display: none; }
   .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
-  /* Eleven unlocks, each with an explanation of what it does, genuinely do not
-     fit 360px — and cutting the explanation is the wrong trade, because it is
-     the only thing that tells you what you are buying. So the PAGE stops
-     scrolling and the card area becomes the only scroller: salvage, the owned
-     strip and Start Run stay pinned and on-screen at every ownership state,
-     and the shopping happens inside a region instead of running off the
-     bottom. Scoped by .screen--fit so the other screens keep page scrolling. */
+  /* Cutting the explanation is the wrong trade — it is the only thing that
+     tells you what you are buying — so the PAGE stops scrolling and the card
+     area becomes the only scroller: salvage, the tab bar and Start Run stay
+     pinned and on-screen at every ownership state, and the shopping happens
+     inside a region instead of running off the bottom. The owned/installed
+     strip rides INSIDE that region now, because it belongs to one pane rather
+     than to the screen. Scoped by .screen--fit so other screens keep page
+     scrolling. */
   .screen--fit { overflow: hidden; }
   .screen--fit .workshop { height: 100%; min-height: 0; }
+  /* The scroller is the pane. Only the active section is in the DOM at all
+     (see screens.ts's workshopScreen), so there is one grid here, not two. */
+  .workshop__shop { flex: 1; min-height: 0; overflow-y: auto; }
+  /* A row needs its full name, a readable desc fragment and a price on one
+     line; 148px columns would wrap the name. */
   .workshop__grid {
-    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 7px;
-    flex: 1; min-height: 0; overflow-y: auto;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px;
     align-content: start;
   }
-  .shop-card { padding: 8px 10px; gap: 5px; border-radius: var(--r-md); }
-  .shop-card__name { font-size: 12px; }
+  /* The card becomes a ROW. 122px of card in a 189px scroller meant 1.5 cards
+     visible; the leaderboard's row shape (a fixed trailing value against a
+     flexible body) takes it to ~40px. Two columns was measured and is WORSE —
+     see the spec: this content is width-scarce, not height-scarce. */
+  .shop-card {
+    display: grid; grid-template-columns: 1fr auto; align-items: center;
+    gap: 8px; padding: 5px 10px; border-radius: var(--r-md);
+  }
+  .shop-card__body { gap: 2px; min-width: 0; }
+  .shop-card__name { font-size: 11px; display: flex; align-items: center; gap: 5px; }
   .shop-card__desc {
     font-size: 10px; line-height: 1.3;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
-    overflow: hidden;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
+    overflow: hidden; min-width: 0;
   }
-  .shop-card__foot .btn { padding: 5px 10px; font-size: 9px; }
+  /* margin-top:auto is declared OUTSIDE this query (see .shop-card__foot), and
+     an auto margin beats align-items — without this reset the price sinks to
+     the bottom of the row instead of centring against it. */
+  .shop-card__foot { margin-top: 0; }
+  .shop-card__foot .btn { width: auto; padding: 4px 8px; font-size: 9px; }
+  /* The gated branch replaces the button with a long text run. In an `auto`
+     track that run sizes the column and starves the body, so it is capped —
+     and then CLAMPED, because the cap alone only moves the problem: measured
+     at 792x360, "Needs Mark 3 · Demolition Licence" wrapped to four lines
+     inside 96px and took its row from 42px to 50px, breaking the rhythm the
+     row layout exists to create. Two lines is what fits beside the body, and
+     the leading gate is always the Mark — the one thing no amount of salvage
+     can buy. The rest reads in full on a taller screen, same trade the desc
+     above already makes.
+
+     96px was the first cap and it still starved the body: it left the name
+     117px, and "Bond Breaker Rig" wrapped to two lines inside that, taking its
+     row to 55px — the same broken rhythm the clamp above was added to fix, one
+     card over. 80px fits "Needs Mark 2" whole, and anything longer was already
+     truncated by the 2-line clamp at 96px too, so the cap costs nothing the
+     clamp was not already taking. Measured at 792x360 on a fresh save: every
+     row 42px, Options' overflow 30px -> 16px. */
+  .shop-card__locked {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden; max-width: 80px; text-align: right; line-height: 1.25;
+  }
+  .workshop__tab { padding: 4px 2px; font-size: 8px; }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
@@ -1514,8 +1620,42 @@ button.panel { color: var(--text); }
   .refit-card__pips i { width: 6px; height: 6px; }
   .refit-card__foot { padding-top: 2px; }
   .refit-card__buy { padding: 5px 8px; font-size: 9px; }
-  .refit__grid { gap: 7px; min-height: 0; }
+  /* Four columns, not three. Six tracks were two tidy rows of three; the
+     seventh (Demolition Rack) started a third row that the grid could only
+     reach by scrolling, so the card sat half-cut against the Undock button —
+     a card you can see the top of reads as broken, not as scrollable. At
+     168px the same 792px-wide modal takes four across and seven cards are two
+     rows again. */
+  .refit__grid {
+    gap: 7px; min-height: 0;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  }
+  /* The sentence explains the SCREEN; "Next up: <bay>" is the only part that
+     changes and the only part worth a line of a 360px viewport. Dropping it
+     buys back the row the seventh card needs. Same trade as .workshop__blurb. */
+  .refit__hint { display: none; }
   .salvage-row { padding: 6px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
+}
+
+/* ============================================================================
+   TIER PROGRESSION (meta.ts's tier-completion economy) — the menu's tier
+   chip and the end modal's progress/completion row.
+   ========================================================================== */
+.chip--tier { flex-direction: row; align-items: center; gap: 10px; }
+.tier-chip__halves {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-ui); font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.tier-chip__halves .done { color: var(--success); }
+
+/* Completion recolors the row it replaces rather than adding a second shape:
+   the award amount takes the slot the old payout number had. */
+.salvage-row--tier-done { border-color: var(--success); }
+.salvage-row__amt--tier {
+  color: var(--accent);
+  font-family: var(--font-pixel);
 }

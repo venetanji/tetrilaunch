@@ -1,6 +1,14 @@
 import Matter from "matter-js";
 import { CELL } from "./engine";
-import { PIECE_SHAPES, PENTA_SHAPES, PIECE_COLORS, type PieceSize, type PieceType } from "./theme";
+import {
+  PIECE_SHAPES,
+  PENTA_SHAPES,
+  PIECE_COLORS,
+  MATERIAL_SPEC,
+  type Material,
+  type PieceSize,
+  type PieceType,
+} from "./theme";
 
 export interface Cube {
   body: Matter.Body;
@@ -8,6 +16,19 @@ export interface Cube {
   color: string;
   /** Timestamp (ms) when this cube began blinking before despawn, or null. */
   blinkStart: number | null;
+  /** What this cube is made of — see theme.ts's Material. Stamped at spawn and
+   *  never changed: materials of different kinds coexist on the field for the
+   *  whole bay, so this has to travel with the cube rather than be read off the
+   *  level. */
+  material: Material;
+  /** Cryo only: has this cube taken a hard enough impact to thaw?
+   *
+   *  Stored per-CUBE rather than per-piece because a cryo shipment shatters into
+   *  loose cubes like any other, and striking one corner of a pile must not
+   *  thaw a cube on the far side of it that nothing has touched. Always true for
+   *  materials that don't need striking, so the line-clear check can read this
+   *  one field without also re-deriving the material's rules. */
+  struck: boolean;
 }
 
 export interface Piece {
@@ -122,8 +143,16 @@ export function createTetrisPiece(
   jointStiffness: number,
   size: PieceSize = "std",
   breakStretch = 1.7,
+  /** What the shipment is made of (theme.ts's Material). Last and defaulted so
+   *  every existing caller — the sim harnesses especially — keeps launching
+   *  ordinary shipments without being touched. */
+  material: Material = "standard",
 ): Piece {
-  const color = PIECE_COLORS[type];
+  const mat = MATERIAL_SPEC[material];
+  // A material that changes what a cube is WORTH overrides the shipment's type
+  // color; standard keeps it. See MATERIAL_SPEC's note on why this is not
+  // optional decoration.
+  const color = mat.color ?? PIECE_COLORS[type];
   const cubes: Cube[] = [];
   const spec = SIZE_SPEC[size];
 
@@ -139,12 +168,31 @@ export function createTetrisPiece(
     Matter.Body.setAngle(body, angle);
     Matter.Body.setVelocity(body, velocity);
     Matter.Composite.add(world, body);
-    cubes.push({ body, type, color, blinkStart: null });
+    cubes.push({
+      body,
+      type,
+      color,
+      blinkStart: null,
+      material,
+      // Materials that never need striking spawn already "struck", so
+      // lineClear's candidate test is one boolean rather than a per-material
+      // branch it would have to keep in sync with MATERIAL_SPEC.
+      struck: !mat.needsStrike,
+    });
   }
 
   // Connect every pair → a rigid-but-shatterable cluster.
   const stiffness = Math.max(0.5, Math.min(0.995, jointStiffness + spec.stiffnessDelta));
-  const pieceBreakStretch = Math.max(1.05, breakStretch * spec.breakMult);
+  // REBAR never comes apart on impact, at any stretch. Slag denies a slot;
+  // rebar denies a SHAPE — what lands is what you keep, so a bad landing cannot
+  // be squeezed or shoved into a better one and the row is built around it.
+  // Infinity rather than a very large number so the intent survives a future
+  // reader: updateBreakableJoints compares `cur > rest * limit`, and no finite
+  // stretch beats it. A Bond Breaker still splits these (see game.ts's
+  // useBondBreaker), which is deliberately the only thing that does.
+  const pieceBreakStretch = mat.rigid
+    ? Infinity
+    : Math.max(1.05, breakStretch * spec.breakMult);
   const constraints: Matter.Constraint[] = [];
   for (let i = 0; i < cubes.length; i++) {
     for (let j = i + 1; j < cubes.length; j++) {
@@ -188,6 +236,14 @@ export function breakJointsInBand(
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
+    // Same two exemptions updateBreakableJoints honours. Without them the press
+    // was the one thing that broke both — geometry alone, no metadata read — so
+    // a rebar piece it swept came apart and a tar weld it swept dissolved, which
+    // is exactly the property each material is sold on. A Bond Breaker is meant
+    // to be the only answer to either.
+    const meta = c as unknown as { breakStretch?: number; welded?: boolean };
+    if (meta.welded) continue;
+    if (meta.breakStretch === Infinity) continue;
     if (inBand(c.bodyA) || inBand(c.bodyB)) {
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);
@@ -237,7 +293,9 @@ export function updateBreakableJoints(
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
-    const meta = c as unknown as { restLength: number; breakStretch?: number };
+    const meta = c as unknown as { restLength: number; breakStretch?: number; welded?: boolean };
+    // A tar weld is permanent (game.ts's resolveTarWelds) — no stretch breaks it.
+    if (meta.welded) continue;
     const rest = meta.restLength || c.length;
     const limit = meta.breakStretch ?? breakStretch;
     const cur = dist(c.bodyA.position, c.bodyB.position);

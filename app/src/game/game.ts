@@ -12,6 +12,13 @@ import {
 } from "./pieces";
 import {
   updateLineClear,
+  strikeCryo,
+  volatileBlast,
+  tarWelds,
+  alignMagnetic,
+  VOLATILE_BLAST_CELLS,
+  shatterColdCryo,
+  type CryoShatter,
   markLostPieces,
   updateBlinking,
   resetLineClear,
@@ -21,7 +28,7 @@ import {
 import type { LevelConfig } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
-import type { PieceSize, PieceType } from "./theme";
+import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
@@ -82,6 +89,10 @@ export interface GameEvents {
    *  opens (see update()'s win handling) — the UI stops accepting launches and
    *  shows the settling readout, well before onStatus("won") lands. */
   onSettleStart?: () => void;
+  /** Fired when cryo reaches the press still frozen and breaks (lineClear.ts's
+   *  shatterColdCryo). Distinct from onLineClear because it is the OPPOSITE
+   *  outcome — the row was lost, not paid — and wants its own cue. */
+  onCryoShatter?: (shatter: CryoShatter) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -95,6 +106,11 @@ export interface BeltPreview {
    *  queue is at the muzzle. The belt draws an empty track rather than a piece
    *  that is never coming. Always false on a cycling bag. */
   empty: boolean;
+  /** What the previewed shipment is made of (theme.ts's Material) — the belt
+   *  colors the tile by it, so slag and cryo are visible one shot before they
+   *  reach the muzzle. That lead time is what makes them planning problems
+   *  rather than surprises. */
+  material: Material;
 }
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
@@ -182,10 +198,27 @@ const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
 const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
 
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
- *  ~9 degrees. Wide enough that consecutive shots genuinely scatter across the
- *  bay (that's the mechanic), tight enough that where the player points the
- *  cannon still decides which HALF of the bay gets buried. */
-const AUTO_SPREAD_RAD = 0.16;
+ *  ~5.7 degrees. Wide enough that consecutive shots genuinely scatter (that's
+ *  the mechanic), tight enough that where the player points the cannon still
+ *  decides where the burst lands, not merely which half of the bay it ruins. */
+export const AUTO_SPREAD_RAD = 0.1;
+
+/** Autoloader power spread, as a +/- fraction of the ship's speed band, around
+ *  whatever power the player is holding.
+ *
+ *  This used to re-roll uniformly across the WHOLE upper 55% of the band on
+ *  every shot, which meant the drag's power axis did nothing at all: measured
+ *  on device, a held burst threw between 17.7 and 33.0 px/step. Range goes as
+ *  v^2, so that is a ~3.5x spread in landing distance — the single biggest
+ *  reason a burst scattered across the entire bay no matter how it was aimed. */
+export const AUTO_POWER_JITTER = 0.08;
+
+/** Floor for autoloader power, as a fraction of the speed band. Purely a guard
+ *  against the one strictly-wasted outcome — holding the trigger at a bay's
+ *  untouched default power (speedMin) dribbles shipments onto the cannon's own
+ *  feet. Above it the player's drag is obeyed exactly, including deliberately
+ *  short shots. */
+const AUTO_POWER_FLOOR = 0.25;
 
 /** Physics steps a bomb must survive before a collision can detonate it — a
  *  freshly-launched bomb clips the cannon/other in-flight cubes on its way
@@ -414,6 +447,12 @@ export class Game {
   }
   private liveBombs: Bomb[] = [];
   private pendingDetonations = new Set<Matter.Body>();
+  /** Cubes caught in a volatile blast this step, removed once matter is out of
+   *  its solver (see resolveVolatile). A Set because one impact can be reported
+   *  as several pairs and a cube must only be destroyed once. */
+  private pendingBlast = new Set<Matter.Body>();
+  /** Tar welds discovered this step, created once the solver is done. */
+  private pendingWelds: Array<[Matter.Body, Matter.Body]> = [];
   private readonly onCollisionStart: (e: Matter.IEventCollision<Matter.Engine>) => void;
 
   /** Seeded RNG driving the wind drunk-walk (see stepWind) — kept private so
@@ -446,7 +485,7 @@ export class Game {
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
-    this.cannon = new Cannon(level);
+    this.cannon = new Cannon(level, seed);
     this.compactor = new Compactor(this.phys.world, level);
     this.gAccel = this.phys.engine.gravity.y * this.phys.engine.gravity.scale * DT * DT;
     // Cap guards degenerate level configs (e.g. a near-zero compactorSpeed
@@ -468,6 +507,22 @@ export class Game {
               this.pendingDetonations.add(bomb.body);
             }
           }
+        }
+        // Cryo thaws on a hard enough impact. Done here rather than in the
+        // per-step loop because the relative speed of a collision only exists
+        // at the moment matter reports it — a step later both bodies have
+        // already exchanged momentum and read as slow.
+        strikeCryo(this.cubes, pair.bodyA, pair.bodyB);
+        // VOLATILE: a hard landing takes the cube and its neighbours. Queued
+        // rather than removed inline for the same reason bombs are — matter is
+        // mid-solve here, and deleting bodies out from under the pair loop
+        // corrupts the very iteration that found them.
+        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB);
+        for (const c of blast) this.pendingBlast.add(c.body);
+        // TAR: welds to whatever it settled against. Also deferred — adding a
+        // constraint during collisionStart is the same mid-solve mutation.
+        for (const [a, b] of tarWelds(this.cubes, pair.bodyA, pair.bodyB)) {
+          this.pendingWelds.push([a.body, b.body]);
         }
       }
     };
@@ -506,6 +561,7 @@ export class Game {
         type: this.cannon.currentType,
         quarterTurns: this.cannon.quarterTurns,
         empty: false,
+        material: this.cannon.currentMaterial,
       };
     }
     return {
@@ -513,6 +569,7 @@ export class Game {
       type: this.cannon.nextType,
       quarterTurns: 0,
       empty: !this.cannon.hasNext,
+      material: this.cannon.nextMaterial,
     };
   }
 
@@ -579,7 +636,12 @@ export class Game {
    */
   useBondBreaker(now: number): boolean {
     if (this.status !== "playing" || this.paused || this.settling) return false;
-    if (this.bondCharges <= 0 || this.constraints.length === 0) return false;
+    // Count only what a Bond Breaker could actually break: a field held
+    // together entirely by tar welds must not silently eat a charge.
+    const breakable = this.constraints.filter(
+      (c) => !(c as unknown as { welded?: boolean }).welded,
+    ).length;
+    if (this.bondCharges <= 0 || breakable === 0) return false;
 
     // Remember which cubes were still joined so the shatter FX only sparks on
     // pieces that actually came apart, then tear down every joint (world +
@@ -589,8 +651,16 @@ export class Game {
       if (c.bodyA) joined.add(c.bodyA);
       if (c.bodyB) joined.add(c.bodyB);
     }
-    for (const c of this.constraints) Matter.Composite.remove(this.phys.world, c);
+    // Welds survive. Tar is the one joint a Bond Breaker cannot split, and
+    // that exemption is the whole reason tar is a different problem from rebar
+    // rather than a re-skin of it.
+    const survivors: Matter.Constraint[] = [];
+    for (const c of this.constraints) {
+      if ((c as unknown as { welded?: boolean }).welded) { survivors.push(c); continue; }
+      Matter.Composite.remove(this.phys.world, c);
+    }
     this.constraints.length = 0;
+    this.constraints.push(...survivors);
 
     let sx = 0;
     let sy = 0;
@@ -734,6 +804,7 @@ export class Game {
         this.level.jointStiffness,
         this.level.pieceSize,
         this.level.jointBreakStretch,
+        this.cannon.currentMaterial,
       );
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);
@@ -769,18 +840,41 @@ export class Game {
     if (!this.cannon.canShoot(now)) return;
     if (this.score < this.level.launchCost) return;
 
-    // Aim spread: +/-AUTO_SPREAD_RAD around the player's angle and the upper
-    // half of the power band, clamped to the cannon's own cone/limits.
-    const angle = this.cannon.angle + (this.autoRng() * 2 - 1) * AUTO_SPREAD_RAD;
-    this.cannon.angle = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, angle));
-    const lo = this.cannon.speedMin + (this.cannon.speedMax - this.cannon.speedMin) * 0.45;
-    this.cannon.power = lo + this.autoRng() * (this.cannon.speedMax - lo);
+    // The player's aim is the ANCHOR of the burst and survives it: the jitter
+    // below is applied for this one shot and restored immediately after.
+    //
+    // The jittered angle used to be written straight back into cannon.angle,
+    // which made the aim a random WALK rather than a spread — every shot's
+    // jitter compounded on the last, so a held trigger drifted away from
+    // wherever the player was pointing and, at the far end, pinned against the
+    // +/-60deg cone limit and fired the same wasted shot repeatedly. Together
+    // with a power axis that ignored the drag entirely (see AUTO_POWER_JITTER),
+    // that is what made the mod read as erratic. Measured on device before this
+    // fix: 6.72 shots per line in autoloader bays against 2.94 in hand-fired
+    // ones, and 23.4% of shipments lost to the wrong side against 10.3%.
+    const aimAngle = this.cannon.angle;
+    const aimPower = this.cannon.power;
+    const cone = Math.PI / 3;
+    const band = this.cannon.speedMax - this.cannon.speedMin;
+    const floor = this.cannon.speedMin + band * AUTO_POWER_FLOOR;
+
+    const angle = aimAngle + (this.autoRng() * 2 - 1) * AUTO_SPREAD_RAD;
+    this.cannon.angle = Math.max(-cone, Math.min(cone, angle));
+    const power = aimPower + (this.autoRng() * 2 - 1) * AUTO_POWER_JITTER * band;
+    this.cannon.power = Math.max(floor, Math.min(this.cannon.speedMax, power));
     // A random quarter-turn too: the rig doesn't care how the piece lands.
+    // Not restored, because markShot already resets pieceRotation to 0.
     const turns = Math.floor(this.autoRng() * 4);
     for (let i = 0; i < turns; i++) this.cannon.rotateRight();
 
     this.lastAutoStep = this.stepCount;
     this.shoot(now, true);
+
+    this.cannon.angle = aimAngle;
+    this.cannon.power = aimPower;
+    // shoot() drew the trajectory from the jittered aim; redraw it from the
+    // player's, so the dotted arc keeps showing where THEY are pointing.
+    this.updateTrajectory();
   }
 
   /**
@@ -841,7 +935,16 @@ export class Game {
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
     // to retreat), so this records precisely the full-advance ticks.
     if (this.compactor.x >= this.compactor.rightX) this.lastFullAdvanceStep = this.stepCount;
+    this.resolveVolatile();
+    this.resolveTarWelds();
     updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
+    // MAGNETIC settles itself square. Run after the joints update so a cube
+    // that just came loose is snapped on the same step it stopped moving,
+    // rather than sitting crooked for one frame.
+    // WORLD.height - CELL/2 is updateLineClear's row anchor (see its rowY).
+    // WALL_INNER is an X coordinate, so subtracting it here put the snap grid
+    // half a cell off the row grid and no magnetic cube could ever fill a slot.
+    alignMagnetic(this.cubes, WORLD.height - CELL / 2);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
     breakJointsInBand(
@@ -857,6 +960,19 @@ export class Game {
     // when a cube wedges tilted against the wall.
     if (pressing) {
       settleZoneCubes(this.cubes, this.compactor, this.level);
+    }
+
+    // Cryo that reached the press still frozen breaks, and takes its row's
+    // alignment with it. Runs BEFORE the clear check so a row containing cold
+    // cryo can never be evaluated as complete on the same step it shatters.
+    const shattered = shatterColdCryo(
+      this.phys.world,
+      this.cubes,
+      this.compactor,
+      this.constraints,
+    );
+    if (shattered.cubes.length) {
+      this.events.onCryoShatter?.(shattered);
     }
 
     // Cubes are ONLY removed when a full row is crushed against the wall on the
@@ -1089,6 +1205,76 @@ export class Game {
    * No lost-piece penalty (a deliberate demolition isn't a fumble) and combo is
    * left untouched.
    */
+  /**
+   * Destroy everything a volatile impact caught.
+   *
+   * Deliberately pays NO salvage, which is the whole difference between this
+   * and a demolition charge. A bomb is a tool the player aimed: it turns a dead
+   * pile into funds. A volatile detonation is a hazard that went off: it turns
+   * cargo the player already landed into nothing. Paying for it would make
+   * ratcheting the volatile axis an income strategy, which is the exact
+   * inversion of a hazard.
+   */
+  private resolveVolatile(): void {
+    if (!this.pendingBlast.size) return;
+    let cx = 0;
+    let cy = 0;
+    let n = 0;
+    for (let i = this.cubes.length - 1; i >= 0; i--) {
+      const b = this.cubes[i].body;
+      if (!this.pendingBlast.has(b)) continue;
+      cx += b.position.x;
+      cy += b.position.y;
+      n += 1;
+      removeConstraintsFor(this.phys.world, this.constraints, b);
+      Matter.Composite.remove(this.phys.world, b);
+      this.cubes.splice(i, 1);
+    }
+    this.pendingBlast.clear();
+    if (n) {
+      this.effects.push({
+        kind: "explosion", x: cx / n, y: cy / n,
+        r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: performance.now(),
+      });
+    }
+  }
+
+  /**
+   * Turn this step's tar contacts into permanent joints.
+   *
+   * A weld goes into `this.constraints` like any other joint, carrying a
+   * `welded` flag that updateBreakableJoints and useBondBreaker both refuse to
+   * touch — it is the joint that cannot be broken, which is exactly what
+   * separates tar from rebar (rigid, but a Bond Breaker splits it).
+   *
+   * Flagged-in-the-list rather than held in a separate one on purpose. Every
+   * path that destroys a cube — a line clearing, a demolition charge, a cryo
+   * shatter — already calls removeConstraintsFor against `constraints`, and a
+   * weld kept outside it would survive its own cube's removal and leave matter
+   * solving against a body no longer in the world.
+   */
+  private resolveTarWelds(): void {
+    if (!this.pendingWelds.length) return;
+    for (const [a, b] of this.pendingWelds) {
+      const exists = this.constraints.some(
+        (w) => (w.bodyA === a && w.bodyB === b) || (w.bodyA === b && w.bodyB === a),
+      );
+      if (exists) continue;
+      if (!this.cubes.some((c) => c.body === a) || !this.cubes.some((c) => c.body === b)) continue;
+      const c = Matter.Constraint.create({
+        bodyA: a, bodyB: b,
+        length: Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y),
+        stiffness: 0.95,
+        damping: 0.1,
+        render: { visible: false },
+      });
+      (c as unknown as { welded: boolean }).welded = true;
+      this.constraints.push(c);
+      Matter.Composite.add(this.phys.world, c);
+    }
+    this.pendingWelds.length = 0;
+  }
+
   private detonate(bombBody: Matter.Body, now: number): void {
     const idx = this.liveBombs.findIndex((b) => b.body === bombBody);
     if (idx === -1) return; // already handled this frame (multiple pairs, fuse+collision, ...)

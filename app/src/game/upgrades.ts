@@ -24,7 +24,8 @@ import type { LevelConfig } from "./level";
  * boosted speed), which is the intended reading — the contract applies to
  * whatever ship you're flying.
  */
-export type UpgradeId = "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds";
+export type UpgradeId =
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition";
 
 export const MAX_TIER = 3;
 
@@ -176,12 +177,30 @@ export const UPGRADES: UpgradeDef[] = [
       cfg.bondBreakerCharges += tier;
     },
   },
+  {
+    id: "demolition",
+    name: "Demolition Rack",
+    glyph: "DEM",
+    blurb: "Demolition charges every bay — sell a dead pile back for cash.",
+    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
+    current: (t) => (t === 0 ? "no charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
+    step: () => ({ dir: "up", text: "+1 charge" }),
+    apply(cfg, tier) {
+      // The exact shape of the `bonds` track, and for the same reason: a
+      // charge you can PLAN for beats a charge you might be dealt. Demolition
+      // is slag's only clean answer (a slag cube is worth $0 as line material
+      // and salvagePerCube as scrap, so bombing it is strictly positive
+      // value), and leaving that answer to a draft shuffle meant a player who
+      // had paid for it went whole runs without one.
+      cfg.bombCharges += tier;
+    },
+  },
 ];
 
 export type UpgradeTiers = Record<UpgradeId, number>;
 
 export function newTiers(): UpgradeTiers {
-  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0 };
+  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 };
 }
 
 export function upgradeById(id: string): UpgradeDef | undefined {

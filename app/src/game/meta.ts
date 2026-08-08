@@ -11,17 +11,20 @@
  *   SALVAGE     forever.  Spent in the Workshop on UNLOCKS — things that
  *                         change what a future run can even attempt.
  *
- * Salvage is awarded at EVERY run end, win or lose (see salvageForRun), which
- * is the point: a run that dies in bay 4 still ships its wreckage back to the
- * yard and buys you a strategy you didn't have before. Nothing here makes a
- * future run numerically stronger for free — every unlock either adds an
- * OPTION (a new modifier enters the draft pool, a new consumable exists) or
- * front-loads a choice you'd otherwise make later. That keeps the skill
- * ceiling honest while still paying out for failure.
+ * Salvage is awarded on TIER COMPLETION and nowhere else (playtest call,
+ * 2026-08-08 — the per-run and per-contract trickles made the tree trivial).
+ * A tier — the Mark being flown — completes when BOTH halves are done at that
+ * tier: the Deep Run beaten AND TIER_CONTRACTS_REQUIRED Contracts cleared.
+ * Completing it banks one salvage award (tierSalvage), raises the Mark, and
+ * is the only gate to the next tier. Nothing here makes a future run
+ * numerically stronger for free — every unlock either adds an OPTION (a new
+ * modifier enters the draft pool, a new consumable exists) or front-loads a
+ * choice you'd otherwise make later.
  */
 
 import {
-  budgetForMark, loadoutLegal, MARK_COUNT, newTiers, type UpgradeTiers,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
+  type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
 export { MARK_COUNT };
@@ -182,6 +185,112 @@ export function unlockGates(def: UnlockDef, owned: string[], mark: number): stri
   return gates;
 }
 
+/**
+ * INSTALLS — what salvage actually buys.
+ *
+ * An install grants tier 1 of a ship system, permanently, in every run. It does
+ * NOT grant unbounded power: the purchase is charged against the Mark's build
+ * budget (see buyInstall), so salvage buys WHICH systems exist to spend budget
+ * on while the Mark caps HOW MUCH can be spent at all. That is DESIGN.md's
+ * load-bearing rule — "Contracts unlock what you may spend it on. Only beating
+ * Mark N raises the budget" — and it is what keeps uncapped Contract income
+ * from buying a permanently stronger rig.
+ *
+ * This is the answer to the thing an unlock could never do. An unlock puts a
+ * modifier in the DRAFT POOL; owning it and being offered it are different
+ * events, and simulated at two draft slots the demolition card reaches the
+ * table by bay 2 in only 39% of runs — while slag, the material it answers,
+ * lands from bay 4. An install is held, not dealt.
+ *
+ * Name and description are read from the track itself (upgradeById), so a
+ * system's copy lives in exactly one place.
+ */
+export interface InstallDef {
+  id: UpgradeId;
+  /** Salvage price. One-time; an install never stacks — tiers 2-3 cost scrap. */
+  cost: number;
+  /** Marks that must already have been BEATEN — the spec ladder's Mark minus
+   *  one, since `meta.mark` counts clears rather than the Mark being flown.
+   *  Same invariant as UnlockDef's field: a Mark is the one thing no amount of
+   *  salvage can buy. */
+  requiresMark?: number;
+}
+
+export const INSTALLS: InstallDef[] = [
+  // The two entry systems are priced UNDER a day of the easiest dailies (three
+  // tier-1 Contracts pay 18), not at it. The spec's pacing target is "a day's
+  // Contracts should fund roughly one install", and pricing the on-ramp at 20
+  // missed it by two — a player's first full day of Contracts would have bought
+  // nothing at all. Same reasoning as UNLOCKS' rank 1: the player who most needs
+  // a first system is the one with the least salvage.
+  { id: "reactor", cost: 15 },
+  { id: "launcher", cost: 15 },
+  { id: "magazine", cost: 25 },
+  { id: "bay", cost: 30, requiresMark: 1 },
+  { id: "hydraulics", cost: 30, requiresMark: 1 },
+  { id: "bonds", cost: 40, requiresMark: 2 },
+  // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
+  // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
+  // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one
+  // Mark beaten). Gating its only clean answer at 3 would ship a counter two
+  // Marks behind its hazard, which is strictly worse than today. Raise this to
+  // 3 in the same change that moves materials off the schedule.
+  { id: "demolition", cost: 40, requiresMark: 1 },
+];
+
+export function installById(id: string): InstallDef | undefined {
+  return INSTALLS.find((i) => i.id === id);
+}
+
+/** True when `def` can be bought right now: its Mark is beaten, it isn't
+ *  already installed, and tier 1 of it still fits the Mark's build budget.
+ *  Deliberately does NOT check salvage — the Workshop renders a card the player
+ *  simply can't afford yet as a disabled price button, which reads differently
+ *  from a gated one. */
+export function installAvailable(meta: MetaState, def: InstallDef): boolean {
+  if (def.requiresMark !== undefined && meta.mark < def.requiresMark) return false;
+  if ((meta.loadout[def.id] ?? 0) > 0) return false;
+  return buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) !== null;
+}
+
+/** Why `def` is unavailable, as display strings. Derived from the same
+ *  conditions installAvailable enforces, so the Workshop's locked copy can
+ *  never describe a gate the purchase path does not actually apply.
+ *
+ *  Both reasons can be true at once and both are shown, with the budget one
+ *  carrying its numbers: at a low Mark the two are usually the same wall seen
+ *  from different sides, and "Mark 2 · build budget 60/77" is the sentence that
+ *  actually explains why a player holding 400 salvage is being refused. */
+export function installGates(meta: MetaState, def: InstallDef): string[] {
+  const out: string[] = [];
+  if (def.requiresMark !== undefined && meta.mark < def.requiresMark) {
+    out.push(`Mark ${def.requiresMark}`);
+  }
+  if ((meta.loadout[def.id] ?? 0) === 0 &&
+      buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
+    out.push(`build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}`);
+  }
+  return out;
+}
+
+/**
+ * Buy an install: charge salvage and set the track to tier 1. Returns null when
+ * gated, already owned, unaffordable, or over budget. Never mutates.
+ *
+ * The budget charge goes through `buyLoadoutTier` rather than being re-derived
+ * here, so the Workshop cannot be a second, laxer door into the same loadout
+ * that `safeLoadout` validates on the way out.
+ */
+export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
+  const def = installById(id);
+  if (!def) return null;
+  if (!installAvailable(meta, def)) return null;
+  if (meta.salvage < def.cost) return null;
+  const loadout = buyLoadoutTier(meta.loadout, id, markUnlocked(meta));
+  if (!loadout) return null;
+  return { ...meta, salvage: meta.salvage - def.cost, loadout };
+}
+
 export interface MetaState {
   salvage: number;
   /** Purchased unlock ids. */
@@ -202,20 +311,27 @@ export interface MetaState {
    *  against the current Mark's build budget (upgrades.ts's budgetForMark).
    *  In-run scrap still refits on top of this at the usual stops. */
   loadout: UpgradeTiers;
-  /** Contract ids already paid out. A Contract pays ONCE, ever.
+  /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
+   *  time the Mark advances). One half of tier completion — see recordRunEnd. */
+  tierRunDone: boolean;
+  /** First-clear Contracts logged at the CURRENT tier (reset on advance). The
+   *  other half of tier completion — see recordContractClear. */
+  tierContracts: number;
+  /** Contract ids already logged. A Contract counts ONCE, ever.
    *
    *  This is a monetization invariant, not a balance preference. Unlimited buys
    *  "the daily Contract cap lifted" (docs/DESIGN.md), so if every completion
-   *  paid, the subscription would buy salvage -> unlocks -> stronger Deep Runs,
-   *  which is the one thing it must never do. Paying each Contract once keeps
-   *  the subscription buying throughput rather than power, and leaves replaying
-   *  a cleared Contract as free practice. */
+   *  counted, the subscription would buy tier progress -> salvage -> stronger
+   *  Deep Runs, which is the one thing it must never do. Counting each
+   *  Contract once keeps the subscription buying throughput rather than power,
+   *  and leaves replaying a cleared Contract as free practice. */
   claimedContracts: string[];
 }
 
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
+    tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), claimedContracts: [],
   };
 }
@@ -239,57 +355,127 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
   return loadoutLegal(meta.loadout, markUnlocked(meta)) ? { ...meta.loadout } : newTiers();
 }
 
-/** Salvage award weights. Exported so the end-of-run modal can show the same
- *  breakdown it pays out, rather than a second copy of the formula. */
-export const SALVAGE_PER_BAY = 5;
-export const SALVAGE_PER_2_LINES = 1;
-export const SALVAGE_RUN_COMPLETE_BONUS = 25;
-/** Floor paid for finishing a run at all, however badly. Non-zero on purpose:
- *  "dying gives you resources" has to be true even for a bay-1 flameout, or the
- *  worst runs — the ones where the player most needs a new option to try —
- *  are the ones that pay nothing. */
-export const SALVAGE_FLOOR = 3;
+/* -------------------------------------------------------------------------
+ * TIER COMPLETION — the only salvage source.
+ *
+ * A tier is the Mark currently flown (markUnlocked). It completes when both
+ * halves are done AT THAT TIER:
+ *
+ *   - the Deep Run beaten (all RUN_LEVELS bays) — recordRunEnd
+ *   - TIER_CONTRACTS_REQUIRED first-clear Contracts — recordContractClear
+ *
+ * Completion pays tierSalvage(tier), raises the Mark, and resets both
+ * counters for the next tier. This replaces the old per-run floor and
+ * per-contract payouts wholesale: with those trickles the unlock tree was
+ * finishing itself (playtest, 2026-08-08), and worse, neither payout said
+ * anything about the player being READY for the next rung. Requiring the run
+ * and the Contracts together makes the award and the gate the same event.
+ *
+ * Sizing: awards sum to 1,500 across the ten-tier ladder against a ~1,600
+ * salvage tree (unlocks 1,400 + installs 195), so finishing the tree means
+ * finishing the ladder — the tree can no longer outrun the exam. Tier 1's 60
+ * buys two entry installs or one rank-1 unlock, which keeps the first
+ * completion transformative rather than a down payment.
+ * ---------------------------------------------------------------------- */
+export const TIER_CONTRACTS_REQUIRED = 3;
+export const TIER_SALVAGE_BASE = 60;
+export const TIER_SALVAGE_PER_TIER = 20;
 
-/**
- * Salvage paid out for a finished run. Weighted toward DEPTH (bays cleared)
- * rather than lines or funds, because depth is the thing unlocks are supposed
- * to help you push — and because funds are mostly the last bay's float (see
- * run.ts's finalRunScore for the same reasoning applied to the leaderboard).
- */
-export function salvageForRun(baysCleared: number, totalLines: number, runComplete: boolean): number {
-  return (
-    SALVAGE_FLOOR +
-    baysCleared * SALVAGE_PER_BAY +
-    Math.floor(totalLines / 2) * SALVAGE_PER_2_LINES +
-    (runComplete ? SALVAGE_RUN_COMPLETE_BONUS : 0)
-  );
+/** Salvage banked for completing `tier`. */
+export function tierSalvage(tier: number): number {
+  const t = Math.max(1, Math.floor(tier));
+  return TIER_SALVAGE_BASE + (t - 1) * TIER_SALVAGE_PER_TIER;
 }
 
-/* -------------------------------------------------------------------------
- * CONTRACT PAYOUT
- *
- * PROVISIONAL — these two numbers want playtesting, and the docs say so
- * (docs/superpowers/specs/2026-07-31-contract-progression-persistence-design.md).
- *
- * Calibration they were picked against: a decent Deep Run pays ~43 salvage
- * (5 bays, 31 lines, measured) over ~10 minutes, and the unlock tree runs
- * 45-130 per entry. Three tier-1 dailies pay 18; three tier-5 dailies pay 42,
- * about one Deep Run.
- *
- * Per MINUTE a Contract pays better than a Deep Run, which is intended: the
- * daily cap is the throughput control, not the rate. What must stay true is
- * that Contracts never become the fastest route to a full unlock tree, because
- * the exam is meant to be where the tree gets paid for.
- * ---------------------------------------------------------------------- */
-export const CONTRACT_SALVAGE_BASE = 6;
-export const CONTRACT_SALVAGE_PER_TIER = 2;
+/** What a tier-affecting event did, alongside the updated meta. `completedTier`
+ *  is the tier that just finished (null when progress merely ticked), and
+ *  `salvage` its award — 0 unless a completion fired. */
+export interface TierResult {
+  meta: MetaState;
+  completedTier: number | null;
+  salvage: number;
+}
 
-/** Salvage for completing a Contract of `tier`. Scales with tier so the ladder
- *  is worth climbing; independent of launches used, because a Contract is the
- *  forgiving half and shaving the budget is its own reward. */
-export function salvageForContract(tier: number): number {
-  const t = Math.max(1, Math.floor(tier));
-  return CONTRACT_SALVAGE_BASE + (t - 1) * CONTRACT_SALVAGE_PER_TIER;
+/** Advance the Mark if the current tier's two halves are both done. Shared exit
+ *  for recordRunEnd/recordContractClear so the completion rule exists once. */
+function advanceTier(meta: MetaState): TierResult {
+  if (!meta.tierRunDone || meta.tierContracts < TIER_CONTRACTS_REQUIRED) {
+    return { meta, completedTier: null, salvage: 0 };
+  }
+  const tier = markUnlocked(meta);
+  const award = tierSalvage(tier);
+  return {
+    meta: {
+      ...meta,
+      mark: Math.min(MARK_COUNT, meta.mark + 1),
+      salvage: meta.salvage + award,
+      tierRunDone: false,
+      tierContracts: 0,
+    },
+    completedTier: tier,
+    salvage: award,
+  };
+}
+
+/**
+ * Record a finished Deep Run. Every run bumps the lifetime counters; a WON run
+ * at the current tier marks the run half of the tier done. `runMark` must be
+ * the Mark the run was flown at (RunState.mark) — a stale save replaying an
+ * already-beaten Mark cannot tick the current tier.
+ */
+export function recordRunEnd(meta: MetaState, runMark: number, won: boolean, bayReached: number): TierResult {
+  const next: MetaState = {
+    ...meta,
+    runs: meta.runs + 1,
+    bestBay: Math.max(meta.bestBay, bayReached),
+    tierRunDone: meta.tierRunDone || (won && runMark === markUnlocked(meta)),
+  };
+  return advanceTier(next);
+}
+
+/**
+ * Record a Contract clear. First clears are logged forever (claimedContracts —
+ * the once-ever rule the monetization note above depends on); a first clear AT
+ * THE CURRENT TIER also ticks the Contract half of tier completion. Replays
+ * and off-tier clears change nothing.
+ */
+export function recordContractClear(
+  meta: MetaState,
+  contract: { id: string; tier: number },
+): TierResult & { firstClear: boolean } {
+  if (meta.claimedContracts.includes(contract.id)) {
+    return { meta, completedTier: null, salvage: 0, firstClear: false };
+  }
+  const next: MetaState = {
+    ...meta,
+    claimedContracts: [...meta.claimedContracts, contract.id],
+    tierContracts:
+      contract.tier === markUnlocked(meta) ? meta.tierContracts + 1 : meta.tierContracts,
+  };
+  return { ...advanceTier(next), firstClear: true };
+}
+
+/** Snapshot of the current tier's completion state — one shape for the menu
+ *  chip, the end-of-run modal and the Contract modal, so no screen re-derives
+ *  the rule. */
+export interface TierProgress {
+  tier: number;
+  runDone: boolean;
+  contracts: number;
+  needed: number;
+  /** Salvage that completing this tier will bank. */
+  award: number;
+}
+
+export function tierProgressFor(meta: MetaState): TierProgress {
+  const tier = markUnlocked(meta);
+  return {
+    tier,
+    runDone: meta.tierRunDone,
+    contracts: Math.min(meta.tierContracts, TIER_CONTRACTS_REQUIRED),
+    needed: TIER_CONTRACTS_REQUIRED,
+    award: tierSalvage(tier),
+  };
 }
 
 /** Draft cards offered before the third slot is earned, and the number of

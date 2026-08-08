@@ -1,6 +1,7 @@
 import Matter from "matter-js";
 import { CELL, WORLD, WALL_INNER } from "./engine";
 import { removeConstraintsFor, type Cube } from "./pieces";
+import { MATERIAL_SPEC } from "./theme";
 import type { Compactor } from "./compactor";
 import type { LevelConfig } from "./level";
 
@@ -37,6 +38,191 @@ const X_RATE = 0.5; // px/step positional pull toward the nearest slot center
 
 function clamp(v: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, v));
+}
+
+/**
+ * Can this cube ever fill a line slot RIGHT NOW? (theme.ts's Material.)
+ *
+ * The two reasons it can't are deliberately different in kind:
+ *
+ *  - Slag is permanently dead. No amount of play makes it count, so a row
+ *    holding one is a row that must be demolished or shoved out. Nothing here
+ *    is a timer — the player is never racing slag, only working around it.
+ *  - Cold cryo is TEMPORARILY dead. Striking it makes it count. So the same
+ *    rejection means "not yet" rather than "never", and the row it sits in is
+ *    still winnable by acting on it.
+ *
+ * Exported because it is the single definition of "this cube is worth a slot",
+ * and the tests assert against it directly rather than re-deriving the rule.
+ */
+export function fillsSlots(cube: Cube): boolean {
+  const spec = MATERIAL_SPEC[cube.material];
+  if (!spec.countsForLines) return false;
+  return cube.struck;
+}
+
+/** Relative impact speed above which a strike thaws a cryo cube. Below the
+ *  speed a launched shipment carries on arrival, and well above the jostling of
+ *  a pile settling — thawing must be something the player DID, never something
+ *  that happened to drift into place while they were aiming elsewhere. */
+export const CRYO_STRIKE_SPEED = 6;
+
+/**
+ * Thaw a cryo cube that something hit hard enough. Called from the engine's
+ * collisionStart handler (game.ts), which is the only place the relative speed
+ * of an impact is actually known — a step later both bodies have exchanged
+ * momentum and read as slow.
+ *
+ * Striking is deliberately NOT symmetric, and that asymmetry is the mechanic.
+ * The cryo cube must already be AT REST and be hit by something fast; its own
+ * arrival never counts. Without that condition cryo thaws itself on the landing
+ * impact of the shot that delivered it, which was the first thing measured when
+ * this shipped — every cryo cube arrived pre-thawed and the material did
+ * nothing at all.
+ *
+ * With it, cryo costs a shipment: land it, then spend a second shot hitting it.
+ * That is the sequencing the design asks for, and it is also what makes the
+ * cold-press failure (shatterColdCryo) reachable — a player who ignores the
+ * cube is the one who gets punished by it.
+ */
+export function strikeCryo(cubes: Cube[], a: Matter.Body, b: Matter.Body): void {
+  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  if (rel < CRYO_STRIKE_SPEED) return;
+  for (const cube of cubes) {
+    if (cube.struck) continue;
+    if (cube.body !== a && cube.body !== b) continue;
+    // Settled = it is the target, not the projectile.
+    const v = cube.body.velocity;
+    if (v.x * v.x + v.y * v.y >= SETTLE_SQ) continue;
+    cube.struck = true;
+  }
+}
+
+/** Relative impact speed at which a VOLATILE cube goes off. Above cryo's strike
+ *  threshold on purpose: the same landing that thaws ice must not be enough to
+ *  set off a bomb, or volatile would detonate on essentially every touch and
+ *  stop being a landing the player can control.
+ *
+ *  This was 9.5, which is BELOW the speed any launch can actually arrive at:
+ *  measured over every angle/power the cannon can produce, first-contact
+ *  relative speed runs 17.3 to 30.8, so every volatile shipment detonated on
+ *  arrival and countsForLines was dead code. The lever is launch POWER, whose
+ *  median impact runs 19.5 at power 0 to 25.5 at full — so 22 sits between the
+ *  two halves of the dial: lob it and it survives (67% of launches), fire it
+ *  hard and it goes off. Re-measure with sim/_volprobe.ts's method if the
+ *  cannon's speedMax or gravity ever move, because this number is only
+ *  meaningful relative to them. */
+export const VOLATILE_TRIGGER_SPEED = 22;
+
+/** How far a detonation reaches, in cells. One cell of clearance around the
+ *  cube itself — volatile takes its NEIGHBOURS, not a crater. */
+export const VOLATILE_BLAST_CELLS = 1.6;
+
+/**
+ * Which cubes a volatile impact destroys, if any.
+ *
+ * Returns the volatile cube plus everything inside its blast, or an empty array
+ * when the impact was too soft to set it off. Pure — the caller removes the
+ * bodies and spawns the FX, because the physics world and the effects list both
+ * live on Game and this file deliberately touches neither.
+ *
+ * Volatile is the only material whose cost is paid by cubes that were ALREADY
+ * safely down, which is what makes it scale with how full the bay is rather
+ * than with the shipment itself. A soft landing is the answer — a low-power
+ * lob, which lands around 19.5 against a hard shot's 25.5 — or deliberately
+ * chaining it into a pile that was never going to complete a row anyway.
+ *
+ * NOT settleAssist, which this comment used to name: that only scales
+ * settleZoneCubes' grind on cubes already at rest and does nothing to the speed
+ * a shipment arrives at. Measured across Press Hydraulics tiers 0-3, minimum
+ * impact speed moved 17.34 -> 17.56, i.e. not at all.
+ */
+export function volatileBlast(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+): Cube[] {
+  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  if (rel < VOLATILE_TRIGGER_SPEED) return [];
+  const primed = cubes.find(
+    (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
+  );
+  if (!primed) return [];
+  const r = VOLATILE_BLAST_CELLS * CELL;
+  const p = primed.body.position;
+  return cubes.filter((c) => {
+    if (c === primed) return true;
+    const d = Math.hypot(c.body.position.x - p.x, c.body.position.y - p.y);
+    return d <= r;
+  });
+}
+
+/**
+ * Weld a TAR cube to whatever it just touched.
+ *
+ * Returns the pairs that should become permanent joints. Tar is the deliberate
+ * inverse of rebar: rebar is rigid and breakable, tar is the joint that cannot
+ * be broken at all — not by stretch, and not by a Bond Breaker. Avoidance is
+ * the real answer; Demolition is the expensive one, since vaporizing a cube
+ * takes its welds with it.
+ *
+ * Only welds to a cube that has effectively stopped, so tar sticks to the PILE
+ * rather than fusing mid-air with the shipment it was launched alongside.
+ */
+export function tarWelds(
+  cubes: Cube[],
+  a: Matter.Body,
+  b: Matter.Body,
+): Array<[Cube, Cube]> {
+  const ca = cubes.find((c) => c.body === a);
+  const cb = cubes.find((c) => c.body === b);
+  if (!ca || !cb || ca === cb) return [];
+  const sticky = MATERIAL_SPEC[ca.material].welds || MATERIAL_SPEC[cb.material].welds;
+  if (!sticky) return [];
+  const settled = (c: Cube): boolean => {
+    const v = c.body.velocity;
+    return v.x * v.x + v.y * v.y < SETTLE_SQ;
+  };
+  if (!settled(ca) && !settled(cb)) return [];
+  return [[ca, cb]];
+}
+
+/**
+ * Snap a MAGNETIC cube square once it has come to rest.
+ *
+ * The one material that HELPS, and the reason the vocabulary is not uniformly
+ * hostile: it fills a slot you may not have wanted filled, but it squares the
+ * row while doing it. Rotation is pulled to the nearest quarter turn and the
+ * position onto the slot grid, which is exactly what lineClear's own candidate
+ * test asks for (isAxisAligned + the slot walk) — so a magnetic cube is one
+ * that has already done for itself what the press would otherwise have to
+ * beat out of it.
+ *
+ * Mutates the bodies, because that is what Matter.Body.setAngle/setPosition do
+ * and there is nothing to return.
+ */
+export function alignMagnetic(cubes: Cube[], floorY: number): void {
+  for (const cube of cubes) {
+    if (!MATERIAL_SPEC[cube.material].aligns) continue;
+    const v = cube.body.velocity;
+    if (v.x * v.x + v.y * v.y >= SETTLE_SQ) continue;
+    if (Math.abs(cube.body.angularVelocity) >= 0.02) continue;
+    const quarter = Math.PI / 2;
+    const snappedAngle = Math.round(cube.body.angle / quarter) * quarter;
+    if (Math.abs(snappedAngle - cube.body.angle) > 1e-4) {
+      Matter.Body.setAngle(cube.body, snappedAngle);
+      Matter.Body.setAngularVelocity(cube.body, 0);
+    }
+    // Rows are indexed off the floor, so the vertical snap has to use the same
+    // origin the line check does or a "squared" cube lands between two rows.
+    const rel = floorY - cube.body.position.y;
+    const row = Math.round(rel / CELL);
+    const targetY = floorY - row * CELL;
+    if (Math.abs(targetY - cube.body.position.y) > 0.5) {
+      Matter.Body.setPosition(cube.body, { x: cube.body.position.x, y: targetY });
+      Matter.Body.setVelocity(cube.body, { x: 0, y: 0 });
+    }
+  }
 }
 
 export function resetLineClear(): void {
@@ -202,6 +388,12 @@ export function updateLineClear(
   const candidates: Cube[] = [];
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
+    // Material gate. A rejected cube still physically OCCUPIES its space — it
+    // just never fills the slot — so its row reads as holed below and cannot
+    // clear until the cube is demolished, shoved out, or (for cryo) struck.
+    // That is the whole mechanic: denial by occupancy, not by a new rule the
+    // row-scan has to understand.
+    if (!fillsSlots(cube)) continue;
     const b = cube.body;
     if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
     if (!isAxisAligned(b.angle)) continue;
@@ -255,6 +447,101 @@ export function updateLineClear(
     }
   }
   return { lines: rows.length, cubes: removedCubes, rows };
+}
+
+/** How close the bar's face must come to a cube's left edge to count as
+ *  pressing it. Half a cell — the bar advances 1.2px/step at stock speed, so
+ *  this cannot be missed between frames, and it is tight enough that a cube one
+ *  slot further in is not "pressed" while its neighbour takes the hit. */
+const PRESS_BAND = 0.5 * CELL;
+
+/** Impulse (px/step) dealt to a shattered cryo cube's row-mates. Enough to lift
+ *  them off their slot centers and force a re-settle, not enough to fling them
+ *  clear of the zone — the punishment for pressing cold cryo is losing the
+ *  ROW's alignment, not losing the cubes. */
+const SHATTER_KICK = 4.5;
+
+export interface CryoShatter {
+  /** Where each shattered cube was, for the render-side burst. */
+  cubes: { x: number; y: number; color: string }[];
+  /** Center Y of each row that lost its alignment. */
+  rows: number[];
+}
+
+/**
+ * "Pressed cold it shatters the line" (docs/DESIGN.md's material table).
+ *
+ * A cryo cube that reaches the press still frozen does not compact — it breaks,
+ * and the row it was part of is knocked off the slot grid with it. This is the
+ * consequence half of cryo, and it is what makes the material about SEQUENCING
+ * rather than about waiting: the cube is not merely inert until struck, it is
+ * actively destructive if you build a row around it and let the bar arrive
+ * first.
+ *
+ * The row-mates are given an impulse rather than being teleported off their
+ * slots. Both would break the alignment the clear-check needs, but a kick lets
+ * the physics resettle them into a genuinely new arrangement — which is
+ * recoverable with more pressing — where a teleport would be the game moving
+ * the player's pile for them, and could drop two cubes into one slot.
+ *
+ * Returns what shattered so the caller can play FX; it is a no-op returning
+ * empty arrays on every bay that has no cryo in it, which is most of them.
+ */
+export function shatterColdCryo(
+  world: Matter.World,
+  cubes: Cube[],
+  compactor: Compactor,
+  constraints: Matter.Constraint[],
+): CryoShatter {
+  // Only the ADVANCING stroke shatters. On the retreat the bar is moving away
+  // from the pile and touching nothing, so a cold cube resting against its face
+  // would otherwise be "pressed" every step of the way back out.
+  if (compactor.dir !== 1) return { cubes: [], rows: [] };
+
+  const face = compactor.x + compactor.width / 2;
+  const doomed: Cube[] = [];
+  for (const cube of cubes) {
+    if (cube.blinkStart !== null || cube.struck) continue;
+    const b = cube.body;
+    if (b.position.y < compactor.top) continue; // above the bar's reach
+    if (Math.abs(b.position.x - CELL / 2 - face) > PRESS_BAND) continue;
+    doomed.push(cube);
+  }
+  if (!doomed.length) return { cubes: [], rows: [] };
+
+  const rows: number[] = [];
+  const removed: { x: number; y: number; color: string }[] = [];
+  for (const cube of doomed) {
+    const rowY = cube.body.position.y;
+    if (!rows.some((y) => Math.abs(y - rowY) <= Y_TOL)) rows.push(rowY);
+
+    // Kick the row's settled neighbours off their slots. Only cubes to the
+    // RIGHT are hit: those are the ones the shattering cube was bracing, and
+    // hitting the whole row would also disturb cubes the bar has not reached.
+    for (const other of cubes) {
+      if (other === cube || other.blinkStart !== null) continue;
+      const ob = other.body;
+      if (Math.abs(ob.position.y - rowY) > Y_TOL) continue;
+      if (ob.position.x <= cube.body.position.x) continue;
+      Matter.Body.setVelocity(ob, {
+        x: ob.velocity.x + SHATTER_KICK * 0.4,
+        y: ob.velocity.y - SHATTER_KICK,
+      });
+    }
+  }
+
+  // Remove the shattered cubes themselves, with the same dangling-joint care
+  // updateLineClear takes: a cryo cube can still be joined to a piece-mate.
+  for (let i = cubes.length - 1; i >= 0; i--) {
+    const cube = cubes[i];
+    if (!doomed.includes(cube)) continue;
+    removed.push({ x: cube.body.position.x, y: cube.body.position.y, color: cube.color });
+    removeConstraintsFor(world, constraints, cube.body);
+    Matter.Composite.remove(world, cube.body);
+    cubes.splice(i, 1);
+  }
+
+  return { cubes: removed, rows };
 }
 
 /**

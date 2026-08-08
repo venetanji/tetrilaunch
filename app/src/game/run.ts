@@ -1,6 +1,6 @@
 import type { LevelConfig } from "./level";
 import { makeBaseLevel } from "./level";
-import { applyMods } from "./mods";
+import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
 import { applyUpgrades, newTiers, type UpgradeTiers } from "./upgrades";
 
 /** Total levels in a roguelite run (see makeBaseLevel's 0..9 ladder). */
@@ -14,7 +14,7 @@ export const REFIT_EVERY = 3;
 /**
  * Persistent state for one roguelite run — everything that carries across
  * levels. The current level's actual LevelConfig is always derived (see
- * levelForRun), never stored, so it can't drift out of sync with modIds/tiers.
+ * levelForRun), never stored, so it can't drift out of sync with ratchets/tiers.
  */
 export interface RunState {
   seed: number;
@@ -26,8 +26,12 @@ export interface RunState {
    *  base level's startingFunds with carry at 0; every later level starts
    *  from its own base startingFunds plus whatever surplus carried over. */
   carry: number;
-  /** Modifiers drafted so far, in pick order (order matters for stacking). */
-  modIds: string[];
+  /** How far each difficulty axis has been ratcheted this run (hazards.ts).
+   *  This replaced `modIds`: the between-bay draft no longer deals modifier
+   *  cards, it asks which axis hardens next, and the answer sticks for the rest
+   *  of the run. A count rather than a list because the same axis can be taken
+   *  again — three notches on the clock is a legitimate (and grim) build. */
+  ratchets: Ratchets;
   /** Cumulative cleared lines across all completed levels. */
   linesTotal: number;
   /** UNSPENT scrap — the in-run upgrade currency (level.ts's SCRAP_PER_LINE /
@@ -66,7 +70,7 @@ export function newRun(
     seed,
     levelIndex: 0,
     carry: 0,
-    modIds: [],
+    ratchets: {},
     linesTotal: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
@@ -108,14 +112,17 @@ export function baysUntilRefit(levelIndex: number): number | null {
  *  drafted MODS on top, and (for every level after the first) startingFunds
  *  bumped by the carried surplus.
  *
- *  Order is deliberate and load-bearing: upgrades are the ship, mods are the
- *  contract flown in it, so a mod's multipliers compound over a refitted ship
- *  (see upgrades.ts's header). The carry is added dead last so it's never
- *  scaled by either — it's cash in hand, not a rate. */
+ *  Order is deliberate and load-bearing: upgrades are the SHIP, ratchets are the
+ *  conditions it is flown in, so a notch lands on top of whatever was refitted
+ *  (see upgrades.ts's header). That ordering is what makes the design's central
+ *  claim true — a system does not delete a hazard, it makes one specific hazard
+ *  cheap for you — because the ship's numbers are already in the config when the
+ *  notch is added to them. The carry is added dead last so it's never scaled by
+ *  either: it's cash in hand, not a rate. */
 export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
-  const cfg = applyMods(base, run.modIds);
+  const cfg = applyRatchets(base, run.ratchets);
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
   return cfg;
 }
@@ -134,13 +141,15 @@ export function advanceRun(
   clearedTarget: number,
   lines: number,
   scrapEarned: number,
-  pickedModId: string | null,
+  pickedAxes: HazardId[] = [],
 ): RunState {
+  const ratchets: Ratchets = { ...run.ratchets };
+  for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
   return {
     seed: run.seed,
     levelIndex: run.levelIndex + 1,
     carry: Math.max(0, endedScore - clearedTarget),
-    modIds: pickedModId ? [...run.modIds, pickedModId] : [...run.modIds],
+    ratchets,
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
@@ -151,16 +160,23 @@ export function advanceRun(
 }
 
 /** Buy one tier of a system at a refit stop. Returns a NEW RunState with the
- *  tier raised and the scrap deducted, or null when it can't be bought (maxed,
- *  or not enough scrap) — the caller renders that as a disabled card rather
- *  than needing to duplicate the affordability rules. */
+ *  tier raised and the scrap deducted, or null when it can't be bought (not
+ *  installed, maxed, or not enough scrap) — the caller renders that as a
+ *  disabled card rather than needing to duplicate the affordability rules. */
 export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, maxTier: number): RunState | null {
   const tier = run.tiers[id] ?? 0;
+  // Tier 0 means the ship doesn't carry the system at all. A refit raises one
+  // it already has, 1 -> 3; putting one aboard is a loadout purchase made
+  // against the Mark's build budget (upgrades.ts's buyLoadoutTier). In-run
+  // scrap has no such budget, so letting it install would route around the cap
+  // that makes two rigs at the same Mark equal in power — see upgrades.ts's
+  // BUILD BUDGET note for why that equality is the load-bearing one.
+  if (tier <= 0) return null;
   if (tier >= maxTier) return null;
   if (run.scrap < cost) return null;
   return {
     ...run,
-    modIds: [...run.modIds],
+    ratchets: { ...run.ratchets },
     unlocks: [...run.unlocks],
     scrap: run.scrap - cost,
     tiers: { ...run.tiers, [id]: tier + 1 },

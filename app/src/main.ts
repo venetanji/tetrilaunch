@@ -5,11 +5,22 @@ import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
   RUN_LEVELS, type RunState,
 } from "./game/run";
-import { draftOffers, modById, type ModDef } from "./game/mods";
+import {
+  hazardOffers, hazardById, picksPerBay, HAZARDS,
+  type HazardDef, type HazardId, type Ratchets,
+} from "./game/hazards";
+
+/** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
+ *  so two runs with the same build produce byte-identical strings. */
+function axisNotchList(ratchets: Ratchets): string[] {
+  return HAZARDS
+    .filter((h) => (ratchets[h.id] ?? 0) > 0)
+    .map((h) => `${h.id}:${ratchets[h.id]}`);
+}
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  contractClaimed, draftSlots, markUnlocked, safeLoadout, salvageForContract, salvageForRun,
-  unlockAvailable, unlockById, DRAFT_THIRD_SLOT_CONTRACTS, type MetaState,
+  buyInstall, markUnlocked, recordContractClear, recordRunEnd, safeLoadout,
+  tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -58,15 +69,26 @@ class App {
   /** The current roguelite run (seed, level index, carried surplus, drafted
    *  mods). Null only before the first "Play" — startGame() creates it. */
   private run: RunState | null = null;
-  /** The 3 (or fewer, late in a run) modifier cards on offer in the draft modal. */
-  private pendingOffers: ModDef[] = [];
+  /** The difficulty axes on offer in the between-bay draft (hazards.ts). */
+  private pendingOffers: HazardDef[] = [];
+  /** Axes taken at THIS draft, before it closes. Mark 10 asks for two, so a
+   *  pick is banked here rather than applied straight to the run — otherwise
+   *  the first pick would re-render the modal with the second offer already
+   *  ratcheted, and a player who changed their mind mid-draft could not tell
+   *  which half of the choice had landed. */
+  private pendingPicks: HazardId[] = [];
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
-  /** Salvage paid out by the run that just ended, held so the end modal can
-   *  show the award without recomputing (and so re-rendering the modal — e.g.
-   *  after the leaderboard fetch lands — can't pay it twice). */
-  private lastSalvage = 0;
+  /** Which half of the Workshop shop is showing. Lives here, not in the DOM:
+   *  renderOverlay() rewrites overlay.innerHTML wholesale and both purchase
+   *  handlers call it, so a :checked-sibling or :target tab would snap back to
+   *  Systems on every buy (and :target would push history entries besides). */
+  private workshopTab: S.ShopTab = "systems";
+  /** What the run that just ended did to tier progress, held so the end modal
+   *  can show it without recomputing (and so re-rendering the modal — e.g.
+   *  after the leaderboard fetch lands — can't award a completion twice). */
+  private lastTier: TierResult | null = null;
   /** Timer that auto-advances the bay-clear celebration; cleared if the player
    *  taps through it first. */
   private bayClearTimer: number | null = null;
@@ -75,10 +97,10 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
-  /** Salvage paid by the Contract just finished, and whether this attempt is
-   *  the one that earned it — the end modal has to distinguish "you just banked
-   *  8" from "you cleared it again, already paid". Null until one resolves. */
-  private contractAward: { salvage: number; firstClear: boolean } | null = null;
+  /** What the Contract just finished did to tier progress — whether this
+   *  attempt was the first clear, and whether it completed the tier (see
+   *  meta.ts's recordContractClear). Null until one resolves. */
+  private contractAward: (TierResult & { firstClear: boolean }) | null = null;
 
   private dpr = 1;
   private last = 0;
@@ -219,7 +241,7 @@ class App {
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
-      modIds: this.run?.modIds ?? [],
+      ratchets: this.run?.ratchets ?? {},
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
       contract: this.contract
         ? {
@@ -258,9 +280,11 @@ class App {
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
-        this.overlay.innerHTML = S.menuScreen(loadBest(), this.meta.salvage, this.storeState());
+        this.overlay.innerHTML = S.menuScreen(
+          loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
+        );
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
@@ -293,7 +317,14 @@ class App {
               // margin the attempt missed by, which is the one number worth
               // reading off a failed pattern bay.
               cubesWasted: Math.max(0, g.cubesRequired - g.cubesAvailable),
-              award: this.contractAward,
+              award: this.contractAward
+                ? {
+                    firstClear: this.contractAward.firstClear,
+                    completedTier: this.contractAward.completedTier,
+                    salvage: this.contractAward.salvage,
+                  }
+                : null,
+              progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
             });
         }
@@ -344,9 +375,6 @@ class App {
         break;
       case "draft":
         if (g && this.run) {
-          const owned = this.run.modIds
-            .map(modById)
-            .filter((m): m is ModDef => m != null);
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
             S.draftScreen({
@@ -360,16 +388,14 @@ class App {
               // next bay's float is really getting (see advanceRun).
               carry: this.run.carry,
               offers: this.pendingOffers,
-              owned,
+              ratchets: this.run.ratchets,
+              picked: this.pendingPicks,
+              picksNeeded: picksPerBay(this.run.mark),
               scrap: this.run.scrap,
               // Bay-CLEARS until the next refit stop, counting the bay about to
               // be played; 1 means "clear this one and you dock". Null late in a
               // run when no stop remains.
               baysToRefit: baysUntilRefit(this.run.levelIndex),
-              // Only meaningful while the third slot is still unearned; the
-              // screen hides the locked card once it is.
-              contractsCleared: this.meta.claimedContracts.length,
-              contractsForThirdSlot: DRAFT_THIRD_SLOT_CONTRACTS,
             });
         }
         break;
@@ -394,7 +420,12 @@ class App {
               bayNum: this.run.levelIndex + 1,
               bayName: g.level.name,
               runComplete: this.state === "won",
-              salvageEarned: this.lastSalvage,
+              // Post-run tier state: completion (if this run finished the
+              // tier) plus where the tier stands now — the modal's payout row
+              // became a progress row when salvage moved to tier completion.
+              tierCompleted: this.lastTier?.completedTier ?? null,
+              tierSalvage: this.lastTier?.salvage ?? 0,
+              progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
               tiers: this.run.tiers,
@@ -489,7 +520,7 @@ class App {
     );
     this.contract = null;
     this.submitted = false;
-    this.lastSalvage = 0;
+    this.lastTier = null;
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
     this.startLevel();
   }
@@ -527,7 +558,7 @@ class App {
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
       tiers: this.run.tiers,
-      mods: this.run.modIds,
+      notches: axisNotchList(this.run.ratchets),
       pieceSize: cfg.pieceSize,
     });
     this.setState("playing");
@@ -600,7 +631,7 @@ class App {
       compactorSpeed: compactorSpeedFor(cfg),
       compactorOpenCells: cfg.compactorOpenCells,
       compactorMinLineCells: cfg.compactorMinLineCells,
-      mods: [c.brief], pieceSize: cfg.pieceSize,
+      notches: [c.brief], pieceSize: cfg.pieceSize,
     });
     this.setState("playing");
     this.armDragHint();
@@ -620,18 +651,17 @@ class App {
       telemetry.endRun(s === "won", 0);
       if (s === "won") {
         void successHaptic();
-        // Pay ONCE per Contract, ever, and record the clear in the same place —
-        // meta.claimedContracts is both the payout gate and what ticks the
-        // board, so the two can't drift apart. See meta.ts for why the payout
-        // side of that matters to monetization.
-        const already = contractClaimed(this.meta, this.contract.id);
-        const award = salvageForContract(this.contract.tier);
-        if (!already) {
-          this.meta.salvage += award;
-          this.meta.claimedContracts.push(this.contract.id);
+        // Log ONCE per Contract, ever — meta.claimedContracts is both the
+        // once-ever gate and what ticks the board. A first clear at the
+        // current tier advances tier progress, and may complete the tier —
+        // which is the only event that pays salvage now (see meta.ts's
+        // recordContractClear/advanceTier).
+        const result = recordContractClear(this.meta, this.contract);
+        if (result.firstClear) {
+          this.meta = result.meta;
           saveMeta(this.meta);
         }
-        this.contractAward = { salvage: award, firstClear: !already };
+        this.contractAward = result;
       } else {
         void impactHaptic();
         this.contractAward = null;
@@ -659,10 +689,13 @@ class App {
         // NOT destroyed here — status "won" makes update() a no-op, so the rAF
         // loop keeps re-rendering the settled field (and its bayclear sweep FX)
         // behind the banner until startLevel() tears it down.
-        this.pendingOffers = draftOffers(
-          this.run.seed, this.run.levelIndex, this.run.modIds,
-          draftSlots(this.meta.claimedContracts), this.run.unlocks,
+        // The offer is a function of the run seed, the bay and the Mark — NOT of
+        // what the player owns. A hazard draft asks what you are prepared for,
+        // so the table has to be the same whatever you brought to it.
+        this.pendingOffers = hazardOffers(
+          this.run.seed, this.run.levelIndex, this.run.mark,
         );
+        this.pendingPicks = [];
         this.setState("bayclear");
         this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);
       } else {
@@ -707,36 +740,24 @@ class App {
       g.target,
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
-      null,
+      [],
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
     this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
-  /** Common run-end path for both a bay-10 win and any loss: pay out salvage
-   *  (meta.ts's salvageForRun — every finished run pays, which is the whole
-   *  point of the meta layer), persist meta + best, refresh the board, and show
-   *  the end modal. */
+  /** Common run-end path for both a bay-10 win and any loss: record the run
+   *  against tier progress (meta.ts's recordRunEnd — a WON run is one of the
+   *  two halves of tier completion, and completion is the only salvage
+   *  source), persist meta + best, refresh the board, show the end modal. */
   private finishRun(won: boolean): void {
     const g = this.game;
     if (!g || !this.run) return;
-    const baysCleared = this.run.levelIndex + (won ? 1 : 0);
-    const lines = this.run.linesTotal + g.linesTotal;
-    this.lastSalvage = salvageForRun(baysCleared, lines, won);
-    // Beating a run is the ONLY thing that raises a Mark — no amount of
-    // Contract grinding or purchasing touches it (docs/DESIGN.md). Guarded with
-    // max() rather than +1 so replaying an already-beaten Mark for a better
-    // board placing can't ratchet the ladder forward a second time.
-    const markBeaten = won ? Math.max(this.meta.mark, this.run.mark) : this.meta.mark;
-    this.meta = {
-      ...this.meta,
-      salvage: this.meta.salvage + this.lastSalvage,
-      runs: this.meta.runs + 1,
-      bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
-      mark: markBeaten,
-    };
-    telemetry.endRun(won, this.lastSalvage);
+    const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
+    this.lastTier = result;
+    this.meta = result.meta;
+    telemetry.endRun(won, result.salvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
     this.refreshBoard();
@@ -808,13 +829,54 @@ class App {
     this.renderOverlay();
   }
 
-  /** "pick-mod"/"skip-mod": append the drafted pick (null for a skip) and start
-   *  the next bay. The bay itself was already banked into the run by
-   *  afterBayClear (so a refit stop could spend its scrap), so this ONLY records
-   *  the choice — it must not call advanceRun again or the run would skip a bay. */
-  private advanceAfterDraft(modId: string | null): void {
-    if (!this.run) return;
-    if (modId) this.run = { ...this.run, modIds: [...this.run.modIds, modId] };
+  /** Workshop: install a ship system with salvage.
+   *
+   *  Every refusal — gated Mark, already installed, unaffordable, over the
+   *  Mark's build budget — lives in meta.ts's buyInstall, so a click the shop
+   *  should not have offered is a no-op here rather than a second copy of the
+   *  rules that could disagree with the first. */
+  private onBuyInstall(id: string): void {
+    const next = buyInstall(this.meta, id as UpgradeId);
+    if (!next) return;
+    this.meta = next;
+    saveMeta(this.meta);
+    void successHaptic();
+    this.renderOverlay();
+  }
+
+  /** Workshop: switch shop halves. Anything other than the two known ids is
+   *  ignored rather than defaulted, so a stale attribute cannot silently park
+   *  the player on Systems forever. */
+  private onShopTab(tab: string): void {
+    if (tab !== "systems" && tab !== "options") return;
+    if (tab === this.workshopTab) return;
+    this.workshopTab = tab;
+    this.renderOverlay();
+  }
+
+  /** "pick-hazard": bank one ratchet notch, and start the next bay once the
+   *  Mark's full quota of picks is in. The bay itself was already banked into
+   *  the run by afterBayClear (so a refit stop could spend its scrap), so this
+   *  ONLY records the choice — it must not call advanceRun again or the run
+   *  would skip a bay.
+   *
+   *  There is no skip. The ratchet is the price of the bay just cleared, and a
+   *  draft you can decline is a draft with a dominant option. */
+  private onPickHazard(id: string): void {
+    if (!this.run || this.state !== "draft") return;
+    if (!hazardById(id)) return;
+    // Only from the hand actually dealt — a stale or hand-edited data-hazard
+    // must not let a player ratchet an axis their Mark has not opened.
+    if (!this.pendingOffers.some((h) => h.id === id)) return;
+    this.pendingPicks = [...this.pendingPicks, id as HazardId];
+    if (this.pendingPicks.length < picksPerBay(this.run.mark)) {
+      this.renderOverlay();
+      return;
+    }
+    const ratchets = { ...this.run.ratchets };
+    for (const axis of this.pendingPicks) ratchets[axis] = (ratchets[axis] ?? 0) + 1;
+    this.run = { ...this.run, ratchets };
+    this.pendingPicks = [];
     this.startLevel();
   }
 
@@ -998,7 +1060,7 @@ class App {
     // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
     // grid, no label/type text (see components.ts's beltPieceHTML).
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}`;
+    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}:${bp.material}`;
     if (this.lastNext !== nextKey) {
       const next = this.overlay.querySelector("#hud-next");
       if (next) {
@@ -1006,7 +1068,7 @@ class App {
           ? beltBombHTML()
           : bp.empty
             ? ""
-            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize);
+            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
       }
       this.lastNext = nextKey;
     }
@@ -1071,7 +1133,7 @@ class App {
       case "howto": this.setState("howto"); break;
       case "settings": this.setState("settings"); break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
-      case "workshop": this.setState("workshop"); break;
+      case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
@@ -1092,11 +1154,8 @@ class App {
       case "paywall": void this.onPaywall(); break;
       case "customer-center": void presentCustomerCenter(); break;
       case "restore": void this.onRestore(); break;
-      case "pick-mod":
-        if (this.state === "draft") this.advanceAfterDraft(el.getAttribute("data-mod"));
-        break;
-      case "skip-mod":
-        if (this.state === "draft") this.advanceAfterDraft(null);
+      case "pick-hazard":
+        this.onPickHazard(el.getAttribute("data-hazard") ?? "");
         break;
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.
@@ -1104,6 +1163,8 @@ class App {
       case "buy-upgrade": this.onBuyUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
+      case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
+      case "shop-tab": this.onShopTab(el.getAttribute("data-tab") ?? ""); break;
     }
   };
 

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Workshop — Tetrilaunch</title>
+<title>Workshop · Options — Tetrilaunch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 /* Mirrors app/src/ui/screens.ts workshopScreen + app.css .workshop / .shop-card.
@@ -12,13 +12,20 @@
    win or lose) on the ship you start every run with.
 
    The shop is TABBED — Systems and Options are two lists of the same kind of
-   decision, and only the active one is in the DOM. This file is the SYSTEMS
-   pane, which is what the screen opens on; workshop-options.html is the other
-   half. Three card states are shown: buyable, unaffordable (offered but
-   disabled, so the price is still information), and gated-by-Mark (visible but
-   dimmed — a locked capstone you can see is a goal, one you can't is a
-   surprise). What you already OWN gets no card at all; it collapses into the
-   ✓ Installed strip, so the screen gets shorter as you progress.
+   decision, and only the active one is in the DOM. This file is the OPTIONS
+   pane; workshop.html is the Systems half the screen opens on.
+
+   An option unlock adds a CARD TO THE DRAFT POOL rather than a stat, which is
+   what keeps a veteran's run harder-won than a beginner's rather than merely
+   bigger-numbered. Every unlock carries its own glyph so these rows share a
+   left edge with the Systems rows next door — the whole set is drawn straight-
+   segments-only on a 16x16 grid, and each one is drawn against the glyph it
+   would otherwise be confused with at 13px (micro keeps its gap or it is one
+   bar; auto stays filled because overclock is the same silhouette in stroke).
+   Card states shown: buyable, unaffordable (offered but disabled, so the price
+   is still information), and gated-by-prerequisite (visible but dimmed — a
+   locked capstone you can see is a goal, one you can't is a surprise). What you
+   already own collapses into the ✓ Owned strip.
 
    Resize below 460px tall to see the row layout: the card drops from a 122px
    tile to a ~40px row, which is what takes the shop from 3.6 screens of
@@ -143,63 +150,83 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
         <p class="muted workshop__blurb" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
-        <div class="chip"><div class="chip__label">Salvage</div><div class="chip__value" style="color:var(--warn)">♻ 28</div></div>
+        <div class="chip"><div class="chip__label">Salvage</div><div class="chip__value" style="color:var(--warn)">♻ 60</div></div>
         <button class="icon-btn" aria-label="Back">✕</button>
       </div>
     </div>
     <div class="workshop__meta muted">12 runs logged · deepest bay 7</div>
     <div class="workshop__tabs" role="tablist">
-      <button class="workshop__tab workshop__tab--on" role="tab" aria-selected="true">Systems <b>2</b></button>
-      <button class="workshop__tab" role="tab" aria-selected="false">Options</button>
-      <span class="workshop__budget">build budget 20/154</span>
+      <button class="workshop__tab" role="tab" aria-selected="false">Systems <b>5</b></button>
+      <button class="workshop__tab workshop__tab--on" role="tab" aria-selected="true">Options <b>2</b></button>
     </div>
     <div class="workshop__shop" role="tabpanel">
       <div class="workshop__owned">
-        <span class="workshop__owned-label">✓ Installed</span>
-        <span class="workshop__owned-item">Reactor Output I</span>
+        <span class="workshop__owned-label">✓ Owned</span>
+        <span class="workshop__owned-item">Demolition Licence</span>
       </div>
       <div class="workshop__grid">
         <div class="shop-card">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 12l9-9"/><path d="M4 9l2 2"/><path d="M6 7l2 2"/><path d="M8 5l2 2"/><path d="M11 2h3v3z" fill="currentColor" stroke="none"/></svg>Launcher Coils</div>
-            <p class="shop-card__desc">More muzzle energy and a lateral stabilizer — reach the back of the bay, and fight the weather. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M3 3h6v4H3z" fill="currentColor" stroke="none"/><path d="M3 7h10v4H3z" fill="currentColor" stroke="none"/></svg>Bulk Freight Permit</div>
+            <p class="shop-card__desc">Adds Bulk Shipments to the draft pool: 5-cube pentominoes. Dense and rigid — they survive landings that shatter a tetromino, and their weight squares up the layers underneath.</p>
           </div>
-          <div class="shop-card__foot"><button class="btn btn--primary">♻ 15</button></div>
+          <div class="shop-card__foot"><button class="btn btn--primary">♻ 55</button></div>
         </div>
         <div class="shop-card">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 6h12v6H2z"/><path d="M5 6V3"/><path d="M8 6V3"/><path d="M11 6V3"/></svg>Loader Magazine</div>
-            <p class="shop-card__desc">Faster reload — more shots inside the same clock. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 5h7"/><path d="M2 8h10"/><path d="M2 11h5"/><path d="M9 3l3 2-3 2"/></svg>Weather Survey</div>
+            <p class="shop-card__desc">The bay's prevailing wind is surveyed before you launch: the HUD gauge shows the bay's steady average alongside the live gust, so a headwind bay can be planned for instead of discovered.</p>
           </div>
-          <div class="shop-card__foot"><button class="btn btn--primary">♻ 25</button></div>
+          <div class="shop-card__foot"><button class="btn btn--primary">♻ 60</button></div>
         </div>
         <div class="shop-card">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M13 2v12"/><path d="M3 8h8"/><path d="M6 5L3 8l3 3"/></svg>Bay Extension</div>
-            <p class="shop-card__desc">Widens the compaction zone at the open stop — more room to land in, longer lines to sell. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 5h12v9H2z"/><path d="M2 5l12 9"/><path d="M14 5L2 14"/></svg>Scrap Cache</div>
+            <p class="shop-card__desc">Every run starts with 30 scrap banked, so the first refit stop is a real decision instead of a window-shop.</p>
           </div>
-          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 30</button></div>
+          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 70</button></div>
         </div>
         <div class="shop-card">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 12h12"/><path d="M4 9h8v3H4z" fill="currentColor" stroke="none"/><path d="M8 2v5"/><path d="M6 4l2-2 2 2"/></svg>Press Hydraulics</div>
-            <p class="shop-card__desc">A harder, faster press — squares up a messy pile into sellable rows instead of leaving it wedged. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 7h3v3H4z" fill="currentColor" stroke="none"/><path d="M9 7h3v3H9z" fill="currentColor" stroke="none"/></svg>Micro Freight Licence</div>
+            <p class="shop-card__desc">Adds Micro Shipments to the draft pool: 2-cube dominoes at a heavy launch discount. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile beneath them.</p>
           </div>
-          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 30</button></div>
+          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 90</button></div>
+        </div>
+        <div class="shop-card">
+          <div class="shop-card__body">
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M11 6h3v4h-3z" fill="currentColor" stroke="none"/><path d="M5 8h6"/><path d="M7 6v4"/><path d="M9 6v4"/></svg>Reinforced Bonds</div>
+            <p class="shop-card__desc">Adds Sturdy Shipments to the draft pool: pieces that survive landings which would shatter a tetromino. Clean if you aim well — and a liability when you needed them to break into fillers.</p>
+          </div>
+          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 110</button></div>
+        </div>
+        <div class="shop-card">
+          <div class="shop-card__body">
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 3v10"/><path d="M5 3l4 5-4 5"/><path d="M10 3l4 5-4 5"/></svg>Press Overclock</div>
+            <p class="shop-card__desc">Adds Overclock to the draft pool: the compactor sweeps half again as fast, for twenty seconds off the clock. More presses per bay, and less time to think between them.</p>
+          </div>
+          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 140</button></div>
+        </div>
+        <div class="shop-card">
+          <div class="shop-card__body">
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 6h5"/><path d="M9 6h5"/><path d="M5 4l2 2-2 2"/><path d="M11 4l-2 2 2 2"/><path d="M2 12h12"/></svg>Line Recalibration</div>
+            <p class="shop-card__desc">Adds Short Lines to the draft pool: one cell fewer per line, at lower pay per line. Turns a target you cannot reach into one you can, and a good bay into a cheaper one.</p>
+          </div>
+          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 150</button></div>
         </div>
         <div class="shop-card shop-card--gated">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/></svg>Bond Emitter</div>
-            <p class="shop-card__desc">Bond Breaker charges every bay — shatter the field flat on demand. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M11 6h3v4h-3z" fill="currentColor" stroke="none"/><path d="M8 3l-2 5h4l-2 5"/></svg>Bond Breaker Rig</div>
+            <p class="shop-card__desc">Adds Bond Breakers to the draft pool: a charge each bay that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.</p>
           </div>
           <div class="shop-card__foot"><span class="shop-card__locked">Needs Mark 2</span></div>
         </div>
-        <div class="shop-card">
+        <div class="shop-card shop-card--gated">
           <div class="shop-card__body">
-            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M3 8h8v6H3z" fill="currentColor" stroke="none"/><path d="M9 8V5l3-2"/><path d="M12 3h2"/><path d="M12 3V1"/></svg>Demolition Rack</div>
-            <p class="shop-card__desc">Demolition charges every bay — sell a dead pile back for cash. Installs at tier 1; refit stops raise it.</p>
+            <div class="shop-card__name"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"><path d="M2 4h3v8H2z" fill="currentColor" stroke="none"/><path d="M7 7h2v2H7z" fill="currentColor" stroke="none"/><path d="M11 7h2v2h-2z" fill="currentColor" stroke="none"/></svg>Autoloader Rig</div>
+            <p class="shop-card__desc">Adds the Autoloader to the draft pool — the endgame of the micro build. The cannon fires itself, fast and roughly aimed, at half cost. You will need Bond Breakers to flatten what it makes.</p>
           </div>
-          <div class="shop-card__foot"><button class="btn btn--primary" disabled>♻ 40</button></div>
+          <div class="shop-card__foot"><span class="shop-card__locked">Needs Mark 3 · Micro Freight Licence</span></div>
         </div>
       </div>
     </div>

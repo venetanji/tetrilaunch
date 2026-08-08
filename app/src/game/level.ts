@@ -1,4 +1,4 @@
-import type { PieceSize, PieceType } from "./theme";
+import type { Material, PieceSize, PieceType } from "./theme";
 
 /**
  * A single level's tunables. This is the primary ROADMAP SEAM: future levels and
@@ -71,6 +71,16 @@ export interface LevelConfig {
    *  more brittle) and "bulk" isn't just "bigger" (it's also heavier and more
    *  rigid). The Micro/Bulk Shipments modifiers set this. */
   pieceSize: PieceSize;
+  /** Probability that a given shipment arrives as each non-standard MATERIAL
+   *  (theme.ts's Material). Everything not claimed here is standard, so an
+   *  all-zero mix — every bay before materials are introduced, and every
+   *  pattern Contract — behaves exactly as it did before materials existed.
+   *
+   *  A per-shipment ROLL rather than a fixed count per bay: the player should
+   *  not be able to count slag off and know the rest of the bay is clean, and
+   *  the next-shipment preview already tells them what is actually coming, which
+   *  is the information that matters for planning. See hazards.ts's content axes. */
+  materialMix: MaterialMix;
   /** Demolition charges granted at the START of this bay — armed with the 💥
    *  control, then fired by the next launch INSTEAD of the loaded piece (see
    *  game.ts's armBomb/shoot). Charges are free to fire (they do NOT cost
@@ -181,12 +191,19 @@ const LEVEL_NAMES = [
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
 ] as const;
 
-/** Per-bay funding target for level i (0-based): 800 + 150*i. Per-bay (not
- *  cumulative) because each bay is its own economy — only the overshoot
- *  above this target carries into the next bay's float (see run.ts's
- *  RunState.carry), not the whole ending score. */
-function targetScoreFor(i: number): number {
-  return 800 + 150 * i;
+/** Per-bay funding target — FLAT at 800 for every bay. Per-bay (not cumulative)
+ *  because each bay is its own economy: only the overshoot above this target
+ *  carries into the next bay's float (see run.ts's RunState.carry), not the
+ *  whole ending score.
+ *
+ *  This used to ramp 800 + 150*i. It does not any more, and the reason is
+ *  measured rather than aesthetic: the calibration note below records that
+ *  target is a DURATION knob, not a difficulty one — raising it produced zero
+ *  extra losses, the bot simply played longer. A ramp nobody can lose to is
+ *  just a longer bay. The player now buys their own raises a notch at a time
+ *  (hazards.ts's TARGET_NOTCH), where the cost is at least chosen. */
+function targetScoreFor(_i: number): number {
+  return 800;
 }
 
 /**
@@ -312,14 +329,47 @@ export const SCRAP_PER_BAY = 10;
  * that change what the rig must DO — not from scaling what a bay demands. See
  * docs/DESIGN.md; this is now measured rather than asserted.
  *
- * TARGET_STEP is kept at a modest 0.18 because lengthening a bay is still mild
- * pressure and it keeps a Mark from being visibly identical to the one below.
- * It is NOT the difficulty lever and must not be tuned as if it were.
+ * TARGET_STEP is now 0, which is where the measurement above always pointed and
+ * where the hazard draft finally allowed it to go. A Mark no longer moves any
+ * of the ladder's numbers: it is a statement about WHICH hazards and systems
+ * exist (hazards.ts's ladder, meta.ts's INSTALLS) and nothing else. Kept as a
+ * named seam rather than deleted so the measurement that zeroed it stays
+ * attached to the knob it describes — same reason MARK_SPEED_STEP survives.
  */
-export const MARK_TARGET_STEP = 0.18;
+export const MARK_TARGET_STEP = 0;
 /** 0 by design — see above. Kept as a named seam rather than deleted so the
  *  measurement that zeroed it stays attached to the knob it describes. */
 export const MARK_SPEED_STEP = 0;
+
+/** Per-shipment probability of each non-standard material. See
+ *  LevelConfig.materialMix. */
+export type MaterialMix = Record<Exclude<Material, "standard">, number>;
+
+/** A bay with no materials at all — the pre-materials behaviour, and the
+ *  explicit default for every caller that builds a LevelConfig by hand. */
+export const NO_MATERIALS: MaterialMix = {
+  slag: 0, cryo: 0, rebar: 0, volatile: 0, tar: 0, magnetic: 0,
+};
+
+/**
+ * RETIRED — materials are no longer scheduled by the ladder at all.
+ *
+ * This used to be a per-Mark, per-bay probability ramp (slag from Mark 2, cryo
+ * from Mark 3), and `materialMixFor(i, mark)` read it into every bay. Both are
+ * gone, and their replacement is hazards.ts: a material appears only when the
+ * player ratchets its content axis, at hazards.ts's materialRate.
+ *
+ * The change is the design's, not a refactor. Under the schedule a material was
+ * something the ladder inflicted on a player who might own no answer to it —
+ * which is exactly the bug the hazard draft was built to fix, in its other half:
+ * owning the demo unlock and never being dealt the card. Now the material and
+ * the decision to face it are the same act, and the Workshop system that
+ * answers it is the reason a player would take that notch at all.
+ *
+ * Mark gating did not disappear with it. It moved to hazards.ts's ladder, which
+ * is where "which hazards exist at this Mark" now lives in one place alongside
+ * "which systems can be installed" — see HAZARDS and meta.ts's INSTALLS.
+ */
 
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
@@ -343,14 +393,24 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
+    // FLAT across the run, and this is the hazard draft's whole premise. These
+    // three used to harden every bay on their own (800+150i, 25+2i, 150+10i);
+    // now the bay demands the same thing every time and the PLAYER ratchets
+    // whichever axis they choose (hazards.ts). Difficulty stopped being
+    // something the ladder inflicts behind the player's back.
     targetScore: Math.round(targetScoreFor(i) * targetMult),
     startingFunds: 250,
-    launchCost: 25 + i * 2,
+    launchCost: 25,
     pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
     pieceQueue: null,
     cooldownMs: 900,
-    timeLimitSec: 150 + i * 10,
+    timeLimitSec: 150,
     pieceSize: "std",
+    // Clean. Materials are no longer scheduled by bay and Mark at all — they
+    // arrive only when the player ratchets a content axis, which is what turns
+    // slag from something the ladder inflicts into something accepted in place
+    // of a harder number.
+    materialMix: { ...NO_MATERIALS },
     bombCharges: 0,
     salvagePerCube: 8,
     launchPower: 1,

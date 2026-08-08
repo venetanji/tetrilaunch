@@ -77,7 +77,13 @@ function placeLoose(g: Game, n: number, rng: () => number): void {
     const y = START_Y - row * CELL + (rng() * 2 - 1) * JITTER;
     const body = makeCubeBody(x, y);
     Matter.Composite.add(g.phys.world, body);
-    g.cubes.push({ body, type: "I", color: PIECE_COLORS.I, blinkStart: null });
+    // Plain shipments: perf measures physics throughput, not material rules.
+    // "standard" never needs striking, so it spawns already struck — the same
+    // `struck: !mat.needsStrike` pieces.ts stamps on a real cube.
+    g.cubes.push({
+      body, type: "I", color: PIECE_COLORS.I, blinkStart: null,
+      material: "standard", struck: true,
+    });
   }
 }
 
@@ -101,7 +107,10 @@ function placeCliques(g: Game, n: number, rng: () => number, jointStiffness: num
       const y = baseY - oy * CELL + (rng() * 2 - 1) * JITTER;
       const body = makeCubeBody(x, y);
       Matter.Composite.add(g.phys.world, body);
-      const cube: Cube = { body, type: "O", color: PIECE_COLORS.O, blinkStart: null };
+      const cube: Cube = {
+        body, type: "O", color: PIECE_COLORS.O, blinkStart: null,
+        material: "standard", struck: true,
+      };
       g.cubes.push(cube);
       clique.push(cube);
       placed += 1;
