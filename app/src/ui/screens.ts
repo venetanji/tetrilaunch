@@ -1,7 +1,7 @@
 import { PIECE_COLORS, PIECE_TYPES } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
-import { SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
+import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runRatchetsHTML, shipPlatesHTML,
 } from "./components";
@@ -74,9 +74,13 @@ export function menuScreen(
         </div>
       </div>
       <div class="menu__actions">
-        <button class="btn btn--primary btn--lg btn--block" data-action="play">${icon("play")}Deep Run</button>
-        <button class="btn btn--secondary btn--block" data-action="contracts">${icon("contracts")}Contracts</button>
-        <button class="btn btn--secondary btn--block" data-action="workshop">${icon("workshop")}Workshop</button>
+        <!-- Plain-language subtitles under the thematic names (playtest
+             feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
+             a new player until each is explained — keep the flavour, add one
+             plain line saying what the button actually does). -->
+        <button class="btn btn--primary btn--lg btn--block btn--menu" data-action="play">${icon("play")}<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays in one run</span></span></button>
+        <button class="btn btn--secondary btn--block btn--menu" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">Short challenges · retry freely</span></span></button>
+        <button class="btn btn--secondary btn--block btn--menu" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">Spend Salvage on permanent unlocks</span></span></button>
         <button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
         ${
@@ -138,7 +142,10 @@ export function howtoScreen(): string {
             )}</div>`,
         ).join("")}
       </div>
-      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">▶ Start Run</button>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn--primary btn--lg" data-action="play">▶ Start Run</button>
+        <button class="btn btn--secondary btn--lg" data-action="tutorial">Guided Tutorial</button>
+      </div>
     </div>
   </div>`;
 }
@@ -384,6 +391,25 @@ export function hudHTML(opts: {
     ? `<button class="icon-btn auto-btn" data-game="auto" id="auto-btn" aria-label="Autoloader — hold to fire">${icon("launcher", 17)}<span class="auto-btn__key">F</span></button>`
     : "";
   const plates = shipPlatesHTML(tiers);
+  // BAY BANNER — the run position, top-center of the field. Playtest feedback:
+  // "Bay 1/10" as small muted text inside the plant title read as part of the
+  // level name, so players didn't know they were 1 bay into a 10-bay run. The
+  // banner makes the x/10 the headline and adds one pip per bay (cleared pips
+  // lit, current pip amber) so progress is readable at a glance without
+  // parsing any numbers. Contract mode shows the contract's name instead —
+  // there is no run position to report.
+  const bayBanner = contract
+    ? `<div class="bay-banner bay-banner--contract" role="status">
+        <span class="bay-banner__mode">Contract</span> ${contract.name}
+      </div>`
+    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}">
+        <span class="bay-banner__mode">Bay</span>
+        <span class="bay-banner__n">${bayNum}<span class="bay-banner__of">/${RUN_LEVELS}</span></span>
+        <span class="bay-banner__pips" aria-hidden="true">${Array.from(
+          { length: RUN_LEVELS },
+          (_, i) => `<i class="${i + 1 < bayNum ? "done" : i + 1 === bayNum ? "cur" : ""}"></i>`,
+        ).join("")}</span>
+      </div>`;
   return `<div class="hud" id="hud">
     <!-- button rail: ONE same-width column of at most seven buttons —
          fullscreen, pause, rotate CCW/CW, Bond Breaker + Demolition (if
@@ -411,6 +437,8 @@ export function hudHTML(opts: {
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
     </div>
 
+    ${bayBanner}
+
     <!-- conveyor belt: the piece that fires AFTER the loaded one rides in
          from the top-left and feeds the cannon (see components.ts's
          beltPieceHTML/beltBombHTML — the real queued piece's shape/colors,
@@ -433,7 +461,7 @@ export function hudHTML(opts: {
       <div class="plant__body">
         <div class="plant__hdr">
           <div class="plant__title"><b>◊</b> Recycling Plant <span class="plant__bay">· ${
-            contract ? contract.name : `Bay ${bayNum}/10`
+            contract ? contract.name : `Bay ${bayNum}/${RUN_LEVELS}`
           }</span></div>
           <div class="plant__rivets"><i></i><i></i><i></i></div>
         </div>
@@ -539,6 +567,83 @@ export function dragHintHTML(): string {
       <path d="M89,77 Q52,112 49,133" />
     </svg>
     <div class="drag-hint__dot"></div>
+  </div>`;
+}
+
+/**
+ * INTERACTIVE COACH — the first-run tutorial (issue #23). One instruction at a
+ * time over the live first bay, each advancing when the player actually
+ * performs the action (detection lives in main.ts's tutorial driver — this
+ * module only renders the current step). The order is the playtest deck's
+ * recommended flow: aim, power, rotate, launch, complete a row — and only
+ * THEN the resource economy, once the core action is understood. Steps carry
+ * no keyboard talk: on touch the rail buttons are the controls, and desktop
+ * players get the kbd-hint strip anyway.
+ */
+export interface CoachStep {
+  title: string;
+  body: string;
+}
+
+/** The level's real numbers are baked into the copy so the tutorial teaches
+ *  THIS bay's economy, not a stale example. */
+export function coachSteps(level: {
+  launchCost: number;
+  scorePerLine: number;
+  targetScore: number;
+}): CoachStep[] {
+  return [
+    {
+      title: "Aim",
+      body: `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot.`,
+    },
+    {
+      title: "Power",
+      body: `Pull back <b>farther</b> for more power. The dotted arc shows exactly where the piece will fly.`,
+    },
+    {
+      title: "Rotate",
+      body: `Tap <b>⟲ / ⟳</b> on the right to turn the piece. The glowing piece at the cannon shows its orientation.`,
+    },
+    {
+      title: "Launch",
+      body: `<b>Release</b> to fire the piece across the bay!`,
+    },
+    {
+      title: "Complete a row",
+      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Keep launching!`,
+    },
+    {
+      title: "Funds & Target",
+      body: `Each launch costs <b>$${level.launchCost} Funds</b>; each full row pays <b>$${level.scorePerLine}</b> back plus <b>♻ scrap</b> for upgrades. Reach <b>$${level.targetScore}</b> before Funds or the clock run out — that clears the bay.`,
+    },
+  ];
+}
+
+export function coachHTML(
+  step: number,
+  level: { launchCost: number; scorePerLine: number; targetScore: number },
+): string {
+  const steps = coachSteps(level);
+  const s = steps[Math.min(step, steps.length - 1)];
+  const last = step >= steps.length - 1;
+  const dots = steps
+    .map((_, i) => `<i class="${i < step ? "done" : i === step ? "cur" : ""}"></i>`)
+    .join("");
+  return `<div class="coach" id="coach">
+    <div class="coach__card">
+      <div class="coach__eyebrow">Tutorial · ${Math.min(step + 1, steps.length)}/${steps.length}</div>
+      <div class="coach__title">${s.title}</div>
+      <p class="coach__body">${s.body}</p>
+      <div class="coach__foot">
+        <span class="coach__dots" aria-hidden="true">${dots}</span>
+        ${
+          last
+            ? `<button class="btn btn--primary coach__btn" data-action="coach-done">Got it!</button>`
+            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">Skip tutorial</button>`
+        }
+      </div>
+    </div>
   </div>`;
 }
 
@@ -705,9 +810,12 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       const foot = available
         ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
+      // "Permanent" on every card (playtest feedback): the Workshop and the
+      // mid-run Refit both sell upgrades, and nothing on screen said which
+      // purchases outlive the run. This is the one that does.
       return `<div class="shop-card${available ? "" : " shop-card--gated"}">
       <div class="shop-card__body">
-        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
+        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name} <span class="shop-card__tag">Permanent</span></div>
         <p class="shop-card__desc">${u.desc}</p>
       </div>
       <div class="shop-card__foot">${foot}</div>
@@ -989,7 +1097,7 @@ export function endModal(opts: {
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   const eyebrow = opts.runComplete
-    ? "All 10 bays cleared"
+    ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
       ? "Launch Bay complete"
       : opts.reason === "broke"
@@ -999,6 +1107,29 @@ export function endModal(opts: {
           : opts.reason === "launches"
             ? "Out of launches — the bay is done"
             : "The compactor won this round";
+  // WHY + WHAT TO TRY — playtest feedback: the themed eyebrow tells the mood
+  // but not the mechanic, so a new player couldn't say whether they lost to
+  // time or money, or what to change next run. One plain sentence for the
+  // cause, one concrete adjustment. Only on a loss; a win explains itself.
+  const lossWhy: Record<string, [string, string]> = {
+    broke: [
+      "You spent all your Funds on launches before reaching the target.",
+      "Complete more lines with fewer launches — every full row pays Funds back.",
+    ],
+    time: [
+      "The clock ran out before your Funds reached the target.",
+      "Line up your next shot while the cannon reloads, and let full rows pay you forward.",
+    ],
+    launches: [
+      "You used up every launch before hitting the goal.",
+      "Make each shot part of a row — stray cubes are launches spent for nothing.",
+    ],
+    topout: [
+      "The pile reached the ceiling.",
+      "Clear full rows to keep the stack low — only complete lines remove cubes.",
+    ],
+  };
+  const why = !opts.won && opts.reason ? lossWhy[opts.reason] : null;
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
   // Three top-level regions, always emitted in this order. A tall viewport
   // grids them into ONE column, which reproduces the original reading order
@@ -1011,7 +1142,12 @@ export function endModal(opts: {
       <div class="end__main">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
-      ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum} — ${opts.bayName}</p>` : ""}
+      ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
+      ${
+        why
+          ? `<div class="end__why"><p>${why[0]}</p><p class="end__tip"><b>Try next time:</b> ${why[1]}</p></div>`
+          : ""
+      }
       <div class="stat-row">
         <div class="stat"><b style="color:var(--accent)">${opts.score}</b><span>Score</span></div>
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
@@ -1080,6 +1216,10 @@ export function contractsScreen(opts: {
    *  the caller doesn't have to prune. Shown as a tick rather than hidden, so
    *  the board reads as progress rather than a shrinking list. */
   cleared: string[];
+  /** Current tier standing, for the board header — Contracts are one of the
+   *  two halves that complete a tier (meta.ts), and this screen is where the
+   *  player decides whether to play one, so the count belongs here. */
+  progress?: TierProgress;
 }): string {
   const cards = opts.contracts
     .map((c, i) => {
@@ -1091,10 +1231,17 @@ export function contractsScreen(opts: {
         c.kind === "pattern"
           ? `<p>${queueTallyHTML(c.queue)} <b>→ ${c.goal}</b> lines</p>`
           : `<p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>`;
+      // Each card states the full deal up front (playtest feedback): the
+      // objective, the supply limit, the reward, and that retrying is free —
+      // so accepting one is never a leap into unexplained terms.
+      const reward = done
+        ? `<p class="contract-card__reward contract-card__reward--done">✓ Cleared — counted toward its tier · replay for practice</p>`
+        : `<p class="contract-card__reward">First clear counts toward Tier ${opts.tier} · fail free, retry free</p>`;
       return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
         <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
         <b>${c.name}</b>
         ${ask}
+        ${reward}
         <p class="muted" style="font-size:12px">${c.brief}</p>
       </button>`;
     })
@@ -1103,7 +1250,11 @@ export function contractsScreen(opts: {
     <div class="howto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
-          <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
+          <div class="eyebrow">Tier ${opts.tier} · resets daily${
+            opts.progress
+              ? ` · ${opts.progress.contracts}/${opts.progress.needed} cleared${opts.progress.runDone ? " · run ✓" : ""} — both halves complete the tier for ♻ ${opts.progress.award}`
+              : ""
+          }</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
         </div>
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
