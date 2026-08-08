@@ -146,9 +146,10 @@ function contentAxis(
  * is not a draft. Mark 10 adds no axis and instead offers TWO ratchets per bay;
  * see offersFor.
  *
- * Marks 6-9 are the four materials that had only a line of design each
- * (DESIGN.md's material table) until phase 3 built them. Their counters are
- * ship systems, not axes — see upgrades.ts.
+ * Marks 4-9 are the six materials — cryo first and slag deliberately third
+ * (see the note at the material rows). Four of them had only a line of design
+ * each (DESIGN.md's material table) until phase 3 built them. Their counters
+ * are ship systems, not axes — see upgrades.ts.
  */
 export const HAZARDS: HazardDef[] = [
   {
@@ -215,9 +216,17 @@ export const HAZARDS: HazardDef[] = [
       );
     },
   },
-  contentAxis("slag", "Slag Contract", "Dead cubes ride the belt — they fill a slot and never count.", 4, "slag"),
-  contentAxis("cryo", "Cryo Contract", "Frozen shipments arrive; press one cold and it shatters.", 5, "cryo"),
-  contentAxis("rebar", "Rebar Contract", "Rebar shipments never come apart — what lands is what you keep.", 6, "rebar"),
+  // Cryo and rebar lead the material rungs, slag comes AFTER them (playtest
+  // call, 2026-08-08): slag is the one material with no passive counter — a
+  // dead cube leaves the field by Demolition or not at all, so a bay that
+  // ratchets it with an empty bomb rack is quietly unwinnable. Cryo thaws and
+  // rebar merely refuses to split; both are survivable bare-handed, so they
+  // are the introduction and slag waits two rungs for the player's rack to be
+  // real. It is also always DODGEABLE (one content card per hand, hands never
+  // thinner than two number axes), which is the second half of the answer.
+  contentAxis("cryo", "Cryo Contract", "Frozen shipments arrive; press one cold and it shatters.", 4, "cryo"),
+  contentAxis("rebar", "Rebar Contract", "Rebar shipments never come apart — what lands is what you keep.", 5, "rebar"),
+  contentAxis("slag", "Slag Contract", "Dead cubes ride the belt — they fill a slot and never count.", 6, "slag"),
   contentAxis("volatile", "Volatile Contract", "Volatile shipments detonate on a hard landing, taking neighbours.", 7, "volatile"),
   contentAxis("tar", "Tar Contract", "Tar welds to whatever it touches, and Bond Breakers will not split it.", 8, "tar"),
   contentAxis("magnetic", "Magnetic Contract", "Magnetic shipments snap themselves square against their neighbours.", 9, "magnetic"),
