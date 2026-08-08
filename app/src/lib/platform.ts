@@ -209,20 +209,14 @@ export async function impactHaptic(): Promise<void> {
  * or assert on them.
  */
 export function applySafeAreaInsets(): Insets {
+  // The probe's styles live in a STYLESHEET rule (app.css's .safe-probe), not
+  // an inline style. iOS WKWebView resolves env(safe-area-inset-*) from
+  // stylesheet rules (that's how .side-rail's `right: max(...env()...)`
+  // works there) but returned 0 for the same functions written via
+  // style.cssText — which fed zeros to the layout solver while the CSS rail
+  // moved by the real inset, drawing the rail on top of the play field.
   const probe = document.createElement("div");
-  probe.style.cssText = [
-    "position:fixed",
-    "left:0",
-    "top:0",
-    "width:0",
-    "height:0",
-    "visibility:hidden",
-    "pointer-events:none",
-    "padding-top:env(safe-area-inset-top,0px)",
-    "padding-right:env(safe-area-inset-right,0px)",
-    "padding-bottom:env(safe-area-inset-bottom,0px)",
-    "padding-left:env(safe-area-inset-left,0px)",
-  ].join(";");
+  probe.className = "safe-probe";
   document.body.appendChild(probe);
   const cs = getComputedStyle(probe);
   const px = (v: string): number => {

@@ -217,6 +217,26 @@ body.crt-off #app::after { display: none; }
   --gutter-b: 0px;
   --rail-btn: 52px;
 }
+
+/* Safe-area measurement probe (lib/platform's applySafeAreaInsets). The
+   padding IS the four env() values; JS mounts an element with this class and
+   reads the computed padding back. A STYLESHEET rule on purpose: .side-rail
+   below demonstrably resolves env() from the stylesheet on iOS WKWebView,
+   while the same functions in an inline style.cssText read back as 0 there —
+   which put the JS layout solver and the CSS rail placement in different
+   coordinate systems and drew the rail on top of the field. One code path for
+   env(), the one that works. */
+.safe-probe {
+  position: fixed;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 

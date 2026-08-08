@@ -147,6 +147,14 @@ class App {
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
+    // iOS WKWebView: env(safe-area-inset-*) is not reliably populated at
+    // first paint, and no `resize` necessarily follows once it is — the
+    // visualViewport events plus a couple of settle re-measures make sure the
+    // layout solver eventually sees the real insets instead of keeping
+    // boot-time zeros forever (which parked the button rail on the field).
+    window.visualViewport?.addEventListener("resize", this.onResize);
+    window.setTimeout(this.onResize, 250);
+    window.setTimeout(this.onResize, 1000);
     window.addEventListener("pointerup", this.onGlobalPointerUp);
     window.addEventListener("pointercancel", this.onGlobalPointerUp);
     window.addEventListener("pagehide", () => this.destroy());
