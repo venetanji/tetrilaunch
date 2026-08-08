@@ -35,7 +35,8 @@ import {
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
 import {
-  contractClaimed, markUnlocked, newMeta, safeLoadout, salvageForContract, salvageForRun,
+  contractClaimed, markUnlocked, newMeta, recordContractClear, recordRunEnd, safeLoadout,
+  tierSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, type InstallDef, type MetaState,
@@ -672,28 +673,29 @@ section("Pattern Contracts (contracts.ts)");
   );
   check("the play order is re-rolled per attempt", JSON.stringify(a) !== JSON.stringify(b));
 
-  // --- Contract payout -----------------------------------------------------
+  // --- Tier award ------------------------------------------------------------
+  // Salvage moved from per-run/per-contract trickles to a single award on TIER
+  // COMPLETION (playtest call, 2026-08-08). The award must rise with the tier
+  // (the ladder stays worth climbing) and clamp below tier 1.
   let payoutMonotone = true;
   for (let t = 2; t <= 12; t++) {
-    if (salvageForContract(t) <= salvageForContract(t - 1)) payoutMonotone = false;
+    if (tierSalvage(t) <= tierSalvage(t - 1)) payoutMonotone = false;
   }
-  check("contract payout rises with tier", payoutMonotone);
-  check("payout clamps below tier 1", salvageForContract(0) === salvageForContract(1));
+  check("tier award rises with tier", payoutMonotone);
+  check("award clamps below tier 1", tierSalvage(0) === tierSalvage(1));
 
-  // The old check here asserted a week of dailies stayed under 60% of the
-  // unlock tree — the rule that Contracts must never be the fast route to a
-  // full tree. Installs deliberately invert it: a day of Contracts should fund
-  // about one install, because Contract salvage is now what buys the system the
-  // next Mark needs. The cap that replaced it is the BUILD BUDGET, which no
-  // amount of income moves (see meta.ts's buyInstall) — and which the Installs
-  // section above asserts directly rather than by pricing proxy.
-  const dayOfDailies = DAILY_COUNT * salvageForContract(1);
+  // A Contract clear pays NOTHING by itself — that is the whole reform. The
+  // first completion (tier 1) must still be transformative: it has to fund at
+  // least two entry installs, or the tree's on-ramp is out of reach of the
+  // player who just proved themselves against a full tier.
   const cheapestInstall = Math.min(...INSTALLS.map((i) => i.cost));
   check(
-    `a day of Contracts funds about one install (${dayOfDailies} vs ${cheapestInstall})`,
-    dayOfDailies >= cheapestInstall && dayOfDailies < cheapestInstall * 3,
-    `${dayOfDailies} salvage/day against a ${cheapestInstall} install`,
+    `tier 1 completion funds at least two entry installs (${TIER_SALVAGE_BASE} vs ${cheapestInstall}×2)`,
+    TIER_SALVAGE_BASE >= cheapestInstall * 2,
   );
+  // Requiring exactly the daily board is deliberate: "the 3 contracts" is one
+  // day's board, so a tier is completable in a day of Contracts plus the run.
+  check("a tier asks for one daily board of Contracts", TIER_CONTRACTS_REQUIRED === DAILY_COUNT);
 
   // The payout gate is meta.claimedContracts, and it must fail CLOSED: an
   // unknown Contract is unpaid, a listed one is paid. If this ever inverted,
@@ -737,8 +739,11 @@ section("Pattern Contracts (contracts.ts)");
     name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
     launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
     cubesWasted: 0, salvageTotal: 66,
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60 },
   };
-  const ceWin = contractEndModal({ ...endOpts, won: true, award: { salvage: 60, firstClear: true } });
+  const ceWin = contractEndModal({
+    ...endOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: null },
+  });
   const ceLoss = contractEndModal({ ...endOpts, won: false, award: null });
   for (const [label, html] of [["win", ceWin], ["loss", ceLoss]] as const) {
     check(`the ${label} contract modal opts into the end-of-Contract layout`,
@@ -977,27 +982,74 @@ section("Draft gating (mods.ts + meta.ts)");
   check("rank 2 is dearer than rank 1", minOf(2) > maxOf(1));
   check("rank 3 is dearer than rank 2", minOf(3) > maxOf(2));
   check("only rank 3 carries a Mark gate", markGated.every((u) => u.rank === 3));
-  // Rank 1 is the on-ramp, so a first option has to stay within a couple of
-  // runs however much the tail inflates. Two rather than one is not a rounding
-  // of ambition: a decent run (5 bays, 31 lines) pays 43 against a 45 floor, so
-  // the cheapest unlock has ALWAYS been a hair over one run. Left at its real
-  // value rather than repriced to flatter the check.
-  const decentRun = salvageForRun(5, 31, false);
+  // Rank 1 is the on-ramp: the first tier completion must cover the cheapest
+  // unlock outright, or the first award reads as a down payment rather than a
+  // purchase — the same "first option is transformative" rule the installs
+  // section asserts against TIER_SALVAGE_BASE.
   check(
-    `the cheapest unlock is ~${(minOf(1) / decentRun).toFixed(1)} runs (${minOf(1)} vs ${decentRun})`,
-    minOf(1) <= decentRun * 2,
+    `the cheapest unlock fits inside the tier-1 award (${minOf(1)} vs ${tierSalvage(1)})`,
+    minOf(1) <= tierSalvage(1),
+  );
+  // And the FULL ladder must roughly pay for the full tree — the tree may not
+  // finish ahead of the exam, but it must finish: a tree the ladder cannot
+  // afford would make the last unlocks purely theoretical.
+  const ladderTotal = Array.from({ length: MARK_COUNT }, (_, i) => tierSalvage(i + 1))
+    .reduce((a, b) => a + b, 0);
+  check(
+    `the ten-tier ladder (${ladderTotal}) covers most of the ${total}-salvage tree`,
+    ladderTotal >= total * 0.8 && ladderTotal <= total * 1.3,
   );
 }
 
 // ---------------------------------------------------------------------------
-section("Salvage always pays (meta.ts)");
+section("Tier completion is the only salvage source (meta.ts)");
 // ---------------------------------------------------------------------------
 {
-  // The point of the meta layer: a run that dies immediately still ships
-  // something back to the yard.
-  check("a bay-1 flameout still pays salvage", salvageForRun(0, 0, false) > 0, String(salvageForRun(0, 0, false)));
-  check("deeper runs pay more", salvageForRun(5, 40, false) > salvageForRun(2, 16, false));
-  check("a full run pays a bonus", salvageForRun(10, 80, true) > salvageForRun(10, 80, false));
+  const board = (tier: number) =>
+    Array.from({ length: TIER_CONTRACTS_REQUIRED }, (_, i) => ({ id: `t${tier}-c${i}`, tier }));
+
+  // Neither half alone completes a tier. The run win ticks its half and pays
+  // nothing; a full board of Contracts ticks the other half and pays nothing.
+  const runOnly = recordRunEnd(newMeta(), 1, true, 10);
+  check("a won run alone completes no tier", runOnly.completedTier === null && runOnly.salvage === 0);
+  check("the run half is recorded", runOnly.meta.tierRunDone);
+  check("a run alone banks no salvage", runOnly.meta.salvage === 0);
+
+  let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
+  for (const c of board(1)) contractsOnly = { ...recordContractClear(contractsOnly.meta, c) };
+  check("a full board alone completes no tier", contractsOnly.completedTier === null);
+  check(
+    "the contract half is recorded",
+    contractsOnly.meta.tierContracts === TIER_CONTRACTS_REQUIRED,
+  );
+
+  // Both halves together: the tier completes, pays its award, raises the Mark,
+  // and resets both counters for the next tier — in either order.
+  const both = recordRunEnd(contractsOnly.meta, 1, true, 10);
+  check("run + contracts completes tier 1", both.completedTier === 1);
+  check("completion pays the tier award", both.salvage === tierSalvage(1) && both.meta.salvage === tierSalvage(1));
+  check("completion raises the Mark", both.meta.mark === 1 && markUnlocked(both.meta) === 2);
+  check("completion resets both halves", !both.meta.tierRunDone && both.meta.tierContracts === 0);
+
+  let other = recordRunEnd(newMeta(), 1, true, 10).meta;
+  let last: number | null = null;
+  for (const c of board(1)) {
+    const r = recordContractClear(other, c);
+    other = r.meta; last = r.completedTier;
+  }
+  check("the completing event can be a Contract", last === 1);
+
+  // What does NOT count: a duplicate Contract id, a Contract from another
+  // tier, a lost run, and a won run flown at a Mark below the current tier.
+  const dup = recordContractClear(both.meta, { id: "t1-c0", tier: 2 });
+  check("a replayed Contract counts nothing", !dup.firstClear && dup.meta.tierContracts === 0);
+  const offTier = recordContractClear(both.meta, { id: "elsewhere", tier: 9 });
+  check("an off-tier Contract logs but does not tick", offTier.firstClear && offTier.meta.tierContracts === 0);
+  const lost = recordRunEnd(newMeta(), 1, false, 4);
+  check("a lost run ticks nothing", !lost.meta.tierRunDone && lost.meta.salvage === 0);
+  check("a lost run still counts as a run", lost.meta.runs === 1 && lost.meta.bestBay === 4);
+  const stale = recordRunEnd(both.meta, 1, true, 10);
+  check("beating an old Mark does not tick the current tier", !stale.meta.tierRunDone);
 }
 
 // ---------------------------------------------------------------------------

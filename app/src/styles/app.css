@@ -1638,3 +1638,24 @@ button.panel { color: var(--text); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
+
+/* ============================================================================
+   TIER PROGRESSION (meta.ts's tier-completion economy) — the menu's tier
+   chip and the end modal's progress/completion row.
+   ========================================================================== */
+.chip--tier { flex-direction: row; align-items: center; gap: 10px; }
+.tier-chip__halves {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-ui); font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.tier-chip__halves .done { color: var(--success); }
+
+/* Completion recolors the row it replaces rather than adding a second shape:
+   the award amount takes the slot the old payout number had. */
+.salvage-row--tier-done { border-color: var(--success); }
+.salvage-row__amt--tier {
+  color: var(--accent);
+  font-family: var(--font-pixel);
+}

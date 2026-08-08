@@ -76,6 +76,13 @@ export function loadMeta(): MetaState {
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;
     meta.mark = Number.isFinite(meta.mark) ? Math.max(0, Math.floor(meta.mark)) : 0;
+    // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
+    // Same fail-closed reading as the lists above: corrupt progress loads as
+    // "nothing done yet" rather than as a free tier.
+    meta.tierRunDone = meta.tierRunDone === true;
+    meta.tierContracts = Number.isFinite(meta.tierContracts)
+      ? Math.max(0, Math.floor(meta.tierContracts))
+      : 0;
     // The loadout gates how strong a rig may be, so it gets the strictest read
     // of anything here: a non-object, or any track that isn't a finite number,
     // drops the whole thing back to stock rather than being partially trusted.

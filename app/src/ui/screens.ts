@@ -10,9 +10,8 @@ import {
   MAX_TIER, UPGRADES, nextTierCost, tiersCost, upgradeById, type UpgradeTiers,
 } from "../game/upgrades";
 import {
-  UNLOCKS, unlockAvailable, unlockGates, SALVAGE_PER_BAY, SALVAGE_PER_2_LINES,
-  SALVAGE_RUN_COMPLETE_BONUS, SALVAGE_FLOOR, INSTALLS, installAvailable, installGates,
-  markBudget, type MetaState,
+  UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
+  markBudget, type MetaState, type TierProgress,
 } from "../game/meta";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
@@ -34,7 +33,25 @@ export function splashScreen(): string {
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
  *  the store entry point hides itself rather than offering a dead button. */
-export function menuScreen(best: number, salvage = 0, store?: StoreState): string {
+export function menuScreen(
+  best: number,
+  salvage = 0,
+  store?: StoreState,
+  progress?: TierProgress,
+): string {
+  // The tier chip answers "where am I on the ladder and what's left" from the
+  // homepage (playtest call, 2026-08-08): the tier being flown, and the two
+  // halves that complete it — the Deep Run and the Contracts — as live ticks.
+  const tierChip = progress
+    ? `<div class="chip chip--tier">
+        <div class="chip__label">Tier</div>
+        <div class="chip__value" style="color:var(--accent)">${progress.tier}</div>
+        <div class="tier-chip__halves">
+          <span class="${progress.runDone ? "done" : ""}">${progress.runDone ? "✓" : "○"} Run</span>
+          <span class="${progress.contracts >= progress.needed ? "done" : ""}">${progress.contracts >= progress.needed ? "✓" : "○"} Contracts ${progress.contracts}/${progress.needed}</span>
+        </div>
+      </div>`
+    : "";
   return `<div class="screen neon-backdrop">
     <div class="menu">
       <div class="menu__brand">
@@ -44,6 +61,7 @@ export function menuScreen(best: number, salvage = 0, store?: StoreState): strin
         full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
         run that drafts stranger modifiers onto your bankroll every stop.</p>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          ${tierChip}
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
             <div class="chip__label">Best</div>
             <div class="chip__value" style="color:var(--accent)">${best}</div>
@@ -644,8 +662,8 @@ export function refitScreen(opts: {
 
 /**
  * WORKSHOP — the meta layer, reached from the main menu between runs. Spends
- * SALVAGE (earned by every finished run, won or lost — see meta.ts's
- * salvageForRun) on permanent unlocks.
+ * SALVAGE (banked on tier completion — see meta.ts's tierSalvage/advanceTier)
+ * on permanent unlocks.
  *
  * Note what these buy: an unlock adds an OPTION (a new modifier enters the
  * draft pool, a new consumable exists, the wind gets surveyed) rather than a
@@ -956,10 +974,13 @@ export function endModal(opts: {
   bayName: string;
   /** True only for the bay-10 win — every other win routes to draftScreen instead. */
   runComplete: boolean;
-  /** Salvage this run just paid out (meta.ts's salvageForRun) and the player's
-   *  new total. Shown on EVERY end, including a loss — the whole point of the
-   *  meta layer is that a failed run still ships something back. */
-  salvageEarned: number;
+  /** The tier this run's end just COMPLETED (meta.ts's recordRunEnd), or null
+   *  when it only ticked progress — completion is the one salvage event now. */
+  tierCompleted: number | null;
+  /** Salvage that completion banked; 0 when tierCompleted is null. */
+  tierSalvage: number;
+  /** Where the (possibly new) current tier stands after this run. */
+  progress: TierProgress;
   salvageTotal: number;
   /** Scrap earned across the run and the ship it bought — so the build reads as
    *  an investment on the way out, not just a row of chips that vanished. */
@@ -1001,20 +1022,33 @@ export function endModal(opts: {
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
       </div>
-      <!-- Salvage payout. Deliberately prominent on a LOSS too: the run ending
-           is not the end of the progression, and the player should see the
-           consolation — and the door to spending it — before they see the
-           leaderboard. The breakdown restates meta.ts's formula term by term so
-           the reward never reads as an arbitrary number. -->
-      <div class="salvage-row">
-        <div class="salvage-row__amt">♻ +${opts.salvageEarned}</div>
+      <!-- Tier progress. Deliberately prominent on a LOSS too: the run ending
+           is not the end of the progression, and the player should see what
+           the ladder still asks of them — or what a completion just banked —
+           before they see the leaderboard. Salvage is only paid on tier
+           completion (meta.ts), so this row is either the award or the
+           remaining checklist, never both. -->
+      ${
+        opts.tierCompleted !== null
+          ? `<div class="salvage-row salvage-row--tier-done">
+        <div class="salvage-row__amt">♻ +${opts.tierSalvage}</div>
         <div class="salvage-row__body">
-          <b>Salvage recovered</b>
-          <span class="muted">${SALVAGE_FLOOR} base · ${opts.baysCleared}×${SALVAGE_PER_BAY} bays · ${Math.floor(opts.lines / 2)}×${SALVAGE_PER_2_LINES} lines${opts.runComplete ? ` · +${SALVAGE_RUN_COMPLETE_BONUS} full run` : ""} → <b>${opts.salvageTotal} banked</b></span>
+          <b>Tier ${opts.tierCompleted} complete!</b>
+          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
           <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
-      </div>
+      </div>`
+          : `<div class="salvage-row">
+        <div class="salvage-row__amt salvage-row__amt--tier">T${opts.progress.tier}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${opts.progress.tier} progress</b>
+          <span class="muted">${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — complete both to bank <b>♻ ${opts.progress.award}</b> and open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
+      }
       </div>
       <div class="end__side">
         <div class="submit-row" id="submit-row">
@@ -1141,8 +1175,12 @@ export function contractEndModal(opts: {
    *  somewhere other than a completed line. */
   queue: PieceType[];
   cubesWasted: number;
-  /** Null on a loss. `firstClear` false = cleared before, so it paid nothing. */
-  award: { salvage: number; firstClear: boolean } | null;
+  /** Null on a loss. `firstClear` false = cleared before, so it counted for
+   *  nothing new; `completedTier` non-null = this clear finished the tier and
+   *  `salvage` is what that banked (see meta.ts's recordContractClear). */
+  award: { firstClear: boolean; completedTier: number | null; salvage: number } | null;
+  /** Where the (possibly new) current tier stands after this clear. */
+  progress: TierProgress;
   salvageTotal: number;
 }): string {
   const pattern = opts.kind === "pattern";
@@ -1198,15 +1236,29 @@ export function contractEndModal(opts: {
   // A pattern Contract has no spare by construction, so clearing one at all IS
   // the flourish and the copy says that instead.
   const spare = pattern ? 0 : opts.launches - opts.launchesUsed;
-  const reward = opts.award?.firstClear
-    ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--success)">Salvage banked</div>
+  // Three outcomes, three chips: the clear COMPLETED the tier (the salvage
+  // moment — celebrate it), the clear ticked tier progress (say what's still
+  // missing), or it was a replay (free practice, nothing moved).
+  const p = opts.progress;
+  const reward =
+    opts.award?.firstClear && opts.award.completedTier !== null
+      ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
+         <div class="chip__label" style="color:var(--success)">Tier ${opts.award.completedTier} complete!</div>
          <div class="chip__value" style="color:var(--warn);font-size:var(--fs-h2)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} total · spend it in the Workshop</div>
+         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} banked · Tier ${p.tier} is open · spend it in the Workshop</div>
        </div>`
-    : `<div class="chip" style="gap:2px;padding:12px 14px">
-         <div class="chip__label">Already paid</div>
-         <div class="muted" style="font-size:var(--fs-sm)">This Contract paid its salvage on your first clear. Replays are free practice.</div>
+      : opts.award?.firstClear
+        ? `<div class="chip" style="border-color:var(--accent);gap:2px;padding:12px 14px">
+         <div class="chip__label" style="color:var(--accent)">Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</div>
+         <div class="muted" style="font-size:var(--fs-sm)">${
+           p.contracts >= p.needed
+             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier and bank ♻ ${p.award}.`
+             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier and bank ♻ ${p.award}.`
+         }</div>
+       </div>`
+        : `<div class="chip" style="gap:2px;padding:12px 14px">
+         <div class="chip__label">Already logged</div>
+         <div class="muted" style="font-size:var(--fs-sm)">This Contract counted on your first clear. Replays are free practice.</div>
        </div>`;
 
   return `<div class="modal-scrim" id="scrim">

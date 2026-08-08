@@ -19,8 +19,8 @@ function axisNotchList(ratchets: Ratchets): string[] {
 }
 import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  buyInstall, contractClaimed, markUnlocked, safeLoadout, salvageForContract,
-  salvageForRun, unlockAvailable, unlockById, type MetaState,
+  buyInstall, markUnlocked, recordContractClear, recordRunEnd, safeLoadout,
+  tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -85,10 +85,10 @@ class App {
    *  handlers call it, so a :checked-sibling or :target tab would snap back to
    *  Systems on every buy (and :target would push history entries besides). */
   private workshopTab: S.ShopTab = "systems";
-  /** Salvage paid out by the run that just ended, held so the end modal can
-   *  show the award without recomputing (and so re-rendering the modal — e.g.
-   *  after the leaderboard fetch lands — can't pay it twice). */
-  private lastSalvage = 0;
+  /** What the run that just ended did to tier progress, held so the end modal
+   *  can show it without recomputing (and so re-rendering the modal — e.g.
+   *  after the leaderboard fetch lands — can't award a completion twice). */
+  private lastTier: TierResult | null = null;
   /** Timer that auto-advances the bay-clear celebration; cleared if the player
    *  taps through it first. */
   private bayClearTimer: number | null = null;
@@ -97,10 +97,10 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
-  /** Salvage paid by the Contract just finished, and whether this attempt is
-   *  the one that earned it — the end modal has to distinguish "you just banked
-   *  8" from "you cleared it again, already paid". Null until one resolves. */
-  private contractAward: { salvage: number; firstClear: boolean } | null = null;
+  /** What the Contract just finished did to tier progress — whether this
+   *  attempt was the first clear, and whether it completed the tier (see
+   *  meta.ts's recordContractClear). Null until one resolves. */
+  private contractAward: (TierResult & { firstClear: boolean }) | null = null;
 
   private dpr = 1;
   private last = 0;
@@ -280,7 +280,9 @@ class App {
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
-        this.overlay.innerHTML = S.menuScreen(loadBest(), this.meta.salvage, this.storeState());
+        this.overlay.innerHTML = S.menuScreen(
+          loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
+        );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
       case "contracts":
@@ -315,7 +317,14 @@ class App {
               // margin the attempt missed by, which is the one number worth
               // reading off a failed pattern bay.
               cubesWasted: Math.max(0, g.cubesRequired - g.cubesAvailable),
-              award: this.contractAward,
+              award: this.contractAward
+                ? {
+                    firstClear: this.contractAward.firstClear,
+                    completedTier: this.contractAward.completedTier,
+                    salvage: this.contractAward.salvage,
+                  }
+                : null,
+              progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
             });
         }
@@ -411,7 +420,12 @@ class App {
               bayNum: this.run.levelIndex + 1,
               bayName: g.level.name,
               runComplete: this.state === "won",
-              salvageEarned: this.lastSalvage,
+              // Post-run tier state: completion (if this run finished the
+              // tier) plus where the tier stands now — the modal's payout row
+              // became a progress row when salvage moved to tier completion.
+              tierCompleted: this.lastTier?.completedTier ?? null,
+              tierSalvage: this.lastTier?.salvage ?? 0,
+              progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
               tiers: this.run.tiers,
@@ -506,7 +520,7 @@ class App {
     );
     this.contract = null;
     this.submitted = false;
-    this.lastSalvage = 0;
+    this.lastTier = null;
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
     this.startLevel();
   }
@@ -637,18 +651,17 @@ class App {
       telemetry.endRun(s === "won", 0);
       if (s === "won") {
         void successHaptic();
-        // Pay ONCE per Contract, ever, and record the clear in the same place —
-        // meta.claimedContracts is both the payout gate and what ticks the
-        // board, so the two can't drift apart. See meta.ts for why the payout
-        // side of that matters to monetization.
-        const already = contractClaimed(this.meta, this.contract.id);
-        const award = salvageForContract(this.contract.tier);
-        if (!already) {
-          this.meta.salvage += award;
-          this.meta.claimedContracts.push(this.contract.id);
+        // Log ONCE per Contract, ever — meta.claimedContracts is both the
+        // once-ever gate and what ticks the board. A first clear at the
+        // current tier advances tier progress, and may complete the tier —
+        // which is the only event that pays salvage now (see meta.ts's
+        // recordContractClear/advanceTier).
+        const result = recordContractClear(this.meta, this.contract);
+        if (result.firstClear) {
+          this.meta = result.meta;
           saveMeta(this.meta);
         }
-        this.contractAward = { salvage: award, firstClear: !already };
+        this.contractAward = result;
       } else {
         void impactHaptic();
         this.contractAward = null;
@@ -734,29 +747,17 @@ class App {
     this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
-  /** Common run-end path for both a bay-10 win and any loss: pay out salvage
-   *  (meta.ts's salvageForRun — every finished run pays, which is the whole
-   *  point of the meta layer), persist meta + best, refresh the board, and show
-   *  the end modal. */
+  /** Common run-end path for both a bay-10 win and any loss: record the run
+   *  against tier progress (meta.ts's recordRunEnd — a WON run is one of the
+   *  two halves of tier completion, and completion is the only salvage
+   *  source), persist meta + best, refresh the board, show the end modal. */
   private finishRun(won: boolean): void {
     const g = this.game;
     if (!g || !this.run) return;
-    const baysCleared = this.run.levelIndex + (won ? 1 : 0);
-    const lines = this.run.linesTotal + g.linesTotal;
-    this.lastSalvage = salvageForRun(baysCleared, lines, won);
-    // Beating a run is the ONLY thing that raises a Mark — no amount of
-    // Contract grinding or purchasing touches it (docs/DESIGN.md). Guarded with
-    // max() rather than +1 so replaying an already-beaten Mark for a better
-    // board placing can't ratchet the ladder forward a second time.
-    const markBeaten = won ? Math.max(this.meta.mark, this.run.mark) : this.meta.mark;
-    this.meta = {
-      ...this.meta,
-      salvage: this.meta.salvage + this.lastSalvage,
-      runs: this.meta.runs + 1,
-      bestBay: Math.max(this.meta.bestBay, this.run.levelIndex + 1),
-      mark: markBeaten,
-    };
-    telemetry.endRun(won, this.lastSalvage);
+    const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
+    this.lastTier = result;
+    this.meta = result.meta;
+    telemetry.endRun(won, result.salvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
     this.refreshBoard();

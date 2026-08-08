@@ -111,16 +111,22 @@ the rig you built is good enough. Neither mode is the "real" game.
 5. Repeat. Each Mark is harder, introduces new materials, and demands a build.
 
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
-into the next Mark, you beat your way into it. That's what makes a Mark N clear
-mean the same thing for every player who has one.
+into the next Mark, you beat your way into it. A tier completes only when both
+halves are done at that tier — the Deep Run beaten *and* three of its Contracts
+cleared — and completion is also the only salvage payout (the per-run and
+per-contract trickles were retired after the 2026-08-08 playtest made the
+unlock tree trivial). Contracts count once each, so they add a second
+requirement, never an alternative route: no amount of Contract play skips the
+run. That's what makes a Mark N clear mean the same thing for every player who
+has one.
 
 ## The build budget — the integrity rule
 
 This is the load-bearing rule of the whole design, so it goes first.
 
 > **Mark N grants a fixed upgrade budget, spent freely across the six tracks.
-> Contracts unlock what you may spend it *on*. Only beating Mark N raises the
-> budget.**
+> Contracts unlock what you may spend it *on*. Only completing tier N — its
+> Deep Run beaten and three of its Contracts cleared — raises the budget.**
 
 ### Why a budget and not a tier cap
 
