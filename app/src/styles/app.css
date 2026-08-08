@@ -1627,7 +1627,10 @@ button.panel { color: var(--text); }
    two blocks most likely to overflow, so tighten both. */
 @media (max-height: 520px) {
   .modal--refit { gap: var(--sp-2); }
-  .refit-card { padding: 7px 9px; gap: 3px; }
+  /* Vertical padding carries twice its weight here: every pixel is paid by
+     both rows of the grid. Horizontal padding stays — that is what keeps the
+     upgrade names off the card's edge. */
+  .refit-card { padding: 5px 9px; gap: 3px; }
   .refit-card__blurb { display: none; }
   .refit-card__tier { font-size: 10px; padding: 2px 5px; }
   .refit-card__now { font-size: 9px; padding: 2px 5px; }
@@ -1639,16 +1642,49 @@ button.panel { color: var(--text); }
   .refit-card__hdr { gap: 6px; }
   .refit-card__pips i { width: 6px; height: 6px; }
   .refit-card__foot { padding-top: 2px; }
-  .refit-card__buy { padding: 5px 8px; font-size: 9px; }
+  /* Scoped through .modal--refit to actually WIN. As `.refit-card__buy` this
+     rule was (0,1,0) against the `.modal .btn { padding: 10px 20px }` in the
+     max-height:480 block above, which is (0,2,0) — so the padding here never
+     applied at any viewport where both queries match, i.e. every landscape
+     phone. Only the font-size landed, and the button stayed 35.5px tall.
+     That is 12px per card, 25px per grid, which is most of the second row. */
+  .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; }
+  /* The not-installed label, off the pixel face and onto the UI one. This is
+     the block that put the grid back into scrolling: refit stopped pricing
+     tier 0 and started saying "Not installed · Workshop" instead, but the
+     label kept the 8px pixel font, whose glyphs are wide enough that 24
+     characters take three lines in a 156px card — a 43.6px foot where the buy
+     button it replaced is 28px. Worst of all it is the DEFAULT state: a player
+     who owns no systems yet gets it on all seven cards at once, so every row
+     in the grid was sized by it.
+     It is a sentence rather than a chip, so the UI face is the right one for
+     it regardless; at 10px it fits on one line and the foot returns to ~16px,
+     which is what brings seven cards back to two rows. */
+  .refit-card__locked {
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    display: block;
+  }
   /* Four columns, not three. Six tracks were two tidy rows of three; the
      seventh (Demolition Rack) started a third row that the grid could only
      reach by scrolling, so the card sat half-cut against the Undock button —
-     a card you can see the top of reads as broken, not as scrollable. At
-     168px the same 792px-wide modal takes four across and seven cards are two
-     rows again. */
+     a card you can see the top of reads as broken, not as scrollable.
+     168px buys four across in the 792px-wide viewport it was measured in, but
+     only three in a 640px one (a 578px grid fits 3x190 there), which puts the
+     seventh card back on a third row and the grid back into scrolling.
+     Tuning the auto-fit floor cannot fix that: four across at 640 needs a
+     floor of at most 139.25px, and holding 792 to four rather than five needs
+     more than 138.6px. A 0.65px window is not a layout rule, it is a
+     coincidence waiting to break — 140px duly gave five columns of 137.9px at
+     792, narrower cards than the three-column version it replaced.
+     So the count is stated instead of derived. Seven cards are two rows at
+     every width in this range, and each row's cards are as wide as the
+     viewport can afford. */
   .refit__grid {
     gap: 7px; min-height: 0;
-    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   /* The sentence explains the SCREEN; "Next up: <bay>" is the only part that
      changes and the only part worth a line of a 360px viewport. Dropping it
@@ -1744,18 +1780,93 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Interactive coach (first-run tutorial) ----------
-   One instruction at a time, top-center under the bay banner, advancing when
-   the player actually performs the action (see main.ts's tutorial driver).
-   The card itself must never block the drag-anywhere aim gesture — only its
-   buttons take pointer events. */
+   One instruction at a time, advancing when the player actually performs the
+   action (see main.ts's tutorial driver). The card itself must never block the
+   drag-anywhere aim gesture — only its buttons take pointer events.
+
+   PLACEMENT: the first child of the plant panel (main.ts's mountCoach), in the
+   panel's own column — NOT a layer over it. It used to be centred over the
+   field (left: field-center, top: field-y + 0.16*field-h), which on a
+   landscape phone put a 370x123 card at x 211..581 / y 58..180 of a 640x360
+   field — square in the airspace the pieces fly through, so the tutorial made
+   its own lesson unplayable.
+   The bottom-left is the one region of the field that is already chrome rather
+   than playfield, and during the tutorial it is largely empty anyway: the
+   plant reveals its readout a block at a time (see .hud[data-coach] below), so
+   the coach is not covering stats — it is holding their seat until they
+   arrive, then sitting above them as they do. Being a SIBLING of the readout
+   rather than a layer over it is what makes that safe: the two can never
+   overlap, so no revealed figure is ever half-clipped. The panel is
+   bottom-anchored with an auto height, so card + readout together grow it
+   upward into empty sky rather than clipping the card's buttons. */
 .coach {
-  position: absolute;
-  left: calc(var(--field-x) + var(--field-w) / 2);
-  top: calc(var(--field-y) + 0.16 * var(--field-h));
-  transform: translateX(-50%);
-  z-index: 7;
   pointer-events: none;
-  width: min(430px, 82vw);
+  flex: none;
+  margin: calc(10 * var(--fpx)) calc(10 * var(--fpx)) 0;
+}
+/* While the card is in the panel the readout stacks UNDER it from the top
+   rather than being spread down the panel's full height — space-between with
+   half the blocks hidden would strand the survivors at the two extremes. */
+.hud[data-coach] .plant { justify-content: flex-start; }
+.hud[data-coach] .plant__body { flex: 0 0 auto; justify-content: flex-start; }
+/* The panel is taller than usual while it holds the card (190px against 159px
+   at the longest step), and `.hud > *` otherwise makes it swallow pointer
+   events — which would grow the bottom-left dead zone for the drag gesture at
+   exactly the moment the tutorial is teaching that gesture. Nothing in the
+   panel is tappable during the tutorial anyway: the ability chips live in
+   .pl-mods, which is hidden until the coach is gone. The card's own buttons
+   opt back in via .coach__btn. */
+.hud[data-coach] .plant { pointer-events: none; }
+
+/* ---------- Aim-through ----------
+   While a drag is live (main.ts's syncHud toggles .hud--aiming), the chrome
+   that sits over the flight path goes translucent so the canvas trajectory
+   preview stays readable underneath it. The plant occupies the bottom-left,
+   which is precisely where a low-power arc travels, so without this the player
+   sees the top of their own aim line and then nothing.
+   Opacity rather than z-index: the arc is canvas and the panel is DOM above
+   it, so the only way to see through the panel is to make it see-through.
+   The readouts stay legible enough to check funds mid-aim, and the transition
+   is short so it reads as the panel getting out of the way, not as a flicker.
+   The belt and bay banner ride along — same airspace, same reasoning.
+
+   The panel's FRAME and its CONTENTS fade separately, rather than putting one
+   opacity on .plant: the coach card is a child of .plant now, and opacity
+   compounds down the tree — a 0.3 panel holding a 0.82 card yields 0.25, which
+   would all but erase the instruction the player is mid-way through following.
+   Fading .plant__body and .pl-pwr leaves the card free to set its own. */
+.plant,
+.plant__body,
+.pl-pwr,
+.coach,
+.belt,
+.bay-banner {
+  transition: opacity 120ms var(--ease), background 120ms var(--ease);
+}
+/* SCOPED TO THE TUTORIAL ([data-coach]), which is the only time the panel is
+   big enough to be worth fading. The card pushes it from its 159px mockup
+   footprint to as much as 190px, up into the cannon's airspace where the arc
+   actually starts; back at its normal height the panel sits below the launch
+   line and a shot has to be unusually short and low to cross it at all.
+   Fading it during ordinary play costs more than it buys — PWR is the readout
+   the player is setting WHILE they drag, so dimming it to 0.3 hides the number
+   at the exact moment it is being used. */
+.hud--aiming[data-coach] .plant {
+  background: linear-gradient(180deg, rgba(22, 22, 37, 0.26), rgba(9, 9, 18, 0.28));
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+.hud--aiming[data-coach] .plant__body,
+.hud--aiming[data-coach] .pl-pwr,
+.hud--aiming[data-coach] .belt,
+.hud--aiming[data-coach] .bay-banner {
+  opacity: 0.3;
+}
+/* The card fades far less than the readout around it — enough to read an arc
+   crossing it, not so much that the instruction stops being legible mid-aim. */
+.hud--aiming[data-coach] .coach { opacity: 0.82; }
+@media (prefers-reduced-motion: reduce) {
+  .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
 }
 .coach__card {
   background: rgba(8, 8, 18, 0.92);
@@ -1780,11 +1891,82 @@ button.panel { color: var(--text); }
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
 .coach__btn { pointer-events: auto; }
+/* Short viewports: the card now lives in the plant's width (257-301px on a
+   landscape phone) rather than the 430px it had centred over the field, so the
+   same copy wraps to more lines — and every line it gains grows the panel
+   upward toward the cannon. The budget is real: at 667x375 the untightened
+   card measured 140px, which took the panel's top edge to y=138 against a
+   cannon spanning 141..168, i.e. the aiming reference hidden behind the panel
+   at the step that still needs aiming. This block buys that back.
+   No width rule here — the width is the plant's, at every viewport. */
 @media (max-height: 480px) {
-  .coach { width: min(370px, 74vw); }
-  .coach__card { padding: 9px 12px; gap: 4px; }
-  .coach__body { font-size: 12px; }
+  .coach__card { padding: 7px 10px; gap: 3px; }
+  /* "Tutorial · 5/6" says exactly what the six dots in the footer already
+     say; where height is scarce the dots are the cheaper of the two. */
+  .coach__eyebrow { display: none; }
+  .coach__title { font-size: 10.5px; }
+  .coach__body { font-size: 11px; line-height: 1.3; }
+  .coach__foot { margin-top: 0; }
+  .coach__btn { padding: 5px 10px; font-size: 10px; }
+  .coach__dots i { width: 6px; height: 6px; }
 }
+
+/* Hard ceiling on the panel while it carries the card, as a backstop to the
+   tightening above rather than a replacement for it.
+   The cannon sits at world y 288 with a 30-unit half-size over a 720-unit
+   field, so its BOTTOM edge is at 0.4417 of the field height and the panel's
+   bottom is at 0.9703. Clearing the whole sprite therefore allows the panel
+   0.9703 - 0.4417 = 0.5286 of the field; 0.52 keeps a hair of margin.
+   Capping against the cannon's TOP (0.3583) instead is the mistake this
+   replaces — it reads as generous but leaves the panel free to cover the
+   sprite's entire lower half, which is what it did at 640x360.
+   If the card ever exceeds the cap, its body gives up the tail rather than the
+   panel eating the cannon — min-height:0 is what lets a flex child shrink. */
+.hud[data-coach] .plant { max-height: calc(0.52 * var(--field-h)); }
+.hud[data-coach] .coach,
+.hud[data-coach] .coach__card { min-height: 0; }
+.hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; }
+
+/* ---------- Progressive stat reveal (tutorial only) ----------
+   The plant panel is seven stacked readouts — PWR, title, Funds/Target, the
+   goal bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
+   lands on a first-time player at once, before a single piece has been fired,
+   which is the "overwhelming" half of the same playtest complaint that moved
+   the coach off the field.
+
+   So during the tutorial each block waits for the step that teaches it:
+     step 1 (Power)   → PWR
+     step 3 (Launch)  → Reload, Launches
+     tutorial over    → Funds/Target, Time, the meta row, panel title, Build
+   `data-coach` carries the current step (main.ts's syncCoachReveal); it is
+   absent for every run without a coach and removed the moment the tutorial is
+   finished OR skipped, so this can never strip a returning player's HUD.
+
+   WHY THE ECONOMY TIER WAITS FOR DISMISSAL, measured rather than chosen. The
+   card now shares the panel's column with the readout, so every block it
+   reveals lengthens the panel, and the panel is bottom-anchored — it grows
+   UPWARD, into the field. Revealing Funds at step 4 and Time/meta at step 5
+   took the panel to 226px tall with its top edge at y=124 of a 360px viewport,
+   which buried the cannon (screen y≈144) and its PWR cap under the readout the
+   step had just introduced. The budget is unforgiving: keeping the panel clear
+   of the cannon leaves ~179px, and the economy blocks alone want ~121px of it
+   against a step-5 card that is 127px on its own.
+   So the tutorial reveals only what is cheap in height — PWR rides above the
+   panel and costs nothing, Reload and Launches are 6px and 24px — and hands
+   over the economy when the card leaves and its space comes back. The step-5
+   card carries the actual figures in its own copy ("each launch costs $X, each
+   row pays $Y, reach $Z"), so nothing it teaches depends on the readout being
+   visible behind it, and Skip reveals everything at once.
+
+   These are HIDE rules only, never `display: <value>` reveals — the blocks
+   here are variously flex/block/grid, and stating a display value to un-hide
+   them would silently pin the wrong one. A block is visible exactly when no
+   rule below selects it. */
+.hud[data-coach="0"] .pl-pwr { display: none; }
+.hud:is([data-coach="0"], [data-coach="1"], [data-coach="2"]) :is(.pl-load, .pl-launches) {
+  display: none;
+}
+.hud[data-coach] :is(.plant__hdr, .pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
 
 /* ---------- Game-over "why" ----------
    The plain-language cause + one concrete adjustment, between the headline
@@ -1800,6 +1982,64 @@ button.panel { color: var(--text); }
 .end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
 .end__why .end__tip { color: var(--text); }
 .end__tip b { color: var(--accent); }
+
+/* Short (landscape-phone) viewports. This block shipped without the
+   short-viewport variant that every other region of the end modal carries,
+   and it is the largest thing in .end__main: at 792x360 it measured 97.6px,
+   which took the panel to 380px of content in a 322px box. The modal scrolled
+   and Play Again/Menu landed at y=361 in a 360px window — precisely the
+   failure the .end grid above was written to fix, reintroduced from the other
+   side. The two lines still both appear in full; only the box around them
+   gives up its slack, which is enough (58px of overflow against ~44px
+   reclaimed here plus the tighter leading). */
+@media (max-height: 480px) {
+  /* The box becomes a rule. A tinted panel costs 12px of padding and 2px of
+     border to group two sentences that a left accent groups just as well. */
+  .end__why {
+    padding: 0 0 0 9px;
+    gap: 2px;
+    background: none;
+    border: none;
+    border-left: 2px solid rgba(255, 45, 85, 0.55);
+    border-radius: 0;
+  }
+  .end__why p { font-size: 11.5px; line-height: 1.35; }
+  /* On a loss that carries .end__why, the themed eyebrow is a second telling
+     of the same fact ("Out of funds — the bay stays unpaid" above "You spent
+     all your Funds on launches before reaching the target"). Where height is
+     the scarce resource, the plain one is the one worth keeping — it is the
+     one a first-time player can act on. Wins keep their eyebrow: there is no
+     .end__why there, and .end--why is not set. */
+  .end--why .end__main > .eyebrow { display: none; }
+  /* The column is carrying one more block than it was tuned for; two pixels
+     off each gap buys most of a text line back. */
+  .end .end__main { gap: 6px; }
+  /* The salvage row's footnote line ("N scrap earned · M refitted into the
+     ship · K salvage banked") is the cheapest thing in the column to lose and
+     the most expensive to keep: the row grows from 85px at a 396px main column
+     to 121px at 316px, almost all of it this line rewrapping. The line above
+     it already carries what the player has to act on — the tier checklist and
+     the award — so on a narrow landscape phone the footnote goes and Play
+     Again stays on screen. It returns in full on any taller viewport. */
+  .end .salvage-row__foot { display: none; }
+  /* BACKSTOP, inert unless the panel actually overflows. Every rule above is a
+     height budget, and a budget can be blown by something none of them
+     anticipated — a longer bay name, a four-digit bankroll, a translation, or
+     a viewport shorter than the ones this was measured against (at 568x320 the
+     column still wants 48px more than it has). When that happens the modal
+     scrolls, and the one thing that must never be the part below the fold is
+     the pair of buttons that leave the screen. Sticky pins them to the panel's
+     bottom edge while everything above them scrolls past.
+     Only ever engages when there is overflow to scroll: with none, `bottom: 0`
+     leaves the row exactly where the grid already put it. */
+  .end .end__actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding-top: 6px;
+    background: linear-gradient(180deg, rgba(13, 13, 24, 0) 0%, var(--surface-1) 35%);
+  }
+}
 
 /* ---------- Contract card reward line ---------- */
 .contract-card__reward { font-size: 12px; color: var(--warn); margin: 0; }

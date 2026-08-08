@@ -1136,9 +1136,13 @@ export function endModal(opts: {
   // (outcome, submit, board, actions). A short landscape viewport grids them
   // into two, with the actions moving under the outcome so the board gets the
   // full column height — see app.css's `.end` rules.
+  // `end--why` marks the losses that carry the plain-language cause block, so
+  // the short-viewport rules can drop the themed eyebrow — which on those runs
+  // is a second, moodier statement of the same cause — without touching wins,
+  // where the eyebrow is the only status line there is.
   return `<div class="modal-scrim" id="scrim">
     ${loseFx}
-    <div class="panel modal end pop">
+    <div class="panel modal end pop${why ? " end--why" : ""}">
       <div class="end__main">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
@@ -1171,7 +1175,7 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
-          <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
+          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
@@ -1180,7 +1184,7 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
           <span class="muted">${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — complete both to bank <b>♻ ${opts.progress.award}</b> and open Tier ${opts.progress.tier + 1}.</span>
-          <span class="muted">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
+          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`

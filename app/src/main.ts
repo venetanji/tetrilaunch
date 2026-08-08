@@ -360,10 +360,15 @@ class App {
         break;
       case "playing":
         if (g) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
-            (this.tutorialStep !== null ? S.coachHTML(this.tutorialStep, g.level) : "");
+          this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
+          // Mounted separately rather than concatenated: the card belongs
+          // INSIDE the plant panel's column (see mountCoach), which a sibling
+          // string appended after the HUD cannot express.
+          if (this.tutorialStep !== null) {
+            this.mountCoach(S.coachHTML(this.tutorialStep, g.level));
+          }
           this.lastNext = null;
+          this.syncCoachReveal();
         }
         break;
       case "paused":
@@ -635,10 +640,54 @@ class App {
     // Entering the rotate step: rotation counts from here, not from bay start,
     // so a rotate tapped earlier can't satisfy the step retroactively.
     if (to === 2) this.tutorialTurns = g.cannon.quarterTurns;
-    const el = this.overlay.querySelector("#coach");
-    const html = S.coachHTML(to, g.level);
-    if (el) el.outerHTML = html;
+    this.mountCoach(S.coachHTML(to, g.level));
+    this.syncCoachReveal();
+  }
+
+  /** Puts the coach card in the plant panel's FLOW, as its first child.
+   *
+   *  Not a layer over the panel: the card and the readout share the bottom-left
+   *  rect, and an absolutely-positioned card sliced whatever the current step
+   *  had just revealed — at step 4 the Funds figure ran y 213..258 against a
+   *  card starting at 239, i.e. a big cyan number cut through the middle. Two
+   *  boxes cannot overlap if they are siblings in the same column, so they are.
+   *  This is also what lets the panel grow upward when card + readout exceed
+   *  the mockup footprint (.plant is bottom-anchored, height auto).
+   *
+   *  renderOverlay emits the card AFTER the HUD string (it cannot nest it
+   *  there without threading markup through hudHTML), so the freshly-parsed
+   *  node gets moved in here; coachAdvance's later swaps replace it in place
+   *  and keep the position. */
+  private mountCoach(html: string): void {
+    const plant = this.overlay.querySelector(".plant");
+    const existing = this.overlay.querySelector("#coach");
+    if (existing) {
+      existing.outerHTML = html;
+      return;
+    }
+    if (plant) plant.insertAdjacentHTML("afterbegin", html);
     else this.overlay.insertAdjacentHTML("beforeend", html);
+  }
+
+  /** Publishes the coach's step onto the HUD as `data-coach`, which is what
+   *  drives the plant panel's PROGRESSIVE REVEAL (see app.css's
+   *  `.hud[data-coach]` rules): a first-time player meets the readout one
+   *  block at a time — PWR with the Power step, Reload/Launches with Launch,
+   *  and the economy tier (title, Funds/Target, Time, the meta row, Build)
+   *  when the card leaves and its space in the panel comes back. See the CSS
+   *  for why that last tier waits for dismissal rather than landing on the
+   *  step that explains it.
+   *
+   *  An ATTRIBUTE rather than a re-render: the plant's readouts are patched
+   *  per-frame by syncHud against live element ids, so rebuilding the HUD on
+   *  every step would fight that. CSS hides; nothing about the HUD's markup
+   *  or its sync path changes. Absent attribute = full HUD, which is what
+   *  every non-tutorial run (and every run after finishTutorial) gets. */
+  private syncCoachReveal(): void {
+    const hud = this.overlay.querySelector<HTMLElement>("#hud");
+    if (!hud) return;
+    if (this.tutorialStep === null) delete hud.dataset.coach;
+    else hud.dataset.coach = String(this.tutorialStep);
   }
 
   /** Per-frame step detection for the drag-gesture steps (called from
@@ -665,6 +714,9 @@ class App {
   private finishTutorial(): void {
     this.tutorialStep = null;
     this.overlay.querySelector("#coach")?.remove();
+    // Skipping is a request for the full HUD, not a stripped one — the reveal
+    // is a teaching aid, so it ends when the teaching does, however it ended.
+    this.syncCoachReveal();
     if (!this.settings.seenTutorial) {
       this.settings.seenTutorial = true;
       saveSettings(this.settings);
@@ -1119,6 +1171,8 @@ class App {
     const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, g.objectiveProgress * 100) + "%";
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
+    // Also drives the tutorial's aim-through fade — see app.css's Aim-through
+    // block, which is scoped to .hud--aiming[data-coach].
     this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
     const powerPct = Math.round(g.cannon.powerRatio * 100);
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
