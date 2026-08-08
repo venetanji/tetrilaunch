@@ -10,6 +10,11 @@ export interface Settings {
    *  finger-drag onboarding hint's automatic first-bay appearance (see
    *  main.ts's armDragHint/dismissDragHint + ui/screens.ts's dragHintHTML). */
   seenDragHint: boolean;
+  /** Set once the interactive first-run coach is finished or skipped — gates
+   *  its automatic appearance on bay 1 of a Deep Run (see main.ts's tutorial
+   *  driver + ui/screens.ts's coachHTML). The How to Play screen's "Guided
+   *  Tutorial" button clears it to replay the coach on demand. */
+  seenTutorial: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -17,7 +22,9 @@ const NAME_KEY = "tetrilaunch.name";
 const BEST_KEY = "tetrilaunch.best";
 const META_KEY = "tetrilaunch.meta";
 
-const DEFAULTS: Settings = { sound: true, music: true, haptics: true, seenDragHint: false };
+const DEFAULTS: Settings = {
+  sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
+};
 
 export function loadSettings(): Settings {
   try {

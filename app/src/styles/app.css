@@ -217,6 +217,26 @@ body.crt-off #app::after { display: none; }
   --gutter-b: 0px;
   --rail-btn: 52px;
 }
+
+/* Safe-area measurement probe (lib/platform's applySafeAreaInsets). The
+   padding IS the four env() values; JS mounts an element with this class and
+   reads the computed padding back. A STYLESHEET rule on purpose: .side-rail
+   below demonstrably resolves env() from the stylesheet on iOS WKWebView,
+   while the same functions in an inline style.cssText read back as 0 there —
+   which put the JS layout solver and the CSS rail placement in different
+   coordinate systems and drew the rail on top of the field. One code path for
+   env(), the one that works. */
+.safe-probe {
+  position: fixed;
+  left: 0; top: 0;
+  width: 0; height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
 .hud { position: absolute; inset: 0; pointer-events: none; }
 .hud > * { pointer-events: auto; }
 
@@ -1658,4 +1678,143 @@ button.panel { color: var(--text); }
 .salvage-row__amt--tier {
   color: var(--accent);
   font-family: var(--font-pixel);
+}
+
+/* ============================================================================
+   PLAYTEST CLARITY PASS (issues #23-#27) — plain-language subtitles on menu
+   options, the bay-progress banner, the interactive coach, game-over "why",
+   contract rewards, and the Workshop's permanence tag.
+   ========================================================================== */
+
+/* Menu options that carry a plain-language subtitle under the thematic name
+   ("Deep Run" means nothing to a first-time player until something says
+   "clear 10 bays in one run"). The button becomes icon + two-line text. */
+.btn--menu { justify-content: flex-start; text-align: left; }
+.btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.btn__sub {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  opacity: 0.8;
+}
+@media (max-height: 460px) {
+  .btn__sub { font-size: 11px; }
+  .btn__txt { gap: 2px; }
+}
+
+/* ---------- Bay-progress banner ----------
+   Top-center of the FIELD (not the viewport), always in view during play:
+   the current bay as a headline number plus one pip per bay of the run —
+   cleared pips cyan, the live one amber. Pointer-events none with higher
+   specificity than `.hud > *`, because it sits exactly where high lob drags
+   pass and must never eat the aim gesture. */
+.hud > .bay-banner { pointer-events: none; }
+.bay-banner {
+  position: absolute;
+  top: calc(var(--field-y) + 6px);
+  left: calc(var(--field-x) + var(--field-w) / 2);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px;
+  background: rgba(10, 10, 20, 0.78);
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-hard-sm);
+  font-family: var(--font-pixel);
+  white-space: nowrap;
+}
+.bay-banner__mode {
+  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.bay-banner__n { font-size: 15px; font-weight: 700; color: var(--accent); }
+.bay-banner__of { font-size: 10px; color: var(--text-dim); }
+.bay-banner__pips { display: flex; gap: 3px; align-items: center; }
+.bay-banner__pips i { width: 9px; height: 5px; border-radius: 1px; background: var(--surface-3); display: block; }
+.bay-banner__pips i.done { background: var(--accent); }
+.bay-banner__pips i.cur { background: var(--warn); box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
+.bay-banner--contract { font-size: 10px; color: var(--text); }
+@media (max-height: 480px) {
+  .bay-banner { padding: 5px 10px; gap: 7px; }
+  .bay-banner__n { font-size: 12px; }
+  .bay-banner__pips i { width: 7px; height: 4px; }
+}
+
+/* ---------- Interactive coach (first-run tutorial) ----------
+   One instruction at a time, top-center under the bay banner, advancing when
+   the player actually performs the action (see main.ts's tutorial driver).
+   The card itself must never block the drag-anywhere aim gesture — only its
+   buttons take pointer events. */
+.coach {
+  position: absolute;
+  left: calc(var(--field-x) + var(--field-w) / 2);
+  top: calc(var(--field-y) + 0.16 * var(--field-h));
+  transform: translateX(-50%);
+  z-index: 7;
+  pointer-events: none;
+  width: min(430px, 82vw);
+}
+.coach__card {
+  background: rgba(8, 8, 18, 0.92);
+  border: var(--bw) solid var(--accent);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard), 0 0 18px rgba(0, 240, 255, 0.22);
+  padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  animation: pop 300ms var(--ease);
+}
+.coach__eyebrow {
+  font-family: var(--font-pixel);
+  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--accent);
+}
+.coach__title { font-family: var(--font-pixel); font-size: 13px; color: var(--text); }
+.coach__body { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
+.coach__body b { color: var(--text); }
+.coach__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.coach__dots { display: flex; gap: 4px; }
+.coach__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); display: block; }
+.coach__dots i.done { background: var(--accent); opacity: 0.5; }
+.coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
+.coach__btn { pointer-events: auto; }
+@media (max-height: 480px) {
+  .coach { width: min(370px, 74vw); }
+  .coach__card { padding: 9px 12px; gap: 4px; }
+  .coach__body { font-size: 12px; }
+}
+
+/* ---------- Game-over "why" ----------
+   The plain-language cause + one concrete adjustment, between the headline
+   and the score row (playtest feedback: the themed eyebrow tells the mood,
+   not whether time or money ended the run). */
+.end__why {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 14px;
+  background: rgba(255, 45, 85, 0.07);
+  border: var(--bw) solid rgba(255, 45, 85, 0.35);
+  border-radius: var(--r-md);
+}
+.end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
+.end__why .end__tip { color: var(--text); }
+.end__tip b { color: var(--accent); }
+
+/* ---------- Contract card reward line ---------- */
+.contract-card__reward { font-size: 12px; color: var(--warn); margin: 0; }
+.contract-card__reward--done { color: var(--success); }
+
+/* ---------- Workshop permanence tag ----------
+   Workshop and Refit both sell upgrades; this is the one whose purchases
+   outlive the run, and now the card says so. */
+.shop-card__tag {
+  font-family: var(--font-pixel);
+  font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--success);
+  border: 1px solid rgba(0, 255, 156, 0.45);
+  border-radius: var(--r-sm);
+  padding: 2px 5px;
+  margin-left: 6px;
+  vertical-align: middle;
 }

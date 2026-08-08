@@ -116,6 +116,17 @@ class App {
   private dragHintTimer: number | null = null;
   private dragHintShownThisSession = false;
 
+  /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
+   *  or null when it isn't running. Runs on bay 1 of a Deep Run until
+   *  settings.seenTutorial is set (finish or skip); each step advances when
+   *  the player performs the taught action, detected per-frame in syncCoach
+   *  plus the onShoot/onLineClear callbacks. Step order matches
+   *  screens.ts's coachSteps: aim, power, rotate, launch, row, resources. */
+  private tutorialStep: number | null = null;
+  /** cannon.quarterTurns baseline captured on entering the rotate step, so
+   *  "the player rotated" means a change from HERE, not from bay start. */
+  private tutorialTurns = 0;
+
   /** Unsubscribe for the RevenueCat entitlement listener. */
   private offUnlimitedChange: (() => void) | null = null;
 
@@ -147,6 +158,14 @@ class App {
     window.addEventListener("keydown", this.onGlobalKey);
     window.addEventListener("resize", this.onResize);
     window.addEventListener("orientationchange", this.onResize);
+    // iOS WKWebView: env(safe-area-inset-*) is not reliably populated at
+    // first paint, and no `resize` necessarily follows once it is — the
+    // visualViewport events plus a couple of settle re-measures make sure the
+    // layout solver eventually sees the real insets instead of keeping
+    // boot-time zeros forever (which parked the button rail on the field).
+    window.visualViewport?.addEventListener("resize", this.onResize);
+    window.setTimeout(this.onResize, 250);
+    window.setTimeout(this.onResize, 1000);
     window.addEventListener("pointerup", this.onGlobalPointerUp);
     window.addEventListener("pointercancel", this.onGlobalPointerUp);
     window.addEventListener("pagehide", () => this.destroy());
@@ -295,6 +314,7 @@ class App {
           // tick that lived in memory vanished on any reload, which is exactly
           // when the player comes back to see what they'd already done.
           cleared: this.meta.claimedContracts,
+          progress: tierProgressFor(this.meta),
         });
         break;
       case "contract-end":
@@ -339,7 +359,12 @@ class App {
         );
         break;
       case "playing":
-        if (g) { this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)); this.lastNext = null; }
+        if (g) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            (this.tutorialStep !== null ? S.coachHTML(this.tutorialStep, g.level) : "");
+          this.lastNext = null;
+        }
         break;
       case "paused":
         if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal();
@@ -534,10 +559,12 @@ class App {
     this.game?.destroy();
     const cfg = levelForRun(this.run);
     this.game = new Game(cfg, {
-      onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
+      onShoot: (info) => {
+        telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); this.coachOnShoot();
+      },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
-        void successHaptic(); this.flashGoal();
+        void successHaptic(); this.flashGoal(); this.coachOnLineClear();
       },
       onPieceLost: () => { void impactHaptic(); },
       onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
@@ -561,6 +588,12 @@ class App {
       notches: axisNotchList(this.run.ratchets),
       pieceSize: cfg.pieceSize,
     });
+    // The coach runs on the FIRST bay of a Deep Run until it has been finished
+    // or skipped once — set before setState so renderOverlay("playing") mounts
+    // it with the HUD. A restart of bay 1 mid-tutorial starts it over, which
+    // is the honest reset (the steps not yet performed weren't learned).
+    this.tutorialStep =
+      this.run.levelIndex === 0 && !this.settings.seenTutorial ? 0 : null;
     this.setState("playing");
     this.armDragHint();
   }
@@ -591,6 +624,53 @@ class App {
     }
   }
 
+  // ---------------- interactive coach (first-run tutorial, issue #23) -------
+  /** Move the coach forward to step `to` (never backward — actions can arrive
+   *  out of order, e.g. a shot fired straight from the aim step skips rotate
+   *  rather than un-teaching it). */
+  private coachAdvance(to: number): void {
+    const g = this.game;
+    if (this.tutorialStep === null || g === null || to <= this.tutorialStep) return;
+    this.tutorialStep = to;
+    // Entering the rotate step: rotation counts from here, not from bay start,
+    // so a rotate tapped earlier can't satisfy the step retroactively.
+    if (to === 2) this.tutorialTurns = g.cannon.quarterTurns;
+    const el = this.overlay.querySelector("#coach");
+    const html = S.coachHTML(to, g.level);
+    if (el) el.outerHTML = html;
+    else this.overlay.insertAdjacentHTML("beforeend", html);
+  }
+
+  /** Per-frame step detection for the drag-gesture steps (called from
+   *  syncHud, so it reads the same live game state the HUD does). */
+  private syncCoach(g: Game): void {
+    const s = this.tutorialStep;
+    if (s === 0 && g.aiming) this.coachAdvance(1);
+    else if (s === 1 && g.aiming && g.cannon.powerRatio > 0.55) this.coachAdvance(2);
+    else if (s === 2 && g.cannon.quarterTurns !== this.tutorialTurns) this.coachAdvance(3);
+  }
+
+  /** A real launch teaches aim/power/rotate/release all at once — jump to the
+   *  complete-a-row step from anywhere earlier. */
+  private coachOnShoot(): void {
+    if (this.tutorialStep !== null && this.tutorialStep < 4) this.coachAdvance(4);
+  }
+
+  private coachOnLineClear(): void {
+    if (this.tutorialStep === 4) this.coachAdvance(5);
+  }
+
+  /** Finish or skip: drop the coach and persist the seen-flag so it never
+   *  auto-runs again (the How to Play screen can replay it on demand). */
+  private finishTutorial(): void {
+    this.tutorialStep = null;
+    this.overlay.querySelector("#coach")?.remove();
+    if (!this.settings.seenTutorial) {
+      this.settings.seenTutorial = true;
+      saveSettings(this.settings);
+    }
+  }
+
   /** Composite leaderboard/best score for the run that just ended (`won` =
    *  the bay-10 clear; every other end is a loss). Bays cleared and lines
    *  weigh far more than the funds in hand — see run.ts's finalRunScore. */
@@ -610,6 +690,9 @@ class App {
     this.game?.destroy();
     this.run = null;
     this.contract = c;
+    // No coach in Contract mode — it teaches the Deep Run economy, and half
+    // its steps (funds, target) don't exist here.
+    this.tutorialStep = null;
     const cfg = levelForContract(c);
     this.game = new Game(cfg, {
       onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
@@ -1077,6 +1160,8 @@ class App {
     // together via shared classes instead of hardcoded ids per trigger.
     this.syncAbility("bond", g.bondCharges, false);
     this.syncAbility("demo", g.bombCharges, g.bombArmed);
+
+    if (this.tutorialStep !== null) this.syncCoach(g);
   }
 
   /** Sync one ability's pair of triggers: disable both at zero charges, write
@@ -1131,6 +1216,17 @@ class App {
     switch (action) {
       case "play": this.startGame(); break;
       case "howto": this.setState("howto"); break;
+      // How to Play's "Guided Tutorial": replay the interactive coach on a
+      // fresh run, even for a player who already finished or skipped it.
+      case "tutorial":
+        this.settings.seenTutorial = false;
+        saveSettings(this.settings);
+        this.startGame();
+        break;
+      case "coach-done":
+      case "coach-skip":
+        this.finishTutorial();
+        break;
       case "settings": this.setState("settings"); break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
       case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
