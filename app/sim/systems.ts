@@ -2044,6 +2044,40 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   }
   check("the material stream is deterministic for a seed", streamA.join() === streamB.join());
 
+  // ---- The 7-bag shipment randomizer (cannon.ts's deal) -------------------
+  //
+  // Deep Run bays used to ship a fixed I,O,T,L,J,S,Z rotation, so every run's
+  // first minute played out identically (playtest, 2026-08-09). The bag fixes
+  // the sameness while KEEPING the rotation's fairness — each type exactly
+  // once per seven shipments — and staying seeded, because a restarted bay
+  // must replay its exact deal and a shared seed must mean the same bay.
+  check("every base bay ships the bag, not a fixed rotation",
+    Array.from({ length: 10 }, (_, i) => makeBaseLevel(i)).every((l) => l.pieceSequence === null));
+
+  const bagStream = (seed: number, n: number): string => {
+    const c = new Cannon(makeBaseLevel(0), seed);
+    const out: PieceType[] = [c.currentType];
+    for (let i = 1; i < n; i++) { c.markShot(0); out.push(c.currentType); }
+    return out.join("");
+  };
+  check("the bag deals every type exactly once per seven shipments",
+    [0, 1, 2, 3].every((chunk) => {
+      const window = bagStream(555, 28).slice(chunk * 7, chunk * 7 + 7);
+      return new Set(window).size === 7;
+    }));
+  check("the deal is deterministic for a seed (a restarted bay replays it)",
+    bagStream(4242, 21) === bagStream(4242, 21));
+  check("different seeds deal different openings",
+    bagStream(1, 21) !== bagStream(2, 21));
+
+  // The fixed-sequence seam survives for the modes that declare one.
+  const fixedCfg = { ...makeBaseLevel(0), pieceSequence: ["I", "O"] as PieceType[] };
+  const fixed = new Cannon(fixedCfg, 7);
+  const fixedSeen: PieceType[] = [fixed.currentType];
+  for (let i = 0; i < 3; i++) { fixed.markShot(0); fixedSeen.push(fixed.currentType); }
+  check("an explicit pieceSequence still cycles verbatim",
+    fixedSeen.join("") === "IOIO");
+
   // SIZE NORMALIZATION — the live bug the spec found. The roll is per SHIPMENT
   // while the cost is per CUBE, so at one rate a 5-cube Bulk shipment ate 2.5x
   // the dead cubes of a 2-cube Micro one, on top of Bulk's +50% launch cost and

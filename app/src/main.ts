@@ -707,9 +707,16 @@ class App {
     }
   }
 
-  /** The first completed shot finishes the aim/power/release card. */
+  /** The first completed shot finishes the aim/power/release card — unless
+   *  the shot just loaded an O. The O is the one rotation-invariant piece, so
+   *  mounting the rotate card over it would demonstrate that the button does
+   *  nothing (playtest, 2026-08-09: "the rotate example ends up on a
+   *  square"). Staying on the fire card one more shot costs little — the
+   *  7-bag deals at most one O per seven shipments. */
   private coachOnShoot(): void {
-    if (this.tutorialStep === 0) this.coachAdvance(1);
+    if (this.tutorialStep !== 0) return;
+    if (this.game?.cannon.currentType === "O") return;
+    this.coachAdvance(1);
   }
 
   /** A cleared row finishes the row step — and the rotate step too, if the
