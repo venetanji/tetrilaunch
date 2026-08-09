@@ -119,9 +119,10 @@ class App {
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
    *  settings.seenTutorial is set (finish or skip); each step advances when
-   *  the player performs the taught action, detected per-frame in syncCoach
-   *  plus the onShoot/onLineClear callbacks. Step order matches
-   *  screens.ts's coachSteps: aim, power, rotate, launch, row, resources. */
+   *  the player COMPLETES the taught action (a fired shot, a rotate tap, a
+   *  cleared row — never a mid-gesture threshold), detected in syncCoach plus
+   *  the onShoot/onLineClear callbacks. Step order matches screens.ts's
+   *  coachSteps: fire, rotate, row, resources. */
   private tutorialStep: number | null = null;
   /** cannon.quarterTurns baseline captured on entering the rotate step, so
    *  "the player rotated" means a change from HERE, not from bay start. */
@@ -638,8 +639,11 @@ class App {
     if (this.tutorialStep === null || g === null || to <= this.tutorialStep) return;
     this.tutorialStep = to;
     // Entering the rotate step: rotation counts from here, not from bay start,
-    // so a rotate tapped earlier can't satisfy the step retroactively.
-    if (to === 2) this.tutorialTurns = g.cannon.quarterTurns;
+    // so a rotate tapped earlier can't satisfy the step retroactively. Safe to
+    // snapshot even though the step is entered from a shot: onShoot fires
+    // AFTER markShot resets the fresh piece's rotation, so the baseline read
+    // here is the new piece's, and only a real ⟲/⟳ tap can move it.
+    if (to === 1) this.tutorialTurns = g.cannon.quarterTurns;
     this.mountCoach(S.coachHTML(to, g.level));
     this.syncCoachReveal();
   }
@@ -672,7 +676,7 @@ class App {
   /** Publishes the coach's step onto the HUD as `data-coach`, which is what
    *  drives the plant panel's PROGRESSIVE REVEAL (see app.css's
    *  `.hud[data-coach]` rules): a first-time player meets the readout one
-   *  block at a time — PWR with the Power step, Reload/Launches with Launch,
+   *  block at a time — Reload/Launches once the first shot is away (step 1),
    *  and the economy tier (title, Funds/Target, Time, the meta row, Build)
    *  when the card leaves and its space in the panel comes back. See the CSS
    *  for why that last tier waits for dismissal rather than landing on the
@@ -690,23 +694,30 @@ class App {
     else hud.dataset.coach = String(this.tutorialStep);
   }
 
-  /** Per-frame step detection for the drag-gesture steps (called from
-   *  syncHud, so it reads the same live game state the HUD does). */
+  /** Per-frame step detection (called from syncHud, so it reads the same live
+   *  game state the HUD does). Only the rotate step advances from here — a
+   *  ⟲/⟳ tap has no event of its own, so it's read off the cannon. The aim
+   *  step deliberately does NOT advance on live drag state any more: it waits
+   *  for coachOnShoot, i.e. the gesture COMPLETING. Advancing on mid-drag
+   *  thresholds is what made the old deck's Power and Launch cards flash past
+   *  unread — see coachSteps' one-card-per-completable-action note. */
   private syncCoach(g: Game): void {
-    const s = this.tutorialStep;
-    if (s === 0 && g.aiming) this.coachAdvance(1);
-    else if (s === 1 && g.aiming && g.cannon.powerRatio > 0.55) this.coachAdvance(2);
-    else if (s === 2 && g.cannon.quarterTurns !== this.tutorialTurns) this.coachAdvance(3);
+    if (this.tutorialStep === 1 && g.cannon.quarterTurns !== this.tutorialTurns) {
+      this.coachAdvance(2);
+    }
   }
 
-  /** A real launch teaches aim/power/rotate/release all at once — jump to the
-   *  complete-a-row step from anywhere earlier. */
+  /** The first completed shot finishes the aim/power/release card. */
   private coachOnShoot(): void {
-    if (this.tutorialStep !== null && this.tutorialStep < 4) this.coachAdvance(4);
+    if (this.tutorialStep === 0) this.coachAdvance(1);
   }
 
+  /** A cleared row finishes the row step — and the rotate step too, if the
+   *  player got there without ever tapping ⟲/⟳: a completed line is proof the
+   *  lesson's GOAL is understood, and holding the card hostage to one specific
+   *  input would stall the coach for a player who is already succeeding. */
   private coachOnLineClear(): void {
-    if (this.tutorialStep === 4) this.coachAdvance(5);
+    if (this.tutorialStep === 1 || this.tutorialStep === 2) this.coachAdvance(3);
   }
 
   /** Finish or skip: drop the coach and persist the seen-flag so it never

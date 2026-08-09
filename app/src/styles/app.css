@@ -1934,10 +1934,13 @@ button.panel { color: var(--text); }
    which is the "overwhelming" half of the same playtest complaint that moved
    the coach off the field.
 
-   So during the tutorial each block waits for the step that teaches it:
-     step 1 (Power)   → PWR
-     step 3 (Launch)  → Reload, Launches
-     tutorial over    → Funds/Target, Time, the meta row, panel title, Build
+   So during the tutorial each block waits for the step that teaches it
+   (the four-step deck: fire, rotate, row, resources — see coachSteps):
+     step 0 (Aim & fire) → PWR is already visible: power is part of the one
+                           drag gesture this step teaches, and PWR is the
+                           number that moves while the player pulls
+     step 1 (Rotate)     → Reload, Launches — the first shot just spent one
+     tutorial over       → Funds/Target, Time, the meta row, panel title, Build
    `data-coach` carries the current step (main.ts's syncCoachReveal); it is
    absent for every run without a coach and removed the moment the tutorial is
    finished OR skipped, so this can never strip a returning player's HUD.
@@ -1945,15 +1948,15 @@ button.panel { color: var(--text); }
    WHY THE ECONOMY TIER WAITS FOR DISMISSAL, measured rather than chosen. The
    card now shares the panel's column with the readout, so every block it
    reveals lengthens the panel, and the panel is bottom-anchored — it grows
-   UPWARD, into the field. Revealing Funds at step 4 and Time/meta at step 5
-   took the panel to 226px tall with its top edge at y=124 of a 360px viewport,
-   which buried the cannon (screen y≈144) and its PWR cap under the readout the
-   step had just introduced. The budget is unforgiving: keeping the panel clear
-   of the cannon leaves ~179px, and the economy blocks alone want ~121px of it
-   against a step-5 card that is 127px on its own.
+   UPWARD, into the field. Revealing Funds and Time/meta on their teaching
+   steps took the panel to 226px tall with its top edge at y=124 of a 360px
+   viewport, which buried the cannon (screen y≈144) and its PWR cap under the
+   readout the step had just introduced. The budget is unforgiving: keeping
+   the panel clear of the cannon leaves ~179px, and the economy blocks alone
+   want ~121px of it against a final card that is 127px on its own.
    So the tutorial reveals only what is cheap in height — PWR rides above the
    panel and costs nothing, Reload and Launches are 6px and 24px — and hands
-   over the economy when the card leaves and its space comes back. The step-5
+   over the economy when the card leaves and its space comes back. The final
    card carries the actual figures in its own copy ("each launch costs $X, each
    row pays $Y, reach $Z"), so nothing it teaches depends on the readout being
    visible behind it, and Skip reveals everything at once.
@@ -1962,10 +1965,7 @@ button.panel { color: var(--text); }
    here are variously flex/block/grid, and stating a display value to un-hide
    them would silently pin the wrong one. A block is visible exactly when no
    rule below selects it. */
-.hud[data-coach="0"] .pl-pwr { display: none; }
-.hud:is([data-coach="0"], [data-coach="1"], [data-coach="2"]) :is(.pl-load, .pl-launches) {
-  display: none;
-}
+.hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
 .hud[data-coach] :is(.plant__hdr, .pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
 
 /* ---------- Game-over "why" ----------

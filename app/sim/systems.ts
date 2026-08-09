@@ -2179,9 +2179,20 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // drift from the level it narrates.
     // "fines you $N", not a bare "$N" — bay 1's launch cost is also $25, so a
     // loose match would pass with the fine sentence deleted.
-    const economy = coachSteps(rowLevel).map((s) => s.body).join(" ");
+    const steps = coachSteps(rowLevel);
+    const economy = steps.map((s) => s.body).join(" ");
     check("the coach names the lost-cargo fine",
       economy.includes(`fines you $${rowLevel.penaltyPerLostPiece}`));
+    // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
+    // release are one continuous drag, so they must be taught on one card —
+    // split across cards they advance mid-gesture and flash past unread,
+    // which is the playtest bug ("steps 2 and 4 are skipped immediately").
+    // The first card must therefore cover the whole gesture, and the deck
+    // must stay at four steps: fire, rotate, row, resources.
+    check("the coach teaches the drag as one card (power and release together)",
+      steps[0].body.includes("power") && steps[0].body.includes("release"));
+    check("the coach deck is one card per completable action",
+      steps.length === 4);
   }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic
