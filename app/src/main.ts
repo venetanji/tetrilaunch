@@ -49,7 +49,7 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
-  playMusic, playStinger, stopStinger,
+  playMusic, playStinger, stopStinger, suspendAudio, resumeAudio,
 } from "./lib/audio";
 
 type AppState =
@@ -177,6 +177,9 @@ class App {
       { once: true });
     window.addEventListener("pointerup", this.onGlobalPointerUp);
     window.addEventListener("pointercancel", this.onGlobalPointerUp);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) suspendAudio(); else resumeAudio();
+    });
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -265,9 +268,16 @@ class App {
    */
   private syncMusic(s: AppState): void {
     switch (s) {
-      // The moments that get a stinger over the top of whatever is playing.
+      // Clearing a bay stops the bed and rings out over silence.
       case "bayclear": playStinger("bayClear"); return;
-      case "refit": case "draft": playStinger("refit"); return;
+
+      // …and keeps ringing across the refit and the hazard draft, which follow
+      // within 1.7s. Deliberately NOT a music change: swapping in another
+      // stinger here cut the celebration off a second and a half in and read as
+      // a second, unexplained cue on the screen change. The player picks a
+      // hazard in whatever silence is left once bayClear ends.
+      case "refit": case "draft": return;
+
       case "lost": case "contract-end": playStinger("gameOver"); return;
       case "won": playStinger("gameOver2"); return;
 

@@ -61,9 +61,10 @@ let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
 let stinger: HTMLAudioElement | null = null;
 let stingerName: StingerName | null = null;
-/** Whether the bed was paused BY a stinger, so it is only resumed if this is
- *  what silenced it — never if the player turned music off meanwhile. */
-let musicPausedByStinger = false;
+/** Set while the app is backgrounded, so playback that arrives from a timer or
+ *  a pending promise while hidden does not start something audible behind a
+ *  screen the player is not looking at. */
+let suspended = false;
 
 let soundOn = true;
 let musicOn = true;
@@ -84,10 +85,6 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     fadeOutAndStop(stinger);
     stinger = null;
     stingerName = null;
-    // Cleared, not honoured later: the bed this flag referred to is gone, and
-    // a stinger ending after this must not resurrect music the player just
-    // switched off.
-    musicPausedByStinger = false;
   } else if (musicName) {
     // Turned back on: resume whatever the current screen wants.
     const want = musicName;
@@ -251,10 +248,6 @@ export function playMusic(track: MusicName | null): void {
   musicName = track;
   fadeOutAndStop(music);
   music = null;
-  // The bed being replaced is the one a stinger may have paused, so the debt
-  // is settled here — otherwise a stinger ending later would call play() on a
-  // track that is no longer the current one.
-  musicPausedByStinger = false;
   if (!track || !musicOn) return;
   try {
     const el = new Audio(`${BASE}audio/music/${track}.mp3`);
@@ -273,35 +266,41 @@ export function playMusic(track: MusicName | null): void {
 }
 
 /**
- * A stinger marks a moment and keeps playing under the screen that follows —
- * bayClear runs 20s over a 1.7s transition and the hazard draft after it.
+ * A stinger marks a moment and then owns the music channel until something
+ * else asks for a bed.
  *
- * It PAUSES the bed rather than ducking it. Ducking is right for a 200ms sting;
- * these are 20–25s musical pieces, and holding the bed at 25% underneath one
- * means two songs, in two keys, for twenty seconds. Pausing (rather than
- * stopping) means the bed resumes mid-phrase where it left off when the stinger
- * ends, instead of restarting the track.
+ * It STOPS the looping music rather than ducking or pausing it. Two earlier
+ * shapes were both wrong in play:
+ *
+ *  - Ducking to 25% left two songs in two keys audible together for twenty
+ *    seconds. These are musical pieces, not 200ms stings.
+ *  - Pausing and resuming meant the bay-clear sting was followed by the bay's
+ *    bed fading back in under the hazard draft, which is a second transition
+ *    nobody asked for. A cleared bay should ring out and then leave the player
+ *    in silence to choose.
+ *
+ * So the stinger plays over nothing and ends into nothing; the next state that
+ * wants a bed asks for one. Because the bed is stopped here rather than by the
+ * caller, no call site can reintroduce the overlap.
  */
 export function playStinger(name: StingerName): void {
   if (!musicOn) return;
   // Same stinger already running: leave it alone. refit and draft are separate
-  // app states that share one stinger, so without this, walking from the refit
-  // screen to the draft restarts a 24s piece from zero.
+  // app states, so without this, walking between them restarts a 24s piece.
   if (stinger && stingerName === name) return;
-  stopStinger({ resumeMusic: false });
+  stopStinger();
+  playMusic(null);
   try {
     const el = new Audio(`${BASE}audio/stingers/${name}.mp3`);
     el.preload = "auto";
     stinger = el;
     stingerName = name;
-    if (music && !music.paused) { music.pause(); musicPausedByStinger = true; }
     void el.play().then(() => { if (stinger === el) fadeIn(el, STINGER_GAIN); })
       .catch(() => { /* ignore */ });
     el.addEventListener("ended", () => {
       if (stinger !== el) return;
       stinger = null;
       stingerName = null;
-      resumeMusicAfterStinger();
     }, { once: true });
   } catch {
     stinger = null;
@@ -309,21 +308,46 @@ export function playStinger(name: StingerName): void {
   }
 }
 
-/** `resumeMusic: false` is for the internal replace-one-stinger-with-another
- *  path, where the incoming stinger is about to pause the bed again anyway —
- *  resuming in between would blip a fragment of the bed between two stingers. */
-export function stopStinger(opts: { resumeMusic?: boolean } = {}): void {
+export function stopStinger(): void {
   if (!stinger) return;
   fadeOutAndStop(stinger);
   stinger = null;
   stingerName = null;
-  if (opts.resumeMusic !== false) resumeMusicAfterStinger();
 }
 
-function resumeMusicAfterStinger(): void {
-  if (!musicPausedByStinger) return;
-  musicPausedByStinger = false;
-  if (!music || !musicOn) return;
-  const el = music;
-  void el.play().then(() => { if (music === el) fadeIn(el, MUSIC_GAIN); }).catch(() => { /* ignore */ });
+/* --------------------------------------------------------- backgrounding */
+
+/**
+ * Silence everything while the app is not in front, and pick up where it left
+ * off when it comes back.
+ *
+ * Nothing does this for us. An <audio> element keeps playing when the activity
+ * goes to the background — that is the correct default for a podcast and quite
+ * wrong for a game, which is how you end up as the app still playing music
+ * under someone's phone call. Android may eventually take audio focus away, but
+ * "eventually, sometimes" is not a behaviour to ship.
+ *
+ * Paused, not stopped: the player is coming back mid-bay and the bed should
+ * resume rather than restart from the top. The AudioContext is suspended too,
+ * so no queued effect fires into a screen nobody is looking at.
+ */
+export function suspendAudio(): void {
+  if (suspended) return;
+  suspended = true;
+  try { music?.pause(); } catch { /* ignore */ }
+  try { stinger?.pause(); } catch { /* ignore */ }
+  void ctx?.suspend().catch(() => { /* ignore */ });
+}
+
+export function resumeAudio(): void {
+  if (!suspended) return;
+  suspended = false;
+  void ctx?.resume().catch(() => { /* ignore */ });
+  if (!musicOn) return;
+  // Only the element still current is resumed — one replaced while hidden is
+  // already being faded out and must stay down.
+  const m = music;
+  if (m) void m.play().catch(() => { /* ignore */ });
+  const s = stinger;
+  if (s) void s.play().catch(() => { /* ignore */ });
 }
