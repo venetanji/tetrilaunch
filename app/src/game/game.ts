@@ -996,12 +996,28 @@ export class Game {
 
     // ...or when they bounce OUT before the compactor (blink away, lose points).
     markLostPieces(this.cubes, this.compactor, now);
-    const lost = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
+    const lostCubes = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
+    const lost = lostCubes.length;
     if (lost > 0) {
       this.combo = 0;
       this.lostTotal += lost;
-      this.score = Math.max(0, this.score - lost * this.level.penaltyPerLostPiece);
+      // Deducted, not nominal: the bankroll floors at 0, and the FX below must
+      // show the number that actually left it — a "−$100" over a $30 bankroll
+      // would be the HUD contradicting itself.
+      const deducted = Math.min(this.score, lost * this.level.penaltyPerLostPiece);
+      this.score -= deducted;
       this.events.onPieceLost?.(lost);
+      // The expense twin of spawnClearFx's payout: one "−$" at the cluster's
+      // centroid, where the cubes just blinked away. A penalty the player only
+      // ever met in the end screen's tally read as a hidden rule (playtest,
+      // 2026-08-09) — money OUT gets the same moment money IN always had.
+      // Skipped when nothing was deducted (Contracts price a lost piece at 0,
+      // and a $0 penalty toast would teach a rule that isn't there).
+      if (deducted > 0) {
+        const meanX = lostCubes.reduce((s, c) => s + c.x, 0) / lost;
+        const minY = Math.min(...lostCubes.map((c) => c.y));
+        this.effects.push({ kind: "penalty", x: meanX, y: minY - 20, amount: deducted, t0: now });
+      }
     }
 
     // Broke-lose: the countdown STARTS only once we can't afford another shot

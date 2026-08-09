@@ -26,7 +26,7 @@ import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
-  volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED,
+  volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -58,7 +58,7 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal,
+  contractEndModal, coachSteps,
 } from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
@@ -2156,6 +2156,33 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "a full row of standard shipments still clears (the baseline is intact)",
     updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
   );
+
+  // ---- The penalty path reports WHERE the cargo was lost ------------------
+  //
+  // game.ts spawns the "−$" penalty FX at the blinked-out cubes' centroid, so
+  // updateBlinking has to hand back positions, not just a count — an FX at
+  // (0,0) would read as noise rather than a consequence, which is the exact
+  // failure the penalty toast exists to fix (a fine the player only ever met
+  // in the end screen's tally read as a hidden rule).
+  {
+    const blink = buildRow(allStd.slice(0, 2));
+    const [a, b] = blink.cubes;
+    const ax = a.body.position.x, ay = a.body.position.y;
+    a.blinkStart = 0; // long expired against now=10_000 below
+    const lost = updateBlinking(blink.phys.world, blink.cubes, 10_000, []);
+    check("a blinked-out cube reports its last position",
+      lost.length === 1 && lost[0].x === ax && lost[0].y === ay);
+    check("cubes not yet blinking are untouched",
+      blink.cubes.length === 1 && blink.cubes[0] === b);
+    // The tutorial teaches the fine with the bay's real number on the card —
+    // same rule as every other coach step, and the reason the copy can never
+    // drift from the level it narrates.
+    // "fines you $N", not a bare "$N" — bay 1's launch cost is also $25, so a
+    // loose match would pass with the fine sentence deleted.
+    const economy = coachSteps(rowLevel).map((s) => s.body).join(" ");
+    check("the coach names the lost-cargo fine",
+      economy.includes(`fines you $${rowLevel.penaltyPerLostPiece}`));
+  }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic
   // is only correct relative to the anchor its CALLER passes, so the property
