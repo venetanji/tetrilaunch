@@ -38,6 +38,16 @@ export function createPhysics(level: LevelConfig): PhysicsWorld {
   // A couple of extra solver iterations keep stacked cubes from sinking.
   engine.positionIterations = 8;
   engine.velocityIterations = 8;
+  // Resting cubes sleep. Profiled on device (OnePlus 12, 2026-08-09, ~265
+  // cubes / ~700 pairs): narrowphase + solver over the RESTING pile was ~73%
+  // of the frame loop at 7.6ms/step — the sweep-telemetry spec's "measure
+  // first" bar for this switch. Matter skips detection and solving for
+  // sleeping pairs, but it also never wakes a sleeping body that a
+  // kinematically-moved static (the compactor) is about to plow through, or
+  // whose support was deleted outright — every mutation path that can do
+  // either owes an explicit wake. Those live in game.ts (compactor band,
+  // detonations, bond breaker) and lineClear.ts (wakeNear at every removal).
+  engine.enableSleeping = true;
 
   const world = engine.world;
 

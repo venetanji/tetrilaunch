@@ -27,16 +27,17 @@ import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
+  markLostPieces,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
 import {
-  applyUpgrades, newTiers, nextTierCost, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, recordContractClear, recordRunEnd, safeLoadout,
-  tierSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
+  tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, type InstallDef, type MetaState,
@@ -419,11 +420,24 @@ section("Installs — what salvage buys (meta.ts)");
 
   // Refit prices tiers 2-3 only. Tier 0 used to render a live 20-scrap button
   // that tapped to nothing once run.ts stopped letting scrap install.
-  const stockRefit = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: newTiers() });
+  // Mark 2 here so the full six-card menu renders — Mark 1's focused stop is
+  // pinned separately below.
+  const stockRefit = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: newTiers(), mark: 2 });
   check("an uninstalled track shows no refit button",
     stockRefit.includes("Not installed") && !stockRefit.includes(`data-upgrade="reactor"`));
-  const oneUp = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 } });
+  const oneUp = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 2 });
   check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
+
+  // MARK-1 FOCUS: the first tier's refit stops offer only Reactor Output —
+  // the run tuning assumes its three tiers get built (upgrades.ts's
+  // refitTracks), and one card makes the stop a purchase, not a dilemma.
+  check("refitTracks(1) offers only the reactor",
+    refitTracks(1).length === 1 && refitTracks(1)[0].id === "reactor");
+  check("refitTracks(2) opens the full yard", refitTracks(2).length === UPGRADES.length);
+  const mark1 = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 1 });
+  check("a Mark-1 stop renders exactly one card",
+    (mark1.match(/refit-card__hdr/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
+  check("a Mark-1 stop says why the yard is short", mark1.includes("opens at Mark 2"));
 }
 
 // ---------------------------------------------------------------------------
@@ -725,13 +739,15 @@ section("Pattern Contracts (contracts.ts)");
   check("tier award rises with tier", payoutMonotone);
   check("award clamps below tier 1", tierSalvage(0) === tierSalvage(1));
 
-  // A Contract clear pays NOTHING by itself — that is the whole reform. The
-  // first completion (tier 1) must still be transformative: it has to fund at
-  // least two entry installs, or the tree's on-ramp is out of reach of the
-  // player who just proved themselves against a full tier.
+  // A Contract clear pays its MILESTONE SHARE and nothing more (see meta.ts's
+  // tier milestone notes — the once-ever and at-tier rules are what keep the
+  // re-timed trickle grind-proof). The full tier-1 award must still be
+  // transformative: it has to fund at least two entry installs, or the tree's
+  // on-ramp is out of reach of the player who just proved themselves against
+  // a full tier.
   const cheapestInstall = Math.min(...INSTALLS.map((i) => i.cost));
   check(
-    `tier 1 completion funds at least two entry installs (${TIER_SALVAGE_BASE} vs ${cheapestInstall}×2)`,
+    `the tier 1 award funds at least two entry installs (${TIER_SALVAGE_BASE} vs ${cheapestInstall}×2)`,
     TIER_SALVAGE_BASE >= cheapestInstall * 2,
   );
   // Requiring exactly the daily board is deliberate: "the 3 contracts" is one
@@ -754,6 +770,23 @@ section("Pattern Contracts (contracts.ts)");
   const ticked = contractsScreen({ contracts: board, tier: 1, cleared: [board[1].id] });
   const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
+
+  // The tier status is a body-font line, not an eyebrow suffix — the long
+  // suffix wrapped on a landscape phone and dropped an orphaned "♻ 60" into
+  // the heading. It quotes the MILESTONE share (what one clear banks now),
+  // not the old completion-only award.
+  const withProgress = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+  });
+  check(
+    "the board quotes the per-clear milestone share",
+    withProgress.includes("each first clear banks") &&
+      withProgress.includes(`♻ ${tierMilestoneSalvage(1)}`),
+  );
+  check(
+    "the eyebrow no longer carries the wrapping progress suffix",
+    !withProgress.includes("both halves complete the tier for"),
+  );
   check("its slot number is replaced by the tick", ticked.includes(">✓<"));
   check("an unplayed board shows no ticks", !untouched.includes("contract-card--done"));
   check(
@@ -780,7 +813,7 @@ section("Pattern Contracts (contracts.ts)");
     name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
     launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
     cubesWasted: 0, salvageTotal: 66,
-    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60 },
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
   };
   const ceWin = contractEndModal({
     ...endOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: null },
@@ -1043,32 +1076,60 @@ section("Draft gating (mods.ts + meta.ts)");
 }
 
 // ---------------------------------------------------------------------------
-section("Tier completion is the only salvage source (meta.ts)");
+section("Tier milestones pay the salvage (meta.ts)");
 // ---------------------------------------------------------------------------
 {
   const board = (tier: number) =>
     Array.from({ length: TIER_CONTRACTS_REQUIRED }, (_, i) => ({ id: `t${tier}-c${i}`, tier }));
+  const share = tierMilestoneSalvage(1);
 
-  // Neither half alone completes a tier. The run win ticks its half and pays
-  // nothing; a full board of Contracts ticks the other half and pays nothing.
+  // The on-ramp the milestone re-timing exists for: ONE at-tier Contract must
+  // fund the cheapest entry install (the Reactor), or the loop has no entry
+  // point — see meta.ts's tier milestone notes for the deadlock this fixes.
+  const cheapest = Math.min(...INSTALLS.map((i) => i.cost));
+  check(
+    `one tier-1 milestone funds the cheapest install (${share} vs ${cheapest})`,
+    share >= cheapest,
+  );
+
+  // Each half pays its share the moment it lands — but completes nothing alone.
   const runOnly = recordRunEnd(newMeta(), 1, true, 10);
-  check("a won run alone completes no tier", runOnly.completedTier === null && runOnly.salvage === 0);
+  check("a won run alone completes no tier", runOnly.completedTier === null);
   check("the run half is recorded", runOnly.meta.tierRunDone);
-  check("a run alone banks no salvage", runOnly.meta.salvage === 0);
+  check(
+    "a first at-tier win banks its milestone share",
+    runOnly.salvage === share && runOnly.meta.salvage === share,
+  );
 
   let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
-  for (const c of board(1)) contractsOnly = { ...recordContractClear(contractsOnly.meta, c) };
+  for (const c of board(1)) {
+    const r = recordContractClear(contractsOnly.meta, c);
+    check(`an at-tier first clear banks its share (${r.salvage})`, r.salvage === share);
+    contractsOnly = r;
+  }
   check("a full board alone completes no tier", contractsOnly.completedTier === null);
   check(
     "the contract half is recorded",
     contractsOnly.meta.tierContracts === TIER_CONTRACTS_REQUIRED,
   );
+  check(
+    "a fourth at-tier clear ticks and pays nothing",
+    (() => {
+      const extra = recordContractClear(contractsOnly.meta, { id: "t1-extra", tier: 1 });
+      return extra.firstClear && extra.salvage === 0 &&
+        extra.meta.tierContracts === TIER_CONTRACTS_REQUIRED;
+    })(),
+  );
 
-  // Both halves together: the tier completes, pays its award, raises the Mark,
-  // and resets both counters for the next tier — in either order.
+  // Both halves together: the tier completes, the Mark rises, and the TOTAL
+  // banked across all milestones + the completion remainder is exactly the
+  // tier award — the re-timing must never grow the ladder's payout.
   const both = recordRunEnd(contractsOnly.meta, 1, true, 10);
   check("run + contracts completes tier 1", both.completedTier === 1);
-  check("completion pays the tier award", both.salvage === tierSalvage(1) && both.meta.salvage === tierSalvage(1));
+  check(
+    "a tier pays exactly its award across all milestones",
+    both.meta.salvage === tierSalvage(1),
+  );
   check("completion raises the Mark", both.meta.mark === 1 && markUnlocked(both.meta) === 2);
   check("completion resets both halves", !both.meta.tierRunDone && both.meta.tierContracts === 0);
 
@@ -1079,18 +1140,28 @@ section("Tier completion is the only salvage source (meta.ts)");
     other = r.meta; last = r.completedTier;
   }
   check("the completing event can be a Contract", last === 1);
+  check("the tier total is order-independent", other.salvage === tierSalvage(1));
 
   // What does NOT count: a duplicate Contract id, a Contract from another
   // tier, a lost run, and a won run flown at a Mark below the current tier.
   const dup = recordContractClear(both.meta, { id: "t1-c0", tier: 2 });
-  check("a replayed Contract counts nothing", !dup.firstClear && dup.meta.tierContracts === 0);
+  check(
+    "a replayed Contract counts nothing",
+    !dup.firstClear && dup.meta.tierContracts === 0 && dup.salvage === 0,
+  );
   const offTier = recordContractClear(both.meta, { id: "elsewhere", tier: 9 });
-  check("an off-tier Contract logs but does not tick", offTier.firstClear && offTier.meta.tierContracts === 0);
+  check(
+    "an off-tier Contract logs but ticks and pays nothing",
+    offTier.firstClear && offTier.meta.tierContracts === 0 && offTier.salvage === 0,
+  );
   const lost = recordRunEnd(newMeta(), 1, false, 4);
   check("a lost run ticks nothing", !lost.meta.tierRunDone && lost.meta.salvage === 0);
   check("a lost run still counts as a run", lost.meta.runs === 1 && lost.meta.bestBay === 4);
   const stale = recordRunEnd(both.meta, 1, true, 10);
-  check("beating an old Mark does not tick the current tier", !stale.meta.tierRunDone);
+  check(
+    "beating an old Mark ticks and pays nothing",
+    !stale.meta.tierRunDone && stale.salvage === 0,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -2342,6 +2413,119 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("Sleeping (engine.ts enableSleeping + the wake rules that make it safe)");
+// ---------------------------------------------------------------------------
+{
+  const DT = 1000 / 60;
+  const cubeAt = (g: Game, x: number, y: number): Cube => {
+    const body = Matter.Bodies.rectangle(x, y, CELL, CELL, {
+      friction: 0.5, frictionAir: 0.012, restitution: 0.05,
+      density: 0.001, label: "cube", chamfer: { radius: 3 },
+    });
+    Matter.Composite.add(g.phys.world, body);
+    const cube: Cube = {
+      body, type: "O", color: "#ffd500", blinkStart: null,
+      material: "standard", struck: true,
+    };
+    g.cubes.push(cube);
+    return cube;
+  };
+
+  // 1. A settled stack actually falls asleep. Placed right of the bar's
+  //    full-advance stop so the wake band never touches it. This is the check
+  //    that enableSleeping is really on — everything below is about waking.
+  const calm = { ...makeBaseLevel(0), timeLimitSec: 0, windMax: 0 };
+  {
+    const g = new Game(calm);
+    const floorY = WORLD.height - CELL / 2;
+    const x = WALL_INNER - CELL / 2 - CELL; // one slot off the wall
+    for (let r = 0; r < 3; r++) cubeAt(g, x, floorY - r * CELL);
+    let now = 0;
+    for (let i = 0; i < 240; i++) { now += DT; g.update(now); }
+    check(
+      "a settled stack sleeps within 4s",
+      g.cubes.every((c) => c.body.isSleeping),
+      g.cubes.map((c) => c.body.isSleeping).join(","),
+    );
+    g.destroy();
+  }
+
+  // 2. The advancing bar WAKES a sleeping cube in its path and pushes it,
+  //    instead of tunneling through it (static setPosition motion generates
+  //    no collision against a sleeping body — only wakeCompactorBand saves
+  //    this). The cube starts mid-corridor, forced asleep, and must end up
+  //    pushed at least a couple of cells toward the wall by the press.
+  {
+    const g = new Game(calm);
+    const face0 = g.compactor.leftX + g.compactor.width / 2;
+    const startX = face0 + CELL * 2;
+    const cube = cubeAt(g, startX, WORLD.height - CELL / 2);
+    Matter.Sleeping.set(cube.body, true);
+    let now = 0;
+    for (let i = 0; i < 600 && g.compactor.strokes < 1; i++) { now += DT; g.update(now); }
+    check("one press stroke completed", g.compactor.strokes >= 1);
+    check(
+      "the press wakes and pushes a sleeping cube (no tunneling)",
+      cube.body.position.x > startX + CELL,
+      `x ${startX.toFixed(0)} -> ${cube.body.position.x.toFixed(0)}`,
+    );
+    g.destroy();
+  }
+
+  // 3. Removing a cube wakes what rested on it. Two-cube tower, both forced
+  //    asleep, bottom blinked out — the survivor must wake (and then fall),
+  //    not sleep on air. Drives updateBlinking directly, the same call
+  //    Game.update makes.
+  {
+    const g = new Game(calm);
+    const floorY = WORLD.height - CELL / 2;
+    const x = WALL_INNER - CELL / 2 - CELL * 3;
+    const bottom = cubeAt(g, x, floorY);
+    const top = cubeAt(g, x, floorY - CELL);
+    Matter.Sleeping.set(bottom.body, true);
+    Matter.Sleeping.set(top.body, true);
+    bottom.blinkStart = 0;
+    const lost = updateBlinking(g.phys.world, g.cubes, 10_000, g.constraints);
+    check("the blinked-out cube was removed", lost.length === 1 && g.cubes.length === 1);
+    check(
+      "its removal wakes the cube that rested on it",
+      !top.body.isSleeping,
+    );
+    g.destroy();
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("Lost-piece mark is revocable (lineClear.ts markLostPieces)");
+// ---------------------------------------------------------------------------
+{
+  const cfg = makeBaseLevel(0);
+  const phys = createPhysics(cfg);
+  const comp = new Compactor(phys.world, cfg);
+  const cutoff = comp.leftX + comp.width / 2 - CELL / 2;
+  const body = Matter.Bodies.rectangle(cutoff - 60, WORLD.height - CELL / 2, CELL, CELL, {
+    friction: 0.5, frictionAir: 0.012, restitution: 0.05,
+    density: 0.001, label: "cube", chamfer: { radius: 3 },
+  });
+  Matter.Composite.add(phys.world, body);
+  const cube: Cube = {
+    body, type: "I", color: "#fff", blinkStart: null, material: "standard", struck: true,
+  };
+  const cubes = [cube];
+
+  markLostPieces(cubes, comp, 1000);
+  check("a stranded resting cube is marked", cube.blinkStart === 1000);
+  // A break/shove carries it back into the bay before the blink expires — the
+  // sentence must be lifted, not executed where the cube no longer is.
+  Matter.Body.setPosition(body, { x: cutoff + 100, y: body.position.y });
+  markLostPieces(cubes, comp, 1100);
+  check("carried back into the bay, the mark is lifted", cube.blinkStart === null);
+  Matter.Body.setPosition(body, { x: cutoff - 60, y: body.position.y });
+  markLostPieces(cubes, comp, 1200);
+  check("re-stranded, it re-marks with a fresh blink", cube.blinkStart === 1200);
 }
 
 console.log(

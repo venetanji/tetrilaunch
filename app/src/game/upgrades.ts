@@ -203,6 +203,25 @@ export function newTiers(): UpgradeTiers {
   return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 };
 }
 
+/**
+ * Which tracks a REFIT stop offers at `mark`.
+ *
+ * Mark 1 offers ONLY Reactor Output. Tier 1 is the tier the game teaches its
+ * economy on, and the reactor IS the economy track — the tuning assumes its
+ * three tiers get built across the run's three stops (playtest call,
+ * 2026-08-09: a stock rig can't reliably finish the Mark-1 run without
+ * them). A first-run player shown six systems spreads thin scrap across all
+ * of them and builds none; one card makes the stop a purchase instead of a
+ * dilemma, and pairs with the Workshop on-ramp (meta.ts's INSTALLS — the
+ * 15-salvage Reactor install is what makes the card raisable at all, since
+ * refits refuse tier-0 tracks; see run.ts's buyUpgrade). The full menu opens
+ * at Mark 2, where the player has both the scrap income and the context to
+ * spend it.
+ */
+export function refitTracks(mark: number): UpgradeDef[] {
+  return mark <= 1 ? UPGRADES.filter((u) => u.id === "reactor") : UPGRADES;
+}
+
 export function upgradeById(id: string): UpgradeDef | undefined {
   return UPGRADES.find((u) => u.id === id);
 }

@@ -17,7 +17,7 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .filter((h) => (ratchets[h.id] ?? 0) > 0)
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
-import { MAX_TIER, nextTierCost, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
+import { MAX_TIER, nextTierCost, refitTracks, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
   buyInstall, markUnlocked, recordContractClear, recordRunEnd, safeLoadout,
   tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
@@ -60,8 +60,16 @@ type AppState =
 
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
- *  to wall-clock time — see the loop() accumulator for why this is capped. */
-const MAX_CATCHUP_STEPS = 4;
+ *  to wall-clock time — see the loop() accumulator for why this is capped.
+ *
+ *  2, down from 4: profiled at a full bay (OnePlus 12, 2026-08-09), one step
+ *  costs ~7.6ms, so a 4-step frame is ~30ms of physics before a pixel is
+ *  drawn — deep enough that the catch-up itself keeps missing vsync and the
+ *  loop LATCHES in multi-step frames until the pile shrinks. At 2 the worst
+ *  frame owes ~15ms of physics: a device that falls behind dilates time a
+ *  little sooner, but its frames stay short enough to recover next vsync,
+ *  which reads as smooth-but-briefly-slow instead of stuttering. */
+const MAX_CATCHUP_STEPS = 2;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -471,6 +479,7 @@ class App {
               nextBayName: makeBaseLevel(this.run.levelIndex).name,
               scrap: this.run.scrap,
               tiers: this.run.tiers,
+              mark: this.run.mark,
             });
         }
         break;
@@ -1043,6 +1052,10 @@ class App {
    *  no-op — the button was already disabled, so this is belt-and-braces. */
   private onBuyUpgrade(id: string): void {
     if (this.state !== "refit" || !this.run) return;
+    // Only tracks this Mark's refit actually offers (upgrades.ts's
+    // refitTracks) — the screen never renders the others, so this is
+    // belt-and-braces against a stale or hand-edited data-upgrade.
+    if (!refitTracks(this.run.mark).some((u) => u.id === id)) return;
     const tier = this.run.tiers[id as UpgradeId] ?? 0;
     const cost = nextTierCost(tier);
     if (cost === null) return;
@@ -1074,6 +1087,7 @@ class App {
       nextBayName: makeBaseLevel(this.run.levelIndex).name,
       scrap: this.run.scrap,
       tiers: this.run.tiers,
+      mark: this.run.mark,
     });
     const freshGrid = tmp.querySelector("#refit-grid");
     const freshScrap = tmp.querySelector("#refit-scrap");

@@ -11,15 +11,25 @@
  *   SALVAGE     forever.  Spent in the Workshop on UNLOCKS — things that
  *                         change what a future run can even attempt.
  *
- * Salvage is awarded on TIER COMPLETION and nowhere else (playtest call,
- * 2026-08-08 — the per-run and per-contract trickles made the tree trivial).
- * A tier — the Mark being flown — completes when BOTH halves are done at that
- * tier: the Deep Run beaten AND TIER_CONTRACTS_REQUIRED Contracts cleared.
- * Completing it banks one salvage award (tierSalvage), raises the Mark, and
- * is the only gate to the next tier. Nothing here makes a future run
- * numerically stronger for free — every unlock either adds an OPTION (a new
- * modifier enters the draft pool, a new consumable exists) or front-loads a
- * choice you'd otherwise make later.
+ * Salvage is awarded in TIER MILESTONES (see tierMilestoneSalvage): each of
+ * the tier's TIER_CONTRACTS_REQUIRED first-clear Contracts and its Deep Run
+ * win banks an equal share of the tier's award the moment it lands, and
+ * completion pays only the rounding remainder while raising the Mark. The
+ * PER-TIER TOTAL is unchanged from the 2026-08-08 completion-only reform —
+ * milestones re-time the award, they don't grow it — so the tree still
+ * cannot outrun the ladder. What the re-timing fixes is a deadlock that
+ * reform shipped (found on device, 2026-08-09, sitting on 8 salvage against
+ * a 15-salvage Reactor install): completion-only pay meant no salvage
+ * without winning a run, but a stock Mark-1 rig has no installs, refit
+ * stops refuse tier-0 tracks (run.ts's buyUpgrade), and the run is tuned to
+ * need the economy track — the loop had no entry point. Now the natural
+ * on-ramp works: clear a Contract, bank a share, install Reactor Output,
+ * and fly a rig the refit stops can actually raise. A tier completes when
+ * BOTH halves are done at that tier, exactly as before, and completion is
+ * still the only thing that raises the Mark. Nothing here makes a future
+ * run numerically stronger for free — every unlock either adds an OPTION (a
+ * new modifier enters the draft pool, a new consumable exists) or
+ * front-loads a choice you'd otherwise make later.
  */
 
 import {
@@ -356,88 +366,118 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
 }
 
 /* -------------------------------------------------------------------------
- * TIER COMPLETION — the only salvage source.
+ * TIER MILESTONES — how salvage arrives.
  *
- * A tier is the Mark currently flown (markUnlocked). It completes when both
- * halves are done AT THAT TIER:
+ * A tier is the Mark currently flown (markUnlocked). It has
+ * TIER_CONTRACTS_REQUIRED + 1 milestones — the tier's first-clear Contracts
+ * and its Deep Run win — and each banks an equal share of tierSalvage(tier)
+ * the moment it lands (tierMilestoneSalvage). Completing the tier (both
+ * halves done AT THAT TIER) pays only the rounding remainder, raises the
+ * Mark, and resets the counters. The per-tier total is exactly
+ * tierSalvage(tier) however the milestones are ordered.
  *
- *   - the Deep Run beaten (all RUN_LEVELS bays) — recordRunEnd
- *   - TIER_CONTRACTS_REQUIRED first-clear Contracts — recordContractClear
+ * Why shares rather than one award at completion (the 2026-08-08 shape):
+ * completion-only pay had no entry point. The intended first purchase is a
+ * 15-salvage entry install (Reactor Output — INSTALLS below), but a stock
+ * rig earns no salvage until it WINS a run, and refit stops refuse tracks
+ * the ship doesn't carry (run.ts's buyUpgrade) — so the player the on-ramp
+ * exists for was locked out of it. The intended loop is Contracts FIRST:
+ * tier 1's share is 60/4 = 15, exactly the entry install, so one Contract
+ * clear funds the Reactor and the Deep Run is attempted with an economy
+ * the refit stops can build on.
  *
- * Completion pays tierSalvage(tier), raises the Mark, and resets both
- * counters for the next tier. This replaces the old per-run floor and
- * per-contract payouts wholesale: with those trickles the unlock tree was
- * finishing itself (playtest, 2026-08-08), and worse, neither payout said
- * anything about the player being READY for the next rung. Requiring the run
- * and the Contracts together makes the award and the gate the same event.
+ * The grind-proofing survives re-timing intact: a Contract still pays only
+ * on its once-ever first clear (claimedContracts), only at the current
+ * tier, and only for the first TIER_CONTRACTS_REQUIRED of them — so a tier
+ * still yields tierSalvage(tier) total no matter how many Contracts are
+ * played, and Unlimited keeps selling throughput, not salvage.
  *
  * Sizing: awards sum to 1,500 across the ten-tier ladder against a ~1,600
  * salvage tree (unlocks 1,400 + installs 195), so finishing the tree means
- * finishing the ladder — the tree can no longer outrun the exam. Tier 1's 60
- * buys two entry installs or one rank-1 unlock, which keeps the first
- * completion transformative rather than a down payment.
+ * finishing the ladder — the tree can no longer outrun the exam.
  * ---------------------------------------------------------------------- */
 export const TIER_CONTRACTS_REQUIRED = 3;
 export const TIER_SALVAGE_BASE = 60;
 export const TIER_SALVAGE_PER_TIER = 20;
 
-/** Salvage banked for completing `tier`. */
+/** TOTAL salvage a tier yields across its milestones + completion. */
 export function tierSalvage(tier: number): number {
   const t = Math.max(1, Math.floor(tier));
   return TIER_SALVAGE_BASE + (t - 1) * TIER_SALVAGE_PER_TIER;
 }
 
+/** Salvage banked by ONE milestone of `tier` — an at-tier first-clear
+ *  Contract, or the tier's Deep Run win. The floor's remainder is paid at
+ *  completion so the tier total stays exactly tierSalvage(tier). */
+export function tierMilestoneSalvage(tier: number): number {
+  return Math.floor(tierSalvage(tier) / (TIER_CONTRACTS_REQUIRED + 1));
+}
+
 /** What a tier-affecting event did, alongside the updated meta. `completedTier`
  *  is the tier that just finished (null when progress merely ticked), and
- *  `salvage` its award — 0 unless a completion fired. */
+ *  `salvage` is what THIS EVENT banked — a milestone share, the completion
+ *  remainder, or both when one event is also the tier's last milestone. */
 export interface TierResult {
   meta: MetaState;
   completedTier: number | null;
   salvage: number;
 }
 
-/** Advance the Mark if the current tier's two halves are both done. Shared exit
- *  for recordRunEnd/recordContractClear so the completion rule exists once. */
+/** Advance the Mark if the current tier's two halves are both done, paying the
+ *  award's rounding remainder (the shares themselves were paid as their
+ *  milestones landed — see the recorders below). Shared exit for
+ *  recordRunEnd/recordContractClear so the completion rule exists once. */
 function advanceTier(meta: MetaState): TierResult {
   if (!meta.tierRunDone || meta.tierContracts < TIER_CONTRACTS_REQUIRED) {
     return { meta, completedTier: null, salvage: 0 };
   }
   const tier = markUnlocked(meta);
-  const award = tierSalvage(tier);
+  const remainder =
+    tierSalvage(tier) - tierMilestoneSalvage(tier) * (TIER_CONTRACTS_REQUIRED + 1);
   return {
     meta: {
       ...meta,
       mark: Math.min(MARK_COUNT, meta.mark + 1),
-      salvage: meta.salvage + award,
+      salvage: meta.salvage + remainder,
       tierRunDone: false,
       tierContracts: 0,
     },
     completedTier: tier,
-    salvage: award,
+    salvage: remainder,
   };
 }
 
 /**
  * Record a finished Deep Run. Every run bumps the lifetime counters; a WON run
- * at the current tier marks the run half of the tier done. `runMark` must be
- * the Mark the run was flown at (RunState.mark) — a stale save replaying an
+ * at the current tier marks the run half of the tier done and banks that
+ * milestone's salvage share — once per tier, on the false→true edge, so
+ * re-winning an already-ticked half pays nothing. `runMark` must be the Mark
+ * the run was flown at (RunState.mark) — a stale save replaying an
  * already-beaten Mark cannot tick the current tier.
  */
 export function recordRunEnd(meta: MetaState, runMark: number, won: boolean, bayReached: number): TierResult {
+  const tier = markUnlocked(meta);
+  const newlyDone = !meta.tierRunDone && won && runMark === tier;
+  const share = newlyDone ? tierMilestoneSalvage(tier) : 0;
   const next: MetaState = {
     ...meta,
     runs: meta.runs + 1,
     bestBay: Math.max(meta.bestBay, bayReached),
-    tierRunDone: meta.tierRunDone || (won && runMark === markUnlocked(meta)),
+    salvage: meta.salvage + share,
+    tierRunDone: meta.tierRunDone || newlyDone,
   };
-  return advanceTier(next);
+  const result = advanceTier(next);
+  return { ...result, salvage: result.salvage + share };
 }
 
 /**
  * Record a Contract clear. First clears are logged forever (claimedContracts —
  * the once-ever rule the monetization note above depends on); a first clear AT
- * THE CURRENT TIER also ticks the Contract half of tier completion. Replays
- * and off-tier clears change nothing.
+ * THE CURRENT TIER also ticks the Contract half of tier completion and banks
+ * that milestone's salvage share — but only for the first
+ * TIER_CONTRACTS_REQUIRED of them, so extra at-tier clears (an Unlimited
+ * player's deep daily board) tick nothing and pay nothing. Replays and
+ * off-tier clears change nothing.
  */
 export function recordContractClear(
   meta: MetaState,
@@ -446,13 +486,18 @@ export function recordContractClear(
   if (meta.claimedContracts.includes(contract.id)) {
     return { meta, completedTier: null, salvage: 0, firstClear: false };
   }
+  const tier = markUnlocked(meta);
+  const countsForTier =
+    contract.tier === tier && meta.tierContracts < TIER_CONTRACTS_REQUIRED;
+  const share = countsForTier ? tierMilestoneSalvage(tier) : 0;
   const next: MetaState = {
     ...meta,
     claimedContracts: [...meta.claimedContracts, contract.id],
-    tierContracts:
-      contract.tier === markUnlocked(meta) ? meta.tierContracts + 1 : meta.tierContracts,
+    salvage: meta.salvage + share,
+    tierContracts: countsForTier ? meta.tierContracts + 1 : meta.tierContracts,
   };
-  return { ...advanceTier(next), firstClear: true };
+  const result = advanceTier(next);
+  return { ...result, salvage: result.salvage + share, firstClear: true };
 }
 
 /** Snapshot of the current tier's completion state — one shape for the menu
@@ -463,8 +508,11 @@ export interface TierProgress {
   runDone: boolean;
   contracts: number;
   needed: number;
-  /** Salvage that completing this tier will bank. */
+  /** TOTAL salvage this tier yields across all its milestones. */
   award: number;
+  /** Salvage ONE milestone banks (tierMilestoneSalvage) — what the Contract
+   *  board quotes per clear, so the screens can't re-derive the split. */
+  milestone: number;
 }
 
 export function tierProgressFor(meta: MetaState): TierProgress {
@@ -475,6 +523,7 @@ export function tierProgressFor(meta: MetaState): TierProgress {
     contracts: Math.min(meta.tierContracts, TIER_CONTRACTS_REQUIRED),
     needed: TIER_CONTRACTS_REQUIRED,
     award: tierSalvage(tier),
+    milestone: tierMilestoneSalvage(tier),
   };
 }
 

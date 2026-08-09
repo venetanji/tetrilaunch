@@ -23,6 +23,7 @@ import {
   updateBlinking,
   resetLineClear,
   settleZoneCubes,
+  wakeNear,
   type ClearResult,
 } from "./lineClear";
 import type { LevelConfig } from "./level";
@@ -556,10 +557,10 @@ export class Game {
           this.pendingWelds.push([a.body, b.body]);
         }
       }
-      // IMPACT_MIN filters the permanent low-level jitter of a settled pile —
-      // Matter runs without enableSleeping (see docs/NATIVE.md's note on
-      // residual motion), so resting cubes keep reporting contacts forever and
-      // an unfiltered hook would fire every step of every bay.
+      // IMPACT_MIN filters the low-level contact chatter of the AWAKE part of
+      // the pile. Sleeping (engine.ts) quiets fully-settled cubes, but the
+      // zone near the moving bar is deliberately kept awake (see
+      // wakeCompactorBand), and those cubes report soft contacts every step.
       if (hardest >= IMPACT_MIN) {
         this.events.onImpact?.(Math.min(1, (hardest - IMPACT_MIN) / (IMPACT_FULL - IMPACT_MIN)));
       }
@@ -699,6 +700,11 @@ export class Game {
     }
     this.constraints.length = 0;
     this.constraints.push(...survivors);
+
+    // Every joint on the field just vanished, so any cube could now be
+    // unsupported — a sleeping overhang that was hanging off its joints would
+    // otherwise stay frozen in the air. Field-wide action, field-wide wake.
+    for (const cube of this.cubes) Matter.Sleeping.set(cube.body, false);
 
     let sx = 0;
     let sy = 0;
@@ -973,6 +979,15 @@ export class Game {
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
     // to retreat), so this records precisely the full-advance ticks.
     if (this.compactor.x >= this.compactor.rightX) this.lastFullAdvanceStep = this.stepCount;
+    // The bar is a STATIC body moved by setPosition, so matter's sleeping
+    // machinery never sees it coming: static-vs-sleeping pairs are skipped by
+    // collision detection outright, and a sleeping cube in its path would be
+    // plowed through, not pushed. Wake everything in the band the bar
+    // occupies (plus a cell of warning in x, and a cell above its top so
+    // cubes RIDING the bar fall off the moment it slides out from under
+    // them). Contact propagation does the rest — matter wakes a sleeping
+    // body when an awake one presses on it.
+    this.wakeCompactorBand();
     this.resolveVolatile();
     this.resolveTarWelds();
     updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
@@ -1173,6 +1188,31 @@ export class Game {
     // before reading g.trajectory.
   }
 
+  /** Wake every sleeping body inside (or one cell ahead of / above) the
+   *  compactor's swept band — see the call site in update() for why the bar
+   *  cannot do this itself. Runs every step; Sleeping.set on an awake body is
+   *  a no-op, and the scan is two comparisons per cube. Bombs are included:
+   *  a sleeping bomb in the bar's path would be tunneled through the same
+   *  way, and its collision fuse would never trip. */
+  private wakeCompactorBand(): void {
+    const c = this.compactor;
+    const halfX = c.width / 2 + CELL;
+    const topY = c.top - CELL;
+    for (const cube of this.cubes) {
+      const b = cube.body;
+      if (!b.isSleeping) continue;
+      if (b.position.y < topY) continue;
+      if (Math.abs(b.position.x - c.x) < halfX) Matter.Sleeping.set(b, false);
+    }
+    for (const bomb of this.liveBombs) {
+      const b = bomb.body;
+      if (!b.isSleeping) continue;
+      if (b.position.y >= topY && Math.abs(b.position.x - c.x) < halfX) {
+        Matter.Sleeping.set(b, false);
+      }
+    }
+  }
+
   /** Nudge every AIRBORNE cube and live bomb's x-velocity by the current wind
    *  reading (windNow) — a velocity nudge, i.e. an acceleration applied over
    *  one physics step, matching how predictTrajectory integrates gravity/wind.
@@ -1276,17 +1316,22 @@ export class Game {
     let cx = 0;
     let cy = 0;
     let n = 0;
+    const gone: { x: number; y: number }[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const b = this.cubes[i].body;
       if (!this.pendingBlast.has(b)) continue;
       cx += b.position.x;
       cy += b.position.y;
       n += 1;
+      gone.push({ x: b.position.x, y: b.position.y });
       removeConstraintsFor(this.phys.world, this.constraints, b);
       Matter.Composite.remove(this.phys.world, b);
       this.cubes.splice(i, 1);
     }
     this.pendingBlast.clear();
+    // Same un-supported-survivor wake as detonate — a volatile pop deletes
+    // cubes out from under whatever was stacked on them.
+    for (const g of gone) wakeNear(this.cubes, g.x, g.y);
     if (n) {
       this.effects.push({
         kind: "explosion", x: cx / n, y: cy / n,
@@ -1341,24 +1386,34 @@ export class Game {
     const shoveR = BOMB_SHOVE_MULT * BOMB_BLAST_R;
 
     let vaporized = 0;
+    const gone: { x: number; y: number }[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const b = this.cubes[i].body;
       const dx = b.position.x - cx;
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
       if (d <= BOMB_BLAST_R) {
+        gone.push({ x: b.position.x, y: b.position.y });
         removeConstraintsFor(this.phys.world, this.constraints, b);
         Matter.Composite.remove(this.phys.world, b);
         this.cubes.splice(i, 1);
         vaporized += 1;
       } else if (d <= shoveR) {
         const mag = BOMB_SHOVE_SPEED * (1 - d / shoveR);
+        // A sleeping body ignores setVelocity (sleeping skips integration) —
+        // wake it or the shove is silently lost on exactly the settled pile
+        // the bomb was aimed at.
+        Matter.Sleeping.set(b, false);
         Matter.Body.setVelocity(b, {
           x: b.velocity.x + (dx / d) * mag,
           y: b.velocity.y + (dy / d) * mag,
         });
       }
     }
+    // Survivors above a vaporized cube got no shove (outside shoveR) and no
+    // contact cue (their support just ceased to exist) — wake them so they
+    // fall. See lineClear.ts's wakeNear note.
+    for (const g of gone) wakeNear(this.cubes, g.x, g.y);
 
     Matter.Composite.remove(this.phys.world, bombBody);
     this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
