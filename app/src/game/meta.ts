@@ -508,8 +508,11 @@ export interface TierProgress {
   runDone: boolean;
   contracts: number;
   needed: number;
-  /** Salvage that completing this tier will bank. */
+  /** TOTAL salvage this tier yields across all its milestones. */
   award: number;
+  /** Salvage ONE milestone banks (tierMilestoneSalvage) — what the Contract
+   *  board quotes per clear, so the screens can't re-derive the split. */
+  milestone: number;
 }
 
 export function tierProgressFor(meta: MetaState): TierProgress {
@@ -520,6 +523,7 @@ export function tierProgressFor(meta: MetaState): TierProgress {
     contracts: Math.min(meta.tierContracts, TIER_CONTRACTS_REQUIRED),
     needed: TIER_CONTRACTS_REQUIRED,
     award: tierSalvage(tier),
+    milestone: tierMilestoneSalvage(tier),
   };
 }
 

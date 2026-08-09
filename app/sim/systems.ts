@@ -37,7 +37,7 @@ import {
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, recordContractClear, recordRunEnd, safeLoadout,
-  tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
+  tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, type InstallDef, type MetaState,
@@ -770,6 +770,23 @@ section("Pattern Contracts (contracts.ts)");
   const ticked = contractsScreen({ contracts: board, tier: 1, cleared: [board[1].id] });
   const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
+
+  // The tier status is a body-font line, not an eyebrow suffix — the long
+  // suffix wrapped on a landscape phone and dropped an orphaned "♻ 60" into
+  // the heading. It quotes the MILESTONE share (what one clear banks now),
+  // not the old completion-only award.
+  const withProgress = contractsScreen({
+    contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
+  });
+  check(
+    "the board quotes the per-clear milestone share",
+    withProgress.includes("each first clear banks") &&
+      withProgress.includes(`♻ ${tierMilestoneSalvage(1)}`),
+  );
+  check(
+    "the eyebrow no longer carries the wrapping progress suffix",
+    !withProgress.includes("both halves complete the tier for"),
+  );
   check("its slot number is replaced by the tick", ticked.includes(">✓<"));
   check("an unplayed board shows no ticks", !untouched.includes("contract-card--done"));
   check(
@@ -796,7 +813,7 @@ section("Pattern Contracts (contracts.ts)");
     name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
     launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
     cubesWasted: 0, salvageTotal: 66,
-    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60 },
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
   };
   const ceWin = contractEndModal({
     ...endOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: null },

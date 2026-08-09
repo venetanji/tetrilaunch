@@ -1318,15 +1318,24 @@ export function contractsScreen(opts: {
       </button>`;
     })
     .join("");
+  // The tier status is its OWN line in the body font, not part of the pixel
+  // eyebrow: with the progress suffix inline, the eyebrow ran to ~90 letter-
+  // spaced glyphs, wrapped on a landscape phone, and dropped an orphaned
+  // "♻ 60" straight into the Contracts heading (seen on device, 2026-08-09).
+  // Copy states the MILESTONE economy — each first clear banks its share now
+  // (meta.ts's tierMilestoneSalvage); completion is what opens the next tier.
+  const status = opts.progress
+    ? `<p class="muted" style="margin:0">
+        <b style="color:var(--accent)">Contracts ${opts.progress.contracts}/${opts.progress.needed}${opts.progress.contracts >= opts.progress.needed ? " ✓" : ""}</b>
+        · <b>Deep Run ${opts.progress.runDone ? "✓" : "○"}</b>
+        — each first clear banks <b style="color:var(--warn)">♻ ${opts.progress.milestone}</b>; finish both halves to open Tier ${opts.progress.tier + 1}.
+      </p>`
+    : "";
   return `<div class="screen neon-backdrop">
     <div class="howto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
-          <div class="eyebrow">Tier ${opts.tier} · resets daily${
-            opts.progress
-              ? ` · ${opts.progress.contracts}/${opts.progress.needed} cleared${opts.progress.runDone ? " · run ✓" : ""} — both halves complete the tier for ♻ ${opts.progress.award}`
-              : ""
-          }</div>
+          <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
         </div>
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
@@ -1335,6 +1344,7 @@ export function contractsScreen(opts: {
         No clock, no launch costs — your supply of shipments is the only budget.
         Fail as many times as you like; nothing is lost.
       </p>
+      ${status}
       <div class="howto__grid">${cards}</div>
     </div>
   </div>`;
