@@ -235,6 +235,13 @@ data-loss fix. It also costs a Data safety declaration and a privacy-policy
 change, because progress stored against a stable ID is pseudonymous personal
 data under GDPR even though the contents are just salvage counts.
 
+**iOS is expected to differ, and it is an open check.** Android Auto Backup
+restores per app at install time; iCloud Backup restores only during a full
+device restore, so deleting and reinstalling on iOS probably does *not* bring
+progress back. That has not been measured — it needs a Mac and a device. The
+test procedure, the decision table and the options if it fails are in
+[docs/superpowers/specs/2026-08-09-progress-persistence-design.md](superpowers/specs/2026-08-09-progress-persistence-design.md).
+
 ---
 
 ## Testing purchases without Play products
