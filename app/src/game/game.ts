@@ -1163,12 +1163,14 @@ export class Game {
       this.effects = this.effects.filter((e) => now - e.t0 < FX_TTL[e.kind]);
     }
 
-    // Keep the dotted arc live against the current wind reading (~140 cheap
-    // analytic-parabola iterations, fine headless too — see cannon.ts's
-    // predictTrajectory). Aim/power haven't necessarily changed this frame,
-    // but windCur just drunk-walked (stepWind above), so the preview would
-    // otherwise silently go stale between shots.
-    this.updateTrajectory();
+    // The dotted preview arc is deliberately NOT recomputed here. It does
+    // depend on the wind reading this step advanced (stepWind above), but
+    // recomputing per physics step made every catch-up step on a slow device
+    // pay for ~140 trajectory samples nobody sees. Consumers refresh it at
+    // the rate they actually read it: the render loop (main.ts) once per
+    // drawn frame, input.ts on aim changes, shoot()/stepAutoLaunch on fire,
+    // and the sim bots (sim/bots.ts) call updateTrajectory() themselves
+    // before reading g.trajectory.
   }
 
   /** Nudge every AIRBORNE cube and live bomb's x-velocity by the current wind

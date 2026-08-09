@@ -58,6 +58,9 @@ type AppState =
   | "contracts" | "contract-end";
 
 const STEP = 1000 / 60;
+/** Most physics steps one rendered frame may run to catch the simulation up
+ *  to wall-clock time — see the loop() accumulator for why this is capped. */
+const MAX_CATCHUP_STEPS = 4;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -1174,14 +1177,26 @@ class App {
   private loop = (now: number): void => {
     const g = this.game;
     if (g && this.state === "playing" && !g.paused) {
-      let dt = now - this.last;
-      if (dt > 250) dt = 250;
-      this.acc += dt;
+      this.acc += now - this.last;
+      // Cap the catch-up backlog. The old cap (250ms of debt) let a device
+      // that missed one frame owe up to 15 physics steps the next — each
+      // frame slower than the last, the classic fixed-step death spiral, and
+      // exactly what froze the game on older phones. Bounding the debt to a
+      // few steps means a device that can't hold 60Hz plays in brief
+      // slow-motion under load and recovers, instead of spiralling.
+      if (this.acc > STEP * MAX_CATCHUP_STEPS) this.acc = STEP * MAX_CATCHUP_STEPS;
+      let stepped = false;
       while (this.acc >= STEP) {
         g.update(now);
         telemetry.sampleFunds(g.score, g.elapsedMs);
         this.acc -= STEP;
+        stepped = true;
       }
+      // The dotted arc tracks the wind, which only drifts inside update() —
+      // refresh it once per DRAWN frame rather than once per physics step
+      // (game.ts no longer recomputes it per step; aim changes refresh it
+      // through input.ts, and the sim bots refresh it themselves).
+      if (stepped) g.updateTrajectory();
       this.syncHud(g);
     }
     this.last = now;
