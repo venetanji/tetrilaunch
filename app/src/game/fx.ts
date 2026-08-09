@@ -16,6 +16,14 @@ export type FxEvent =
    *  income sources apart at a glance — that legibility is the whole point of
    *  making bombs refund in the first place. */
   | { kind: "salvage"; x: number; y: number; amount: number; t0: number }
+  /** Funds LOST to cargo that dropped out short of the compactor (see
+   *  game.ts's lost-piece step): "−$amount" sinking from where the cubes
+   *  blinked away. The expense twin of `payout` — income rises green, a
+   *  penalty sinks red — so the two money verbs read apart at a glance. The
+   *  blink alone was tried first and read as cubes merely despawning; the
+   *  player learned the penalty existed from the end screen, which is the
+   *  worst place to learn a rule. */
+  | { kind: "penalty"; x: number; y: number; amount: number; t0: number }
   /** Bay cleared: a full-field sweep + burst, spawned once when the settle
    *  window resolves into a win (see game.ts's resolveWin). The DOM banner in
    *  ui/screens.ts plays over the top of it. */
@@ -28,5 +36,6 @@ export const FX_TTL: Record<FxEvent["kind"], number> = {
   rowflash: 450,
   explosion: 600,
   salvage: 1100,
+  penalty: 1100,
   bayclear: 1400,
 };

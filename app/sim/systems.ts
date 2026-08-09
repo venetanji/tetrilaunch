@@ -26,7 +26,7 @@ import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
-  volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED,
+  volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -47,6 +47,7 @@ import {
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
+  contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
@@ -57,7 +58,7 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal,
+  contractEndModal, coachSteps,
 } from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
@@ -455,19 +456,48 @@ section("Contracts (contracts.ts)");
   let everNegativeWind = false;
   let tierOneTooWindy = false;
   let worstRatio = Infinity;
+  // The pentomino Contract is gone by design (playtest, 2026-08-09): bulk
+  // pieces pack visibly worse than tetrominoes, so those Contracts read as
+  // dice rolls rather than puzzles. Its slot went to materials, which the
+  // budget model can actually price — so the sweep also proves no bulk
+  // Contract, no slag, no material below its hazard rung, and a rate the
+  // model priced for.
+  let everBulk = false;
+  let everSlagOrUnpriced = false;
+  let everEarlyMaterial = false;
+  let everMaterialOffStd = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
+        if (c.pieceSize === "bulk") everBulk = true;
         // Pattern Contracts are bounded by their queue, not a launch budget,
         // and their feasibility is exact rather than statistical — they get
         // their own block below.
         if (c.kind !== "lines") continue;
-        const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes * PLANNING_EFFICIENCY;
+        // The material-aware efficiency IS the feasibility model now: a
+        // material Contract budgeted at plain PLANNING_EFFICIENCY would be
+        // exactly the silently-tighter Contract this sweep exists to forbid.
+        const supply =
+          c.launches * SIZE_SPEC[c.pieceSize].cubes * contractEfficiency(c.material, c.materialRate);
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
         if (supply < demand) everImpossible = true;
         if (c.windMax < 0) everNegativeWind = true;
         if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
+        if (c.material === null) {
+          if (c.materialRate !== 0) everSlagOrUnpriced = true;
+        } else {
+          if ((c.material as string) === "slag" || (c.material as string) === "standard"
+            || c.materialRate <= 0 || c.materialRate > CONTRACT_MATERIAL_CAP) {
+            everSlagOrUnpriced = true;
+          }
+          // "Contracts teach what Deep Run tests": a material may not appear
+          // in a Contract before the Mark whose Deep Run deals it.
+          if (contractMaterialTier(c.material) > tier) everEarlyMaterial = true;
+          // The budget prices waste per STD shipment, and the cannon's
+          // size-normalized roll would double a domino belt's rate.
+          if (c.pieceSize !== "std") everMaterialOffStd = true;
+        }
       }
     }
   }
@@ -475,6 +505,10 @@ section("Contracts (contracts.ts)");
   // Not merely >= 1: a Contract is the forgiving half of the game, so even the
   // tightest generated one must leave room for an imperfect attempt.
   check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.05);
+  check("no contract ships bulk pentominoes", !everBulk);
+  check("contract materials are always countable and priced", !everSlagOrUnpriced);
+  check("no material appears before its hazard rung", !everEarlyMaterial);
+  check("material contracts ship std payloads", !everMaterialOffStd);
 
   // CUBES_PER_LINE is a constant in contracts.ts but a consequence of the
   // compactor's geometry. If the min-line stop ever moves, every budget the
@@ -488,12 +522,19 @@ section("Contracts (contracts.ts)");
   // the wind rework existed to remove.
   check("tier 1 stays gentle", !tierOneTooWindy);
 
+  // A clean belt and the standard model must be the same number, or the
+  // material-aware sweep above quietly stopped testing the material-free case.
+  check(
+    "a clean belt prices at PLANNING_EFFICIENCY exactly",
+    contractEfficiency(null, 0) === PLANNING_EFFICIENCY,
+  );
+
   // The day's three must be three different problems, not three rolls of one
   // die — that's the difference between a curated board and a shuffle.
   const day = dailyContracts(4, 20260730);
   check(
     "the day's contracts differ from each other",
-    new Set(day.map((c) => `${c.pieceSize}|${c.windMax > 0}|${c.launches}|${c.goal}`)).size > 1,
+    new Set(day.map((c) => `${c.pieceSize}|${c.material}|${c.windMax > 0}|${c.launches}|${c.goal}`)).size > 1,
   );
   check("names within a day are distinct", new Set(day.map((c) => c.name)).size === day.length);
 
@@ -2003,6 +2044,40 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   }
   check("the material stream is deterministic for a seed", streamA.join() === streamB.join());
 
+  // ---- The 7-bag shipment randomizer (cannon.ts's deal) -------------------
+  //
+  // Deep Run bays used to ship a fixed I,O,T,L,J,S,Z rotation, so every run's
+  // first minute played out identically (playtest, 2026-08-09). The bag fixes
+  // the sameness while KEEPING the rotation's fairness — each type exactly
+  // once per seven shipments — and staying seeded, because a restarted bay
+  // must replay its exact deal and a shared seed must mean the same bay.
+  check("every base bay ships the bag, not a fixed rotation",
+    Array.from({ length: 10 }, (_, i) => makeBaseLevel(i)).every((l) => l.pieceSequence === null));
+
+  const bagStream = (seed: number, n: number): string => {
+    const c = new Cannon(makeBaseLevel(0), seed);
+    const out: PieceType[] = [c.currentType];
+    for (let i = 1; i < n; i++) { c.markShot(0); out.push(c.currentType); }
+    return out.join("");
+  };
+  check("the bag deals every type exactly once per seven shipments",
+    [0, 1, 2, 3].every((chunk) => {
+      const window = bagStream(555, 28).slice(chunk * 7, chunk * 7 + 7);
+      return new Set(window).size === 7;
+    }));
+  check("the deal is deterministic for a seed (a restarted bay replays it)",
+    bagStream(4242, 21) === bagStream(4242, 21));
+  check("different seeds deal different openings",
+    bagStream(1, 21) !== bagStream(2, 21));
+
+  // The fixed-sequence seam survives for the modes that declare one.
+  const fixedCfg = { ...makeBaseLevel(0), pieceSequence: ["I", "O"] as PieceType[] };
+  const fixed = new Cannon(fixedCfg, 7);
+  const fixedSeen: PieceType[] = [fixed.currentType];
+  for (let i = 0; i < 3; i++) { fixed.markShot(0); fixedSeen.push(fixed.currentType); }
+  check("an explicit pieceSequence still cycles verbatim",
+    fixedSeen.join("") === "IOIO");
+
   // SIZE NORMALIZATION — the live bug the spec found. The roll is per SHIPMENT
   // while the cost is per CUBE, so at one rate a 5-cube Bulk shipment ate 2.5x
   // the dead cubes of a 2-cube Micro one, on top of Bulk's +50% launch cost and
@@ -2039,21 +2114,39 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   }
   check("a zero mix yields only standard shipments", cleanStream.every((m) => m === "standard"));
 
-  // ---- Contracts stay clean, and that is a feasibility guarantee ----------
-
+  // ---- A Contract's belt carries exactly what it priced -------------------
+  //
+  // Contracts now ship materials (the pentomino complication's replacement),
+  // but only the ones their budget model can price: slag can never count
+  // toward a line, so it must never appear, and a pattern Contract's exact
+  // tiling admits no material at all. The belt must match the Contract's own
+  // material/rate fields byte-for-byte — those fields are what launchesFor
+  // priced, and a mix that drifts from them is a budget lying about its bay.
   let contractMixes = 0;
   let dirtyContracts = 0;
+  let materialContracts = 0;
   for (let tier = 1; tier <= 9; tier++) {
-    for (const c of dailyContracts(tier, 20260801)) {
+    for (const c of dailyContracts(tier, 20260801 + tier)) {
       const cfg = levelForContract(c, mulberry32(tier * 31 + 7));
       contractMixes++;
-      if (cfg.materialMix.slag !== 0 || cfg.materialMix.cryo !== 0) dirtyContracts++;
+      if (c.material) materialContracts++;
+      if (cfg.materialMix.slag !== 0) dirtyContracts++;
+      for (const [m, rate] of Object.entries(cfg.materialMix)) {
+        const priced = c.material === m ? c.materialRate : 0;
+        if (rate !== priced) dirtyContracts++;
+      }
+      if (c.kind === "pattern" && c.material !== null) dirtyContracts++;
     }
   }
   check(
-    "every generated Contract is material-free (its budget model assumes every cube can count)",
+    "every Contract's belt matches its priced mix, and slag never rides it",
     dirtyContracts === 0 && contractMixes > 0,
     `${contractMixes} contracts checked`,
+  );
+  check(
+    "the board actually deals material Contracts at high tiers",
+    materialContracts > 0,
+    `${materialContracts} material contracts in the sample`,
   );
 
   // ---- The rule, through the real line-clear check ------------------------
@@ -2097,6 +2190,44 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "a full row of standard shipments still clears (the baseline is intact)",
     updateLineClear(good.phys.world, good.cubes, good.compactor, rowLevel, []).lines === 1,
   );
+
+  // ---- The penalty path reports WHERE the cargo was lost ------------------
+  //
+  // game.ts spawns the "−$" penalty FX at the blinked-out cubes' centroid, so
+  // updateBlinking has to hand back positions, not just a count — an FX at
+  // (0,0) would read as noise rather than a consequence, which is the exact
+  // failure the penalty toast exists to fix (a fine the player only ever met
+  // in the end screen's tally read as a hidden rule).
+  {
+    const blink = buildRow(allStd.slice(0, 2));
+    const [a, b] = blink.cubes;
+    const ax = a.body.position.x, ay = a.body.position.y;
+    a.blinkStart = 0; // long expired against now=10_000 below
+    const lost = updateBlinking(blink.phys.world, blink.cubes, 10_000, []);
+    check("a blinked-out cube reports its last position",
+      lost.length === 1 && lost[0].x === ax && lost[0].y === ay);
+    check("cubes not yet blinking are untouched",
+      blink.cubes.length === 1 && blink.cubes[0] === b);
+    // The tutorial teaches the fine with the bay's real number on the card —
+    // same rule as every other coach step, and the reason the copy can never
+    // drift from the level it narrates.
+    // "fines you $N", not a bare "$N" — bay 1's launch cost is also $25, so a
+    // loose match would pass with the fine sentence deleted.
+    const steps = coachSteps(rowLevel);
+    const economy = steps.map((s) => s.body).join(" ");
+    check("the coach names the lost-cargo fine",
+      economy.includes(`fines you $${rowLevel.penaltyPerLostPiece}`));
+    // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
+    // release are one continuous drag, so they must be taught on one card —
+    // split across cards they advance mid-gesture and flash past unread,
+    // which is the playtest bug ("steps 2 and 4 are skipped immediately").
+    // The first card must therefore cover the whole gesture, and the deck
+    // must stay at four steps: fire, rotate, row, resources.
+    check("the coach teaches the drag as one card (power and release together)",
+      steps[0].body.includes("power") && steps[0].body.includes("release"));
+    check("the coach deck is one card per completable action",
+      steps.length === 4);
+  }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic
   // is only correct relative to the anchor its CALLER passes, so the property

@@ -68,6 +68,24 @@ export class Cannon {
   /** Shipments taken off a finite queue so far. Unused when !finite. */
   private consumed = 0;
 
+  /** SEEDED 7-BAG randomizer, for bays whose pieceSequence is null (every
+   *  Deep Run bay). Non-null only in that case — a finite queue and an
+   *  explicit sequence both bypass it entirely.
+   *
+   *  A bag rather than independent rolls, deliberately: pure random streams
+   *  produce the droughts and floods (five S in a row, no I for twenty shots)
+   *  that read as the game cheating, while dealing a shuffled set of all seven
+   *  and reshuffling when it empties bounds every type's wait at 12. Seeded
+   *  from the run seed like the wind and material streams, so a restarted bay
+   *  replays the identical deal and a shared seed means the same shipments for
+   *  two players.
+   *
+   *  This replaces the fixed I,O,T,L,J,S,Z rotation the ladder shipped with —
+   *  which made every bay OPEN with the same pieces in the same order, so the
+   *  first minute of every run played out identically (playtest, 2026-08-09). */
+  private bagRng: (() => number) | null = null;
+  private bag: PieceType[] = [];
+
   /** Seeded so a bay's material stream is reproducible — same run seed and bay
    *  gives the same shipments, which is what lets a daily Contract or a shared
    *  seed mean the same thing for two players. */
@@ -86,8 +104,17 @@ export class Cannon {
     this.speedMin = SPEED_MIN * mult;
     this.speedMax = SPEED_MAX * mult;
     this.power = this.speedMin;
-    this.currentType = this.seq[0];
-    this.nextType = this.seq[1 % this.seq.length];
+    if (!this.finite && level.pieceSequence === null) {
+      // Distinct salt from the material/wind/autoloader streams, same reason
+      // as theirs: the shipment ORDER must not shift the bay's weather or its
+      // material rolls for the same seed, and vice versa.
+      this.bagRng = mulberry32((seed ^ 0x1c69b3f5 ^ (level.id * 0x9e3779b9)) >>> 0);
+      this.currentType = this.deal();
+      this.nextType = this.deal();
+    } else {
+      this.currentType = this.seq[0];
+      this.nextType = this.seq[1 % this.seq.length];
+    }
     this.mix = level.materialMix;
     this.size = level.pieceSize;
     // Distinct salt from the wind and autoloader streams (game.ts) so adding a
@@ -235,10 +262,29 @@ export class Cannon {
     this.consumed += 1;
     this.pieceIndex = (this.pieceIndex + 1) % this.seq.length;
     this.currentType = this.nextType;
-    this.nextType = this.seq[(this.pieceIndex + 1) % this.seq.length];
+    this.nextType = this.bagRng
+      ? this.deal()
+      : this.seq[(this.pieceIndex + 1) % this.seq.length];
     this.currentMaterial = this.nextMaterial;
     this.nextMaterial = this.rollMaterial();
     this.pieceRotation = 0;
+  }
+
+  /** Next shipment off the 7-bag: deal from the current shuffled bag, and
+   *  reshuffle a fresh one the moment it empties. Only called when bagRng is
+   *  set (see the field's doc). Fisher-Yates, not sort(() => rng() - 0.5) —
+   *  same reasoning as contracts.ts's shuffleSeeded: a biased shuffle would
+   *  make the "same seed, same shipments" promise engine-dependent. */
+  private deal(): PieceType {
+    if (this.bag.length === 0) {
+      const b = [...PIECE_TYPES];
+      for (let i = b.length - 1; i > 0; i--) {
+        const j = Math.floor(this.bagRng!() * (i + 1));
+        [b[i], b[j]] = [b[j], b[i]];
+      }
+      this.bag = b;
+    }
+    return this.bag.shift()!;
   }
 }
 

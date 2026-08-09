@@ -571,14 +571,17 @@ export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number)
   }
 }
 
-/** Remove blinking (bounced-out) cubes after the blink duration. Returns count. */
+/** Remove blinking (bounced-out) cubes after the blink duration. Returns the
+ *  removed cubes' last positions — the count for the penalty arithmetic, the
+ *  coordinates for the penalty FX, which has to spawn where the cubes actually
+ *  vanished or the "−$" reads as noise rather than a consequence. */
 export function updateBlinking(
   world: Matter.World,
   cubes: Cube[],
   now: number,
   constraints: Matter.Constraint[],
-): number {
-  let lost = 0;
+): { x: number; y: number }[] {
+  const lost: { x: number; y: number }[] = [];
   for (let i = cubes.length - 1; i >= 0; i--) {
     const c = cubes[i];
     if (c.blinkStart !== null && now - c.blinkStart > BLINK_MS) {
@@ -587,7 +590,7 @@ export function updateBlinking(
       removeConstraintsFor(world, constraints, c.body);
       Matter.Composite.remove(world, c.body);
       cubes.splice(i, 1);
-      lost++;
+      lost.push({ x: c.body.position.x, y: c.body.position.y });
     }
   }
   return lost;

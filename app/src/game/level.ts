@@ -43,7 +43,11 @@ export interface LevelConfig {
   /** Cost deducted per shot fired; you cannot fire once your funds drop below
    *  this. Tunable roadmap seam: an "expensive ammo" modifier raises this. */
   launchCost: number;
-  /** Fixed piece order (sequential, like the original). null => 7-bag shuffle later. */
+  /** Fixed piece order (cycled sequentially, like the original) — a debug and
+   *  special-mode seam. null => the cannon deals a SEEDED 7-BAG SHUFFLE
+   *  (cannon.ts's deal), which is what every Deep Run bay ships: fair variety
+   *  (each type exactly once per seven shipments) without the identical
+   *  opening a fixed rotation forced on every run. */
   pieceSequence: PieceType[] | null;
   /** A FINITE inventory of shipments, consumed in order and never repeated —
    *  the whole supply this bay will ever get. null (every Deep Run bay, and
@@ -401,7 +405,13 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     targetScore: Math.round(targetScoreFor(i) * targetMult),
     startingFunds: 250,
     launchCost: 25,
-    pieceSequence: ["I", "O", "T", "L", "J", "S", "Z"],
+    // null = the seeded 7-bag (see the field's doc). This was a fixed
+    // I,O,T,L,J,S,Z rotation, which made every bay open with the same pieces
+    // in the same order — the first minute of every run played out identically
+    // (playtest, 2026-08-09). The bag keeps the fairness a fixed rotation had
+    // (every type exactly once per seven) and is still seeded per run + bay,
+    // so a restarted bay replays its exact deal.
+    pieceSequence: null,
     pieceQueue: null,
     cooldownMs: 900,
     timeLimitSec: 150,

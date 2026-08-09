@@ -29,10 +29,13 @@
  * spends a scalar derived from the tier. That is what separates this from
  * randomness — difficulty is a number we spend, not an accident of the roll.
  */
+import { HAZARDS } from "./hazards";
 import { makeBaseLevel, NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
-import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
+import {
+  MATERIAL_SPEC, PIECE_TYPES, type Material, type PieceSize, type PieceType,
+} from "./theme";
 
 /**
  * Objectives a Contract can ask for. Deliberately small: every one of these has
@@ -49,6 +52,13 @@ import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
  *                stay random for its own reasons.
  */
 export type ObjectiveKind = "lines" | "pattern";
+
+/** Materials a Contract may ship. Slag is excluded STRUCTURALLY, not by policy:
+ *  a slag cube can never count toward a line (theme.ts's countsForLines), so no
+ *  launch budget priced on "cubes that can reach a row" can be honest about it.
+ *  Every other material is countable, which is what makes it priceable — see
+ *  MATERIAL_WASTE below. */
+export type ContractMaterial = Exclude<Material, "standard" | "slag">;
 
 export interface Contract {
   /** Stable id — the daily seed plus its slot, so a Contract can be recorded,
@@ -70,6 +80,12 @@ export interface Contract {
    *  Empty on a "lines" Contract. */
   queue: PieceType[];
   pieceSize: PieceSize;
+  /** The special material this Contract's belt carries, or null for a clean
+   *  one. Lines Contracts only — a pattern queue is an exact tiling, and a
+   *  material that changes what a landed cube does would un-prove it. */
+  material: ContractMaterial | null;
+  /** Per-shipment probability of `material`; 0 when material is null. */
+  materialRate: number;
   /** Lateral wind cap, 0 for a calm bay. */
   windMax: number;
   /** One-line brief shown on the card. */
@@ -114,7 +130,7 @@ export function budgetForTier(tier: number): number {
 }
 
 /** Cost of each complication, in difficulty-budget points. */
-const COST = { wind: 2, micro: 2, bulk: 1, tightLaunches: 2 } as const;
+const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
 
 const NAMES = [
   "Backlog Clearance", "Night Shift", "Overflow Dock", "Salvage Lot",
@@ -142,8 +158,7 @@ const NAMES = [
  * being wrong is asymmetric. Too generous a budget makes a Contract slightly
  * dull; too tight makes it unwinnable, which for "the easy, positive,
  * replayable half" is fatal. It should be revisited per piece size once the
- * sweep telemetry lands (docs/superpowers/specs/2026-07-30-sweep-telemetry-design.md),
- * since bulk pentominoes almost certainly pack worse than std tetrominoes.
+ * sweep telemetry lands (docs/superpowers/specs/2026-07-30-sweep-telemetry-design.md).
  * ---------------------------------------------------------------------- */
 
 /** Cubes needed to span the compaction zone at full advance — one line. Kept
@@ -158,15 +173,117 @@ export const PLANNING_EFFICIENCY = 0.6;
 const SLACK = 1.25;
 const SLACK_TIGHT = 1.05;
 
+/* -------------------------------------------------------------------------
+ * CONTRACT MATERIALS — the budget model that finally lets a material into a
+ * Contract, which docs/DESIGN.md deferred ("materials arrive there when the
+ * budget model accounts for them") and which replaced the bulk-pentomino
+ * complication outright.
+ *
+ * Pentominoes were removed on playtest feedback: they pack visibly worse than
+ * tetrominoes, so a bulk Contract read as a dice roll rather than a puzzle —
+ * the exact failure a Contract must not have. Bulk remains a Deep Run draft
+ * choice (mods.ts), where the player OPTS INTO it for its payout; a Contract
+ * deals it to you, which is a different, worse offer.
+ *
+ * A material is priceable where a worse-packing shape is not: a shape changes
+ * the geometry of every landing in a way the closed-form model can't see,
+ * while a countable material is a per-shipment risk with a per-cube cost. The
+ * model: a material shipment arrives at `materialRate`, and MATERIAL_WASTE
+ * says what fraction of such a shipment's cubes the budget assumes are lost
+ * beyond the standard PLANNING_EFFICIENCY waste. The budget then simply prices
+ * fired cubes at the reduced effective efficiency — same closed form, one more
+ * factor, still provable in sim/systems.ts.
+ * ---------------------------------------------------------------------- */
+
 /**
- * Launches required for `goal` lines of `size` pieces, at `slack` headroom.
- * Exported so sim/systems.ts asserts against the same function the generator
- * uses — a feasibility guarantee that re-derives the number independently would
- * only prove the two copies agree.
+ * Assumed EXTRA waste per material shipment, as a fraction of its cubes, on
+ * top of the standard-efficiency model. Deliberately pessimistic — the
+ * asymmetry argument on PLANNING_EFFICIENCY applies with more force here,
+ * since these numbers are modeled rather than measured.
+ *
+ *  - cryo     0.5: pressed cold it shatters and can take its row's alignment
+ *             with it; sequencing mistakes cost about half the shipment.
+ *  - rebar    0.35: every cube still counts, but a bad landing can't be
+ *             shattered into a better one, so more cubes strand in shapes a
+ *             row can't use.
+ *  - volatile 1.0: the only material that destroys cubes ALREADY DOWN, so a
+ *             hard landing can cost more than the shipment itself. Priced at a
+ *             full shipment per occurrence.
+ *  - tar      0.6: a weld in the wrong place strands its whole cluster, and a
+ *             Bond Breaker won't undo it.
+ *  - magnetic 0: it snaps the row square FOR you. It appears here as a
+ *             complication anyway because Contracts are where a material is
+ *             safe to learn (docs/DESIGN.md), and Mark 9's Deep Run will deal
+ *             it — but it costs the budget nothing extra.
  */
-export function launchesFor(goal: number, cubesPerPiece: number, slack: number): number {
+export const MATERIAL_WASTE: Record<ContractMaterial, number> = {
+  cryo: 0.5, rebar: 0.35, volatile: 1.0, tar: 0.6, magnetic: 0,
+};
+
+/** Per-shipment material rate a Contract ships: noticeable from the first one
+ *  (a rate the player can't feel is a brief that lies), climbing gently with
+ *  tiers past the material's introduction, capped where hazards.ts caps a
+ *  single Deep Run axis. */
+export const CONTRACT_MATERIAL_BASE = 0.15;
+export const CONTRACT_MATERIAL_PER_TIER = 0.03;
+export const CONTRACT_MATERIAL_CAP = 0.3;
+
+/**
+ * Materials a Contract at `tier` may draw, in ladder order. Derived from
+ * hazards.ts's ladder rather than re-declared: a Contract tier IS the Mark
+ * being flown (meta.ts's markUnlocked gates both halves together), and
+ * "Contracts teach what Deep Run tests" only holds if the two read the same
+ * schedule. The countsForLines filter is what structurally excludes slag —
+ * see ContractMaterial.
+ */
+export function contractMaterialsFor(tier: number): ContractMaterial[] {
+  return HAZARDS.filter(
+    (h) => h.kind === "content" && h.material !== undefined
+      && MATERIAL_SPEC[h.material].countsForLines && h.mark <= tier,
+  ).map((h) => h.material as ContractMaterial);
+}
+
+/** The tier at which `m` first appears in Contracts — its hazard's rung. */
+export function contractMaterialTier(m: ContractMaterial): number {
+  return HAZARDS.find((h) => h.kind === "content" && h.material === m)?.mark ?? Infinity;
+}
+
+/** Rate for `m` in a tier-`tier` Contract. */
+export function contractMaterialRate(m: ContractMaterial, tier: number): number {
+  const past = Math.max(0, tier - contractMaterialTier(m));
+  return Math.min(
+    CONTRACT_MATERIAL_CAP,
+    CONTRACT_MATERIAL_BASE + CONTRACT_MATERIAL_PER_TIER * past,
+  );
+}
+
+/**
+ * The share of launched cubes the budget model assumes reach a completed line,
+ * for a belt carrying `material` at `rate`. The material-free case is exactly
+ * PLANNING_EFFICIENCY. Exported so sim/systems.ts asserts feasibility against
+ * the same model the generator priced with — the whole guarantee is that these
+ * are one formula, not two copies.
+ */
+export function contractEfficiency(material: ContractMaterial | null, rate: number): number {
+  const waste = material ? MATERIAL_WASTE[material] : 0;
+  return PLANNING_EFFICIENCY * (1 - rate * waste);
+}
+
+/**
+ * Launches required for `goal` lines of `size` pieces, at `slack` headroom and
+ * `efficiency` (contractEfficiency's output — PLANNING_EFFICIENCY for a clean
+ * belt). Exported so sim/systems.ts asserts against the same function the
+ * generator uses — a feasibility guarantee that re-derives the number
+ * independently would only prove the two copies agree.
+ */
+export function launchesFor(
+  goal: number,
+  cubesPerPiece: number,
+  slack: number,
+  efficiency: number = PLANNING_EFFICIENCY,
+): number {
   const cubesNeeded = goal * CUBES_PER_LINE;
-  const cubesPerLaunch = cubesPerPiece * PLANNING_EFFICIENCY;
+  const cubesPerLaunch = cubesPerPiece * efficiency;
   return Math.max(3, Math.ceil((cubesNeeded / cubesPerLaunch) * slack));
 }
 
@@ -361,6 +478,11 @@ function generatePatternContract(seed: number, tier: number, slot: number): Cont
     launches: 0,
     queue,
     pieceSize: size,
+    // Clean belt, at any tier, for the same reason as the calm bay below: the
+    // queue is an exact tiling, and a material that changes what a landed cube
+    // does (shatters cold, detonates, welds) would un-prove it.
+    material: null,
+    materialRate: 0,
     // Never any wind, at any tier. A zero-waste objective plus a lateral force
     // the player can't fully cancel is not a puzzle, it's a dice roll — so the
     // difficulty budget has nothing to spend here either.
@@ -385,6 +507,8 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   let pieceSize: PieceSize = "std";
   let windMax = 0;
   let slack = SLACK;
+  let material: ContractMaterial | null = null;
+  let materialRate = 0;
   const notes: string[] = [];
 
   // Wind scales with tier rather than rolling free. A first-tier Contract
@@ -392,14 +516,35 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   // and you could see it coming" failure the weather rework existed to remove.
   const windCap = Math.min(0.3, 0.05 + Math.max(0, tier - 1) * 0.03);
 
-  const options: { id: keyof typeof COST; apply: () => void; note: string }[] = [
-    { id: "bulk", apply: () => { pieceSize = "bulk"; }, note: "bulk pentominoes" },
-    { id: "wind", apply: () => { windMax = windCap * (0.6 + rng() * 0.4); }, note: "crosswind" },
-    { id: "tightLaunches", apply: () => { slack = SLACK_TIGHT; }, note: "tight launch budget" },
+  // Which materials this tier's Contracts may ship — empty until the hazard
+  // ladder's first countable material rung (cryo, Mark 4). Empty is the whole
+  // low-tier story: a new player's Contracts stay clean-belt puzzles.
+  const materialPool = contractMaterialsFor(tier);
+
+  // `note` is a thunk because the material note names WHICH material the
+  // apply() drew — a Contract that says "special shipments" without saying
+  // which is a brief the player can't plan against.
+  const options: { id: keyof typeof COST; apply: () => void; note: () => string }[] = [
+    {
+      id: "material",
+      // Lean toward the ladder's newest rung: "Mark N's Contracts introduce
+      // the material Mark N's Deep Run will throw at you" (docs/DESIGN.md) only
+      // happens if the fresh material actually turns up on the board.
+      apply: () => {
+        const m = rng() < 0.5
+          ? materialPool[materialPool.length - 1]
+          : materialPool[Math.floor(rng() * materialPool.length)];
+        material = m;
+        materialRate = contractMaterialRate(m, tier);
+      },
+      note: () => `${MATERIAL_SPEC[material!].name.toLowerCase()} shipments`,
+    },
+    { id: "wind", apply: () => { windMax = windCap * (0.6 + rng() * 0.4); }, note: () => "crosswind" },
+    { id: "tightLaunches", apply: () => { slack = SLACK_TIGHT; }, note: () => "tight launch budget" },
     // Micro is generated but rare: playtesting found the 2-cube payload tedious
     // rather than merely weak (see docs/DESIGN.md), so it stays in the pool as a
     // known-rough option instead of being a third of every draw.
-    { id: "micro", apply: () => { pieceSize = "tiny"; }, note: "micro dominoes" },
+    { id: "micro", apply: () => { pieceSize = "tiny"; }, note: () => "micro dominoes" },
   ];
 
   // The budget gates WHICH complications are affordable; this caps HOW MANY.
@@ -414,7 +559,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   // higher tiers — every Contract ends up carrying nearly the same set. Leading
   // with a rotated axis makes the daily set read as curated, which is also just
   // a better offer: pick the challenge you feel like, not the least-bad roll.
-  const LEAD: (keyof typeof COST)[][] = [["wind"], ["bulk", "micro", "tightLaunches"]];
+  const LEAD: (keyof typeof COST)[][] = [["wind"], ["material", "micro", "tightLaunches"]];
   const lead = LEAD[slot % LEAD.length];
   const ordered = [
     ...options.filter((o) => lead.includes(o.id)),
@@ -424,20 +569,29 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   for (const opt of ordered) {
     if (notes.length >= maxComplications) break;
     if (COST[opt.id] > budget) continue;
-    // Piece size is one slot: bulk and micro can't both apply.
-    if ((opt.id === "micro" || opt.id === "bulk") && pieceSize !== "std") continue;
+    // No countable material exists below the ladder's first material rung.
+    if (opt.id === "material" && materialPool.length === 0) continue;
+    // Material and micro are one slot, both ways round: the budget prices a
+    // material's waste per STD shipment, and the cannon's size-normalized roll
+    // (cannon.ts's rollMaterial) would double a domino belt's rate under the
+    // same mix. One twist per card is also just a more legible offer.
+    if (opt.id === "micro" && (pieceSize !== "std" || material !== null)) continue;
+    if (opt.id === "material" && pieceSize !== "std") continue;
     // Micro stays rare even when it leads — see the note on the option itself.
     if (opt.id === "micro" && !lead.includes("micro")) continue;
     if (opt.id === "micro" && rng() > 0.4) continue;
     budget -= COST[opt.id];
     opt.apply();
-    notes.push(opt.note);
+    notes.push(opt.note());
   }
 
   // Computed AFTER the complication loop: piece size decides how many cubes a
-  // launch delivers, so a budget fixed before it would be wrong for every
-  // Contract that drew bulk or micro.
-  const launches = launchesFor(goal, SIZE_SPEC[pieceSize].cubes, slack);
+  // launch delivers and the material decides how many of them the model expects
+  // to strand, so a budget fixed before it would be wrong for every Contract
+  // that drew micro or a material.
+  const launches = launchesFor(
+    goal, SIZE_SPEC[pieceSize].cubes, slack, contractEfficiency(material, materialRate),
+  );
 
   return {
     id: `${seed}-${tier}-${slot}`,
@@ -449,6 +603,8 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
     launches,
     queue: [],
     pieceSize,
+    material,
+    materialRate,
     windMax,
     brief: notes.length ? notes.join(" · ") : "clean bay",
   };
@@ -527,19 +683,19 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
   // Nothing is spent, so nothing needs to be earned back.
   cfg.startingFunds = 0;
   cfg.penaltyPerLostPiece = 0;
-  // NO MATERIALS in Contracts — set explicitly rather than left to inherit,
-  // because inheriting it is only true by accident (makeBaseLevel defaults to
-  // Mark 1, which is below every material's firstMark) and would silently stop
-  // being true the day a Contract is generated at a Mark.
+  // The belt carries EXACTLY what the Contract priced: the base mix is zeroed
+  // rather than inherited (inheriting a clean mix is only true by accident —
+  // makeBaseLevel defaults to Mark 1, below every hazard's rung), then the
+  // Contract's own material is written in at the rate its launch budget was
+  // computed against.
   //
-  // This is a feasibility guarantee, not a taste call. Both Contract kinds
-  // derive their limit from a model that assumes every launched cube CAN reach
-  // a completed row: a pattern queue tiles the goal exactly, and `launchesFor`
-  // prices a lines budget off cubes-needed ÷ efficiency. Slag satisfies neither
-  // — it is a shipment that can never count — so dropping it into either would
-  // reintroduce exactly the defect class that once made 35% of generated
-  // Contracts unwinnable. Materials reach Contracts when the budget model
-  // accounts for them, and not before. See docs/DESIGN.md's "both pools".
+  // This remains a feasibility guarantee, not a taste call. `launchesFor` now
+  // prices the material's expected extra waste (MATERIAL_WASTE, via
+  // contractEfficiency), which is what finally honors docs/DESIGN.md's "in
+  // both pools" — but only for materials whose cubes CAN count. Slag can't
+  // (ContractMaterial excludes it structurally), and a pattern Contract's
+  // queue is an exact tiling, so its belt stays entirely clean.
   cfg.materialMix = { ...NO_MATERIALS };
+  if (c.material) cfg.materialMix[c.material] = c.materialRate;
   return cfg;
 }

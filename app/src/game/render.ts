@@ -903,6 +903,47 @@ function drawSalvageFx(
   ctx.restore();
 }
 
+/** Lost-cargo penalty (1100ms): "−$amount" SINKING from where the cubes
+ *  blinked out, in the compactor's own red. The deliberate mirror of a payout:
+ *  income rises green, an expense sinks red, so the two money verbs are
+ *  distinguishable before the number is even read. Same fade envelope as the
+ *  payout so the pair read as one family. */
+const PENALTY_SINK_PX = 34;
+
+function drawPenaltyFx(
+  ctx: CanvasRenderingContext2D,
+  e: Extract<FxEvent, { kind: "penalty" }>,
+  now: number,
+): void {
+  const elapsed = now - e.t0;
+  const t = clamp01(elapsed / FX_TTL.penalty);
+  if (t >= 1) return;
+
+  const x = Math.min(Math.max(e.x, PAYOUT_CLAMP_MARGIN), WORLD.width - PAYOUT_CLAMP_MARGIN);
+  const y = e.y + easeOutCubic(t) * PENALTY_SINK_PX;
+
+  let alpha: number;
+  if (elapsed < PAYOUT_FADE_IN_MS) {
+    alpha = elapsed / PAYOUT_FADE_IN_MS;
+  } else if (elapsed > FX_TTL.penalty - PAYOUT_FADE_OUT_MS) {
+    alpha = (FX_TTL.penalty - elapsed) / PAYOUT_FADE_OUT_MS;
+  } else {
+    alpha = 1;
+  }
+  alpha = clamp01(alpha);
+  if (alpha <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = COLORS.compactor;
+  ctx.shadowColor = COLORS.compactor;
+  ctx.shadowBlur = PAYOUT_GLOW;
+  ctx.font = "700 26px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`−$${e.amount}`, x, y);
+  ctx.restore();
+}
+
 /** Bay cleared (1400ms): a bright band sweeping the field left-to-right plus an
  *  expanding ring, spawned once when the settle window resolves (game.ts's
  *  resolveWin). Deliberately a CANVAS effect rather than only a DOM banner: the
@@ -1054,6 +1095,9 @@ function drawEffects(ctx: CanvasRenderingContext2D, effects: FxEvent[], now: num
         break;
       case "salvage":
         drawSalvageFx(ctx, e, now);
+        break;
+      case "penalty":
+        drawPenaltyFx(ctx, e, now);
         break;
       case "bayclear":
         drawBayClearFx(ctx, e, now);

@@ -115,7 +115,7 @@ export function howtoScreen(): string {
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
-    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
+    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
     ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is paid out at the end of <b>every</b> run — win or lose — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
     ["09", "Run the gauntlet", `Ten bays deep, each with a rising target, a tighter clock and stiffer joints. Clear one and <b>draft a modifier</b> from three — it stacks for the rest of the run. Shipments come in three sizes: <b>micro</b> dominoes are cheap and precise but too light to press the pile flat, <b>bulk</b> pentominoes are rigid and heavy, and standard tetrominoes sit between. Go broke or run out the clock and the run ends there.`],
@@ -574,11 +574,23 @@ export function dragHintHTML(): string {
  * INTERACTIVE COACH — the first-run tutorial (issue #23). One instruction at a
  * time over the live first bay, each advancing when the player actually
  * performs the action (detection lives in main.ts's tutorial driver — this
- * module only renders the current step). The order is the playtest deck's
- * recommended flow: aim, power, rotate, launch, complete a row — and only
- * THEN the resource economy, once the core action is understood. Steps carry
- * no keyboard talk: on touch the rail buttons are the controls, and desktop
- * players get the kbd-hint strip anyway.
+ * module only renders the current step). Steps carry no keyboard talk: on
+ * touch the rail buttons are the controls, and desktop players get the
+ * kbd-hint strip anyway.
+ *
+ * ONE CARD PER COMPLETABLE ACTION — this is why the deck is four steps and
+ * not the playtest deck's six (aim, power, rotate, launch, row, resources).
+ * Aim, power and launch are not three actions: they are one continuous drag,
+ * whose only possible ending is the release that fires. Splitting that
+ * gesture across three cards meant the Power card advanced mid-drag the
+ * instant the pull crossed a threshold, and the Launch card either flashed
+ * past unread or never appeared at all (the shoot handler jumped over it) —
+ * playtest feedback: "steps 2 and 4 are skipped immediately; the release is
+ * the only thing you can do." A step the player cannot dwell on teaches
+ * nothing, so the drag is now taught whole, on one card, and advances only
+ * when the gesture COMPLETES in a fired shot. Rotate is the one genuinely
+ * separate verb (a discrete tap, doable between shots), so it keeps its card
+ * — placed AFTER the first shot, where the player has a next piece to turn.
  */
 export interface CoachStep {
   title: string;
@@ -591,38 +603,36 @@ export function coachSteps(level: {
   launchCost: number;
   scorePerLine: number;
   targetScore: number;
+  penaltyPerLostPiece: number;
 }): CoachStep[] {
   return [
     {
-      title: "Aim",
-      body: `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot.`,
-    },
-    {
-      title: "Power",
-      body: `Pull back <b>farther</b> for more power. The dotted arc shows exactly where the piece will fly.`,
+      title: "Aim & fire",
+      body: `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`,
     },
     {
       title: "Rotate",
-      body: `Tap <b>⟲ / ⟳</b> on the right to turn the piece. The glowing piece at the cannon shows its orientation.`,
-    },
-    {
-      title: "Launch",
-      body: `<b>Release</b> to fire the piece across the bay!`,
+      body: `Between shots, tap <b>⟲ / ⟳</b> on the right to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
     },
     {
       title: "Complete a row",
-      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Keep launching!`,
+      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Cubes that fall <b>short of the bar</b> blink away and are lost. Keep launching!`,
     },
     {
       title: "Funds & Target",
-      body: `Each launch costs <b>$${level.launchCost} Funds</b>; each full row pays <b>$${level.scorePerLine}</b> back plus <b>♻ scrap</b> for upgrades. Reach <b>$${level.targetScore}</b> before Funds or the clock run out — that clears the bay.`,
+      body: `Each launch costs <b>$${level.launchCost} Funds</b>; each full row pays <b>$${level.scorePerLine}</b> back plus <b>♻ scrap</b> for upgrades. Dropped cargo isn't free either — every lost cube <b>fines you $${level.penaltyPerLostPiece}</b> (you'll see the red −$ where it vanished). Reach <b>$${level.targetScore}</b> before Funds or the clock run out — that clears the bay.`,
     },
   ];
 }
 
 export function coachHTML(
   step: number,
-  level: { launchCost: number; scorePerLine: number; targetScore: number },
+  level: {
+    launchCost: number;
+    scorePerLine: number;
+    targetScore: number;
+    penaltyPerLostPiece: number;
+  },
 ): string {
   const steps = coachSteps(level);
   const s = steps[Math.min(step, steps.length - 1)];
