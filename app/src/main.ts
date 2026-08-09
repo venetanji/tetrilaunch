@@ -268,23 +268,34 @@ class App {
    */
   private syncMusic(s: AppState): void {
     switch (s) {
-      // Clearing a bay stops the bed and rings out over silence.
-      case "bayclear": playStinger("bayClear"); return;
+      // Clearing a bay stops the bed and rings out over silence. Which
+      // celebration you get is the run's own milestone logic: isRefitBay is
+      // true on bays 3, 6 and 9 — the ones that open the shop — so the bigger
+      // refit theme marks a checkpoint and the shorter one marks a bay.
+      case "bayclear":
+        playStinger(this.run && isRefitBay(this.run.levelIndex) ? "refit" : "bayClear");
+        return;
 
       // …and keeps ringing across the refit and the hazard draft, which follow
       // within 1.7s. Deliberately NOT a music change: swapping in another
       // stinger here cut the celebration off a second and a half in and read as
       // a second, unexplained cue on the screen change. The player picks a
-      // hazard in whatever silence is left once bayClear ends.
+      // hazard in whatever silence is left once the sting ends.
       case "refit": case "draft": return;
 
       case "lost": case "contract-end": playStinger("gameOver"); return;
       case "won": playStinger("gameOver2"); return;
 
-      // In-bay: the bed depends on the mode, and a pause must not cut it.
-      case "playing": case "paused":
+      case "playing":
         stopStinger();
         playMusic(this.contract ? "contracts" : "deep-run");
+        return;
+
+      // Pausing drops to the lounge bed: the driving track under a paused game
+      // reads as pressure while nothing is happening.
+      case "paused":
+        stopStinger();
+        playMusic("menu");
         return;
 
       // Everything out-of-run shares the menu bed.

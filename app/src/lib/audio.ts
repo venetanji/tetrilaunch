@@ -162,17 +162,28 @@ export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}
   }
 }
 
-/** Impacts arrive in bursts as a piece settles. Without a floor they overlap
- *  into mush and drown the music; the small random detune keeps repeats from
- *  sounding like one looped sample. */
+/**
+ * Impacts arrive in bursts as a piece settles. The 60ms floor stops them
+ * overlapping into mush; the small random detune keeps repeats from sounding
+ * like one looped sample.
+ *
+ * The gain floor is 0.55, not 0.35, and the curve rides on top of it rather
+ * than running from zero. Measured over a real bay (24 shots, 18 impacts): the
+ * median relative speed is 8.3, which the strength mapping turns into 0.43, and
+ * HALF of all impacts sat on the old floor. Through the 0.75 effects bus that
+ * put a landing at ~0.32 of full scale on a sample already normalised to
+ * -3dBFS — around 13dB under everything else, which is why it read as
+ * "not very audible" rather than "quiet". The sample was never the problem.
+ */
 let lastImpactAt = 0;
 export function playImpact(strength = 1): void {
   const now = performance.now();
   if (now - lastImpactAt < 60) return;
   lastImpactAt = now;
+  const s = Math.max(0, Math.min(1, strength));
   playFx("impact", {
     rate: 0.92 + Math.random() * 0.16,
-    gain: Math.max(0.35, Math.min(1, strength)),
+    gain: 0.55 + 0.45 * s,
   });
 }
 
