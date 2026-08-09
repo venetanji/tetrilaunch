@@ -60,8 +60,16 @@ type AppState =
 
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
- *  to wall-clock time — see the loop() accumulator for why this is capped. */
-const MAX_CATCHUP_STEPS = 4;
+ *  to wall-clock time — see the loop() accumulator for why this is capped.
+ *
+ *  2, down from 4: profiled at a full bay (OnePlus 12, 2026-08-09), one step
+ *  costs ~7.6ms, so a 4-step frame is ~30ms of physics before a pixel is
+ *  drawn — deep enough that the catch-up itself keeps missing vsync and the
+ *  loop LATCHES in multi-step frames until the pile shrinks. At 2 the worst
+ *  frame owes ~15ms of physics: a device that falls behind dilates time a
+ *  little sooner, but its frames stay short enough to recover next vsync,
+ *  which reads as smooth-but-briefly-slow instead of stuttering. */
+const MAX_CATCHUP_STEPS = 2;
 
 class App {
   private canvas: HTMLCanvasElement;
