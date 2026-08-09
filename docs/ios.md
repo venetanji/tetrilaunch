@@ -172,8 +172,8 @@ offline. They're now bundled in `app/public/fonts/` (regenerate with
 `node scripts/fetch-fonts.mjs`), so ordinary play makes no third-party request at all.
 
 The privacy policy and support pages the listing requires are served by the Worker
-from `app/public/`: `/privacy.html` and `/support.html`. Both still contain a
-`CONTACT@EXAMPLE.COM` placeholder — replace it before submitting.
+from `app/public/`: `/privacy.html` and `/support.html`. Both list
+`gio@shicheng.com.hk` as the contact.
 
 ## 5. Icons and launch screen
 

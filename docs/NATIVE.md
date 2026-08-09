@@ -159,9 +159,10 @@ than half-implemented:
    for the leaderboard *and* now sells in-app purchases, both of which are
    disclosable on either store; the worked-out App Privacy answers are in
    [docs/ios.md](ios.md). The two mandatory URLs are served by the Worker from
-   `app/public/`: `/privacy.html` and `/support.html`. **Both still carry a
-   `CONTACT@EXAMPLE.COM` placeholder** — replace it before submitting, since a
-   store listing that points at a dead contact is a review rejection.
+   `app/public/`: `/privacy.html` and `/support.html`. Both carry a real contact
+   address (`gio@shicheng.com.hk`) — keep it that way, since a store listing
+   pointing at a dead contact is a review rejection, and both pages promise a
+   removal route for leaderboard entries.
 5. **Release-build env** — `VITE_REVENUECAT_*` keys must be present in the
    environment for any build you intend to ship, or the store quietly disables
    itself. `verify:store` catches the SDK being dropped entirely, but it cannot
