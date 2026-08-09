@@ -37,7 +37,16 @@ const PURGE_RELOAD_FLAG = "tl.sw-purge-reloaded";
  *  Safe to run every launch: with no worker registered and no client
  *  controlling the page, this finds nothing, reloads nothing and costs nothing.
  *  Web is untouched — there the worker is the point. Failures are swallowed
- *  because a WebView that denies the API has nothing cached to purge either. */
+ *  because a WebView that denies the API has nothing cached to purge either.
+ *
+ *  What this CANNOT fix: Android Auto Backup restoring a previous install's
+ *  worker into a FRESH install (reproduced on device 2026-08-09 — a clean
+ *  `adb install` came up as a months-old build). The restored worker decides
+ *  which bundle boots and picks its own precache, so this function only ever
+ *  runs from the stale shell — a build old enough that it may predate this
+ *  purge entirely. That vector is closed at the source instead: the backup
+ *  rules scripts/patch-android.mjs installs exclude app_webview's Service
+ *  Worker store from backup, while keeping Local Storage (the save) in. */
 export async function purgeNativeServiceWorker(): Promise<void> {
   if (!isNative) return;
   try {

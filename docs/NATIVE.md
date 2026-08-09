@@ -23,6 +23,7 @@ must also hold in the browser — and a browser fix ships to native on the next
 | Aspect-ratio layout solver (phone / tablet / ultrawide) | done — `game/layout.ts`, see below |
 | npm scripts (`android:open`, `android:apk`, `ios:open`, …) | done |
 | CI debug-APK build | done — `.github/workflows/android.yml` |
+| Auto Backup: save restored, stale WebView SW excluded | done — `native/android/{backup_rules,data_extraction_rules}.xml` via `patch-android.mjs` |
 | Landscape lock, haptics | already shipped (`@capacitor/screen-orientation`, `@capacitor/haptics`) |
 | In-app purchases | done — RevenueCat, native only (`src/lib/purchases.ts`, [docs/ios.md](ios.md)) |
 | iOS Xcode project, icons, `Info.plist` | **committed** at `app/ios/` — see [docs/ios.md](ios.md) |
@@ -47,6 +48,10 @@ sources that *are* committed under `app/native/android/`:
 - two theme items injected into the generated `res/values/styles.xml`
 - `signing.gradle` — release signing, plus the `apply from:` line into `app/build.gradle`
 - `res/` — launcher icons and splash screens, over Capacitor's defaults
+- `backup_rules.xml` + `data_extraction_rules.xml` into `res/xml/`, plus the
+  two `<application>` attributes pointing at them — Auto Backup exclusions for
+  the WebView's service-worker store (see
+  [Progress survives reinstall](#progress-survives-reinstall-on-android-already))
 
 The patch is idempotent and runs automatically as the last step of
 `cap:add:android` and every `android:*` script, plus as its own CI step. If a
@@ -192,10 +197,13 @@ than half-implemented:
 
 ## Progress survives reinstall on Android already
 
-**Measured, not assumed.** `android:allowBackup="true"` is Capacitor's default and
-nothing overrides it, so Android Auto Backup is live. WebView localStorage lives
+**Measured, not assumed.** `android:allowBackup="true"` is Capacitor's default
+and stays in place, so Android Auto Backup is live. WebView localStorage lives
 under `app_webview/` inside the app's data directory, which the default backup
-set includes.
+set includes. (The backup set is no longer *quite* the default — see
+[the exclusions below](#the-backup-that-restores-the-save-must-not-restore-the-app),
+which carve out the WebView's service-worker store while keeping
+`Local Storage`, where the save lives.)
 
 Tested end to end on a OnePlus 12 (Android 14) with the local transport:
 
@@ -210,6 +218,35 @@ adb shell bmgr transport com.google.android.gms/.backup.BackupTransportService  
 The full save came back — salvage, unlocks, mark, run count, best score and
 every claimed contract. **So the common "I reinstalled and lost everything" case
 is already handled, for free.**
+
+### The backup that restores the save must not restore the app
+
+The same restore pass used to bring back `app_webview/Default/Service Worker` —
+the WebView's service-worker store, precache included. Reproduced on device
+(2026-08-09): a **fresh `adb install`** of a current APK booted as a months-old
+build, because the restored worker serves its precached bundle before the APK's
+own `dist/` ever executes. No runtime defense can win that race:
+`purgeNativeServiceWorker()` ([lib/platform.ts](../app/src/lib/platform.ts))
+ships inside the new bundle, but the restored worker decides which bundle boots
+— and the shell it boots is old enough that it may predate the purge entirely.
+The only reliable fix is to keep the worker out of the backup set, so the
+restore never plants it.
+
+That is what `native/android/backup_rules.xml` (read by API ≤ 30) and
+`data_extraction_rules.xml` (API 31+, covering both cloud restore and
+device-to-device transfer) do, installed into `res/xml/` and wired onto
+`<application>` by `patch-android.mjs`. Excluded, exclude-*only* so everything
+else keeps riding along:
+
+- `app_webview/Default/Service Worker` — the stale-code vector itself
+- `app_webview/Default/Code Cache` — compiled-JS cache; worthless restored, and
+  dead weight against the 25 MB Auto Backup quota the save shares
+- the same two without `Default/`, for pre-profile WebView layouts
+
+`allowBackup` stays `"true"` and `Local Storage` stays backed up — the
+exclusions are what make keeping it on safe. Flipping `allowBackup` off would
+have fixed the stale worker by throwing away the save restore above, which is
+the wrong trade while the whole meta-progression lives in localStorage.
 
 Two consequences worth keeping straight:
 
@@ -530,5 +567,11 @@ only be confirmed on device:
   themes leave it at the platform default, which letterboxes and blacks out the
   whole notch column in landscape. (An earlier revision of this document claimed
   Capacitor defaulted to `shortEdges`. It does not.)
+- Auto Backup with the service-worker exclusions: re-run the `bmgr` cycle above
+  against an APK built with the rules and confirm both halves — the save still
+  comes back, **and** the reinstall boots the APK's own bundle (no restored
+  `app_webview/Default/Service Worker`, checkable via `run-as`). The rules are
+  verified to land in the merged manifest/resources at build time; the restore
+  behavior itself only shows on device.
 - Sustained framerate with 200+ cubes on a mid-range phone (`npm run sim:perf`
   measures the step cost on desktop; a phone GPU is the untested half).
