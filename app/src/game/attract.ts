@@ -248,10 +248,18 @@ export class AttractDemo {
     const dt = Math.min(ts - this.lastFrame, MAX_FRAME_MS);
     this.lastFrame = ts;
     this.acc += dt;
+    let stepped = false;
     while (this.acc >= STEP) {
       this.step(cycle);
       this.acc -= STEP;
+      stepped = true;
     }
+    // Once per DRAWN frame, matching main.ts's loop: game.update() no longer
+    // recomputes the dotted arc per step, so nothing else would keep it
+    // tracking the wind between shots. Inert at this bay's dead calm — the
+    // autopilot already refreshes it when it aims — but the demo should not be
+    // the one place that silently depends on the bay staying windless.
+    if (stepped) cycle.game.updateTrajectory();
 
     // Recycle once the pile has grown past what a menu should be spending on
     // it, on the backstop clock, or the moment the bay ends under its own

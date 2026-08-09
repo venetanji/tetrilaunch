@@ -1247,7 +1247,16 @@ class App {
     }
     this.last = now;
 
-    if (g) {
+    // Not while the menu is up. `game` is never nulled — a finished run's bay
+    // is still here — so without this the menu re-painted a field nobody can
+    // see (.neon-backdrop bottoms out at an opaque var(--bg)) every frame.
+    // That was merely wasteful before; it is now actively harmful, because the
+    // menu is also when the attract demo is drawing. render.ts's sprite and
+    // background-layer caches each hold ONE viewport, so two canvases at
+    // different scales alternating every frame would flush and re-bake both —
+    // the whole glow-blur cost those caches exist to remove, paid twice a
+    // frame, on the one screen that should be idle.
+    if (g && this.state !== "menu") {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
@@ -1260,7 +1269,7 @@ class App {
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
       });
-    } else {
+    } else if (!g) {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
