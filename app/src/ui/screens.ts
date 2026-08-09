@@ -22,9 +22,11 @@ import {
 } from "../game/hazards";
 
 export function splashScreen(): string {
+  // No tagline. "Physics Cannon Puzzle" undersold and mis-sold the game — it
+  // reads as a physics sandbox, not a bay you have to bank a target out of —
+  // and it was the same phrase on both screens, so it goes from both.
   return `<div class="screen neon-backdrop">
     <div class="splash">
-      <div class="eyebrow">Physics Cannon Puzzle</div>
       <h1 class="display neon-text brand-gradient">TETRILAUNCH</h1>
       <div class="loader"></div>
     </div>
@@ -55,11 +57,29 @@ export function menuScreen(
   return `<div class="screen neon-backdrop">
     <div class="menu split">
       <div class="menu__brand">
-        <div class="eyebrow">Physics Cannon Puzzle</div>
-        <h1 class="menu__title display neon-text brand-gradient">TETRILAUNCH</h1>
-        <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
-        full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-        run that drafts stranger modifiers onto your bankroll every stop.</p>
+        <!-- The demo (game/attract.ts drives the canvas), the wordmark sitting
+             in it, and the paragraph both replaced.
+
+             The title lives INSIDE the demo box on purpose: the panel is a
+             live bay with no HUD over it, so its top-left corner is the one
+             place a real screenshot would have chrome and the mini-field
+             doesn't. Split across two lines there because the wordmark is
+             sharing the frame with the play area rather than owning a headline
+             of its own — the SPANS only stack while the demo is live (see
+             app.css), so the reduced-motion fallback still reads as one word.
+
+             The copy under it stays in the DOM either way: main.ts adds the
+             is-live class only once the demo is actually running, and while it
+             is, the paragraph is the canvas's text alternative — a screen
+             reader still gets the description, and anyone on reduced motion
+             (or without a 2D context) gets it on screen. -->
+        <div class="menu__demo">
+          <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
+          <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
+          <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
+          full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
+          run that drafts stranger modifiers onto your bankroll every stop.</p>
+        </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           ${tierChip}
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
