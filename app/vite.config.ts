@@ -52,7 +52,15 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // mp3 included so the PWA still has sound offline. It is the single
+        // biggest thing in the precache (~8.6 MB of the total), which is the
+        // cost of the listing claiming the game plays offline.
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2,mp3}"],
+        // Default is 2 MB and the music tracks exceed it — without this they
+        // are silently dropped from the precache manifest and only the effects
+        // survive, which is exactly the kind of partial success that looks fine
+        // in a build log.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),
   ],
