@@ -35,6 +35,13 @@ keystore.properties
 *.p12
 *.mobileprovision
 
+# audio masters. The generated originals are the biggest thing in the project
+# and are only needed when re-trimming; the PROCESSED assets under
+# app/public/audio/ are committed and are what ships. audio/README.md is kept
+# so the pointer to where the masters live survives in the repo.
+audio/*
+!audio/README.md
+
 # misc
 *.log
 .DS_Store

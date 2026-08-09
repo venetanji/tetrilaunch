@@ -23,6 +23,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, rm, readdir, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve, join } from "node:path";
 
@@ -31,37 +32,29 @@ const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = resolve(appDir, "..", "audio");
 const OUT = join(appDir, "public", "audio");
 
-/* Source filename -> the name the code asks for. Effects are named after the
- * game callback that fires them (game/game.ts's GameEvents), so there is no
- * decoding step between "what does this sound do" and "where is it wired". */
-const FX = {
-  "launch.mp3": "shoot",
-  "collision.mp3": "impact",
-  "line.mp3": "lineClear",
-  "piecelost.mp3": "pieceLost",
-  "compactor.mp3": "settleStart",
-  "ice_shatter.mp3": "cryoShatter",
-  "snap_crack.mp3": "bondBreak",
-  "snap_crack_2.mp3": "bondBreak2",
-  "reload.mp3": "reloadReady",
-};
+/**
+ * Effects are named after the game callback that fires them (GameEvents in
+ * game/game.ts), all the way from the source file to the shipped asset to the
+ * playFx() call — so there is no decoding step between "what does this sound
+ * do" and "where is it wired".
+ *
+ * A generated file therefore has to be RENAMED on the way in, which is the
+ * point at which you decide what it is. Anything unrecognised is reported and
+ * not shipped rather than guessed at.
+ */
+const FX = [
+  "shoot", "impact", "lineClear", "pieceLost", "settleStart",
+  "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
+];
 
 /**
- * Stingers: 20–25s pieces that mark a moment and then keep playing under the
- * screen that follows. Not one-shots — trimming them to a transient would cut
- * the phrase off mid-bar — and not looping music either. They are levelled and
- * re-encoded but never trimmed, and audio.ts stops them on the next state
- * change rather than letting them run out.
- *
- * Kept stereo: unlike a 200ms thud, these are musical and the width is the
- * point.
+ * Stingers: 20–25s pieces that mark a moment and then play on under the screen
+ * that follows. Not one-shots — trimming them to a transient would cut the
+ * phrase off mid-bar — and not looping music either. Levelled and re-encoded
+ * but never trimmed, and kept stereo: unlike a 200ms thud these are musical and
+ * the width is the point.
  */
-const STINGERS = {
-  "bay-clear.mp3": "bayClear",
-  "game_over.mp3": "gameOver",
-  "game_over_2.mp3": "gameOver2",
-  "refit shop.mp3": "refit",
-};
+const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
 
 const MUSIC = {
   "lounge-menu-pause.mp3": "menu",
@@ -195,20 +188,43 @@ async function encodeLong(srcFile, name, folder) {
 }
 
 async function main() {
+  // The masters are NOT in the repo — see audio/README.md. They are the biggest
+  // thing in the project by a wide margin and only needed when re-trimming, so
+  // a clean checkout has app/public/audio/ (committed, shipped) but no audio/.
+  // Say so plainly instead of writing an empty output directory.
+  const haveSources = existsSync(SRC);
+  if (!haveSources) {
+    console.error(
+      `✗ audio prepare: no masters at ${SRC}\n` +
+      `  They are deliberately outside git — see audio/README.md for where they\n` +
+      `  live. The SHIPPED assets in app/public/audio/ are committed, so builds\n` +
+      `  do not need this script; only re-trimming or adding a sound does.`,
+    );
+    process.exit(1);
+  }
+
   await rm(OUT, { recursive: true, force: true });
   for (const d of ["fx", "music", "stingers"]) await mkdir(join(OUT, d), { recursive: true });
 
-  const present = new Set(await readdir(join(SRC, "fx")).catch(() => []));
-  const missing = Object.keys(FX).filter((f) => !present.has(f));
-  const unmapped = [...present].filter(
-    (f) => f.endsWith(".mp3") && !FX[f] && !STINGERS[f],
-  );
+  const fxFiles = new Set(await readdir(join(SRC, "fx")).catch(() => []));
+  const stingerFiles = new Set(await readdir(join(SRC, "stingers")).catch(() => []));
+  const missing = [
+    ...FX.filter((n) => !fxFiles.has(`${n}.mp3`)).map((n) => `fx/${n}.mp3`),
+    ...STINGERS.filter((n) => !stingerFiles.has(`${n}.mp3`)).map((n) => `stingers/${n}.mp3`),
+  ];
+  const unmapped = [
+    ...[...fxFiles].filter((f) => f.endsWith(".mp3") && !FX.includes(f.replace(/\.mp3$/, "")))
+      .map((f) => `fx/${f}`),
+    ...[...stingerFiles].filter((f) => f.endsWith(".mp3") && !STINGERS.includes(f.replace(/\.mp3$/, "")))
+      .map((f) => `stingers/${f}`),
+  ];
 
   let total = 0;
   console.log("effects (mono, peak -3dBFS). CHECK THE WINDOW COLUMN — a wrong");
   console.log("trim shows up here, and OVERRIDES in this script is the fix:");
-  for (const [file, name] of Object.entries(FX)) {
-    if (!present.has(file)) continue;
+  for (const name of FX) {
+    const file = `${name}.mp3`;
+    if (!fxFiles.has(file)) continue;
     const r = await encodeFx(join(SRC, "fx", file), name, OVERRIDES[file]);
     const size = (await stat(r.dst)).size;
     total += size;
@@ -221,9 +237,10 @@ async function main() {
   }
 
   console.log("stingers (full length, stereo, levelled — never trimmed):");
-  for (const [file, name] of Object.entries(STINGERS)) {
-    if (!present.has(file)) { console.log(`  ${name.padEnd(12)} MISSING (${file})`); continue; }
-    const r = await encodeLong(join(SRC, "fx", file), name, "stingers");
+  for (const name of STINGERS) {
+    const file = `${name}.mp3`;
+    if (!stingerFiles.has(file)) { console.log(`  ${name.padEnd(12)} MISSING (${file})`); continue; }
+    const r = await encodeLong(join(SRC, "stingers", file), name, "stingers");
     const size = (await stat(r.dst)).size;
     total += size;
     console.log(`  ${name.padEnd(12)} ${r.dur.toFixed(1).padStart(6)}s  ${(size / 1024).toFixed(0).padStart(5)}KB`);
