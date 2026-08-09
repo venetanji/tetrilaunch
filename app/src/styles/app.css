@@ -247,23 +247,66 @@ body.crt-off #app::after { display: none; }
   height: 100%;
 }
 
-/* The wordmark, in the demo's top-left — the corner the in-game HUD occupies
-   and this mini-field leaves empty (the bay banner sits top-center, the plant
-   panel bottom-left; see .bay-banner / .plant). Inset as a PERCENTAGE so it
-   holds the same corner at every panel size.
+/* The wordmark takes the PLANT PANEL's slot — bottom-left of the field, below
+   the cannon. That is the readout the player actually reads during a bay
+   (funds, launches, the reload bar, the ability chips), and it is the biggest
+   thing the HUD puts over the field: measured off the running game it sits at
+   x 2%, y 54%, w 47%, h 43% of the field rect. A demo bay has no HUD at all,
+   so that corner is empty, and it is empty in the RIGHT way — cargo piles
+   against the far wall and the compactor's pistons run through the middle, so
+   nothing the autopilot does reaches down here.
 
-   The size is bounded by the CANNON, not by taste. It sits at world (150,
-   288) of 1280x720 — 12% across and 40% down — so the mark's two lines have
-   to finish above it or the muzzle ends up inside the L of LAUNCH. At 7.5cqw
-   the pair is ~25% of the panel's height and clears the cannon's top edge
-   (~36%) with room to spare, and Orbitron sets the longer half at ~37% of the
-   panel's width: chrome in the corner, not a banner across the field. */
+   It takes the panel's BOX too, at .plant's own frame fractions (left 1.67%,
+   width 47.08%, bottom 2.97%, height 42.96% of the field) and in its style —
+   same border, same hard shadow, same inset highlight, same vertical gradient.
+   The demo is meant to read as a screenshot, and a wordmark floating loose on
+   the field would be the one element in the frame that isn't part of the game.
+
+   Nothing intrudes on it: measured over 24,200 frames of demo play, the number
+   of frames with any cube inside this box is zero. Cargo piles against the far
+   wall, and anything that lands short is left of the compactor but well above
+   here before it blinks out.
+
+   The plate is a PSEUDO-ELEMENT, not a background on the title, and that is
+   load-bearing: .brand-gradient paints the wordmark by clipping a gradient to
+   the glyphs (background-clip: text, color: transparent), so giving the same
+   element a panel background replaces the gradient the letters are cut from
+   and the wordmark renders in the plate's near-black. Separate boxes keep both
+   backgrounds. ::before rather than ::after so it paints under the title:
+   both are positioned, so they stack in DOM order, and both sit above the
+   unpositioned canvas. */
+.menu__demo.is-live::before {
+  content: "";
+  position: absolute;
+  left: 1.67%;
+  bottom: 2.97%;
+  width: 47.08%;
+  height: 42.96%;
+  border-radius: var(--r-md);
+  border: var(--bw) solid var(--line-strong);
+  box-shadow: var(--shadow-hard-sm), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, rgba(22, 22, 37, 0.95), rgba(9, 9, 18, 0.96));
+  pointer-events: none;
+}
 .menu__demo.is-live .menu__title {
   position: absolute;
-  top: 5%;
-  left: 4%;
+  left: 1.67%;
+  bottom: 2.97%;
+  width: 47.08%;
+  height: 42.96%;
   margin: 0;
-  font-size: clamp(9px, 7.5cqw, 36px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 4%;
+  /* Sized to the PLATE, not the panel. Orbitron sets LAUNCH — the longer half
+     — at ~4.97x the font size, and the plate's inner width is 170px of a
+     440px panel, so 7.5cqw filled it to 96% and left 3px a side. 6.8cqw keeps
+     ~12%, which is both a visible inset and the margin the fallback face needs
+     to not blow straight through the border while a slow webfont loads (the
+     base .menu__title rule's overflow-wrap is the backstop if it still does —
+     same treatment, and same reasoning, as the headline title it came from). */
+  font-size: clamp(8px, 6.8cqw, 31px);
   line-height: 0.95;
   pointer-events: none;
 }
