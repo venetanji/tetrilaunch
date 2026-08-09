@@ -224,19 +224,53 @@ body.crt-off #app::after { display: none; }
    layout on bars, not about correctness. */
 .menu__demo.is-live {
   position: relative;
-  width: min(100%, 560px);
+  width: min(100%, 440px);
   aspect-ratio: 16 / 9;
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-hard-lg);
   overflow: hidden;
+  /* The wordmark below sizes off the PANEL, not the brand column — the panel
+     is the frame it has to sit inside, and the column is much wider. Same
+     reasoning as .menu__brand's own container, one level in. */
+  container-type: inline-size;
 }
+/* Fallback state: the wrapper is inert, so the title and the copy inside it are
+   plain siblings and .menu__brand's own gap stops at the wrapper's edge. Put it
+   back, so reduced motion gets the spacing the menu had before this box
+   existed. */
+.menu__demo:not(.is-live) { display: flex; flex-direction: column; gap: var(--sp-4); }
 .menu__demo-canvas { display: none; }
 .menu__demo.is-live .menu__demo-canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
+
+/* The wordmark, in the demo's top-left — the corner the in-game HUD occupies
+   and this mini-field leaves empty (the bay banner sits top-center, the plant
+   panel bottom-left; see .bay-banner / .plant). Inset as a PERCENTAGE so it
+   holds the same corner at every panel size.
+
+   The size is bounded by the CANNON, not by taste. It sits at world (150,
+   288) of 1280x720 — 12% across and 40% down — so the mark's two lines have
+   to finish above it or the muzzle ends up inside the L of LAUNCH. At 7.5cqw
+   the pair is ~25% of the panel's height and clears the cannon's top edge
+   (~36%) with room to spare, and Orbitron sets the longer half at ~37% of the
+   panel's width: chrome in the corner, not a banner across the field. */
+.menu__demo.is-live .menu__title {
+  position: absolute;
+  top: 5%;
+  left: 4%;
+  margin: 0;
+  font-size: clamp(9px, 7.5cqw, 36px);
+  line-height: 0.95;
+  pointer-events: none;
+}
+/* Stacked only while the demo is live. Without this the two halves sit inline
+   with no whitespace between them and render as the single word TETRILAUNCH,
+   which is what the reduced-motion fallback should keep looking like. */
+.menu__demo.is-live .menu__title span { display: block; }
 /* Visually hidden, not `display: none` — the paragraph is the canvas's text
    alternative and has to stay reachable. */
 .menu__demo.is-live .menu__sub {
@@ -1372,16 +1406,17 @@ button.panel { color: var(--text); }
    aspect-ratio and just letterbox the world inside a box still taking the
    same room.
 
-   The 460px step is measured, not guessed. At 792x360 (the 1080p phone that
-   rule calls out) the chips wrap to two rows, and a 280px-wide demo put the
-   second row 11px past the bottom edge; 220px (124px tall) leaves ~20px of
-   headroom. Small, but the demo only has to read as motion at that size — and
-   the alternative it replaced, four lines of body copy, is not much shorter. */
+   These steps have room they did not before: the eyebrow and the headline
+   title above the panel are both gone (the wordmark moved inside it), giving
+   the brand column back ~90px of height on a desktop and ~60px on a landscape
+   phone. So the demo still steps down here, just less steeply than when it was
+   competing with a headline — and it can't shrink far now that it carries the
+   wordmark, which has to stay legible. */
 @media (max-height: 620px) {
-  .menu__demo.is-live { width: min(100%, 400px); }
+  .menu__demo.is-live { width: min(100%, 360px); }
 }
 @media (max-height: 460px) {
-  .menu__demo.is-live { width: min(100%, 220px); }
+  .menu__demo.is-live { width: min(100%, 280px); }
 }
 
 /* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed

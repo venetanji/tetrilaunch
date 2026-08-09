@@ -548,6 +548,10 @@ class App {
    * canvas element the demo was drawing into. AttractDemo.mount keeps the bay
    * running across the swap; only leaving the menu tears it down.
    *
+   * Also called from onResize, for the portrait rotate-guard: it is opaque and
+   * covers the entire app, so a phone held upright would otherwise sit there
+   * simulating a physics world behind a "Rotate your device" card.
+   *
    * `is-live` is added optimistically and taken back if the demo declines
    * (reduced motion, no 2D context) — the class is what hides the description
    * paragraph the demo replaces, so it must never outlive a demo that isn't
@@ -556,7 +560,8 @@ class App {
    * its backing store to nothing.
    */
   private syncAttract(): void {
-    const host = this.state === "menu"
+    const covered = this.guard.classList.contains("show");
+    const host = this.state === "menu" && !covered
       ? this.overlay.querySelector<HTMLElement>(".menu__demo")
       : null;
     if (!host) {
@@ -627,6 +632,10 @@ class App {
 
     const mobile = "ontouchstart" in window || w < 900;
     this.guard.classList.toggle("show", isPortrait() && mobile);
+    // The guard just went up or came down — the demo follows it (see
+    // syncAttract). Cheap when nothing changed: mount() is a no-op once it's
+    // already running against this canvas.
+    this.syncAttract();
   };
 
   // ---------------- game lifecycle ----------------
