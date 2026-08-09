@@ -26,7 +26,10 @@ must also hold in the browser — and a browser fix ships to native on the next
 | Landscape lock, haptics | already shipped (`@capacitor/screen-orientation`, `@capacitor/haptics`) |
 | In-app purchases | done — RevenueCat, native only (`src/lib/purchases.ts`, [docs/ios.md](ios.md)) |
 | iOS Xcode project, icons, `Info.plist` | **committed** at `app/ios/` — see [docs/ios.md](ios.md) |
-| **Signed release builds / store listings** | **not done — needs secrets, see below** |
+| Self-hosted fonts (no runtime Google Fonts fetch) | done — `app/public/fonts/`, refreshed by `scripts/fetch-fonts.mjs` |
+| Privacy policy + support pages | done — `app/public/{privacy,support}.html`, served by the Worker |
+| **Android** release signing + `.aab` | done — `native/android/signing.gradle`, CI `bundle` job. **Needs a keystore + secrets** |
+| **iOS** signed release / store listings | **not done — needs a Mac and secrets, see below** |
 
 **`app/android/` is gitignored; `app/ios/` is committed.** They're treated
 differently on purpose. Android stays a derived artifact — `npx cap add
@@ -136,11 +139,13 @@ deliberate, see below.
 These need credentials that don't belong in a repo, so they're documented rather
 than half-implemented:
 
-1. **Android signing** — generate an upload keystore, add
-   `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /
-   `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` as repo secrets, then extend the
-   workflow with a `assembleRelease` job that writes `android/keystore.properties`
-   from them. Play requires an `.aab` (`bundleRelease`), not an APK.
+1. **Android signing** — *wired up; supply the key.* The Gradle side lives in
+   `app/native/android/signing.gradle` (applied by `patch-android.mjs`, since
+   `app/android/` is regenerated). It reads `android/keystore.properties`, and
+   if that file is absent it simply doesn't define a signing config — so
+   `assembleDebug` still works on a machine with no key, which is what lets CI
+   build debug on every push without touching a secret. See
+   [Release signing](#release-signing) below for the keystore and the secrets.
 2. **iOS signing** — done manually in Xcode today (automatic signing, pick your
    team; the full walkthrough is in [docs/ios.md](ios.md)). Automating it needs
    an App Store Connect API key and a macOS runner — `xcodebuild
@@ -153,11 +158,160 @@ than half-implemented:
    content rating, privacy declaration. The app collects a player-entered name
    for the leaderboard *and* now sells in-app purchases, both of which are
    disclosable on either store; the worked-out App Privacy answers are in
-   [docs/ios.md](ios.md).
+   [docs/ios.md](ios.md). The two mandatory URLs are served by the Worker from
+   `app/public/`: `/privacy.html` and `/support.html`. **Both still carry a
+   `CONTACT@EXAMPLE.COM` placeholder** — replace it before submitting, since a
+   store listing that points at a dead contact is a review rejection.
 5. **Release-build env** — `VITE_REVENUECAT_*` keys must be present in the
    environment for any build you intend to ship, or the store quietly disables
    itself. `verify:store` catches the SDK being dropped entirely, but it cannot
    tell a missing key from a deliberate keyless build.
+
+---
+
+## Release signing
+
+Play needs a **signed `.aab`**, not the debug APK above.
+
+### Generate the upload keystore — once, and never lose it
+
+`keytool` ships with the JDK, so any shell that can run `java` can run it. **Run
+it somewhere outside this repo** — a keystore is a long-lived secret and
+`app/android/` is a disposable build directory that `cap add android`
+regenerates. Somewhere like `~/keys/` (Windows: `C:\Users\<you>\keys\`):
+
+```bash
+keytool -genkeypair -v -keystore upload-keystore.jks \
+  -alias upload -keyalg RSA -keysize 2048 -validity 10000
+```
+
+It prompts for a password and a name/organisation; the name only shows up in the
+certificate, and Play never displays it.
+
+**Back this file and its passwords up somewhere durable.** With Play App
+Signing, Google holds the *app* signing key and this is only the *upload* key,
+so losing it is recoverable — but recovery means filing a request with Google
+and waiting, not a five-minute fix. `.gitignore` blocks `*.jks`, `*.keystore`
+and `keystore.properties` repo-wide as a second line of defence.
+
+### The two passwords are the same password
+
+`keytool` writes **PKCS12** by default, and PKCS12 cannot store a per-entry key
+password. Passing `-keypass` alongside a different `-storepass` prints:
+
+```
+Warning: Different store and key passwords not supported for PKCS12 KeyStores.
+Ignoring user-specified -keypass value.
+```
+
+…and protects the key with the *store* password. If you then configure a
+different key password, the build fails at `signReleaseBundle` with the
+famously unhelpful `Get Key failed: Given final block not properly padded`. So:
+**set the store password and leave the key password alone** — `signing.gradle`
+defaults it to the store password. The two are only distinct on a legacy JKS.
+
+### Where the credentials come from
+
+Three sources, first one that supplies each value wins. They exist because the
+signing secret is plaintext *somewhere* by necessity — the build has to decrypt
+the private key — so the only real question is how far that plaintext spreads.
+
+**1. Gradle properties — best for local dev.** `~/.gradle/gradle.properties`
+lives in your home directory, outside the repo entirely, so no `.gitignore`
+mistake can ever expose it, and it applies to every project without repeating
+itself:
+
+```properties
+androidKeystoreFile=C:/Users/you/keys/upload-keystore.jks
+androidKeystorePassword=…
+androidKeyAlias=upload
+```
+
+**2. Environment variables — best for CI.** Nothing on disk at all:
+
+```bash
+ANDROID_KEYSTORE_FILE=…  ANDROID_KEYSTORE_PASSWORD=…  ANDROID_KEY_ALIAS=upload
+```
+
+**3. `app/android/keystore.properties`** — the conventional Android layout, and
+gitignored, but it is plaintext inside the project tree, which is exactly where
+an over-broad `git add -f`, a backup tool or an editor sync is most likely to
+pick it up:
+
+```properties
+storeFile=C:/Users/you/keys/upload-keystore.jks
+storePassword=…
+keyAlias=upload
+```
+
+**On Windows, use forward slashes in options 1 and 3.** `.properties` is a Java
+format in which backslash is the escape character, so
+`C:\Users\you\keys\upload-keystore.jks` silently becomes
+`C:Usersyoukeysupload-keystore.jks` — then read as a *relative* path and
+resolved against `app/android/`. `signing.gradle` fails with the resolved path
+and a note about this, so it's a readable error rather than a mystery.
+
+Supplying *some* of the three values but not all is a hard error rather than a
+quietly-unsigned build.
+
+### Local release build
+
+```bash
+cd app
+npm run android:bundle        # -> app/android/app/build/outputs/bundle/release/app-release.aab
+npm run android:apk:release   # a signed APK instead, for sideload testing
+```
+
+Every release build prints which mode it resolved to, so an unsigned artifact is
+visible in the log rather than discovered at upload time:
+
+```
+signing.gradle: Signed: release keystore loaded
+signing.gradle: versionCode=7 versionName=1.2.3
+```
+
+Without `keystore.properties` it builds an **unsigned** bundle and says so.
+That's deliberate: referencing a null `storeFile` would fail at Gradle
+*configuration* time and break `assembleDebug` on every machine without a key.
+
+### versionCode
+
+Play rejects any `versionCode` it has already seen — they only ever go up, even
+for a re-upload of the same user-facing version. The generated `build.gradle`
+hardcodes `1`, so `signing.gradle` takes an override instead of the patch script
+having to rewrite generated code:
+
+```bash
+ANDROID_VERSION_CODE=7 ANDROID_VERSION_NAME=1.2.3 npm run android:bundle
+```
+
+### CI
+
+The `bundle` job in `.github/workflows/android.yml` produces the signed `.aab`.
+It runs **only** on manual dispatch or a `v*` tag — building one per push would
+burn versionCodes and touch the signing secrets constantly. It needs five repo
+secrets:
+
+| Secret | |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 upload-keystore.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | |
+| `ANDROID_KEY_ALIAS` | |
+| `ANDROID_KEY_PASSWORD` | *optional* — omit for a PKCS12 keystore (see above) |
+| `VITE_REVENUECAT_ANDROID_KEY` | public SDK key — the job **fails without it** |
+
+Only the `.jks` is written to the runner's disk (and shredded in an
+`if: always()` step); the passwords reach Gradle as environment variables and
+never land in a file.
+
+That last one matters more than it looks. Vite inlines `import.meta.env` at
+build time, so a release built with no key ships with the store silently
+disabled, and `verify:store` cannot catch it — it proves the SDK survived
+tree-shaking, not that a key was set. The job checks explicitly instead.
+
+`versionCode` comes from `github.run_number`; a tag build takes its
+`versionName` from the tag (`v1.2.3` → `1.2.3`). The keystore is shredded in an
+`if: always()` step.
 
 ---
 

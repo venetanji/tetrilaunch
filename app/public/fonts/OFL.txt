@@ -1,0 +1,18 @@
+The .woff2 files in this directory are redistributed under the SIL Open Font
+License, Version 1.1, which permits bundling them in an application.
+
+  Orbitron        © The Orbitron Project Authors
+                  https://github.com/theleagueof/orbitron
+  Rajdhani        © Indian Type Foundry
+                  https://fonts.google.com/specimen/Rajdhani
+  JetBrains Mono  © The JetBrains Mono Project Authors
+                  https://github.com/JetBrains/JetBrainsMono
+  Press Start 2P  © Cody "CodeMan38" Boisclair
+                  https://fonts.google.com/specimen/Press+Start+2P
+
+Full license text: https://openfontlicense.org/open-font-license-official-text/
+
+The OFL requires that the fonts not be sold on their own, that this notice
+travel with them, and that any modified version be renamed. Tetrilaunch ships
+them unmodified, as subset .woff2 built by Google Fonts, purely to render its
+own UI — all three conditions hold.

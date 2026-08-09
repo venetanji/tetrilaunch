@@ -12,12 +12,22 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Tetrilaunch</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fonts are self-hosted (public/fonts/, refreshed by
+         scripts/fetch-fonts.mjs). They used to come from fonts.googleapis.com
+         at runtime, which sent the device IP to Google on every launch — a
+         disclosable data flow on both stores — and left a cold, offline start
+         rendering in the fallback stack.
+
+         %BASE_URL% (not a leading "/") on purpose: vite.config sets
+         `base: "./"`, so this resolves to ./fonts/fonts.css, exactly like the
+         asset links Vite emits below it. An absolute /fonts/… would break any
+         deployment that isn't at a domain root.
+
+         Vite prints "./fonts/fonts.css doesn't exist at build time, it will
+         remain unchanged to be resolved at runtime" for this line. That is
+         expected and is the desired behaviour — files in public/ are copied
+         verbatim and aren't in the source tree for Vite to resolve. -->
+    <link rel="stylesheet" href="%BASE_URL%fonts/fonts.css" />
   </head>
   <body>
     <div id="app"></div>

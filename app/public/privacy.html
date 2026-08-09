@@ -1,0 +1,188 @@
+<!doctype html>
+<!--
+  Privacy policy — a required listing field on both Google Play and the App
+  Store, which each demand a publicly reachable URL that is live BEFORE review.
+
+  Served straight out of public/, so it is a plain static file with no build
+  step, no framework and no external requests. Keep it that way: this page has
+  to load for a reviewer even if the game bundle is broken.
+
+  IF YOU CHANGE WHAT THE APP COLLECTS, CHANGE THIS PAGE IN THE SAME COMMIT.
+  Today the claims below are true because:
+    - worker/index.ts stores only name/score/level/lines/created_at in D1, and
+      sanitizeName() strips everything outside [A-Z0-9 _-] to 12 chars.
+    - lib/telemetry.ts is opt-in, off by default, and has no network call.
+    - lib/store.ts keeps settings/name/best/meta in localStorage only.
+    - public/fonts/ removed the last third-party runtime request.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Tetrilaunch</title>
+    <meta name="description" content="How Tetrilaunch handles your data." />
+    <meta name="color-scheme" content="dark light" />
+    <style>
+      :root {
+        --bg: #07070f; --surface: #12121f; --line: #2e2e4a;
+        --text: #eaeaff; --text-dim: #b6b6df; --text-muted: #8080ac;
+        --accent: #00f0ff; --success: #00ff9c;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background: var(--bg); color: var(--text);
+        font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif;
+        padding: 40px 20px 80px;
+        -webkit-text-size-adjust: 100%;
+      }
+      main { max-width: 720px; margin: 0 auto; }
+      .eyebrow {
+        font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+        color: var(--accent); font-weight: 700; margin-bottom: 10px;
+      }
+      h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.15; letter-spacing: -0.01em; }
+      h2 {
+        font-size: 19px; margin: 36px 0 10px; color: var(--text);
+        padding-top: 20px; border-top: 1px solid var(--line);
+      }
+      p, li { color: var(--text-dim); }
+      p { margin: 12px 0; }
+      ul { margin: 12px 0 12px 22px; }
+      li { margin: 7px 0; }
+      strong { color: var(--text); font-weight: 600; }
+      a { color: var(--accent); }
+      .updated { color: var(--text-muted); font-size: 14px; margin-top: 8px; }
+      .callout {
+        background: var(--surface); border: 1px solid var(--line);
+        border-left: 3px solid var(--success);
+        border-radius: 8px; padding: 16px 18px; margin: 22px 0;
+      }
+      .callout p { margin: 0; color: var(--text); }
+      footer {
+        margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--line);
+        color: var(--text-muted); font-size: 14px;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff; --surface: #f4f4f8; --line: #d8d8e4;
+          --text: #16162a; --text-dim: #3d3d55; --text-muted: #6a6a85;
+          --accent: #0072a3; --success: #00794a;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Tetrilaunch</p>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: 9 August 2026</p>
+
+      <div class="callout">
+        <p>
+          Tetrilaunch has no accounts, no ads, no analytics and no tracking of any kind.
+          Nothing leaves your device unless you submit a score to the leaderboard.
+        </p>
+      </div>
+
+      <h2>What stays on your device</h2>
+      <p>
+        Your settings, the display name you last used, your best score and all
+        meta-progression (salvage, unlocks, upgrades) are stored locally in your
+        browser or app storage. This never reaches us. Deleting the app, or clearing
+        site data in your browser, erases it permanently — there is no cloud backup
+        and no way for us to restore it.
+      </p>
+
+      <h2>What is sent, and only when you choose to</h2>
+      <p>
+        When you submit a score to the online leaderboard, we receive exactly four
+        things plus the time of submission:
+      </p>
+      <ul>
+        <li>the <strong>display name you typed</strong> — capped at 12 characters, and
+          stripped to letters, digits, spaces, hyphens and underscores</li>
+        <li>your <strong>score</strong></li>
+        <li>the <strong>level</strong> reached</li>
+        <li>the number of <strong>lines</strong> cleared</li>
+      </ul>
+      <p>
+        That is the whole record. We do not ask for, and have no way to obtain, your
+        email address, phone number, contacts, location, photos or advertising ID.
+        The display name is whatever you type — <strong>please do not enter your real
+        name</strong> if you would rather not have it shown publicly, because the
+        leaderboard is public by design.
+      </p>
+      <p>
+        Leaderboard entries are stored on Cloudflare infrastructure. As with any
+        website, Cloudflare's servers process your IP address in transit in order to
+        deliver the response and to block abuse. We do not store IP addresses
+        alongside leaderboard entries, and we cannot link an entry back to a person.
+      </p>
+
+      <h2>Purchases</h2>
+      <p>
+        If you buy anything in the app, the transaction is handled entirely by Apple
+        or Google and by our payments provider, RevenueCat, which tells the app
+        whether your purchase is active. We never see your card details. RevenueCat
+        identifies your device by a random, anonymous ID that is not an advertising
+        identifier and is not used for tracking or advertising. See
+        <a href="https://www.revenuecat.com/privacy/" rel="noopener">RevenueCat's privacy policy</a>.
+      </p>
+
+      <h2>Playtest recording</h2>
+      <p>
+        The app contains a developer tool that records gameplay timings for balance
+        testing. It is <strong>switched off by default</strong>, has to be enabled
+        deliberately from a developer console, and contains no network code at all —
+        the data is written to local storage and can only be exported by hand. It
+        does not run, and collects nothing, in normal play.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Tetrilaunch is not directed at children under 13 and we do not knowingly
+        collect personal information from them. Since the only field a player can
+        enter is a display name, the simplest protection is the one above: don't put
+        a real name in it.
+      </p>
+
+      <h2>Third parties</h2>
+      <p>
+        The game makes no third-party requests during play. Its fonts are bundled
+        into the app rather than fetched from Google Fonts, so ordinary play involves
+        no font provider and no content delivery network.
+      </p>
+      <p>
+        The only outbound connections are to our own leaderboard API and, on phones
+        and tablets, to Apple, Google and RevenueCat when you open the store or make a
+        purchase. The purchase screen itself is rendered by RevenueCat and may load
+        its own resources; it is only shown when you choose to open it.
+      </p>
+
+      <h2>Your choices</h2>
+      <ul>
+        <li><strong>Don't submit a score</strong> and nothing about you is ever transmitted.</li>
+        <li><strong>Removal:</strong> to have a leaderboard entry deleted, contact us with the
+          display name, score and roughly when it was set, and we will remove it.</li>
+        <li><strong>Local data:</strong> clear it yourself at any time by deleting the app or
+          clearing the site's storage.</li>
+      </ul>
+
+      <h2>Changes</h2>
+      <p>
+        If this policy changes materially, the date at the top changes with it and the
+        updated version is published here before the change takes effect.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions, or a removal request:
+        <a href="mailto:CONTACT@EXAMPLE.COM">CONTACT@EXAMPLE.COM</a>
+      </p>
+
+      <footer>
+        <p><a href="./support.html">Support</a> &nbsp;·&nbsp; <a href="./">Play Tetrilaunch</a></p>
+      </footer>
+    </main>
+  </body>
+</html>

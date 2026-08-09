@@ -20,6 +20,8 @@
     "android:open": "npm run android:sync && cap open android",
     "android:run": "npm run android:sync && cap run android",
     "android:apk": "npm run android:sync && node scripts/gradle.mjs assembleDebug",
+    "android:bundle": "npm run android:sync && node scripts/gradle.mjs bundleRelease",
+    "android:apk:release": "npm run android:sync && node scripts/gradle.mjs assembleRelease",
     "ios:sync": "npm run build:native && npm run verify:store && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "npm run ios:sync && cap run ios",

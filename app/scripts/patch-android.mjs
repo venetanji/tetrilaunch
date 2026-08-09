@@ -16,6 +16,9 @@
  *   1. MainActivity.java  <- native/android/MainActivity.java (sticky immersive)
  *   2. res/values/styles.xml — draw into the display cutout instead of
  *      letterboxing, and make the (hidden) bars transparent.
+ *   3. app/signing.gradle <- native/android/signing.gradle, plus the
+ *      `apply from:` line that pulls it in — release signing and the
+ *      versionCode/versionName overrides Play uploads need.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -97,4 +100,41 @@ for (const { theme, items } of additions) {
 }
 
 if (changed) fs.writeFileSync(stylesPath, styles);
+
+/* 3. signing.gradle — whole-file copy (we own it), plus one `apply from:` line
+ * appended to the generated build.gradle.
+ *
+ * Appending rather than splicing into the `android { }` block: an applied
+ * script reopens that block itself, which survives Capacitor reformatting its
+ * template. Capacitor's own capacitor.build.gradle is wired in exactly this
+ * way, so the pattern is the one the generated project already uses. */
+const signingSrc = path.join(appDir, "native", "android", "signing.gradle");
+const signingDst = path.join(androidDir, "app", "signing.gradle");
+
+const signingWanted = fs.readFileSync(signingSrc, "utf8");
+if (!fs.existsSync(signingDst) || fs.readFileSync(signingDst, "utf8") !== signingWanted) {
+  fs.writeFileSync(signingDst, signingWanted);
+  console.log("patch-android: wrote signing.gradle (release signing + version overrides)");
+  changed++;
+}
+
+const buildGradlePath = path.join(androidDir, "app", "build.gradle");
+let buildGradle = fs.readFileSync(buildGradlePath, "utf8");
+const applyLine = "apply from: 'signing.gradle'";
+
+if (!buildGradle.includes(applyLine)) {
+  // Must land AFTER capacitor.build.gradle: that file is what sets up the
+  // plugin dependencies, and applying ours first would reopen `android { }`
+  // before Capacitor's own configuration has run.
+  const anchor = "apply from: 'capacitor.build.gradle'";
+  if (!buildGradle.includes(anchor)) {
+    console.error(`patch-android: could not find "${anchor}" in app/build.gradle`);
+    process.exit(1);
+  }
+  buildGradle = buildGradle.replace(anchor, `${anchor}\n\n${applyLine}`);
+  fs.writeFileSync(buildGradlePath, buildGradle);
+  console.log("patch-android: hooked signing.gradle into app/build.gradle");
+  changed++;
+}
+
 console.log(changed ? "patch-android: done" : "patch-android: already applied");

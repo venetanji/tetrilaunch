@@ -166,9 +166,14 @@ plus score/level/lines) and purchase traffic to Apple/RevenueCat.
 - **Purchases** — App Functionality. RevenueCat's anonymous app-user ID is not an
   advertising identifier and the app does no tracking, so nothing goes under Tracking.
 
-Still worth fixing before submitting: `app/index.html` pulls fonts from
-`fonts.googleapis.com` at runtime, which sends the device IP to Google and degrades
-offline. Self-hosting them in `app/public/fonts/` removes both problems.
+Fonts are **no longer** a disclosure: they used to be pulled from
+`fonts.googleapis.com` at runtime, which sent the device IP to Google and degraded
+offline. They're now bundled in `app/public/fonts/` (regenerate with
+`node scripts/fetch-fonts.mjs`), so ordinary play makes no third-party request at all.
+
+The privacy policy and support pages the listing requires are served by the Worker
+from `app/public/`: `/privacy.html` and `/support.html`. Both still contain a
+`CONTACT@EXAMPLE.COM` placeholder — replace it before submitting.
 
 ## 5. Icons and launch screen
 

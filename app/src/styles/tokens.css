@@ -41,7 +41,9 @@
   --font-ui: "Rajdhani", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
   /* Retro pixel-art display face — chips, buttons, eyebrows and small
-     headings (see index.html's Google Fonts link). Kept out of --font-display
+     headings (loaded from public/fonts/, linked in index.html; adding a
+     weight to any family here means updating scripts/fetch-fonts.mjs and
+     re-running it). Kept out of --font-display
      itself: the splash/menu's huge brand title (--fs-display, up to 88px)
      stays on Orbitron because an 8-bit face gets illegible/absurdly wide at
      that scale — this is a restyle of the UI chrome, not the brand mark. */
