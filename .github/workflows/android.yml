@@ -77,12 +77,14 @@ jobs:
       - name: Sync web assets into the native project
         run: npx cap sync android
 
-      # Re-applies the two native edits `cap add` doesn't own (sticky immersive
-      # MainActivity, display-cutout theme items). Because the platform is
-      # regenerated above, CI is also the thing that proves this patch still
-      # applies against a freshly generated project — if Capacitor changes the
-      # generated styles.xml, this step fails loudly instead of silently
-      # shipping an APK with the system bars back over the play field.
+      # Re-applies the native edits `cap add` doesn't own (sticky immersive
+      # MainActivity, display-cutout theme items, signing hook, real icons,
+      # Auto Backup exclusions for the WebView service-worker store). Because
+      # the platform is regenerated above, CI is also the thing that proves the
+      # patch still applies against a freshly generated project — if Capacitor
+      # changes the generated styles.xml or manifest, this step fails loudly
+      # instead of silently shipping an APK with the system bars back over the
+      # play field, or one whose backup restores stale code.
       - name: Apply native Android patches
         run: npm run patch:android
 

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API 31+ — the same exclusions as backup_rules.xml, in
+  the format Android 12+ reads; see that file for the full rationale and keep
+  the two lists identical. Installed into res/xml/ and wired onto
+  <application> by scripts/patch-android.mjs.
+
+  Both sections are spelled out because both restore paths plant the stale
+  worker: <cloud-backup> covers the backup restored at install time (the
+  reinstall case), <device-transfer> covers device-to-device migration, where
+  the new phone gets the current APK from Play but the old phone's data — the
+  same mismatch. Exclude-only in both, so Local Storage (the save) stays in.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="app_webview/Default/Service Worker" />
+        <exclude domain="root" path="app_webview/Default/Code Cache" />
+        <exclude domain="root" path="app_webview/Service Worker" />
+        <exclude domain="root" path="app_webview/Code Cache" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="app_webview/Default/Service Worker" />
+        <exclude domain="root" path="app_webview/Default/Code Cache" />
+        <exclude domain="root" path="app_webview/Service Worker" />
+        <exclude domain="root" path="app_webview/Code Cache" />
+    </device-transfer>
+</data-extraction-rules>

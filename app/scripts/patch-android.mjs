@@ -22,6 +22,10 @@
  *   4. the mipmap and drawable splash resources <- native/android/res/ — the
  *      launcher icons and splash screens. Without this, regeneration restores
  *      Capacitor's default blue-X-on-white icon.
+ *   5. res/xml/{backup_rules,data_extraction_rules}.xml <- native/android/,
+ *      plus the two <application> attributes pointing at them — Auto Backup
+ *      exclusions so a reinstall's restore can't resurrect a stale service
+ *      worker, while localStorage (the save) keeps being backed up.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -175,6 +179,87 @@ for (const dir of fs.readdirSync(resSrc)) {
 }
 if (assets) {
   console.log(`patch-android: restored ${assets} icon/splash file(s)`);
+  changed++;
+}
+
+/* 5. Auto Backup rules — keep the save, drop the stale-code vector.
+ *
+ * allowBackup="true" (the generated default) is load-bearing: the entire
+ * meta-progression save is WebView localStorage under
+ * app_webview/Default/Local Storage, and docs/NATIVE.md measures a reinstall
+ * restoring it. But the default backup set also carries
+ * app_webview/Default/Service Worker, and restoring THAT pins a fresh install
+ * to the previous install's build: the restored worker serves its precached
+ * bundle before the APK's dist/ ever executes, so no code shipped in the new
+ * APK can defend itself — lib/platform.ts's purgeNativeServiceWorker() never
+ * gets to run from current code, because the worker decides which bundle
+ * boots and it picks its own. Reproduced on device 2026-08-09: a fresh
+ * `adb install` came up as a months-old build until app_webview/Default/
+ * "Service Worker" was deleted by hand via run-as.
+ *
+ * So the worker store (and Code Cache) is excluded from backup and
+ * device-to-device transfer, and everything else stays in. Two rule files
+ * because the platform reads a different resource by OS version:
+ * data_extraction_rules.xml on API 31+, backup_rules.xml on API <= 30.
+ *
+ * The anchor on allowBackup="true" is deliberate: if a future Capacitor
+ * template flips or drops it, the save's reinstall story just changed, and
+ * that deserves a loud stop here rather than a quietly different APK.
+ */
+const backupFiles = ["backup_rules.xml", "data_extraction_rules.xml"];
+const xmlDstDir = path.join(resDst, "xml");
+
+for (const file of backupFiles) {
+  const rules = fs.readFileSync(path.join(appDir, "native", "android", file), "utf8");
+  const to = path.join(xmlDstDir, file);
+  if (fs.existsSync(to) && fs.readFileSync(to, "utf8") === rules) continue;
+  fs.mkdirSync(xmlDstDir, { recursive: true });
+  fs.writeFileSync(to, rules);
+  console.log(`patch-android: wrote res/xml/${file} (Auto Backup exclusions)`);
+  changed++;
+}
+
+const manifestPath = path.join(androidDir, "app", "src", "main", "AndroidManifest.xml");
+let manifest = fs.readFileSync(manifestPath, "utf8");
+
+const backupAttrs = [
+  { name: "android:fullBackupContent", value: "@xml/backup_rules" }, // API <= 30
+  { name: "android:dataExtractionRules", value: "@xml/data_extraction_rules" }, // API 31+
+];
+const missingAttrs = [];
+for (const { name, value } of backupAttrs) {
+  if (manifest.includes(`${name}="${value}"`)) continue;
+  if (manifest.includes(`${name}=`)) {
+    // Inserting a second copy of the attribute would fail the build; a value
+    // we didn't choose means the template grew backup rules of its own.
+    console.error(
+      `patch-android: AndroidManifest.xml sets ${name} to something other than "${value}" — ` +
+        "reconcile the template's backup rules with native/android/ before shipping.",
+    );
+    process.exit(1);
+  }
+  missingAttrs.push(`${name}="${value}"`);
+}
+
+if (missingAttrs.length) {
+  const appTag = manifest.match(/<application\b[^>]*>/);
+  const anchor = 'android:allowBackup="true"';
+  if (!appTag || !appTag[0].includes(anchor)) {
+    console.error(
+      'patch-android: could not find android:allowBackup="true" on <application> in AndroidManifest.xml.\n' +
+        "  If the generated template changed its backup defaults, the reinstall-restores-progress\n" +
+        '  behavior changed with it — re-read docs/NATIVE.md ("Progress survives reinstall") first.',
+    );
+    process.exit(1);
+  }
+  const indent = appTag[0].match(/\n([ \t]+)android:allowBackup/)?.[1] ?? "        ";
+  const patchedTag = appTag[0].replace(
+    anchor,
+    anchor + missingAttrs.map((a) => `\n${indent}${a}`).join(""),
+  );
+  manifest = manifest.replace(appTag[0], patchedTag);
+  fs.writeFileSync(manifestPath, manifest);
+  console.log(`patch-android: wired ${missingAttrs.length} backup attribute(s) into AndroidManifest.xml`);
   changed++;
 }
 

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API 30 and below. API 31+ reads the twin file,
+  data_extraction_rules.xml — keep the exclusion lists identical. Installed
+  into res/xml/ and wired onto <application> by scripts/patch-android.mjs
+  (app/android/ is regenerated, so nothing under it can be edited directly —
+  docs/NATIVE.md).
+
+  Exclude-only on purpose: everything else in the default backup set still
+  rides along, most importantly app_webview/Default/Local Storage — WebView
+  localStorage, i.e. the entire meta-progression save (lib/store.ts). That is
+  why this is a rules file and not android:allowBackup="false": a reinstall
+  restoring the save is measured, working behavior worth keeping
+  (docs/NATIVE.md, "Progress survives reinstall").
+
+  The service worker store is excluded because restoring it pins a FRESH
+  install to the previous install's build — the restored worker serves its
+  precached bundle before the APK's dist/ ever executes, so nothing shipped in
+  the new APK can defend against it. Code Cache is Chromium's compiled-JS
+  cache: worthless to restore, and dead weight against the 25 MB Auto Backup
+  quota the save shares. domain="root" is the app's data-dir root
+  (/data/data/com.tetrilaunch.app), which is where WebView keeps app_webview/
+  — NOT domain="file", which maps to files/.
+-->
+<full-backup-content>
+    <exclude domain="root" path="app_webview/Default/Service Worker" />
+    <exclude domain="root" path="app_webview/Default/Code Cache" />
+    <!-- Same two under the pre-profile layout older WebViews use (no Default/
+         directory). A rule whose path doesn't exist is ignored, so these cost
+         nothing on modern devices. -->
+    <exclude domain="root" path="app_webview/Service Worker" />
+    <exclude domain="root" path="app_webview/Code Cache" />
+</full-backup-content>
