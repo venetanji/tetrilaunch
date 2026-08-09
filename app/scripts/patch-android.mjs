@@ -19,6 +19,9 @@
  *   3. app/signing.gradle <- native/android/signing.gradle, plus the
  *      `apply from:` line that pulls it in — release signing and the
  *      versionCode/versionName overrides Play uploads need.
+ *   4. the mipmap and drawable splash resources <- native/android/res/ — the
+ *      launcher icons and splash screens. Without this, regeneration restores
+ *      Capacitor's default blue-X-on-white icon.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -134,6 +137,44 @@ if (!buildGradle.includes(applyLine)) {
   buildGradle = buildGradle.replace(anchor, `${anchor}\n\n${applyLine}`);
   fs.writeFileSync(buildGradlePath, buildGradle);
   console.log("patch-android: hooked signing.gradle into app/build.gradle");
+  changed++;
+}
+
+/* 4. Launcher icons + splash screens.
+ *
+ * `cap add android` lays down Capacitor's default blue-X-on-white launcher
+ * icon. These are the real ones, generated from resources/icon.svg by
+ * `npm run assets:generate` and staged into native/android/res/ by
+ * scripts/stage-android-assets.mjs.
+ *
+ * Copied file-by-file rather than replacing the directory: res/ also holds
+ * layout/, values/ and xml/ that Capacitor owns and must keep regenerating. */
+const resSrc = path.join(appDir, "native", "android", "res");
+const resDst = path.join(androidDir, "app", "src", "main", "res");
+
+if (!fs.existsSync(resSrc)) {
+  console.error(
+    "patch-android: native/android/res/ is missing — the app would ship Capacitor's\n" +
+      "  default launcher icon. Regenerate it with `npm run assets:generate`.",
+  );
+  process.exit(1);
+}
+
+let assets = 0;
+for (const dir of fs.readdirSync(resSrc)) {
+  for (const file of fs.readdirSync(path.join(resSrc, dir))) {
+    const from = path.join(resSrc, dir, file);
+    const to = path.join(resDst, dir, file);
+    // Byte-compare rather than blind-copy, so the script stays idempotent and
+    // Gradle's up-to-date checks don't see 52 touched files on every sync.
+    if (fs.existsSync(to) && fs.readFileSync(to).equals(fs.readFileSync(from))) continue;
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    assets++;
+  }
+}
+if (assets) {
+  console.log(`patch-android: restored ${assets} icon/splash file(s)`);
   changed++;
 }
 

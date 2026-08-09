@@ -37,14 +37,16 @@ android` regenerates it from `capacitor.config.ts` plus the installed plugins,
 so CI rebuilding it from scratch every run is a feature (it proves `cap add`
 still works from a clean checkout).
 
-Android *does* now need two edits the CLI doesn't own (see
+Android *does* now need several edits the CLI doesn't own (see
 [Fullscreen](#fullscreen-the-system-bars-are-not-capacitors-problem) below), but
 rather than committing the directory and losing that property, they're
 re-applied by **`npm run patch:android`** (`scripts/patch-android.mjs`) from
-sources that *are* committed:
+sources that *are* committed under `app/native/android/`:
 
-- `app/native/android/MainActivity.java` — copied over the generated stub
+- `MainActivity.java` — copied over the generated stub
 - two theme items injected into the generated `res/values/styles.xml`
+- `signing.gradle` — release signing, plus the `apply from:` line into `app/build.gradle`
+- `res/` — launcher icons and splash screens, over Capacitor's defaults
 
 The patch is idempotent and runs automatically as the last step of
 `cap:add:android` and every `android:*` script, plus as its own CI step. If a
@@ -150,10 +152,28 @@ than half-implemented:
    team; the full walkthrough is in [docs/ios.md](ios.md)). Automating it needs
    an App Store Connect API key and a macOS runner — `xcodebuild
    -allowProvisioningUpdates`, Xcode Cloud, or `fastlane match`.
-3. **Icons and splash screens** — **done for iOS**: `app/resources/{icon,splash}.svg`
-   rasterise into the Xcode asset catalogs via `npm run assets:generate`
-   (`@capacitor/assets`). The same sources can feed Android by adding `--android`
-   to that script once `app/android/` exists.
+3. **Icons and splash screens** — **done, both platforms.**
+   `app/resources/{icon,splash}.svg` rasterise into the Xcode asset catalogs and
+   the Android `res/` tree via `npm run assets:generate` (`@capacitor/assets`).
+
+   Android needs one extra hop, for the usual reason: `capacitor-assets` writes
+   into `android/app/src/main/res/`, which is regenerated. So
+   `scripts/stage-android-assets.mjs` copies the icons and splashes back out to
+   **`app/native/android/res/`** (committed), and `patch-android.mjs` restores
+   them into a freshly generated project. Both run automatically —
+   `assets:generate` stages, every `android:*` script restores.
+
+   Until this existed, `cap add android` left **Capacitor's default
+   blue-X-on-white launcher icon** in place, and the debug APKs CI published had
+   it. `patch-android.mjs` now fails loudly if `native/android/res/` is missing
+   rather than quietly shipping the default again.
+
+   It costs ~2.9 MB in the repo and ~2.7 MB in the APK. Most of that is splash
+   screens at every density × orientation × night. The night variants are
+   byte-identical to their day counterparts (the design is dark either way) and
+   the portrait ones only ever flash before the runtime landscape lock engages —
+   but the `.aab` splits by density, so a real install downloads a fraction of
+   it, and correctness beat byte-shaving here.
 4. **Store metadata** — screenshots at each required device size, descriptions,
    content rating, privacy declaration. The app collects a player-entered name
    for the leaderboard *and* now sells in-app purchases, both of which are
