@@ -210,6 +210,43 @@ body.crt-off #app::after { display: none; }
   overflow-wrap: anywhere;
 }
 .menu__sub { color: var(--text-dim); font-size: var(--fs-h3); max-width: 46ch; }
+
+/* ---------- Menu attract demo (game/attract.ts) ----------
+   Two states in one box. WITHOUT `is-live` (reduced motion, no 2D context, or
+   before main.ts has mounted the demo) this is an inert wrapper around the
+   description paragraph and reads exactly as the old menu did. WITH it, the
+   canvas takes over the space and the paragraph goes visually-hidden — still
+   in the accessibility tree, since a bare canvas has no accessible name and
+   the demo would otherwise leave a screen reader with nothing at all.
+
+   The canvas letterboxes the 16:9 world into whatever rect it gets
+   (render.ts's fitViewport), so the aspect-ratio here is about not wasting
+   layout on bars, not about correctness. */
+.menu__demo.is-live {
+  position: relative;
+  width: min(100%, 560px);
+  aspect-ratio: 16 / 9;
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-hard-lg);
+  overflow: hidden;
+}
+.menu__demo-canvas { display: none; }
+.menu__demo.is-live .menu__demo-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Visually hidden, not `display: none` — the paragraph is the canvas's text
+   alternative and has to stay reachable. */
+.menu__demo.is-live .menu__sub {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
 /* ---------- HUD ---------- */
@@ -1322,7 +1359,29 @@ button.panel { color: var(--text); }
 @media (max-width: 720px) {
   .menu { grid-template-columns: 1fr; text-align: center; gap: var(--sp-4); }
   .menu__actions { margin: 0 auto; }
+  /* Centered layout: the demo centres with everything else. Left-aligned (the
+     two-column default) it stays flush with the title above it. */
+  .menu__demo.is-live { margin-inline: auto; }
   .howto__grid { grid-template-columns: 1fr; }
+}
+
+/* The demo is the one block on the menu whose height is a fixed fraction of
+   its width, so on a short viewport it is the first thing to push the chips
+   off the bottom — the very clipping the rule above was written to fix.
+   Capping its WIDTH is what shrinks it: a max-height would fight the
+   aspect-ratio and just letterbox the world inside a box still taking the
+   same room.
+
+   The 460px step is measured, not guessed. At 792x360 (the 1080p phone that
+   rule calls out) the chips wrap to two rows, and a 280px-wide demo put the
+   second row 11px past the bottom edge; 220px (124px tall) leaves ~20px of
+   headroom. Small, but the demo only has to read as motion at that size — and
+   the alternative it replaced, four lines of body copy, is not much shorter. */
+@media (max-height: 620px) {
+  .menu__demo.is-live { width: min(100%, 400px); }
+}
+@media (max-height: 460px) {
+  .menu__demo.is-live { width: min(100%, 220px); }
 }
 
 /* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed

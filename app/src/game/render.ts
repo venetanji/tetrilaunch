@@ -28,6 +28,24 @@ export function computeViewport(cw: number, ch: number): Viewport {
   return { scale: l.scale, ox: l.ox, oy: l.oy };
 }
 
+/**
+ * Plain centered letterbox fit of the world into a box — no chrome bands, no
+ * safe-area insets. This is what an OFF-FIELD surface wants: computeViewport
+ * above deliberately reserves a control-rail band out of the viewport (see
+ * layout.ts's "snug" mode) and folds in the device's notch insets, both of
+ * which are meaningless for a canvas nobody plays or taps. The menu's attract
+ * demo (attract.ts) draws through this instead, so a phone's notch can't
+ * offset a 300px decorative panel by a third of its width.
+ */
+export function fitViewport(cssW: number, cssH: number): Viewport {
+  const scale = Math.max(0.0001, Math.min(cssW / WORLD.width, cssH / WORLD.height));
+  return {
+    scale,
+    ox: (cssW - WORLD.width * scale) / 2,
+    oy: (cssH - WORLD.height * scale) / 2,
+  };
+}
+
 /** Map a client (CSS px) point to world coordinates. */
 export function screenToWorld(
   cssW: number,
@@ -72,14 +90,22 @@ export interface Scene {
   settling: boolean;
 }
 
+/**
+ * `viewport` overrides where the world is placed inside the canvas. Omitted
+ * (every in-game caller) it is the play-field solver's answer — the transform
+ * input mapping also reads, which is what keeps a tap honest. The menu's
+ * attract demo passes fitViewport() instead: it renders the same scene into a
+ * small decorative canvas that reserves no controls and receives no input.
+ */
 export function render(
   ctx: CanvasRenderingContext2D,
   cssW: number,
   cssH: number,
   dpr: number,
   scene: Scene,
+  viewport?: Viewport,
 ): void {
-  const vp = computeViewport(cssW, cssH);
+  const vp = viewport ?? computeViewport(cssW, cssH);
   syncSpriteScale(vp.scale * dpr);
 
   // Backdrop, field gradient, grid and wall glow are static per viewport —

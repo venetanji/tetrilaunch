@@ -26,6 +26,7 @@ import {
   dailyContracts, levelForContract, type Contract,
 } from "./game/contracts";
 import { render } from "./game/render";
+import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
 import { computeLayout } from "./game/layout";
 
@@ -70,6 +71,10 @@ class App {
 
   private state: AppState = "splash";
   private game: Game | null = null;
+  /** The self-playing demo on the main menu (game/attract.ts). Owns its own
+   *  Game, canvas and rAF loop, and only exists while the menu is up — see
+   *  syncAttract. */
+  private attract = new AttractDemo();
   private input: InputController;
   private settings: Settings = loadSettings();
 
@@ -240,6 +245,7 @@ class App {
   private destroy(): void {
     this.input.destroy();
     this.game?.destroy();
+    this.attract.stop();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
@@ -529,6 +535,37 @@ class App {
         break;
     }
     this.syncFullscreenButtons();
+    this.syncAttract();
+  }
+
+  /**
+   * Points the menu's attract demo (game/attract.ts) at the canvas this render
+   * just created, or stops it when the menu isn't on screen.
+   *
+   * Run from renderOverlay rather than setState because the menu re-renders
+   * for reasons that aren't state changes at all (a store entitlement
+   * resolving, a Workshop purchase returning here), and each one replaces the
+   * canvas element the demo was drawing into. AttractDemo.mount keeps the bay
+   * running across the swap; only leaving the menu tears it down.
+   *
+   * `is-live` is added optimistically and taken back if the demo declines
+   * (reduced motion, no 2D context) — the class is what hides the description
+   * paragraph the demo replaces, so it must never outlive a demo that isn't
+   * actually drawing. Added BEFORE mount() because it is also what gives the
+   * canvas its box: measured while still `display: none`, the demo would size
+   * its backing store to nothing.
+   */
+  private syncAttract(): void {
+    const host = this.state === "menu"
+      ? this.overlay.querySelector<HTMLElement>(".menu__demo")
+      : null;
+    if (!host) {
+      this.attract.stop();
+      return;
+    }
+    const canvas = host.querySelector("canvas");
+    host.classList.add("is-live");
+    if (!canvas || !this.attract.mount(canvas)) host.classList.remove("is-live");
   }
 
   /** Reflects fullscreen availability/state onto every fullscreen control

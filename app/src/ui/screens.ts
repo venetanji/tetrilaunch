@@ -57,9 +57,19 @@ export function menuScreen(
       <div class="menu__brand">
         <div class="eyebrow">Physics Cannon Puzzle</div>
         <h1 class="menu__title display neon-text brand-gradient">TETRILAUNCH</h1>
-        <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
-        full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-        run that drafts stranger modifiers onto your bankroll every stop.</p>
+        <!-- The paragraph that used to describe the game, and the demo that
+             now shows it instead (game/attract.ts drives the canvas). Both
+             ship: main.ts adds the is-live class only once the demo is
+             actually running, and the copy stays in the DOM under it as the
+             canvas's text alternative — a screen reader still gets the
+             description, and anyone on reduced motion (or without a 2D
+             context) gets it on screen, exactly as before. -->
+        <div class="menu__demo">
+          <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
+          <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
+          full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
+          run that drafts stranger modifiers onto your bankroll every stop.</p>
+        </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           ${tierChip}
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
