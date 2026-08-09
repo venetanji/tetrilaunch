@@ -47,6 +47,7 @@ import {
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
+  contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
@@ -455,19 +456,48 @@ section("Contracts (contracts.ts)");
   let everNegativeWind = false;
   let tierOneTooWindy = false;
   let worstRatio = Infinity;
+  // The pentomino Contract is gone by design (playtest, 2026-08-09): bulk
+  // pieces pack visibly worse than tetrominoes, so those Contracts read as
+  // dice rolls rather than puzzles. Its slot went to materials, which the
+  // budget model can actually price — so the sweep also proves no bulk
+  // Contract, no slag, no material below its hazard rung, and a rate the
+  // model priced for.
+  let everBulk = false;
+  let everSlagOrUnpriced = false;
+  let everEarlyMaterial = false;
+  let everMaterialOffStd = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
+        if (c.pieceSize === "bulk") everBulk = true;
         // Pattern Contracts are bounded by their queue, not a launch budget,
         // and their feasibility is exact rather than statistical — they get
         // their own block below.
         if (c.kind !== "lines") continue;
-        const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes * PLANNING_EFFICIENCY;
+        // The material-aware efficiency IS the feasibility model now: a
+        // material Contract budgeted at plain PLANNING_EFFICIENCY would be
+        // exactly the silently-tighter Contract this sweep exists to forbid.
+        const supply =
+          c.launches * SIZE_SPEC[c.pieceSize].cubes * contractEfficiency(c.material, c.materialRate);
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
         if (supply < demand) everImpossible = true;
         if (c.windMax < 0) everNegativeWind = true;
         if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
+        if (c.material === null) {
+          if (c.materialRate !== 0) everSlagOrUnpriced = true;
+        } else {
+          if ((c.material as string) === "slag" || (c.material as string) === "standard"
+            || c.materialRate <= 0 || c.materialRate > CONTRACT_MATERIAL_CAP) {
+            everSlagOrUnpriced = true;
+          }
+          // "Contracts teach what Deep Run tests": a material may not appear
+          // in a Contract before the Mark whose Deep Run deals it.
+          if (contractMaterialTier(c.material) > tier) everEarlyMaterial = true;
+          // The budget prices waste per STD shipment, and the cannon's
+          // size-normalized roll would double a domino belt's rate.
+          if (c.pieceSize !== "std") everMaterialOffStd = true;
+        }
       }
     }
   }
@@ -475,6 +505,10 @@ section("Contracts (contracts.ts)");
   // Not merely >= 1: a Contract is the forgiving half of the game, so even the
   // tightest generated one must leave room for an imperfect attempt.
   check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.05);
+  check("no contract ships bulk pentominoes", !everBulk);
+  check("contract materials are always countable and priced", !everSlagOrUnpriced);
+  check("no material appears before its hazard rung", !everEarlyMaterial);
+  check("material contracts ship std payloads", !everMaterialOffStd);
 
   // CUBES_PER_LINE is a constant in contracts.ts but a consequence of the
   // compactor's geometry. If the min-line stop ever moves, every budget the
@@ -488,12 +522,19 @@ section("Contracts (contracts.ts)");
   // the wind rework existed to remove.
   check("tier 1 stays gentle", !tierOneTooWindy);
 
+  // A clean belt and the standard model must be the same number, or the
+  // material-aware sweep above quietly stopped testing the material-free case.
+  check(
+    "a clean belt prices at PLANNING_EFFICIENCY exactly",
+    contractEfficiency(null, 0) === PLANNING_EFFICIENCY,
+  );
+
   // The day's three must be three different problems, not three rolls of one
   // die — that's the difference between a curated board and a shuffle.
   const day = dailyContracts(4, 20260730);
   check(
     "the day's contracts differ from each other",
-    new Set(day.map((c) => `${c.pieceSize}|${c.windMax > 0}|${c.launches}|${c.goal}`)).size > 1,
+    new Set(day.map((c) => `${c.pieceSize}|${c.material}|${c.windMax > 0}|${c.launches}|${c.goal}`)).size > 1,
   );
   check("names within a day are distinct", new Set(day.map((c) => c.name)).size === day.length);
 
@@ -2039,21 +2080,39 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   }
   check("a zero mix yields only standard shipments", cleanStream.every((m) => m === "standard"));
 
-  // ---- Contracts stay clean, and that is a feasibility guarantee ----------
-
+  // ---- A Contract's belt carries exactly what it priced -------------------
+  //
+  // Contracts now ship materials (the pentomino complication's replacement),
+  // but only the ones their budget model can price: slag can never count
+  // toward a line, so it must never appear, and a pattern Contract's exact
+  // tiling admits no material at all. The belt must match the Contract's own
+  // material/rate fields byte-for-byte — those fields are what launchesFor
+  // priced, and a mix that drifts from them is a budget lying about its bay.
   let contractMixes = 0;
   let dirtyContracts = 0;
+  let materialContracts = 0;
   for (let tier = 1; tier <= 9; tier++) {
-    for (const c of dailyContracts(tier, 20260801)) {
+    for (const c of dailyContracts(tier, 20260801 + tier)) {
       const cfg = levelForContract(c, mulberry32(tier * 31 + 7));
       contractMixes++;
-      if (cfg.materialMix.slag !== 0 || cfg.materialMix.cryo !== 0) dirtyContracts++;
+      if (c.material) materialContracts++;
+      if (cfg.materialMix.slag !== 0) dirtyContracts++;
+      for (const [m, rate] of Object.entries(cfg.materialMix)) {
+        const priced = c.material === m ? c.materialRate : 0;
+        if (rate !== priced) dirtyContracts++;
+      }
+      if (c.kind === "pattern" && c.material !== null) dirtyContracts++;
     }
   }
   check(
-    "every generated Contract is material-free (its budget model assumes every cube can count)",
+    "every Contract's belt matches its priced mix, and slag never rides it",
     dirtyContracts === 0 && contractMixes > 0,
     `${contractMixes} contracts checked`,
+  );
+  check(
+    "the board actually deals material Contracts at high tiers",
+    materialContracts > 0,
+    `${materialContracts} material contracts in the sample`,
   );
 
   // ---- The rule, through the real line-clear check ------------------------

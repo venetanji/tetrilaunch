@@ -412,11 +412,25 @@ Two things the build settled that this table could not:
   rest and something fast hits it. The symmetric rule was tried first and every
   cryo cube arrived pre-thawed on the landing impact of its own delivery shot —
   the material did nothing. The asymmetry is what makes it cost a shipment.
-- **Contracts get no materials yet.** "In both pools" is deferred, not dropped.
-  Both Contract kinds size their limit from a model assuming every launched cube
-  can reach a completed row; slag breaks that, and would reintroduce the defect
-  class that once made 35% of Contracts unwinnable. Materials arrive there when
-  the budget model accounts for them.
+- **Contracts now ship materials — the countable ones, priced.** "In both
+  pools" was deferred until the budget model could account for a material, and
+  `contracts.ts` now does: `MATERIAL_WASTE` states each material's assumed
+  extra per-shipment waste, `contractEfficiency` folds it into the same closed
+  form, and `sim/systems.ts` sweeps the result for headroom exactly as before.
+  Two exclusions are structural rather than tuned. **Slag stays out of
+  Contracts entirely** — a cube that can never count toward a line cannot be
+  priced by a budget denominated in countable cubes; letting it in would
+  reintroduce the defect class that once made 35% of Contracts unwinnable.
+  **Pattern Contracts stay clean altogether** — their queue is an exact tiling,
+  and a material that changes what a landed cube does would un-prove it.
+- **The pentomino Contract is gone** (playtest, 2026-08-09). Bulk pieces pack
+  visibly worse than tetrominoes, so a bulk Contract read as a dice roll rather
+  than a puzzle — the one failure the mode cannot carry. Its complication slot
+  is what the materials above now occupy; a material is priceable where a
+  worse-packing shape is not, because it is a per-shipment risk with a per-cube
+  cost rather than a change to the geometry of every landing. Bulk itself is
+  untouched in Deep Run, where it is a draft choice with a payout attached
+  rather than a roll inflicted by the board.
 
 ## Procedural Contracts
 
@@ -427,9 +441,11 @@ treadmill nobody on this project has time to feed. A Contract is instead
 - **Objective** — reach $X · N lines in M launches · clear all slag · deliver a
   marked crate to the floor · precision (≤K launches) · survive N presses losing
   ≤K pieces
-- **Materials** — drawn from the pool unlocked at the player's Mark
-- **Complication** — one, occasionally two: wind character, hazard, pre-seeded
-  pile, mod-style constraint
+- **Materials** — drawn from the countable pool at the player's Mark (built:
+  `contractMaterialsFor`, following the hazard ladder's rungs; slag excluded
+  structurally)
+- **Complication** — one, occasionally two: wind character, material, micro
+  payload, tight launch budget
 - **Budget** — every element carries a weighted cost, and the generator spends a
   scalar budget derived from Mark and tier
 
