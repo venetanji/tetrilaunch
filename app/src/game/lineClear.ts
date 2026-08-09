@@ -608,8 +608,23 @@ export function shatterColdCryo(
 export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
   const cutoff = compactor.leftX + compactor.width / 2 - CELL / 2;
   for (const c of cubes) {
-    if (c.blinkStart !== null) continue;
     const b = c.body;
+    if (c.blinkStart !== null) {
+      // RESCUED: the mark used to be a one-way latch, but a blinking cube
+      // keeps full physics for its whole 1.4s blink — a breaking piece, a
+      // neighbour's shove or the bar dragging a rider can carry it back into
+      // the compactor's reach, and decaying it THERE fined the player for
+      // cargo that was visibly back in play (seen on device, 2026-08-09: a
+      // shattered tetromino tumbled into the bay and one cube blinked out
+      // mid-pile, "−$" toast and all). The rule is "cubes the bar can NEVER
+      // reach decay", so it has to keep reading the cube's position for as
+      // long as the sentence is pending, not just at the moment of marking.
+      // Re-stranded cubes get re-marked with a fresh blink — more grace, in
+      // the player's favor, and the un-mark is what snaps the cube back to
+      // its true color so a rescue is visible the moment it happens.
+      if (b.position.x >= cutoff) c.blinkStart = null;
+      continue;
+    }
     if (
       b.position.x < cutoff &&
       Math.abs(b.velocity.x) < SETTLE &&
