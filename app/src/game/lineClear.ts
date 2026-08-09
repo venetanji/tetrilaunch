@@ -40,6 +40,33 @@ function clamp(v: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, v));
 }
 
+/** How far around a removed cube neighbours get woken: far enough to catch
+ *  everything that could have been RESTING on it (a diagonal touch is
+ *  ~1.41 cells center-to-center), close enough that one clear doesn't rouse
+ *  the whole pile. Anything further out reacts through normal contact
+ *  propagation — matter wakes a sleeping body when an awake one moves
+ *  against it; what it can never see is support vanishing without contact,
+ *  which is exactly the case this radius exists for. */
+export const WAKE_RADIUS = 1.75 * CELL;
+
+/**
+ * Wake every sleeping cube within `r` of (x, y). Sleeping bodies are skipped
+ * by collision detection entirely (engine.ts's enableSleeping note), so any
+ * code that deletes or teleports part of the pile must call this around the
+ * disturbance — a sleeping cube whose support was removed otherwise hangs in
+ * the air forever, asleep on top of nothing.
+ */
+export function wakeNear(cubes: Cube[], x: number, y: number, r = WAKE_RADIUS): void {
+  const r2 = r * r;
+  for (const c of cubes) {
+    const b = c.body;
+    if (!b.isSleeping) continue;
+    const dx = b.position.x - x;
+    const dy = b.position.y - y;
+    if (dx * dx + dy * dy <= r2) Matter.Sleeping.set(b, false);
+  }
+}
+
 /**
  * Can this cube ever fill a line slot RIGHT NOW? (theme.ts's Material.)
  *
@@ -210,6 +237,11 @@ export function alignMagnetic(cubes: Cube[], floorY: number): void {
     const quarter = Math.PI / 2;
     const snappedAngle = Math.round(cube.body.angle / quarter) * quarter;
     if (Math.abs(snappedAngle - cube.body.angle) > 1e-4) {
+      // Wake for the same reason settleZoneCubes does: a snap moves the body
+      // without collision detection seeing it, so its neighbours must get the
+      // chance to react. No-op on a cube that is already square (the usual
+      // case after its one-time snap), so it can sleep like everything else.
+      Matter.Sleeping.set(cube.body, false);
       Matter.Body.setAngle(cube.body, snappedAngle);
       Matter.Body.setAngularVelocity(cube.body, 0);
     }
@@ -219,6 +251,7 @@ export function alignMagnetic(cubes: Cube[], floorY: number): void {
     const row = Math.round(rel / CELL);
     const targetY = floorY - row * CELL;
     if (Math.abs(targetY - cube.body.position.y) > 0.5) {
+      Matter.Sleeping.set(cube.body, false);
       Matter.Body.setPosition(cube.body, { x: cube.body.position.x, y: targetY });
       Matter.Body.setVelocity(cube.body, { x: 0, y: 0 });
     }
@@ -312,9 +345,15 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
 
     // Angle grind: rotate slowly toward the nearest axis-aligned orientation.
     // Works on the raw (possibly multi-turn) angle so spins aren't lost.
+    // A cube the grind is still CORRECTING is woken first: setAngle/setPosition
+    // move a sleeping body without collision detection ever seeing it, so a
+    // sleeping crooked cube would grind through its neighbours instead of
+    // against them. A cube already on its slot takes no correction and is
+    // left asleep — that is the steady state the whole sleeping change buys.
     const target = Math.round(b.angle / (Math.PI / 2)) * (Math.PI / 2);
     const angleDelta = target - b.angle;
-    if (Math.abs(angleDelta) <= SETTLE_ANGLE_CAP) {
+    if (Math.abs(angleDelta) <= SETTLE_ANGLE_CAP && Math.abs(angleDelta) > 1e-4) {
+      Matter.Sleeping.set(b, false);
       Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate));
     }
 
@@ -325,7 +364,8 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
       if (k >= 0 && k < zone.needed) {
         const slotXk = WALL_INNER - CELL / 2 - k * CELL;
         const dx = slotXk - b.position.x;
-        if (Math.abs(dx) <= SETTLE_SLOT_TOL) {
+        if (Math.abs(dx) <= SETTLE_SLOT_TOL && Math.abs(dx) > 0.5) {
+          Matter.Sleeping.set(b, false);
           Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate), y: b.position.y });
         }
       }
@@ -445,6 +485,9 @@ export function updateLineClear(
         cubes.splice(i, 1);
       }
     }
+    // The rows above the cleared ones were resting on them — wake the
+    // survivors around every removal so they fall, instead of sleeping on air.
+    for (const r of removedCubes) wakeNear(cubes, r.x, r.y);
   }
   return { lines: rows.length, cubes: removedCubes, rows };
 }
@@ -523,6 +566,9 @@ export function shatterColdCryo(
       const ob = other.body;
       if (Math.abs(ob.position.y - rowY) > Y_TOL) continue;
       if (ob.position.x <= cube.body.position.x) continue;
+      // setVelocity alone leaves a sleeping body asleep (sleeping skips
+      // integration entirely), so the kick must wake it or it does nothing.
+      Matter.Sleeping.set(ob, false);
       Matter.Body.setVelocity(ob, {
         x: ob.velocity.x + SHATTER_KICK * 0.4,
         y: ob.velocity.y - SHATTER_KICK,
@@ -540,6 +586,9 @@ export function shatterColdCryo(
     Matter.Composite.remove(world, cube.body);
     cubes.splice(i, 1);
   }
+  // Same reasoning as updateLineClear's post-removal wake: whatever sat on a
+  // shattered cube must fall, and the kick above only reached its row-mates.
+  for (const r of removed) wakeNear(cubes, r.x, r.y);
 
   return { cubes: removed, rows };
 }
@@ -593,6 +642,10 @@ export function updateBlinking(
       lost.push({ x: c.body.position.x, y: c.body.position.y });
     }
   }
+  // Lost cubes decay in stacks (markLostPieces marks whole settled clumps) —
+  // wake what each removal un-supported so the rest of the clump keeps
+  // settling toward the floor rather than freezing mid-air.
+  for (const p of lost) wakeNear(cubes, p.x, p.y);
   return lost;
 }
 

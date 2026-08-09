@@ -2344,6 +2344,89 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   );
 }
 
+// ---------------------------------------------------------------------------
+section("Sleeping (engine.ts enableSleeping + the wake rules that make it safe)");
+// ---------------------------------------------------------------------------
+{
+  const DT = 1000 / 60;
+  const cubeAt = (g: Game, x: number, y: number): Cube => {
+    const body = Matter.Bodies.rectangle(x, y, CELL, CELL, {
+      friction: 0.5, frictionAir: 0.012, restitution: 0.05,
+      density: 0.001, label: "cube", chamfer: { radius: 3 },
+    });
+    Matter.Composite.add(g.phys.world, body);
+    const cube: Cube = {
+      body, type: "O", color: "#ffd500", blinkStart: null,
+      material: "standard", struck: true,
+    };
+    g.cubes.push(cube);
+    return cube;
+  };
+
+  // 1. A settled stack actually falls asleep. Placed right of the bar's
+  //    full-advance stop so the wake band never touches it. This is the check
+  //    that enableSleeping is really on — everything below is about waking.
+  const calm = { ...makeBaseLevel(0), timeLimitSec: 0, windMax: 0 };
+  {
+    const g = new Game(calm);
+    const floorY = WORLD.height - CELL / 2;
+    const x = WALL_INNER - CELL / 2 - CELL; // one slot off the wall
+    for (let r = 0; r < 3; r++) cubeAt(g, x, floorY - r * CELL);
+    let now = 0;
+    for (let i = 0; i < 240; i++) { now += DT; g.update(now); }
+    check(
+      "a settled stack sleeps within 4s",
+      g.cubes.every((c) => c.body.isSleeping),
+      g.cubes.map((c) => c.body.isSleeping).join(","),
+    );
+    g.destroy();
+  }
+
+  // 2. The advancing bar WAKES a sleeping cube in its path and pushes it,
+  //    instead of tunneling through it (static setPosition motion generates
+  //    no collision against a sleeping body — only wakeCompactorBand saves
+  //    this). The cube starts mid-corridor, forced asleep, and must end up
+  //    pushed at least a couple of cells toward the wall by the press.
+  {
+    const g = new Game(calm);
+    const face0 = g.compactor.leftX + g.compactor.width / 2;
+    const startX = face0 + CELL * 2;
+    const cube = cubeAt(g, startX, WORLD.height - CELL / 2);
+    Matter.Sleeping.set(cube.body, true);
+    let now = 0;
+    for (let i = 0; i < 600 && g.compactor.strokes < 1; i++) { now += DT; g.update(now); }
+    check("one press stroke completed", g.compactor.strokes >= 1);
+    check(
+      "the press wakes and pushes a sleeping cube (no tunneling)",
+      cube.body.position.x > startX + CELL,
+      `x ${startX.toFixed(0)} -> ${cube.body.position.x.toFixed(0)}`,
+    );
+    g.destroy();
+  }
+
+  // 3. Removing a cube wakes what rested on it. Two-cube tower, both forced
+  //    asleep, bottom blinked out — the survivor must wake (and then fall),
+  //    not sleep on air. Drives updateBlinking directly, the same call
+  //    Game.update makes.
+  {
+    const g = new Game(calm);
+    const floorY = WORLD.height - CELL / 2;
+    const x = WALL_INNER - CELL / 2 - CELL * 3;
+    const bottom = cubeAt(g, x, floorY);
+    const top = cubeAt(g, x, floorY - CELL);
+    Matter.Sleeping.set(bottom.body, true);
+    Matter.Sleeping.set(top.body, true);
+    bottom.blinkStart = 0;
+    const lost = updateBlinking(g.phys.world, g.cubes, 10_000, g.constraints);
+    check("the blinked-out cube was removed", lost.length === 1 && g.cubes.length === 1);
+    check(
+      "its removal wakes the cube that rested on it",
+      !top.body.isSleeping,
+    );
+    g.destroy();
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
