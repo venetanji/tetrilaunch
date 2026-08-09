@@ -171,6 +171,13 @@ const SPRITE_PAD = 26;
 let spritePxScale = 0;
 
 const cubeSprites = new Map<string, HTMLCanvasElement>();
+/** Everything ELSE baked at the live scale — compactor bar, piston parts,
+ *  cannon, FX shards/sparks, ghost cells — one map, keys prefixed by kind.
+ *  These exist for the same reason cubeSprites does: shadowBlur is a full
+ *  Gaussian pass per blurred fill, and the chrome here used to pay it every
+ *  frame of every bay (the compactor bar alone was a 26px blur over a
+ *  ~40x290 rect, plus two piston rigs and the cannon, at 60Hz, forever). */
+const miscSprites = new Map<string, HTMLCanvasElement>();
 let dotSprite: HTMLCanvasElement | null = null;
 
 /** Adopt the frame's world→device scale, flushing the sprite caches when it
@@ -182,19 +189,37 @@ function syncSpriteScale(pxScale: number): void {
   if (spritePxScale !== 0 && Math.abs(target - spritePxScale) / spritePxScale < 0.1) return;
   spritePxScale = target;
   cubeSprites.clear();
+  miscSprites.clear();
   dotSprite = null;
 }
 
-/** A square offscreen canvas covering `worldSize` world px at the current
- *  bake scale, its context pre-scaled so callers draw in world units. */
-function makeSpriteCanvas(worldSize: number): CanvasRenderingContext2D {
+/** An offscreen canvas covering worldW×worldH world px at the current bake
+ *  scale, its context pre-scaled so callers draw in world units. Square when
+ *  only one dimension is given. */
+function makeSpriteCanvas(worldW: number, worldH = worldW): CanvasRenderingContext2D {
   const c = document.createElement("canvas");
-  const px = Math.ceil(worldSize * spritePxScale);
-  c.width = px;
-  c.height = px;
+  c.width = Math.ceil(worldW * spritePxScale);
+  c.height = Math.ceil(worldH * spritePxScale);
   const ctx = c.getContext("2d")!;
   ctx.scale(spritePxScale, spritePxScale);
   return ctx;
+}
+
+/** Fetch-or-bake a misc sprite. `bake` draws in world units onto a canvas of
+ *  worldW×worldH with (0,0) at the canvas's top-left — padding is the
+ *  caller's business, baked into its key/geometry. */
+function getSprite(
+  key: string,
+  worldW: number,
+  worldH: number,
+  bake: (ctx: CanvasRenderingContext2D) => void,
+): HTMLCanvasElement {
+  const hit = miscSprites.get(key);
+  if (hit) return hit;
+  const ctx = makeSpriteCanvas(worldW, worldH);
+  bake(ctx);
+  miscSprites.set(key, ctx.canvas);
+  return ctx.canvas;
 }
 
 /** The face a cube of this (type, color, material-state) stamps every frame:
@@ -426,18 +451,22 @@ function drawWindIndicator(
   ctx.lineTo(cx, y + 8);
   ctx.stroke();
 
-  // Glowing strength bar.
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = col;
-  ctx.fillStyle = col;
-  ctx.shadowColor = col;
-  ctx.shadowBlur = 8 + 14 * mag;
-  ctx.lineWidth = 6;
+  // Glowing strength bar. Same double-stroke halo as drawReloadRing and for
+  // the same reason: the bar's length tracks the live wind every frame, so
+  // its glow can't be a baked sprite, and shadowBlur here was a per-frame
+  // Gaussian pass for the whole windy half of a run.
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(cx, y);
   ctx.lineTo(cx + len, y);
+  ctx.globalAlpha = 0.2 + 0.18 * mag;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 15;
   ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  ctx.fillStyle = col;
 
   // Arrowhead pointing the way the wind pushes.
   if (mag > 0.02) {
@@ -490,36 +519,56 @@ function drawWindIndicator(
   ctx.restore();
 }
 
+/** World-px margin around the bar sprite: the 26px glow plus the cap's 4px
+ *  overhang, with slack (see SPRITE_PAD's derivation — same reasoning). */
+const BAR_PAD = 34;
+
+/** The compactor bar's full paint — glow, gradient, cap, hazard stripes —
+ *  exactly as drawCompactor used to run it per frame, baked once per bay
+ *  geometry. Only its x moves at runtime, and stripes are anchored to the
+ *  bar's own top, so one sprite serves the whole bay. */
+function getBarSprite(w: number, h: number): HTMLCanvasElement {
+  return getSprite(`bar|${w}x${h}`, w + BAR_PAD * 2, h + BAR_PAD * 2, (ctx) => {
+    const x = BAR_PAD;
+    const top = BAR_PAD;
+    ctx.save();
+    ctx.shadowColor = COLORS.compactorGlow;
+    ctx.shadowBlur = 26;
+    const grad = ctx.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, "#ff5c78");
+    grad.addColorStop(0.5, COLORS.compactor);
+    grad.addColorStop(1, "#c31b3d");
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, top, w, h);
+    // glowing cap so the top edge (the "arc over" line) reads clearly
+    ctx.fillStyle = "#ffd0d8";
+    ctx.fillRect(x - 3, top - 4, w + 6, 6);
+    // hazard stripes (bar bottom == WORLD.height in world space, == top + h here)
+    ctx.beginPath();
+    ctx.rect(x, top, w, h);
+    ctx.clip();
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = "#0a0a12";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    for (let y = top - w; y < top + h; y += 34) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w, y + w);
+    }
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
 function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
-  const x = c.x - c.width / 2;
-  const top = c.top;
-  const h = c.height;
-  ctx.save();
-  ctx.shadowColor = COLORS.compactorGlow;
-  ctx.shadowBlur = 26;
-  const grad = ctx.createLinearGradient(x, 0, x + c.width, 0);
-  grad.addColorStop(0, "#ff5c78");
-  grad.addColorStop(0.5, COLORS.compactor);
-  grad.addColorStop(1, "#c31b3d");
-  ctx.fillStyle = grad;
-  ctx.fillRect(x, top, c.width, h);
-  // glowing cap so the top edge (the "arc over" line) reads clearly
-  ctx.fillStyle = "#ffd0d8";
-  ctx.fillRect(x - 3, top - 4, c.width + 6, 6);
-  // hazard stripes
-  ctx.beginPath();
-  ctx.rect(x, top, c.width, h);
-  ctx.clip();
-  ctx.globalAlpha = 0.25;
-  ctx.strokeStyle = "#0a0a12";
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  for (let y = top - c.width; y < WORLD.height; y += 34) {
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + c.width, y + c.width);
-  }
-  ctx.stroke();
-  ctx.restore();
+  const sprite = getBarSprite(c.width, c.height);
+  ctx.drawImage(
+    sprite,
+    c.x - c.width / 2 - BAR_PAD,
+    c.top - BAR_PAD,
+    c.width + BAR_PAD * 2,
+    c.height + BAR_PAD * 2,
+  );
 }
 
 /**
@@ -557,6 +606,9 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
   // cells puts that face at 534, 175px left of the default barrel tip).
   const minFace = c.leftX - c.width / 2;
   const mountX = Math.min(PISTON_BARREL_X, minFace - PISTON_HEAD_W - PISTON_BARREL_LEN - 6);
+  const barrelSprite = getPistonBarrelSprite();
+  const rodSprite = getPistonRodSprite();
+  const headSprite = getPistonHeadSprite();
   for (const frac of PISTON_Y_FRACS) {
     const y = c.top + c.height * frac;
     const barrelX0 = mountX;
@@ -565,46 +617,87 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     const rodX0 = barrelX1;
     const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
 
-    ctx.save();
+    // Rod first (it tucks under both the barrel and the head), stretched to
+    // the live length — the glow pad stretches with it, which is invisible
+    // in practice because both rod ends sit under the barrel/head anyway.
+    if (rodX1 > rodX0) {
+      ctx.drawImage(
+        rodSprite,
+        rodX0 - PISTON_PART_PAD,
+        y - PISTON_ROD_H / 2 - PISTON_PART_PAD,
+        rodX1 - rodX0 + PISTON_PART_PAD * 2,
+        PISTON_ROD_H + PISTON_PART_PAD * 2,
+      );
+    }
+    ctx.drawImage(
+      barrelSprite,
+      barrelX0 - PISTON_PART_PAD,
+      y - PISTON_BARREL_H / 2 - PISTON_PART_PAD,
+      PISTON_BARREL_LEN + PISTON_PART_PAD * 2,
+      PISTON_BARREL_H + PISTON_PART_PAD * 2,
+    );
+    ctx.drawImage(
+      headSprite,
+      headX - PISTON_HEAD_W - PISTON_PART_PAD,
+      y - PISTON_HEAD_H / 2 - PISTON_PART_PAD,
+      PISTON_HEAD_W + PISTON_PART_PAD * 2,
+      PISTON_HEAD_H + PISTON_PART_PAD * 2,
+    );
+  }
+}
 
-    // Barrel (fixed) — dark riveted housing, subtle top-down gradient.
-    const barrelGrad = ctx.createLinearGradient(0, y - PISTON_BARREL_H / 2, 0, y + PISTON_BARREL_H / 2);
-    barrelGrad.addColorStop(0, "#2c2c48");
-    barrelGrad.addColorStop(1, "#171729");
-    ctx.fillStyle = barrelGrad;
-    roundRect(ctx, barrelX0, y - PISTON_BARREL_H / 2, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
+/** Shared world-px margin for the piston part sprites: the widest glow is the
+ *  head's 12, plus the barrel's stroke. */
+const PISTON_PART_PAD = 16;
+/** Rod bake length (world px) — the sprite is stretched horizontally to the
+ *  live telescoping length at draw time. */
+const PISTON_ROD_BAKE_LEN = 64;
+
+function getPistonBarrelSprite(): HTMLCanvasElement {
+  const w = PISTON_BARREL_LEN + PISTON_PART_PAD * 2;
+  const h = PISTON_BARREL_H + PISTON_PART_PAD * 2;
+  return getSprite("piston-barrel", w, h, (ctx) => {
+    const grad = ctx.createLinearGradient(0, PISTON_PART_PAD, 0, PISTON_PART_PAD + PISTON_BARREL_H);
+    grad.addColorStop(0, "#2c2c48");
+    grad.addColorStop(1, "#171729");
+    ctx.fillStyle = grad;
+    roundRect(ctx, PISTON_PART_PAD, PISTON_PART_PAD, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
     ctx.fill();
     ctx.strokeStyle = "#3d3d63";
     ctx.lineWidth = 1.5;
-    roundRect(ctx, barrelX0, y - PISTON_BARREL_H / 2, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
+    roundRect(ctx, PISTON_PART_PAD, PISTON_PART_PAD, PISTON_BARREL_LEN, PISTON_BARREL_H, 3);
     ctx.stroke();
+  });
+}
 
-    // Rod — telescopes to meet the bar; metallic gradient + cyan glow.
-    if (rodX1 > rodX0) {
-      const rodGrad = ctx.createLinearGradient(0, y - PISTON_ROD_H / 2, 0, y + PISTON_ROD_H / 2);
-      rodGrad.addColorStop(0, "#e2e2f5");
-      rodGrad.addColorStop(0.55, "#8f8fc0");
-      rodGrad.addColorStop(1, "#5c5c88");
-      ctx.shadowColor = "rgba(0,240,255,0.4)";
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = rodGrad;
-      ctx.fillRect(rodX0, y - PISTON_ROD_H / 2, rodX1 - rodX0, PISTON_ROD_H);
-      ctx.shadowBlur = 0;
-    }
+function getPistonRodSprite(): HTMLCanvasElement {
+  const w = PISTON_ROD_BAKE_LEN + PISTON_PART_PAD * 2;
+  const h = PISTON_ROD_H + PISTON_PART_PAD * 2;
+  return getSprite("piston-rod", w, h, (ctx) => {
+    const grad = ctx.createLinearGradient(0, PISTON_PART_PAD, 0, PISTON_PART_PAD + PISTON_ROD_H);
+    grad.addColorStop(0, "#e2e2f5");
+    grad.addColorStop(0.55, "#8f8fc0");
+    grad.addColorStop(1, "#5c5c88");
+    ctx.shadowColor = "rgba(0,240,255,0.4)";
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = grad;
+    ctx.fillRect(PISTON_PART_PAD, PISTON_PART_PAD, PISTON_ROD_BAKE_LEN, PISTON_ROD_H);
+  });
+}
 
-    // Head — attaches at the compactor's left face, same hazard-red as the bar.
-    const headGrad = ctx.createLinearGradient(headX - PISTON_HEAD_W, 0, headX, 0);
-    headGrad.addColorStop(0, "#ff6f8a");
-    headGrad.addColorStop(1, "#ff2d55");
+function getPistonHeadSprite(): HTMLCanvasElement {
+  const w = PISTON_HEAD_W + PISTON_PART_PAD * 2;
+  const h = PISTON_HEAD_H + PISTON_PART_PAD * 2;
+  return getSprite("piston-head", w, h, (ctx) => {
+    const grad = ctx.createLinearGradient(PISTON_PART_PAD, 0, PISTON_PART_PAD + PISTON_HEAD_W, 0);
+    grad.addColorStop(0, "#ff6f8a");
+    grad.addColorStop(1, "#ff2d55");
     ctx.shadowColor = "rgba(255,45,85,0.75)";
     ctx.shadowBlur = 12;
-    ctx.fillStyle = headGrad;
-    roundRect(ctx, headX - PISTON_HEAD_W, y - PISTON_HEAD_H / 2, PISTON_HEAD_W, PISTON_HEAD_H, 2);
+    ctx.fillStyle = grad;
+    roundRect(ctx, PISTON_PART_PAD, PISTON_PART_PAD, PISTON_HEAD_W, PISTON_HEAD_H, 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
-
-    ctx.restore();
-  }
+  });
 }
 
 function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
@@ -809,18 +902,71 @@ function drawLoadedPiece(
   const cell = CELL * GHOST_SCALE;
   const h = cell / 2;
 
+  // One glowing cell per color, baked (the ghost is on screen whenever the
+  // cannon is loaded — this was up to five live glow fills every frame).
+  // Baked opaque; GHOST_ALPHA fades the stamp, glow included.
+  const sprite = getSprite(`ghost|${color}`, cell + GHOST_CELL_PAD * 2, cell + GHOST_CELL_PAD * 2, (c) => {
+    c.shadowColor = color;
+    c.shadowBlur = 12;
+    c.fillStyle = color;
+    roundRect(c, GHOST_CELL_PAD, GHOST_CELL_PAD, cell, cell, 4);
+    c.fill();
+  });
+
   ctx.save();
   ctx.globalAlpha = GHOST_ALPHA;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = color;
   for (const { x: ox, y: oy } of offsets) {
     const rx = ox * GHOST_SCALE;
     const ry = oy * GHOST_SCALE;
-    roundRect(ctx, tip.x + rx - h, tip.y + ry - h, cell, cell, 4);
-    ctx.fill();
+    ctx.drawImage(
+      sprite,
+      tip.x + rx - h - GHOST_CELL_PAD,
+      tip.y + ry - h - GHOST_CELL_PAD,
+      cell + GHOST_CELL_PAD * 2,
+      cell + GHOST_CELL_PAD * 2,
+    );
   }
   ctx.restore();
+}
+
+/** World-px margin for a ghost cell's 12px glow. */
+const GHOST_CELL_PAD = 15;
+
+/** Power buckets the barrel sprite is quantized to. The live color is a
+ *  smooth lerp of the power ratio; 24 steps keeps adjacent buckets within a
+ *  couple of RGB units of each other — beneath notice mid-drag, and it bounds
+ *  the sprite cache at 48 entries (24 buckets × aiming on/off). */
+const BARREL_BUCKETS = 24;
+const BARREL_PAD = 26; // world-px margin for the aiming glow (22) + slack
+
+function getBarrelSprite(bucket: number, aiming: boolean): HTMLCanvasElement {
+  const w = CANNON.barrel + 8 + BARREL_PAD * 2;
+  const h = 28 + BARREL_PAD * 2;
+  return getSprite(`barrel|${bucket}|${aiming ? "a" : "r"}`, w, h, (ctx) => {
+    const ratio = bucket / (BARREL_BUCKETS - 1);
+    const color = `rgb(${Math.round(150 + 105 * ratio)}, ${Math.round(220 - 120 * ratio)}, 90)`;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = aiming ? 22 : 12;
+    ctx.fillStyle = color;
+    roundRect(ctx, BARREL_PAD, BARREL_PAD, CANNON.barrel + 8, 28, 8);
+    ctx.fill();
+  });
+}
+
+function getCannonBaseSprite(): HTMLCanvasElement {
+  const side = CANNON.size + BARREL_PAD * 2;
+  return getSprite("cannon-base", side, side, (ctx) => {
+    const c = side / 2;
+    ctx.shadowColor = COLORS.aim;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = "#1b1b2e";
+    ctx.beginPath();
+    ctx.arc(c, c, CANNON.size / 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = COLORS.aim;
+    ctx.stroke();
+  });
 }
 
 function drawCannon(
@@ -829,38 +975,34 @@ function drawCannon(
   aiming: boolean,
   settling = false,
 ): void {
-  const ratio = cannon.powerRatio;
-  const barrelColor = `rgb(${Math.round(150 + 105 * ratio)}, ${Math.round(220 - 120 * ratio)}, 90)`;
-
   ctx.save();
   // Settle window: the cannon is locked out (game.ts's shoot() refuses), so it
   // reads as powered down rather than sitting there looking loaded.
   if (settling) ctx.globalAlpha = 0.35;
 
-  // Barrel
+  // Barrel — baked per quantized power color (see BARREL_BUCKETS), rotated at
+  // draw time exactly like the cube sprites are.
+  const bucket = Math.round(cannon.powerRatio * (BARREL_BUCKETS - 1));
   ctx.save();
   ctx.translate(cannon.x, cannon.y);
   ctx.rotate(-cannon.angle);
-  ctx.shadowColor = barrelColor;
-  ctx.shadowBlur = aiming ? 22 : 12;
-  ctx.fillStyle = barrelColor;
-  roundRect(ctx, 0, -14, CANNON.barrel + 8, 28, 8);
-  ctx.fill();
+  ctx.drawImage(
+    getBarrelSprite(bucket, aiming),
+    -BARREL_PAD,
+    -14 - BARREL_PAD,
+    CANNON.barrel + 8 + BARREL_PAD * 2,
+    28 + BARREL_PAD * 2,
+  );
   ctx.restore();
 
   // Base
-  ctx.save();
-  ctx.translate(cannon.x, cannon.y);
-  ctx.shadowColor = COLORS.aim;
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = "#1b1b2e";
-  ctx.beginPath();
-  ctx.arc(0, 0, CANNON.size / 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = COLORS.aim;
-  ctx.stroke();
-  ctx.restore();
+  ctx.drawImage(
+    getCannonBaseSprite(),
+    cannon.x - CANNON.size / 2 - BARREL_PAD,
+    cannon.y - CANNON.size / 2 - BARREL_PAD,
+    CANNON.size + BARREL_PAD * 2,
+    CANNON.size + BARREL_PAD * 2,
+  );
 
   // Slingshot pull band while aiming
   if (aiming) {
@@ -904,15 +1046,19 @@ function drawReloadRing(ctx: CanvasRenderingContext2D, cannon: Cannon, reload: n
   // Filled portion, starting at 12 o'clock and sweeping clockwise. Warm amber
   // while loading (it reads as "wait"), snapping to the aim cyan at the very
   // end so the moment it becomes fireable is visible in peripheral vision.
+  // The glow is a wide translucent under-stroke rather than shadowBlur: the
+  // arc length changes every frame, so this can't be baked like the static
+  // chrome, and a live Gaussian pass 60×/s is exactly what this pass removes.
   const col = reload > 0.92 ? COLORS.aim : "#ffb020";
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = col;
-  ctx.shadowColor = col;
-  ctx.shadowBlur = 10;
-  ctx.lineWidth = 4;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.arc(0, 0, RELOAD_RING_R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * reload);
+  ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 11;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 4;
   ctx.stroke();
   ctx.restore();
 }
@@ -967,16 +1113,27 @@ function drawShatterFx(
   ctx.save();
   ctx.translate(e.x, e.y);
   ctx.globalAlpha = 1 - t;
-  ctx.shadowColor = e.color;
-  ctx.shadowBlur = SHATTER_SHARD_GLOW;
-  ctx.fillStyle = e.color;
   if (size > 0) {
+    // One baked glowing shard per color, stamped scaled+rotated. A multi-row
+    // clear spawns dozens of shatter events at once — 7 live glow fills each
+    // was a couple hundred Gaussian passes in the exact frame the payout
+    // logic is also busiest, i.e. the frame most likely to tip a full bay
+    // into catch-up (see main.ts's MAX_CATCHUP_STEPS note).
+    const pad = SHATTER_SHARD_SIZE * 2.4; // covers the 10px glow at bake scale
+    const side = SHATTER_SHARD_SIZE + pad * 2;
+    const sprite = getSprite(`shard|${e.color}`, side, side, (c) => {
+      c.shadowColor = e.color;
+      c.shadowBlur = SHATTER_SHARD_GLOW;
+      c.fillStyle = e.color;
+      c.fillRect(pad, pad, SHATTER_SHARD_SIZE, SHATTER_SHARD_SIZE);
+    });
+    const drawSide = side * (size / SHATTER_SHARD_SIZE);
     for (let i = 0; i < SHATTER_SHARD_COUNT; i++) {
       const angle = base + i * ((Math.PI * 2) / SHATTER_SHARD_COUNT);
       ctx.save();
       ctx.translate(Math.cos(angle) * dist, Math.sin(angle) * dist);
       ctx.rotate(angle + t * SHATTER_SPIN);
-      ctx.fillRect(-size / 2, -size / 2, size, size);
+      ctx.drawImage(sprite, -drawSide / 2, -drawSide / 2, drawSide, drawSide);
       ctx.restore();
     }
   }
@@ -1187,7 +1344,6 @@ const EXPLOSION_RADIUS_BASE_FRAC = 0.25;
 const EXPLOSION_RADIUS_GROWTH_FRAC = 0.95;
 const EXPLOSION_LINEWIDTH_MAX = 10;
 const EXPLOSION_LINEWIDTH_MIN = 2;
-const EXPLOSION_RING_GLOW = 28;
 const EXPLOSION_FLASH_T = 0.25;
 const EXPLOSION_FLASH_RADIUS_FRAC = 0.5;
 const EXPLOSION_SPARK_COUNT = 6;
@@ -1206,12 +1362,19 @@ function drawExplosionFx(
 
   ctx.save();
   ctx.globalAlpha = 1 - t;
-  ctx.shadowColor = EXPLOSION_RING_COLOR;
-  ctx.shadowBlur = EXPLOSION_RING_GLOW;
   ctx.strokeStyle = EXPLOSION_RING_COLOR;
-  ctx.lineWidth = EXPLOSION_LINEWIDTH_MAX * (1 - t) + EXPLOSION_LINEWIDTH_MIN;
+  // Halo as a wide translucent under-stroke — the ring's radius grows every
+  // frame, so like the reload ring this can't bake, and shadowBlur 28 on a
+  // field-sized arc was the single widest live blur in the game.
+  const ringW = EXPLOSION_LINEWIDTH_MAX * (1 - t) + EXPLOSION_LINEWIDTH_MIN;
   ctx.beginPath();
   ctx.arc(e.x, e.y, radius, 0, Math.PI * 2);
+  ctx.save();
+  ctx.globalAlpha = (1 - t) * 0.3;
+  ctx.lineWidth = ringW + 14;
+  ctx.stroke();
+  ctx.restore();
+  ctx.lineWidth = ringW;
   ctx.stroke();
 
   if (t < EXPLOSION_FLASH_T) {
@@ -1227,15 +1390,23 @@ function drawExplosionFx(
 
   const base = seedAngle(e.x, e.y);
   ctx.globalAlpha = 1 - t;
-  ctx.shadowBlur = EXPLOSION_SPARK_GLOW;
-  ctx.fillStyle = EXPLOSION_RING_COLOR;
+  // Baked glowing disc, one per (fixed) spark color — same trade as shards.
+  const sparkPad = EXPLOSION_SPARK_RADIUS + EXPLOSION_SPARK_GLOW;
+  const sparkSide = EXPLOSION_SPARK_RADIUS * 2 + sparkPad * 2;
+  const spark = getSprite("spark", sparkSide, sparkSide, (c) => {
+    c.shadowColor = EXPLOSION_RING_COLOR;
+    c.shadowBlur = EXPLOSION_SPARK_GLOW;
+    c.fillStyle = EXPLOSION_RING_COLOR;
+    c.beginPath();
+    c.arc(sparkSide / 2, sparkSide / 2, EXPLOSION_SPARK_RADIUS, 0, Math.PI * 2);
+    c.fill();
+  });
+  const sparkDraw = sparkSide * (1 - t);
   for (let i = 0; i < EXPLOSION_SPARK_COUNT; i++) {
     const angle = base + i * ((Math.PI * 2) / EXPLOSION_SPARK_COUNT);
     const sx = e.x + Math.cos(angle) * radius;
     const sy = e.y + Math.sin(angle) * radius;
-    ctx.beginPath();
-    ctx.arc(sx, sy, EXPLOSION_SPARK_RADIUS * (1 - t), 0, Math.PI * 2);
-    ctx.fill();
+    ctx.drawImage(spark, sx - sparkDraw / 2, sy - sparkDraw / 2, sparkDraw, sparkDraw);
   }
   ctx.restore();
 }
