@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 500" width="1024" height="500">
+  <!-- Google Play feature graphic source (1024x500, the only size Play accepts).
+       Rasterised to store/play/ by scripts/store-graphics.mjs.
+
+       DELIBERATELY TEXT-FREE. The wordmark needs Orbitron, and the rasterizer
+       has no access to it — the same constraint that stripped "TETRI" out of
+       icon.svg. Rendering the name in a substituted system font would look
+       worse than not rendering it, and Play draws the app name and icon next to
+       this graphic in every placement anyway.
+
+       The composition is the game in one frame: a cannon-side block on the
+       left, a dashed ballistic arc, the payload landing right, and a partial
+       stack underneath it — which is what a cleared line is built from. -->
+  <defs>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00f0ff"/>
+      <stop offset="1" stop-color="#7a5cff"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="42%" cy="38%" r="85%">
+      <stop offset="0" stop-color="#16163a"/>
+      <stop offset="1" stop-color="#07070f"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="12" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- The CRT pass the app itself draws over everything (app.css #app::after). -->
+    <!-- Lighter than the in-game overlay's 0.22: Play renders this at ~1024px
+         wide, where 0.18 over the solid payload block reads as deliberate
+         stripes rather than a CRT texture. -->
+    <pattern id="scan" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect width="1" height="2" fill="#000" opacity="0.09"/>
+    </pattern>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#bg)"/>
+
+  <!-- Field grid, fading out to the right so the artwork keeps breathing room. -->
+  <g stroke="#2e2e4a" stroke-width="1" opacity="0.5">
+    <path d="M0 60H1024M0 130H1024M0 200H1024M0 270H1024M0 340H1024M0 410H1024M0 480H1024"/>
+    <path d="M64 0V500M144 0V500M224 0V500M304 0V500M384 0V500M464 0V500M544 0V500M624 0V500M704 0V500M784 0V500M864 0V500M944 0V500"/>
+  </g>
+
+  <!-- Ballistic arc: the aim line, drawn the way the game previews a shot. -->
+  <path d="M196 322 Q470 40 742 300" fill="none" stroke="#00ff85" stroke-width="7"
+        stroke-dasharray="6 18" stroke-linecap="round" filter="url(#glow)" opacity="0.95"/>
+
+  <!-- Source block, cannon side. -->
+  <g filter="url(#softglow)" fill="none" stroke-linejoin="round">
+    <rect x="96" y="276" width="104" height="104" rx="15" stroke="url(#edge)" stroke-width="17"/>
+  </g>
+
+  <!-- Payload, mid-flight and landing. -->
+  <g filter="url(#glow)">
+    <rect x="712" y="262" width="76" height="76" rx="13" fill="#ffe500" stroke="#fff6a0" stroke-width="6"/>
+  </g>
+
+  <!-- A settled row under the impact point: two cells lit, one gap. The gap is
+       the point — a line only scores when it is complete. -->
+  <g filter="url(#glow)" opacity="0.92">
+    <rect x="636" y="366" width="66" height="66" rx="11" fill="none" stroke="#b026ff" stroke-width="9"/>
+    <rect x="714" y="366" width="66" height="66" rx="11" fill="none" stroke="#00f0ff" stroke-width="9"/>
+    <rect x="792" y="366" width="66" height="66" rx="11" fill="none" stroke="#ff8a00" stroke-width="9"
+          stroke-dasharray="14 10" opacity="0.55"/>
+  </g>
+
+  <!-- Debris/spark accents, echoing the impact FX. -->
+  <g fill="#00ff85" opacity="0.75">
+    <circle cx="828" cy="222" r="5"/>
+    <circle cx="866" cy="268" r="3.5"/>
+    <circle cx="900" cy="188" r="3"/>
+  </g>
+  <g fill="#00f0ff" opacity="0.6">
+    <circle cx="286" cy="196" r="4"/>
+    <circle cx="238" cy="150" r="2.5"/>
+  </g>
+
+  <rect width="1024" height="500" fill="url(#scan)"/>
+</svg>

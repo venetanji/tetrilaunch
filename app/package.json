@@ -28,7 +28,9 @@
     "assets:generate": "node scripts/rasterize-assets.mjs && capacitor-assets generate --ios --android --assetPath resources && node scripts/stage-android-assets.mjs",
     "sim:balance": "tsx sim/sweep.ts",
     "sim:perf": "tsx sim/perf.ts",
-    "sim:systems": "tsx sim/systems.ts"
+    "sim:systems": "tsx sim/systems.ts",
+    "store:graphics": "node scripts/store-graphics.mjs",
+    "store:copy": "node scripts/verify-store-copy.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",
