@@ -80,12 +80,13 @@ export function render(
   scene: Scene,
 ): void {
   const vp = computeViewport(cssW, cssH);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, cssW * dpr, cssH * dpr);
+  syncSpriteScale(vp.scale * dpr);
 
-  // Letterbox backdrop
-  ctx.fillStyle = COLORS.bg;
-  ctx.fillRect(0, 0, cssW * dpr, cssH * dpr);
+  // Backdrop, field gradient, grid and wall glow are static per viewport —
+  // blit the cached opaque layer instead of re-painting them (no clearRect
+  // needed underneath, the layer covers every device pixel).
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp), 0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   // Clip to the world rect
@@ -94,8 +95,6 @@ export function render(
   ctx.rect(0, 0, WORLD.width, WORLD.height);
   ctx.clip();
 
-  drawBackground(ctx);
-  drawWalls(ctx);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);
@@ -112,6 +111,179 @@ export function render(
   drawEffects(ctx, scene.effects, scene.now);
 
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Sprite + layer caches.
+//
+// Canvas shadowBlur is a full Gaussian blur pass over the filled shape, re-run
+// on every fill that has it set. drawCube used to pay that per cube per frame
+// (16-22px of glow × a 150+ cube field), drawTrajectory per dot (~47 of them),
+// and render() re-painted the static backdrop gradient + grid + glowing walls
+// every frame. On a slow phone that blur work dwarfs the physics step
+// (sim/perf.ts measures physics at ~0.2ms/step with 200 cubes on this class
+// of scene), so everything glow-blurred is baked ONCE into an offscreen
+// canvas at the live device-pixel scale and stamped with drawImage afterward.
+//
+// Bakes are lazy, keyed by exactly the inputs that change the pixels, and the
+// caches flush when the world→device scale drifts (resize / dpr change) so
+// sprites stay crisp at the live resolution. shadowBlur is specified in
+// device pixels of the target canvas (the spec exempts it from the CTM), and
+// the bake canvas runs at the same device scale the live canvas does, so the
+// baked glows use the same blur numbers drawCube always passed.
+// ---------------------------------------------------------------------------
+
+/** World-px margin around a sprite's shape for its baked glow: the widest
+ *  blur used is 22 device px (cold cryo), which at the minimum bake scale of
+ *  1 (see syncSpriteScale) spills at most 22 world px past the shape, plus
+ *  the 1.25px of edge-highlight stroke outside the cube's face. */
+const SPRITE_PAD = 26;
+
+/** Device pixels per world px the current sprites are baked at; 0 = nothing
+ *  baked yet. Clamped to [1, 3]: below 1 the glow would out-spill SPRITE_PAD,
+ *  above 3 sprites cost memory with no visible gain. */
+let spritePxScale = 0;
+
+const cubeSprites = new Map<string, HTMLCanvasElement>();
+let dotSprite: HTMLCanvasElement | null = null;
+
+/** Adopt the frame's world→device scale, flushing the sprite caches when it
+ *  has drifted >10% from what they were baked at — tighter would re-bake on
+ *  mobile browser chrome show/hide, looser would leave sprites visibly soft
+ *  after a real resize. */
+function syncSpriteScale(pxScale: number): void {
+  const target = Math.min(3, Math.max(1, pxScale));
+  if (spritePxScale !== 0 && Math.abs(target - spritePxScale) / spritePxScale < 0.1) return;
+  spritePxScale = target;
+  cubeSprites.clear();
+  dotSprite = null;
+}
+
+/** A square offscreen canvas covering `worldSize` world px at the current
+ *  bake scale, its context pre-scaled so callers draw in world units. */
+function makeSpriteCanvas(worldSize: number): CanvasRenderingContext2D {
+  const c = document.createElement("canvas");
+  const px = Math.ceil(worldSize * spritePxScale);
+  c.width = px;
+  c.height = px;
+  const ctx = c.getContext("2d")!;
+  ctx.scale(spritePxScale, spritePxScale);
+  return ctx;
+}
+
+/** The face a cube of this (type, color, material-state) stamps every frame:
+ *  glow + fill, clipped interior (pattern / slag rubble / frost), edge
+ *  highlight. Exactly the paint drawCube ran inline before the cache; the
+ *  material flags are mutually exclusive (slag and cold can't both hold), and
+ *  a thawed cryo cube deliberately shares the plain sprite of its color. */
+function getCubeSprite(
+  type: PieceType,
+  color: string,
+  slag: boolean,
+  cold: boolean,
+): HTMLCanvasElement {
+  const key = `${type}|${color}|${slag ? "s" : cold ? "c" : "n"}`;
+  const hit = cubeSprites.get(key);
+  if (hit) return hit;
+
+  const h = CELL / 2;
+  const ctx = makeSpriteCanvas(CELL + SPRITE_PAD * 2);
+  ctx.translate(SPRITE_PAD + h, SPRITE_PAD + h);
+  const dark = shade(color, -70);
+  const light = shade(color, 45);
+
+  // Slag is inert, so it does not glow — every live shipment on the field
+  // does. Cold cryo glows harder than it will once thawed: the frost is the
+  // warning.
+  ctx.shadowColor = color;
+  ctx.shadowBlur = slag ? 0 : cold ? 22 : 16;
+  roundRect(ctx, -h, -h, CELL, CELL, 5);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.save();
+  roundRect(ctx, -h, -h, CELL, CELL, 5);
+  ctx.clip();
+  if (slag) {
+    // Rubble hatching instead of the type pattern — slag has no shipment
+    // identity left to advertise, which is precisely its point.
+    drawSlagFace(ctx, -h, CELL, dark, light);
+  } else {
+    // Per-type interior pattern (ported from main.py draw_square_piece)
+    drawPattern(ctx, type, -h, -h, CELL, dark, light);
+    // Frost crystals over the type pattern, so a cryo O still reads as an O.
+    // They vanish the instant it thaws — that transition IS the feedback that
+    // the strike landed, and the row is now completable.
+    if (cold) drawFrost(ctx, -h, CELL);
+  }
+  ctx.restore();
+
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = light;
+  roundRect(ctx, -h, -h, CELL, CELL, 5);
+  ctx.stroke();
+
+  cubeSprites.set(key, ctx.canvas);
+  return ctx.canvas;
+}
+
+/** Trajectory dots are all stamps of one glowing disc scaled 0.5-1.5×. Baked
+ *  at the mid radius of the 2..6px range drawTrajectory draws, so scaling
+ *  stays near 1:1 and the glow scales with the dot. */
+const DOT_R = 4;
+const DOT_PAD = 12;
+
+function getDotSprite(): HTMLCanvasElement {
+  if (dotSprite) return dotSprite;
+  const ctx = makeSpriteCanvas((DOT_R + DOT_PAD) * 2);
+  ctx.translate(DOT_R + DOT_PAD, DOT_R + DOT_PAD);
+  ctx.shadowColor = COLORS.trajectory;
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = COLORS.trajectory;
+  ctx.beginPath();
+  ctx.arc(0, 0, DOT_R, 0, Math.PI * 2);
+  ctx.fill();
+  dotSprite = ctx.canvas;
+  return dotSprite;
+}
+
+let bgLayer: HTMLCanvasElement | null = null;
+let bgLayerKey = "";
+
+/** Letterbox backdrop + field gradient + grid + glowing walls, composited
+ *  once per viewport into an opaque device-resolution layer. Re-baked only
+ *  when the canvas size or world placement changes (resize, rotation, dpr
+ *  change); every frame in between is a single full-canvas drawImage. */
+function getBackgroundLayer(
+  cssW: number,
+  cssH: number,
+  dpr: number,
+  vp: Viewport,
+): HTMLCanvasElement {
+  // Same Math.floor sizing as main.ts's onResize gives the live canvas, so
+  // the layer maps 1:1 onto it.
+  const w = Math.max(1, Math.floor(cssW * dpr));
+  const h = Math.max(1, Math.floor(cssH * dpr));
+  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}`;
+  if (bgLayer && bgLayerKey === key) return bgLayer;
+
+  if (!bgLayer) bgLayer = document.createElement("canvas");
+  bgLayer.width = w; // also resets the context's transform
+  bgLayer.height = h;
+  const bctx = bgLayer.getContext("2d")!;
+  bctx.fillStyle = COLORS.bg;
+  bctx.fillRect(0, 0, w, h);
+  bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
+  bctx.save();
+  bctx.beginPath();
+  bctx.rect(0, 0, WORLD.width, WORLD.height);
+  bctx.clip();
+  drawBackground(bctx);
+  drawWalls(bctx);
+  bctx.restore();
+  bgLayerKey = key;
+  return bgLayer;
 }
 
 function drawBackground(ctx: CanvasRenderingContext2D): void {
@@ -411,52 +583,22 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
 
 function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
   if (!blinkVisible(cube, now)) return;
-  const b = cube.body;
   const color = cube.blinkStart !== null ? "#ff6464" : cube.color;
-  const dark = shade(color, -70);
-  const light = shade(color, 45);
   // A cube's material is legible from its color alone (theme.ts's
   // MATERIAL_SPEC), but the two that CHANGE ITS WORTH get a second, non-color
   // cue as well: color alone would leave a colour-blind player reading slag as
   // just another shipment, and the whole mechanic is knowing which cubes count.
+  // Both cues (and the glow) are baked into the sprite — see getCubeSprite.
   const slag = cube.material === "slag";
   const cold = cube.material === "cryo" && !cube.struck;
+  const sprite = getCubeSprite(cube.type, color, slag, cold);
 
+  const b = cube.body;
+  const half = CELL / 2 + SPRITE_PAD;
   ctx.save();
   ctx.translate(b.position.x, b.position.y);
   ctx.rotate(b.angle);
-  const h = CELL / 2;
-
-  // Slag is inert, so it does not glow — every live shipment on the field does.
-  // Cold cryo glows harder than it will once thawed: the frost is the warning.
-  ctx.shadowColor = color;
-  ctx.shadowBlur = slag ? 0 : cold ? 22 : 16;
-  roundRect(ctx, -h, -h, CELL, CELL, 5);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  ctx.save();
-  roundRect(ctx, -h, -h, CELL, CELL, 5);
-  ctx.clip();
-  if (slag) {
-    // Rubble hatching instead of the type pattern — slag has no shipment
-    // identity left to advertise, which is precisely its point.
-    drawSlagFace(ctx, -h, CELL, dark, light);
-  } else {
-    // Per-type interior pattern (ported from main.py draw_square_piece)
-    drawPattern(ctx, cube.type, -h, -h, CELL, dark, light);
-    // Frost crystals over the type pattern, so a cryo O still reads as an O.
-    // They vanish the instant it thaws — that transition IS the feedback that
-    // the strike landed, and the row is now completable.
-    if (cold) drawFrost(ctx, -h, CELL);
-  }
-  ctx.restore();
-
-  ctx.lineWidth = 2.5;
-  ctx.strokeStyle = light;
-  roundRect(ctx, -h, -h, CELL, CELL, 5);
-  ctx.stroke();
+  ctx.drawImage(sprite, -half, -half, half * 2, half * 2);
   ctx.restore();
 }
 
@@ -585,16 +727,14 @@ function drawPattern(
 
 function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): void {
   if (pts.length < 2) return;
+  const sprite = getDotSprite();
   ctx.save();
-  ctx.shadowColor = COLORS.trajectory;
-  ctx.shadowBlur = 10;
   for (let i = 0; i < pts.length; i += 3) {
     const t = i / pts.length;
     ctx.globalAlpha = 0.9 * (1 - t) + 0.15;
-    ctx.fillStyle = COLORS.trajectory;
-    ctx.beginPath();
-    ctx.arc(pts[i].x, pts[i].y, 4 * (1 - t) + 2, 0, Math.PI * 2);
-    ctx.fill();
+    // Scale the baked disc (radius DOT_R + its glow) to this dot's radius.
+    const half = (DOT_R + DOT_PAD) * ((4 * (1 - t) + 2) / DOT_R);
+    ctx.drawImage(sprite, pts[i].x - half, pts[i].y - half, half * 2, half * 2);
   }
   ctx.restore();
 }
