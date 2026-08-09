@@ -7,7 +7,7 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, tiersCost, upgradeById, type UpgradeTiers,
+  MAX_TIER, UPGRADES, nextTierCost, refitTracks, tiersCost, upgradeById, type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
@@ -756,8 +756,12 @@ export function refitScreen(opts: {
   nextBayName: string;
   scrap: number;
   tiers: UpgradeTiers;
+  /** The run's Mark — Mark 1 stops offer only Reactor Output (see
+   *  upgrades.ts's refitTracks for the tuning rationale). */
+  mark: number;
 }): string {
-  const cards = UPGRADES.map((u) => {
+  const tracks = refitTracks(opts.mark);
+  const cards = tracks.map((u) => {
     const tier = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
     const cost = nextTierCost(tier);
     const affordable = cost !== null && opts.scrap >= cost;
@@ -816,6 +820,11 @@ export function refitScreen(opts: {
         </div>
       </div>
       <div class="refit__grid" id="refit-grid">${cards}</div>
+      ${
+        tracks.length < UPGRADES.length
+          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Mark 1 refits focus the reactor — the rest of the yard opens at Mark 2.</p>`
+          : ""
+      }
       <button class="btn btn--primary" data-action="refit-done">Undock →</button>
     </div>
   </div>`;
@@ -1139,9 +1148,12 @@ export function endModal(opts: {
   /** True only for the bay-10 win — every other win routes to draftScreen instead. */
   runComplete: boolean;
   /** The tier this run's end just COMPLETED (meta.ts's recordRunEnd), or null
-   *  when it only ticked progress — completion is the one salvage event now. */
+   *  when it only ticked progress. */
   tierCompleted: number | null;
-  /** Salvage that completion banked; 0 when tierCompleted is null. */
+  /** Salvage THIS run's end banked — the run-win milestone share, plus the
+   *  completion remainder when tierCompleted fired (see meta.ts's tier
+   *  milestone notes). Can be positive with tierCompleted null: a first win
+   *  at the tier banks its share even while Contracts are still owed. */
   tierSalvage: number;
   /** Where the (possibly new) current tier stands after this run. */
   progress: TierProgress;
@@ -1220,10 +1232,10 @@ export function endModal(opts: {
       </div>
       <!-- Tier progress. Deliberately prominent on a LOSS too: the run ending
            is not the end of the progression, and the player should see what
-           the ladder still asks of them — or what a completion just banked —
-           before they see the leaderboard. Salvage is only paid on tier
-           completion (meta.ts), so this row is either the award or the
-           remaining checklist, never both. -->
+           the ladder still asks of them — or what this end just banked —
+           before they see the leaderboard. Salvage arrives per MILESTONE
+           (meta.ts): a first at-tier win banks its share on the spot, so the
+           progress row can carry a payout line without a completion. -->
       ${
         opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
@@ -1236,10 +1248,10 @@ export function endModal(opts: {
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
           : `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">T${opts.progress.tier}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? `♻ +${opts.tierSalvage}` : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — complete both to bank <b>♻ ${opts.progress.award}</b> and open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1} (♻ ${opts.progress.award} total per tier).</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
@@ -1461,10 +1473,16 @@ export function contractEndModal(opts: {
       : opts.award?.firstClear
         ? `<div class="chip" style="border-color:var(--accent);gap:2px;padding:12px 14px">
          <div class="chip__label" style="color:var(--accent)">Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</div>
+         ${
+           opts.award.salvage > 0
+             ? `<div class="chip__value" style="color:var(--warn)">♻ +${opts.award.salvage}</div>
+         <div class="muted" style="font-size:var(--fs-sm)">Milestone banked — ${opts.salvageTotal} salvage total, spend it in the Workshop.</div>`
+             : ""
+         }
          <div class="muted" style="font-size:var(--fs-sm)">${
            p.contracts >= p.needed
-             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier and bank ♻ ${p.award}.`
-             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier and bank ♻ ${p.award}.`
+             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
+             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
          }</div>
        </div>`
         : `<div class="chip" style="gap:2px;padding:12px 14px">
