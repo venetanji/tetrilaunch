@@ -190,6 +190,97 @@ than half-implemented:
 
 ---
 
+## Progress survives reinstall on Android already
+
+**Measured, not assumed.** `android:allowBackup="true"` is Capacitor's default and
+nothing overrides it, so Android Auto Backup is live. WebView localStorage lives
+under `app_webview/` inside the app's data directory, which the default backup
+set includes.
+
+Tested end to end on a OnePlus 12 (Android 14) with the local transport:
+
+```bash
+adb shell bmgr transport com.android.localtransport/.LocalTransport
+adb shell bmgr backupnow com.tetrilaunch.app
+adb uninstall com.tetrilaunch.app
+adb install app-debug.apk
+adb shell bmgr transport com.google.android.gms/.backup.BackupTransportService  # put it back
+```
+
+The full save came back — salvage, unlocks, mark, run count, best score and
+every claimed contract. **So the common "I reinstalled and lost everything" case
+is already handled, for free.**
+
+Two consequences worth keeping straight:
+
+- It backs up to the **player's own Google Drive**, not to us. That is why there
+  is no Data safety declaration and no privacy-policy clause for it: we neither
+  collect nor receive any of it. A server-side cloud save would change that.
+- Purchases were never the exposure anyway. `restorePurchases()`
+  ([lib/purchases.ts](../app/src/lib/purchases.ts)) ties the entitlement to the
+  Play/Apple account, so a reinstall recovers the unlock regardless.
+
+What it does **not** cover, and what a server-side save would buy:
+
+| Gap | Effect |
+|---|---|
+| Two devices in active use | Auto Backup restores at install; it never syncs |
+| Web / PWA | No platform backup at all |
+| Freshness | Runs roughly daily on charge + idle + wifi, so same-day reinstall can lose that day |
+| Backup switched off | A minority of players, but not zero |
+| iOS | iCloud device backup is the analogue — **unverified**, needs a Mac |
+
+Given that, server-side sync is a *parity and multi-device* feature, not a
+data-loss fix. It also costs a Data safety declaration and a privacy-policy
+change, because progress stored against a stable ID is pseudonymous personal
+data under GDPR even though the contents are just salvage counts.
+
+---
+
+## Testing purchases without Play products
+
+RevenueCat's **Test Store** simulates the whole purchase flow with no Play
+Console product setup — useful long before a developer account clears.
+
+```bash
+cd app
+npm run android:apk:test    # builds --mode teststore, then assembleDebug
+```
+
+`VITE_REVENUECAT_TEST_KEY` in `app/.env` supplies the key. The purchase sheet
+offers *Cancel / Test failed purchase / Test valid purchase*, and subscriptions
+renew every few minutes so expiry is observable in one sitting.
+
+### Why this is gated on a build mode rather than on DEV
+
+The SDK's own warning, printed at configure time, is stronger than the docs page:
+
+> Never use a Test Store API key in production. **Our SDK will crash if using it
+> in production.** … Apps submitted with a Test Store API key will be rejected
+> during App Review.
+
+And the usual safety net does not exist here: **the debug and release APKs
+contain the byte-identical web bundle**, both built from `--mode native`. There
+is nothing in the output that distinguishes them, so a test key that reaches
+`dist/` ships.
+
+So there are two independent guards:
+
+1. The key is read inside a branch on `import.meta.env.MODE === "teststore"`, a
+   build-time constant, so Rollup eliminates it from every other bundle.
+2. `verify:store` **fails** if a `test_` key is found in `dist/`, unless run with
+   `--allow-test-key` (which only the teststore scripts pass — and which itself
+   fails if no test key is present, catching a teststore build that silently
+   fell back to the platform key).
+
+Guard 2 is not theoretical. It caught a real leak during implementation: with
+the key declared as a property of the always-constructed `KEYS` object, Vite
+inlined it into the **native** bundle, where it was unused but fully present and
+`unzip`-able out of the APK. That is why it is written as an assertion over the
+emitted output rather than a rule in a code review.
+
+---
+
 ## Release signing
 
 Play needs a **signed `.aab`**, not the debug APK above.

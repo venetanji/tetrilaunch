@@ -13,6 +13,12 @@ import { VitePWA } from "vite-plugin-pwa";
 // revalidate sw.js against, so the update check never wins. In testing this
 // shipped the previous build twice in a row; in release it would mean an update
 // silently runs old code until something evicts the cache.
+// Modes that produce a bundle for the Capacitor shell rather than the web. Both
+// must skip the service worker for the reason above; `teststore` is `native`
+// plus RevenueCat's Test Store key (see src/lib/purchases.ts) and is never used
+// by a release path.
+const NATIVE_MODES = new Set(["native", "teststore"]);
+
 export default defineConfig(({ mode }) => ({
   base: "./",
   build: {
@@ -26,7 +32,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     VitePWA({
-      disable: mode === "native",
+      disable: NATIVE_MODES.has(mode),
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {

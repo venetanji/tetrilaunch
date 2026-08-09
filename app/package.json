@@ -30,7 +30,10 @@
     "sim:perf": "tsx sim/perf.ts",
     "sim:systems": "tsx sim/systems.ts",
     "store:graphics": "node scripts/store-graphics.mjs",
-    "store:copy": "node scripts/verify-store-copy.mjs"
+    "store:copy": "node scripts/verify-store-copy.mjs",
+    "build:teststore": "npm run typecheck && vite build --mode teststore",
+    "android:sync:test": "npm run build:teststore && node scripts/verify-store-bundle.mjs --allow-test-key && cap sync android && npm run patch:android",
+    "android:apk:test": "npm run android:sync:test && node scripts/gradle.mjs assembleDebug"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.2",

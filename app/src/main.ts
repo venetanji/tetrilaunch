@@ -1409,8 +1409,25 @@ class App {
     const btn = this.overlay.querySelector<HTMLButtonElement>("#restore-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Restoring…"; }
     const restored = await restorePurchases();
-    if (restored) { void successHaptic(); return; } // listener re-renders
-    if (btn) { btn.disabled = false; btn.textContent = "Nothing to restore"; }
+    if (restored) void successHaptic();
+    // Reset the button unconditionally.
+    //
+    // This used to return early on success and let the entitlement listener
+    // re-render the panel. That only works when the entitlement actually
+    // CHANGES: setUnlimited() short-circuits when the value is unchanged, so
+    // restoring while already entitled — a player tapping Restore to check,
+    // which is the common case — fired no listener, re-rendered nothing, and
+    // left the button disabled on "Restoring…" permanently. Verified on device
+    // against RevenueCat's Test Store: restorePurchases() resolved in 10ms with
+    // the entitlement active while the button hung for as long as it was
+    // watched.
+    //
+    // When the listener DOES fire it replaces the panel, so this node is
+    // detached by then and the write below is a harmless no-op.
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = restored ? "Purchases restored" : "Nothing to restore";
+    }
   }
 
   private async onSubmitScore(): Promise<void> {
