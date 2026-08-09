@@ -166,16 +166,34 @@ body.crt-off #app::after { display: none; }
    a short (landscape phone) viewport. */
 .center { display: flex; }
 
+/* ---------- .split — the landscape two-column block ----------
+   The one layout that reliably fits a landscape phone. The viewport this game
+   actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):
+   wide and very short. Anything stacked vertically runs out of height long
+   before it runs out of width, so screens that overflow get split into columns
+   rather than made scrollable.
+
+   Columns are a custom property so each user can set its own ratio without
+   redeclaring the grid. Collapses to one column when there genuinely isn't
+   width — portrait, or a narrow window on desktop. */
+.split {
+  display: grid;
+  grid-template-columns: var(--split-cols, 1.2fr minmax(220px, 320px));
+  gap: var(--split-gap, var(--sp-6));
+  align-items: var(--split-align, center);
+}
+.split > * { min-width: 0; }
+
+@media (max-aspect-ratio: 1/1) {
+  .split { grid-template-columns: 1fr; }
+}
+
 /* Full-screen menu layouts (landscape split) */
 .menu {
-  display: grid;
-  grid-template-columns: 1.2fr minmax(220px, 320px);
-  gap: var(--sp-6);
-  align-items: center;
   height: 100%;
   padding: clamp(20px, 4vw, 60px);
 }
-.menu__brand, .menu__actions { min-width: 0; }
+/* min-width:0 now comes from `.split > *`. */
 /* The title has to fit the BRAND COLUMN, not the viewport — the column is only
    ~1.2fr of a two-column grid, so on a landscape phone it is under half the
    window. Sizing off vw made TETRILAUNCH 49px inside a 342px column, which
@@ -252,6 +270,26 @@ body.crt-off #app::after { display: none; }
 .chip__label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .chip__value { font-family: var(--font-mono); font-weight: 700; font-size: 20px; color: var(--text); }
 .chip--accent .chip__value { color: var(--accent); }
+/* The pre-purchase upsell: a chip that is actually a <button>, so it sits in
+   the menu's status strip instead of adding a seventh row to the action column
+   (which overflows a 360px-tall landscape phone). Reset the UA button styling
+   the other chips never needed, and mark it as interactive — the surrounding
+   chips are not, so it has to look pressable to be found. */
+.chip--cta {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-color: var(--warn);
+  background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
+  transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.chip--cta .chip__value { color: var(--warn); font-size: 15px; white-space: nowrap; }
+.chip--cta:hover { filter: brightness(1.15); }
+.chip--cta:active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  .chip--cta { transition: none; }
+  .chip--cta:active { transform: none; }
+}
 .chip--combo .chip__value { color: var(--piece-o); }
 /* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud). Reduced
    motion keeps the color cue but drops the pulse. */
@@ -922,6 +960,18 @@ body.crt-off #app::after { display: none; }
    ("Run Complete!", "Level Cleared!") wrap awkwardly or blow past the modal.
    Chips/buttons/eyebrows/labels (genuinely small text) carry the pixel
    look instead; this keeps the brand headline legible. */
+/* Settings: toggles beside actions rather than above them (see settingsScreen).
+   Wider than the default modal because two columns need the room, and the
+   actions column is bottom-aligned so Done sits on the panel's baseline
+   regardless of how many store buttons the entitlement state produces. */
+.modal--settings { width: min(720px, 94vw); text-align: left; }
+.settings__cols { --split-cols: 1.4fr minmax(180px, 240px); --split-align: stretch; }
+.settings__toggles { display: flex; flex-direction: column; gap: var(--sp-2); }
+.settings__actions {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }

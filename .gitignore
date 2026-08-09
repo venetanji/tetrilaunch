@@ -18,10 +18,29 @@ app/.env.local
 
 # capacitor native platforms
 # app/ios/ IS committed — it carries the Xcode project, Info.plist tweaks and
-# app icons, so a Mac only needs `pod install` to build. Its own
-# app/ios/.gitignore excludes Pods/, build output and the copied web assets.
+# app icons, so a Mac only needs `npm install` (Capacitor 8 resolves native deps
+# through SPM — there is no Podfile) to build. Its own app/ios/.gitignore
+# excludes build output and the copied web assets.
 # Android is still generated on demand with `npx cap add android`.
 app/android/
+
+# signing material. app/android/ is already ignored above, which covers the
+# usual location — this is the belt-and-braces rule, because a leaked Play
+# upload key is not something you can quietly rotate: recovering from it means
+# asking Google to reset the key on the account.
+*.jks
+*.keystore
+keystore.properties
+*.p8
+*.p12
+*.mobileprovision
+
+# audio masters. The generated originals are the biggest thing in the project
+# and are only needed when re-trimming; the PROCESSED assets under
+# app/public/audio/ are committed and are what ships. audio/README.md is kept
+# so the pointer to where the masters live survives in the repo.
+audio/*
+!audio/README.md
 
 # misc
 *.log

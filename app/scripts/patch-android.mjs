@@ -16,6 +16,12 @@
  *   1. MainActivity.java  <- native/android/MainActivity.java (sticky immersive)
  *   2. res/values/styles.xml — draw into the display cutout instead of
  *      letterboxing, and make the (hidden) bars transparent.
+ *   3. app/signing.gradle <- native/android/signing.gradle, plus the
+ *      `apply from:` line that pulls it in — release signing and the
+ *      versionCode/versionName overrides Play uploads need.
+ *   4. the mipmap and drawable splash resources <- native/android/res/ — the
+ *      launcher icons and splash screens. Without this, regeneration restores
+ *      Capacitor's default blue-X-on-white icon.
  *
  * Idempotent: safe to run on every sync, and a no-op once applied. Exits 0 with
  * a notice if app/android/ doesn't exist yet, so `npm run build` on a checkout
@@ -97,4 +103,79 @@ for (const { theme, items } of additions) {
 }
 
 if (changed) fs.writeFileSync(stylesPath, styles);
+
+/* 3. signing.gradle — whole-file copy (we own it), plus one `apply from:` line
+ * appended to the generated build.gradle.
+ *
+ * Appending rather than splicing into the `android { }` block: an applied
+ * script reopens that block itself, which survives Capacitor reformatting its
+ * template. Capacitor's own capacitor.build.gradle is wired in exactly this
+ * way, so the pattern is the one the generated project already uses. */
+const signingSrc = path.join(appDir, "native", "android", "signing.gradle");
+const signingDst = path.join(androidDir, "app", "signing.gradle");
+
+const signingWanted = fs.readFileSync(signingSrc, "utf8");
+if (!fs.existsSync(signingDst) || fs.readFileSync(signingDst, "utf8") !== signingWanted) {
+  fs.writeFileSync(signingDst, signingWanted);
+  console.log("patch-android: wrote signing.gradle (release signing + version overrides)");
+  changed++;
+}
+
+const buildGradlePath = path.join(androidDir, "app", "build.gradle");
+let buildGradle = fs.readFileSync(buildGradlePath, "utf8");
+const applyLine = "apply from: 'signing.gradle'";
+
+if (!buildGradle.includes(applyLine)) {
+  // Must land AFTER capacitor.build.gradle: that file is what sets up the
+  // plugin dependencies, and applying ours first would reopen `android { }`
+  // before Capacitor's own configuration has run.
+  const anchor = "apply from: 'capacitor.build.gradle'";
+  if (!buildGradle.includes(anchor)) {
+    console.error(`patch-android: could not find "${anchor}" in app/build.gradle`);
+    process.exit(1);
+  }
+  buildGradle = buildGradle.replace(anchor, `${anchor}\n\n${applyLine}`);
+  fs.writeFileSync(buildGradlePath, buildGradle);
+  console.log("patch-android: hooked signing.gradle into app/build.gradle");
+  changed++;
+}
+
+/* 4. Launcher icons + splash screens.
+ *
+ * `cap add android` lays down Capacitor's default blue-X-on-white launcher
+ * icon. These are the real ones, generated from resources/icon.svg by
+ * `npm run assets:generate` and staged into native/android/res/ by
+ * scripts/stage-android-assets.mjs.
+ *
+ * Copied file-by-file rather than replacing the directory: res/ also holds
+ * layout/, values/ and xml/ that Capacitor owns and must keep regenerating. */
+const resSrc = path.join(appDir, "native", "android", "res");
+const resDst = path.join(androidDir, "app", "src", "main", "res");
+
+if (!fs.existsSync(resSrc)) {
+  console.error(
+    "patch-android: native/android/res/ is missing — the app would ship Capacitor's\n" +
+      "  default launcher icon. Regenerate it with `npm run assets:generate`.",
+  );
+  process.exit(1);
+}
+
+let assets = 0;
+for (const dir of fs.readdirSync(resSrc)) {
+  for (const file of fs.readdirSync(path.join(resSrc, dir))) {
+    const from = path.join(resSrc, dir, file);
+    const to = path.join(resDst, dir, file);
+    // Byte-compare rather than blind-copy, so the script stays idempotent and
+    // Gradle's up-to-date checks don't see 52 touched files on every sync.
+    if (fs.existsSync(to) && fs.readFileSync(to).equals(fs.readFileSync(from))) continue;
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    assets++;
+  }
+}
+if (assets) {
+  console.log(`patch-android: restored ${assets} icon/splash file(s)`);
+  changed++;
+}
+
 console.log(changed ? "patch-android: done" : "patch-android: already applied");

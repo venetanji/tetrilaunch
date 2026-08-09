@@ -1,0 +1,138 @@
+<!doctype html>
+<!--
+  Support page — the other mandatory listing URL. Google Play calls it the
+  support/contact site; App Store Connect calls it the Support URL and rejects
+  a link that 404s or that just points back at the marketing page.
+
+  Same rules as privacy.html: static, self-contained, no external requests.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Support — Tetrilaunch</title>
+    <meta name="description" content="Help, troubleshooting and contact for Tetrilaunch." />
+    <meta name="color-scheme" content="dark light" />
+    <style>
+      :root {
+        --bg: #07070f; --surface: #12121f; --line: #2e2e4a;
+        --text: #eaeaff; --text-dim: #b6b6df; --text-muted: #8080ac;
+        --accent: #00f0ff; --accent-2: #7a5cff;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background: var(--bg); color: var(--text);
+        font: 16px/1.65 "Segoe UI", system-ui, -apple-system, sans-serif;
+        padding: 40px 20px 80px;
+        -webkit-text-size-adjust: 100%;
+      }
+      main { max-width: 720px; margin: 0 auto; }
+      .eyebrow {
+        font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+        color: var(--accent); font-weight: 700; margin-bottom: 10px;
+      }
+      h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.15; letter-spacing: -0.01em; }
+      h2 {
+        font-size: 19px; margin: 36px 0 10px;
+        padding-top: 20px; border-top: 1px solid var(--line);
+      }
+      h3 { font-size: 16px; margin: 20px 0 4px; color: var(--text); }
+      p, li { color: var(--text-dim); }
+      p { margin: 10px 0; }
+      ul { margin: 10px 0 10px 22px; }
+      li { margin: 7px 0; }
+      strong { color: var(--text); font-weight: 600; }
+      a { color: var(--accent); }
+      .contact {
+        background: var(--surface); border: 1px solid var(--line);
+        border-left: 3px solid var(--accent-2);
+        border-radius: 8px; padding: 18px; margin: 24px 0;
+      }
+      .contact p { margin: 0; color: var(--text); }
+      .contact a { font-weight: 600; }
+      footer {
+        margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--line);
+        color: var(--text-muted); font-size: 14px;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #ffffff; --surface: #f4f4f8; --line: #d8d8e4;
+          --text: #16162a; --text-dim: #3d3d55; --text-muted: #6a6a85;
+          --accent: #0072a3; --accent-2: #5a3fd6;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Tetrilaunch</p>
+      <h1>Support</h1>
+
+      <div class="contact">
+        <p>
+          Bug reports, refund questions, anything else:
+          <a href="mailto:gio@shicheng.com.hk">gio@shicheng.com.hk</a>
+        </p>
+      </div>
+
+      <p>
+        Tetrilaunch is a physics cannon puzzle: you fire tetrominoes from a cannon,
+        stack what lands, and clear lines to fulfil contracts. It plays in landscape
+        on phones, tablets and in the browser.
+      </p>
+
+      <h2>Common questions</h2>
+
+      <h3>My progress disappeared</h3>
+      <p>
+        Progress is saved on your device only — there is no account and no cloud save.
+        Deleting the app, or clearing your browser's site data, erases it permanently.
+        In a browser, note that "private" or "incognito" windows discard storage when
+        you close them, and some browsers clear site data automatically after a period
+        of inactivity.
+      </p>
+
+      <h3>I bought Unlimited but it isn't showing</h3>
+      <p>
+        Open <strong>Settings</strong> in the game and tap <strong>Restore Purchases</strong>.
+        Make sure you're signed in with the same Apple or Google account you bought it
+        with. If it still doesn't unlock, email us with the store receipt and we'll sort
+        it out.
+      </p>
+
+      <h3>How do I manage or cancel a subscription?</h3>
+      <p>
+        Use <strong>Manage Subscription</strong> in the game's Settings, or manage it
+        directly in your account settings on the App Store or Google Play. Refunds are
+        handled by Apple and Google under their own policies — we can't issue them
+        ourselves, but tell us what happened and we'll help you get it raised.
+      </p>
+
+      <h3>The game is stuck in portrait</h3>
+      <p>
+        Tetrilaunch is landscape-only. If it won't rotate, check that your device's
+        rotation lock is off.
+      </p>
+
+      <h3>Can I get my leaderboard entry removed?</h3>
+      <p>
+        Yes. Email us the display name, the score and roughly when you set it, and we'll
+        delete it. See the <a href="./privacy.html">privacy policy</a> for what the
+        leaderboard stores.
+      </p>
+
+      <h2>Reporting a bug</h2>
+      <p>What helps most:</p>
+      <ul>
+        <li>your device and OS version (e.g. "Pixel 8, Android 15")</li>
+        <li>whether it's the app or the browser version</li>
+        <li>what you were doing when it happened, and whether it happens every time</li>
+        <li>a screenshot or screen recording if you can</li>
+      </ul>
+
+      <footer>
+        <p><a href="./privacy.html">Privacy Policy</a> &nbsp;·&nbsp; <a href="./">Play Tetrilaunch</a></p>
+      </footer>
+    </main>
+  </body>
+</html>

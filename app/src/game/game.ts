@@ -93,6 +93,15 @@ export interface GameEvents {
    *  shatterColdCryo). Distinct from onLineClear because it is the OPPOSITE
    *  outcome — the row was lost, not paid — and wants its own cue. */
   onCryoShatter?: (shatter: CryoShatter) => void;
+  /** A collision hard enough to be worth hearing. `strength` is 0..1, scaled
+   *  from the relative speed between the two bodies, so a glancing nudge and a
+   *  full-power landing sound different.
+   *
+   *  Fires at most ONCE per physics event with the hardest pair in it, not per
+   *  pair: a piece settling touches several cubes in the same step, and one
+   *  landing should be one sound. The consumer throttles again on top (see
+   *  lib/audio.ts's playImpact) because consecutive steps also collide. */
+  onImpact?: (strength: number) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -115,6 +124,19 @@ export interface BeltPreview {
 
 // The field tops out (you lose) when a settled cube reaches near the ceiling.
 const TOPOUT_Y = 96;
+
+/* Impact audio thresholds, in relative px/step between the colliding bodies.
+ * Calibrated against the two speeds the physics already names: lineClear's
+ * SETTLE is 3.2 (a cube counts as at rest below it) and CRYO_STRIKE_SPEED is 6
+ * (hard enough to thaw ice).
+ *
+ * IMPACT_MIN sits just above the rest threshold so the permanent low-level
+ * contact chatter of a settled pile is silent, and IMPACT_FULL above the speed
+ * a launched piece arrives at, so an ordinary landing has headroom left rather
+ * than pinning at full volume. Audio only — nothing here affects simulation. */
+const IMPACT_MIN = 4;
+const IMPACT_FULL = 14;
+
 const AT_REST = 2.5;
 const AT_REST_SQ = AT_REST * AT_REST;
 
@@ -500,7 +522,16 @@ export class Game {
     this.updateTrajectory();
 
     this.onCollisionStart = (e) => {
+      // Hardest pair in this event, for onImpact. Tracked alongside the loop
+      // rather than in a second pass — the relative speed only exists at the
+      // moment matter reports the pair, the same reason strikeCryo runs here.
+      let hardest = 0;
       for (const pair of e.pairs) {
+        const rel = Math.hypot(
+          pair.bodyA.velocity.x - pair.bodyB.velocity.x,
+          pair.bodyA.velocity.y - pair.bodyB.velocity.y,
+        );
+        if (rel > hardest) hardest = rel;
         for (const bomb of this.liveBombs) {
           if (pair.bodyA === bomb.body || pair.bodyB === bomb.body) {
             if (this.stepCount - bomb.bornStep >= BOMB_ARM_STEPS) {
@@ -524,6 +555,13 @@ export class Game {
         for (const [a, b] of tarWelds(this.cubes, pair.bodyA, pair.bodyB)) {
           this.pendingWelds.push([a.body, b.body]);
         }
+      }
+      // IMPACT_MIN filters the permanent low-level jitter of a settled pile —
+      // Matter runs without enableSleeping (see docs/NATIVE.md's note on
+      // residual motion), so resting cubes keep reporting contacts forever and
+      // an unfiltered hook would fire every step of every bay.
+      if (hardest >= IMPACT_MIN) {
+        this.events.onImpact?.(Math.min(1, (hardest - IMPACT_MIN) / (IMPACT_FULL - IMPACT_MIN)));
       }
     };
     Matter.Events.on(this.phys.engine, "collisionStart", this.onCollisionStart);

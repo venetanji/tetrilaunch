@@ -53,7 +53,7 @@ export function menuScreen(
       </div>`
     : "";
   return `<div class="screen neon-backdrop">
-    <div class="menu">
+    <div class="menu split">
       <div class="menu__brand">
         <div class="eyebrow">Physics Cannon Puzzle</div>
         <h1 class="menu__title display neon-text brand-gradient">TETRILAUNCH</h1>
@@ -71,6 +71,7 @@ export function menuScreen(
             <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
           </div>
           ${store?.unlimited ? unlimitedBadgeHTML() : ""}
+          ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
@@ -83,11 +84,13 @@ export function menuScreen(
         <button class="btn btn--secondary btn--block btn--menu" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">Spend Salvage on permanent unlocks</span></span></button>
         <button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        ${
-          store?.available && !store.unlimited
-            ? `<button class="btn btn--secondary btn--block" data-action="paywall">${icon("star")}Unlock Unlimited</button>`
-            : ""
-        }
+        <!-- The Unlimited upsell is NOT a seventh button here. This column gets
+             325px on a landscape phone and six buttons need 290 — a seventh
+             needs 330 and overflowed the viewport, but only for players who
+             hadn't bought, which is exactly who the menu has to look right for.
+             It lives in the brand column's chip row instead (unlockChipHTML),
+             the same slot the ★ UNLIMITED badge takes once owned, so this
+             column is six buttons at every entitlement state. -->
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
@@ -106,6 +109,16 @@ function unlimitedBadgeHTML(): string {
   return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:190px">
     <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
   </div>`;
+}
+
+/** The pre-purchase counterpart to the badge above, in the same chip row — a
+ *  button shaped like a chip so it reads as part of that status strip rather
+ *  than as a seventh menu action. See the note in menuScreen's action column
+ *  for why it isn't one. */
+function unlockChipHTML(): string {
+  return `<button class="chip chip--cta" data-action="paywall">
+    <div class="chip__value">★ Unlock Unlimited</div>
+  </button>`;
 }
 
 export function howtoScreen(): string {
@@ -150,18 +163,33 @@ export function howtoScreen(): string {
   </div>`;
 }
 
+/**
+ * Two columns, not one.
+ *
+ * Stacked, this needed 344px with no store rows and 404px with them, against
+ * the 322px a landscape phone actually offers — so it scrolled, and the store
+ * buttons sat below the fold exactly where Apple requires Restore to be
+ * findable. Splitting toggles from actions puts the tallest column near 210px
+ * and removes the scroll rather than making it more pleasant.
+ */
 export function settingsScreen(s: Settings, store?: StoreState): string {
   return `<div class="screen neon-backdrop center">
-    <div class="panel modal pop">
+    <div class="panel modal modal--settings pop">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h2 class="display" style="font-size:var(--fs-h1)">Settings</h2>
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
       </div>
-      ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
-      ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
-      ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
-      ${store?.available ? purchaseRowsHTML(store) : ""}
-      <button class="btn btn--secondary" data-action="menu">Done</button>
+      <div class="split settings__cols">
+        <div class="settings__toggles">
+          ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
+          ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
+          ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
+        </div>
+        <div class="settings__actions">
+          ${store?.available ? purchaseRowsHTML(store) : ""}
+          <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -170,14 +198,12 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
  *  Manage opens RevenueCat's Customer Center, which only makes sense once
  *  there's something to manage. */
 function purchaseRowsHTML(store: StoreState): string {
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap">
-    ${
-      store.unlimited
-        ? `<button class="btn btn--secondary" style="flex:1" data-action="customer-center">Manage Subscription</button>`
-        : `<button class="btn btn--secondary" style="flex:1" data-action="paywall">★ Unlock Unlimited</button>`
-    }
-    <button class="btn btn--ghost" style="flex:1" data-action="restore" id="restore-btn">Restore Purchases</button>
-  </div>`;
+  return `${
+    store.unlimited
+      ? `<button class="btn btn--secondary btn--block" data-action="customer-center">Manage Subscription</button>`
+      : `<button class="btn btn--secondary btn--block" data-action="paywall">★ Unlock Unlimited</button>`
+  }
+  <button class="btn btn--ghost btn--block" data-action="restore" id="restore-btn">Restore Purchases</button>`;
 }
 
 /** One rendered board line. `rank` is the player's TRUE standing, carried

@@ -47,6 +47,10 @@ import {
   initPurchases, purchasesReady, isUnlimited, onUnlimitedChange,
   presentPaywall, presentCustomerCenter, restorePurchases,
 } from "./lib/purchases";
+import {
+  unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
+  playMusic, playStinger, stopStinger, suspendAudio, resumeAudio,
+} from "./lib/audio";
 
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
@@ -97,6 +101,8 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** Rising-edge latch for the reload-ready cue (see syncHud). */
+  private reloadWasReady = true;
   /** What the Contract just finished did to tier progress — whether this
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
@@ -167,8 +173,13 @@ class App {
     window.visualViewport?.addEventListener("resize", this.onResize);
     window.setTimeout(this.onResize, 250);
     window.setTimeout(this.onResize, 1000);
+    window.addEventListener("pointerdown", () => { unlockAudio(); this.syncAudioSettings(); },
+      { once: true });
     window.addEventListener("pointerup", this.onGlobalPointerUp);
     window.addEventListener("pointercancel", this.onGlobalPointerUp);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) suspendAudio(); else resumeAudio();
+    });
     window.addEventListener("pagehide", () => this.destroy());
     document.addEventListener("fullscreenchange", this.onFullscreenChange);
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
@@ -240,8 +251,58 @@ class App {
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
     this.state = s;
+    this.syncMusic(s);
     this.renderOverlay();
     this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
+  }
+
+  /**
+   * One track per context, switched from the single choke point every screen
+   * change already passes through. playMusic() ignores a repeat of what's
+   * already playing, so paused/draft/refit keep the bay's bed running rather
+   * than restarting it every time a modal opens.
+   *
+   * Contracts and the Deep Run get different beds because they are different
+   * modes, not different levels — the run is the long haul, a Contract is a
+   * short retryable challenge.
+   */
+  private syncMusic(s: AppState): void {
+    switch (s) {
+      // Clearing a bay stops the bed and rings out over silence. Which
+      // celebration you get is the run's own milestone logic: isRefitBay is
+      // true on bays 3, 6 and 9 — the ones that open the shop — so the bigger
+      // refit theme marks a checkpoint and the shorter one marks a bay.
+      case "bayclear":
+        playStinger(this.run && isRefitBay(this.run.levelIndex) ? "refit" : "bayClear");
+        return;
+
+      // …and keeps ringing across the refit and the hazard draft, which follow
+      // within 1.7s. Deliberately NOT a music change: swapping in another
+      // stinger here cut the celebration off a second and a half in and read as
+      // a second, unexplained cue on the screen change. The player picks a
+      // hazard in whatever silence is left once the sting ends.
+      case "refit": case "draft": return;
+
+      case "lost": case "contract-end": playStinger("gameOver"); return;
+      case "won": playStinger("gameOver2"); return;
+
+      case "playing":
+        stopStinger();
+        playMusic(this.contract ? "contracts" : "deep-run");
+        return;
+
+      // Pausing drops to the lounge bed: the driving track under a paused game
+      // reads as pressure while nothing is happening.
+      case "paused":
+        stopStinger();
+        playMusic("menu");
+        return;
+
+      // Everything out-of-run shares the menu bed.
+      default:
+        stopStinger();
+        playMusic("menu");
+    }
   }
 
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
@@ -566,15 +627,19 @@ class App {
     const cfg = levelForRun(this.run);
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); this.coachOnShoot();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
       },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
-        void successHaptic(); this.flashGoal(); this.coachOnLineClear();
+        void successHaptic(); playLineClear(n); this.flashGoal(); this.coachOnLineClear();
       },
-      onPieceLost: () => { void impactHaptic(); },
-      onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
-      onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onBondBreak: () => {
+        telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onImpact: (strength) => playImpact(strength),
+      onCryoShatter: () => playFx("cryoShatter"),
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
     telemetry.startBay({
@@ -765,14 +830,20 @@ class App {
     this.tutorialStep = null;
     const cfg = levelForContract(c);
     this.game = new Game(cfg, {
-      onShoot: (info) => { telemetry.shot(info); void tapHaptic(); this.dismissDragHint(); },
+      onShoot: (info) => {
+        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+      },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
-        void successHaptic(); this.flashGoal();
+        void successHaptic(); playLineClear(n); this.flashGoal();
       },
-      onPieceLost: () => { void impactHaptic(); },
-      onBondBreak: () => { telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); },
-      onSettleStart: () => { void successHaptic(); this.showSettleNote(true); },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onBondBreak: () => {
+        telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onImpact: (strength) => playImpact(strength),
+      onCryoShatter: () => playFx("cryoShatter"),
       onStatus: (s) => this.onGameStatus(s),
     }, c.seed);
     telemetry.startRun(0, {} as UpgradeTiers, []);
@@ -1204,7 +1275,13 @@ class App {
     const reload = g.cannon.reloadRatio(performance.now());
     const load = this.overlay.querySelector<HTMLElement>("#hud-load");
     if (load) load.style.width = Math.round(reload * 100) + "%";
-    this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", reload >= 1);
+    const ready = reload >= 1;
+    this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", ready);
+    // Audible on the RISING edge only. syncHud runs every frame, so testing
+    // `ready` alone would retrigger ~60x/sec for as long as the player takes to
+    // aim — which, per the telemetry note in cannon.ts, is most of the time.
+    if (ready && !this.reloadWasReady) playFx("reloadReady", { gain: 0.5 });
+    this.reloadWasReady = ready;
 
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
@@ -1387,12 +1464,19 @@ class App {
     else if (a === "cancel") this.input.cancelAim();
   }
 
+  /** Music reacts to the toggle immediately rather than at the next screen —
+   *  someone switching it off mid-run means "now". */
+  private syncAudioSettings(): void {
+    setAudioEnabled({ sound: this.settings.sound, music: this.settings.music });
+  }
+
   private onToggle(key: string, el: HTMLElement): void {
     const cur = el.getAttribute("aria-checked") === "true";
     const next = !cur;
     el.setAttribute("aria-checked", String(next));
     (this.settings as unknown as Record<string, boolean>)[key] = next;
     saveSettings(this.settings);
+    this.syncAudioSettings();
     void tapHaptic();
   }
 
@@ -1409,8 +1493,25 @@ class App {
     const btn = this.overlay.querySelector<HTMLButtonElement>("#restore-btn");
     if (btn) { btn.disabled = true; btn.textContent = "Restoring…"; }
     const restored = await restorePurchases();
-    if (restored) { void successHaptic(); return; } // listener re-renders
-    if (btn) { btn.disabled = false; btn.textContent = "Nothing to restore"; }
+    if (restored) void successHaptic();
+    // Reset the button unconditionally.
+    //
+    // This used to return early on success and let the entitlement listener
+    // re-render the panel. That only works when the entitlement actually
+    // CHANGES: setUnlimited() short-circuits when the value is unchanged, so
+    // restoring while already entitled — a player tapping Restore to check,
+    // which is the common case — fired no listener, re-rendered nothing, and
+    // left the button disabled on "Restoring…" permanently. Verified on device
+    // against RevenueCat's Test Store: restorePurchases() resolved in 10ms with
+    // the entitlement active while the button hung for as long as it was
+    // watched.
+    //
+    // When the listener DOES fire it replaces the panel, so this node is
+    // detached by then and the write below is a harmless no-op.
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = restored ? "Purchases restored" : "Nothing to restore";
+    }
   }
 
   private async onSubmitScore(): Promise<void> {

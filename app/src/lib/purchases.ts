@@ -25,6 +25,45 @@ const KEYS = {
   android: import.meta.env.VITE_REVENUECAT_ANDROID_KEY as string | undefined,
 };
 
+/**
+ * RevenueCat's Test Store — a simulated store that needs no Play/App Store
+ * product setup. It replaces the platform key at configure() time, and its
+ * purchase sheet offers "succeed / fail / cancel" buttons instead of charging
+ * anything.
+ *
+ * Gated on a dedicated Vite mode rather than on DEV, because the debug and
+ * release APKs are built from the SAME `--mode native` bundle — there is no
+ * debug/release distinction inside the web build to key off. Only
+ * `npm run build:teststore` sets this, and no release path invokes it.
+ *
+ * RevenueCat's own warning is unambiguous: "Never submit an app to the App
+ * Store or Google Play that is configured with a Test Store API key." Wiring
+ * alone isn't enough of a guarantee, so scripts/verify-store-bundle.mjs also
+ * fails the build if a test_ key reaches a bundle that isn't explicitly a
+ * Test Store build.
+ */
+const USE_TEST_STORE = import.meta.env.MODE === "teststore";
+
+/**
+ * The test key is read HERE, inside a branch on a build-time constant, and not
+ * as a property of KEYS above. That placement is load-bearing.
+ *
+ * Vite inlines every referenced import.meta.env var as a string literal before
+ * Rollup runs. As a property of an object literal that is always constructed,
+ * the key survives into every bundle — unused in a release build, but present
+ * in the shipped JS, and `unzip`-able out of the APK. Behind `MODE ===
+ * "teststore"` the condition folds to a literal false in any other mode and the
+ * branch, string and all, is eliminated.
+ *
+ * verify-store-bundle.mjs asserts this holds in the emitted output. It caught
+ * exactly this leak when the key lived in KEYS, which is why it is written as
+ * an output check rather than a code review rule.
+ */
+function testStoreKey(): string | undefined {
+  if (!USE_TEST_STORE) return undefined;
+  return import.meta.env.VITE_REVENUECAT_TEST_KEY as string | undefined;
+}
+
 type UnlimitedListener = (unlimited: boolean) => void;
 
 let ready = false;
@@ -93,11 +132,19 @@ export async function initPurchases(): Promise<void> {
   try {
     const { Capacitor, Purchases, LOG_LEVEL } = await sdk();
     if (ready) return;
-    const apiKey = Capacitor.getPlatform() === "android" ? KEYS.android : KEYS.ios;
+    const platformKey = Capacitor.getPlatform() === "android" ? KEYS.android : KEYS.ios;
+    const apiKey = USE_TEST_STORE ? testStoreKey() : platformKey;
     if (!apiKey) {
-      console.warn("[purchases] no RevenueCat key configured — store disabled");
+      console.warn(
+        USE_TEST_STORE
+          ? "[purchases] teststore build but VITE_REVENUECAT_TEST_KEY is unset — store disabled"
+          : "[purchases] no RevenueCat key configured — store disabled",
+      );
       return;
     }
+    // Loud on purpose: a tester who doesn't realise they are on the Test Store
+    // will report "the purchase went through but nothing was charged" as a bug.
+    if (USE_TEST_STORE) console.warn("[purchases] TEST STORE build — purchases are simulated");
     if (import.meta.env.DEV) await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
     await Purchases.configure({ apiKey });
     ready = true;

@@ -1,0 +1,147 @@
+// Release signing + version override for the Play build.
+//
+// Copied to android/app/signing.gradle and hooked into android/app/build.gradle
+// by scripts/patch-android.mjs, because android/ is gitignored and regenerated
+// by `cap add android` (docs/NATIVE.md). It is applied as a separate script,
+// the same way Capacitor applies capacitor.build.gradle, rather than being
+// spliced into the generated build.gradle: reopening `android { }` from here
+// merges cleanly, whereas regex-editing nested Gradle blocks breaks the moment
+// Capacitor reformats its template.
+//
+// ---------------------------------------------------------------------------
+// Credentials resolve from the first source that supplies each value:
+//
+//   1. ENVIRONMENT VARIABLES — nothing written to disk. What CI uses.
+//        ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD,
+//        ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+//
+//   2. GRADLE PROPERTIES — normally ~/.gradle/gradle.properties, which lives in
+//        your home directory, OUTSIDE this repo, so it cannot be committed by
+//        accident no matter what happens to .gitignore. Best local option.
+//        androidKeystoreFile, androidKeystorePassword,
+//        androidKeyAlias, androidKeyPassword
+//
+//   3. android/keystore.properties — convenient, gitignored, but plaintext
+//        inside the project tree:
+//        storeFile / storePassword / keyAlias / keyPassword
+//
+// There is no way to avoid the signing secret being readable by the build: it
+// has to decrypt the private key. The question is only how far the plaintext
+// spreads, so the ordering above puts the options that keep it out of the
+// project directory first.
+//
+// keyPassword defaults to storePassword when unset. `keytool` writes PKCS12 by
+// default, and PKCS12 cannot hold a per-entry password — it prints "Different
+// store and key passwords not supported for PKCS12 KeyStores. Ignoring
+// user-specified -keypass value" and protects the key with the store password.
+// Supplying a different keyPassword then fails at signReleaseBundle with the
+// distinctly unhelpful "Get Key failed: Given final block not properly padded".
+//
+// With no credentials at all, the release signing config is simply not defined
+// and `assembleRelease` produces an UNSIGNED artifact. That is deliberate — the
+// alternative (referencing a null storeFile) fails at Gradle *configuration*
+// time, which would break `assembleDebug` too, on every machine that has no
+// keystore. CI builds debug on every push; it must not need a secret to do it.
+//
+// The "Signed:" line printed below tells you which mode you got. Uploading an
+// unsigned .aab to Play fails at upload, not silently.
+// ---------------------------------------------------------------------------
+
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def fileProps = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { fileProps.load(it) }
+}
+
+def resolveCredential = { String envName, String propName, String fileKey ->
+    def v = System.getenv(envName) ?: project.findProperty(propName) ?: fileProps[fileKey]
+    def s = v?.toString()?.trim()
+    return s ? s : null
+}
+
+// NB: none of these locals may be named storeFile/storePassword/keyAlias/
+// keyPassword. Inside the signingConfigs closure below those are DSL setters,
+// and Groovy resolves `storePassword storePassword` to a *call* on the local
+// String — "No signature of method: java.lang.String.call()". Hence the
+// -Path/-Value/-Name suffixes.
+def storeFilePath = resolveCredential("ANDROID_KEYSTORE_FILE", "androidKeystoreFile", "storeFile")
+def storePasswordValue = resolveCredential("ANDROID_KEYSTORE_PASSWORD", "androidKeystorePassword", "storePassword")
+def keyAliasName = resolveCredential("ANDROID_KEY_ALIAS", "androidKeyAlias", "keyAlias")
+def keyPasswordValue = resolveCredential("ANDROID_KEY_PASSWORD", "androidKeyPassword", "keyPassword") ?: storePasswordValue
+
+def supplied = [
+    "keystore file": storeFilePath,
+    "store password": storePasswordValue,
+    "key alias": keyAliasName,
+]
+def hasKeystore = supplied.every { it.value }
+
+// Partially-configured is worse than not configured: it would either build an
+// unsigned artifact while the developer believes it is signed, or fail deep
+// inside the packaging task. Say which piece is missing, up front.
+if (!hasKeystore && supplied.any { it.value }) {
+    def missing = supplied.findAll { !it.value }.keySet()
+    throw new GradleException(
+        "Release signing is partly configured — missing: ${missing.join(', ')}. " +
+        "Supply all of them, or none (see app/native/android/signing.gradle for the three sources).")
+}
+
+def resolvedStoreFile = hasKeystore ? rootProject.file(storeFilePath) : null
+if (hasKeystore && !resolvedStoreFile.exists()) {
+    throw new GradleException(
+        "The keystore path resolves to ${resolvedStoreFile}, which does not exist.\n" +
+        "  On Windows, note that .properties is a Java format in which backslash is an ESCAPE\n" +
+        "  character: C:\\Users\\you\\key.jks silently becomes C:Usersyoukey.jks and is then read\n" +
+        "  as a relative path. Use forward slashes: C:/Users/you/key.jks")
+}
+
+android {
+    if (hasKeystore) {
+        signingConfigs {
+            release {
+                storeFile resolvedStoreFile
+                storePassword storePasswordValue
+                keyAlias keyAliasName
+                keyPassword keyPasswordValue
+            }
+        }
+    }
+
+    defaultConfig {
+        // Play rejects an upload whose versionCode it has already seen, so it
+        // has to increase on EVERY upload — including a re-upload of the same
+        // user-facing version. The generated build.gradle hardcodes 1; these
+        // let CI pass a build number without the patch script having to rewrite
+        // the generated file.
+        //
+        //   ANDROID_VERSION_CODE=12 ANDROID_VERSION_NAME=1.2.0 ./gradlew bundleRelease
+        //
+        // Unset, the generated defaults stand, so local debug builds are
+        // unaffected.
+        def codeOverride = System.getenv("ANDROID_VERSION_CODE") ?: project.findProperty("androidVersionCode")
+        def nameOverride = System.getenv("ANDROID_VERSION_NAME") ?: project.findProperty("androidVersionName")
+        if (codeOverride) versionCode Integer.parseInt(codeOverride.toString())
+        if (nameOverride) versionName nameOverride.toString()
+    }
+
+    buildTypes {
+        release {
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
+            // minifyEnabled stays false (Capacitor's default). R8 on a WebView
+            // shell strips the reflectively-invoked plugin bridge classes unless
+            // every plugin ships keep rules; the download saving is not worth
+            // shipping a build whose in-app purchases throw at runtime.
+        }
+    }
+}
+
+// Surfaces which mode this configuration resolved to, so an unsigned build is
+// visible in the log rather than discovered at upload time.
+tasks.matching { it.name == "bundleRelease" || it.name == "assembleRelease" }.configureEach {
+    doFirst {
+        println("signing.gradle: ${hasKeystore ? "Signed: release keystore loaded (${resolvedStoreFile.name})" : "Signed: NO — no credentials found, artifact will be unsigned"}")
+        println("signing.gradle: versionCode=${android.defaultConfig.versionCode} versionName=${android.defaultConfig.versionName}")
+    }
+}

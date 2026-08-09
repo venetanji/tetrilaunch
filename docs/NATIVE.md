@@ -26,7 +26,10 @@ must also hold in the browser — and a browser fix ships to native on the next
 | Landscape lock, haptics | already shipped (`@capacitor/screen-orientation`, `@capacitor/haptics`) |
 | In-app purchases | done — RevenueCat, native only (`src/lib/purchases.ts`, [docs/ios.md](ios.md)) |
 | iOS Xcode project, icons, `Info.plist` | **committed** at `app/ios/` — see [docs/ios.md](ios.md) |
-| **Signed release builds / store listings** | **not done — needs secrets, see below** |
+| Self-hosted fonts (no runtime Google Fonts fetch) | done — `app/public/fonts/`, refreshed by `scripts/fetch-fonts.mjs` |
+| Privacy policy + support pages | done — `app/public/{privacy,support}.html`, served by the Worker |
+| **Android** release signing + `.aab` | done — `native/android/signing.gradle`, CI `bundle` job. **Needs a keystore + secrets** |
+| **iOS** signed release / store listings | **not done — needs a Mac and secrets, see below** |
 
 **`app/android/` is gitignored; `app/ios/` is committed.** They're treated
 differently on purpose. Android stays a derived artifact — `npx cap add
@@ -34,14 +37,16 @@ android` regenerates it from `capacitor.config.ts` plus the installed plugins,
 so CI rebuilding it from scratch every run is a feature (it proves `cap add`
 still works from a clean checkout).
 
-Android *does* now need two edits the CLI doesn't own (see
+Android *does* now need several edits the CLI doesn't own (see
 [Fullscreen](#fullscreen-the-system-bars-are-not-capacitors-problem) below), but
 rather than committing the directory and losing that property, they're
 re-applied by **`npm run patch:android`** (`scripts/patch-android.mjs`) from
-sources that *are* committed:
+sources that *are* committed under `app/native/android/`:
 
-- `app/native/android/MainActivity.java` — copied over the generated stub
+- `MainActivity.java` — copied over the generated stub
 - two theme items injected into the generated `res/values/styles.xml`
+- `signing.gradle` — release signing, plus the `apply from:` line into `app/build.gradle`
+- `res/` — launcher icons and splash screens, over Capacitor's defaults
 
 The patch is idempotent and runs automatically as the last step of
 `cap:add:android` and every `android:*` script, plus as its own CI step. If a
@@ -136,28 +141,296 @@ deliberate, see below.
 These need credentials that don't belong in a repo, so they're documented rather
 than half-implemented:
 
-1. **Android signing** — generate an upload keystore, add
-   `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` /
-   `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` as repo secrets, then extend the
-   workflow with a `assembleRelease` job that writes `android/keystore.properties`
-   from them. Play requires an `.aab` (`bundleRelease`), not an APK.
+1. **Android signing** — *wired up; supply the key.* The Gradle side lives in
+   `app/native/android/signing.gradle` (applied by `patch-android.mjs`, since
+   `app/android/` is regenerated). It reads `android/keystore.properties`, and
+   if that file is absent it simply doesn't define a signing config — so
+   `assembleDebug` still works on a machine with no key, which is what lets CI
+   build debug on every push without touching a secret. See
+   [Release signing](#release-signing) below for the keystore and the secrets.
 2. **iOS signing** — done manually in Xcode today (automatic signing, pick your
    team; the full walkthrough is in [docs/ios.md](ios.md)). Automating it needs
    an App Store Connect API key and a macOS runner — `xcodebuild
    -allowProvisioningUpdates`, Xcode Cloud, or `fastlane match`.
-3. **Icons and splash screens** — **done for iOS**: `app/resources/{icon,splash}.svg`
-   rasterise into the Xcode asset catalogs via `npm run assets:generate`
-   (`@capacitor/assets`). The same sources can feed Android by adding `--android`
-   to that script once `app/android/` exists.
+3. **Icons and splash screens** — **done, both platforms.**
+   `app/resources/{icon,splash}.svg` rasterise into the Xcode asset catalogs and
+   the Android `res/` tree via `npm run assets:generate` (`@capacitor/assets`).
+
+   Android needs one extra hop, for the usual reason: `capacitor-assets` writes
+   into `android/app/src/main/res/`, which is regenerated. So
+   `scripts/stage-android-assets.mjs` copies the icons and splashes back out to
+   **`app/native/android/res/`** (committed), and `patch-android.mjs` restores
+   them into a freshly generated project. Both run automatically —
+   `assets:generate` stages, every `android:*` script restores.
+
+   Until this existed, `cap add android` left **Capacitor's default
+   blue-X-on-white launcher icon** in place, and the debug APKs CI published had
+   it. `patch-android.mjs` now fails loudly if `native/android/res/` is missing
+   rather than quietly shipping the default again.
+
+   It costs ~2.9 MB in the repo and ~2.7 MB in the APK. Most of that is splash
+   screens at every density × orientation × night. The night variants are
+   byte-identical to their day counterparts (the design is dark either way) and
+   the portrait ones only ever flash before the runtime landscape lock engages —
+   but the `.aab` splits by density, so a real install downloads a fraction of
+   it, and correctness beat byte-shaving here.
 4. **Store metadata** — screenshots at each required device size, descriptions,
    content rating, privacy declaration. The app collects a player-entered name
    for the leaderboard *and* now sells in-app purchases, both of which are
    disclosable on either store; the worked-out App Privacy answers are in
-   [docs/ios.md](ios.md).
+   [docs/ios.md](ios.md). The two mandatory URLs are served by the Worker from
+   `app/public/`: `/privacy.html` and `/support.html`. Both carry a real contact
+   address (`gio@shicheng.com.hk`) — keep it that way, since a store listing
+   pointing at a dead contact is a review rejection, and both pages promise a
+   removal route for leaderboard entries.
 5. **Release-build env** — `VITE_REVENUECAT_*` keys must be present in the
    environment for any build you intend to ship, or the store quietly disables
    itself. `verify:store` catches the SDK being dropped entirely, but it cannot
    tell a missing key from a deliberate keyless build.
+
+---
+
+## Progress survives reinstall on Android already
+
+**Measured, not assumed.** `android:allowBackup="true"` is Capacitor's default and
+nothing overrides it, so Android Auto Backup is live. WebView localStorage lives
+under `app_webview/` inside the app's data directory, which the default backup
+set includes.
+
+Tested end to end on a OnePlus 12 (Android 14) with the local transport:
+
+```bash
+adb shell bmgr transport com.android.localtransport/.LocalTransport
+adb shell bmgr backupnow com.tetrilaunch.app
+adb uninstall com.tetrilaunch.app
+adb install app-debug.apk
+adb shell bmgr transport com.google.android.gms/.backup.BackupTransportService  # put it back
+```
+
+The full save came back — salvage, unlocks, mark, run count, best score and
+every claimed contract. **So the common "I reinstalled and lost everything" case
+is already handled, for free.**
+
+Two consequences worth keeping straight:
+
+- It backs up to the **player's own Google Drive**, not to us. That is why there
+  is no Data safety declaration and no privacy-policy clause for it: we neither
+  collect nor receive any of it. A server-side cloud save would change that.
+- Purchases were never the exposure anyway. `restorePurchases()`
+  ([lib/purchases.ts](../app/src/lib/purchases.ts)) ties the entitlement to the
+  Play/Apple account, so a reinstall recovers the unlock regardless.
+
+What it does **not** cover, and what a server-side save would buy:
+
+| Gap | Effect |
+|---|---|
+| Two devices in active use | Auto Backup restores at install; it never syncs |
+| Web / PWA | No platform backup at all |
+| Freshness | Runs roughly daily on charge + idle + wifi, so same-day reinstall can lose that day |
+| Backup switched off | A minority of players, but not zero |
+| iOS | iCloud device backup is the analogue — **unverified**, needs a Mac |
+
+Given that, server-side sync is a *parity and multi-device* feature, not a
+data-loss fix. It also costs a Data safety declaration and a privacy-policy
+change, because progress stored against a stable ID is pseudonymous personal
+data under GDPR even though the contents are just salvage counts.
+
+**iOS is expected to differ, and it is an open check.** Android Auto Backup
+restores per app at install time; iCloud Backup restores only during a full
+device restore, so deleting and reinstalling on iOS probably does *not* bring
+progress back. That has not been measured — it needs a Mac and a device. The
+test procedure, the decision table and the options if it fails are in
+[docs/superpowers/specs/2026-08-09-progress-persistence-design.md](superpowers/specs/2026-08-09-progress-persistence-design.md).
+
+---
+
+## Testing purchases without Play products
+
+RevenueCat's **Test Store** simulates the whole purchase flow with no Play
+Console product setup — useful long before a developer account clears.
+
+```bash
+cd app
+npm run android:apk:test    # builds --mode teststore, then assembleDebug
+```
+
+`VITE_REVENUECAT_TEST_KEY` in `app/.env` supplies the key. The purchase sheet
+offers *Cancel / Test failed purchase / Test valid purchase*, and subscriptions
+renew every few minutes so expiry is observable in one sitting.
+
+### Why this is gated on a build mode rather than on DEV
+
+The SDK's own warning, printed at configure time, is stronger than the docs page:
+
+> Never use a Test Store API key in production. **Our SDK will crash if using it
+> in production.** … Apps submitted with a Test Store API key will be rejected
+> during App Review.
+
+And the usual safety net does not exist here: **the debug and release APKs
+contain the byte-identical web bundle**, both built from `--mode native`. There
+is nothing in the output that distinguishes them, so a test key that reaches
+`dist/` ships.
+
+So there are two independent guards:
+
+1. The key is read inside a branch on `import.meta.env.MODE === "teststore"`, a
+   build-time constant, so Rollup eliminates it from every other bundle.
+2. `verify:store` **fails** if a `test_` key is found in `dist/`, unless run with
+   `--allow-test-key` (which only the teststore scripts pass — and which itself
+   fails if no test key is present, catching a teststore build that silently
+   fell back to the platform key).
+
+Guard 2 is not theoretical. It caught a real leak during implementation: with
+the key declared as a property of the always-constructed `KEYS` object, Vite
+inlined it into the **native** bundle, where it was unused but fully present and
+`unzip`-able out of the APK. That is why it is written as an assertion over the
+emitted output rather than a rule in a code review.
+
+---
+
+## Release signing
+
+Play needs a **signed `.aab`**, not the debug APK above.
+
+### Generate the upload keystore — once, and never lose it
+
+`keytool` ships with the JDK, so any shell that can run `java` can run it. **Run
+it somewhere outside this repo** — a keystore is a long-lived secret and
+`app/android/` is a disposable build directory that `cap add android`
+regenerates. Somewhere like `~/keys/` (Windows: `C:\Users\<you>\keys\`):
+
+```bash
+keytool -genkeypair -v -keystore upload-keystore.jks \
+  -alias upload -keyalg RSA -keysize 2048 -validity 10000
+```
+
+It prompts for a password and a name/organisation; the name only shows up in the
+certificate, and Play never displays it.
+
+**Back this file and its passwords up somewhere durable.** With Play App
+Signing, Google holds the *app* signing key and this is only the *upload* key,
+so losing it is recoverable — but recovery means filing a request with Google
+and waiting, not a five-minute fix. `.gitignore` blocks `*.jks`, `*.keystore`
+and `keystore.properties` repo-wide as a second line of defence.
+
+### The two passwords are the same password
+
+`keytool` writes **PKCS12** by default, and PKCS12 cannot store a per-entry key
+password. Passing `-keypass` alongside a different `-storepass` prints:
+
+```
+Warning: Different store and key passwords not supported for PKCS12 KeyStores.
+Ignoring user-specified -keypass value.
+```
+
+…and protects the key with the *store* password. If you then configure a
+different key password, the build fails at `signReleaseBundle` with the
+famously unhelpful `Get Key failed: Given final block not properly padded`. So:
+**set the store password and leave the key password alone** — `signing.gradle`
+defaults it to the store password. The two are only distinct on a legacy JKS.
+
+### Where the credentials come from
+
+Three sources, first one that supplies each value wins. They exist because the
+signing secret is plaintext *somewhere* by necessity — the build has to decrypt
+the private key — so the only real question is how far that plaintext spreads.
+
+**1. Gradle properties — best for local dev.** `~/.gradle/gradle.properties`
+lives in your home directory, outside the repo entirely, so no `.gitignore`
+mistake can ever expose it, and it applies to every project without repeating
+itself:
+
+```properties
+androidKeystoreFile=C:/Users/you/keys/upload-keystore.jks
+androidKeystorePassword=…
+androidKeyAlias=upload
+```
+
+**2. Environment variables — best for CI.** Nothing on disk at all:
+
+```bash
+ANDROID_KEYSTORE_FILE=…  ANDROID_KEYSTORE_PASSWORD=…  ANDROID_KEY_ALIAS=upload
+```
+
+**3. `app/android/keystore.properties`** — the conventional Android layout, and
+gitignored, but it is plaintext inside the project tree, which is exactly where
+an over-broad `git add -f`, a backup tool or an editor sync is most likely to
+pick it up:
+
+```properties
+storeFile=C:/Users/you/keys/upload-keystore.jks
+storePassword=…
+keyAlias=upload
+```
+
+**On Windows, use forward slashes in options 1 and 3.** `.properties` is a Java
+format in which backslash is the escape character, so
+`C:\Users\you\keys\upload-keystore.jks` silently becomes
+`C:Usersyoukeysupload-keystore.jks` — then read as a *relative* path and
+resolved against `app/android/`. `signing.gradle` fails with the resolved path
+and a note about this, so it's a readable error rather than a mystery.
+
+Supplying *some* of the three values but not all is a hard error rather than a
+quietly-unsigned build.
+
+### Local release build
+
+```bash
+cd app
+npm run android:bundle        # -> app/android/app/build/outputs/bundle/release/app-release.aab
+npm run android:apk:release   # a signed APK instead, for sideload testing
+```
+
+Every release build prints which mode it resolved to, so an unsigned artifact is
+visible in the log rather than discovered at upload time:
+
+```
+signing.gradle: Signed: release keystore loaded
+signing.gradle: versionCode=7 versionName=1.2.3
+```
+
+Without `keystore.properties` it builds an **unsigned** bundle and says so.
+That's deliberate: referencing a null `storeFile` would fail at Gradle
+*configuration* time and break `assembleDebug` on every machine without a key.
+
+### versionCode
+
+Play rejects any `versionCode` it has already seen — they only ever go up, even
+for a re-upload of the same user-facing version. The generated `build.gradle`
+hardcodes `1`, so `signing.gradle` takes an override instead of the patch script
+having to rewrite generated code:
+
+```bash
+ANDROID_VERSION_CODE=7 ANDROID_VERSION_NAME=1.2.3 npm run android:bundle
+```
+
+### CI
+
+The `bundle` job in `.github/workflows/android.yml` produces the signed `.aab`.
+It runs **only** on manual dispatch or a `v*` tag — building one per push would
+burn versionCodes and touch the signing secrets constantly. It needs five repo
+secrets:
+
+| Secret | |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 upload-keystore.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | |
+| `ANDROID_KEY_ALIAS` | |
+| `ANDROID_KEY_PASSWORD` | *optional* — omit for a PKCS12 keystore (see above) |
+| `VITE_REVENUECAT_ANDROID_KEY` | public SDK key — the job **fails without it** |
+
+Only the `.jks` is written to the runner's disk (and shredded in an
+`if: always()` step); the passwords reach Gradle as environment variables and
+never land in a file.
+
+That last one matters more than it looks. Vite inlines `import.meta.env` at
+build time, so a release built with no key ships with the store silently
+disabled, and `verify:store` cannot catch it — it proves the SDK survived
+tree-shaking, not that a key was set. The job checks explicitly instead.
+
+`versionCode` comes from `github.run_number`; a tag build takes its
+`versionName` from the tag (`v1.2.3` → `1.2.3`). The keystore is shredded in an
+`if: always()` step.
 
 ---
 

@@ -13,6 +13,12 @@ import { VitePWA } from "vite-plugin-pwa";
 // revalidate sw.js against, so the update check never wins. In testing this
 // shipped the previous build twice in a row; in release it would mean an update
 // silently runs old code until something evicts the cache.
+// Modes that produce a bundle for the Capacitor shell rather than the web. Both
+// must skip the service worker for the reason above; `teststore` is `native`
+// plus RevenueCat's Test Store key (see src/lib/purchases.ts) and is never used
+// by a release path.
+const NATIVE_MODES = new Set(["native", "teststore"]);
+
 export default defineConfig(({ mode }) => ({
   base: "./",
   build: {
@@ -26,7 +32,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     VitePWA({
-      disable: mode === "native",
+      disable: NATIVE_MODES.has(mode),
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg"],
       manifest: {
@@ -46,7 +52,15 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // mp3 included so the PWA still has sound offline. It is the single
+        // biggest thing in the precache (~8.6 MB of the total), which is the
+        // cost of the listing claiming the game plays offline.
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2,mp3}"],
+        // Default is 2 MB and the music tracks exceed it — without this they
+        // are silently dropped from the precache manifest and only the effects
+        // survive, which is exactly the kind of partial success that looks fine
+        // in a build log.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),
   ],
