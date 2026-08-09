@@ -116,13 +116,19 @@ interface BarLike {
   top: number;
 }
 
-/** The bar's x, `steps` physics steps from now — the same ping-pong clamp
- *  compactor.ts applies each step, so this is a forward simulation rather than
- *  a guess. */
-function predictCompactorX(c: BarLike, steps: number): number {
+/** The bar's x at each of the next `steps` physics steps (index i = i steps
+ *  from now, so [0] is the current position — matching trajectory point i's
+ *  timing), using the same ping-pong clamp compactor.ts applies each step.
+ *  Walked ONCE per shot decision: hitsBar used to re-simulate the bar from
+ *  scratch at every trajectory point, which made each of the ~27 aim
+ *  candidates O(points²) — ~260k clamp iterations per shot on the one screen
+ *  (the menu) that should be idling. */
+function predictCompactorPath(c: BarLike, steps: number): number[] {
+  const xs = new Array<number>(steps);
   let x = c.x;
   let dir = c.dir;
   for (let i = 0; i < steps; i++) {
+    xs[i] = x;
     x += c.speed * dir;
     if (x >= c.rightX) {
       x = c.rightX;
@@ -132,18 +138,24 @@ function predictCompactorX(c: BarLike, steps: number): number {
       dir = 1;
     }
   }
-  return x;
+  return xs;
 }
 
 /** True if this arc would carry the piece through the bar's swept column while
  *  still low enough to be hit by it. A shipment batted mid-air by the press is
- *  the ugliest thing the demo can do, so candidates that risk it are dropped. */
-function hitsBar(traj: Matter.Vector[], c: BarLike, halfWidthPx: number): boolean {
+ *  the ugliest thing the demo can do, so candidates that risk it are dropped.
+ *  `barXs` is the shared per-decision path from predictCompactorPath. */
+function hitsBar(
+  traj: Matter.Vector[],
+  c: BarLike,
+  halfWidthPx: number,
+  barXs: number[],
+): boolean {
   const reach = c.width / 2 + halfWidthPx + CLEARANCE_PX;
-  for (let i = 0; i < traj.length; i++) {
+  for (let i = 0; i < traj.length && i < barXs.length; i++) {
     const p = traj[i];
     if (p.y < c.top) continue; // above the bar's band entirely
-    if (Math.abs(p.x - predictCompactorX(c, i)) < reach) return true;
+    if (Math.abs(p.x - barXs[i]) < reach) return true;
   }
   return false;
 }
@@ -257,6 +269,9 @@ export function createAutopilot(seed: number): Autopilot {
       const { x: target, slot } = gaps.read(g, now);
       const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
       const powerScale = g.cannon.speedMax / SPEED_MAX;
+      // One bar forecast shared by every candidate — the bar's future doesn't
+      // depend on where the cannon points. 140 = predictTrajectory's step cap.
+      const barXs = predictCompactorPath(g.compactor, 140);
 
       const all: AimCandidate[] = [];
       const safe: AimCandidate[] = [];
@@ -273,7 +288,7 @@ export function createAutopilot(seed: number): Autopilot {
           );
           const cand: AimCandidate = { deg, power: g.cannon.power, err };
           all.push(cand);
-          if (!hitsBar(g.trajectory, g.compactor, halfWidthPx)) safe.push(cand);
+          if (!hitsBar(g.trajectory, g.compactor, halfWidthPx, barXs)) safe.push(cand);
         }
       }
 
