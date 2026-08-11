@@ -18,8 +18,10 @@ const DOC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "docs",
 // label -> [heading as it appears in the doc, Play's limit]
 const FIELDS = [
   ["App name", /\*\*App name\*\*\s*\(30 max\):\s*`([^`]+)`/, 30],
-  ["Short description", /\*\*Short description\*\*\s*\(80 max\):\s*\n+```\n([\s\S]*?)\n```/, 80],
-  ["Full description", /\*\*Full description\*\*\s*\(4000 max\):\s*\n+```\n([\s\S]*?)\n```/, 4000],
+  // \r?\n rather than \n: with core.autocrlf the working tree serves this doc
+  // with CRLF endings, and a fence regex anchored on bare \n never matches.
+  ["Short description", /\*\*Short description\*\*\s*\(80 max\):\s*\n+```\r?\n([\s\S]*?)\r?\n```/, 80],
+  ["Full description", /\*\*Full description\*\*\s*\(4000 max\):\s*\n+```\r?\n([\s\S]*?)\r?\n```/, 4000],
 ];
 
 const doc = await readFile(DOC, "utf8");
@@ -36,7 +38,7 @@ for (const [label, pattern, limit] of FIELDS) {
   // Play counts characters, not bytes, and counts a trailing newline in a
   // textarea. Trim, then measure by code point so an emoji or a — costs what
   // the Console will charge for it rather than its UTF-16 length.
-  const text = m[1].trim();
+  const text = m[1].replace(/\r\n/g, "\n").trim();
   const len = [...text].length;
 
   if (len > limit) {

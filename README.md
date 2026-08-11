@@ -8,7 +8,7 @@ clears them away.
 > reference) to a **Capacitor.js** app targeting **Web (PWA) · Android · iOS**, deployed on
 > **Cloudflare Workers** with a **D1-backed leaderboard**.
 
-**Play:** https://tetrilaunch.venetanji.workers.dev/
+**Play:** https://tetrilaunch.com/ (workers.dev fallback: https://tetrilaunch.venetanji.workers.dev/)
 
 ## 🎮 How it plays
 

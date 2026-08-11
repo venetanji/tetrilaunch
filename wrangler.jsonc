@@ -3,6 +3,10 @@
   "name": "tetrilaunch",
   "main": "app/worker/index.ts",
   "compatibility_date": "2025-05-01",
+  "routes": [
+    { "pattern": "tetrilaunch.com", "custom_domain": true },
+    { "pattern": "www.tetrilaunch.com", "custom_domain": true }
+  ],
   "build": {
     "command": "npm run build"
   },
