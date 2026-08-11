@@ -52,6 +52,11 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
+        // The policy pages are real documents, not app routes. Without this,
+        // the SW's navigation fallback serves the game shell for /privacy and
+        // /support to anyone who has visited the game once — while the store
+        // reviewers, fetching fresh, see the policy. Both must see the policy.
+        navigateFallbackDenylist: [/^\/privacy/, /^\/support/],
         // mp3 included so the PWA still has sound offline. It is the single
         // biggest thing in the precache (~8.6 MB of the total), which is the
         // cost of the listing claiming the game plays offline.
