@@ -105,11 +105,15 @@ fonts were self-hosted there is no third-party request during play either.
   the app, not a transfer to a third party, which is what Play means by shared.
 - **Purchase history** is RevenueCat's. Data collected by Google Play billing
   itself is out of scope for the form, but RevenueCat is a third party that
-  receives purchase state, so declare it. **Cross-check RevenueCat's own Data
-  safety guidance before submitting** — they publish a page for this and it is
-  more authoritative than this table.
-- Nothing goes under **Device or other IDs**. RevenueCat's anonymous app-user ID
-  is not an advertising identifier, and the app does no tracking.
+  receives purchase state, so declare it. Cross-checked against RevenueCat's
+  Data safety page (2026-08-11): declare it **required** (can't be turned off),
+  not ephemeral, with purposes **App functionality + Analytics** — the
+  Analytics purpose is theirs (dashboard charts), and omitting it would
+  under-declare.
+- Nothing goes under **Device or other IDs**. Confirmed by the same RevenueCat
+  page: that category applies only when integrations forward advertising
+  identifiers (`gpsAdId`, `androidId`), and the app has no integrations. The
+  anonymous app-user ID is not an advertising identifier.
 
 ### Security section
 
