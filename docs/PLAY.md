@@ -24,8 +24,8 @@ cd app && npm run store:graphics    # -> store/play/
 |---|---|---|
 | App icon | 512×512 PNG, no alpha | `store/play/icon-512.png` |
 | Feature graphic | **exactly** 1024×500, no alpha | `store/play/feature-graphic-1024x500.png` |
-| Phone screenshots | 2–8, 16:9-ish, 320–3840px per side | capture from a device, below |
-| Tablet screenshots | optional, but needed to be listed as tablet-optimised | same method |
+| Phone screenshots | 2–8, **strict 16:9 or 9:16**, 320–3840px per side | `store/play/screenshots-16x9/` |
+| Tablet screenshots | optional, but needed to be listed as tablet-optimised; 10-inch slot needs ≥1080px sides | same six files |
 
 Both generated assets come from committed SVG in `app/resources/`, and
 `store-graphics.mjs` asserts the exact dimensions and the absence of an alpha
@@ -39,20 +39,28 @@ text, and Play draws the app name beside this graphic anyway.
 
 ### Capturing screenshots
 
-Play wants real frames of the running game, so they come off a device rather
-than a browser:
+The Console enforces **strict 16:9/9:16** on this form (2026-08). A full-screen
+phone capture is 2376×1080 — that's 2.2:1 and does not qualify, so device
+screencaps can't be uploaded as-is. The upload set in
+`store/play/screenshots-16x9/` comes from headless Chrome against the live
+site, at exact-16:9 viewports sized so both sides clear the 10-inch tablet
+slot's ≥1080px floor:
 
-```bash
-adb exec-out screencap -p > shot.png
-```
+- menu and boards: 960×540 CSS at deviceScaleFactor 2.5 → 2400×1350. The CSS
+  width matters: at desktop widths the menu's two columns drift apart and the
+  shot is mostly void; 960px triggers the phone-landscape layout it was
+  designed around.
+- gameplay: 1280×720 at 1.875 → 2400×1350, after dismissing the coach
+  (`[data-action="coach-skip"]`) and hiding the desktop-only `.kbd-hint` strip.
 
-On a 1080p phone in landscape that yields 2376×1080, which is inside Play's
-limits and needs no resizing. Two gotchas, both of which produce a **completely
-black PNG** rather than an error:
+One set of six serves the phone slot and both tablet slots, and satisfies
+promotion eligibility (≥4 shots, ≥3 at 16:9 and ≥1080px).
 
-- The screen must be **on and unlocked**. A locked device screencaps as black.
-- Check the device's **screen timeout** first. At the 15-second default you lose
-  the screen between navigating and capturing, every time.
+Device screencaps (`adb exec-out screencap -p > shot.png`) are still useful as
+marketing frames. Two gotchas, both of which produce a **completely black PNG**
+rather than an error: the screen must be **on and unlocked** (a locked device
+screencaps as black), and check the **screen timeout** first — at the
+15-second default you lose the screen between navigating and capturing.
 
 Worth including: the menu (it states the pitch in the game's own words), a mid-
 flight shot with the aim arc live, a line clearing, the Workshop, and Contracts.
