@@ -617,16 +617,20 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     const rodX0 = barrelX1;
     const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
 
-    // Rod first (it tucks under both the barrel and the head), stretched to
-    // the live length — the glow pad stretches with it, which is invisible
-    // in practice because both rod ends sit under the barrel/head anyway.
+    // Rod first (it tucks under both the barrel and the head). Crop away the
+    // sprite's transparent glow padding before stretching: scaling that padding
+    // created visible gaps at BOTH joints when the piston was fully extended.
     if (rodX1 > rodX0) {
       ctx.drawImage(
         rodSprite,
-        rodX0 - PISTON_PART_PAD,
-        y - PISTON_ROD_H / 2 - PISTON_PART_PAD,
-        rodX1 - rodX0 + PISTON_PART_PAD * 2,
-        PISTON_ROD_H + PISTON_PART_PAD * 2,
+        PISTON_PART_PAD,
+        PISTON_PART_PAD,
+        PISTON_ROD_BAKE_LEN,
+        PISTON_ROD_H,
+        rodX0,
+        y - PISTON_ROD_H / 2,
+        rodX1 - rodX0,
+        PISTON_ROD_H,
       );
     }
     ctx.drawImage(

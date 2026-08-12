@@ -117,6 +117,9 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** Forward route prepared when a Contract resolves, from that tier's board. */
+  private nextContract: Contract | null = null;
+  private contractBoardComplete = false;
   /** Rising-edge latch for the reload-ready cue (see syncHud). */
   private reloadWasReady = true;
   /** What the Contract just finished did to tier progress — whether this
@@ -425,6 +428,8 @@ class App {
                 : null,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
+              nextContract: this.nextContract ? { name: this.nextContract.name } : null,
+              boardComplete: this.contractBoardComplete,
             });
         }
         break;
@@ -883,6 +888,8 @@ class App {
     this.game?.destroy();
     this.run = null;
     this.contract = c;
+    this.nextContract = null;
+    this.contractBoardComplete = false;
     // No coach in Contract mode — it teaches the Deep Run economy, and half
     // its steps (funds, target) don't exist here.
     this.tutorialStep = null;
@@ -943,6 +950,10 @@ class App {
           this.meta = result.meta;
           saveMeta(this.meta);
         }
+        const board = dailyContracts(this.contract.tier);
+        const remaining = board.filter((c) => !this.meta.claimedContracts.includes(c.id));
+        this.contractBoardComplete = remaining.length === 0;
+        this.nextContract = remaining.find((c) => c.id !== this.contract?.id) ?? null;
         this.contractAward = result;
       } else {
         void impactHaptic();
@@ -1472,6 +1483,10 @@ class App {
       }
       case "contract-retry":
         if (this.contract) this.startContract(this.contract);
+        break;
+      case "contract-next":
+        if (this.nextContract) this.startContract(this.nextContract);
+        else this.setState("contracts");
         break;
       case "menu": this.contract = null; this.setState("menu"); break;
       case "pause": this.pause(); break;

@@ -325,6 +325,19 @@ body.crt-off #app::after { display: none; }
   white-space: nowrap;
 }
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
+.menu__status {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(92px, .65fr));
+  gap: var(--sp-2);
+  align-items: stretch;
+  width: min(100%, 540px);
+}
+.menu__status .chip { min-width: 0; min-height: 58px; justify-content: center; }
+.menu__stat, .menu__entitlement {
+  flex-direction: row; align-items: center; gap: var(--sp-2);
+}
+.menu__entitlement, .menu__status .chip--cta { grid-column: 1 / -1; min-height: 44px; }
+.menu__status .chip--cta { width: 100%; justify-content: center; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -1371,7 +1384,8 @@ body.crt-off #app::after { display: none; }
    inherits black by default, and kept off `.panel` itself so the many non-button
    panels are untouched. */
 button.panel { color: var(--text); }
-.contract-card { text-align: center; cursor: pointer; }
+.contract-card { text-align: left; cursor: pointer; min-height: 210px; align-items: flex-start; }
+.contract-card > p { margin: 0; }
 /* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
    Contract stays replayable after it is cleared, so this must not read as
    "spent". */
@@ -1913,6 +1927,8 @@ button.panel { color: var(--text); }
    ("Deep Run" means nothing to a first-time player until something says
    "clear 10 bays in one run"). The button becomes icon + two-line text. */
 .btn--menu { justify-content: flex-start; text-align: left; }
+.btn--menu .ico { width: 20px; height: 20px; margin-inline: 2px 4px; }
+.menu__actions > .btn:not(.btn--menu) { min-height: 44px; }
 .btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .btn__sub {
   font-family: var(--font-ui);
