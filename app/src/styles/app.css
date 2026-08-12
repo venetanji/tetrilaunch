@@ -1941,6 +1941,29 @@ button.panel { color: var(--text); }
 @media (max-height: 460px) {
   .btn__sub { font-size: 11px; }
   .btn__txt { gap: 2px; }
+
+  /* Phone landscape is height-bound. Keep the intentionally compact menu
+     controls from the earlier rule above: the desktop polish must not turn
+     six 30px-ish rows into six 44px rows, or make their icons taller again.
+     Scope this to the menu rather than shrinking buttons throughout modals. */
+  .menu__actions > .btn { min-height: 0; }
+  .menu__actions .btn--menu .ico {
+    width: 13px; height: 13px; margin-inline: 0;
+  }
+
+  /* The status grid should balance the compact action rail rather than rival
+     the demo for height. Its alignment remains, but its cards use phone-scale
+     padding and the entitlement row becomes a quiet footer. */
+  .menu__status { gap: 6px; }
+  .menu__status .chip {
+    min-height: 46px;
+    padding: 6px 9px;
+  }
+  .menu__status .chip__label { font-size: 7px; }
+  .menu__status .chip__value { font-size: 16px; }
+  .menu__status .tier-chip__halves { font-size: 9px; }
+  .menu__entitlement,
+  .menu__status .chip--cta { min-height: 32px; }
 }
 
 /* ---------- Bay-progress banner ----------
