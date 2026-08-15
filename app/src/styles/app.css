@@ -326,6 +326,18 @@ body.crt-off #app::after { display: none; }
 }
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
+/* Tier/Best/Salvage/Unlock-Unlimited status strip. Only the first three chips
+   exist on web/dev builds — the store isn't configured there, so
+   unlockChipHTML() never renders and this row was never measured with all
+   four up. On a native build with purchases available it does, and four
+   chips plus the tier chip's Run/Contracts halves don't fit one line at a
+   landscape-phone WIDTH even when the column has height to spare: the row
+   wraps, and that uncounted second line is what pushed the whole two-column
+   menu past the viewport's bottom edge on a short screen (see the max-height
+   rules below, which shrink these chips so the row stays on one line down to
+   the shortest viewports this app targets). */
+.menu__chips { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
    viewport, in CSS px). --fpx is one WORLD pixel at the current scale —
@@ -1479,6 +1491,23 @@ button.panel { color: var(--text); }
   .btn { padding: 7px 14px; font-size: 10px; }
   .btn--lg { font-size: 11px; padding: 9px 18px; }
   .ico { width: 13px; height: 13px; }
+  /* The status strip: up to four chips (Tier, Best, Salvage, and — on a
+     native build with purchases configured — Unlock) plus the tier chip's
+     own Run/Contracts halves. Three chips plus the halves already fill a
+     landscape-phone column at full size, so a fourth wraps onto a second
+     line; that line's height was never in the budget the rest of this block
+     shrinks toward, which is what let the whole two-column menu run past a
+     short viewport's bottom edge. Shrinking fonts alone doesn't buy back
+     enough width — the halves are the one purely-supplementary part (the
+     chip's big "1" already says the tier), so they go first. */
+  .menu__chips { gap: 6px; }
+  .chip { padding: 5px 9px; min-width: 0; gap: 0; }
+  .chip__label { font-size: var(--fs-chip-label-c); }
+  .chip__value { font-size: var(--fs-chip-value-c); }
+  .chip--cta .chip__value { font-size: var(--fs-chip-label-c); }
+  /* .tier-chip__halves's own display:flex is declared later in the
+     cascade (see TIER PROGRESSION below) and would win a same-specificity
+     tie against a rule placed here — the override lives next to it instead. */
 }
 
 /* ============================================================================
@@ -1894,6 +1923,15 @@ button.panel { color: var(--text); }
   white-space: nowrap;
 }
 .tier-chip__halves .done { color: var(--success); }
+/* Dropped on short viewports (see the max-height:460px block above, which
+   shrinks the rest of the menu's status strip): purely supplementary next to
+   the chip's own big "1", and the one thing in that strip that can't be
+   shrunk down to where a fourth chip (Unlock, on a native purchases-enabled
+   build) still fits the row without wrapping onto an unbudgeted second
+   line. */
+@media (max-height: 460px) {
+  .tier-chip__halves { display: none; }
+}
 
 /* Completion recolors the row it replaces rather than adding a second shape:
    the award amount takes the slot the old payout number had. */

@@ -80,7 +80,7 @@ export function menuScreen(
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           run that drafts stranger modifiers onto your bankroll every stop.</p>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="menu__chips">
           ${tierChip}
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
             <div class="chip__label">Best</div>
@@ -136,8 +136,12 @@ function unlimitedBadgeHTML(): string {
  *  than as a seventh menu action. See the note in menuScreen's action column
  *  for why it isn't one. */
 function unlockChipHTML(): string {
+  // "Unlock" not "Unlock Unlimited": this sits in the status strip alongside
+  // Tier/Best/Salvage, competing for the same landscape-phone column width —
+  // the full-length label is what the settings screen's paywall button uses,
+  // where it's alone on its own line and has the room.
   return `<button class="chip chip--cta" data-action="paywall">
-    <div class="chip__value">★ Unlock Unlimited</div>
+    <div class="chip__value">★ Unlock</div>
   </button>`;
 }
 
