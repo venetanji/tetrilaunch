@@ -947,6 +947,103 @@ body.crt-off #app::after { display: none; }
   padding-top: 8px; padding-bottom: 9px;
 }
 .pl-mods::-webkit-scrollbar { display: none; }
+
+/* ---------- Compact: the plant panel's height budget ----------------------
+   Every row in this panel scales with the field via --fpx EXCEPT this one. Its
+   chips are floored at 40px (the tap target) and it adds 17px of padding so the
+   xN badge and the B/X key tag survive its own scroll clipping — a fixed 57px,
+   whatever the field does. Measured across the device matrix:
+
+     Pixel 7        field 732x412   design box 177px   .pl-mods 57px  (32%)
+     640x360        field 556x313   design box 134px   .pl-mods 57px  (43%)
+     iPhone 13 mini field 482x271   design box 116px   .pl-mods 57px  (49%)
+
+   At the bottom of that range one row eats half the panel, the rest no longer
+   fits, and because .plant is bottom-anchored with height:auto it grows UPWARD
+   over the play area — 68% of the field height instead of 43%, straight across
+   the cannon and the apex of a high lob. That is the reported overlap.
+
+   Two moves, and neither is "make the text smaller":
+
+   1. The two ABILITY chips go. They are the secondary trigger on touch — the
+      rail's #bond-btn / #demo-btn are the primary one (see the ability note in
+      screens.ts's hudHTML) and keep their full 44-60px tap target. Nothing
+      becomes unreachable; the duplicate goes.
+   2. The INFORMATIONAL chips stay — drafted mods and ship plates are the "what
+      was I dealt / what did I build" readout and have no second home — but go
+      icon-only at roughly half height. The glyph is what identifies them; the
+      name label is what costs the height.
+
+   Together this takes the row from 57px to ~32px, which is what brings the
+   panel back inside its box on every device in the matrix.
+
+   NOTE: deliberately no `max-height` guard on .plant. The panel is
+   `overflow: visible` (the PWR cap rides above its top edge, the xN badges poke
+   out), so a max-height would cap the BOX while the content spilled anyway —
+   the harness's `plant` assertion would go green over a bug that was still on
+   screen. Leaving height:auto keeps the measurement honest. */
+[data-density="compact"] .pl-mods { padding-top: 3px; padding-bottom: 4px; }
+[data-density="compact"] .mod--bb,
+[data-density="compact"] .mod--demo { display: none; }
+[data-density="compact"] .pl-mods .mod,
+[data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
+[data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
+[data-density="compact"] .pl-mods .mod .nm { display: none; }
+
+/* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
+   the type scale — every remaining size is already sitting on its legibility
+   floor (7px pixel-font labels, the 17px funds figure), and shrinking past a
+   floor is how this panel got into trouble in the first place.
+
+   It comes out of the ROW COUNT instead. The reload bar and the meta line are
+   both single-line strips that use a fraction of the panel's width, stacked only
+   because a column was the simplest thing to write. Side by side they cost one
+   row instead of two. Four rows become three; the panel lands inside its box. */
+[data-density="compact"] .plant__body {
+  display: grid;
+  /* Not 1fr 1fr. The reload strip is a label plus a flexible bar and is happy
+     narrow; the meta line is ~30 glyphs of a fixed-advance pixel font and wraps
+     to two lines at anything under ~120px, which cost the shared row 17px —
+     more than the row saved. Measured across five splits; 0.8/1.2 is the one
+     where both sit on a single line. */
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  grid-template-areas:
+    "hdr  hdr"
+    "read read"
+    "load meta"
+    "mods mods";
+  align-content: space-between;
+  gap: max(2px, calc(6 * var(--fpx)));
+}
+[data-density="compact"] .plant__hdr { grid-area: hdr; }
+[data-density="compact"] .pl-read { grid-area: read; }
+[data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
+[data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-end; align-items: center; }
+[data-density="compact"] .pl-mods { grid-area: mods; }
+/* The last few px, taken from DECORATION rather than from type: the goal bar's
+   thickness and the air above it are not legibility floors the way a 7px pixel
+   label is. Vertical panel padding shrinks with them; the horizontal padding
+   does not, because the funds figure needs its width. */
+[data-density="compact"] .pl-goal {
+  margin-top: max(3px, calc(10 * var(--fpx)));
+  height: max(6px, calc(10 * var(--fpx)));
+}
+[data-density="compact"] .plant__body { padding: calc(12 * var(--fpx)) calc(19 * var(--fpx)); }
+
+/* Two labels that cost a whole row each once the real webfonts land — both
+   found by measuring with `document.fonts.ready` awaited, which is exactly the
+   class of thing an eyeball check at the wrong moment misses.
+
+   "FUNDS / TARGET" is 14 glyphs of pixel font, ~98px, in a column that is ~100px
+   on an iPhone 13 mini — so it wrapped to two lines and took .pl-read from 38px
+   to 64px. The qualifier is redundant anyway: the value under it already reads
+   "$1259 / 1700".
+
+   The vertical BUILD tag is 5 glyphs of pixel font stacked, an intrinsic 31px,
+   which was setting .pl-mods' height ABOVE the 25px chips it labels — the row
+   was as tall as its label, not its content. */
+[data-density="compact"] .lbl__q { display: none; }
+[data-density="compact"] .pl-mods > .lbl { display: none; }
 .pl-mods > .lbl {
   flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint);
   writing-mode: vertical-rl; transform: rotate(180deg); align-self: stretch; text-transform: uppercase;

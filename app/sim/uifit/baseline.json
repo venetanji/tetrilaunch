@@ -1,16 +1,11 @@
 {
-  "Android · 640x360 budget|bayclear|plant": [
-    "160px vs design 134px (51% of field height)"
-  ],
   "Android · 640x360 budget|bayclear|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · 640x360 budget|contract-end|tap": [
     ".btn 276x39"
@@ -37,21 +32,13 @@
     ".btn 160x37",
     ".btn 210x37"
   ],
-  "Android · 640x360 budget|hud-contract|plant": [
-    "170px vs design 134px (54% of field height)"
-  ],
   "Android · 640x360 budget|hud-contract|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "Android · 640x360 budget|hud|plant": [
-    "160px vs design 134px (51% of field height)"
+    ".mod 30x25"
   ],
   "Android · 640x360 budget|hud|tap": [
     "#fullscreen-btn 60x40",
@@ -59,9 +46,7 @@
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · 640x360 budget|leaderboard|tap": [
     ".btn 524x37"
@@ -78,18 +63,13 @@
   "Android · 640x360 budget|menu|tap": [
     ".btn 320x32"
   ],
-  "Android · 640x360 budget|pause|plant": [
-    "160px vs design 134px (51% of field height)"
-  ],
   "Android · 640x360 budget|pause|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
@@ -139,18 +119,13 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Galaxy S8+|bayclear|plant": [
-    "168px vs design 155px (47% of field height)"
-  ],
   "Android · Galaxy S8+|bayclear|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Galaxy S8+|contract-end|tap": [
     ".btn 322x39"
@@ -171,21 +146,13 @@
     ".btn 160x37",
     ".btn 210x37"
   ],
-  "Android · Galaxy S8+|hud-contract|plant": [
-    "178px vs design 155px (49% of field height)"
-  ],
   "Android · Galaxy S8+|hud-contract|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "Android · Galaxy S8+|hud|plant": [
-    "168px vs design 155px (47% of field height)"
+    ".mod 30x25"
   ],
   "Android · Galaxy S8+|hud|tap": [
     "#fullscreen-btn 60x40",
@@ -193,9 +160,7 @@
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Galaxy S8+|leaderboard|tap": [
     ".btn 524x37"
@@ -212,18 +177,13 @@
   "Android · Galaxy S8+|menu|tap": [
     ".btn 320x32"
   ],
-  "Android · Galaxy S8+|pause|plant": [
-    "168px vs design 155px (47% of field height)"
-  ],
   "Android · Galaxy S8+|pause|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
@@ -234,9 +194,9 @@
     ".btn 671x37"
   ],
   "Android · Galaxy S8+|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
+    ".toggle 55x30",
+    ".btn 237x37",
+    "#restore-btn 237x37"
   ],
   "Android · Galaxy S8+|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -272,18 +232,13 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · OnePlus 12|bayclear|plant": [
-    "168px vs design 155px (47% of field height)"
-  ],
   "Android · OnePlus 12|bayclear|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · OnePlus 12|contract-end|tap": [
     ".btn 334x39"
@@ -310,21 +265,13 @@
     ".btn 160x37",
     ".btn 210x37"
   ],
-  "Android · OnePlus 12|hud-contract|plant": [
-    "178px vs design 155px (49% of field height)"
-  ],
   "Android · OnePlus 12|hud-contract|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "Android · OnePlus 12|hud|plant": [
-    "168px vs design 155px (47% of field height)"
+    ".mod 30x25"
   ],
   "Android · OnePlus 12|hud|tap": [
     "#fullscreen-btn 60x40",
@@ -332,9 +279,7 @@
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · OnePlus 12|leaderboard|tap": [
     ".btn 524x37"
@@ -351,26 +296,21 @@
   "Android · OnePlus 12|menu|tap": [
     ".btn 320x32"
   ],
-  "Android · OnePlus 12|pause|plant": [
-    "168px vs design 155px (47% of field height)"
-  ],
   "Android · OnePlus 12|pause|tap": [
     "#fullscreen-btn 60x40",
     ".icon-btn 60x40",
     "#bond-btn 60x40",
     "#demo-btn 60x40",
     "#auto-btn 60x40",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
     ".btn 83x37"
   ],
   "Android · OnePlus 12|refit|tap": [
-    ".btn 152x26",
-    ".btn 720x37"
+    ".btn 153x27",
+    ".btn 725x37"
   ],
   "Android · OnePlus 12|settings|tap": [
     ".toggle 55x29",
@@ -411,13 +351,8 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Pixel 5|bayclear|plant": [
-    "174px vs design 169px (44% of field height)"
-  ],
   "Android · Pixel 5|bayclear|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Pixel 5|contract-end|tap": [
     ".btn 333x39"
@@ -429,30 +364,20 @@
     ".btn 83x37"
   ],
   "Android · Pixel 5|end-won|tap": [
-    ".btn 104x32",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
+    ".btn 105x32",
+    ".btn 93x39",
+    ".btn 145x37",
+    ".btn 84x37"
   ],
   "Android · Pixel 5|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
   ],
-  "Android · Pixel 5|hud-contract|plant": [
-    "174px vs design 169px (44% of field height)"
-  ],
   "Android · Pixel 5|hud-contract|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "Android · Pixel 5|hud|plant": [
-    "174px vs design 169px (44% of field height)"
+    ".mod 30x25"
   ],
   "Android · Pixel 5|hud|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Pixel 5|leaderboard|tap": [
     ".btn 522x37"
@@ -469,21 +394,16 @@
   "Android · Pixel 5|menu|tap": [
     ".btn 320x32"
   ],
-  "Android · Pixel 5|pause|plant": [
-    "174px vs design 169px (44% of field height)"
-  ],
   "Android · Pixel 5|pause|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
     ".btn 83x37"
   ],
   "Android · Pixel 5|refit|tap": [
-    ".btn 167x27",
-    ".btn 779x37"
+    ".btn 166x26",
+    ".btn 774x37"
   ],
   "Android · Pixel 5|settings|tap": [
     ".toggle 55x29",
@@ -525,9 +445,7 @@
     ".shop-card__desc \"Demolition charges every\""
   ],
   "Android · Pixel 7|bayclear|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Pixel 7|contract-end|tap": [
     ".btn 333x39"
@@ -549,14 +467,10 @@
     ".btn 210x37"
   ],
   "Android · Pixel 7|hud-contract|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Pixel 7|hud|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "Android · Pixel 7|leaderboard|tap": [
     ".btn 521x37"
@@ -574,22 +488,20 @@
     ".btn 320x32"
   ],
   "Android · Pixel 7|pause|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
+    "#fullscreen-btn-modal 160x37",
+    ".btn 155x37",
+    ".btn 84x37"
   ],
   "Android · Pixel 7|refit|tap": [
     ".btn 182x27",
     ".btn 838x37"
   ],
   "Android · Pixel 7|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
   ],
   "Android · Pixel 7|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -629,7 +541,7 @@
     ".btn 104x32"
   ],
   "Android · Pixel Tablet|end-won|tap": [
-    ".btn 104x32"
+    ".btn 105x32"
   ],
   "Android · Pixel Tablet|menu-live|tap": [
     ".chip 194x40"
@@ -689,7 +601,7 @@
     ".panel scrolls 42px"
   ],
   "iOS · iPad mini|end-won|tap": [
-    ".btn 106x32"
+    ".btn 104x32"
   ],
   "iOS · iPad mini|menu-live|tap": [
     ".chip 194x40"
@@ -701,7 +613,7 @@
     "#refit-grid scrolls 10px"
   ],
   "iOS · iPad mini|refit|tap": [
-    ".btn 229x34"
+    ".btn 227x33"
   ],
   "iOS · iPad mini|settings|tap": [
     ".toggle 55x29"
@@ -712,13 +624,8 @@
   "iOS · iPad mini|workshop-systems|tap": [
     ".workshop__tab 88x26"
   ],
-  "iOS · iPhone 13 mini|bayclear|plant": [
-    "183px vs design 116px (68% of field height)"
-  ],
   "iOS · iPhone 13 mini|bayclear|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone 13 mini|contract-end|tap": [
     ".btn 334x39"
@@ -746,20 +653,13 @@
     ".btn 210x37"
   ],
   "iOS · iPhone 13 mini|hud-contract|plant": [
-    "173px vs design 116px (64% of field height)"
+    "127px vs design 116px (47% of field height)"
   ],
   "iOS · iPhone 13 mini|hud-contract|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "iOS · iPhone 13 mini|hud|plant": [
-    "183px vs design 116px (68% of field height)"
+    ".mod 30x25"
   ],
   "iOS · iPhone 13 mini|hud|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone 13 mini|leaderboard|tap": [
     ".btn 524x37"
@@ -776,13 +676,8 @@
   "iOS · iPhone 13 mini|menu|tap": [
     ".btn 320x32"
   ],
-  "iOS · iPhone 13 mini|pause|plant": [
-    "183px vs design 116px (68% of field height)"
-  ],
   "iOS · iPhone 13 mini|pause|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
@@ -832,13 +727,8 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "iOS · iPhone 15|bayclear|plant": [
-    "169px vs design 157px (46% of field height)"
-  ],
   "iOS · iPhone 15|bayclear|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone 15|contract-end|tap": [
     ".btn 333x39"
@@ -850,33 +740,23 @@
     ".btn 83x37"
   ],
   "iOS · iPhone 15|end-won|tap": [
-    ".btn 105x32",
-    ".btn 93x39",
-    ".btn 145x37",
-    ".btn 84x37"
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
   ],
   "iOS · iPhone 15|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
   ],
-  "iOS · iPhone 15|hud-contract|plant": [
-    "179px vs design 157px (49% of field height)"
-  ],
   "iOS · iPhone 15|hud-contract|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "iOS · iPhone 15|hud|plant": [
-    "169px vs design 157px (46% of field height)"
+    ".mod 30x25"
   ],
   "iOS · iPhone 15|hud|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone 15|leaderboard|tap": [
-    ".btn 525x37"
+    ".btn 522x37"
   ],
   "iOS · iPhone 15|menu-live|tap": [
     ".btn 320x32"
@@ -890,13 +770,8 @@
   "iOS · iPhone 15|menu|tap": [
     ".btn 320x32"
   ],
-  "iOS · iPhone 15|pause|plant": [
-    "169px vs design 157px (46% of field height)"
-  ],
   "iOS · iPhone 15|pause|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
@@ -907,9 +782,9 @@
     ".btn 775x37"
   ],
   "iOS · iPhone 15|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
   ],
   "iOS · iPhone 15|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -946,9 +821,7 @@
     ".shop-card__desc \"Demolition charges every\""
   ],
   "iOS · iPhone 16 Pro Max|bayclear|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 39x40"
+    ".mod 30x26"
   ],
   "iOS · iPhone 16 Pro Max|contract-end|tap": [
     ".btn 332x39"
@@ -970,14 +843,10 @@
     ".btn 210x37"
   ],
   "iOS · iPhone 16 Pro Max|hud-contract|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 39x40"
+    ".mod 30x26"
   ],
   "iOS · iPhone 16 Pro Max|hud|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 39x40"
+    ".mod 30x26"
   ],
   "iOS · iPhone 16 Pro Max|leaderboard|tap": [
     ".btn 519x37"
@@ -995,17 +864,15 @@
     ".btn 320x32"
   ],
   "iOS · iPhone 16 Pro Max|pause|tap": [
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 39x40",
+    ".mod 30x26",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",
     ".btn 83x37"
   ],
   "iOS · iPhone 16 Pro Max|refit|tap": [
-    ".btn 185x26",
-    ".btn 852x37"
+    ".btn 187x27",
+    ".btn 858x37"
   ],
   "iOS · iPhone 16 Pro Max|settings|tap": [
     ".toggle 55x29",
@@ -1046,18 +913,13 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "iOS · iPhone SE 3|bayclear|plant": [
-    "162px vs design 141px (50% of field height)"
-  ],
   "iOS · iPhone SE 3|bayclear|tap": [
     "#fullscreen-btn 60x41",
     ".icon-btn 60x41",
     "#bond-btn 60x41",
     "#demo-btn 60x41",
     "#auto-btn 60x41",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone SE 3|contract-end|tap": [
     ".btn 288x39"
@@ -1075,17 +937,14 @@
     ".btn 83x37"
   ],
   "iOS · iPhone SE 3|end-won|tap": [
-    ".btn 104x32",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
+    ".btn 105x32",
+    ".btn 93x39",
+    ".btn 145x37",
+    ".btn 84x37"
   ],
   "iOS · iPhone SE 3|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
-  ],
-  "iOS · iPhone SE 3|hud-contract|plant": [
-    "172px vs design 141px (52% of field height)"
   ],
   "iOS · iPhone SE 3|hud-contract|tap": [
     "#fullscreen-btn 60x41",
@@ -1093,12 +952,7 @@
     "#bond-btn 60x41",
     "#demo-btn 60x41",
     "#auto-btn 60x41",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
-  ],
-  "iOS · iPhone SE 3|hud|plant": [
-    "162px vs design 141px (50% of field height)"
+    ".mod 30x25"
   ],
   "iOS · iPhone SE 3|hud|tap": [
     "#fullscreen-btn 60x41",
@@ -1106,9 +960,7 @@
     "#bond-btn 60x41",
     "#demo-btn 60x41",
     "#auto-btn 60x41",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40"
+    ".mod 30x25"
   ],
   "iOS · iPhone SE 3|leaderboard|tap": [
     ".btn 523x37"
@@ -1125,18 +977,13 @@
   "iOS · iPhone SE 3|menu|tap": [
     ".btn 320x32"
   ],
-  "iOS · iPhone SE 3|pause|plant": [
-    "162px vs design 141px (50% of field height)"
-  ],
   "iOS · iPhone SE 3|pause|tap": [
     "#fullscreen-btn 60x41",
     ".icon-btn 60x41",
     "#bond-btn 60x41",
     "#demo-btn 60x41",
     "#auto-btn 60x41",
-    "#bond-chip 44x40",
-    "#demo-chip 44x40",
-    ".mod 38x40",
+    ".mod 30x25",
     ".btn 104x37",
     "#fullscreen-btn-modal 159x37",
     ".btn 154x37",

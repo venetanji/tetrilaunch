@@ -515,7 +515,7 @@ export function hudHTML(opts: {
           ${
             contract
               ? `<div class="pl-funds">
-            <div class="lbl">Lines / Goal</div>
+            <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
@@ -524,7 +524,7 @@ export function hudHTML(opts: {
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>`
               : `<div class="pl-funds">
-            <div class="lbl">Funds / Target</div>
+            <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
