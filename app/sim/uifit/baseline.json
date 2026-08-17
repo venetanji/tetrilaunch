@@ -1,0 +1,1338 @@
+{
+  "Android · 640x360 budget|bayclear|offscreen": [
+    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
+  ],
+  "Android · 640x360 budget|bayclear|plant": [
+    "160px vs design 134px (51% of field height)"
+  ],
+  "Android · 640x360 budget|bayclear|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · 640x360 budget|contract-end|tap": [
+    ".btn 276x39"
+  ],
+  "Android · 640x360 budget|contracts|fit": [
+    ".screen overflows by 302px (360 -> 662)"
+  ],
+  "Android · 640x360 budget|contracts|scrollers": [
+    ".screen scrolls 302px"
+  ],
+  "Android · 640x360 budget|end-lost|fit": [
+    ".panel overflows by 80px (328 -> 408)"
+  ],
+  "Android · 640x360 budget|end-lost|scrollers": [
+    ".panel scrolls 80px"
+  ],
+  "Android · 640x360 budget|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · 640x360 budget|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · 640x360 budget|howto|fit": [
+    ".screen overflows by 1229px (360 -> 1589)"
+  ],
+  "Android · 640x360 budget|howto|scrollers": [
+    ".screen scrolls 1229px"
+  ],
+  "Android · 640x360 budget|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "Android · 640x360 budget|hud-contract|offscreen": [
+    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
+  ],
+  "Android · 640x360 budget|hud-contract|plant": [
+    "170px vs design 134px (54% of field height)"
+  ],
+  "Android · 640x360 budget|hud-contract|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · 640x360 budget|hud|offscreen": [
+    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
+  ],
+  "Android · 640x360 budget|hud|plant": [
+    "160px vs design 134px (51% of field height)"
+  ],
+  "Android · 640x360 budget|hud|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · 640x360 budget|leaderboard|tap": [
+    ".btn 527x37"
+  ],
+  "Android · 640x360 budget|menu-unlimited|fit": [
+    ".screen overflows by 256px (360 -> 616)"
+  ],
+  "Android · 640x360 budget|menu-unlimited|scrollers": [
+    ".screen scrolls 256px"
+  ],
+  "Android · 640x360 budget|menu-unlimited|tap": [
+    ".btn 584x32"
+  ],
+  "Android · 640x360 budget|menu|fit": [
+    ".screen overflows by 248px (360 -> 608)"
+  ],
+  "Android · 640x360 budget|menu|scrollers": [
+    ".screen scrolls 248px"
+  ],
+  "Android · 640x360 budget|menu|tap": [
+    ".chip 195x38",
+    ".btn 584x32"
+  ],
+  "Android · 640x360 budget|pause|offscreen": [
+    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
+  ],
+  "Android · 640x360 budget|pause|plant": [
+    "160px vs design 134px (51% of field height)"
+  ],
+  "Android · 640x360 budget|pause|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "Android · 640x360 budget|refit|tap": [
+    ".btn 117x26",
+    ".btn 577x37"
+  ],
+  "Android · 640x360 budget|settings|tap": [
+    ".toggle 55x30",
+    ".btn 237x37",
+    "#restore-btn 237x37"
+  ],
+  "Android · 640x360 budget|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".shop-card 304x43",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "Android · 640x360 budget|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "Android · 640x360 budget|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 304x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "Android · 640x360 budget|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "Android · Galaxy S8+|bayclear|offscreen": [
+    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
+  ],
+  "Android · Galaxy S8+|bayclear|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · Galaxy S8+|bayclear|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Galaxy S8+|contract-end|tap": [
+    ".btn 322x39"
+  ],
+  "Android · Galaxy S8+|contracts|fit": [
+    ".screen overflows by 9px (360 -> 369)"
+  ],
+  "Android · Galaxy S8+|contracts|scrollers": [
+    ".screen scrolls 9px"
+  ],
+  "Android · Galaxy S8+|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · Galaxy S8+|end-won|tap": [
+    ".btn 105x32",
+    ".btn 93x39",
+    ".btn 145x37",
+    ".btn 84x37"
+  ],
+  "Android · Galaxy S8+|howto|fit": [
+    ".screen overflows by 717px (360 -> 1077)"
+  ],
+  "Android · Galaxy S8+|howto|scrollers": [
+    ".screen scrolls 717px"
+  ],
+  "Android · Galaxy S8+|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "Android · Galaxy S8+|hud-contract|offscreen": [
+    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
+  ],
+  "Android · Galaxy S8+|hud-contract|plant": [
+    "178px vs design 155px (49% of field height)"
+  ],
+  "Android · Galaxy S8+|hud-contract|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Galaxy S8+|hud|offscreen": [
+    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
+  ],
+  "Android · Galaxy S8+|hud|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · Galaxy S8+|hud|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Galaxy S8+|leaderboard|tap": [
+    ".btn 527x37"
+  ],
+  "Android · Galaxy S8+|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Galaxy S8+|menu|tap": [
+    ".chip 194x40",
+    ".btn 320x32"
+  ],
+  "Android · Galaxy S8+|pause|offscreen": [
+    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
+  ],
+  "Android · Galaxy S8+|pause|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · Galaxy S8+|pause|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "Android · Galaxy S8+|refit|tap": [
+    ".btn 140x26",
+    ".btn 671x37"
+  ],
+  "Android · Galaxy S8+|settings|tap": [
+    ".toggle 55x30",
+    ".btn 237x37",
+    "#restore-btn 237x37"
+  ],
+  "Android · Galaxy S8+|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "Android · Galaxy S8+|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "Android · Galaxy S8+|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 233x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "Android · Galaxy S8+|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "Android · OnePlus 12|bayclear|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · OnePlus 12|bayclear|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · OnePlus 12|contract-end|tap": [
+    ".btn 334x39"
+  ],
+  "Android · OnePlus 12|contracts|fit": [
+    ".screen overflows by 11px (360 -> 371)"
+  ],
+  "Android · OnePlus 12|contracts|scrollers": [
+    ".screen scrolls 11px"
+  ],
+  "Android · OnePlus 12|end-lost|fit": [
+    ".panel overflows by 3px (321 -> 324)"
+  ],
+  "Android · OnePlus 12|end-lost|scrollers": [
+    ".panel scrolls 3px"
+  ],
+  "Android · OnePlus 12|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · OnePlus 12|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · OnePlus 12|howto|fit": [
+    ".screen overflows by 665px (360 -> 1025)"
+  ],
+  "Android · OnePlus 12|howto|scrollers": [
+    ".screen scrolls 665px"
+  ],
+  "Android · OnePlus 12|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "Android · OnePlus 12|hud-contract|plant": [
+    "178px vs design 155px (49% of field height)"
+  ],
+  "Android · OnePlus 12|hud-contract|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · OnePlus 12|hud|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · OnePlus 12|hud|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · OnePlus 12|leaderboard|tap": [
+    ".btn 524x37"
+  ],
+  "Android · OnePlus 12|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "Android · OnePlus 12|menu|tap": [
+    ".chip 194x40",
+    ".btn 320x32"
+  ],
+  "Android · OnePlus 12|pause|plant": [
+    "168px vs design 155px (47% of field height)"
+  ],
+  "Android · OnePlus 12|pause|tap": [
+    "#fullscreen-btn 60x40",
+    ".icon-btn 60x40",
+    "#bond-btn 60x40",
+    "#demo-btn 60x40",
+    "#auto-btn 60x40",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "Android · OnePlus 12|refit|tap": [
+    ".btn 152x26",
+    ".btn 720x37"
+  ],
+  "Android · OnePlus 12|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "Android · OnePlus 12|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "Android · OnePlus 12|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "Android · OnePlus 12|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 250x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "Android · OnePlus 12|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "Android · Pixel 5|bayclear|plant": [
+    "174px vs design 169px (44% of field height)"
+  ],
+  "Android · Pixel 5|bayclear|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 5|contract-end|tap": [
+    ".btn 333x39"
+  ],
+  "Android · Pixel 5|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · Pixel 5|end-won|tap": [
+    ".btn 105x32",
+    ".btn 93x39",
+    ".btn 145x37",
+    ".btn 84x37"
+  ],
+  "Android · Pixel 5|howto|fit": [
+    ".screen overflows by 599px (393 -> 992)"
+  ],
+  "Android · Pixel 5|howto|scrollers": [
+    ".screen scrolls 599px"
+  ],
+  "Android · Pixel 5|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "Android · Pixel 5|hud-contract|plant": [
+    "174px vs design 169px (44% of field height)"
+  ],
+  "Android · Pixel 5|hud-contract|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 5|hud|plant": [
+    "174px vs design 169px (44% of field height)"
+  ],
+  "Android · Pixel 5|hud|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 5|leaderboard|tap": [
+    ".btn 522x37"
+  ],
+  "Android · Pixel 5|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Pixel 5|menu|tap": [
+    ".chip 195x38",
+    ".btn 320x32"
+  ],
+  "Android · Pixel 5|pause|plant": [
+    "174px vs design 169px (44% of field height)"
+  ],
+  "Android · Pixel 5|pause|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "Android · Pixel 5|refit|tap": [
+    ".btn 167x27",
+    ".btn 779x37"
+  ],
+  "Android · Pixel 5|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "Android · Pixel 5|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "Android · Pixel 5|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "Android · Pixel 5|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 269x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "Android · Pixel 5|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "Android · Pixel 7|bayclear|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 7|contract-end|tap": [
+    ".btn 333x39"
+  ],
+  "Android · Pixel 7|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · Pixel 7|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "Android · Pixel 7|howto|fit": [
+    ".screen overflows by 577px (412 -> 989)"
+  ],
+  "Android · Pixel 7|howto|scrollers": [
+    ".screen scrolls 577px"
+  ],
+  "Android · Pixel 7|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "Android · Pixel 7|hud-contract|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 7|hud|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "Android · Pixel 7|leaderboard|tap": [
+    ".btn 521x37"
+  ],
+  "Android · Pixel 7|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Pixel 7|menu|tap": [
+    ".chip 195x38",
+    ".btn 320x32"
+  ],
+  "Android · Pixel 7|pause|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "Android · Pixel 7|refit|tap": [
+    ".btn 182x27",
+    ".btn 838x37"
+  ],
+  "Android · Pixel 7|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "Android · Pixel 7|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "Android · Pixel 7|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "Android · Pixel 7|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 289x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "Android · Pixel 7|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "Android · Pixel Tablet|bayclear|offscreen": [
+    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
+  ],
+  "Android · Pixel Tablet|end-lost|tap": [
+    ".btn 104x32"
+  ],
+  "Android · Pixel Tablet|end-won|tap": [
+    ".btn 104x32"
+  ],
+  "Android · Pixel Tablet|hud-contract|offscreen": [
+    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
+  ],
+  "Android · Pixel Tablet|hud|offscreen": [
+    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
+  ],
+  "Android · Pixel Tablet|menu|tap": [
+    ".chip 194x40"
+  ],
+  "Android · Pixel Tablet|pause|offscreen": [
+    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
+  ],
+  "Android · Pixel Tablet|refit|tap": [
+    ".btn 227x33"
+  ],
+  "Android · Pixel Tablet|settings|tap": [
+    ".toggle 55x29"
+  ],
+  "Android · Pixel Tablet|workshop-options|fit": [
+    ".screen overflows by 137px (1000 -> 1137)"
+  ],
+  "Android · Pixel Tablet|workshop-options|scrollers": [
+    ".screen scrolls 137px"
+  ],
+  "Android · Pixel Tablet|workshop-options|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "Android · Pixel Tablet|workshop-systems|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "iOS · iPad Pro 12.9|bayclear|offscreen": [
+    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
+  ],
+  "iOS · iPad Pro 12.9|end-lost|tap": [
+    ".btn 104x32"
+  ],
+  "iOS · iPad Pro 12.9|end-won|tap": [
+    ".btn 104x32"
+  ],
+  "iOS · iPad Pro 12.9|hud-contract|offscreen": [
+    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
+  ],
+  "iOS · iPad Pro 12.9|hud|offscreen": [
+    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
+  ],
+  "iOS · iPad Pro 12.9|menu|tap": [
+    ".chip 194x40"
+  ],
+  "iOS · iPad Pro 12.9|pause|offscreen": [
+    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
+  ],
+  "iOS · iPad Pro 12.9|refit|tap": [
+    ".btn 227x33"
+  ],
+  "iOS · iPad Pro 12.9|settings|tap": [
+    ".toggle 55x29"
+  ],
+  "iOS · iPad Pro 12.9|workshop-options|fit": [
+    ".screen overflows by 113px (1024 -> 1137)"
+  ],
+  "iOS · iPad Pro 12.9|workshop-options|scrollers": [
+    ".screen scrolls 113px"
+  ],
+  "iOS · iPad Pro 12.9|workshop-options|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "iOS · iPad Pro 12.9|workshop-systems|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "iOS · iPad mini|bayclear|offscreen": [
+    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
+  ],
+  "iOS · iPad mini|end-lost|fit": [
+    ".panel overflows by 198px (719 -> 917)"
+  ],
+  "iOS · iPad mini|end-lost|scrollers": [
+    ".panel scrolls 198px"
+  ],
+  "iOS · iPad mini|end-lost|tap": [
+    ".btn 104x32"
+  ],
+  "iOS · iPad mini|end-won|fit": [
+    ".panel overflows by 42px (719 -> 761)"
+  ],
+  "iOS · iPad mini|end-won|scrollers": [
+    ".panel scrolls 42px"
+  ],
+  "iOS · iPad mini|end-won|tap": [
+    ".btn 104x32"
+  ],
+  "iOS · iPad mini|howto|fit": [
+    ".screen overflows by 198px (768 -> 966)"
+  ],
+  "iOS · iPad mini|howto|scrollers": [
+    ".screen scrolls 198px"
+  ],
+  "iOS · iPad mini|hud-contract|offscreen": [
+    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
+  ],
+  "iOS · iPad mini|hud|offscreen": [
+    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
+  ],
+  "iOS · iPad mini|menu|tap": [
+    ".chip 194x40"
+  ],
+  "iOS · iPad mini|pause|offscreen": [
+    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
+  ],
+  "iOS · iPad mini|refit|scrollers": [
+    "#refit-grid scrolls 10px"
+  ],
+  "iOS · iPad mini|refit|tap": [
+    ".btn 227x33"
+  ],
+  "iOS · iPad mini|settings|tap": [
+    ".toggle 55x29"
+  ],
+  "iOS · iPad mini|workshop-options|fit": [
+    ".screen overflows by 358px (768 -> 1126)"
+  ],
+  "iOS · iPad mini|workshop-options|scrollers": [
+    ".screen scrolls 358px"
+  ],
+  "iOS · iPad mini|workshop-options|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "iOS · iPad mini|workshop-systems|tap": [
+    ".workshop__tab 88x26"
+  ],
+  "iOS · iPhone 13 mini|bayclear|plant": [
+    "183px vs design 116px (68% of field height)"
+  ],
+  "iOS · iPhone 13 mini|bayclear|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 13 mini|contract-end|tap": [
+    ".btn 334x39"
+  ],
+  "iOS · iPhone 13 mini|contracts|fit": [
+    ".screen overflows by 10px (360 -> 370)"
+  ],
+  "iOS · iPhone 13 mini|contracts|scrollers": [
+    ".screen scrolls 10px"
+  ],
+  "iOS · iPhone 13 mini|end-lost|fit": [
+    ".panel overflows by 2px (322 -> 324)"
+  ],
+  "iOS · iPhone 13 mini|end-lost|scrollers": [
+    ".panel scrolls 2px"
+  ],
+  "iOS · iPhone 13 mini|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 13 mini|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 13 mini|howto|fit": [
+    ".screen overflows by 701px (360 -> 1061)"
+  ],
+  "iOS · iPhone 13 mini|howto|scrollers": [
+    ".screen scrolls 701px"
+  ],
+  "iOS · iPhone 13 mini|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "iOS · iPhone 13 mini|hud-contract|plant": [
+    "173px vs design 116px (64% of field height)"
+  ],
+  "iOS · iPhone 13 mini|hud-contract|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 13 mini|hud|plant": [
+    "183px vs design 116px (68% of field height)"
+  ],
+  "iOS · iPhone 13 mini|hud|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 13 mini|leaderboard|tap": [
+    ".btn 524x37"
+  ],
+  "iOS · iPhone 13 mini|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 13 mini|menu|tap": [
+    ".chip 195x38",
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 13 mini|pause|plant": [
+    "183px vs design 116px (68% of field height)"
+  ],
+  "iOS · iPhone 13 mini|pause|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 13 mini|refit|tap": [
+    ".btn 150x27",
+    ".btn 713x37"
+  ],
+  "iOS · iPhone 13 mini|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "iOS · iPhone 13 mini|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 13 mini|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "iOS · iPhone 13 mini|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 246x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 13 mini|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "iOS · iPhone 15|bayclear|plant": [
+    "169px vs design 157px (46% of field height)"
+  ],
+  "iOS · iPhone 15|bayclear|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 15|contract-end|tap": [
+    ".btn 333x39"
+  ],
+  "iOS · iPhone 15|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 15|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 15|howto|fit": [
+    ".screen overflows by 599px (393 -> 992)"
+  ],
+  "iOS · iPhone 15|howto|scrollers": [
+    ".screen scrolls 599px"
+  ],
+  "iOS · iPhone 15|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "iOS · iPhone 15|hud-contract|plant": [
+    "179px vs design 157px (49% of field height)"
+  ],
+  "iOS · iPhone 15|hud-contract|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 15|hud|plant": [
+    "169px vs design 157px (46% of field height)"
+  ],
+  "iOS · iPhone 15|hud|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone 15|leaderboard|tap": [
+    ".btn 522x37"
+  ],
+  "iOS · iPhone 15|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 15|menu|tap": [
+    ".chip 195x38",
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 15|pause|plant": [
+    "169px vs design 157px (46% of field height)"
+  ],
+  "iOS · iPhone 15|pause|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 15|refit|tap": [
+    ".btn 167x27",
+    ".btn 780x37"
+  ],
+  "iOS · iPhone 15|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "iOS · iPhone 15|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 15|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "iOS · iPhone 15|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 269x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 15|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "iOS · iPhone 16 Pro Max|bayclear|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 39x40"
+  ],
+  "iOS · iPhone 16 Pro Max|contract-end|tap": [
+    ".btn 332x39"
+  ],
+  "iOS · iPhone 16 Pro Max|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 16 Pro Max|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 16 Pro Max|howto|fit": [
+    ".screen overflows by 502px (440 -> 942)"
+  ],
+  "iOS · iPhone 16 Pro Max|howto|scrollers": [
+    ".screen scrolls 502px"
+  ],
+  "iOS · iPhone 16 Pro Max|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "iOS · iPhone 16 Pro Max|hud-contract|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 39x40"
+  ],
+  "iOS · iPhone 16 Pro Max|hud|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 39x40"
+  ],
+  "iOS · iPhone 16 Pro Max|leaderboard|tap": [
+    ".btn 519x37"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-unlimited|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu|tap": [
+    ".chip 194x40",
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 16 Pro Max|pause|tap": [
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 39x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone 16 Pro Max|refit|tap": [
+    ".btn 187x27",
+    ".btn 858x37"
+  ],
+  "iOS · iPhone 16 Pro Max|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "iOS · iPhone 16 Pro Max|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 16 Pro Max|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "iOS · iPhone 16 Pro Max|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 302x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone 16 Pro Max|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ],
+  "iOS · iPhone SE 3|bayclear|offscreen": [
+    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
+  ],
+  "iOS · iPhone SE 3|bayclear|plant": [
+    "162px vs design 141px (50% of field height)"
+  ],
+  "iOS · iPhone SE 3|bayclear|tap": [
+    "#fullscreen-btn 60x41",
+    ".icon-btn 60x41",
+    "#bond-btn 60x41",
+    "#demo-btn 60x41",
+    "#auto-btn 60x41",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone SE 3|contract-end|tap": [
+    ".btn 288x39"
+  ],
+  "iOS · iPhone SE 3|contracts|fit": [
+    ".screen overflows by 288px (375 -> 663)"
+  ],
+  "iOS · iPhone SE 3|contracts|scrollers": [
+    ".screen scrolls 288px"
+  ],
+  "iOS · iPhone SE 3|end-lost|fit": [
+    ".panel overflows by 37px (342 -> 379)"
+  ],
+  "iOS · iPhone SE 3|end-lost|scrollers": [
+    ".panel scrolls 37px"
+  ],
+  "iOS · iPhone SE 3|end-lost|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone SE 3|end-won|tap": [
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone SE 3|howto|fit": [
+    ".screen overflows by 1161px (375 -> 1536)"
+  ],
+  "iOS · iPhone SE 3|howto|scrollers": [
+    ".screen scrolls 1161px"
+  ],
+  "iOS · iPhone SE 3|howto|tap": [
+    ".btn 160x37",
+    ".btn 210x37"
+  ],
+  "iOS · iPhone SE 3|hud-contract|offscreen": [
+    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
+  ],
+  "iOS · iPhone SE 3|hud-contract|plant": [
+    "172px vs design 141px (52% of field height)"
+  ],
+  "iOS · iPhone SE 3|hud-contract|tap": [
+    "#fullscreen-btn 60x41",
+    ".icon-btn 60x41",
+    "#bond-btn 60x41",
+    "#demo-btn 60x41",
+    "#auto-btn 60x41",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone SE 3|hud|offscreen": [
+    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
+  ],
+  "iOS · iPhone SE 3|hud|plant": [
+    "162px vs design 141px (50% of field height)"
+  ],
+  "iOS · iPhone SE 3|hud|tap": [
+    "#fullscreen-btn 60x41",
+    ".icon-btn 60x41",
+    "#bond-btn 60x41",
+    "#demo-btn 60x41",
+    "#auto-btn 60x41",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40"
+  ],
+  "iOS · iPhone SE 3|leaderboard|tap": [
+    ".btn 523x37"
+  ],
+  "iOS · iPhone SE 3|menu-unlimited|fit": [
+    ".screen overflows by 243px (375 -> 618)"
+  ],
+  "iOS · iPhone SE 3|menu-unlimited|scrollers": [
+    ".screen scrolls 243px"
+  ],
+  "iOS · iPhone SE 3|menu-unlimited|tap": [
+    ".btn 608x32"
+  ],
+  "iOS · iPhone SE 3|menu|fit": [
+    ".screen overflows by 237px (375 -> 612)"
+  ],
+  "iOS · iPhone SE 3|menu|scrollers": [
+    ".screen scrolls 237px"
+  ],
+  "iOS · iPhone SE 3|menu|tap": [
+    ".chip 194x40",
+    ".btn 608x32"
+  ],
+  "iOS · iPhone SE 3|pause|offscreen": [
+    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
+  ],
+  "iOS · iPhone SE 3|pause|plant": [
+    "162px vs design 141px (50% of field height)"
+  ],
+  "iOS · iPhone SE 3|pause|tap": [
+    "#fullscreen-btn 60x41",
+    ".icon-btn 60x41",
+    "#bond-btn 60x41",
+    "#demo-btn 60x41",
+    "#auto-btn 60x41",
+    "#bond-chip 44x40",
+    "#demo-chip 44x40",
+    ".mod 38x40",
+    ".btn 104x37",
+    "#fullscreen-btn-modal 159x37",
+    ".btn 154x37",
+    ".btn 83x37"
+  ],
+  "iOS · iPhone SE 3|refit|tap": [
+    ".btn 123x26",
+    ".btn 602x37"
+  ],
+  "iOS · iPhone SE 3|settings|tap": [
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
+  ],
+  "iOS · iPhone SE 3|workshop-options|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 317x43",
+    ".btn 54x25",
+    ".btn 63x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone SE 3|workshop-options|textclip": [
+    ".shop-card__desc \"Adds Demolition Charges \"",
+    ".shop-card__desc \"Adds Bulk Shipments to t\"",
+    ".shop-card__desc \"The bay's prevailing win\"",
+    ".shop-card__desc \"Every run starts with 30\"",
+    ".shop-card__desc \"Adds Micro Shipments to \"",
+    ".shop-card__desc \"Adds Sturdy Shipments to\"",
+    ".shop-card__desc \"Adds Overclock to the dr\"",
+    ".shop-card__desc \"Adds Short Lines to the \"",
+    ".shop-card__desc \"Adds Bond Breakers to th\"",
+    ".shop-card__desc \"Adds the Autoloader to t\"",
+    ".shop-card__locked \"Needs Mark 3 · Demolitio\""
+  ],
+  "iOS · iPhone SE 3|workshop-systems|tap": [
+    ".workshop__tab 79x20",
+    ".shop-card 317x43",
+    ".btn 54x25",
+    ".btn 163x37"
+  ],
+  "iOS · iPhone SE 3|workshop-systems|textclip": [
+    ".shop-card__desc \"A bigger float every bay\"",
+    ".shop-card__desc \"More muzzle energy and a\"",
+    ".shop-card__desc \"Faster reload — more sho\"",
+    ".shop-card__desc \"Widens the compaction zo\"",
+    ".shop-card__desc \"A harder, faster press —\"",
+    ".shop-card__desc \"Bond Breaker charges eve\"",
+    ".shop-card__desc \"Demolition charges every\""
+  ]
+}
