@@ -68,6 +68,13 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+/** main.ts adds `is-live` to .menu__demo once the attract demo is running on a
+ *  real canvas. Applied here as a string edit rather than by mounting the demo:
+ *  the class is the entire difference to LAYOUT, and running Matter.js in the
+ *  harness would buy nothing but nondeterminism. */
+const live = (html: string): string =>
+  html.replace('class="menu__demo"', 'class="menu__demo is-live"');
+
 /**
  * Screen id -> markup. Ids are stable: run.mjs, the PNG filenames and any
  * allowlist in the assertions all key off them.
@@ -75,10 +82,20 @@ const PROGRESS = tierProgressFor(midMeta());
 export const SCREENS: Record<string, () => string> = {
   splash: () => S.splashScreen(),
 
+  // The menu has FOUR states that differ in height, and all four have to fit.
+  //
+  // `is-live` is added by main.ts once the attract demo mounts, which swaps the
+  // brand column from a big wordmark + paragraph to a fixed 16:9 canvas — a
+  // materially different height. The plain fixture is therefore the
+  // reduced-motion / no-2D-context fallback, not an artificial state: it is what
+  // a player with "reduce motion" on actually sees.
   menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS),
+  "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS)),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>
     S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS),
+  "menu-unlimited-live": () =>
+    live(S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS)),
 
   howto: () => S.howtoScreen(),
   settings: () => S.settingsScreen(SETTINGS, STORE),

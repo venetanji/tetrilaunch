@@ -57,6 +57,19 @@ const ONLY_DEVICE = opt("device");
  */
 const ALLOWED_SCROLLERS = ["#lb-body", ".workshop__shop"];
 
+/**
+ * Chrome deliberately anchored OUTSIDE the field, allowed to bleed past the
+ * viewport edge. The conveyor belt sits at `--field-x` minus 2.29% of the field
+ * width and is rotated 20deg (app.css's .belt), so on a 16:9 viewport — where
+ * the field starts at x=0 — its uphill end is off-screen by design. It is
+ * decoration: pointer-events none, no information in it. Same for the bay-clear
+ * ray burst and the loss confetti.
+ *
+ * Kept as a short explicit list rather than inferred from `pointer-events:
+ * none`, because .hud carries that too and is full of real content.
+ */
+const DECORATIVE = [".belt", ".bayclear__rays", ".lose-fx"];
+
 /** `id` is what the baseline keys off, so these are stable API — renaming one
  *  silently invalidates its baseline entries. */
 const ASSERTIONS = [
@@ -77,7 +90,8 @@ type Findings = Record<AssertionId, string[]> & { warn: string[] };
  * Runs INSIDE the page. Returns raw findings; all judgement happens back in
  * node so the rules read in one place and the browser side stays mechanical.
  */
-function measure(allowedScrollers: string[]): Findings {
+function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Findings {
+  const { allowedScrollers, decorative } = cfg;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const out: Findings = {
@@ -110,10 +124,15 @@ function measure(allowedScrollers: string[]): Findings {
   // Only CONTENT counts: leaf elements carrying text, plus controls. Decorative
   // chrome (.belt, .bayclear__rays, .lose-fx) bleeds past the edge by design,
   // and a rule that flagged it would need suppressing everywhere it appears.
+  // EITHER axis. Horizontal scrolling is allowed (the product rule is about
+  // vertical), so a card parked to the right of the viewport inside a snap row
+  // is reachable content, not clipped content.
   const scrollableAncestor = (el: Element): boolean => {
     for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
-      const o = getComputedStyle(p).overflowY;
-      if (o === "auto" || o === "scroll") return true;
+      const cs = getComputedStyle(p);
+      for (const o of [cs.overflowY, cs.overflowX]) {
+        if (o === "auto" || o === "scroll") return true;
+      }
     }
     return false;
   };
@@ -121,6 +140,7 @@ function measure(allowedScrollers: string[]): Findings {
     const isControl = el.matches("button, .btn, .icon-btn, .toggle, input");
     const isTextLeaf = el.childElementCount === 0 && (el.textContent ?? "").trim().length > 0;
     if (!isControl && !isTextLeaf) return;
+    if (el.closest(decorative.join(","))) return;   // bleeds past the edge by design
     const r = el.getBoundingClientRect();
     if (r.width <= 2 || r.height <= 2) return;         // visually-hidden a11y text
     if (getComputedStyle(el).visibility === "hidden") return;
@@ -154,6 +174,10 @@ function measure(allowedScrollers: string[]): Findings {
   document.querySelectorAll("#overlay *").forEach((el) => {
     if (el.childElementCount !== 0) return;
     if (!(el.textContent ?? "").trim()) return;
+    // The visually-hidden pattern (1x1 + clip-path, e.g. .menu__sub once the
+    // attract demo takes over the brand column) is a11y text, not a clip.
+    const box = el.getBoundingClientRect();
+    if (box.width <= 2 || box.height <= 2) return;
     const cs = getComputedStyle(el);
     const clippedX = el.scrollWidth - el.clientWidth > 1;
     const clippedY = el.scrollHeight - el.clientHeight > 1;
@@ -292,7 +316,10 @@ for (const device of devices) {
       () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
     );
 
-    const res = await page.evaluate(measure, ALLOWED_SCROLLERS);
+    const res = await page.evaluate(measure, {
+      allowedScrollers: ALLOWED_SCROLLERS,
+      decorative: DECORATIVE,
+    });
     for (const { id } of ASSERTIONS) {
       if (res[id]?.length) found[`${device.name}|${screen}|${id}`] = res[id];
     }

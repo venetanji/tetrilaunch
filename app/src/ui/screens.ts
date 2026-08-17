@@ -80,13 +80,13 @@ export function menuScreen(
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           run that drafts stranger modifiers onto your bankroll every stop.</p>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="menu__chips">
           ${tierChip}
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip chip--inline">
             <div class="chip__label">Best</div>
             <div class="chip__value" style="color:var(--accent)">${best}</div>
           </div>
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
           </div>
@@ -292,7 +292,7 @@ export function leaderboardScreen(rows: string): string {
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
       </div>
-      <div id="lb-body">${rows}</div>
+      <div id="lb-body" data-scroll>${rows}</div>
       <button class="btn btn--primary" data-action="play">▶ Play</button>
     </div>
   </div>`;
@@ -964,7 +964,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
           : `<div class="workshop__grid">${cards}</div>`}`;
 
-  return `<div class="screen screen--fit neon-backdrop">
+  return `<div class="screen neon-backdrop">
     <div class="workshop">
       <div class="workshop__hdr">
         <div style="text-align:left">
@@ -982,7 +982,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
       ${tabBar}
-      <div class="workshop__shop" role="tabpanel">${pane}</div>
+      <div class="workshop__shop" role="tabpanel" data-scroll>${pane}</div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
@@ -1264,7 +1264,7 @@ export function endModal(opts: {
             value="${opts.name}" autocomplete="off" spellcheck="false" />
           <button class="btn btn--primary" data-action="submit-score">Submit</button>
         </div>
-        <div id="lb-body">${opts.rows}</div>
+        <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="restart">Play Again</button>

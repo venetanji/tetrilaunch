@@ -1,7 +1,4 @@
 {
-  "Android · 640x360 budget|bayclear|offscreen": [
-    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
-  ],
   "Android · 640x360 budget|bayclear|plant": [
     "160px vs design 134px (51% of field height)"
   ],
@@ -17,12 +14,6 @@
   ],
   "Android · 640x360 budget|contract-end|tap": [
     ".btn 276x39"
-  ],
-  "Android · 640x360 budget|contracts|fit": [
-    ".screen overflows by 302px (360 -> 662)"
-  ],
-  "Android · 640x360 budget|contracts|scrollers": [
-    ".screen scrolls 302px"
   ],
   "Android · 640x360 budget|end-lost|fit": [
     ".panel overflows by 80px (328 -> 408)"
@@ -42,18 +33,9 @@
     ".btn 144x37",
     ".btn 83x37"
   ],
-  "Android · 640x360 budget|howto|fit": [
-    ".screen overflows by 1229px (360 -> 1589)"
-  ],
-  "Android · 640x360 budget|howto|scrollers": [
-    ".screen scrolls 1229px"
-  ],
   "Android · 640x360 budget|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
-  ],
-  "Android · 640x360 budget|hud-contract|offscreen": [
-    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
   ],
   "Android · 640x360 budget|hud-contract|plant": [
     "170px vs design 134px (54% of field height)"
@@ -67,9 +49,6 @@
     "#bond-chip 44x40",
     "#demo-chip 44x40",
     ".mod 38x40"
-  ],
-  "Android · 640x360 budget|hud|offscreen": [
-    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
   ],
   "Android · 640x360 budget|hud|plant": [
     "160px vs design 134px (51% of field height)"
@@ -85,29 +64,19 @@
     ".mod 38x40"
   ],
   "Android · 640x360 budget|leaderboard|tap": [
-    ".btn 527x37"
+    ".btn 524x37"
   ],
-  "Android · 640x360 budget|menu-unlimited|fit": [
-    ".screen overflows by 256px (360 -> 616)"
+  "Android · 640x360 budget|menu-live|tap": [
+    ".btn 320x32"
   ],
-  "Android · 640x360 budget|menu-unlimited|scrollers": [
-    ".screen scrolls 256px"
+  "Android · 640x360 budget|menu-unlimited-live|tap": [
+    ".btn 320x32"
   ],
   "Android · 640x360 budget|menu-unlimited|tap": [
-    ".btn 584x32"
-  ],
-  "Android · 640x360 budget|menu|fit": [
-    ".screen overflows by 248px (360 -> 608)"
-  ],
-  "Android · 640x360 budget|menu|scrollers": [
-    ".screen scrolls 248px"
+    ".btn 320x32"
   ],
   "Android · 640x360 budget|menu|tap": [
-    ".chip 195x38",
-    ".btn 584x32"
-  ],
-  "Android · 640x360 budget|pause|offscreen": [
-    ".belt__arrows at [-15,121 → 67,159] outside 640x360"
+    ".btn 320x32"
   ],
   "Android · 640x360 budget|pause|plant": [
     "160px vs design 134px (51% of field height)"
@@ -131,9 +100,9 @@
     ".btn 577x37"
   ],
   "Android · 640x360 budget|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
   ],
   "Android · 640x360 budget|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -170,9 +139,6 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Galaxy S8+|bayclear|offscreen": [
-    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
-  ],
   "Android · Galaxy S8+|bayclear|plant": [
     "168px vs design 155px (47% of field height)"
   ],
@@ -189,12 +155,6 @@
   "Android · Galaxy S8+|contract-end|tap": [
     ".btn 322x39"
   ],
-  "Android · Galaxy S8+|contracts|fit": [
-    ".screen overflows by 9px (360 -> 369)"
-  ],
-  "Android · Galaxy S8+|contracts|scrollers": [
-    ".screen scrolls 9px"
-  ],
   "Android · Galaxy S8+|end-lost|tap": [
     ".btn 104x32",
     ".btn 92x39",
@@ -202,23 +162,14 @@
     ".btn 83x37"
   ],
   "Android · Galaxy S8+|end-won|tap": [
-    ".btn 105x32",
-    ".btn 93x39",
-    ".btn 145x37",
-    ".btn 84x37"
-  ],
-  "Android · Galaxy S8+|howto|fit": [
-    ".screen overflows by 717px (360 -> 1077)"
-  ],
-  "Android · Galaxy S8+|howto|scrollers": [
-    ".screen scrolls 717px"
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
   ],
   "Android · Galaxy S8+|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
-  ],
-  "Android · Galaxy S8+|hud-contract|offscreen": [
-    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
   ],
   "Android · Galaxy S8+|hud-contract|plant": [
     "178px vs design 155px (49% of field height)"
@@ -232,9 +183,6 @@
     "#bond-chip 44x40",
     "#demo-chip 44x40",
     ".mod 38x40"
-  ],
-  "Android · Galaxy S8+|hud|offscreen": [
-    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
   ],
   "Android · Galaxy S8+|hud|plant": [
     "168px vs design 155px (47% of field height)"
@@ -250,17 +198,19 @@
     ".mod 38x40"
   ],
   "Android · Galaxy S8+|leaderboard|tap": [
-    ".btn 527x37"
+    ".btn 524x37"
+  ],
+  "Android · Galaxy S8+|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Galaxy S8+|menu-unlimited-live|tap": [
+    ".btn 320x32"
   ],
   "Android · Galaxy S8+|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "Android · Galaxy S8+|menu|tap": [
-    ".chip 194x40",
     ".btn 320x32"
-  ],
-  "Android · Galaxy S8+|pause|offscreen": [
-    ".belt__arrows at [-10,113 → 85,155] outside 740x360"
   ],
   "Android · Galaxy S8+|pause|plant": [
     "168px vs design 155px (47% of field height)"
@@ -284,9 +234,9 @@
     ".btn 671x37"
   ],
   "Android · Galaxy S8+|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
+    ".toggle 55x29",
+    ".btn 235x37",
+    "#restore-btn 235x37"
   ],
   "Android · Galaxy S8+|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -338,12 +288,6 @@
   "Android · OnePlus 12|contract-end|tap": [
     ".btn 334x39"
   ],
-  "Android · OnePlus 12|contracts|fit": [
-    ".screen overflows by 11px (360 -> 371)"
-  ],
-  "Android · OnePlus 12|contracts|scrollers": [
-    ".screen scrolls 11px"
-  ],
   "Android · OnePlus 12|end-lost|fit": [
     ".panel overflows by 3px (321 -> 324)"
   ],
@@ -361,12 +305,6 @@
     ".btn 92x39",
     ".btn 144x37",
     ".btn 83x37"
-  ],
-  "Android · OnePlus 12|howto|fit": [
-    ".screen overflows by 665px (360 -> 1025)"
-  ],
-  "Android · OnePlus 12|howto|scrollers": [
-    ".screen scrolls 665px"
   ],
   "Android · OnePlus 12|howto|tap": [
     ".btn 160x37",
@@ -401,11 +339,16 @@
   "Android · OnePlus 12|leaderboard|tap": [
     ".btn 524x37"
   ],
+  "Android · OnePlus 12|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "Android · OnePlus 12|menu-unlimited-live|tap": [
+    ".btn 320x32"
+  ],
   "Android · OnePlus 12|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "Android · OnePlus 12|menu|tap": [
-    ".chip 194x40",
     ".btn 320x32"
   ],
   "Android · OnePlus 12|pause|plant": [
@@ -486,16 +429,10 @@
     ".btn 83x37"
   ],
   "Android · Pixel 5|end-won|tap": [
-    ".btn 105x32",
-    ".btn 93x39",
-    ".btn 145x37",
-    ".btn 84x37"
-  ],
-  "Android · Pixel 5|howto|fit": [
-    ".screen overflows by 599px (393 -> 992)"
-  ],
-  "Android · Pixel 5|howto|scrollers": [
-    ".screen scrolls 599px"
+    ".btn 104x32",
+    ".btn 92x39",
+    ".btn 144x37",
+    ".btn 83x37"
   ],
   "Android · Pixel 5|howto|tap": [
     ".btn 160x37",
@@ -520,11 +457,16 @@
   "Android · Pixel 5|leaderboard|tap": [
     ".btn 522x37"
   ],
+  "Android · Pixel 5|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Pixel 5|menu-unlimited-live|tap": [
+    ".btn 320x32"
+  ],
   "Android · Pixel 5|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "Android · Pixel 5|menu|tap": [
-    ".chip 195x38",
     ".btn 320x32"
   ],
   "Android · Pixel 5|pause|plant": [
@@ -602,12 +544,6 @@
     ".btn 144x37",
     ".btn 83x37"
   ],
-  "Android · Pixel 7|howto|fit": [
-    ".screen overflows by 577px (412 -> 989)"
-  ],
-  "Android · Pixel 7|howto|scrollers": [
-    ".screen scrolls 577px"
-  ],
   "Android · Pixel 7|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
@@ -625,11 +561,16 @@
   "Android · Pixel 7|leaderboard|tap": [
     ".btn 521x37"
   ],
+  "Android · Pixel 7|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "Android · Pixel 7|menu-unlimited-live|tap": [
+    ".btn 320x32"
+  ],
   "Android · Pixel 7|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "Android · Pixel 7|menu|tap": [
-    ".chip 195x38",
     ".btn 320x32"
   ],
   "Android · Pixel 7|pause|tap": [
@@ -646,9 +587,9 @@
     ".btn 838x37"
   ],
   "Android · Pixel 7|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
+    ".toggle 55x30",
+    ".btn 237x37",
+    "#restore-btn 237x37"
   ],
   "Android · Pixel 7|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -684,26 +625,17 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Pixel Tablet|bayclear|offscreen": [
-    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
-  ],
   "Android · Pixel Tablet|end-lost|tap": [
     ".btn 104x32"
   ],
   "Android · Pixel Tablet|end-won|tap": [
     ".btn 104x32"
   ],
-  "Android · Pixel Tablet|hud-contract|offscreen": [
-    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
-  ],
-  "Android · Pixel Tablet|hud|offscreen": [
-    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
+  "Android · Pixel Tablet|menu-live|tap": [
+    ".chip 194x40"
   ],
   "Android · Pixel Tablet|menu|tap": [
     ".chip 194x40"
-  ],
-  "Android · Pixel Tablet|pause|offscreen": [
-    ".belt__arrows at [-45,339 → 186,443] outside 1600x1000"
   ],
   "Android · Pixel Tablet|refit|tap": [
     ".btn 227x33"
@@ -711,20 +643,11 @@
   "Android · Pixel Tablet|settings|tap": [
     ".toggle 55x29"
   ],
-  "Android · Pixel Tablet|workshop-options|fit": [
-    ".screen overflows by 137px (1000 -> 1137)"
-  ],
-  "Android · Pixel Tablet|workshop-options|scrollers": [
-    ".screen scrolls 137px"
-  ],
   "Android · Pixel Tablet|workshop-options|tap": [
     ".workshop__tab 88x26"
   ],
   "Android · Pixel Tablet|workshop-systems|tap": [
     ".workshop__tab 88x26"
-  ],
-  "iOS · iPad Pro 12.9|bayclear|offscreen": [
-    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
   ],
   "iOS · iPad Pro 12.9|end-lost|tap": [
     ".btn 104x32"
@@ -732,17 +655,11 @@
   "iOS · iPad Pro 12.9|end-won|tap": [
     ".btn 104x32"
   ],
-  "iOS · iPad Pro 12.9|hud-contract|offscreen": [
-    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
-  ],
-  "iOS · iPad Pro 12.9|hud|offscreen": [
-    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
+  "iOS · iPad Pro 12.9|menu-live|tap": [
+    ".chip 194x40"
   ],
   "iOS · iPad Pro 12.9|menu|tap": [
     ".chip 194x40"
-  ],
-  "iOS · iPad Pro 12.9|pause|offscreen": [
-    ".belt__arrows at [-40,357 → 167,451] outside 1366x1024"
   ],
   "iOS · iPad Pro 12.9|refit|tap": [
     ".btn 227x33"
@@ -750,20 +667,11 @@
   "iOS · iPad Pro 12.9|settings|tap": [
     ".toggle 55x29"
   ],
-  "iOS · iPad Pro 12.9|workshop-options|fit": [
-    ".screen overflows by 113px (1024 -> 1137)"
-  ],
-  "iOS · iPad Pro 12.9|workshop-options|scrollers": [
-    ".screen scrolls 113px"
-  ],
   "iOS · iPad Pro 12.9|workshop-options|tap": [
     ".workshop__tab 88x26"
   ],
   "iOS · iPad Pro 12.9|workshop-systems|tap": [
     ".workshop__tab 88x26"
-  ],
-  "iOS · iPad mini|bayclear|offscreen": [
-    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
   ],
   "iOS · iPad mini|end-lost|fit": [
     ".panel overflows by 198px (719 -> 917)"
@@ -781,40 +689,22 @@
     ".panel scrolls 42px"
   ],
   "iOS · iPad mini|end-won|tap": [
-    ".btn 104x32"
+    ".btn 106x32"
   ],
-  "iOS · iPad mini|howto|fit": [
-    ".screen overflows by 198px (768 -> 966)"
-  ],
-  "iOS · iPad mini|howto|scrollers": [
-    ".screen scrolls 198px"
-  ],
-  "iOS · iPad mini|hud-contract|offscreen": [
-    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
-  ],
-  "iOS · iPad mini|hud|offscreen": [
-    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
+  "iOS · iPad mini|menu-live|tap": [
+    ".chip 194x40"
   ],
   "iOS · iPad mini|menu|tap": [
     ".chip 194x40"
-  ],
-  "iOS · iPad mini|pause|offscreen": [
-    ".belt__arrows at [-30,266 → 125,336] outside 1024x768"
   ],
   "iOS · iPad mini|refit|scrollers": [
     "#refit-grid scrolls 10px"
   ],
   "iOS · iPad mini|refit|tap": [
-    ".btn 227x33"
+    ".btn 229x34"
   ],
   "iOS · iPad mini|settings|tap": [
     ".toggle 55x29"
-  ],
-  "iOS · iPad mini|workshop-options|fit": [
-    ".screen overflows by 358px (768 -> 1126)"
-  ],
-  "iOS · iPad mini|workshop-options|scrollers": [
-    ".screen scrolls 358px"
   ],
   "iOS · iPad mini|workshop-options|tap": [
     ".workshop__tab 88x26"
@@ -833,12 +723,6 @@
   "iOS · iPhone 13 mini|contract-end|tap": [
     ".btn 334x39"
   ],
-  "iOS · iPhone 13 mini|contracts|fit": [
-    ".screen overflows by 10px (360 -> 370)"
-  ],
-  "iOS · iPhone 13 mini|contracts|scrollers": [
-    ".screen scrolls 10px"
-  ],
   "iOS · iPhone 13 mini|end-lost|fit": [
     ".panel overflows by 2px (322 -> 324)"
   ],
@@ -856,12 +740,6 @@
     ".btn 92x39",
     ".btn 144x37",
     ".btn 83x37"
-  ],
-  "iOS · iPhone 13 mini|howto|fit": [
-    ".screen overflows by 701px (360 -> 1061)"
-  ],
-  "iOS · iPhone 13 mini|howto|scrollers": [
-    ".screen scrolls 701px"
   ],
   "iOS · iPhone 13 mini|howto|tap": [
     ".btn 160x37",
@@ -886,11 +764,16 @@
   "iOS · iPhone 13 mini|leaderboard|tap": [
     ".btn 524x37"
   ],
+  "iOS · iPhone 13 mini|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 13 mini|menu-unlimited-live|tap": [
+    ".btn 320x32"
+  ],
   "iOS · iPhone 13 mini|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "iOS · iPhone 13 mini|menu|tap": [
-    ".chip 195x38",
     ".btn 320x32"
   ],
   "iOS · iPhone 13 mini|pause|plant": [
@@ -906,8 +789,9 @@
     ".btn 83x37"
   ],
   "iOS · iPhone 13 mini|refit|tap": [
-    ".btn 150x27",
-    ".btn 713x37"
+    ".btn 149x26",
+    ".btn 150x26",
+    ".btn 709x37"
   ],
   "iOS · iPhone 13 mini|settings|tap": [
     ".toggle 55x29",
@@ -966,16 +850,10 @@
     ".btn 83x37"
   ],
   "iOS · iPhone 15|end-won|tap": [
-    ".btn 104x32",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 15|howto|fit": [
-    ".screen overflows by 599px (393 -> 992)"
-  ],
-  "iOS · iPhone 15|howto|scrollers": [
-    ".screen scrolls 599px"
+    ".btn 105x32",
+    ".btn 93x39",
+    ".btn 145x37",
+    ".btn 84x37"
   ],
   "iOS · iPhone 15|howto|tap": [
     ".btn 160x37",
@@ -998,13 +876,18 @@
     ".mod 38x40"
   ],
   "iOS · iPhone 15|leaderboard|tap": [
-    ".btn 522x37"
+    ".btn 525x37"
+  ],
+  "iOS · iPhone 15|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 15|menu-unlimited-live|tap": [
+    ".btn 320x32"
   ],
   "iOS · iPhone 15|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "iOS · iPhone 15|menu|tap": [
-    ".chip 195x38",
     ".btn 320x32"
   ],
   "iOS · iPhone 15|pause|plant": [
@@ -1020,13 +903,13 @@
     ".btn 83x37"
   ],
   "iOS · iPhone 15|refit|tap": [
-    ".btn 167x27",
-    ".btn 780x37"
+    ".btn 166x26",
+    ".btn 775x37"
   ],
   "iOS · iPhone 15|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
+    ".toggle 55x30",
+    ".btn 237x37",
+    "#restore-btn 237x37"
   ],
   "iOS · iPhone 15|workshop-options|tap": [
     ".workshop__tab 79x20",
@@ -1082,12 +965,6 @@
     ".btn 144x37",
     ".btn 83x37"
   ],
-  "iOS · iPhone 16 Pro Max|howto|fit": [
-    ".screen overflows by 502px (440 -> 942)"
-  ],
-  "iOS · iPhone 16 Pro Max|howto|scrollers": [
-    ".screen scrolls 502px"
-  ],
   "iOS · iPhone 16 Pro Max|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
@@ -1105,11 +982,16 @@
   "iOS · iPhone 16 Pro Max|leaderboard|tap": [
     ".btn 519x37"
   ],
+  "iOS · iPhone 16 Pro Max|menu-live|tap": [
+    ".btn 320x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-unlimited-live|tap": [
+    ".btn 320x32"
+  ],
   "iOS · iPhone 16 Pro Max|menu-unlimited|tap": [
     ".btn 320x32"
   ],
   "iOS · iPhone 16 Pro Max|menu|tap": [
-    ".chip 194x40",
     ".btn 320x32"
   ],
   "iOS · iPhone 16 Pro Max|pause|tap": [
@@ -1122,8 +1004,8 @@
     ".btn 83x37"
   ],
   "iOS · iPhone 16 Pro Max|refit|tap": [
-    ".btn 187x27",
-    ".btn 858x37"
+    ".btn 185x26",
+    ".btn 852x37"
   ],
   "iOS · iPhone 16 Pro Max|settings|tap": [
     ".toggle 55x29",
@@ -1164,9 +1046,6 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "iOS · iPhone SE 3|bayclear|offscreen": [
-    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
-  ],
   "iOS · iPhone SE 3|bayclear|plant": [
     "162px vs design 141px (50% of field height)"
   ],
@@ -1182,12 +1061,6 @@
   ],
   "iOS · iPhone SE 3|contract-end|tap": [
     ".btn 288x39"
-  ],
-  "iOS · iPhone SE 3|contracts|fit": [
-    ".screen overflows by 288px (375 -> 663)"
-  ],
-  "iOS · iPhone SE 3|contracts|scrollers": [
-    ".screen scrolls 288px"
   ],
   "iOS · iPhone SE 3|end-lost|fit": [
     ".panel overflows by 37px (342 -> 379)"
@@ -1207,18 +1080,9 @@
     ".btn 144x37",
     ".btn 83x37"
   ],
-  "iOS · iPhone SE 3|howto|fit": [
-    ".screen overflows by 1161px (375 -> 1536)"
-  ],
-  "iOS · iPhone SE 3|howto|scrollers": [
-    ".screen scrolls 1161px"
-  ],
   "iOS · iPhone SE 3|howto|tap": [
     ".btn 160x37",
     ".btn 210x37"
-  ],
-  "iOS · iPhone SE 3|hud-contract|offscreen": [
-    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
   ],
   "iOS · iPhone SE 3|hud-contract|plant": [
     "172px vs design 141px (52% of field height)"
@@ -1232,9 +1096,6 @@
     "#bond-chip 44x40",
     "#demo-chip 44x40",
     ".mod 38x40"
-  ],
-  "iOS · iPhone SE 3|hud|offscreen": [
-    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
   ],
   "iOS · iPhone SE 3|hud|plant": [
     "162px vs design 141px (50% of field height)"
@@ -1252,27 +1113,17 @@
   "iOS · iPhone SE 3|leaderboard|tap": [
     ".btn 523x37"
   ],
-  "iOS · iPhone SE 3|menu-unlimited|fit": [
-    ".screen overflows by 243px (375 -> 618)"
+  "iOS · iPhone SE 3|menu-live|tap": [
+    ".btn 320x32"
   ],
-  "iOS · iPhone SE 3|menu-unlimited|scrollers": [
-    ".screen scrolls 243px"
+  "iOS · iPhone SE 3|menu-unlimited-live|tap": [
+    ".btn 320x32"
   ],
   "iOS · iPhone SE 3|menu-unlimited|tap": [
-    ".btn 608x32"
-  ],
-  "iOS · iPhone SE 3|menu|fit": [
-    ".screen overflows by 237px (375 -> 612)"
-  ],
-  "iOS · iPhone SE 3|menu|scrollers": [
-    ".screen scrolls 237px"
+    ".btn 320x32"
   ],
   "iOS · iPhone SE 3|menu|tap": [
-    ".chip 194x40",
-    ".btn 608x32"
-  ],
-  "iOS · iPhone SE 3|pause|offscreen": [
-    ".belt__arrows at [-16,126 → 70,165] outside 667x375"
+    ".btn 320x32"
   ],
   "iOS · iPhone SE 3|pause|plant": [
     "162px vs design 141px (50% of field height)"
