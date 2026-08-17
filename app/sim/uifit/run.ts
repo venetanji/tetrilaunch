@@ -153,10 +153,18 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
   });
 
   // --- tap: WCAG 2.5.5 / iOS HIG minimum -----------------------------------
+  // Scoped to things a finger is meant to hit: real <button>s, form controls,
+  // links, and anything given an interactive ARIA role (the settings switch is
+  // a div with role="switch" + tabindex). NOT class-based — the previous
+  // selector listed .mod and .chip, which are mostly DIVS. The plant panel's
+  // drafted-mod chips and the menu's Tier/Best/Salvage chips are readouts, and
+  // flagging them as undersized tap targets was 42 findings about elements
+  // nothing can tap. The interactive ones (.mod--bb, .mod--demo, .chip--cta)
+  // are real <button>s and are still covered, by being buttons.
   const seenTap = new Set<string>();
   document
     .querySelectorAll(
-      "button, .btn, .icon-btn, .toggle, .mod, .chip--cta, .workshop__tab, .contract-card, .mod-card, .shop-card",
+      'button, input, select, textarea, a[href], [role="button"], [role="switch"], [role="tab"], [role="checkbox"]',
     )
     .forEach((el) => {
       const r = el.getBoundingClientRect();

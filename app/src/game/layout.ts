@@ -67,10 +67,25 @@ export const RAIL_MAX = 60;
  *  edge. A gutter must fit RAIL_MIN + this to count as usable. */
 const RAIL_PAD = 12;
 
-/** Number of buttons the rail can hold at once (fullscreen, pause, rotate CCW,
- *  rotate CW, bond breaker, demolition, cancel-aim). Used to check a vertical
- *  rail actually FITS its column on short viewports before choosing it. */
-export const RAIL_SLOTS = 7;
+/** Number of buttons the rail can hold at once: fullscreen, pause, rotate CCW,
+ *  rotate CW, bond breaker, demolition, AUTOLOADER, cancel-aim. Used to check a
+ *  vertical rail actually FITS its column on short viewports before choosing it.
+ *
+ *  Was 7 — the Autoloader trigger was added to screens.ts's hudHTML without
+ *  this constant following it, so the solver was sizing a column for seven
+ *  buttons and the CSS was rendering eight into it. */
+export const RAIL_SLOTS = 8;
+
+/** Gap between rail buttons and the slack at both ends, matching app.css's
+ *  .side-rail. Kept here because the solver has to predict the CSS's own
+ *  stacking to decide whether a column fits. */
+const RAIL_GAP = 6;
+const RAIL_EDGE = 16;
+
+/** The largest button edge whose full column still fits `uh`. */
+function railColumnCap(uh: number): number {
+  return (uh - RAIL_EDGE - (RAIL_SLOTS - 1) * RAIL_GAP) / RAIL_SLOTS;
+}
 
 /**
  * How much room the CHROME has, as opposed to the field.
@@ -193,7 +208,7 @@ export function computeLayout(cw: number, ch: number): Layout {
   // short landscape phone seven buttons at RAIL_MIN plus gaps can exceed the
   // viewport height, in which case a horizontal bar is the honest answer even
   // though the side gutter is wide enough.
-  const columnFits = uh >= RAIL_SLOTS * RAIL_MIN + (RAIL_SLOTS - 1) * 6 + 16;
+  const columnFits = railColumnCap(uh) >= RAIL_MIN;
 
   if (gutterX >= usable && columnFits) {
     return {
@@ -201,7 +216,12 @@ export function computeLayout(cw: number, ch: number): Layout {
       reserve: NO_INSETS,
       safe,
       ...natural,
-      railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, gutterX - RAIL_PAD)),
+      // Capped by the COLUMN as well as the gutter. Without the height term the
+      // solver handed back a size the column could not stack, the CSS flex
+      // column shrank the buttons to fit, and the primary touch controls came
+      // out at 46px on a Pixel 7 — under the 44px floor this file exists to
+      // defend, silently.
+      railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, gutterX - RAIL_PAD, railColumnCap(uh))),
       ...ui,
     };
   }
@@ -229,7 +249,7 @@ export function computeLayout(cw: number, ch: number): Layout {
       reserve,
       safe,
       ...fit(ux, uy, uw - band, uh),
-      railSize: RAIL_MAX,
+      railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, railColumnCap(uh))),
       ...ui,
     };
   }

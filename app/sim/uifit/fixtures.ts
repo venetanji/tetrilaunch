@@ -113,6 +113,10 @@ export const SCREENS: Record<string, () => string> = {
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
+  // Five figures against a four-figure target. A Reactor build carrying
+  // overshoot between bays reaches this, and it is the widest the funds readout
+  // can get — the case sim/systems.ts's width budget flags as short of slack.
+  "hud-rich": () => S.hudHTML({ ...HUD_BASE, score: 24_680, target: 2_150, contract: null }),
   "hud-contract": () =>
     S.hudHTML({
       ...HUD_BASE,

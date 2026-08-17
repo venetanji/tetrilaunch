@@ -534,6 +534,15 @@ body.crt-off #app::after { display: none; }
 .side-rail .icon-btn {
   pointer-events: auto;
   width: var(--rail-btn); height: var(--rail-btn); font-size: 22px;
+  /* `flex: none` is the tap-target floor, not tidiness. A flex item's height is
+     shrinkable by default, so when the column asked for more than the rail had,
+     these quietly compressed instead of overflowing — 46px on a Pixel 7 against
+     a 60px --rail-btn, i.e. under the WCAG/HIG minimum, with nothing visibly
+     wrong. The solver now caps --rail-btn by the column budget
+     (layout.ts's railColumnCap), and this makes a future miscalculation
+     OVERFLOW, where the harness can see it, rather than silently undersize the
+     game's primary touch controls. */
+  flex: none;
 }
 
 /* Tall layouts: a horizontal strip centered in the bottom band. The band is
@@ -2475,4 +2484,30 @@ button.panel { color: var(--text); }
   padding: 2px 5px;
   margin-left: 6px;
   vertical-align: middle;
+}
+
+/* The funds figure steps down one notch at compact.
+   Its column gets ~98px once the two tier-2 stat columns have taken theirs
+   (each is as wide as its 8-glyph pixel-font LABEL, ~70px, not its two-digit
+   value). "$1259 / 1700" needs ~99px of that and "$24680 / 2150" ~110px — so a
+   five-figure bankroll, which a Reactor build carrying overshoot between bays
+   reaches, tripped .pl-read's flex-wrap fallback, dropped the stats to a second
+   row and took the panel to 52% of the field height.
+   17px -> 15px buys ~12% of the line, which covers five figures with slack.
+   That alone is not enough on the tightest device (an iPhone 13 mini gives the
+   column ~82px against ~97px needed), so the tier-2 LABELS give up the pixel
+   face too. Press Start 2P advances ~1.45em including its tracking, so
+   "LAUNCHES" is ~70px and the column is as wide as its heading rather than its
+   number; Rajdhani at 8px is ~29px for the same word and more readable at that
+   size. Done TOGETHER on measured evidence: the label change alone was WORSE
+   (145px vs 140px) because a 9px label line cost more height than the wrap it
+   prevented, and only the pair clears it. The pixel face stays everywhere else
+   on the panel — it is this one eight-glyph column heading it cannot afford. */
+[data-density="compact"] .pl-funds .v { font-size: max(15px, calc(34 * var(--fpx))); }
+[data-density="compact"] .pl-stat .lbl {
+  font-family: var(--font-ui);
+  font-weight: var(--fw-bold);
+  font-size: max(8px, calc(12 * var(--fpx)));
+  letter-spacing: 0.06em;
+  line-height: 1;
 }
