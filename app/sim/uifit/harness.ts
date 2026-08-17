@@ -20,6 +20,28 @@ import { SCREENS, SCREEN_IDS } from "./fixtures";
 
 const overlay = document.getElementById("overlay") as HTMLElement;
 
+/**
+ * Animations off, permanently, for everything.
+ *
+ * getBoundingClientRect returns the TRANSFORMED box, and several screens enter
+ * on a scale animation (.pop, the modal entrance). Measuring two frames in
+ * caught them mid-flight: a button with a hard `min-height: 44px` measured
+ * 43.12px, which is 44 x 0.98 — the animation's scale, not the layout. That is
+ * a whole class of phantom findings, and worse, a class of REAL findings it
+ * could hide by scaling something below the viewport edge back inside it.
+ *
+ * Zero duration rather than `animation: none`: it drives every animation
+ * straight to its end state, which is the settled layout the player sees.
+ */
+const settleSheet = document.createElement("style");
+settleSheet.textContent = `*, *::before, *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}`;
+document.head.appendChild(settleSheet);
+
 /** The stylesheet that fakes the device's insets. One element, rewritten per
  *  render, so no rule ever stacks on a previous device's values. */
 const insetSheet = document.createElement("style");

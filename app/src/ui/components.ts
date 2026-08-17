@@ -161,9 +161,16 @@ export function formatMMSS(ms: number): string {
 }
 
 export function toggleHTML(id: string, label: string, desc: string, on: boolean): string {
-  return `<div class="setting">
+  // The ROW carries the switch semantics, not the 56x30 pill inside it. The
+  // pill is under the 44px tap floor and cannot grow without becoming a
+  // different-looking control, whereas the row is already ~50px tall and is
+  // what a thumb aims at anyway — main.ts's onClick resolves the handler with
+  // closest("[data-toggle]"), so moving the attributes up makes the label,
+  // the description and the pill one target instead of three inert areas
+  // around one small one.
+  return `<div class="setting" role="switch" data-toggle="${id}" aria-checked="${on}" tabindex="0">
     <div class="setting__label"><b>${label}</b><span>${desc}</span></div>
-    <div class="toggle" role="switch" data-toggle="${id}" aria-checked="${on}" tabindex="0"></div>
+    <div class="toggle"></div>
   </div>`;
 }
 

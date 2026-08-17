@@ -1,69 +1,15 @@
 {
-  "Android · 640x360 budget|contract-end|tap": [
-    ".btn 276x39"
-  ],
   "Android · 640x360 budget|end-lost|fit": [
-    ".panel overflows by 80px (328 -> 408)"
+    ".panel overflows by 86px (328 -> 414)"
   ],
   "Android · 640x360 budget|end-lost|scrollers": [
-    ".panel scrolls 80px"
-  ],
-  "Android · 640x360 budget|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 133x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · 640x360 budget|end-won|tap": [
-    ".btn 105x32",
-    "#name-input 134x39",
-    ".btn 93x39",
-    ".btn 145x37",
-    ".btn 84x37"
-  ],
-  "Android · 640x360 budget|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
+    ".panel scrolls 86px"
   ],
   "Android · 640x360 budget|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
   ],
-  "Android · 640x360 budget|leaderboard|tap": [
-    ".btn 524x37"
-  ],
-  "Android · 640x360 budget|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · 640x360 budget|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · 640x360 budget|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "Android · 640x360 budget|menu|tap": [
-    ".btn 320x32"
-  ],
-  "Android · 640x360 budget|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "Android · 640x360 budget|refit|tap": [
-    ".btn 117x27",
-    ".btn 581x37"
-  ],
-  "Android · 640x360 budget|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "Android · 640x360 budget|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
+  "Android · 640x360 budget|refit|scrollers": [
+    "#refit-grid scrolls 34px"
   ],
   "Android · 640x360 budget|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -78,11 +24,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "Android · 640x360 budget|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "Android · 640x360 budget|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -92,65 +33,17 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Galaxy S8+|contract-end|tap": [
-    ".btn 322x39"
+  "Android · Galaxy S8+|end-lost|fit": [
+    ".panel overflows by 7px (323 -> 330)"
   ],
-  "Android · Galaxy S8+|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 173x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · Galaxy S8+|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 173x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · Galaxy S8+|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
+  "Android · Galaxy S8+|end-lost|scrollers": [
+    ".panel scrolls 7px"
   ],
   "Android · Galaxy S8+|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
   ],
-  "Android · Galaxy S8+|leaderboard|tap": [
-    ".btn 524x37"
-  ],
-  "Android · Galaxy S8+|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Galaxy S8+|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Galaxy S8+|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Galaxy S8+|menu|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Galaxy S8+|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 160x37",
-    ".btn 155x37",
-    ".btn 84x37"
-  ],
-  "Android · Galaxy S8+|refit|tap": [
-    ".btn 141x27",
-    ".btn 675x37"
-  ],
-  "Android · Galaxy S8+|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "Android · Galaxy S8+|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
+  "Android · Galaxy S8+|refit|scrollers": [
+    "#refit-grid scrolls 38px"
   ],
   "Android · Galaxy S8+|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -165,11 +58,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "Android · Galaxy S8+|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "Android · Galaxy S8+|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -179,71 +67,17 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · OnePlus 12|contract-end|tap": [
-    ".btn 334x39"
-  ],
   "Android · OnePlus 12|end-lost|fit": [
-    ".panel overflows by 3px (321 -> 324)"
+    ".panel overflows by 9px (321 -> 330)"
   ],
   "Android · OnePlus 12|end-lost|scrollers": [
-    ".panel scrolls 3px"
-  ],
-  "Android · OnePlus 12|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 193x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · OnePlus 12|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 193x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · OnePlus 12|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
+    ".panel scrolls 9px"
   ],
   "Android · OnePlus 12|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
   ],
-  "Android · OnePlus 12|leaderboard|tap": [
-    ".btn 524x37"
-  ],
-  "Android · OnePlus 12|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · OnePlus 12|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · OnePlus 12|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "Android · OnePlus 12|menu|tap": [
-    ".btn 320x32"
-  ],
-  "Android · OnePlus 12|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "Android · OnePlus 12|refit|tap": [
-    ".btn 153x27",
-    ".btn 725x37"
-  ],
-  "Android · OnePlus 12|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "Android · OnePlus 12|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
+  "Android · OnePlus 12|refit|scrollers": [
+    "#refit-grid scrolls 26px"
   ],
   "Android · OnePlus 12|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -258,11 +92,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "Android · OnePlus 12|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "Android · OnePlus 12|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -271,63 +100,6 @@
     ".shop-card__desc \"A harder, faster press —\"",
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
-  ],
-  "Android · Pixel 5|contract-end|tap": [
-    ".btn 333x39"
-  ],
-  "Android · Pixel 5|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 215x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · Pixel 5|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 215x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · Pixel 5|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
-  ],
-  "Android · Pixel 5|leaderboard|tap": [
-    ".btn 522x37"
-  ],
-  "Android · Pixel 5|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 5|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 5|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 5|menu|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 5|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "Android · Pixel 5|refit|tap": [
-    ".btn 167x27",
-    ".btn 779x37"
-  ],
-  "Android · Pixel 5|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
-  ],
-  "Android · Pixel 5|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
   ],
   "Android · Pixel 5|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -342,11 +114,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "Android · Pixel 5|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "Android · Pixel 5|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -355,63 +122,6 @@
     ".shop-card__desc \"A harder, faster press —\"",
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
-  ],
-  "Android · Pixel 7|contract-end|tap": [
-    ".btn 333x39"
-  ],
-  "Android · Pixel 7|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 240x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "Android · Pixel 7|end-won|tap": [
-    ".btn 105x32",
-    "#name-input 241x39",
-    ".btn 93x39",
-    ".btn 145x37",
-    ".btn 84x37"
-  ],
-  "Android · Pixel 7|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
-  ],
-  "Android · Pixel 7|leaderboard|tap": [
-    ".btn 521x37"
-  ],
-  "Android · Pixel 7|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 7|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 7|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 7|menu|tap": [
-    ".btn 320x32"
-  ],
-  "Android · Pixel 7|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "Android · Pixel 7|refit|tap": [
-    ".btn 180x26",
-    ".btn 833x37"
-  ],
-  "Android · Pixel 7|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "Android · Pixel 7|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
   ],
   "Android · Pixel 7|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -426,11 +136,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "Android · Pixel 7|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "Android · Pixel 7|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -440,62 +145,11 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Pixel Tablet|end-lost|tap": [
-    ".btn 104x32"
-  ],
-  "Android · Pixel Tablet|end-won|tap": [
-    ".btn 104x32"
-  ],
-  "Android · Pixel Tablet|menu-live|tap": [
-    ".chip 194x40"
-  ],
-  "Android · Pixel Tablet|menu|tap": [
-    ".chip 195x38"
-  ],
-  "Android · Pixel Tablet|refit|tap": [
-    ".btn 227x33"
-  ],
-  "Android · Pixel Tablet|settings|tap": [
-    ".toggle 55x29"
-  ],
-  "Android · Pixel Tablet|workshop-options|tap": [
-    ".workshop__tab 88x26"
-  ],
-  "Android · Pixel Tablet|workshop-systems|tap": [
-    ".workshop__tab 88x26"
-  ],
-  "iOS · iPad Pro 12.9|end-lost|tap": [
-    ".btn 104x32"
-  ],
-  "iOS · iPad Pro 12.9|end-won|tap": [
-    ".btn 104x32"
-  ],
-  "iOS · iPad Pro 12.9|menu-live|tap": [
-    ".chip 194x40"
-  ],
-  "iOS · iPad Pro 12.9|menu|tap": [
-    ".chip 194x40"
-  ],
-  "iOS · iPad Pro 12.9|refit|tap": [
-    ".btn 227x33"
-  ],
-  "iOS · iPad Pro 12.9|settings|tap": [
-    ".toggle 55x29"
-  ],
-  "iOS · iPad Pro 12.9|workshop-options|tap": [
-    ".workshop__tab 88x26"
-  ],
-  "iOS · iPad Pro 12.9|workshop-systems|tap": [
-    ".workshop__tab 88x26"
-  ],
   "iOS · iPad mini|end-lost|fit": [
     ".panel overflows by 198px (719 -> 917)"
   ],
   "iOS · iPad mini|end-lost|scrollers": [
     ".panel scrolls 198px"
-  ],
-  "iOS · iPad mini|end-lost|tap": [
-    ".btn 104x32"
   ],
   "iOS · iPad mini|end-won|fit": [
     ".panel overflows by 42px (719 -> 761)"
@@ -503,96 +157,20 @@
   "iOS · iPad mini|end-won|scrollers": [
     ".panel scrolls 42px"
   ],
-  "iOS · iPad mini|end-won|tap": [
-    ".btn 104x32"
-  ],
-  "iOS · iPad mini|menu-live|tap": [
-    ".chip 194x40"
-  ],
-  "iOS · iPad mini|menu|tap": [
-    ".chip 194x40"
-  ],
   "iOS · iPad mini|refit|scrollers": [
-    "#refit-grid scrolls 10px"
-  ],
-  "iOS · iPad mini|refit|tap": [
-    ".btn 227x33"
-  ],
-  "iOS · iPad mini|settings|tap": [
-    ".toggle 56x30"
-  ],
-  "iOS · iPad mini|workshop-options|tap": [
-    ".workshop__tab 88x26"
-  ],
-  "iOS · iPad mini|workshop-systems|tap": [
-    ".workshop__tab 88x26"
-  ],
-  "iOS · iPhone 13 mini|contract-end|tap": [
-    ".btn 334x39"
+    "#refit-grid scrolls 29px"
   ],
   "iOS · iPhone 13 mini|end-lost|fit": [
-    ".panel overflows by 2px (322 -> 324)"
+    ".panel overflows by 8px (322 -> 330)"
   ],
   "iOS · iPhone 13 mini|end-lost|scrollers": [
-    ".panel scrolls 2px"
-  ],
-  "iOS · iPhone 13 mini|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 188x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 13 mini|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 188x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 13 mini|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
+    ".panel scrolls 8px"
   ],
   "iOS · iPhone 13 mini|hud-contract|plant": [
     "125px vs design 116px (46% of field height)"
   ],
-  "iOS · iPhone 13 mini|leaderboard|tap": [
-    ".btn 524x37"
-  ],
-  "iOS · iPhone 13 mini|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 13 mini|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 13 mini|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 13 mini|menu|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 13 mini|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 13 mini|refit|tap": [
-    ".btn 149x26",
-    ".btn 150x26",
-    ".btn 709x37"
-  ],
-  "iOS · iPhone 13 mini|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "iOS · iPhone 13 mini|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
+  "iOS · iPhone 13 mini|refit|scrollers": [
+    "#refit-grid scrolls 25px"
   ],
   "iOS · iPhone 13 mini|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -607,11 +185,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "iOS · iPhone 13 mini|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "iOS · iPhone 13 mini|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -620,63 +193,6 @@
     ".shop-card__desc \"A harder, faster press —\"",
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
-  ],
-  "iOS · iPhone 15|contract-end|tap": [
-    ".btn 333x39"
-  ],
-  "iOS · iPhone 15|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 216x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 15|end-won|tap": [
-    ".btn 105x32",
-    "#name-input 218x40",
-    ".btn 93x40",
-    ".btn 146x38",
-    ".btn 84x38"
-  ],
-  "iOS · iPhone 15|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
-  ],
-  "iOS · iPhone 15|leaderboard|tap": [
-    ".btn 522x37"
-  ],
-  "iOS · iPhone 15|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 15|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 15|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 15|menu|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 15|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 15|refit|tap": [
-    ".btn 167x27",
-    ".btn 780x37"
-  ],
-  "iOS · iPhone 15|settings|tap": [
-    ".toggle 55x29",
-    ".btn 235x37",
-    "#restore-btn 235x37"
-  ],
-  "iOS · iPhone 15|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
   ],
   "iOS · iPhone 15|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -691,11 +207,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "iOS · iPhone 15|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "iOS · iPhone 15|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -704,63 +215,6 @@
     ".shop-card__desc \"A harder, faster press —\"",
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
-  ],
-  "iOS · iPhone 16 Pro Max|contract-end|tap": [
-    ".btn 332x39"
-  ],
-  "iOS · iPhone 16 Pro Max|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 255x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 16 Pro Max|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 255x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 16 Pro Max|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
-  ],
-  "iOS · iPhone 16 Pro Max|leaderboard|tap": [
-    ".btn 519x37"
-  ],
-  "iOS · iPhone 16 Pro Max|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 16 Pro Max|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 16 Pro Max|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 16 Pro Max|menu|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone 16 Pro Max|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone 16 Pro Max|refit|tap": [
-    ".btn 185x26",
-    ".btn 852x37"
-  ],
-  "iOS · iPhone 16 Pro Max|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
-  ],
-  "iOS · iPhone 16 Pro Max|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
   ],
   "iOS · iPhone 16 Pro Max|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -775,11 +229,6 @@
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
   ],
-  "iOS · iPhone 16 Pro Max|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
-  ],
   "iOS · iPhone 16 Pro Max|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",
     ".shop-card__desc \"More muzzle energy and a\"",
@@ -789,68 +238,14 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "iOS · iPhone SE 3|contract-end|tap": [
-    ".btn 290x39"
-  ],
   "iOS · iPhone SE 3|end-lost|fit": [
-    ".panel overflows by 37px (342 -> 379)"
+    ".panel overflows by 43px (342 -> 385)"
   ],
   "iOS · iPhone SE 3|end-lost|scrollers": [
-    ".panel scrolls 37px"
+    ".panel scrolls 43px"
   ],
-  "iOS · iPhone SE 3|end-lost|tap": [
-    ".btn 104x32",
-    "#name-input 144x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone SE 3|end-won|tap": [
-    ".btn 104x32",
-    "#name-input 144x39",
-    ".btn 92x39",
-    ".btn 144x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone SE 3|howto|tap": [
-    ".btn 160x37",
-    ".btn 210x37"
-  ],
-  "iOS · iPhone SE 3|leaderboard|tap": [
-    ".btn 523x37"
-  ],
-  "iOS · iPhone SE 3|menu-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone SE 3|menu-unlimited-live|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone SE 3|menu-unlimited|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone SE 3|menu|tap": [
-    ".btn 320x32"
-  ],
-  "iOS · iPhone SE 3|pause|tap": [
-    ".btn 104x37",
-    "#fullscreen-btn-modal 159x37",
-    ".btn 154x37",
-    ".btn 83x37"
-  ],
-  "iOS · iPhone SE 3|refit|tap": [
-    ".btn 123x26",
-    ".btn 602x37"
-  ],
-  "iOS · iPhone SE 3|settings|tap": [
-    ".toggle 55x30",
-    ".btn 237x37",
-    "#restore-btn 237x37"
-  ],
-  "iOS · iPhone SE 3|workshop-options|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 63x25",
-    ".btn 163x37"
+  "iOS · iPhone SE 3|refit|scrollers": [
+    "#refit-grid scrolls 21px"
   ],
   "iOS · iPhone SE 3|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -864,11 +259,6 @@
     ".shop-card__desc \"Adds Bond Breakers to th\"",
     ".shop-card__desc \"Adds the Autoloader to t\"",
     ".shop-card__locked \"Needs Mark 3 · Demolitio\""
-  ],
-  "iOS · iPhone SE 3|workshop-systems|tap": [
-    ".workshop__tab 79x20",
-    ".btn 54x25",
-    ".btn 163x37"
   ],
   "iOS · iPhone SE 3|workshop-systems|textclip": [
     ".shop-card__desc \"A bigger float every bay\"",

@@ -102,6 +102,12 @@ body.crt-off #app::after { display: none; }
   color: var(--text);
   background: var(--surface-2);
   box-shadow: var(--shadow-hard);
+  /* WCAG 2.5.5 / iOS HIG, as a floor rather than an aspiration. The compact
+     rules below shrink padding and type to buy back height, and without this
+     they took buttons to 25-32px — the single largest group of findings in
+     sim/uifit, across the menu, the modals and the workshop. Padding may
+     shrink; the target may not. */
+  min-height: var(--tap-min);
 }
 .btn:active { transform: translate(2px, 2px); box-shadow: none; }
 /* Never let a long label squeeze the glyph out of square, and never let the
@@ -446,6 +452,9 @@ body.crt-off #app::after { display: none; }
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* A chip that is a real button, so it answers to the tap floor. The
+     surrounding .chip readouts are divs and correctly do not. */
+  min-height: var(--tap-min);
   border-color: var(--warn);
   background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
   transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
@@ -1500,7 +1509,8 @@ body.crt-off #app::after { display: none; }
 .pop { animation: pop var(--dur) var(--ease); }
 
 /* ---------- Toggle ---------- */
-.setting { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 14px 4px; border-bottom: 1px solid var(--line); }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 14px 4px; border-bottom: 1px solid var(--line); min-height: var(--tap-min); cursor: pointer; }
+.setting:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setting__label { display: flex; flex-direction: column; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
@@ -1508,8 +1518,8 @@ body.crt-off #app::after { display: none; }
    circle, in keeping with the retro pass's steppy geometry. */
 .toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text-muted); transition: all var(--dur) var(--ease); }
-.toggle[aria-checked="true"] { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
-.toggle[aria-checked="true"]::after { left: 31px; background: var(--accent-ink); }
+.setting[aria-checked="true"] .toggle { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
+.setting[aria-checked="true"] .toggle::after { left: 31px; background: var(--accent-ink); }
 
 /* ---------- How to play ----------
    Nine dense briefing cards. Stacked in a 3-column grid this needed 1500px of
@@ -1929,7 +1939,12 @@ button.panel { color: var(--text); }
 
 /* The tab bar is fixed chrome above the scroller, not part of it. */
 .workshop__tabs { display: flex; align-items: center; gap: var(--sp-2); }
+/* Tabs are the workshop's only way to reach half its stock, and they were 20px
+   tall. The pane below them scrolls; the control that chooses WHICH pane cannot
+   be the hardest thing on the screen to hit. */
 .workshop__tab {
+  min-height: var(--tap-min);
+  display: inline-flex; align-items: center;
   font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.08em;
   color: var(--text-dim); background: none; border: none; cursor: pointer;
   padding: 6px 2px; border-bottom: 2px solid transparent;
