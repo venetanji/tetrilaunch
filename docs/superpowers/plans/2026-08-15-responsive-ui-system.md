@@ -210,15 +210,45 @@ with `"test:uifit": "node sim/uifit/run.mjs"` in `app/package.json`, and `playwr
 
 Each task is independently shippable and ends with `npx tsc --noEmit`, `npx tsx sim/systems.ts`, `node sim/uifit/run.mjs`, and a commit. Task 6 lands the harness *before* the layout changes so every later task has a regression net and a before/after number.
 
-- [ ] **Task 1 — Solve the chrome scale.** `uiScale` + `density` in `game/layout.ts`; publish `--ui-scale` and `data-density` from `main.ts`'s `onResize`; Tier-1 checks for both. No CSS consumes them yet — pure addition, nothing changes on screen.
-- [ ] **Task 2 — Fit-first scaffolding.** `.screen` inverts to fit-by-default; `[data-scroll]` on `#lb-body` and `.workshop__shop`; `.screen--fit` folded away. Expect the menu and howto to *clip* rather than scroll at this point — that is the intended intermediate state, and Task 6's harness names it.
-- [ ] **Task 3 — Menu reflow.** Delete the `max-width: 720px` menu collapse; verify two columns hold to 640×320. Target: the whole `menu` row of the table in §1a goes to `·`.
-- [ ] **Task 4 — Plant panel budget.** `--plant-px` solved in `layout.ts`; panel content converted off the `max(Npx, …)` floors; `[data-density="compact"]` two-row arrangement; `max-height` guard. Target: plant ≤ 43% of field height on every matrix device, iPhone 13 mini included.
-- [ ] **Task 5 — How to Play reflow.** Two-column fit layout, compact step rows. Target: 0px overflow at 640×320.
-- [ ] **Task 6 — The harness.** `sim/uifit/` as specified in §3 Tier 2, Playwright devDependency, `test:uifit` script, CI job. *(Land this first in practice — it is listed here because its content is defined by Tasks 1–5.)*
-- [ ] **Task 7 — Tap-target floor.** `--tap-min` applied across interactive classes; remove the density overrides that undercut it; assertion 4 goes green.
-- [ ] **Task 8 — Retire the breakpoint stack.** Delete the 15 `max-height` blocks one screen at a time, re-running the harness after each; keep only `[data-density]` switches that earn their place. This is the task that pays back the maintenance cost, and it is safe to do last because the harness now covers what those blocks were hand-tuning.
-- [ ] **Task 9 — Workshop two columns.** The shop pane at `repeat(2, 1fr)` on every matrix width ≥ 640, scrolling internally as it already does; assertion 8 goes green.
+> **Status (implemented on `claude/responsive-ui-mobile-575y05`).** Tasks 1-7 and
+> 9 are done; the harness baseline went from **283 violations to 6**. Task 8 —
+> deleting the fifteen `max-height` blocks — was NOT done: two of them were the
+> actual bugs and are gone (the menu's `max-width: 720px`, the run-end modal's
+> `max-height: 480px`, both replaced with aspect-ratio rules), but the remaining
+> thirteen are doing real tuning work and the harness now guards them, so
+> retiring them is safe to do incrementally rather than in one sweep.
+>
+> Corrections to this plan that the work turned up:
+>
+> - **§3 Tier 1 is wrong about typechecking.** `sim/` IS typechecked, via
+>   `tsconfig.sim.json` (`include: ["sim"]`, wired into `npm run typecheck`).
+>   The claim came from an older plan doc that predated it. No config change was
+>   needed for `sim/uifit/`.
+> - **§2D's `--plant-px` was not built.** Solving one unit for the panel turned
+>   out to be the wrong shape: the panel's overrun was not spread across its
+>   type at all, it was concentrated in ONE row (`.pl-mods`, fixed at 57px
+>   because its chips are floored at the tap size). Restructuring that row plus
+>   two label fixes did the whole job; a solved unit would have shrunk
+>   everything to fix one thing.
+> - **A `max-height` guard on `.plant` is actively harmful**, contra §2D. The
+>   panel is `overflow: visible`, so a cap bounds the box while the content
+>   spills anyway — the assertion would go green over a bug still on screen.
+> - **Two bugs the plan did not predict**, both found by the harness: the rail
+>   rendered eight buttons into a column the solver sized for seven and the CSS
+>   silently shrank them to 46px (under the tap floor), and a five-figure
+>   bankroll wrapped the plant's readout.
+> - **The refit yard became a third allowed scroller.** Seven buy buttons at
+>   44px is 308px in a 198px region; no layout fits it.
+
+- [x] **Task 1 — Solve the chrome scale.** `uiScale` + `density` in `game/layout.ts`; publish `--ui-scale` and `data-density` from `main.ts`'s `onResize`; Tier-1 checks for both. No CSS consumes them yet — pure addition, nothing changes on screen.
+- [x] **Task 2 — Fit-first scaffolding.** `.screen` inverts to fit-by-default; `[data-scroll]` on `#lb-body` and `.workshop__shop`; `.screen--fit` folded away. Expect the menu and howto to *clip* rather than scroll at this point — that is the intended intermediate state, and Task 6's harness names it.
+- [x] **Task 3 — Menu reflow.** Delete the `max-width: 720px` menu collapse; verify two columns hold to 640×320. Target: the whole `menu` row of the table in §1a goes to `·`.
+- [x] **Task 4 — Plant panel budget.** `--plant-px` solved in `layout.ts`; panel content converted off the `max(Npx, …)` floors; `[data-density="compact"]` two-row arrangement; `max-height` guard. Target: plant ≤ 43% of field height on every matrix device, iPhone 13 mini included.
+- [x] **Task 5 — How to Play reflow.** Two-column fit layout, compact step rows. Target: 0px overflow at 640×320.
+- [x] **Task 6 — The harness.** `sim/uifit/` as specified in §3 Tier 2, Playwright devDependency, `test:uifit` script, CI job. *(Land this first in practice — it is listed here because its content is defined by Tasks 1–5.)*
+- [x] **Task 7 — Tap-target floor.** `--tap-min` applied across interactive classes; remove the density overrides that undercut it; assertion 4 goes green.
+- [ ] **Task 8 — Retire the breakpoint stack.** *(not done — see status note above)* Delete the 15 `max-height` blocks one screen at a time, re-running the harness after each; keep only `[data-density]` switches that earn their place. This is the task that pays back the maintenance cost, and it is safe to do last because the harness now covers what those blocks were hand-tuning.
+- [x] **Task 9 — Workshop two columns.** The shop pane at `repeat(2, 1fr)` on every matrix width ≥ 640, scrolling internally as it already does; assertion 8 goes green.
 
 ---
 
@@ -228,4 +258,9 @@ Each task is independently shippable and ends with `npx tsc --noEmit`, `npx tsx 
 - **Fit-first can clip instead of scroll.** Inverting the default converts an overflow into a *silent* clip on any screen not yet reflowed. This is why Task 6's harness has to be in place before Task 2 ships — assertion 3 (offscreen rects) is what turns a silent clip into a red build.
 - **`uiScale` shrinks type.** There is a floor below which shrinking is worse than reflowing. The floor proposed is ~0.72 with per-token `max()` guards; the exact number should be set from the Task 6 PNGs at 640×320, not from arithmetic.
 - **Fixtures drift.** `sim/uifit/fixtures.ts` duplicates knowledge of screen-function signatures. Kept in TypeScript and typechecked so a signature change breaks the build rather than silently rendering the wrong screen — note that `sim/` is *not* in `tsconfig.json`'s `include` today (see the working agreements in the workshop plan), so the uifit config must add it.
-- **Two decisions worth confirming before Task 4:** whether the compact plant arrangement should hide the drafted-mods row entirely on the smallest devices (it is the least-read row but also the ability triggers), and whether the Leaderboard should keep its single scrolling list or move to the two-column treatment the Workshop is getting.
+- **Both open decisions resolved by measurement.** The compact plant does *not*
+  hide the drafted-mods row — it drops only the two ABILITY chips, which
+  duplicate the rail's buttons, and keeps the informational chips icon-only. The
+  Leaderboard keeps its single scrolling list: it is the one genuinely unbounded
+  list in the app, and a second column would halve the rows visible per screen
+  without removing the scroll.

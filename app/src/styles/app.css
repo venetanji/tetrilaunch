@@ -1990,8 +1990,13 @@ button.panel { color: var(--text); }
      only because page scrolling used to be the default. */
   /* A row needs its full name, a readable desc fragment and a price on one
      line; 148px columns would wrap the name. */
+  /* Exactly two, not `auto-fit`. auto-fit put three ~230px columns on a 792px
+     phone, which is narrower than the card's own content wants: names broke
+     across three lines ("Bulk / Freight / Permit") and the price badge
+     overlapped the PERMANENT tag. Two columns give each card ~350px, which is
+     one line for every name in the set. */
   .workshop__grid {
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
     align-content: start;
   }
   /* The card becomes a ROW. 122px of card in a 189px scroller meant 1.5 cards
