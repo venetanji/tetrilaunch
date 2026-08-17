@@ -819,7 +819,7 @@ export function refitScreen(opts: {
           <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="refit__grid" id="refit-grid">${cards}</div>
+      <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
       ${
         tracks.length < UPGRADES.length
           ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Mark 1 refits focus the reactor — the rest of the yard opens at Mark 2.</p>`

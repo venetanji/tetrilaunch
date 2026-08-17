@@ -1,15 +1,12 @@
 {
   "Android · 640x360 budget|end-lost|fit": [
-    ".panel overflows by 86px (328 -> 414)"
+    ".panel overflows by 18px (328 -> 346)"
   ],
   "Android · 640x360 budget|end-lost|scrollers": [
-    ".panel scrolls 86px"
+    ".panel scrolls 18px"
   ],
   "Android · 640x360 budget|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
-  ],
-  "Android · 640x360 budget|refit|scrollers": [
-    "#refit-grid scrolls 34px"
   ],
   "Android · 640x360 budget|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -33,17 +30,8 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · Galaxy S8+|end-lost|fit": [
-    ".panel overflows by 7px (323 -> 330)"
-  ],
-  "Android · Galaxy S8+|end-lost|scrollers": [
-    ".panel scrolls 7px"
-  ],
   "Android · Galaxy S8+|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
-  ],
-  "Android · Galaxy S8+|refit|scrollers": [
-    "#refit-grid scrolls 38px"
   ],
   "Android · Galaxy S8+|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -67,17 +55,8 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "Android · OnePlus 12|end-lost|fit": [
-    ".panel overflows by 9px (321 -> 330)"
-  ],
-  "Android · OnePlus 12|end-lost|scrollers": [
-    ".panel scrolls 9px"
-  ],
   "Android · OnePlus 12|hud-contract|plant": [
     "127px vs design 125px (43% of field height)"
-  ],
-  "Android · OnePlus 12|refit|scrollers": [
-    "#refit-grid scrolls 26px"
   ],
   "Android · OnePlus 12|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -145,32 +124,8 @@
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
   ],
-  "iOS · iPad mini|end-lost|fit": [
-    ".panel overflows by 198px (719 -> 917)"
-  ],
-  "iOS · iPad mini|end-lost|scrollers": [
-    ".panel scrolls 198px"
-  ],
-  "iOS · iPad mini|end-won|fit": [
-    ".panel overflows by 42px (719 -> 761)"
-  ],
-  "iOS · iPad mini|end-won|scrollers": [
-    ".panel scrolls 42px"
-  ],
-  "iOS · iPad mini|refit|scrollers": [
-    "#refit-grid scrolls 29px"
-  ],
-  "iOS · iPhone 13 mini|end-lost|fit": [
-    ".panel overflows by 8px (322 -> 330)"
-  ],
-  "iOS · iPhone 13 mini|end-lost|scrollers": [
-    ".panel scrolls 8px"
-  ],
   "iOS · iPhone 13 mini|hud-contract|plant": [
     "125px vs design 116px (46% of field height)"
-  ],
-  "iOS · iPhone 13 mini|refit|scrollers": [
-    "#refit-grid scrolls 25px"
   ],
   "iOS · iPhone 13 mini|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",
@@ -237,15 +192,6 @@
     ".shop-card__desc \"A harder, faster press —\"",
     ".shop-card__desc \"Bond Breaker charges eve\"",
     ".shop-card__desc \"Demolition charges every\""
-  ],
-  "iOS · iPhone SE 3|end-lost|fit": [
-    ".panel overflows by 43px (342 -> 385)"
-  ],
-  "iOS · iPhone SE 3|end-lost|scrollers": [
-    ".panel scrolls 43px"
-  ],
-  "iOS · iPhone SE 3|refit|scrollers": [
-    "#refit-grid scrolls 21px"
   ],
   "iOS · iPhone SE 3|workshop-options|textclip": [
     ".shop-card__desc \"Adds Demolition Charges \"",

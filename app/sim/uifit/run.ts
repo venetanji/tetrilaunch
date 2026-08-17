@@ -55,7 +55,20 @@ const ONLY_DEVICE = opt("device");
  * workshop pane" lives here and nowhere else, and adding a third entry is a
  * deliberate, reviewable act.
  */
-const ALLOWED_SCROLLERS = ["#lb-body", ".workshop__shop"];
+const ALLOWED_SCROLLERS = [
+  "#lb-body",          // leaderboard rows — an unbounded list by definition
+  ".workshop__shop",   // workshop stock
+  // The refit yard, added on arithmetic rather than preference. It offers seven
+  // upgrade tracks, each with a BUY button, and a button is 44px because that
+  // is the tap floor. Seven of them is 308px of button before a single label,
+  // pip or price; the modal's grid region on a 360px-tall phone is 198px. There
+  // is no layout that fits it — only shrinking the buttons back under the floor
+  // (the regression this project just fixed) or hiding purchases behind
+  // pagination. Same category as the workshop pane: a shop with more stock than
+  // screen. Packed to three columns at compact density so it scrolls as little
+  // as possible.
+  "#refit-grid",
+];
 
 /**
  * Chrome deliberately anchored OUTSIDE the field, allowed to bleed past the

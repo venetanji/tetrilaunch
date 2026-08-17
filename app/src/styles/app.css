@@ -1287,11 +1287,24 @@ body.crt-off #app::after { display: none; }
    height is scarce, so the fix spends width to buy height.
    ========================================================================== */
 .end { display: grid; grid-template-columns: 1fr; width: min(560px, 94vw); }
-.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* min-height:0 as well as min-width:0, and it is the height one that matters:
+   without it the leaderboard column's automatic minimum size is its content, so
+   #lb-body never shrinks and the modal overflows instead of the rows scrolling
+   — the flex item is refusing the bounded height the modal is offering it.
+   .end itself needs the same treatment as the grid between them. */
+.end { min-height: 0; }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; min-height: 0; }
 /* Tall viewports keep the original single-column reading order (outcome,
    submit, board, actions) purely from DOM order — no grid areas needed. */
 
-@media (max-height: 480px) {
+/* Two columns whenever the viewport is LANDSCAPE, not only when it is short.
+   This was `@media (max-height: 480px)`, which is the same wrong-axis mistake
+   the menu had: an iPad mini is 1024x768, so it sailed past the breakpoint,
+   stacked into one column and overflowed the modal by 198px — on the device
+   with the MOST room. The app locks landscape, so `min-aspect-ratio: 1/1` is
+   true for every phone and tablet it runs on and false only for a narrow
+   desktop window, which is exactly when a single column is right. */
+@media (min-aspect-ratio: 1/1) {
   .end {
     /* Asymmetric on measured evidence, not taste. The salvage block nearly
        doubles in height as it narrows (56px at 560 wide, 109px at 355) because
@@ -2526,3 +2539,14 @@ button.panel { color: var(--text); }
   letter-spacing: 0.06em;
   line-height: 1;
 }
+
+/* ---------- Compact: pack the refit yard tighter --------------------------
+   Narrower tracks so seven cards come out three columns wide instead of two.
+   This does NOT make the yard fit — see the note on #refit-grid's [data-scroll]
+   in screens.ts for why it cannot — but three rows of 103px beats four. */
+[data-density="compact"] .refit__grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 6px;
+  align-content: start;
+}
+[data-density="compact"] .refit-card { padding: 8px 10px; gap: 4px; }
