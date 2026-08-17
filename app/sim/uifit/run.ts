@@ -206,7 +206,13 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
     if (cs.overflowX === "auto" || cs.overflowX === "scroll") return; // .pl-mods, by design
     if (cs.overflow === "visible") return;                            // spills; `offscreen` owns it
     const where = `${label(el)} "${(el.textContent ?? "").trim().slice(0, 24)}"`;
-    if (cs.textOverflow === "ellipsis" && clippedX) out.warn.push(`ellipsis: ${where}`);
+    // Two ways to say "truncate this on purpose, with an ellipsis": the
+    // single-line `text-overflow` and the multi-line `-webkit-line-clamp`. Both
+    // are design decisions and both render a visible "…", so both warn rather
+    // than fail. Only a SILENT cut is a defect.
+    const clamped = cs.webkitLineClamp !== "none" && cs.webkitLineClamp !== "";
+    if (clamped) out.warn.push(`line-clamp: ${where}`);
+    else if (cs.textOverflow === "ellipsis" && clippedX) out.warn.push(`ellipsis: ${where}`);
     else out.textclip.push(where);
   });
 
