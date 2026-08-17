@@ -72,6 +72,34 @@ const RAIL_PAD = 12;
  *  rail actually FITS its column on short viewports before choosing it. */
 export const RAIL_SLOTS = 7;
 
+/**
+ * How much room the CHROME has, as opposed to the field.
+ *
+ * "roomy"   — desktop and tablets. Everything renders at its authored size.
+ * "regular" — the band where scaling alone is enough.
+ * "compact" — every landscape phone. Scaling has bottomed out at UI_SCALE_MIN
+ *             and anything that still doesn't fit has to RESTRUCTURE (two
+ *             columns instead of one, a row instead of a card) rather than
+ *             shrink further.
+ */
+export type Density = "compact" | "regular" | "roomy";
+
+/** Viewport the chrome is authored against. At or above this, --ui-scale is 1
+ *  and nothing is shrunk. 720 is the world's own height, which is also roughly
+ *  where the old hand-tuned `max-height` breakpoint stack used to start firing. */
+const UI_REF_H = 720;
+const UI_REF_W = 1000;
+
+/** The floor. Below this, shrinking type and padding stops buying fit and
+ *  starts costing legibility and tap targets — measured against the 44px
+ *  minimum, a button cannot get its label inside 44px of height much under
+ *  0.72 of the authored scale. Under the floor the answer is `density:
+ *  "compact"` and a structural change, never a smaller font. */
+export const UI_SCALE_MIN = 0.72;
+
+/** Above this, nothing is scaled at all. */
+const DENSITY_ROOMY = 0.995;
+
 export interface Layout {
   mode: LayoutMode;
   /** Chrome bands deliberately reserved out of the viewport before fitting the
@@ -89,6 +117,12 @@ export interface Layout {
   fh: number;
   /** Rail button edge length for this layout. */
   railSize: number;
+  /** Multiplier the DOM chrome's type and spacing scale by (published as
+   *  --ui-scale). 1 on a comfortable viewport, never below UI_SCALE_MIN. */
+  uiScale: number;
+  /** Coarse tier for rules that must SWITCH rather than scale (published as
+   *  <html data-density>). */
+  density: Density;
 }
 
 /** Module-level safe-area cache. Read from real CSS env() values once per
@@ -104,6 +138,28 @@ export function setSafeAreaInsets(insets: Insets): void {
 
 export function getSafeAreaInsets(): Insets {
   return safeInsets;
+}
+
+/**
+ * Chrome scale for a usable box, and the tier it falls in.
+ *
+ * Deliberately solved in JS next to the field rather than expressed as CSS
+ * `clamp()` on `vh`: the box that matters is the one left AFTER safe-area
+ * insets, and `env(safe-area-inset-*)` cannot be read from a media query or
+ * used in a container query condition. An iPhone in landscape gives up ~120px
+ * of width and 21px of height to the notch and home indicator, and a scale that
+ * ignored that would be measuring a viewport the player never sees.
+ *
+ * Both axes are considered and the smaller wins — a 640x400 window is as
+ * cramped as a 1000x360 one, and the chrome has to answer to whichever ran out
+ * first.
+ */
+export function uiScaleFor(uw: number, uh: number): { uiScale: number; density: Density } {
+  const raw = Math.min(uh / UI_REF_H, uw / UI_REF_W);
+  const uiScale = Math.max(UI_SCALE_MIN, Math.min(1, raw));
+  const density: Density =
+    uiScale >= DENSITY_ROOMY ? "roomy" : uiScale <= UI_SCALE_MIN ? "compact" : "regular";
+  return { uiScale, density };
 }
 
 /** Fit the world into a box, centered. */
@@ -122,6 +178,10 @@ export function computeLayout(cw: number, ch: number): Layout {
   const uy = safe.top;
   const uw = Math.max(1, cw - safe.left - safe.right);
   const uh = Math.max(1, ch - safe.top - safe.bottom);
+
+  // Chrome scale is a property of the usable box, not of which branch below
+  // wins — every mode gets the same answer.
+  const ui = uiScaleFor(uw, uh);
 
   const natural = fit(ux, uy, uw, uh);
   const gutterX = (uw - natural.fw) / 2;
@@ -142,6 +202,7 @@ export function computeLayout(cw: number, ch: number): Layout {
       safe,
       ...natural,
       railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, gutterX - RAIL_PAD)),
+      ...ui,
     };
   }
 
@@ -152,6 +213,7 @@ export function computeLayout(cw: number, ch: number): Layout {
       safe,
       ...natural,
       railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, gutterY - RAIL_PAD)),
+      ...ui,
     };
   }
 
@@ -168,6 +230,7 @@ export function computeLayout(cw: number, ch: number): Layout {
       safe,
       ...fit(ux, uy, uw - band, uh),
       railSize: RAIL_MAX,
+      ...ui,
     };
   }
 
@@ -179,5 +242,6 @@ export function computeLayout(cw: number, ch: number): Layout {
     safe,
     ...fit(ux, uy, uw, uh - band),
     railSize: RAIL_MIN,
+    ...ui,
   };
 }

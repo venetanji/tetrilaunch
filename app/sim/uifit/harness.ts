@@ -68,6 +68,8 @@ function publishLayout(): void {
   // its vertical form on the two iPad rows and the harness reported an overlap
   // the app does not have.
   document.documentElement.dataset.layout = l.mode;
+  rs.setProperty("--ui-scale", `${l.uiScale}`);
+  document.documentElement.dataset.density = l.density;
 }
 
 export interface UiFitApi {

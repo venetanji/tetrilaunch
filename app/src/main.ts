@@ -638,6 +638,13 @@ class App {
     rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
     rs.setProperty("--rail-btn", `${l.railSize}px`);
     document.documentElement.dataset.layout = l.mode;
+    // Chrome scale, the DOM's counterpart to --fpx. tokens.css derives the type
+    // and spacing scales from it, so a short viewport shrinks the chrome
+    // continuously instead of stepping through hand-tuned `max-height` blocks —
+    // and `data-density` carries the cases that have to RESTRUCTURE rather than
+    // shrink (see game/layout.ts's Density).
+    rs.setProperty("--ui-scale", `${l.uiScale}`);
+    document.documentElement.dataset.density = l.density;
 
     const mobile = "ontouchstart" in window || w < 900;
     this.guard.classList.toggle("show", isPortrait() && mobile);

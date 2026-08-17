@@ -54,7 +54,7 @@ import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
-import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
+import { computeLayout, setSafeAreaInsets, RAIL_MIN, UI_SCALE_MIN } from "../src/game/layout";
 import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
@@ -1519,6 +1519,64 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Chrome scale (--ui-scale / data-density)");
+// The DOM chrome's counterpart to the field's --fpx. These are the invariants
+// the 15 hand-tuned `max-height` blocks in app.css never had: monotonic, bounded
+// and, above all, aware of the safe-area insets a media query cannot see.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  check("a desktop viewport is never scaled", computeLayout(1600, 900).uiScale === 1);
+  check("a desktop viewport is roomy", computeLayout(1600, 900).density === "roomy");
+
+  // Every landscape phone in the device matrix lands on the floor. That is the
+  // finding, not a rounding artifact: below it the answer has to be a
+  // structural change, which is what `compact` exists to trigger.
+  for (const [name, w, h] of [
+    ["640x360 budget", 640, 360],
+    ["OnePlus 12", 792, 360],
+    ["Pixel 7", 915, 412],
+    ["iPhone SE 3", 667, 375],
+  ] as [string, number, number][]) {
+    const l = computeLayout(w, h);
+    check(`${name} bottoms out at the scale floor`, l.uiScale === UI_SCALE_MIN, String(l.uiScale));
+    check(`${name} is compact`, l.density === "compact", l.density);
+  }
+
+  // Monotonic in both axes — a bigger viewport can never scale the chrome down.
+  let prev = 0;
+  for (const h of [360, 420, 480, 540, 600, 660, 720, 900]) {
+    const s = computeLayout(1600, h).uiScale;
+    check(`ui scale is monotonic at ${h}px tall`, s >= prev, `${s} < ${prev}`);
+    prev = s;
+  }
+
+  check("ui scale never exceeds 1", computeLayout(4000, 3000).uiScale === 1);
+  check("ui scale never drops below the floor", computeLayout(320, 200).uiScale === UI_SCALE_MIN);
+
+  // The reason this is solved in JS at all: a media query cannot subtract the
+  // notch. An iPhone's landscape insets take ~120px of width and 21px of height,
+  // and the chrome has to answer to the box that is actually left.
+  const bare = computeLayout(1100, 760);
+  setSafeAreaInsets({ left: 62, right: 62, top: 0, bottom: 21 });
+  const inset = computeLayout(1100, 760);
+  check(
+    "safe-area insets shrink the chrome scale",
+    inset.uiScale < bare.uiScale,
+    `${inset.uiScale} vs ${bare.uiScale}`,
+  );
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  // Density tiers must partition the scale range with no gap and no overlap.
+  for (const h of [300, 400, 500, 560, 620, 680, 720, 800]) {
+    const l = computeLayout(1600, h);
+    const expected =
+      l.uiScale === 1 ? "roomy" : l.uiScale === UI_SCALE_MIN ? "compact" : "regular";
+    check(`density agrees with scale at ${h}px tall`, l.density === expected, `${l.density} vs ${expected} (${l.uiScale})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
