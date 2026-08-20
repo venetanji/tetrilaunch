@@ -20,6 +20,7 @@ import type { PieceSize, PieceType } from "../game/theme";
 import {
   totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
+import type { PreviewRow } from "../game/preview";
 
 export function splashScreen(): string {
   // No tagline. "Physics Cannon Puzzle" undersold and mis-sold the game — it
@@ -1104,8 +1105,23 @@ export function pauseModal(): string {
  * the exact number a notch adds: the player is pricing a choice, and a vague
  * card turns a deliberate trade into a guess.
  *
- * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `picked` holds what
- * has been taken so far at this draft so the second pass can show it.
+ * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `selected` holds the
+ * tentative hand so far, and the modal only commits when the player confirms.
+ *
+ * The cards SELECT, they do not commit. A tap used to be the decision — the
+ * modal closed and the next bay started — which made a screen full of prose
+ * ("Every launch costs $5 more") the only thing the player had to price the
+ * notch by. It did not even read as a choice: two cards, no selected state, no
+ * confirm. Now a tap toggles the card and the projection under it redraws with
+ * the numbers the next bay would ACTUALLY be flown at (preview.ts, off the real
+ * levelForRun pipeline), and a separate confirm button is the commitment. The
+ * player can try both cards, read what each does to their float and their
+ * clock, and only then spend the notch.
+ *
+ * Still no skip. Toggling is not declining: the confirm stays disabled until
+ * the Mark's full quota is selected, so the ratchet remains the mandatory price
+ * of the bay just cleared. What changed is that the price is now legible before
+ * it is paid, not after.
  */
 export function draftScreen(opts: {
   bayNum: number;
@@ -1119,10 +1135,15 @@ export function draftScreen(opts: {
   offers: HazardDef[];
   /** Every notch taken across the run so far, for the running tally. */
   ratchets: Ratchets;
-  /** Axes taken at THIS draft already (Mark 10's first of two picks). */
-  picked: HazardId[];
+  /** Axes SELECTED at this draft but not yet confirmed. Tentative: nothing here
+   *  has touched RunState.ratchets, and the tally/projection show it as pending
+   *  rather than banked. */
+  selected: HazardId[];
   /** How many notches this Mark demands before the next bay. */
   picksNeeded: number;
+  /** The next bay's numbers as they stand vs. with `selected` folded in — see
+   *  preview.ts. Rendered live, so this is what makes the toggle worth having. */
+  preview: PreviewRow[];
   /** Unspent scrap — shown here too (not only at refit stops) so the player can
    *  see capital accumulating between stops and plan the next refit. */
   scrap: number;
@@ -1130,27 +1151,56 @@ export function draftScreen(opts: {
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
 }): string {
-  const taken = totalNotches(opts.ratchets) + opts.picked.length;
+  const banked = totalNotches(opts.ratchets);
+  const pending = opts.selected.length;
+  const remaining = Math.max(0, opts.picksNeeded - pending);
+  const ready = remaining === 0;
   const cards = opts.offers
     .map((h) => {
+      const picks = opts.selected.filter((p) => p === h.id).length;
       // An axis already ratcheted says so on the card. Taking the same notch a
       // second time is a legitimate build, but it is a different decision from
       // taking it the first time, and the card has to admit which one it is.
-      const owned = (opts.ratchets[h.id] ?? 0) + opts.picked.filter((p) => p === h.id).length;
+      // The tentative picks count toward the badge too — the card has to show
+      // the notch level the projection below it is currently drawing.
+      const owned = (opts.ratchets[h.id] ?? 0) + picks;
       const stack = owned > 0 ? ` <span class="mod-card__stack">at ${owned}</span>` : "";
       const kind = h.kind === "content" ? "bane" : "tradeoff";
-      return `<button class="mod-card mod-card--${kind}" data-action="pick-hazard" data-hazard="${h.id}">
+      // The card's own footer says what the NEXT tap does, which is not the
+      // same on every card: taps fill the hand while there is room and edit it
+      // once it is full (hazards.ts's togglePick). Without it a selected card
+      // in a one-pick draft looks like a dead end, and the capstone's
+      // double-notch tap is invisible.
+      const mark = `<span class="mod-card__mark">✓</span> Selected${picks > 1 ? ` ×${picks}` : ""}`;
+      const foot = picks > 0
+        ? ready ? `${mark} — tap to undo` : `${mark} — tap to double`
+        : ready
+          ? "Tap to swap this in"
+          : "Tap to preview";
+      return `<button class="mod-card mod-card--${kind}${picks > 0 ? " mod-card--picked" : ""}"
+        data-action="pick-hazard" data-hazard="${h.id}" aria-pressed="${picks > 0}">
         <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
         <div class="mod-card__name">${h.name}</div>
         <p class="mod-card__desc">${h.desc}</p>
+        <div class="mod-card__pick">${foot}</div>
       </button>`;
     })
     .join("");
-  const remaining = opts.picksNeeded - opts.picked.length;
+  const stats = opts.preview
+    .map((r) => {
+      const val = r.changed
+        ? `<span class="preview-stat__from">${r.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${r.to}</span>`
+        : `<span class="preview-stat__to">${r.from}</span>`;
+      return `<div class="preview-stat${r.changed ? ` preview-stat--${r.tone}` : ""}">
+        <div class="preview-stat__label">${r.label}</div>
+        <div class="preview-stat__val">${val}</div>
+      </div>`;
+    })
+    .join("");
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
+    <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
-      <h2 class="display">${remaining > 1 ? `Ratchet ${remaining} axes` : "Ratchet one axis"}</h2>
+      <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
         <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
@@ -1159,7 +1209,7 @@ export function draftScreen(opts: {
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Notches taken</div>
-          <div class="chip__value">${taken}</div>
+          <div class="chip__value">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Scrap${
@@ -1172,7 +1222,24 @@ export function draftScreen(opts: {
           <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="draft__cards">${cards}</div>
+      <div class="draft__body">
+        <div class="draft__cards">${cards}</div>
+        <!-- aria-live: the projection is the ANSWER to tapping a card, and a
+             screen-reader user who tapped one gets nothing back otherwise. -->
+        <div class="draft__preview" aria-live="polite">
+          <div class="draft__preview-hd">
+            <span>${opts.nextBayName} — projected</span>
+            <span class="draft__preview-note">${pending > 0 ? "with your selection" : "as it stands"}</span>
+          </div>
+          <div class="preview-grid">${stats}</div>
+        </div>
+      </div>
+      <div class="draft__confirm">
+        <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
+          ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
+        </button>
+        <p class="draft__confirm-note muted">Every bay costs one notch — there is no skip. Pick the pressure you are equipped for.</p>
+      </div>
     </div>
   </div>`;
 }

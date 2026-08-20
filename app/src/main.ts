@@ -6,9 +6,20 @@ import {
   RUN_LEVELS, type RunState,
 } from "./game/run";
 import {
-  hazardOffers, hazardById, picksPerBay, HAZARDS,
+  hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
+import { previewRows } from "./game/preview";
+
+/** A run's ratchets with a draft's tentative picks folded in — the map the
+ *  next-bay projection is drawn from, and the same map onPickHazard's confirm
+ *  banks. Written once so the preview can never disagree with what confirming
+ *  actually does. */
+function withPicks(ratchets: Ratchets, picks: HazardId[]): Ratchets {
+  const out: Ratchets = { ...ratchets };
+  for (const id of picks) out[id] = (out[id] ?? 0) + 1;
+  return out;
+}
 
 /** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
  *  so two runs with the same build produce byte-identical strings. */
@@ -513,8 +524,16 @@ class App {
               carry: this.run.carry,
               offers: this.pendingOffers,
               ratchets: this.run.ratchets,
-              picked: this.pendingPicks,
+              selected: this.pendingPicks,
               picksNeeded: picksPerBay(this.run.mark),
+              // Both sides of the projection come from levelForRun, so what the
+              // player reads here is the config the bay is actually built from
+              // — run.ts stays the single source of a bay's numbers, and a
+              // notch's effect is never modelled twice.
+              preview: previewRows(
+                levelForRun(this.run),
+                levelForRun({ ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) }),
+              ),
               scrap: this.run.scrap,
               // Bay-CLEARS until the next refit stop, counting the bay about to
               // be played; 1 means "clear this one and you dock". Null late in a
@@ -1189,28 +1208,39 @@ class App {
     this.renderOverlay();
   }
 
-  /** "pick-hazard": bank one ratchet notch, and start the next bay once the
-   *  Mark's full quota of picks is in. The bay itself was already banked into
-   *  the run by afterBayClear (so a refit stop could spend its scrap), so this
-   *  ONLY records the choice — it must not call advanceRun again or the run
-   *  would skip a bay.
+  /** "pick-hazard": TOGGLE one axis in the tentative hand. Nothing is banked
+   *  here — the picks live in `pendingPicks` until "confirm-hazards" commits
+   *  them, which is what lets the modal redraw the next bay's projected numbers
+   *  under each candidate before the player spends the notch.
    *
-   *  There is no skip. The ratchet is the price of the bay just cleared, and a
-   *  draft you can decline is a draft with a dominant option. */
+   *  The toggle rules themselves live in hazards.ts's togglePick, next to the
+   *  picksPerBay quota they depend on and where the sim can reach them.
+   *
+   *  There is still no skip: confirming is gated on a full hand (see
+   *  onConfirmHazards), so the ratchet remains the mandatory price of the bay
+   *  just cleared. */
   private onPickHazard(id: string): void {
     if (!this.run || this.state !== "draft") return;
     if (!hazardById(id)) return;
     // Only from the hand actually dealt — a stale or hand-edited data-hazard
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
-    this.pendingPicks = [...this.pendingPicks, id as HazardId];
-    if (this.pendingPicks.length < picksPerBay(this.run.mark)) {
-      this.renderOverlay();
-      return;
-    }
-    const ratchets = { ...this.run.ratchets };
-    for (const axis of this.pendingPicks) ratchets[axis] = (ratchets[axis] ?? 0) + 1;
-    this.run = { ...this.run, ratchets };
+    this.pendingPicks = togglePick(this.pendingPicks, id as HazardId, picksPerBay(this.run.mark));
+    this.renderOverlay();
+  }
+
+  /** "confirm-hazards": bank the tentative hand onto the run and fly the next
+   *  bay. The bay itself was already banked into the run by afterBayClear (so a
+   *  refit stop could spend its scrap), so this ONLY records the choice — it
+   *  must not call advanceRun again or the run would skip a bay.
+   *
+   *  Re-checks the quota rather than trusting the button's disabled state: the
+   *  gate is what makes the ratchet mandatory, and a gate that lives only in
+   *  the markup is not a gate. */
+  private onConfirmHazards(): void {
+    if (!this.run || this.state !== "draft") return;
+    if (this.pendingPicks.length < picksPerBay(this.run.mark)) return;
+    this.run = { ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) };
     this.pendingPicks = [];
     this.startLevel();
   }
@@ -1561,6 +1591,7 @@ class App {
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
         break;
+      case "confirm-hazards": this.onConfirmHazards(); break;
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.
       case "skip-bayclear": this.afterBayClear(); break;

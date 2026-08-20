@@ -259,6 +259,34 @@ export function picksPerBay(mark: number): number {
   return mark >= CAPSTONE_MARK ? 2 : 1;
 }
 
+/**
+ * Toggle one axis in a draft's TENTATIVE hand (screens.ts's draftScreen selects
+ * before it commits; main.ts's onPickHazard is the only caller).
+ *
+ * One rule, read in two halves: **a tap fills the hand while there is room, and
+ * edits it once it is full.** At the one-pick draft every rung below Mark 10
+ * deals, that collapses to the radio group a player expects — tapping the other
+ * card switches to it, tapping the selected one clears it. At the capstone's
+ * two-pick draft the same rule stacks: tapping one card twice is how a double
+ * notch on a single axis is asked for, which is a real build and one the card's
+ * "at N" badge already knows how to show.
+ *
+ * What matters either way is that every tap moves the hand — a full hand never
+ * silently swallows one — and that any hand is reachable without a reset
+ * button. A removal drops the LAST notch of that axis, so a hand of A,B,A falls
+ * back to A,B instead of reordering itself between two taps that both said A.
+ *
+ * Returns a new array; never mutates `picks`.
+ */
+export function togglePick(picks: HazardId[], axis: HazardId, need: number): HazardId[] {
+  if (picks.length < need) return [...picks, axis];
+  const cut = picks.lastIndexOf(axis);
+  if (cut >= 0) return picks.filter((_, i) => i !== cut);
+  // A full hand of other axes still has to move. At one pick that is a straight
+  // swap; past one, the oldest notch is the one that gives way.
+  return need === 1 ? [axis] : [...picks.slice(1), axis];
+}
+
 /** Axes the draft is NOT allowed to deal.
  *
  *  "target" is the only member, and it is a deliberate retirement rather than a

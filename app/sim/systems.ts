@@ -16,10 +16,11 @@ import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import { makeBaseLevel, TARGET_PER_BAY } from "../src/game/level";
 import {
-  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
+  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
-  CAPSTONE_MARK, type Ratchets,
+  CAPSTONE_MARK, type HazardId, type Ratchets,
 } from "../src/game/hazards";
+import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import { Cannon } from "../src/game/cannon";
 import { Compactor } from "../src/game/compactor";
@@ -976,6 +977,95 @@ section("Refit cadence + run economy (run.ts)");
   check("a notch lands on top of the refitted ship, not a stock one",
     withShip.windMax > shipOnly.windMax && withShip.launchPower === shipOnly.launchPower,
     `${withShip.windMax} vs ${shipOnly.windMax}`);
+}
+
+// ---------------------------------------------------------------------------
+section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The draft SELECTS before it commits, so the hand has to behave like a hand:
+  // every tap moves it, and any hand is reachable without a reset button.
+  check("a tap selects", JSON.stringify(togglePick([], "cost", 1)) === '["cost"]');
+  check("a second tap on the same axis takes it back",
+    togglePick(["cost"], "cost", 1).length === 0);
+  check("at one pick, another card SWITCHES rather than stacking",
+    JSON.stringify(togglePick(["cost"], "time", 1)) === '["time"]');
+  check("at two picks, a second axis is added",
+    JSON.stringify(togglePick(["cost"], "time", 2)) === '["cost","time"]');
+  // The capstone's double notch: with room left in the hand, a second tap on
+  // the same card asks for the axis twice rather than taking it back.
+  check("at two picks, the same axis stacks to a double notch",
+    JSON.stringify(togglePick(["cost"], "cost", 2)) === '["cost","cost"]');
+  check("once the hand is full, a tap on a selected card takes one back",
+    JSON.stringify(togglePick(["cost", "time"], "cost", 2)) === '["time"]');
+  check("a stacked axis un-stacks one notch at a time",
+    JSON.stringify(togglePick(["cost", "cost"], "cost", 2)) === '["cost"]');
+  // A,B,A must fall back to A,B — dropping the FIRST A would reorder the hand
+  // under the player between two taps that both said "cost".
+  check("un-picking drops the last notch of that axis, not the first",
+    JSON.stringify(togglePick(["cost", "time", "cost"], "cost", 3)) === '["cost","time"]');
+  check("a full hand still moves when a new card is tapped",
+    JSON.stringify(togglePick(["cost", "time"], "wind", 2)) === '["time","wind"]');
+  check("togglePick never mutates the hand it was given", (() => {
+    const hand: HazardId[] = ["cost"];
+    togglePick(hand, "time", 2);
+    return hand.length === 1;
+  })());
+
+  // The projection is drawn from levelForRun on both sides — the same call the
+  // bay is actually built with — so what the modal promises is what gets flown.
+  const drafting = { ...newRun(11, [], 500, newTiers(), 3), levelIndex: 3 };
+  const rowsFor = (picks: HazardId[]): PreviewRow[] => previewRows(
+    levelForRun(drafting),
+    levelForRun({
+      ...drafting,
+      ratchets: picks.reduce<Ratchets>((r, id) => ({ ...r, [id]: (r[id] ?? 0) + 1 }), { ...drafting.ratchets }),
+    }),
+  );
+  const row = (rows: PreviewRow[], id: string): PreviewRow | undefined => rows.find((r) => r.id === id);
+
+  const idle = rowsFor([]);
+  check("an empty selection changes nothing", idle.every((r) => !r.changed && r.tone === "same"));
+  // The four numbers a bay is priced by are the frame the change is read
+  // against, so they are on screen before anything is picked.
+  check("the priced numbers are always on screen",
+    ["target", "float", "cost", "shots", "clock"].every((id) => row(idle, id) !== undefined),
+    idle.map((r) => r.id).join(","));
+
+  const levy = rowsFor(["cost"]);
+  check("Fuel Levy moves the launch cost", row(levy, "cost")!.changed);
+  check("a dearer launch reads as worse", row(levy, "cost")!.tone === "worse");
+  check("the levy's real cost — fewer shots in the bank — is projected",
+    row(levy, "shots")!.changed && row(levy, "shots")!.tone === "worse",
+    `${row(levy, "shots")!.from} -> ${row(levy, "shots")!.to}`);
+  check("an untouched number stays quiet", !row(levy, "clock")!.changed);
+  check("the projection matches the config the bay is built from",
+    row(levy, "cost")!.to === `$${levelForRun({ ...drafting, ratchets: { cost: 1 } }).launchCost}`);
+
+  const shift = rowsFor(["time"]);
+  check("Shift Cut shortens the clock", row(shift, "clock")!.changed);
+  // A shorter clock is a SMALLER number and still bad news; a projection that
+  // colours by direction alone would call it an improvement.
+  check("a shorter clock still reads as worse", row(shift, "clock")!.tone === "worse");
+
+  // Axes that are not in play stay off the grid until a pick touches them —
+  // the grid is a landscape phone's worth of space, and a row that never moves
+  // is a row that buries the one that did.
+  check("a dormant axis is hidden until it is picked", row(idle, "sweeper") === undefined);
+  const sweep = rowsFor(["sweeper"]);
+  check("picking the sweeper reveals both halves of its notch",
+    row(sweep, "sweeper")!.changed && row(sweep, "cells")!.changed);
+  check("the press gap closing reads as worse", row(sweep, "cells")!.tone === "worse");
+  check("a material appears on the belt only once its axis is picked",
+    row(idle, "mat:cryo") === undefined && row(rowsFor(["cryo"]), "mat:cryo")!.changed);
+
+  // Two notches at Mark 10 project as one bay, not as two separate promises.
+  const both = rowsFor(["cost", "time"]);
+  check("a two-pick hand projects both notches at once",
+    row(both, "cost")!.changed && row(both, "clock")!.changed);
+  check("a stacked axis projects the stacked number",
+    row(rowsFor(["cost", "cost"]), "cost")!.to
+      === `$${levelForRun({ ...drafting, ratchets: { cost: 2 } }).launchCost}`);
 }
 
 // ---------------------------------------------------------------------------
