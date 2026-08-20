@@ -222,13 +222,16 @@ function targetScoreFor(_i: number): number {
  *   of rubbery as break-resistance rises.
  * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
  *   sloppy play faster and harder.
- * - targetScore (800 + 150i), launchCost (25 + 2i), and scorePerLine
- *   (100 + 10i) are all PER-BAY floats, not cumulative — startingFunds stays
- *   a flat $250 float every bay (see run.ts's levelForRun), with only the
- *   prior bay's overshoot (RunState.carry) stacked on top. scorePerLine
- *   ramping (+10/bay) faster than launchCost (+2/bay) keeps a clean line's
- *   net payout growing bay-over-bay instead of bleeding out late (bay 10: a
- *   2-shot line costs $86, pays $190).
+ * - targetScore (800 flat, scaled by MARK_TARGET_STEP per Mark), launchCost
+ *   (25 flat), and scorePerLine (100 + 10i) are all PER-BAY floats, not
+ *   cumulative — startingFunds is a tight $150 float every bay (see
+ *   run.ts's levelForRun), with only the prior bay's overshoot
+ *   (RunState.carry, capped at 50% of the cleared target) stacked on top.
+ *   The tight budget rewards precise launches over spray-and-pray; carry-over
+ *   capping prevents a single excellent bay from trivialising two or more
+ *   subsequent ones. scorePerLine ramping (+10/bay) faster than launchCost
+ *   keeps a clean line's net payout growing bay-over-bay instead of
+ *   bleeding out late (bay 10: a 2-shot line costs $50, pays $190).
  * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
  *   so time pressure keeps rising relative to how much a bay actually needs
  *   to bank.
@@ -340,7 +343,12 @@ export const SCRAP_PER_BAY = 10;
  * named seam rather than deleted so the measurement that zeroed it stays
  * attached to the knob it describes — same reason MARK_SPEED_STEP survives.
  */
-export const MARK_TARGET_STEP = 0;
+/** 0.1 — each Mark above 1 raises every bay's base target by 10%, compounding
+ *  the run's natural difficulty with the player's progress through the ladder.
+ *  The target hazard axis was the player-controlled version of this knob; it
+ *  has been removed from the hazard offer pool so this automatic ramp is the
+ *  sole source of target growth, keeping the per-bay economy legible. */
+export const MARK_TARGET_STEP = 0.1;
 /** 0 by design — see above. Kept as a named seam rather than deleted so the
  *  measurement that zeroed it stays attached to the knob it describes. */
 export const MARK_SPEED_STEP = 0;
@@ -403,7 +411,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // whichever axis they choose (hazards.ts). Difficulty stopped being
     // something the ladder inflicts behind the player's back.
     targetScore: Math.round(targetScoreFor(i) * targetMult),
-    startingFunds: 250,
+    startingFunds: 150,
     launchCost: 25,
     // null = the seeded 7-bag (see the field's doc). This was a fixed
     // I,O,T,L,J,S,Z rotation, which made every bay open with the same pieces

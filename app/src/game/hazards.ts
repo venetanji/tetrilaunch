@@ -78,7 +78,7 @@ export interface HazardDef {
  *  play pass will edit them first. */
 export const TARGET_NOTCH = 300;
 export const COST_NOTCH = 5;
-export const TIME_NOTCH = 20;
+export const TIME_NOTCH = 5;
 
 /** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
  *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
@@ -243,9 +243,12 @@ export function picksPerBay(mark: number): number {
   return mark >= CAPSTONE_MARK ? 2 : 1;
 }
 
-/** Every axis on offer at `mark`, in ladder order. */
+/** Every axis on offer at `mark`, in ladder order. The "target" axis is
+ *  excluded from offers because the base target now auto-scales per mark via
+ *  MARK_TARGET_STEP — it is kept in HAZARDS so saved ratchets from older runs
+ *  still apply correctly, but players are no longer asked to ratchet it. */
 export function hazardsForMark(mark: number): HazardDef[] {
-  return HAZARDS.filter((h) => h.mark <= mark);
+  return HAZARDS.filter((h) => h.mark <= mark && h.id !== "target");
 }
 
 /**
@@ -271,7 +274,7 @@ export function hazardOffers(
   seed: number,
   levelIndex: number,
   mark: number,
-  count = 3,
+  count = 2,
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
   const want = Math.max(count, picksPerBay(mark));

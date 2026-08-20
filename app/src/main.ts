@@ -1023,6 +1023,7 @@ class App {
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
       [],
+      g.bondCharges,
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.

@@ -163,18 +163,17 @@ export const UPGRADES: UpgradeDef[] = [
     id: "bonds",
     name: "Bond Emitter",
     glyph: "BND",
-    blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
-    step: () => ({ dir: "up", text: "+1 charge" }),
-    apply(cfg, tier) {
-      // Bond Breakers are the compaction answer for any build whose pieces
-      // don't flatten their own pile — most of all the light tiny build, whose
-      // cubes are too light for weight alone to square off the layers below
-      // (see pieces.ts's SIZE_SPEC). Buying them as a SYSTEM (rather than
-      // hoping the Bond Breaker mod shows up in a draft) is what makes the
-      // Autoloader endgame something you can plan for.
-      cfg.bondBreakerCharges += tier;
+    blurb: "Bond Breaker charges for the whole run — a consumable pool, not a per-bay refresh.",
+    tiers: ["+2 run charges", "+4 run charges", "+6 run charges"],
+    current: (t) => (t === 0 ? "no charges" : `${t * 2} run charges`),
+    step: () => ({ dir: "up", text: "+2 charges" }),
+    apply(_cfg, _tier) {
+      // Charges are now granted once per run via RunState.bondBreakerCharges
+      // (newRun initialises them from the loadout's bonds tier × 2), not
+      // refilled every bay. The apply hook is intentionally a no-op so that
+      // levelForRun's applyUpgrades call does not add per-bay charges on top;
+      // levelForRun then writes cfg.bondBreakerCharges = run.bondBreakerCharges
+      // to inject the remaining run pool into the level config.
     },
   },
   {

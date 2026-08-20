@@ -57,6 +57,11 @@ export interface RunState {
    *  what the run's leaderboard entry is filed under, so a run can't change
    *  which board it's competing on halfway through. */
   mark: number;
+  /** Bond Breaker charges remaining for this run — a consumable pool granted
+   *  at run start (loadout bonds tier × 2) that is NOT refreshed between bays.
+   *  levelForRun injects this into cfg.bondBreakerCharges; advanceRun carries
+   *  the remainder forward so a charge used in bay 3 is permanently gone. */
+  bondBreakerCharges: number;
 }
 
 export function newRun(
@@ -80,6 +85,9 @@ export function newRun(
     tiers: { ...loadout },
     unlocks: [...unlocks],
     mark,
+    // Bond Breaker charges are a per-run consumable pool: 2 per tier of the
+    // bonds upgrade in the loadout. They are not refreshed between bays.
+    bondBreakerCharges: (loadout.bonds ?? 0) * 2,
   };
 }
 
@@ -124,17 +132,24 @@ export function levelForRun(run: RunState): LevelConfig {
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
+  // Bond Breaker charges are a consumable run pool, not a per-bay refresh.
+  // Override whatever applyUpgrades wrote (bonds.apply is now a no-op) with
+  // the remaining run charges so game.ts sees the correct count.
+  cfg.bondBreakerCharges = run.bondBreakerCharges;
   return cfg;
 }
 
 /** Advance to the next level after one ends: carry becomes the overshoot
  *  banked above the just-cleared bay's target (0 if the bay ended at or
- *  below target — no debt carries), lines and scrap accumulate, and the
- *  drafted pick (if any — the player may have nothing left to pick from) is
- *  appended. `clearedTarget` is the just-ended bay's targetScore (Game.target),
- *  needed to compute the overshoot; `scrapEarned` is what the bay paid out
- *  (Game.scrapEarned plus the per-bay clear bonus). Returns a new RunState;
- *  never mutates the one passed in. */
+ *  below target — no debt carries), capped at 50% of the cleared target so
+ *  a single excellent bay cannot trivialise two or more subsequent ones.
+ *  Lines and scrap accumulate, and the drafted pick (if any — the player may
+ *  have nothing left to pick from) is appended. `clearedTarget` is the
+ *  just-ended bay's targetScore (Game.target), needed to compute the
+ *  overshoot; `scrapEarned` is what the bay paid out (Game.scrapEarned plus
+ *  the per-bay clear bonus); `bondsRemaining` is g.bondCharges after the
+ *  bay (remaining run-pool charges, NOT a per-bay refresh). Returns a new
+ *  RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
   endedScore: number,
@@ -142,13 +157,18 @@ export function advanceRun(
   lines: number,
   scrapEarned: number,
   pickedAxes: HazardId[] = [],
+  bondsRemaining = 0,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
+  // Cap carry-over at 50% of the just-cleared target. This keeps a strong
+  // performance rewarding without letting it cascade across 2+ levels.
+  const rawCarry = Math.max(0, endedScore - clearedTarget);
+  const carryCap = Math.floor(clearedTarget * 0.5);
   return {
     seed: run.seed,
     levelIndex: run.levelIndex + 1,
-    carry: Math.max(0, endedScore - clearedTarget),
+    carry: Math.min(carryCap, rawCarry),
     ratchets,
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,
@@ -156,6 +176,7 @@ export function advanceRun(
     tiers: { ...run.tiers },
     unlocks: [...run.unlocks],
     mark: run.mark,
+    bondBreakerCharges: Math.max(0, bondsRemaining),
   };
 }
 
@@ -180,6 +201,12 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
     unlocks: [...run.unlocks],
     scrap: run.scrap - cost,
     tiers: { ...run.tiers, [id]: tier + 1 },
+    // If the player refits the bonds system, add the newly unlocked charges to
+    // the run pool immediately (the tier they just bought × 2, minus what the
+    // old tier already granted, = +2 charges net per tier step).
+    bondBreakerCharges: id === "bonds"
+      ? run.bondBreakerCharges + 2
+      : run.bondBreakerCharges,
   };
 }
 
