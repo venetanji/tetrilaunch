@@ -42,6 +42,7 @@ export interface RunState {
   /** Total scrap earned this run, spent or not — a stat for the end screen, so
    *  a run that banked and never refitted still reads as having earned it. */
   scrapEarned: number;
+  bondBreakers: number;
   /** Ship upgrade tier per system (see upgrades.ts). Seeded at run start from
    *  the player's permanent LOADOUT (meta.ts's safeLoadout, bought against the
    *  Mark's build budget), then raised further by in-run scrap at refit stops.
@@ -74,6 +75,7 @@ export function newRun(
     linesTotal: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
+    bondBreakers: unlocks.includes("bond-breaker") ? 2 : 0,
     // The permanent loadout is where the ship STARTS, not a bonus on top of a
     // stock one: in-run scrap refits from here at the usual stops. Copied, not
     // aliased — a run must never write back into saved meta state.
@@ -123,7 +125,8 @@ export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
-  if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
+  
+  cfg.bondBreakerCharges = run.bondBreakers;
   return cfg;
 }
 
@@ -141,6 +144,7 @@ export function advanceRun(
   clearedTarget: number,
   lines: number,
   scrapEarned: number,
+  bondBreakers: number,
   pickedAxes: HazardId[] = [],
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
@@ -151,6 +155,7 @@ export function advanceRun(
     carry: Math.max(0, endedScore - clearedTarget),
     ratchets,
     linesTotal: run.linesTotal + lines,
+    bondBreakers,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     tiers: { ...run.tiers },

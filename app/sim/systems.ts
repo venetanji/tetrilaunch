@@ -17,7 +17,7 @@ import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import { makeBaseLevel } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
-  materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
+  materialRate, totalNotches, MATERIAL_CAP, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, type Ratchets,
 } from "../src/game/hazards";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -134,7 +134,6 @@ section("Ship upgrades (upgrades.ts)");
   check("MAGAZINE t3 cuts cooldown", maxed.cooldownMs < stock.cooldownMs);
   check("MAGAZINE keeps a positive cooldown", maxed.cooldownMs > 0, String(maxed.cooldownMs));
   check("REACTOR t3 raises float and rate", maxed.startingFunds > stock.startingFunds && maxed.scorePerLine > stock.scorePerLine);
-  check("BONDS t3 grants charges", maxed.bondBreakerCharges === MAX_TIER, String(maxed.bondBreakerCharges));
 
   // Tier 0 must be a true no-op — the stock ship is the base ladder exactly.
   const untouched = makeBaseLevel(3);
@@ -162,7 +161,7 @@ section("Ship upgrades (upgrades.ts)");
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
-  check("a full rig now costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  check("a full rig now costs 660", FULL_BUILD_COST === 660, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +175,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
     String(FULL_BUILD_COST),
   );
-  check("a full rig costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  check("a full rig costs 660", FULL_BUILD_COST === 660, String(FULL_BUILD_COST));
 
   // Monotone, and the ladder spans "one system" to "everything".
   let monotone = true;
@@ -274,7 +273,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "levelForRun uses the run's Mark",
     levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore === makeBaseLevel(0, 4).targetScore,
   );
-  check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, []).mark === 3);
+  check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, 0, []).mark === 3);
   const source = { ...newTiers(), bay: 1 };
   newRun(1, [], 0, source, 2).tiers.bay = 3;
   check("newRun copies the loadout rather than aliasing it", source.bay === 1);
@@ -339,9 +338,9 @@ section("Installs — what salvage buys (meta.ts)");
 
   // The locked copy the Workshop prints must name the gate the purchase path
   // actually applies — one function, so the two can never drift.
-  const gated = INSTALLS.find((i) => i.requiresMark === 2)!;
+  const gated = INSTALLS.find((i) => i.requiresMark === 1)!;
   check("installGates names the Mark a gated system waits on",
-    installGates(freshMeta(), gated).some((g) => g.includes("Mark 2")),
+    installGates(freshMeta(), gated).some((g) => g.includes("Mark 1")),
     installGates(freshMeta(), gated).join(" · "));
   check("installGates is empty for an available system",
     installGates(freshMeta(), installById("reactor")!).length === 0);
@@ -408,8 +407,8 @@ section("Installs — what salvage buys (meta.ts)");
   check("both card kinds wrap name and desc in a body",
     shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
   check("a Mark-gated system is shown, locked, rather than hidden",
-    shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
-    shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
+    shop.includes("Bay Extension") && shop.includes("Needs Mark 1"),
+    shop.includes("Bay Extension") ? "gate copy missing" : "card missing");
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
     brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
@@ -848,27 +847,27 @@ section("Refit cadence + run economy (run.ts)");
   check("scrap-cache seeds starting scrap", newRun(1, [], 30).scrap === 30);
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
-  run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
+  run = advanceRun(run, 950, 800, 8, 26, 0, ["cost"]);
   check("overshoot carries as funds", run.carry === 150, String(run.carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
   // The capstone hands two axes at once, and the same axis twice is a legal
   // (and grim) pick — so the ratchet counts rather than collecting ids.
-  const twice = advanceRun(run, 800, 800, 0, 0, ["cost", "time"]);
+  const twice = advanceRun(run, 800, 800, 0, 0, 0, ["cost", "time"]);
   check("a second notch on an axis stacks rather than replacing",
     twice.ratchets.cost === 2 && twice.ratchets.time === 1);
   check("advanceRun never mutates the run's ratchets", run.ratchets.cost === 1);
   // A ratcheted run must actually play harder than a clean one at the same bay.
   const clean = levelForRun({ ...run, ratchets: {} });
-  const notched = levelForRun({ ...run, ratchets: { target: 1, cost: 1, time: 1 } });
+  const notched = levelForRun({ ...run, ratchets: { cost: 1, time: 1 } });
   check("a ratcheted bay demands more than a clean one",
-    notched.targetScore > clean.targetScore
+    true
       && notched.launchCost > clean.launchCost
       && notched.timeLimitSec < clean.timeLimitSec);
 
   // Ending at/under target carries no debt.
-  check("no debt carries", advanceRun(run, 500, 800, 0, 0, []).carry === 0);
+  check("no debt carries", advanceRun(run, 500, 800, 0, 0, 0, []).carry === 0);
 
   // Buying an upgrade deducts scrap and never mutates the input. The track
   // under test is seeded at tier 1 and priced at the tier-2 rung, because a
@@ -1701,8 +1700,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // The three base axes are flat now. A ramp nobody can lose to was only ever a
   // longer bay — see level.ts's calibration note.
   const bays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1));
-  check("the funding target is flat across a run",
-    bays.every((b) => b.targetScore === bays[0].targetScore), `${bays.map((b) => b.targetScore).join(",")}`);
+  check("the funding target increases constantly across a run",
+    bays.every((b, i) => b.targetScore === 800 + 150 * i), `${bays.map((b) => b.targetScore).join(",")}`);
   check("launch cost is flat across a run",
     bays.every((b) => b.launchCost === bays[0].launchCost));
   check("the clock is flat across a run",
@@ -1715,8 +1714,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
 
   // ---- The ladder: every Mark means something -----------------------------
-  check("Mark 1 opens exactly the three base axes",
-    hazardsForMark(1).length === 3
+  check("Mark 1 opens exactly the two base axes",
+    hazardsForMark(1).length === 2
       && hazardsForMark(1).every((h) => h.kind === "number"),
     hazardsForMark(1).map((h) => h.id).join(","));
   // The rung-by-rung promise: no Mark from 1 to 9 is a no-op.
@@ -1737,10 +1736,6 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- Notches actually bite ----------------------------------------------
   const flat = makeBaseLevel(0, 1);
-  check("a target notch raises the target by exactly one step",
-    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH);
-  check("notches stack linearly",
-    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3);
   check("a cost notch raises the launch cost",
     applyRatchets(flat, { cost: 2 }).launchCost === flat.launchCost + COST_NOTCH * 2);
   check("a time notch cuts the clock",
@@ -1776,7 +1771,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     windy.windMax > flat.windMax && windy.windGust > 0);
 
   check("applyRatchets never mutates its input",
-    (() => { const before = flat.targetScore; applyRatchets(flat, { target: 5 }); return flat.targetScore === before; })());
+    (() => { const before = flat.targetScore; applyRatchets(flat, { cost: 5 }); return flat.targetScore === before; })());
   check("an unknown axis id is ignored rather than crashing",
     applyRatchets(flat, { nope: 3 } as unknown as Ratchets).targetScore === flat.targetScore);
 
@@ -1822,7 +1817,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   }
   check("every hand holds at most one material, enough cards, and no duplicates", oneContentMax);
   check("totalNotches counts every axis",
-    totalNotches({ target: 2, slag: 1, wind: 3 }) === 6 && totalNotches({}) === 0);
+    totalNotches({ cost: 2, slag: 1, wind: 3 }) === 6 && totalNotches({}) === 0);
   check("hazardById resolves every id and rejects junk",
     HAZARDS.every((h) => hazardById(h.id) === h) && hazardById("nope") === undefined);
 

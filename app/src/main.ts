@@ -469,6 +469,7 @@ class App {
               target: g.target,
               lines: g.linesTotal,
               scrap: g.scrapEarned + g.level.scrapPerBay,
+      
             });
         }
         break;
@@ -1033,6 +1034,8 @@ class App {
       g.target,
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
+      
+      g.bondCharges,
       [],
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has

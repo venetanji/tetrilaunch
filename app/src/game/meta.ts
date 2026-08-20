@@ -145,7 +145,7 @@ export const UNLOCKS: UnlockDef[] = [
     cost: 320,
     rank: 3,
     requiresMark: 2,
-    desc: "Adds Bond Breakers to the draft pool: a charge each bay that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.",
+    desc: "Grants 2 Bond Breaker charges for the run that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.",
   },
   {
     id: "auto",
@@ -238,7 +238,6 @@ export const INSTALLS: InstallDef[] = [
   { id: "magazine", cost: 25 },
   { id: "bay", cost: 30, requiresMark: 1 },
   { id: "hydraulics", cost: 30, requiresMark: 1 },
-  { id: "bonds", cost: 40, requiresMark: 2 },
   // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
   // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
   // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one

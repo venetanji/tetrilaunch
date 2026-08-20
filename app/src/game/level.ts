@@ -207,7 +207,7 @@ const LEVEL_NAMES = [
  *  just a longer bay. The player now buys their own raises a notch at a time
  *  (hazards.ts's TARGET_NOTCH), where the cost is at least chosen. */
 function targetScoreFor(_i: number): number {
-  return 800;
+  return 800 + 150 * _i;
 }
 
 /**

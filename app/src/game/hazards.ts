@@ -42,7 +42,7 @@ import { WIND_GUST_FRACTION } from "./level";
 
 /** Every axis that can be ratcheted. Ordered by the Mark that opens it. */
 export type HazardId =
-  | "target" | "cost" | "time"
+  | "cost" | "time"
   | "wind" | "sweeper"
   | "slag" | "cryo" | "rebar" | "volatile" | "tar" | "magnetic";
 
@@ -78,7 +78,7 @@ export interface HazardDef {
  *  play pass will edit them first. */
 export const TARGET_NOTCH = 300;
 export const COST_NOTCH = 5;
-export const TIME_NOTCH = 20;
+export const TIME_NOTCH = 5;
 
 /** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
  *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
@@ -152,14 +152,6 @@ function contentAxis(
  * are ship systems, not axes — see upgrades.ts.
  */
 export const HAZARDS: HazardDef[] = [
-  {
-    id: "target",
-    name: "Quota Raise",
-    desc: `Every bay's funding target rises by $${TARGET_NOTCH}.`,
-    mark: 1,
-    kind: "number",
-    apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n; },
-  },
   {
     id: "cost",
     name: "Fuel Levy",
@@ -271,7 +263,7 @@ export function hazardOffers(
   seed: number,
   levelIndex: number,
   mark: number,
-  count = 3,
+  count = 2,
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
   const want = Math.max(count, picksPerBay(mark));

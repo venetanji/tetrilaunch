@@ -25,7 +25,7 @@ import type { LevelConfig } from "./level";
  * whatever ship you're flying.
  */
 export type UpgradeId =
-  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition";
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "demolition";
 
 export const MAX_TIER = 3;
 
@@ -160,24 +160,6 @@ export const UPGRADES: UpgradeDef[] = [
     },
   },
   {
-    id: "bonds",
-    name: "Bond Emitter",
-    glyph: "BND",
-    blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
-    step: () => ({ dir: "up", text: "+1 charge" }),
-    apply(cfg, tier) {
-      // Bond Breakers are the compaction answer for any build whose pieces
-      // don't flatten their own pile — most of all the light tiny build, whose
-      // cubes are too light for weight alone to square off the layers below
-      // (see pieces.ts's SIZE_SPEC). Buying them as a SYSTEM (rather than
-      // hoping the Bond Breaker mod shows up in a draft) is what makes the
-      // Autoloader endgame something you can plan for.
-      cfg.bondBreakerCharges += tier;
-    },
-  },
-  {
     id: "demolition",
     name: "Demolition Rack",
     glyph: "DEM",
@@ -200,7 +182,7 @@ export const UPGRADES: UpgradeDef[] = [
 export type UpgradeTiers = Record<UpgradeId, number>;
 
 export function newTiers(): UpgradeTiers {
-  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 };
+  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, demolition: 0 };
 }
 
 /**

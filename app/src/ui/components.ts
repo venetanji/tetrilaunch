@@ -113,7 +113,6 @@ export function beltBombHTML(): string {
  *  for what you took on. Which is exactly what a player needs on screen while
  *  deciding whether the next notch is affordable. */
 const AXIS_GLYPHS: Record<HazardId, { g: string; nm: string }> = {
-  target: { g: "QT", nm: "QUOTA" },
   cost: { g: "$L", nm: "FUEL" },
   time: { g: "CL", nm: "SHIFT" },
   wind: { g: "WD", nm: "X.WIND" },
