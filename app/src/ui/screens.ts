@@ -293,7 +293,7 @@ export function leaderboardScreen(rows: string): string {
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
       </div>
-      <div id="lb-body">${rows}</div>
+      <div id="lb-body" data-scroll>${rows}</div>
       <button class="btn btn--primary" data-action="play">▶ Play</button>
     </div>
   </div>`;
@@ -518,7 +518,7 @@ export function hudHTML(opts: {
           ${
             contract
               ? `<div class="pl-funds">
-            <div class="lbl">Lines / Goal</div>
+            <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
@@ -527,7 +527,7 @@ export function hudHTML(opts: {
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>`
               : `<div class="pl-funds">
-            <div class="lbl">Funds / Target</div>
+            <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
@@ -904,7 +904,7 @@ export function refitScreen(opts: {
           <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="refit__grid" id="refit-grid">${cards}</div>
+      <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
       ${
         tracks.length < UPGRADES.length
           ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Mark 1 refits focus the reactor — the rest of the yard opens at Mark 2.</p>`
@@ -1049,7 +1049,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
           : `<div class="workshop__grid">${cards}</div>`}`;
 
-  return `<div class="screen screen--fit neon-backdrop">
+  return `<div class="screen neon-backdrop">
     <div class="workshop">
       <div class="workshop__hdr">
         <div style="text-align:left">
@@ -1067,7 +1067,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
       ${tabBar}
-      <div class="workshop__shop" role="tabpanel">${pane}</div>
+      <div class="workshop__shop" role="tabpanel" data-scroll>${pane}</div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
@@ -1415,7 +1415,7 @@ export function endModal(opts: {
             value="${opts.name}" autocomplete="off" spellcheck="false" />
           <button class="btn btn--primary" data-action="submit-score">Submit</button>
         </div>
-        <div id="lb-body">${opts.rows}</div>
+        <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="restart">Play Again</button>

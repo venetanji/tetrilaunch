@@ -56,7 +56,7 @@ import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
-import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
+import { computeLayout, setSafeAreaInsets, RAIL_MIN, RAIL_SLOTS, UI_SCALE_MIN } from "../src/game/layout";
 import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
@@ -1659,6 +1659,16 @@ section("Layout solver (layout.ts)");
     // A cube must stay finger-sized; below this the game is unplayable rather
     // than merely cramped.
     check(`${name} keeps cubes visible`, CELL * l.scale >= 12, `${(CELL * l.scale).toFixed(1)}px cubes`);
+    // The rail's buttons are the game's PRIMARY touch controls, and a flex
+    // column will happily shrink them past the tap floor to make a stack fit.
+    // The solver has to hand back a size whose whole column actually stacks —
+    // it did not, and the buttons came out at 46px on a Pixel 7.
+    check(`${name} rail buttons meet the tap floor`, l.railSize >= RAIL_MIN, `${l.railSize.toFixed(1)}px`);
+    if (l.mode !== "tall") {
+      const uh = h - l.safe.top - l.safe.bottom;
+      const stack = RAIL_SLOTS * l.railSize + (RAIL_SLOTS - 1) * 6;
+      check(`${name} fits all ${RAIL_SLOTS} rail buttons in its column`, stack <= uh, `${stack.toFixed(0)}px stack in ${uh}px`);
+    }
   }
 
   // Safe areas must actually push the field off the notch.
@@ -1667,6 +1677,64 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Chrome scale (--ui-scale / data-density)");
+// The DOM chrome's counterpart to the field's --fpx. These are the invariants
+// the 15 hand-tuned `max-height` blocks in app.css never had: monotonic, bounded
+// and, above all, aware of the safe-area insets a media query cannot see.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  check("a desktop viewport is never scaled", computeLayout(1600, 900).uiScale === 1);
+  check("a desktop viewport is roomy", computeLayout(1600, 900).density === "roomy");
+
+  // Every landscape phone in the device matrix lands on the floor. That is the
+  // finding, not a rounding artifact: below it the answer has to be a
+  // structural change, which is what `compact` exists to trigger.
+  for (const [name, w, h] of [
+    ["640x360 budget", 640, 360],
+    ["OnePlus 12", 792, 360],
+    ["Pixel 7", 915, 412],
+    ["iPhone SE 3", 667, 375],
+  ] as [string, number, number][]) {
+    const l = computeLayout(w, h);
+    check(`${name} bottoms out at the scale floor`, l.uiScale === UI_SCALE_MIN, String(l.uiScale));
+    check(`${name} is compact`, l.density === "compact", l.density);
+  }
+
+  // Monotonic in both axes — a bigger viewport can never scale the chrome down.
+  let prev = 0;
+  for (const h of [360, 420, 480, 540, 600, 660, 720, 900]) {
+    const s = computeLayout(1600, h).uiScale;
+    check(`ui scale is monotonic at ${h}px tall`, s >= prev, `${s} < ${prev}`);
+    prev = s;
+  }
+
+  check("ui scale never exceeds 1", computeLayout(4000, 3000).uiScale === 1);
+  check("ui scale never drops below the floor", computeLayout(320, 200).uiScale === UI_SCALE_MIN);
+
+  // The reason this is solved in JS at all: a media query cannot subtract the
+  // notch. An iPhone's landscape insets take ~120px of width and 21px of height,
+  // and the chrome has to answer to the box that is actually left.
+  const bare = computeLayout(1100, 760);
+  setSafeAreaInsets({ left: 62, right: 62, top: 0, bottom: 21 });
+  const inset = computeLayout(1100, 760);
+  check(
+    "safe-area insets shrink the chrome scale",
+    inset.uiScale < bare.uiScale,
+    `${inset.uiScale} vs ${bare.uiScale}`,
+  );
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  // Density tiers must partition the scale range with no gap and no overlap.
+  for (const h of [300, 400, 500, 560, 620, 680, 720, 800]) {
+    const l = computeLayout(1600, h);
+    const expected =
+      l.uiScale === 1 ? "roomy" : l.uiScale === UI_SCALE_MIN ? "compact" : "regular";
+    check(`density agrees with scale at ${h}px tall`, l.density === expected, `${l.density} vs ${expected} (${l.uiScale})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,6 +1772,15 @@ section("HUD readout widths (the $1000+ wrap regression)");
   const TGT_EM = 0.62;
   const STAT_LBL_MIN = 6, STAT_LBL_FPX = 8.6;
   const STAT_VAL_MIN = 15, STAT_VAL_FPX = 30;
+  // COMPACT overrides (app.css's [data-density="compact"] plant rules). At the
+  // scale floor the funds figure steps down a notch and the tier-2 labels leave
+  // the pixel face for Rajdhani — which is the whole point of those rules, so
+  // the budget has to model them or it prices a layout that no phone renders.
+  const C_FUNDS_FS_MIN = 15, C_FUNDS_FS_FPX = 34;
+  const C_STAT_LBL_MIN = 8, C_STAT_LBL_FPX = 12;
+  /** Rajdhani's advance, vs the pixel face's 1.45em — this ratio is exactly why
+   *  an 8-glyph heading fits a phone column in one face and not the other. */
+  const UI_ADV = 0.45;
 
   /** Width the funds line needs vs. the width its column actually gets. */
   function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
@@ -1711,9 +1788,15 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const fpx = l.fw / 1280;
     const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
 
+    const compact = l.density === "compact";
     const content = PANEL_W_FRAC * l.fw - 2 * PANEL_PAD_FPX * fpx;
-    const fundsFs = mx(FUNDS_FS_MIN, FUNDS_FS_FPX);
-    const statLbl = mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const fundsFs = compact
+      ? mx(C_FUNDS_FS_MIN, C_FUNDS_FS_FPX)
+      : mx(FUNDS_FS_MIN, FUNDS_FS_FPX);
+    const statLbl = compact
+      ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX)
+      : mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
     const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
     const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
 
@@ -1721,7 +1804,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
     // mono value — the label is what dominates at small scales, and missing that
     // is what made the original budget wrong.
     const col = (label: string, value: string) =>
-      Math.max(label.length * PIXEL_ADV * statLbl, value.length * MONO_ADV * statVal) + statPad;
+      Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
     const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)));
     const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 

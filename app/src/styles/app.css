@@ -102,6 +102,12 @@ body.crt-off #app::after { display: none; }
   color: var(--text);
   background: var(--surface-2);
   box-shadow: var(--shadow-hard);
+  /* WCAG 2.5.5 / iOS HIG, as a floor rather than an aspiration. The compact
+     rules below shrink padding and type to buy back height, and without this
+     they took buttons to 25-32px — the single largest group of findings in
+     sim/uifit, across the menu, the modals and the workshop. Padding may
+     shrink; the target may not. */
+  min-height: var(--tap-min);
 }
 .btn:active { transform: translate(2px, 2px); box-shadow: none; }
 /* Never let a long label squeeze the glyph out of square, and never let the
@@ -153,17 +159,46 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard-lg);
 }
 
-/* ---------- Screen scaffolds ---------- */
+/* ---------- Screen scaffolds ----------
+   FIT-FIRST. A screen does not scroll; it fits. That is the inversion of what
+   this rule used to say (`overflow-y: auto`), and it is deliberate: page
+   scrolling on a landscape phone is how content ends up below a fold nobody
+   thinks to look past, and every screen here is a single view, not a document.
+
+   A screen that cannot fit has to RESTRUCTURE — two columns instead of one, a
+   row instead of a card — and the two places where the content is genuinely
+   unbounded (leaderboard rows, workshop stock) mark one child [data-scroll]
+   and scroll THAT, keeping their own headers and buttons pinned.
+
+   `min-height: 0` on the screen and its children is what makes the flex chain
+   able to hand a child a bounded height at all; without it a flex item's
+   automatic minimum size is its content, and [data-scroll] silently grows
+   instead of scrolling. */
 .screen {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;
+  min-height: 0;
   padding: var(--hud-pad);
-  overflow-y: auto;
+  overflow: hidden;
 }
+.screen > * { min-height: 0; }
+
+/* THE scroll opt-in. sim/uifit's `scrollers` assertion enforces that only
+   #lb-body and .workshop__shop ever carry it — a third one fails the build. */
+[data-scroll] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* A rubber-band at the end of the rows must not propagate to the WebView and
+     drag the whole app (iOS scrollEnabled is already off in capacitor.config,
+     but the PWA has no such setting). */
+  overscroll-behavior: contain;
+}
+
 /* Centering is done via `margin: auto` on the `.modal` child itself (see below),
    not via align-items/justify-content here — that keeps the panel's top edge
-   reachable/scrollable instead of clipped off-screen when content overflows
-   a short (landscape phone) viewport. */
+   reachable instead of clipped off-screen when content overflows a short
+   (landscape phone) viewport. */
 .center { display: flex; }
 
 /* ---------- .split — the landscape two-column block ----------
@@ -324,6 +359,30 @@ body.crt-off #app::after { display: none; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* The brand column's status strip: Tier, Best, Salvage, and the Unlimited
+   chip (upsell before purchase, ★ badge after).
+
+   These four used to be a flex row with `flex-wrap: wrap`, written inline on
+   the element. On a phone the brand column is ~250px wide — narrower than two
+   chips — so "wrap" meant FOUR stacked lines, 204px of them, and the brand
+   column outgrew the menu by 20-45px on the 640x360 and 667x375 devices. That
+   was the last of the menu's overflow after the width-breakpoint fix.
+
+   A 2-column grid puts the same four chips in two rows at any column width,
+   and the chips stretch to fill rather than each claiming its natural width. */
+.menu__chips { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+[data-density="compact"] .menu__chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+[data-density="compact"] .menu__chips > * { min-width: 0; }
+/* A chip whose label and value sit side by side rather than stacked. Was three
+   inline style declarations repeated per chip; inline styles also beat the
+   grid rule above, which is why they had to move. */
+.chip--inline { flex-direction: row; align-items: center; gap: 10px; }
+
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 .menu__status {
   display: grid;
@@ -406,6 +465,9 @@ body.crt-off #app::after { display: none; }
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* A chip that is a real button, so it answers to the tap floor. The
+     surrounding .chip readouts are divs and correctly do not. */
+  min-height: var(--tap-min);
   border-color: var(--warn);
   background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
   transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
@@ -494,6 +556,15 @@ body.crt-off #app::after { display: none; }
 .side-rail .icon-btn {
   pointer-events: auto;
   width: var(--rail-btn); height: var(--rail-btn); font-size: 22px;
+  /* `flex: none` is the tap-target floor, not tidiness. A flex item's height is
+     shrinkable by default, so when the column asked for more than the rail had,
+     these quietly compressed instead of overflowing — 46px on a Pixel 7 against
+     a 60px --rail-btn, i.e. under the WCAG/HIG minimum, with nothing visibly
+     wrong. The solver now caps --rail-btn by the column budget
+     (layout.ts's railColumnCap), and this makes a future miscalculation
+     OVERFLOW, where the harness can see it, rather than silently undersize the
+     game's primary touch controls. */
+  flex: none;
 }
 
 /* Tall layouts: a horizontal strip centered in the bottom band. The band is
@@ -907,6 +978,103 @@ body.crt-off #app::after { display: none; }
   padding-top: 8px; padding-bottom: 9px;
 }
 .pl-mods::-webkit-scrollbar { display: none; }
+
+/* ---------- Compact: the plant panel's height budget ----------------------
+   Every row in this panel scales with the field via --fpx EXCEPT this one. Its
+   chips are floored at 40px (the tap target) and it adds 17px of padding so the
+   xN badge and the B/X key tag survive its own scroll clipping — a fixed 57px,
+   whatever the field does. Measured across the device matrix:
+
+     Pixel 7        field 732x412   design box 177px   .pl-mods 57px  (32%)
+     640x360        field 556x313   design box 134px   .pl-mods 57px  (43%)
+     iPhone 13 mini field 482x271   design box 116px   .pl-mods 57px  (49%)
+
+   At the bottom of that range one row eats half the panel, the rest no longer
+   fits, and because .plant is bottom-anchored with height:auto it grows UPWARD
+   over the play area — 68% of the field height instead of 43%, straight across
+   the cannon and the apex of a high lob. That is the reported overlap.
+
+   Two moves, and neither is "make the text smaller":
+
+   1. The two ABILITY chips go. They are the secondary trigger on touch — the
+      rail's #bond-btn / #demo-btn are the primary one (see the ability note in
+      screens.ts's hudHTML) and keep their full 44-60px tap target. Nothing
+      becomes unreachable; the duplicate goes.
+   2. The INFORMATIONAL chips stay — drafted mods and ship plates are the "what
+      was I dealt / what did I build" readout and have no second home — but go
+      icon-only at roughly half height. The glyph is what identifies them; the
+      name label is what costs the height.
+
+   Together this takes the row from 57px to ~32px, which is what brings the
+   panel back inside its box on every device in the matrix.
+
+   NOTE: deliberately no `max-height` guard on .plant. The panel is
+   `overflow: visible` (the PWR cap rides above its top edge, the xN badges poke
+   out), so a max-height would cap the BOX while the content spilled anyway —
+   the harness's `plant` assertion would go green over a bug that was still on
+   screen. Leaving height:auto keeps the measurement honest. */
+[data-density="compact"] .pl-mods { padding-top: 3px; padding-bottom: 4px; }
+[data-density="compact"] .mod--bb,
+[data-density="compact"] .mod--demo { display: none; }
+[data-density="compact"] .pl-mods .mod,
+[data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
+[data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
+[data-density="compact"] .pl-mods .mod .nm { display: none; }
+
+/* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
+   the type scale — every remaining size is already sitting on its legibility
+   floor (7px pixel-font labels, the 17px funds figure), and shrinking past a
+   floor is how this panel got into trouble in the first place.
+
+   It comes out of the ROW COUNT instead. The reload bar and the meta line are
+   both single-line strips that use a fraction of the panel's width, stacked only
+   because a column was the simplest thing to write. Side by side they cost one
+   row instead of two. Four rows become three; the panel lands inside its box. */
+[data-density="compact"] .plant__body {
+  display: grid;
+  /* Not 1fr 1fr. The reload strip is a label plus a flexible bar and is happy
+     narrow; the meta line is ~30 glyphs of a fixed-advance pixel font and wraps
+     to two lines at anything under ~120px, which cost the shared row 17px —
+     more than the row saved. Measured across five splits; 0.8/1.2 is the one
+     where both sit on a single line. */
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  grid-template-areas:
+    "hdr  hdr"
+    "read read"
+    "load meta"
+    "mods mods";
+  align-content: space-between;
+  gap: max(2px, calc(6 * var(--fpx)));
+}
+[data-density="compact"] .plant__hdr { grid-area: hdr; }
+[data-density="compact"] .pl-read { grid-area: read; }
+[data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
+[data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-end; align-items: center; }
+[data-density="compact"] .pl-mods { grid-area: mods; }
+/* The last few px, taken from DECORATION rather than from type: the goal bar's
+   thickness and the air above it are not legibility floors the way a 7px pixel
+   label is. Vertical panel padding shrinks with them; the horizontal padding
+   does not, because the funds figure needs its width. */
+[data-density="compact"] .pl-goal {
+  margin-top: max(3px, calc(10 * var(--fpx)));
+  height: max(6px, calc(10 * var(--fpx)));
+}
+[data-density="compact"] .plant__body { padding: calc(12 * var(--fpx)) calc(19 * var(--fpx)); }
+
+/* Two labels that cost a whole row each once the real webfonts land — both
+   found by measuring with `document.fonts.ready` awaited, which is exactly the
+   class of thing an eyeball check at the wrong moment misses.
+
+   "FUNDS / TARGET" is 14 glyphs of pixel font, ~98px, in a column that is ~100px
+   on an iPhone 13 mini — so it wrapped to two lines and took .pl-read from 38px
+   to 64px. The qualifier is redundant anyway: the value under it already reads
+   "$1259 / 1700".
+
+   The vertical BUILD tag is 5 glyphs of pixel font stacked, an intrinsic 31px,
+   which was setting .pl-mods' height ABOVE the 25px chips it labels — the row
+   was as tall as its label, not its content. */
+[data-density="compact"] .lbl__q { display: none; }
+[data-density="compact"] .pl-mods > .lbl { display: none; }
 .pl-mods > .lbl {
   flex: none; font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.04em; color: var(--text-faint);
   writing-mode: vertical-rl; transform: rotate(180deg); align-self: stretch; text-transform: uppercase;
@@ -1132,11 +1300,24 @@ body.crt-off #app::after { display: none; }
    height is scarce, so the fix spends width to buy height.
    ========================================================================== */
 .end { display: grid; grid-template-columns: 1fr; width: min(560px, 94vw); }
-.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* min-height:0 as well as min-width:0, and it is the height one that matters:
+   without it the leaderboard column's automatic minimum size is its content, so
+   #lb-body never shrinks and the modal overflows instead of the rows scrolling
+   — the flex item is refusing the bounded height the modal is offering it.
+   .end itself needs the same treatment as the grid between them. */
+.end { min-height: 0; }
+.end__main, .end__side { display: flex; flex-direction: column; gap: inherit; min-width: 0; min-height: 0; }
 /* Tall viewports keep the original single-column reading order (outcome,
    submit, board, actions) purely from DOM order — no grid areas needed. */
 
-@media (max-height: 480px) {
+/* Two columns whenever the viewport is LANDSCAPE, not only when it is short.
+   This was `@media (max-height: 480px)`, which is the same wrong-axis mistake
+   the menu had: an iPad mini is 1024x768, so it sailed past the breakpoint,
+   stacked into one column and overflowed the modal by 198px — on the device
+   with the MOST room. The app locks landscape, so `min-aspect-ratio: 1/1` is
+   true for every phone and tablet it runs on and false only for a narrow
+   desktop window, which is exactly when a single column is right. */
+@media (min-aspect-ratio: 1/1) {
   .end {
     /* Asymmetric on measured evidence, not taste. The salvage block nearly
        doubles in height as it narrows (56px at 560 wide, 109px at 355) because
@@ -1488,7 +1669,8 @@ body.crt-off #app::after { display: none; }
 .pop { animation: pop var(--dur) var(--ease); }
 
 /* ---------- Toggle ---------- */
-.setting { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 14px 4px; border-bottom: 1px solid var(--line); }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 14px 4px; border-bottom: 1px solid var(--line); min-height: var(--tap-min); cursor: pointer; }
+.setting:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setting__label { display: flex; flex-direction: column; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
@@ -1496,15 +1678,54 @@ body.crt-off #app::after { display: none; }
    circle, in keeping with the retro pass's steppy geometry. */
 .toggle { position: relative; width: 56px; height: 30px; border-radius: var(--r-pill); background: var(--surface-3); border: var(--bw) solid var(--line); cursor: pointer; transition: all var(--dur) var(--ease); flex: none; }
 .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: var(--r-sm); background: var(--text-muted); transition: all var(--dur) var(--ease); }
-.toggle[aria-checked="true"] { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
-.toggle[aria-checked="true"]::after { left: 31px; background: var(--accent-ink); }
+.setting[aria-checked="true"] .toggle { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
+.setting[aria-checked="true"] .toggle::after { left: 31px; background: var(--accent-ink); }
 
-/* ---------- How to play ---------- */
-.howto { max-width: 900px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3); }
-.howto__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
-.step { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-4); }
-.step__n { font-family: var(--font-pixel); font-weight: 700; color: var(--accent); font-size: 16px; }
-.step p { color: var(--text-dim); font-size: var(--fs-sm); }
+/* ---------- How to play ----------
+   Nine dense briefing cards. Stacked in a 3-column grid this needed 1500px of
+   height and overflowed EVERY device in the matrix — 485px on an iPad Pro,
+   1269px on a 640x360 phone. No amount of column-count or type-scale tuning
+   fixes that: it is more content than a landscape phone has height for, full
+   stop.
+
+   So it turns the axis. The cards become a horizontal snap row — the app runs
+   in landscape, width is the axis these devices have to spare, and the cards
+   are a sequence the player reads once, in order, which is exactly what
+   scroll-snap is for. The header, the piece gallery and the two buttons stay
+   pinned; only the row moves, and it moves sideways.
+
+   Cards are sized so the next one always PEEKS: without that the row reads as a
+   single card and nobody swipes. */
+.howto {
+  max-width: 900px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3);
+}
+.howto__grid {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  /* The hard shadow on each card is outside its border box. */
+  padding: 2px 2px 6px;
+}
+.howto__grid::-webkit-scrollbar { display: none; }
+.step {
+  flex: 0 0 clamp(210px, 46%, 290px);
+  scroll-snap-align: start;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: var(--sp-4);
+  /* The card is a fixed slot in a fixed-height row; its own copy has to fit it.
+     `min-height: 0` lets the paragraph shrink instead of forcing the row taller
+     than the screen. */
+  min-height: 0;
+  overflow: hidden;
+}
+.step__n { font-family: var(--font-pixel); font-weight: 700; color: var(--accent); font-size: 16px; flex: none; }
+.step p { color: var(--text-dim); font-size: var(--fs-sm); min-height: 0; }
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
 /* ---------- Contracts ---------- */
@@ -1541,8 +1762,11 @@ button.panel { color: var(--text); }
 /* ---------- Leaderboard ---------- */
 /* #lb-body is the flexible, scrollable region inside `.modal`'s flex column —
    it grows to fill leftover space and shrinks (down to a 64px floor) before
-   the header/buttons ever do, so those stay visible while the rows scroll. */
-#lb-body { flex: 1 1 auto; min-height: 64px; overflow-y: auto; }
+   the header/buttons ever do, so those stay visible while the rows scroll.
+   The flex/overflow half comes from [data-scroll]; the floor is its own, since
+   a scroller shorter than a row and a half reads as broken rather than
+   scrollable. */
+#lb-body { min-height: 64px; }
 .lb { display: flex; flex-direction: column; gap: 6px; }
 .lb__row {
   display: grid; grid-template-columns: 40px 1fr auto auto; gap: var(--sp-3); align-items: center;
@@ -1580,14 +1804,24 @@ button.panel { color: var(--text); }
 .submit-row .btn { flex: none; }
 .submit-row.done { display: none; }
 
-/* Small screens: stack menu */
-@media (max-width: 720px) {
-  .menu { grid-template-columns: 1fr; text-align: center; gap: var(--sp-4); }
+/* Stacking is a PORTRAIT decision, not a narrow-viewport one.
+   This used to be `@media (max-width: 720px)`, which is the wrong axis for a
+   game that locks landscape. Measured: at 667x375 (iPhone SE 3) and every
+   Android under 720 CSS px wide, that rule collapsed the menu to one column and
+   overflowed by 150-294px at EVERY height — while the two-column layout it
+   discarded fits with room to spare, because width is the axis these devices
+   have to spare and height is the one they do not.
+
+   `max-aspect-ratio: 1/1` (which .split already keys off) is the condition that
+   actually means "there is no width for two columns": portrait, or a narrow
+   desktop window. The rotate guard covers portrait on phones, so in practice
+   this is the desktop case. */
+@media (max-aspect-ratio: 1/1) {
+  .menu { text-align: center; gap: var(--sp-4); }
   .menu__actions { margin: 0 auto; }
   /* Centered layout: the demo centres with everything else. Left-aligned (the
      two-column default) it stays flush with the title above it. */
   .menu__demo.is-live { margin-inline: auto; }
-  .howto__grid { grid-template-columns: 1fr; }
 }
 
 /* The demo is the one block on the menu whose height is a fixed fraction of
@@ -1804,7 +2038,13 @@ button.panel { color: var(--text); }
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
    ========================================================================== */
-.workshop { max-width: 980px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3); }
+/* height:100% + min-height:0 make this the middle link of the fit chain
+   .screen -> .workshop -> [data-scroll].workshop__shop: the header, tab bar and
+   Start Run stay pinned, and only the stock scrolls. */
+.workshop {
+  max-width: 980px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3);
+}
 .workshop__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .workshop__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
 .workshop__meta { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em; }
@@ -1860,7 +2100,12 @@ button.panel { color: var(--text); }
 
 /* The tab bar is fixed chrome above the scroller, not part of it. */
 .workshop__tabs { display: flex; align-items: center; gap: var(--sp-2); }
+/* Tabs are the workshop's only way to reach half its stock, and they were 20px
+   tall. The pane below them scrolls; the control that chooses WHICH pane cannot
+   be the hardest thing on the screen to hit. */
 .workshop__tab {
+  min-height: var(--tap-min);
+  display: inline-flex; align-items: center;
   font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.08em;
   color: var(--text-dim); background: none; border: none; cursor: pointer;
   padding: 6px 2px; border-bottom: 2px solid transparent;
@@ -1885,17 +2130,21 @@ button.panel { color: var(--text); }
      pinned and on-screen at every ownership state, and the shopping happens
      inside a region instead of running off the bottom. The owned/installed
      strip rides INSIDE that region now, because it belongs to one pane rather
-     than to the screen. Scoped by .screen--fit so other screens keep page
-     scrolling. */
-  .screen--fit { overflow: hidden; }
-  .screen--fit .workshop { height: 100%; min-height: 0; }
-  /* The scroller is the pane. Only the active section is in the DOM at all
-     (see screens.ts's workshopScreen), so there is one grid here, not two. */
-  .workshop__shop { flex: 1; min-height: 0; overflow-y: auto; }
+     than to the screen.
+
+     The fit/scroll half of this has moved OUT of this breakpoint and into the
+     base .screen / [data-scroll] rules — it was never a small-screen special
+     case, it was the right structure at every size, and .screen--fit existed
+     only because page scrolling used to be the default. */
   /* A row needs its full name, a readable desc fragment and a price on one
      line; 148px columns would wrap the name. */
+  /* Exactly two, not `auto-fit`. auto-fit put three ~230px columns on a 792px
+     phone, which is narrower than the card's own content wants: names broke
+     across three lines ("Bulk / Freight / Permit") and the price badge
+     overlapped the PERMANENT tag. Two columns give each card ~350px, which is
+     one line for every name in the set. */
   .workshop__grid {
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
     align-content: start;
   }
   /* The card becomes a ROW. 122px of card in a 189px scroller meant 1.5 cards
@@ -2488,3 +2737,40 @@ button.panel { color: var(--text); }
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* The funds figure steps down one notch at compact.
+   Its column gets ~98px once the two tier-2 stat columns have taken theirs
+   (each is as wide as its 8-glyph pixel-font LABEL, ~70px, not its two-digit
+   value). "$1259 / 1700" needs ~99px of that and "$24680 / 2150" ~110px — so a
+   five-figure bankroll, which a Reactor build carrying overshoot between bays
+   reaches, tripped .pl-read's flex-wrap fallback, dropped the stats to a second
+   row and took the panel to 52% of the field height.
+   17px -> 15px buys ~12% of the line, which covers five figures with slack.
+   That alone is not enough on the tightest device (an iPhone 13 mini gives the
+   column ~82px against ~97px needed), so the tier-2 LABELS give up the pixel
+   face too. Press Start 2P advances ~1.45em including its tracking, so
+   "LAUNCHES" is ~70px and the column is as wide as its heading rather than its
+   number; Rajdhani at 8px is ~29px for the same word and more readable at that
+   size. Done TOGETHER on measured evidence: the label change alone was WORSE
+   (145px vs 140px) because a 9px label line cost more height than the wrap it
+   prevented, and only the pair clears it. The pixel face stays everywhere else
+   on the panel — it is this one eight-glyph column heading it cannot afford. */
+[data-density="compact"] .pl-funds .v { font-size: max(15px, calc(34 * var(--fpx))); }
+[data-density="compact"] .pl-stat .lbl {
+  font-family: var(--font-ui);
+  font-weight: var(--fw-bold);
+  font-size: max(8px, calc(12 * var(--fpx)));
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+/* ---------- Compact: pack the refit yard tighter --------------------------
+   Narrower tracks so seven cards come out three columns wide instead of two.
+   This does NOT make the yard fit — see the note on #refit-grid's [data-scroll]
+   in screens.ts for why it cannot — but three rows of 103px beats four. */
+[data-density="compact"] .refit__grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 6px;
+  align-content: start;
+}
+[data-density="compact"] .refit-card { padding: 8px 10px; gap: 4px; }
