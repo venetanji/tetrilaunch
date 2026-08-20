@@ -80,13 +80,13 @@ export function menuScreen(
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           run that drafts stranger modifiers onto your bankroll every stop.</p>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="menu__status" aria-label="Player progress">
           ${tierChip}
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip menu__stat">
             <div class="chip__label">Best</div>
             <div class="chip__value" style="color:var(--accent)">${best}</div>
           </div>
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip menu__stat">
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
           </div>
@@ -126,7 +126,7 @@ export interface StoreState {
 }
 
 function unlimitedBadgeHTML(): string {
-  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:190px">
+  return `<div class="chip menu__entitlement">
     <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
   </div>`;
 }
@@ -352,9 +352,11 @@ export function hudHTML(opts: {
   timeLimitSec: number;
   timeLeftMs: number;
   pieceSize: PieceSize;
-  /** Whether this bay's run has the Bond Breaker ability drafted — shows its
-   *  glowing chip in the plant's ability row (see main.ts / game.ts's
-   *  useBondBreaker). */
+  /** Whether this bay's run carries the Bond Breaker ability at all — shows
+   *  its glowing chip in the plant's ability row (see main.ts / game.ts's
+   *  useBondBreaker). Charged by CHARGES, not by the config: the stock is a
+   *  consumable run resource, so a run that spent its last charge in an
+   *  earlier bay no longer shows a dead trigger. */
   bondBreakerOwned: boolean;
   /** Charges left this bay, shown on the chip. */
   bondCharges: number;
@@ -1415,6 +1417,10 @@ export function contractEndModal(opts: {
   /** Where the (possibly new) current tier stands after this clear. */
   progress: TierProgress;
   salvageTotal: number;
+  /** Next unfinished card from the board this attempt came from. */
+  nextContract?: { name: string } | null;
+  /** All three cards on that board are now cleared. */
+  boardComplete?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
@@ -1515,7 +1521,14 @@ export function contractEndModal(opts: {
       </p>
       <div class="ce__cols">${stats}<div class="ce__reward">${reward}</div></div>
       <div class="ce__btns">
-        <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
+        ${
+          opts.boardComplete
+            ? `<button class="btn btn--primary btn--lg btn--block" data-action="workshop">Workshop →</button>`
+            : opts.nextContract
+              ? `<button class="btn btn--primary btn--lg btn--block" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
+              : `<button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>`
+        }
+        <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
         <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
       </div>
     </div>

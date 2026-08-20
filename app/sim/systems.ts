@@ -14,7 +14,7 @@
  */
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
-import { makeBaseLevel } from "../src/game/level";
+import { makeBaseLevel, TARGET_PER_BAY } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
@@ -43,7 +43,7 @@ import {
   buyInstall, markBudget, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
@@ -158,7 +158,7 @@ section("Ship upgrades (upgrades.ts)");
   // buys nothing — which is the bug this whole layer exists to fix.
   const demoCfg = makeBaseLevel(0);
   applyUpgrades(demoCfg, { ...newTiers(), demolition: 2 });
-  check("the demolition track grants charges", demoCfg.bombCharges === 2, String(demoCfg.bombCharges));
+  check("the demolition track grants charges", demoCfg.bombCharges === 4, String(demoCfg.bombCharges));
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
@@ -850,6 +850,13 @@ section("Refit cadence + run economy (run.ts)");
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
   check("overshoot carries as funds", run.carry === 150, String(run.carry));
+  // ...but only up to CARRY_CAP: an uncapped carry let one blowout bay bank
+  // the next one outright (the "carry clears two levels" exploit), which
+  // removed the puzzle from the deep run. Past the cap the excess is banked
+  // nowhere — the reward for a blowout is the capped head start, not the bay.
+  check("carry is capped at CARRY_CAP",
+    advanceRun(run, 5000, 1000, 0, 0, []).carry === CARRY_CAP,
+    String(advanceRun(run, 5000, 1000, 0, 0, []).carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
@@ -1435,9 +1442,13 @@ section("Compactor phase telemetry (compactor.ts, game.ts)");
   );
 
   // A shot must carry the LIVE bar reading, not a constant. Fire across the
-  // cycle and require the recorded phases to actually differ.
+  // cycle and require the recorded phases to actually differ. The config is
+  // deliberately over-funded and over-quota'd: this section measures
+  // compactor-phase recording, not the bay economy — and the real bay-1 float
+  // ($170 at $30/launch toward an $800 target) would WIN the bay mid-test (a
+  // settling bay refuses new shots) before both stroke directions were seen.
   const seen: { phase: number; dir: number; stroke: number; live: number }[] = [];
-  const gs = new Game(makeBaseLevel(0), {
+  const gs = new Game({ ...makeBaseLevel(0), startingFunds: 100_000, targetScore: 10_000_000 }, {
     onShoot: (info) => seen.push({
       phase: info.cphase, dir: info.cdir, stroke: info.cstroke, live: gs.compactor.phase,
     }),
@@ -1601,8 +1612,9 @@ section("HUD readout widths (the $1000+ wrap regression)");
     ["laptop 1600x900", 1600, 900],
     ["ultrawide 2400x1080", 2400, 1080],
   ];
-  // bay-10's target is 2150, and a Reactor+carry run can carry 5 figures.
-  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 2150], [24680, 2150]];
+  // bay-10's target is 800 + TARGET_PER_BAY*9 = 1880, and a Reactor+carry run
+  // can carry 5 figures.
+  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 1880], [24680, 1880]];
 
   for (const [name, w, h] of VIEWPORTS) {
     for (const [funds, target] of CASES) {
@@ -1698,15 +1710,26 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     everyBayEveryMark.every((cfg) =>
       Object.values(cfg.materialMix).every((v) => v === 0)));
 
-  // The three base axes are flat now. A ramp nobody can lose to was only ever a
-  // longer bay — see level.ts's calibration note.
+  // The three base economies: the target climbs every bay on its own (that
+  // ramp IS the ladder's difficulty now that the purse is the constraint —
+  // see level.ts's targetScoreFor note), while launch cost and the clock stay
+  // flat so the pressure comes from the quota rising against the same money.
   const bays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1));
-  check("the funding target is flat across a run",
-    bays.every((b) => b.targetScore === bays[0].targetScore), `${bays.map((b) => b.targetScore).join(",")}`);
+  check("the funding target rises every bay",
+    bays.every((b, i) => b.targetScore === 800 + TARGET_PER_BAY * i),
+    `${bays.map((b) => b.targetScore).join(",")}`);
+  check("the rise is strictly positive",
+    TARGET_PER_BAY > 0 && bays[1].targetScore > bays[0].targetScore);
   check("launch cost is flat across a run",
     bays.every((b) => b.launchCost === bays[0].launchCost));
   check("the clock is flat across a run",
     bays.every((b) => b.timeLimitSec === bays[0].timeLimitSec));
+  // The purse is TIGHT: the float buys only a handful of launches, so a bay
+  // is a small number of precise shots rather than a spray. Asserted so
+  // loosening it is a deliberate act with a failing test to read.
+  check("the starting float is a tight budget",
+    bays.every((b) => b.startingFunds < 7 * b.launchCost),
+    `${bays[0].startingFunds} float vs $${bays[0].launchCost}/launch`);
   // A Mark no longer moves any of the ladder's numbers — it only changes which
   // hazards and systems exist.
   check("a Mark changes no number on the base ladder",
@@ -1737,10 +1760,10 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- Notches actually bite ----------------------------------------------
   const flat = makeBaseLevel(0, 1);
-  check("a target notch raises the target by exactly one step",
-    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH);
+  check("a target notch raises the target by one step per bay",
+    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH * flat.id);
   check("notches stack linearly",
-    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3);
+    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3 * flat.id);
   check("a cost notch raises the launch cost",
     applyRatchets(flat, { cost: 2 }).launchCost === flat.launchCost + COST_NOTCH * 2);
   check("a time notch cuts the clock",

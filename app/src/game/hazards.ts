@@ -23,10 +23,15 @@ import { WIND_GUST_FRACTION } from "./level";
  *    hazard cheap for you. Own the Launcher and crosswind is the notch you can
  *    afford. So the draft asks "what have you prepared for?" and the poison you
  *    are equipped for costs you nothing.
+ *  - **The hand is small.** Two cards per draft, not three (see hazardOffers):
+ *    with the purse now the binding constraint (level.ts's economy note), every
+ *    notch is a real fork, and a third card only invited the least-bad shrug.
  *  - **Marks add axes rather than steepen them.** Higher Marks do not make the
  *    ratchet bigger; they put more kinds of pressure on the table. A Mark is a
  *    statement about which hazards and systems exist, and nothing else — which
- *    is why level.ts's MARK_TARGET_STEP is now 0.
+ *    is why level.ts's MARK_TARGET_STEP is 0 (the ladder's OWN per-bay target
+ *    ramp, TARGET_PER_BAY, is a different thing: it is the baseline climb every
+ *    run faces, not a knob a Mark moves).
  *  - **Content axes are the same object as number axes.** Slag is not a
  *    scheduled probability the ladder inflicts any more; it is a notch the
  *    player took instead of a harder number. That swap is only attractive once
@@ -34,10 +39,8 @@ import { WIND_GUST_FRACTION } from "./level";
  *    sells.
  *
  * Notch sizes are a first guess, sized by arithmetic against the curve they
- * replace: today two of three base axes harden every bay (time is relief), so
- * ~18 axis-steps across a run against the ratchet's 9. A notch is therefore
- * about double a current per-bay step. This is the single most likely thing in
- * the design to need a play pass — see the spec's open calls.
+ * replace. This is the single most likely thing in the design to need a play
+ * pass — see the spec's open calls.
  */
 
 /** Every axis that can be ratcheted. Ordered by the Mark that opens it. */
@@ -74,11 +77,18 @@ export interface HazardDef {
 }
 
 /** One notch on each of the three base axes. Named rather than inlined because
- *  the spec's whole pacing argument is stated in these three numbers, and a
- *  play pass will edit them first. */
-export const TARGET_NOTCH = 300;
+ *  the spec's whole pacing argument is stated in these numbers, and a play
+ *  pass will edit them first. */
+/** Quota Raise is PER-BAY rather than flat: the ladder's own target already
+ *  climbs by level.ts's TARGET_PER_BAY every bay, so a flat notch shrinks
+ *  against it. A notch adds TARGET_NOTCH to every bay's demand, per bay —
+ *  the one card that buys MORE of the ladder itself. */
+export const TARGET_NOTCH = 120;
 export const COST_NOTCH = 5;
-export const TIME_NOTCH = 20;
+/** A gentle notch: at 20s the clock was a trap card (three notches quietly
+ *  halved the bay), so the player never took it — which made it dead weight
+ *  in the hand. 5s is a pick you can actually afford. */
+export const TIME_NOTCH = 5;
 
 /** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
  *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
@@ -155,10 +165,14 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "target",
     name: "Quota Raise",
-    desc: `Every bay's funding target rises by $${TARGET_NOTCH}.`,
+    desc: `Every bay's funding target rises by $${TARGET_NOTCH} per bay.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n; },
+    // cfg.id is the bay's 1-BASED number (makeBaseLevel sets id: i + 1), so
+    // the notch already lands on bay 1 (+120) and compounds down the ladder
+    // (+1200 by bay 10) — a flat notch would shrink against the ladder's own
+    // TARGET_PER_BAY ramp the deeper a run goes.
+    apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n * cfg.id; },
   },
   {
     id: "cost",
@@ -254,6 +268,11 @@ export function hazardsForMark(mark: number): HazardDef[] {
  * Deterministic in the run seed, so a bay replayed from the same save deals the
  * same table — the ratchet is a choice under pressure, not a reroll to fish in.
  *
+ * The hand is deliberately SMALL — two cards. A three-card hand invited a
+ * "pick the least-bad" shrug; two cards is a real fork, and with the purse now
+ * tight enough that every notch hurts, the fork is the decision the bay-clear
+ * moment is about.
+ *
  * Two rules shape the hand rather than dealing straight from the pool:
  *
  *  - **At most one content axis per offer.** The material axes all read alike
@@ -263,15 +282,15 @@ export function hazardsForMark(mark: number): HazardDef[] {
  *    means at least two cards, or the capstone would silently hand the player
  *    the same axis twice.
  *
- * Returns every eligible axis when the pool is small (Mark 1 has exactly three),
- * which is intentional: at the bottom of the ladder the ratchet IS the whole
- * table, and hiding one of three would only make the choice arbitrary.
+ * Returns every eligible axis when the pool is small, which is intentional: at
+ * the bottom of the ladder the ratchet IS the whole table, and hiding one of
+ * the few open axes would only make the choice arbitrary.
  */
 export function hazardOffers(
   seed: number,
   levelIndex: number,
   mark: number,
-  count = 3,
+  count = 2,
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
   const want = Math.max(count, picksPerBay(mark));
