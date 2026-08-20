@@ -1025,6 +1025,12 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   const row = (rows: PreviewRow[], id: string): PreviewRow | undefined => rows.find((r) => r.id === id);
 
   const idle = rowsFor([]);
+  // The compact grid drops unmoved CONTEXT rows and keeps the priced five (see
+  // app.css's [data-density="compact"] rule). That only holds if every always-on
+  // row is tagged core and everything else context.
+  check("the priced numbers are the core rows, and nothing else is",
+    idle.filter((r) => r.kind === "core").map((r) => r.id).join(",") === "target,float,cost,shots,clock",
+    idle.filter((r) => r.kind === "core").map((r) => r.id).join(","));
   check("an empty selection changes nothing", idle.every((r) => !r.changed && r.tone === "same"));
   // The four numbers a bay is priced by are the frame the change is read
   // against, so they are on screen before anything is picked.

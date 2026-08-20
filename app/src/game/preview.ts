@@ -35,6 +35,12 @@ export interface PreviewRow {
   changed: boolean;
   /** Which way the change moves the player, for colour. "same" when unchanged. */
   tone: PreviewTone;
+  /** "core" — one of the numbers a bay is priced by, on screen whatever is
+   *  selected. "context" — an axis that is in play but that this selection does
+   *  not touch. A moved row is always shown; an unmoved CONTEXT row is what a
+   *  landscape phone drops first (app.css hides it at compact density), because
+   *  it is the only class of row that is neither the frame nor the answer. */
+  kind: "core" | "context";
 }
 
 const money = (v: number): string => `$${Math.round(v)}`;
@@ -88,7 +94,10 @@ const FIELDS: Field[] = [
     higherIsWorse: true,
   },
   {
-    id: "cells", label: "Press gap", read: (c) => c.compactorOpenCells, fmt: (v) => `${Math.round(v)} cells`,
+    // Unit in the LABEL, not the value: "11 cells → 10 cells" is the one row
+    // wide enough to wrap its tile onto a second line at phone widths, and one
+    // taller tile costs a whole row of the grid.
+    id: "cells", label: "Press gap (cells)", read: (c) => c.compactorOpenCells, fmt: (v) => `${Math.round(v)}`,
     higherIsWorse: false,
   },
   // The content axes, in ladder order, labelled off their own HazardDef so a
@@ -125,6 +134,7 @@ export function previewRows(base: LevelConfig, next: LevelConfig): PreviewRow[] 
       to,
       changed,
       tone: !changed ? "same" : (b > a) === f.higherIsWorse ? "worse" : "better",
+      kind: f.always ? "core" : "context",
     });
   }
   return rows;

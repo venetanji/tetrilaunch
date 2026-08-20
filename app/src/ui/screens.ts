@@ -1191,7 +1191,11 @@ export function draftScreen(opts: {
       const val = r.changed
         ? `<span class="preview-stat__from">${r.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${r.to}</span>`
         : `<span class="preview-stat__to">${r.from}</span>`;
-      return `<div class="preview-stat${r.changed ? ` preview-stat--${r.tone}` : ""}">
+      // An unmoved context row is the one class of tile a landscape phone can
+      // afford to drop (app.css, at compact density) — it is neither the frame
+      // the change is read against nor the change itself.
+      const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
+      return `<div class="preview-stat${cls}">
         <div class="preview-stat__label">${r.label}</div>
         <div class="preview-stat__val">${val}</div>
       </div>`;

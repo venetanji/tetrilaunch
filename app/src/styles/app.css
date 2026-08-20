@@ -370,23 +370,9 @@ body.crt-off #app::after { display: none; }
 
    A 2-column grid puts the same four chips in two rows at any column width,
    and the chips stretch to fill rather than each claiming its natural width. */
-.menu__chips { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-[data-density="compact"] .menu__chips {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  align-items: stretch;
-}
-[data-density="compact"] .menu__chips > * { min-width: 0; }
-/* A chip whose label and value sit side by side rather than stacked. Was three
-   inline style declarations repeated per chip; inline styles also beat the
-   grid rule above, which is why they had to move. */
-.chip--inline { flex-direction: row; align-items: center; gap: 10px; }
-
-.menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 .menu__status {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(92px, .65fr));
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 0.65fr));
   gap: var(--sp-2);
   align-items: stretch;
   width: min(100%, 540px);
@@ -395,8 +381,28 @@ body.crt-off #app::after { display: none; }
 .menu__stat, .menu__entitlement {
   flex-direction: row; align-items: center; gap: var(--sp-2);
 }
-.menu__entitlement, .menu__status .chip--cta { grid-column: 1 / -1; min-height: 44px; }
+/* The entitlement badge and the upsell are one full-width row under the three
+   readouts — they are a different KIND of thing (a state, or an offer), and
+   sharing a cell with Salvage made the strip read as four peers. */
+.menu__entitlement, .menu__status .chip--cta { grid-column: 1 / -1; }
 .menu__status .chip--cta { width: 100%; justify-content: center; }
+/* Compact (every landscape phone): the brand column is ~250-290px, narrower
+   than three chips — at three columns the outer two were driven to ~67px and
+   the grid pushed its own first cell off the left edge of a 640x360 device.
+   Two columns with the tier chip spanning is the same information in a box
+   that exists: the tier row is the tall one (it carries the Run/Contracts
+   ticks), and Best/Salvage are one line each. */
+[data-density="compact"] .menu__status {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+[data-density="compact"] .menu__status .chip--tier { grid-column: 1 / -1; }
+[data-density="compact"] .menu__status .chip { min-height: 46px; padding: 6px 9px; }
+[data-density="compact"] .menu__status .chip__label { font-size: 7px; }
+[data-density="compact"] .menu__status .chip__value { font-size: 16px; }
+[data-density="compact"] .menu__status .tier-chip__halves { font-size: 9px; }
+
+.menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -1457,7 +1463,11 @@ body.crt-off #app::after { display: none; }
   overflow-y: auto;
   padding: 2px;
 }
-@media (min-width: 760px) {
+/* Two columns from 640 up — the narrowest device in the matrix, and the app
+   locks landscape, so in practice this is always on. Stacked, the cards alone
+   eat the height the projection needs, and the numbers a tap is supposed to
+   move end up below the fold, which is the whole point of the screen. */
+@media (min-width: 640px) {
   .draft__body { grid-template-columns: 1.05fr 0.95fr; }
 }
 .draft__preview {
@@ -1496,6 +1506,12 @@ body.crt-off #app::after { display: none; }
    which is the whole thing this screen was failing to do. */
 .preview-stat__from { font-size: 12px; font-weight: 600; color: var(--text-muted); text-decoration: line-through; }
 .preview-stat__arrow { font-size: 11px; color: var(--text-dim); }
+/* Compact (landscape phones): the grid keeps the five priced numbers and every
+   row the selection MOVED, and drops the axes that are merely in play. Ten
+   tiles is four rows against a projection column that has three, and a row of
+   context is what a player can reconstruct by tapping the card anyway — the
+   moment a pick touches crosswind, its tile comes back as a changed one. */
+[data-density="compact"] .preview-stat--context { display: none; }
 .preview-stat--worse { border-color: rgba(255,45,85,0.55); background: rgba(255,45,85,0.10); }
 .preview-stat--worse .preview-stat__to { color: var(--danger); }
 .preview-stat--better { border-color: rgba(0,255,156,0.5); background: rgba(0,255,156,0.10); }
@@ -1548,6 +1564,19 @@ body.crt-off #app::after { display: none; }
   }
   .modal--draft .mod-card__kind { font-size: 7px; padding: 1px 5px; }
   .modal--draft .mod-card__pick { font-size: 9px; }
+  /* The two cards sit SIDE BY SIDE inside their column here, not stacked: at
+     ~78px each, stacking them made the cards column 165px against the
+     projection's 122px, and the cards were setting the modal's height while the
+     numbers the screen exists for were the thing being pushed out. */
+  .modal--draft .draft__cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Two lines of the header say the same thing as the confirm button at the
+     bottom ("launch Cryo Vault") and as the projection's own title. On a
+     360px-tall phone that is 30px the tiles need more. */
+  .modal--draft > .muted,
+  .modal--draft .draft__confirm-note { display: none; }
+  /* The bank stays ONE row: wrapped, its third chip cost a whole row of
+     projection tiles. Labels shrink, the row never does. */
+  .modal--draft .draft__bank { flex-wrap: nowrap; }
   /* Three lines of header sit above the only two things this screen is for —
      the cards and the numbers they move — so on a landscape phone the header
      is what gives up its air. Measured at 792x360: the bank row alone was
@@ -1567,10 +1596,10 @@ body.crt-off #app::after { display: none; }
      packs four across the column a landscape phone leaves for it. */
   .modal--draft .draft__body { gap: var(--sp-2); }
   .modal--draft .draft__preview { padding: 7px 8px; gap: 5px; }
-  .modal--draft .preview-grid { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 5px; }
-  .modal--draft .preview-stat { padding: 4px 6px; }
+  .modal--draft .preview-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 5px; }
+  .modal--draft .preview-stat { padding: 3px 6px; gap: 0; }
   .modal--draft .preview-stat__label { font-size: 8px; }
-  .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; }
+  .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
   .modal--draft .preview-stat__from { font-size: 10px; }
   .modal--draft .draft__confirm-note { font-size: 9px; }
   /* Owned modifiers wrap to a second row once a run has 6+ of them, and that
@@ -2311,7 +2340,14 @@ button.panel { color: var(--text); }
    "clear 10 bays in one run"). The button becomes icon + two-line text. */
 .btn--menu { justify-content: flex-start; text-align: left; }
 .btn--menu .ico { width: 20px; height: 20px; margin-inline: 2px 4px; }
-.menu__actions > .btn:not(.btn--menu) { min-height: 44px; }
+/* No per-screen height rules for menu buttons. A `.btn` is one control with one
+   floor (`min-height: var(--tap-min)`) everywhere in the app; the three primary
+   entries are taller only because they carry a second line of text, and How to
+   Play / Leaderboard / Settings sit at exactly the floor. The pair of rules that
+   used to live here — 44px for the plain ones, then `min-height: 0` for all of
+   them under `max-height: 460px` — fought each other on specificity, so on a
+   landscape phone the plain three kept a 44px floor the subtitled three had
+   lost, and the upsell chip was explicitly shrunk to 32px. */
 .btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .btn__sub {
   font-family: var(--font-ui);
@@ -2324,29 +2360,9 @@ button.panel { color: var(--text); }
 @media (max-height: 460px) {
   .btn__sub { font-size: 11px; }
   .btn__txt { gap: 2px; }
-
-  /* Phone landscape is height-bound. Keep the intentionally compact menu
-     controls from the earlier rule above: the desktop polish must not turn
-     six 30px-ish rows into six 44px rows, or make their icons taller again.
-     Scope this to the menu rather than shrinking buttons throughout modals. */
-  .menu__actions > .btn { min-height: 0; }
-  .menu__actions .btn--menu .ico {
-    width: 13px; height: 13px; margin-inline: 0;
-  }
-
-  /* The status grid should balance the compact action rail rather than rival
-     the demo for height. Its alignment remains, but its cards use phone-scale
-     padding and the entitlement row becomes a quiet footer. */
-  .menu__status { gap: 6px; }
-  .menu__status .chip {
-    min-height: 46px;
-    padding: 6px 9px;
-  }
-  .menu__status .chip__label { font-size: 7px; }
-  .menu__status .chip__value { font-size: 16px; }
-  .menu__status .tier-chip__halves { font-size: 9px; }
-  .menu__entitlement,
-  .menu__status .chip--cta { min-height: 32px; }
+  /* The icon shrinks with the label it sits beside; the BUTTON does not shrink
+     with either (see the note by .btn--menu). */
+  .menu__actions .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
 }
 
 /* ---------- Bay-progress banner ----------
