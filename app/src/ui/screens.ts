@@ -1213,7 +1213,7 @@ export function draftScreen(opts: {
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Notches taken</div>
-          <div class="chip__value">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
+          <div class="chip__value" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
         </div>
         <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
           <div class="chip__label">Scrap${
@@ -1227,10 +1227,10 @@ export function draftScreen(opts: {
         </div>
       </div>
       <div class="draft__body">
-        <div class="draft__cards">${cards}</div>
+        <div class="draft__cards" id="draft-cards">${cards}</div>
         <!-- aria-live: the projection is the ANSWER to tapping a card, and a
              screen-reader user who tapped one gets nothing back otherwise. -->
-        <div class="draft__preview" aria-live="polite">
+        <div class="draft__preview" id="draft-preview" aria-live="polite">
           <div class="draft__preview-hd">
             <span>${opts.nextBayName} — projected</span>
             <span class="draft__preview-note">${pending > 0 ? "with your selection" : "as it stands"}</span>
@@ -1238,7 +1238,7 @@ export function draftScreen(opts: {
           <div class="preview-grid">${stats}</div>
         </div>
       </div>
-      <div class="draft__confirm">
+      <div class="draft__confirm" id="draft-confirm">
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
           ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
         </button>

@@ -509,38 +509,7 @@ class App {
         }
         break;
       case "draft":
-        if (g && this.run) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
-            S.draftScreen({
-              // Same already-advanced levelIndex as the refit screen above.
-              bayNum: this.run.levelIndex,
-              bayName: g.level.name,
-              nextBayName: makeBaseLevel(this.run.levelIndex).name,
-              funds: g.score,
-              // Read the carry the RUN actually recorded rather than
-              // recomputing it, so what's displayed can't drift from what the
-              // next bay's float is really getting (see advanceRun).
-              carry: this.run.carry,
-              offers: this.pendingOffers,
-              ratchets: this.run.ratchets,
-              selected: this.pendingPicks,
-              picksNeeded: picksPerBay(this.run.mark),
-              // Both sides of the projection come from levelForRun, so what the
-              // player reads here is the config the bay is actually built from
-              // — run.ts stays the single source of a bay's numbers, and a
-              // notch's effect is never modelled twice.
-              preview: previewRows(
-                levelForRun(this.run),
-                levelForRun({ ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) }),
-              ),
-              scrap: this.run.scrap,
-              // Bay-CLEARS until the next refit stop, counting the bay about to
-              // be played; 1 means "clear this one and you dock". Null late in a
-              // run when no stop remains.
-              baysToRefit: baysUntilRefit(this.run.levelIndex),
-            });
-        }
+        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
         break;
       // The tutorial handling its own failure. The HUD stays behind the card
       // on purpose: the numbers the card is explaining (Funds, Target, the
@@ -1233,7 +1202,67 @@ class App {
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
     this.pendingPicks = togglePick(this.pendingPicks, id as HazardId, picksPerBay(this.run.mark));
-    this.renderOverlay();
+    this.refreshDraft();
+  }
+
+  /** The bay-clear ratchet modal's markup. Built here rather than inline in
+   *  renderOverlay because refreshDraft renders it a second time, into a
+   *  detached container, to lift the live regions out — two call sites, one
+   *  set of options. */
+  private draftHTML(g: Game): string {
+    const run = this.run!;
+    return S.draftScreen({
+      // levelIndex has already been stepped past the cleared bay by
+      // afterBayClear, so it IS the just-cleared bay's 1-based number, and
+      // makeBaseLevel(levelIndex) is the bay about to be played.
+      bayNum: run.levelIndex,
+      bayName: g.level.name,
+      nextBayName: makeBaseLevel(run.levelIndex).name,
+      funds: g.score,
+      // Read the carry the RUN actually recorded rather than recomputing it, so
+      // what's displayed can't drift from what the next bay's float is really
+      // getting (see advanceRun).
+      carry: run.carry,
+      offers: this.pendingOffers,
+      ratchets: run.ratchets,
+      selected: this.pendingPicks,
+      picksNeeded: picksPerBay(run.mark),
+      // Both sides of the projection come from levelForRun, so what the player
+      // reads here is the config the bay is actually built from — run.ts stays
+      // the single source of a bay's numbers, and a notch's effect is never
+      // modelled twice.
+      preview: previewRows(
+        levelForRun(run),
+        levelForRun({ ...run, ratchets: withPicks(run.ratchets, this.pendingPicks) }),
+      ),
+      scrap: run.scrap,
+      // Bay-CLEARS until the next refit stop, counting the bay about to be
+      // played; 1 means "clear this one and you dock". Null late in a run when
+      // no stop remains.
+      baysToRefit: baysUntilRefit(run.levelIndex),
+    });
+  }
+
+  /** Re-render the draft's live regions IN PLACE on every toggle — the cards,
+   *  the projection, the confirm button and the notch tally — rather than
+   *  calling renderOverlay(). A full re-render recreates `.modal-scrim` and
+   *  `.panel.modal.pop`, so their fade and entrance animations replay on every
+   *  tap: the whole screen flashes, which is exactly the feedback the
+   *  projection is trying to give with a 220ms pop on the tiles that MOVED.
+   *  Same idiom as refreshRefit and renderBoardRows — render the screen to a
+   *  detached container and lift the live regions out, so screens.ts stays the
+   *  one source of the markup. */
+  private refreshDraft(): void {
+    if (!this.run || this.state !== "draft") return;
+    const g = this.game;
+    if (!g) return;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = this.draftHTML(g);
+    for (const id of ["#draft-cards", "#draft-preview", "#draft-confirm", "#draft-notches"]) {
+      const live = this.overlay.querySelector(id);
+      const fresh = tmp.querySelector(id);
+      if (live && fresh) live.innerHTML = fresh.innerHTML;
+    }
   }
 
   /** "confirm-hazards": bank the tentative hand onto the run and fly the next
@@ -1532,9 +1561,17 @@ class App {
 
     const gameAct = el.getAttribute("data-game");
     if (gameAct) {
-      // Pointer taps already acted on pointerdown (see onGamePointerDown);
-      // only keyboard activation (click with detail 0) still lands here.
-      if (e.detail === 0) this.onGameAction(gameAct);
+      // Pointer taps already acted on pointerdown (see onGamePointerDown); only
+      // keyboard activation may act again here.
+      //
+      // `detail === 0` alone was NOT that test. The click a browser synthesizes
+      // after a TOUCH tap also carries detail 0 (verified in Chromium: the tap
+      // produces `pointerdown pointerType=touch` then `click pointerType=touch,
+      // detail 0`), so every rail press on a phone ran its action twice — one
+      // tap on ⟲ turned the piece 180°, not 90°. What separates the two is
+      // `pointerType`: a real keyboard activation has none. Mouse clicks carry
+      // "mouse" and detail 1, and are excluded either way.
+      if (e.detail === 0 && !(e as PointerEvent).pointerType) this.onGameAction(gameAct);
       return;
     }
 
@@ -1654,10 +1691,19 @@ class App {
   private onGameAction(a: string): void {
     const g = this.game;
     if (!g || this.state !== "playing") return;
+    // Every rail press buzzes, here rather than at either call site. The rail
+    // moved to pointerdown (see onGamePointerDown) and onClick returns early
+    // for [data-game], so the tap that used to come from onClick's dispatcher
+    // stopped arriving: on a touch device the entire in-game control surface —
+    // rotate, Bond Breaker, cancel — went silent, and only the Autoloader hold
+    // and a SUCCESSFUL bomb arm still fired one. A press is worth confirming
+    // even when it does nothing (an empty bomb rack is the case a player most
+    // needs to feel), so this is unconditional and the arm's own tap goes.
+    void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
-    else if (a === "demo") { if (g.armBomb()) { telemetry.ability("bomb-arm", g.elapsedMs); void tapHaptic(); } }
+    else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
     else if (a === "cancel") this.input.cancelAim();
   }
 
