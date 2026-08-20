@@ -173,7 +173,7 @@ export const MODS: ModDef[] = [
   {
     id: "bond-breaker",
     name: "Bond Breaker",
-    desc: "+1 charge per bay. Press B (or ⚡) to shatter every joint into loose cubes — they settle flatter and pack into lines far more easily.",
+    desc: "ONE charge for the WHOLE RUN — not per bay. Press B (or ⚡) to shatter every joint into loose cubes: the pile slumps flat and packs into lines far more easily. Spend it on the bay that needs it most.",
     kind: "boon",
     unlock: "bond-breaker",
     stackable: true,

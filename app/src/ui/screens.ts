@@ -352,9 +352,11 @@ export function hudHTML(opts: {
   timeLimitSec: number;
   timeLeftMs: number;
   pieceSize: PieceSize;
-  /** Whether this bay's run has the Bond Breaker ability drafted — shows its
-   *  glowing chip in the plant's ability row (see main.ts / game.ts's
-   *  useBondBreaker). */
+  /** Whether this bay's run carries the Bond Breaker ability at all — shows
+   *  its glowing chip in the plant's ability row (see main.ts / game.ts's
+   *  useBondBreaker). Charged by CHARGES, not by the config: the stock is a
+   *  consumable run resource, so a run that spent its last charge in an
+   *  earlier bay no longer shows a dead trigger. */
   bondBreakerOwned: boolean;
   /** Charges left this bay, shown on the chip. */
   bondCharges: number;

@@ -284,8 +284,9 @@ export class Game {
   timeLeftMs: number;
   /** Pieces AND bombs fired so far this level — drives nextIsBomb. */
   shotsFired = 0;
-  /** Bond Breaker charges left this bay (see useBondBreaker). Seeded from
-   *  level.bondBreakerCharges — 0 unless the player drafted the mod. */
+  /** Bond Breaker charges left in the RUN's stock (see useBondBreaker).
+   *  Seeded from level.bondBreakerCharges — which main.ts threads bay-to-bay,
+   *  so this is the run's remaining magazine, not a per-bay refill. */
   bondCharges: number;
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */

@@ -158,6 +158,12 @@ export interface LevelConfig {
    *  shipments, so a Contract can't be brute-forced by launching until the pile
    *  happens to resolve.
    *
+   *  Deep Run plays the same game on its own axis: the bankroll is its launch
+   *  budget (see the economy note below makeBaseLevel). The float covers a
+   *  handful of launches and the carry-over is capped (run.ts's CARRY_CAP), so
+   *  a bay is won by placing a few shots exactly rather than by launching
+   *  until the pile happens to resolve.
+   *
    *  It is deliberately NOT a budget of compactor press strokes, which is what
    *  this was first built as. Strokes advance on a wall clock whether or not
    *  the player acts, which made the budget a disguised timer in the one mode
@@ -169,45 +175,55 @@ export interface LevelConfig {
    *  (targetScore), which is the Deep Run condition. Contracts carry no
    *  bankroll, so funds can't be their objective. */
   objectiveLines: number;
-  /** Bond Breaker charges granted at the START of this bay — the "shatter
+  /** Bond Breaker charges granted at the START of this RUN — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
-   *  useBondBreaker). 0 = the player never drafted it. Each charge is a
-   *  one-shot use; the count refreshes every bay because run.ts's levelForRun
-   *  re-applies the drafted mods onto a fresh base each bay (the Bond Breaker
-   *  mod just increments this — see mods.ts). Tunable roadmap seam: a future
-   *  "efficient charges" boon could grant more per bay. */
+   *  useBondBreaker). Consumable and rare by design: the run's total stock is
+   *  written onto bay 1's config (run.ts's levelForRun does the seeding) and
+   *  the Game threads the remaining stock bay-to-bay, so a charge fired in
+   *  bay 3 is gone in bay 4. It never refreshes per bay — a shatter that came
+   *  back every level erased the pile's history AND let a single big carry
+   *  bankroll two clears in a row, which is the exact spray-and-pray loop this
+   *  field used to feed. 0 = the player never bought one. */
   bondBreakerCharges: number;
 }
 
-// Economy balance note: each bay is its OWN economy now — targetScore,
-// launchCost, and scorePerLine are all PER-BAY (not cumulative), and only
-// the surplus banked above a cleared bay's target carries into the next one
-// (see run.ts's RunState.carry / advanceRun). At Launch Bay (i=0) a perfect
-// 8-cube line costs 2 shots ($50) for a $100 payout, so clean play nets
-// $50/line toward the $800 target from a $250 float. Late bays cost more per
-// shot but pay out faster: scorePerLine ramps +10/bay against launchCost's
-// +2/bay, so a bay-10 (i=9) line costs 2 x $43 = $86 for a $190 payout — net
-// +$104/line, comfortably ahead of bay 1's +$50. The existing $25+2i
-// lost-piece penalty and wasted shots (cooldown-gated misses cost nothing,
-// only fired shots do) are what can still put a bay out of reach.
+// Economy balance note: each bay is its OWN economy — targetScore, launchCost,
+// and scorePerLine are all PER-BAY (not cumulative), and only a CAPPED share
+// of the surplus banked above a cleared bay's target carries into the next one
+// (run.ts's RunState.carry / advanceRun / CARRY_CAP). The budget is deliberately
+// TIGHT: a $170 float buys fewer than six stock launches ($30 each), so a bay
+// is won with a small number of precisely-placed shots, not by spraying until
+// the pile resolves. At Launch Bay (i=0) a perfect 8-cube line costs 2 shots
+// ($60) for a $100 payout, so clean play nets $40/line toward the $800 target
+// from a $170 float. Later bays keep the same $30 launch price but pay out
+// faster (scorePerLine ramps +10/bay) against a rising target (+120/bay), so
+// the purse tightens as the ladder climbs and the Reactor float install
+// (upgrades.ts) becomes the deep-run economy answer. The $25+2i lost-piece
+// penalty and wasted shots are what put a sloppy bay out of reach.
 const LEVEL_NAMES = [
   "Launch Bay", "Cargo Dock", "Freight Yard", "Assembly Line", "Foundry",
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
 ] as const;
 
-/** Per-bay funding target — FLAT at 800 for every bay. Per-bay (not cumulative)
- *  because each bay is its own economy: only the overshoot above this target
- *  carries into the next bay's float (see run.ts's RunState.carry), not the
- *  whole ending score.
+/** Per-bay funding target — RISES every bay, automatically, by
+ *  TARGET_PER_BAY. Per-bay (not cumulative) because each bay is its own
+ *  economy: only the capped overshoot above this target carries into the next
+ *  bay's float (see run.ts's RunState.carry / CARRY_CAP).
  *
- *  This used to ramp 800 + 150*i. It does not any more, and the reason is
- *  measured rather than aesthetic: the calibration note below records that
- *  target is a DURATION knob, not a difficulty one — raising it produced zero
- *  extra losses, the bot simply played longer. A ramp nobody can lose to is
- *  just a longer bay. The player now buys their own raises a notch at a time
- *  (hazards.ts's TARGET_NOTCH), where the cost is at least chosen. */
-function targetScoreFor(_i: number): number {
-  return 800;
+ *  The ramp is back, and the reason the old one was removed no longer applies.
+ *  The old ramp (800 + 150i against a flat $250 float and uncapped carry) was
+ *  measured to be a DURATION knob: with a bottomless purse, income per line
+ *  always beat spend per line, so any target was only a matter of time. The
+ *  budget is the lever that now bites (tight float, capped carry), and once
+ *  money is scarce a rising target lengthens the bay's demand against a purse
+ *  that does NOT rise with it — which is a difficulty curve. It also takes the
+ *  ramp out of the player's draft: the ladder's own climb is no longer
+ *  something a hazard card can be spent opting into (hazards.ts's Quota Raise
+ *  is retuned to mean something on top of this). */
+export const TARGET_PER_BAY = 120;
+
+function targetScoreFor(i: number): number {
+  return 800 + TARGET_PER_BAY * i;
 }
 
 /**
@@ -222,16 +238,13 @@ function targetScoreFor(_i: number): number {
  *   of rubbery as break-resistance rises.
  * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
  *   sloppy play faster and harder.
- * - targetScore (800 + 150i), launchCost (25 + 2i), and scorePerLine
- *   (100 + 10i) are all PER-BAY floats, not cumulative — startingFunds stays
- *   a flat $250 float every bay (see run.ts's levelForRun), with only the
- *   prior bay's overshoot (RunState.carry) stacked on top. scorePerLine
- *   ramping (+10/bay) faster than launchCost (+2/bay) keeps a clean line's
- *   net payout growing bay-over-bay instead of bleeding out late (bay 10: a
- *   2-shot line costs $86, pays $190).
- * - timeLimitSec grows slower than targetScore (10s/level vs. +150/level),
- *   so time pressure keeps rising relative to how much a bay actually needs
- *   to bank.
+ * - targetScore (800 + TARGET_PER_BAY·i) climbs every bay on its own; the
+ *   clock (150s), launch cost ($30) and startingFunds ($170) are flat
+ *   PER-BAY floats — only the prior bay's CAPPED overshoot (RunState.carry)
+ *   stacks on top. The purse is deliberately tight: a flat float against a
+ *   rising quota means later bays demand more lines from the same money,
+ *   which is what makes precise launches the strategy (scorePerLine still
+ *   ramps +10/bay, so a clean line stays net-positive all the way down).
  * - windMax is the core counter to "fire the same direction forever", now
  *   introduced only AFTER the player has the fundamentals down. The first
  *   three bays (i < 3) are dead calm (windMax 0) so new players learn the
@@ -397,14 +410,14 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
-    // FLAT across the run, and this is the hazard draft's whole premise. These
-    // three used to harden every bay on their own (800+150i, 25+2i, 150+10i);
-    // now the bay demands the same thing every time and the PLAYER ratchets
-    // whichever axis they choose (hazards.ts). Difficulty stopped being
-    // something the ladder inflicts behind the player's back.
+    // The TARGET climbs every bay on its own (see targetScoreFor) — that is
+    // the ladder's own difficulty curve, and it is deliberately NOT one of the
+    // axes the hazard draft can spend a notch on. Float and launch price stay
+    // flat: the purse is the pressure. A flat $170 float buys fewer than six
+    // stock launches, so bays are won by placing shots, not volume.
     targetScore: Math.round(targetScoreFor(i) * targetMult),
-    startingFunds: 250,
-    launchCost: 25,
+    startingFunds: 170,
+    launchCost: 30,
     // null = the seeded 7-bag (see the field's doc). This was a fixed
     // I,O,T,L,J,S,Z rotation, which made every bay open with the same pieces
     // in the same order — the first minute of every run played out identically

@@ -21,10 +21,11 @@ export interface RunState {
   /** 0..RUN_LEVELS-1; the level currently playing (or about to start). */
   levelIndex: number;
   /** Carried surplus — the overshoot banked above the just-cleared bay's
-   *  target (see advanceRun), NOT the full ending score. Each bay is its own
-   *  economy (see level.ts's economy balance note): level 1 starts from the
-   *  base level's startingFunds with carry at 0; every later level starts
-   *  from its own base startingFunds plus whatever surplus carried over. */
+   *  target, CAPPED at CARRY_CAP (see advanceRun), NOT the full ending score.
+   *  Each bay is its own economy (see level.ts's economy balance note): level 1
+   *  starts from the base level's startingFunds with carry at 0; every later
+   *  level starts from its own base startingFunds plus whatever surplus
+   *  carried over. */
   carry: number;
   /** How far each difficulty axis has been ratcheted this run (hazards.ts).
    *  This replaced `modIds`: the between-bay draft no longer deals modifier
@@ -118,7 +119,13 @@ export function baysUntilRefit(levelIndex: number): number | null {
  *  claim true — a system does not delete a hazard, it makes one specific hazard
  *  cheap for you — because the ship's numbers are already in the config when the
  *  notch is added to them. The carry is added dead last so it's never scaled by
- *  either: it's cash in hand, not a rate. */
+ *  either: it's cash in hand, not a rate.
+ *
+ *  Bond Breaker charges are CONSUMABLE and threaded by main.ts, not derived:
+ *  the config's bondBreakerCharges is only ever seeded on bay 1's config, and
+ *  startLevel overwrites it with the run's remaining stock every bay — a
+ *  charge spent in bay 3 stays spent in bay 4. That is what stops the
+ *  per-bay refresh that used to let one bond bankroll a double clear. */
 export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
@@ -127,14 +134,24 @@ export function levelForRun(run: RunState): LevelConfig {
   return cfg;
 }
 
+/** Cap on the carry-over banked into the next bay's float (see advanceRun).
+ *
+ *  An UNCAPPED carry was the deep-run exploit: one blowout bay (or one well-
+ *  timed Bond Breaker flattening the whole field into multi-lines) banked
+ *  enough overshoot to clear the next bay — sometimes the next TWO — on
+ *  autopilot, which removed the puzzle entirely. Capped at roughly one clean
+ *  line's net payout ($100 payout − $60 for its two stock launches), so a
+ *  strong bay still buys a head start — never a free clear. */
+export const CARRY_CAP = 150;
+
 /** Advance to the next level after one ends: carry becomes the overshoot
- *  banked above the just-cleared bay's target (0 if the bay ended at or
- *  below target — no debt carries), lines and scrap accumulate, and the
- *  drafted pick (if any — the player may have nothing left to pick from) is
- *  appended. `clearedTarget` is the just-ended bay's targetScore (Game.target),
- *  needed to compute the overshoot; `scrapEarned` is what the bay paid out
- *  (Game.scrapEarned plus the per-bay clear bonus). Returns a new RunState;
- *  never mutates the one passed in. */
+ *  banked above the just-cleared bay's target, CAPPED at CARRY_CAP (0 if the
+ *  bay ended at or below target — no debt carries), lines and scrap
+ *  accumulate, and the drafted pick (if any — the player may have nothing
+ *  left to pick from) is appended. `clearedTarget` is the just-ended bay's
+ *  targetScore (Game.target), needed to compute the overshoot; `scrapEarned`
+ *  is what the bay paid out (Game.scrapEarned plus the per-bay clear bonus).
+ *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
   endedScore: number,
@@ -148,7 +165,7 @@ export function advanceRun(
   return {
     seed: run.seed,
     levelIndex: run.levelIndex + 1,
-    carry: Math.max(0, endedScore - clearedTarget),
+    carry: Math.min(CARRY_CAP, Math.max(0, endedScore - clearedTarget)),
     ratchets,
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,

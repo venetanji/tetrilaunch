@@ -163,17 +163,18 @@ export const UPGRADES: UpgradeDef[] = [
     id: "bonds",
     name: "Bond Emitter",
     glyph: "BND",
-    blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
+    blurb: "Ships ONE Bond Breaker charge for the whole run — shatter the field flat, once, where it counts most.",
+    tiers: ["+1 charge per run", "+2 charges per run", "+3 charges per run"],
+    current: (t) => (t === 0 ? "no charges" : `${t} charge${t === 1 ? "" : "s"} for the run`),
     step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
       // cubes are too light for weight alone to square off the layers below
-      // (see pieces.ts's SIZE_SPEC). Buying them as a SYSTEM (rather than
-      // hoping the Bond Breaker mod shows up in a draft) is what makes the
-      // Autoloader endgame something you can plan for.
+      // (see pieces.ts's SIZE_SPEC). They are CONSUMABLE now (level.ts's
+      // bondBreakerCharges): the run's stock is spent down bay-to-bay and
+      // never refreshes, so this track buys a small magazine of get-out-of-
+      // jail shots, not a per-bay reset button.
       cfg.bondBreakerCharges += tier;
     },
   },
@@ -182,17 +183,18 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Demolition Rack",
     glyph: "DEM",
     blurb: "Demolition charges every bay — sell a dead pile back for cash.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
-    step: () => ({ dir: "up", text: "+1 charge" }),
+    tiers: ["+2 charges per bay", "+4 charges per bay", "+6 charges per bay"],
+    current: (t) => (t === 0 ? "no charges" : `+${2 * t} charges/bay`),
+    step: () => ({ dir: "up", text: "+2 charges" }),
     apply(cfg, tier) {
-      // The exact shape of the `bonds` track, and for the same reason: a
-      // charge you can PLAN for beats a charge you might be dealt. Demolition
-      // is slag's only clean answer (a slag cube is worth $0 as line material
-      // and salvagePerCube as scrap, so bombing it is strictly positive
-      // value), and leaving that answer to a draft shuffle meant a player who
-      // had paid for it went whole runs without one.
-      cfg.bombCharges += tier;
+      // Twice the old size, and deliberately more generous than the bond
+      // track: a bomb is a SALVAGE tool (it refunds what it vaporizes) rather
+      // than a field-flattening reset, so it can afford to be the abundant
+      // consumable now that Bond Breakers are the rare one. A charge you can
+      // PLAN for beats a charge you might be dealt — demolition is slag's
+      // only clean answer, and leaving that answer to a draft shuffle meant a
+      // player who had paid for it went whole runs without one.
+      cfg.bombCharges += 2 * tier;
     },
   },
 ];
