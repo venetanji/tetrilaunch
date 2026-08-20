@@ -60,7 +60,7 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal, coachSteps,
+  contractEndModal, coachSteps, coachFailSteps, coachFailHTML,
 } from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
@@ -2389,6 +2389,37 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       steps[0].body.includes("power") && steps[0].body.includes("release"));
     check("the coach deck is one card per completable action",
       steps.length === 4);
+
+    // ---- The coach handles its own failures --------------------------------
+    // A lost first bay used to route straight into the run-end modal: "Game
+    // Over", a leaderboard submit box and a zeroed tier ledger, ninety seconds
+    // into a first game. The tutorial explains the loss and hands the bay back
+    // instead (screens.ts's coachFailHTML) — and since the tightened float
+    // (level.ts's economy note) makes "broke" the failure a new player will
+    // actually meet, that branch has to carry the arithmetic, not a mood.
+    const broke = coachFailSteps("broke", rowLevel);
+    check("the failure card names the launch price and the target",
+      broke.body.includes(`$${rowLevel.launchCost}`)
+        && broke.body.includes(`$${rowLevel.targetScore}`),
+      broke.body);
+    check("the failure card counts the bay's shots rather than asserting a number",
+      broke.body.includes(`${Math.floor(rowLevel.startingFunds / rowLevel.launchCost)} shots`),
+      broke.body);
+    check("every Deep Run loss reason gets its own explanation",
+      new Set((["broke", "time", "topout"] as const).map((r) => coachFailSteps(r, rowLevel).title)).size === 3);
+    check("an unknown reason still explains itself rather than rendering blank",
+      coachFailSteps(null, rowLevel).body.length > 40);
+    // The whole point of the card: one obvious way back in, and no leaderboard.
+    const failCard = coachFailHTML("broke", rowLevel, "Launch Bay");
+    check("the failure card offers retry as the primary, full-width action",
+      failCard.includes(`data-action="coach-retry"`) && failCard.includes("btn--block"));
+    check("the failure card offers a way past the tutorial and a way out",
+      failCard.includes(`data-action="coach-skip-run"`) && failCard.includes(`data-action="menu"`));
+    check("the failure card never asks a beaten first-timer for a leaderboard name",
+      !failCard.includes(`data-action="submit-score"`) && !failCard.includes("name-input")
+        && !failCard.toLowerCase().includes("game over"));
+    check("the failure card is a scrim modal, not an in-panel step",
+      failCard.includes(`class="modal-scrim"`) && failCard.includes("coach--fail"));
   }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic

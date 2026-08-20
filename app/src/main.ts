@@ -56,7 +56,7 @@ import {
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end";
+  | "contracts" | "contract-end" | "coach-fail";
 
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
@@ -313,7 +313,13 @@ class App {
 
       // Pausing drops to the lounge bed: the driving track under a paused game
       // reads as pressure while nothing is happening.
+      //
+      // A tutorial failure gets the SAME treatment, and pointedly not "lost"'s
+      // game-over sting: the run has not ended, the bay is about to be handed
+      // straight back, and a funeral cue would tell the player the opposite of
+      // what the card in front of them says.
       case "paused":
+      case "coach-fail":
         stopStinger();
         playMusic("menu");
         return;
@@ -515,6 +521,17 @@ class App {
               // run when no stop remains.
               baysToRefit: baysUntilRefit(this.run.levelIndex),
             });
+        }
+        break;
+      // The tutorial handling its own failure. The HUD stays behind the card
+      // on purpose: the numbers the card is explaining (Funds, Target, the
+      // clock) are right there to be pointed at, which a run-end modal that
+      // replaces the whole screen cannot do.
+      case "coach-fail":
+        if (g) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.coachFailHTML(g.lossReason, g.level, g.level.name);
         }
         break;
       case "won":
@@ -1004,6 +1021,17 @@ class App {
     } else if (s === "lost") {
       void impactHaptic();
       this.showSettleNote(false);
+      // A loss WHILE THE COACH IS RUNNING is a teaching moment, not a run end.
+      // The tutorial explains what happened and offers the bay back (see
+      // screens.ts's coachFailHTML) — deliberately BEFORE finishRun, so none
+      // of its bookkeeping happens: no recordRunEnd (a fumbled tutorial must
+      // not spend the player's run count or their tier progress), no saveBest,
+      // no leaderboard submit on a run that scored nothing. The bay telemetry
+      // above is already recorded, which is the half worth keeping.
+      if (this.tutorialStep !== null) {
+        this.setState("coach-fail");
+        return;
+      }
       this.finishRun(false);
     }
   }
@@ -1205,6 +1233,16 @@ class App {
    *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
    *  keeping the run's carried surplus and drafted mods exactly as they were
    *  at this bay's entry. */
+  /** Replay the bay the tutorial just lost. Distinct from restartBay only in
+   *  the state it will accept: restartBay is the pause-menu path, this one is
+   *  the failure card's, and neither should fire from the other's screen. */
+  private coachRetry(): void {
+    if (this.state !== "coach-fail" || !this.run) return;
+    this.startLevel();
+    this.last = performance.now();
+    this.acc = 0;
+  }
+
   private restartBay(): void {
     if (this.state !== "paused") return;
     // Restarting a Contract re-generates the same bay from its seed, which is
@@ -1503,6 +1541,19 @@ class App {
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
       case "restart": this.startGame(); break;
       case "restart-bay": this.restartBay(); break;
+      // Retry from the tutorial's failure card. startLevel rebuilds this bay
+      // from the run (which never advanced, so its seed, funds and Bond
+      // Breaker stock are untouched) and re-arms the coach at step 0 — the
+      // honest reset, since the steps that were never performed were never
+      // learned.
+      case "coach-retry": this.coachRetry(); break;
+      // "Skip tutorial" from the failure card: drop the coach for good, then
+      // hand the bay back anyway. A player who is done being taught still
+      // wants the bay they just lost, not the main menu.
+      case "coach-skip-run":
+        this.finishTutorial();
+        this.coachRetry();
+        break;
       case "submit-score": void this.onSubmitScore(); break;
       case "paywall": void this.onPaywall(); break;
       case "customer-center": void presentCustomerCenter(); break;

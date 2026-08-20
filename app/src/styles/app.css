@@ -2117,6 +2117,52 @@ button.panel { color: var(--text); }
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
 .coach__btn { pointer-events: auto; }
+
+/* ---------- Tutorial failure card ----------
+   The same card, moved out of the plant panel and into a scrim (see screens.ts
+   coachFailHTML). Three of the base `.coach` rules exist only for the in-flow
+   placement and have to be undone here: the panel margin, the panel width it
+   inherits, and `pointer-events: none` — which on the teaching steps keeps the
+   card from growing the dead zone under the drag gesture, and here would make
+   the retry button unclickable.
+
+   `margin: auto` centres it the same way `.modal` does, and for the same
+   reason: auto margins collapse rather than overflow, so on a short landscape
+   phone the card stays flush at the top and scrollable instead of clipping
+   off the edge. */
+.coach--fail {
+  pointer-events: auto;
+  margin: auto;
+  width: min(430px, calc(100% - 2 * var(--sp-3)));
+  max-height: 100%;
+}
+.coach--fail .coach__card { gap: 10px; padding: 16px 18px; }
+.coach--fail .coach__title { font-size: 15px; color: var(--danger); }
+.coach--fail .coach__body { color: var(--text); }
+/* The foot stacks here rather than sitting on one row: retry is the primary
+   action and gets the full width, with the two ways out quiet beneath it. */
+.coach__foot--fail {
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: var(--sp-2); margin-top: var(--sp-1);
+}
+.coach__foot--fail .coach__foot-row { justify-content: center; gap: var(--sp-3); }
+.coach__foot--fail .btn { pointer-events: auto; }
+
+/* The short-viewport block below hides `.coach__eyebrow` on the teaching steps,
+   where "Tutorial · 3/4" only repeats what the footer dots already say. The
+   failure card has no dots, and its eyebrow is the one line telling a player
+   who just lost their first bay that they are still in the tutorial and
+   nothing has been spent — which is the entire point of the card. Kept. */
+.coach--fail .coach__eyebrow { display: block; }
+
+/* Phone landscape is height-bound — the card must not need scrolling to reach
+   its own retry button, so the copy tightens rather than the button shrinking. */
+@media (max-height: 460px) {
+  .coach--fail .coach__card { gap: 6px; padding: 10px 14px; }
+  .coach--fail .coach__title { font-size: 13px; }
+  .coach--fail .coach__body { font-size: 12px; line-height: 1.35; }
+  .coach__foot--fail { gap: 6px; }
+}
 /* Short viewports: the card now lives in the plant's width (257-301px on a
    landscape phone) rather than the 430px it had centred over the field, so the
    same copy wraps to more lines — and every line it gains grows the panel

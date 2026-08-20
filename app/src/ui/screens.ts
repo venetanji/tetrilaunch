@@ -706,6 +706,88 @@ export function coachHTML(
 }
 
 /**
+ * TUTORIAL FAILURE — the coach handling a lost first bay.
+ *
+ * A first-timer who runs the purse dry ninety seconds into their first game
+ * used to get the full run-end modal: "Game Over", a leaderboard submit box, a
+ * tier-progress ledger and a score breakdown reading zero. Every one of those
+ * is an answer to a question they have not thought to ask yet, and the two
+ * things they actually needed — what went wrong, and how to get back in — were
+ * a "Play Again" button and a themed one-liner. A tutorial that can hard-fail
+ * into a leaderboard is a tutorial that stops teaching at the first mistake.
+ *
+ * So the coach handles its own failures. Same card, same voice, same place on
+ * screen as the four teaching steps — the lesson simply continues, because
+ * losing a bay to an empty bankroll IS the lesson this mode is built around.
+ * The run is not recorded, no score is submitted and nothing is banked: the
+ * bay did not happen. (main.ts's onGameStatus is where that is enforced.)
+ *
+ * The copy is cause-specific and carries THIS bay's real numbers for the same
+ * reason coachSteps does — a tutorial that teaches a stale example teaches the
+ * player to distrust it. `broke` is deliberately the fullest explanation: with
+ * the float now a tight eight launches (level.ts's economy note), it is the
+ * failure a new player will actually meet, and "you ran out of money" without
+ * "here is the arithmetic" is a verdict rather than a lesson.
+ */
+export function coachFailSteps(
+  reason: LossReason | null,
+  level: { launchCost: number; scorePerLine: number; targetScore: number; startingFunds: number },
+): { title: string; body: string } {
+  const launches = Math.floor(level.startingFunds / Math.max(1, level.launchCost));
+  switch (reason) {
+    case "broke":
+      return {
+        title: "Out of Funds",
+        body: `Every launch costs <b>$${level.launchCost}</b>, so a bay opens with about <b>${launches} shots</b> in the bank — and you ran out before reaching <b>$${level.targetScore}</b>. That budget is the puzzle: a full row pays <b>$${level.scorePerLine}</b> back, so a row built in two or three shots <i>earns</i>, and cubes that miss the compactor are money gone. <b>Aim for the row, not for the pile.</b>`,
+      };
+    case "time":
+      return {
+        title: "Time's Up",
+        body: `The clock ran out before your Funds reached <b>$${level.targetScore}</b>. You have more time than it feels like — line up the next shot <i>while</i> the cannon reloads, and let each full row pay you <b>$${level.scorePerLine}</b> forward.`,
+      };
+    case "topout":
+      return {
+        title: "The Pile Topped Out",
+        body: `Cubes stacked to the ceiling. Only <b>complete rows</b> remove cubes from the bay, so a pile that keeps growing never comes down — spend your shots finishing the row nearest the compactor before starting a new layer.`,
+      };
+    default:
+      return {
+        title: "Bay Lost",
+        body: `That bay got away. Nothing is lost — the tutorial run does not count against you. Take another go at <b>$${level.targetScore}</b>.`,
+      };
+  }
+}
+
+/** The failure card itself. Rendered as a modal rather than in the plant panel
+ *  flow (where the teaching steps live) because the field behind it is dead and
+ *  there is a decision to make: the card has to be the only thing to look at.
+ *  Retry is the primary and it is a full-width target — a player who just lost
+ *  their first bay should not have to hunt for the way back in. */
+export function coachFailHTML(
+  reason: LossReason | null,
+  level: { launchCost: number; scorePerLine: number; targetScore: number; startingFunds: number },
+  bayName: string,
+): string {
+  const s = coachFailSteps(reason, level);
+  return `<div class="modal-scrim" id="scrim">
+    <div class="coach coach--fail">
+      <div class="coach__card">
+        <div class="coach__eyebrow">Tutorial · ${bayName}</div>
+        <div class="coach__title">${s.title}</div>
+        <p class="coach__body">${s.body}</p>
+        <div class="coach__foot coach__foot--fail">
+          <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">↻ Try this bay again</button>
+          <div class="row coach__foot-row">
+            <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
+            <button class="btn btn--ghost" data-action="menu">Menu</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
  * BAY CLEARED celebration — the beat between "the money landed" and "here are
  * your cards". Plays over the settled (not frozen-mid-flight) field, on top of
  * the canvas bayclear sweep FX (see render.ts's drawBayClearFx), then main.ts
