@@ -117,12 +117,6 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
-  /** Bond Breaker charges left THIS RUN. Consumable stock, not a per-bay
-   *  refresh (see run.ts's levelForRun note): seeded from bay 1's config in
-   *  startLevel, overwritten into every later bay's config, and decremented
-   *  here whenever the Game spends one. Null = no run in flight (Contracts
-   *  never carry charges). */
-  private bondChargesLeft: number | null = null;
   /** Forward route prepared when a Contract resolves, from that tier's board. */
   private nextContract: Contract | null = null;
   private contractBoardComplete = false;
@@ -696,14 +690,10 @@ class App {
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
+    // levelForRun already seeds the bay's Bond Breaker charges from the run's
+    // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
+    // refill — so the config arrives complete and nothing is patched here.
     const cfg = levelForRun(this.run);
-    // Bond Breakers are a CONSUMABLE run stock (run.ts's levelForRun note):
-    // bay 1's config carries the run's total, and every later bay starts with
-    // whatever is actually left — so a charge fired in one bay is gone in the
-    // next, and the "carry-over clears two levels" loop the refreshing
-    // per-bay Bond Breaker enabled is closed.
-    if (this.run.levelIndex === 0) this.bondChargesLeft = cfg.bondBreakerCharges;
-    cfg.bondBreakerCharges = this.bondChargesLeft ?? 0;
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
@@ -1050,6 +1040,9 @@ class App {
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
       [],
+      // What the bay ENDED with: Bond Breakers are the run's consumable, so
+      // whatever this bay did not spend is what the next one opens with.
+      g.bondCharges,
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
@@ -1420,11 +1413,6 @@ class App {
     // together via shared classes instead of hardcoded ids per trigger.
     this.syncAbility("bond", g.bondCharges, false);
     this.syncAbility("demo", g.bombCharges, g.bombArmed);
-    // Bond Breakers are a consumable RUN stock (see startLevel): the Game owns
-    // the live count during play, the app owns it between bays.
-    if (this.bondChargesLeft !== null && g.bondCharges !== this.bondChargesLeft) {
-      this.bondChargesLeft = g.bondCharges;
-    }
 
     if (this.tutorialStep !== null) this.syncCoach(g);
   }

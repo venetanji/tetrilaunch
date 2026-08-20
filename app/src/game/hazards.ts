@@ -76,14 +76,14 @@ export interface HazardDef {
   apply(cfg: LevelConfig, notches: number): void;
 }
 
-/** One notch on each of the three base axes. Named rather than inlined because
- *  the spec's whole pacing argument is stated in these numbers, and a play
- *  pass will edit them first. */
-/** Quota Raise is PER-BAY rather than flat: the ladder's own target already
- *  climbs by level.ts's TARGET_PER_BAY every bay, so a flat notch shrinks
- *  against it. A notch adds TARGET_NOTCH to every bay's demand, per bay —
- *  the one card that buys MORE of the ladder itself. */
-export const TARGET_NOTCH = 120;
+/** One notch on each of the base axes. Named rather than inlined because the
+ *  spec's whole pacing argument is stated in these numbers, and a play pass
+ *  will edit them first. */
+/** RETIRED — Quota Raise is no longer dealt (see RETIRED_AXES). The constant
+ *  and the notch it sizes stay so a `target` ratchet already recorded on a run
+ *  still resolves to the number it was taken at, but nothing in a new run can
+ *  reach it: the quota's growth lives in level.ts's TARGET_PER_BAY now. */
+export const TARGET_NOTCH = 300;
 export const COST_NOTCH = 5;
 /** A gentle notch: at 20s the clock was a trap card (three notches quietly
  *  halved the bay), so the player never took it — which made it dead weight
@@ -152,9 +152,11 @@ function contentAxis(
 
 /**
  * The ladder. Every Mark from 1 to 9 opens exactly one new axis except Mark 1,
- * which opens the three base numbers together — a first rung offering one card
- * is not a draft. Mark 10 adds no axis and instead offers TWO ratchets per bay;
- * see offersFor.
+ * which opens the base numbers together — a first rung offering one card is not
+ * a draft. Of those, Quota Raise is retired from the offer (RETIRED_AXES), so
+ * Mark 1 deals a two-card hand of Fuel Levy and Shift Cut: the ladder's own
+ * quota ramp is not something a card sells any more. Mark 10 adds no axis and
+ * instead offers TWO ratchets per bay; see offersFor.
  *
  * Marks 4-9 are the six materials — cryo first and slag deliberately third
  * (see the note at the material rows). Four of them had only a line of design
@@ -165,14 +167,14 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "target",
     name: "Quota Raise",
-    desc: `Every bay's funding target rises by $${TARGET_NOTCH} per bay.`,
+    desc: `Every bay's funding target rises by $${TARGET_NOTCH}.`,
     mark: 1,
     kind: "number",
-    // cfg.id is the bay's 1-BASED number (makeBaseLevel sets id: i + 1), so
-    // the notch already lands on bay 1 (+120) and compounds down the ladder
-    // (+1200 by bay 10) — a flat notch would shrink against the ladder's own
-    // TARGET_PER_BAY ramp the deeper a run goes.
-    apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n * cfg.id; },
+    // Retired from the draft (RETIRED_AXES) but deliberately still applied:
+    // the quota ramp is the ladder's own job now (level.ts's TARGET_PER_BAY),
+    // and an axis that stopped applying would silently rewrite the difficulty
+    // of any run that had already banked a notch on it.
+    apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n; },
   },
   {
     id: "cost",
@@ -257,9 +259,25 @@ export function picksPerBay(mark: number): number {
   return mark >= CAPSTONE_MARK ? 2 : 1;
 }
 
-/** Every axis on offer at `mark`, in ladder order. */
+/** Axes the draft is NOT allowed to deal.
+ *
+ *  "target" is the only member, and it is a deliberate retirement rather than a
+ *  deletion. The quota now climbs on its own, every bay, via level.ts's
+ *  TARGET_PER_BAY — so a card that sold the player MORE of that climb was
+ *  asking them to opt into the ladder they were already on, which is not a
+ *  choice, it is a tax with a card frame around it. The ladder's own ramp is
+ *  the honest home for that pressure.
+ *
+ *  The HazardDef stays in HAZARDS rather than being deleted, and applyRatchets
+ *  still applies it: a run (or a saved leaderboard entry, or a replayed seed)
+ *  that already banked a `target` notch has to keep resolving to the same
+ *  numbers, and the axis badge in components.ts's AXIS_GLYPHS has to keep
+ *  finding its glyph. Retiring it from the OFFER is the whole change. */
+const RETIRED_AXES: ReadonlySet<HazardId> = new Set<HazardId>(["target"]);
+
+/** Every axis the draft may deal at `mark`, in ladder order. */
 export function hazardsForMark(mark: number): HazardDef[] {
-  return HAZARDS.filter((h) => h.mark <= mark);
+  return HAZARDS.filter((h) => h.mark <= mark && !RETIRED_AXES.has(h.id));
 }
 
 /**

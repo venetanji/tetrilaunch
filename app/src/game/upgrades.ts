@@ -171,10 +171,15 @@ export const UPGRADES: UpgradeDef[] = [
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
       // cubes are too light for weight alone to square off the layers below
-      // (see pieces.ts's SIZE_SPEC). They are CONSUMABLE now (level.ts's
-      // bondBreakerCharges): the run's stock is spent down bay-to-bay and
-      // never refreshes, so this track buys a small magazine of get-out-of-
-      // jail shots, not a per-bay reset button.
+      // (see pieces.ts's SIZE_SPEC).
+      //
+      // This is the emitter's grant onto a SINGLE config, and it is the whole
+      // story only outside a Deep Run. In a run the charges are consumable and
+      // the magazine belongs to the run rather than the bay, so run.ts's
+      // levelForRun overwrites this with RunState.bondCharges — what is
+      // actually left — right after applyUpgrades returns. The rule that turns
+      // a tier into charges lives once, in run.ts's bondChargesFor, and this
+      // line is the same rule at the config layer: one charge per tier.
       cfg.bondBreakerCharges += tier;
     },
   },

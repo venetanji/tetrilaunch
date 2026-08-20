@@ -43,7 +43,8 @@ import {
   buyInstall, markBudget, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
+  CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
@@ -866,6 +867,52 @@ section("Refit cadence + run economy (run.ts)");
   check("a second notch on an axis stacks rather than replacing",
     twice.ratchets.cost === 2 && twice.ratchets.time === 1);
   check("advanceRun never mutates the run's ratchets", run.ratchets.cost === 1);
+
+  // ---- The Bond Breaker magazine: rare, consumable, run-scoped ------------
+  // This is the mechanic the "one carry clears two bays" exploit was built on.
+  // The charges used to be REDERIVED every bay (applyUpgrades wrote them onto
+  // a fresh base each level), which silently refilled the magazine at every
+  // bay boundary — so "flatten the entire field into loose cubes" was a free
+  // action once per level. It is a run-long consumable now, and every claim in
+  // that sentence is checked here.
+  {
+    const emitter = { ...newTiers(), bonds: 2 };
+    let br = newRun(7, [], 0, emitter, 1);
+    check("the emitter's tier is the run's whole magazine",
+      br.bondCharges === bondChargesFor(2) && br.bondCharges === 2, String(br.bondCharges));
+    check("a stock ship carries no charges", newRun(7).bondCharges === 0);
+    check("bay 1 opens with the full magazine",
+      levelForRun(br).bondBreakerCharges === 2);
+
+    // Spend one in bay 1: bay 2 opens with what is LEFT, not with a refill.
+    br = advanceRun(br, 900, 800, 8, 10, [], 1);
+    check("a spent charge stays spent into the next bay",
+      br.bondCharges === 1 && levelForRun(br).bondBreakerCharges === 1,
+      `${br.bondCharges} left, cfg says ${levelForRun(br).bondBreakerCharges}`);
+    // Spend the last one: the magazine is empty for the rest of the run, and
+    // the config must say so rather than quietly re-granting the tier.
+    br = advanceRun(br, 900, 800, 8, 10, [], 0);
+    check("an emptied magazine stays empty for the rest of the run",
+      br.bondCharges === 0 && levelForRun(br).bondBreakerCharges === 0);
+    check("applyUpgrades alone would still have re-granted them — levelForRun is what stops it",
+      (() => { const c = makeBaseLevel(br.levelIndex, 1); applyUpgrades(c, br.tiers); return c.bondBreakerCharges === 2; })());
+
+    // A bay cannot hand back more than it was issued.
+    check("a bay cannot return more charges than it was issued",
+      advanceRun({ ...br, bondCharges: 1 }, 900, 800, 0, 0, [], 99).bondCharges === 1);
+    // ...and a caller that forgets the argument must not confiscate the stock.
+    check("omitting the ending stock leaves the magazine untouched",
+      advanceRun({ ...br, bondCharges: 2 }, 900, 800, 0, 0, []).bondCharges === 2);
+
+    // A refit issues the DELTA between tiers, never a refill of what was spent.
+    const spent = { ...newRun(7, [], 500, { ...newTiers(), bonds: 1 }, 1), bondCharges: 0 };
+    const refit = buyUpgrade(spent, "bonds", 10, MAX_TIER)!;
+    check("refitting the emitter issues only the tier's extra charge",
+      refit.tiers.bonds === 2 && refit.bondCharges === 1, String(refit.bondCharges));
+    check("refitting another system leaves the magazine alone",
+      buyUpgrade({ ...spent, tiers: { ...spent.tiers, bay: 1 }, bondCharges: 1 }, "bay", 10, MAX_TIER)!
+        .bondCharges === 1);
+  }
   // A ratcheted run must actually play harder than a clean one at the same bay.
   const clean = levelForRun({ ...run, ratchets: {} });
   const notched = levelForRun({ ...run, ratchets: { target: 1, cost: 1, time: 1 } });
@@ -1724,11 +1771,16 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     bays.every((b) => b.launchCost === bays[0].launchCost));
   check("the clock is flat across a run",
     bays.every((b) => b.timeLimitSec === bays[0].timeLimitSec));
-  // The purse is TIGHT: the float buys only a handful of launches, so a bay
-  // is a small number of precise shots rather than a spray. Asserted so
-  // loosening it is a deliberate act with a failing test to read.
-  check("the starting float is a tight budget",
-    bays.every((b) => b.startingFunds < 7 * b.launchCost),
+  // The purse is TIGHT: the float is the mistake budget, and at eight stock
+  // launches a bay is a small number of precise shots rather than a spray.
+  // Asserted as a RANGE, because this number is wrong in both directions —
+  // above nine the volume strategy pays for itself again (the sweep put the
+  // bay-1 volume bot at 38% on the old ten-launch float), and at six or fewer
+  // the bay is decided by the first two shots and stops being a puzzle at all.
+  // Loosening or tightening it should be a deliberate act with a failing test
+  // to read.
+  check("the starting float is a tight budget, but a playable one",
+    bays.every((b) => b.startingFunds >= 7 * b.launchCost && b.startingFunds <= 9 * b.launchCost),
     `${bays[0].startingFunds} float vs $${bays[0].launchCost}/launch`);
   // A Mark no longer moves any of the ladder's numbers — it only changes which
   // hazards and systems exist.
@@ -1738,10 +1790,22 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
 
   // ---- The ladder: every Mark means something -----------------------------
-  check("Mark 1 opens exactly the three base axes",
-    hazardsForMark(1).length === 3
+  // Mark 1's rung is the two base numbers the draft may still deal. The third,
+  // Quota Raise, is retired from the offer (hazards.ts's RETIRED_AXES) now
+  // that the quota climbs on its own every bay — so hazardsForMark, which is
+  // what the draft deals from, must not return it at any Mark.
+  check("Mark 1 opens exactly the two dealt base axes",
+    hazardsForMark(1).length === 2
       && hazardsForMark(1).every((h) => h.kind === "number"),
     hazardsForMark(1).map((h) => h.id).join(","));
+  check("the retired quota axis is never dealt, at any Mark",
+    Array.from({ length: CAPSTONE_MARK }, (_, i) => hazardsForMark(i + 1))
+      .every((pool) => !pool.some((h) => h.id === "target")));
+  // ...but it is still APPLIED, so a run that banked a notch on it before it
+  // was retired keeps resolving to the numbers it was taken at.
+  check("an already-banked quota notch still applies",
+    applyRatchets(makeBaseLevel(0, 1), { target: 1 }).targetScore
+      === makeBaseLevel(0, 1).targetScore + TARGET_NOTCH);
   // The rung-by-rung promise: no Mark from 1 to 9 is a no-op.
   let ladderGrows = true;
   for (let m = 2; m <= 9; m++) {
@@ -1760,10 +1824,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- Notches actually bite ----------------------------------------------
   const flat = makeBaseLevel(0, 1);
-  check("a target notch raises the target by one step per bay",
-    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH * flat.id);
+  // Asserted on a DEEP bay rather than bay 1: the retired quota notch is flat,
+  // and at bay 1 (cfg.id === 1) a flat notch and a per-bay one are the same
+  // number, so bay 1 alone could not tell a regression from correct code.
+  const deep = makeBaseLevel(6, 1);
+  check("a target notch raises the target by exactly one flat step",
+    applyRatchets(deep, { target: 1 }).targetScore === deep.targetScore + TARGET_NOTCH);
   check("notches stack linearly",
-    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3 * flat.id);
+    applyRatchets(deep, { target: 3 }).targetScore === deep.targetScore + TARGET_NOTCH * 3);
   check("a cost notch raises the launch cost",
     applyRatchets(flat, { cost: 2 }).launchCost === flat.launchCost + COST_NOTCH * 2);
   check("a time notch cuts the clock",

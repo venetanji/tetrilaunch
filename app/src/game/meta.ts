@@ -145,7 +145,7 @@ export const UNLOCKS: UnlockDef[] = [
     cost: 320,
     rank: 3,
     requiresMark: 2,
-    desc: "Adds Bond Breakers to the draft pool: a charge each bay that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.",
+    desc: "Bond Breakers shatter every joint on the field into loose cubes, which settle flatter and pack into lines far more easily — the answer to a pile that has stopped cooperating. Charges are a RUN-LONG consumable, not a per-bay refill: fit the Bond Emitter to carry them, and spend them on the bay that needs one most.",
   },
   {
     id: "auto",

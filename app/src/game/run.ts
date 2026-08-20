@@ -43,6 +43,19 @@ export interface RunState {
   /** Total scrap earned this run, spent or not — a stat for the end screen, so
    *  a run that banked and never refitted still reads as having earned it. */
   scrapEarned: number;
+  /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
+   *
+   *  It lives here, beside carry and scrap, because it is exactly that kind of
+   *  thing: a resource the run spends down and never gets back. It used to be
+   *  derived per bay (upgrades.ts wrote `cfg.bondBreakerCharges += tier` onto a
+   *  fresh base every level), which quietly refilled the magazine at every bay
+   *  boundary — and a free "flatten the whole field" every level is what let one
+   *  fat carry-over clear two bays back to back.
+   *
+   *  Seeded once in newRun from the loadout's Bond Emitter tier, topped up when
+   *  that tier is refitted mid-run (see buyUpgrade), and decremented by
+   *  advanceRun from what the just-played bay actually had left. */
+  bondCharges: number;
   /** Ship upgrade tier per system (see upgrades.ts). Seeded at run start from
    *  the player's permanent LOADOUT (meta.ts's safeLoadout, bought against the
    *  Mark's build budget), then raised further by in-run scrap at refit stops.
@@ -60,6 +73,14 @@ export interface RunState {
   mark: number;
 }
 
+/** Bond Breaker charges a Bond Emitter of `tier` ships for the WHOLE run —
+ *  one per tier, so a maxed emitter is three shatters across ten bays. One
+ *  function rather than an inline `* 1` in two places: newRun grants it at run
+ *  start and buyUpgrade tops it up at a refit, and those two had to agree. */
+export function bondChargesFor(tier: number): number {
+  return Math.max(0, Math.floor(tier));
+}
+
 export function newRun(
   seed: number,
   unlocks: string[] = [],
@@ -75,6 +96,10 @@ export function newRun(
     linesTotal: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
+    // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
+    // the single place the tier-to-charges rule lives, so the refit top-up in
+    // buyUpgrade cannot drift from the run-start grant.
+    bondCharges: bondChargesFor(loadout.bonds ?? 0),
     // The permanent loadout is where the ship STARTS, not a bonus on top of a
     // stock one: in-run scrap refits from here at the usual stops. Copied, not
     // aliased — a run must never write back into saved meta state.
@@ -121,16 +146,18 @@ export function baysUntilRefit(levelIndex: number): number | null {
  *  notch is added to them. The carry is added dead last so it's never scaled by
  *  either: it's cash in hand, not a rate.
  *
- *  Bond Breaker charges are CONSUMABLE and threaded by main.ts, not derived:
- *  the config's bondBreakerCharges is only ever seeded on bay 1's config, and
- *  startLevel overwrites it with the run's remaining stock every bay — a
- *  charge spent in bay 3 stays spent in bay 4. That is what stops the
- *  per-bay refresh that used to let one bond bankroll a double clear. */
+ *  Bond Breaker charges are the one field NOT derived from the ship: they are
+ *  a consumable the run spends down (RunState.bondCharges), so whatever
+ *  applyUpgrades wrote is overwritten with what the run actually has left. A
+ *  charge fired in bay 3 is still gone in bay 4 — which is what stops the
+ *  per-bay refill that let one bond bankroll a double clear. Written last, for
+ *  the same reason the carry is: it is stock in hand, not a rate. */
 export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
+  cfg.bondBreakerCharges = Math.max(0, run.bondCharges);
   return cfg;
 }
 
@@ -140,8 +167,9 @@ export function levelForRun(run: RunState): LevelConfig {
  *  timed Bond Breaker flattening the whole field into multi-lines) banked
  *  enough overshoot to clear the next bay — sometimes the next TWO — on
  *  autopilot, which removed the puzzle entirely. Capped at roughly one clean
- *  line's net payout ($100 payout − $60 for its two stock launches), so a
- *  strong bay still buys a head start — never a free clear. */
+ *  line's gross payout, so a bay opened on a full carry starts at $350 against
+ *  a target of $800 or more: a real head start, and still four-fifths of a bay
+ *  left to actually play. A strong bay buys tempo — never the next bay. */
 export const CARRY_CAP = 150;
 
 /** Advance to the next level after one ends: carry becomes the overshoot
@@ -151,6 +179,15 @@ export const CARRY_CAP = 150;
  *  left to pick from) is appended. `clearedTarget` is the just-ended bay's
  *  targetScore (Game.target), needed to compute the overshoot; `scrapEarned`
  *  is what the bay paid out (Game.scrapEarned plus the per-bay clear bonus).
+ *
+ *  `bondsLeft` is the Bond Breaker stock the just-played bay ENDED with
+ *  (Game.bondCharges), which becomes the run's magazine for the next bay. It
+ *  defaults to the run's current stock — "nothing was spent" — rather than to
+ *  0, deliberately: a caller that forgets to thread it through leaves the
+ *  player's charges alone instead of silently confiscating them, and a bug
+ *  that hands out too much is one a tester reports, where one that quietly
+ *  eats a rare consumable is one they never even notice.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -159,6 +196,7 @@ export function advanceRun(
   lines: number,
   scrapEarned: number,
   pickedAxes: HazardId[] = [],
+  bondsLeft: number = run.bondCharges,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -170,6 +208,9 @@ export function advanceRun(
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
+    // Clamped to the stock the run actually held: a bay cannot hand back more
+    // charges than it was issued, however it reports its ending count.
+    bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
     tiers: { ...run.tiers },
     unlocks: [...run.unlocks],
     mark: run.mark,
@@ -197,6 +238,14 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
     unlocks: [...run.unlocks],
     scrap: run.scrap - cost,
     tiers: { ...run.tiers, [id]: tier + 1 },
+    // Refitting the Bond Emitter issues the DIFFERENCE between the two tiers'
+    // grants into the magazine, on top of whatever is left in it. The delta
+    // rather than the new total, so a refit at bay 9 cannot refill charges the
+    // player already spent — buying a bigger emitter buys the extra charge it
+    // adds, not a reset of the consumable.
+    bondCharges: id === "bonds"
+      ? run.bondCharges + (bondChargesFor(tier + 1) - bondChargesFor(tier))
+      : run.bondCharges,
   };
 }
 

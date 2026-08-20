@@ -191,15 +191,26 @@ export interface LevelConfig {
 // and scorePerLine are all PER-BAY (not cumulative), and only a CAPPED share
 // of the surplus banked above a cleared bay's target carries into the next one
 // (run.ts's RunState.carry / advanceRun / CARRY_CAP). The budget is deliberately
-// TIGHT: a $170 float buys fewer than six stock launches ($30 each), so a bay
-// is won with a small number of precisely-placed shots, not by spraying until
-// the pile resolves. At Launch Bay (i=0) a perfect 8-cube line costs 2 shots
-// ($60) for a $100 payout, so clean play nets $40/line toward the $800 target
-// from a $170 float. Later bays keep the same $30 launch price but pay out
-// faster (scorePerLine ramps +10/bay) against a rising target (+120/bay), so
-// the purse tightens as the ladder climbs and the Reactor float install
-// (upgrades.ts) becomes the deep-run economy answer. The $25+2i lost-piece
-// penalty and wasted shots are what put a sloppy bay out of reach.
+// TIGHT: a $200 float buys eight stock launches ($25 each), down from the ten
+// it used to buy. Eight is the number the whole change turns on — it is the
+// mistake budget. At Launch Bay (i=0) a perfect 8-cube line costs 2 shots
+// ($50) for a $100 payout, so a precise player nets $50/line and grows; at the
+// measured ~2.9 launches/line (contracts.ts's PLANNING_EFFICIENCY note) the
+// same line nets $27, and a single piece bounced out of the bay (-$25) erases
+// it. So volume does not pay for itself and precision does, which is the
+// puzzle the mode is supposed to be.
+//
+// The float was cut rather than the launch priced up, deliberately: a dearer
+// shot taxes the precise player exactly as hard as the careless one, where a
+// shorter runway only bites once you have already missed. The sweep agrees —
+// at $250 the volume bot won 38% of bay 1 and at $200 it wins 17%, while the
+// deep bays barely move (sim/sweep.ts, 24 seeds).
+//
+// Later bays keep the same $25 launch price but pay out faster (scorePerLine
+// ramps +10/bay) against a rising target (+TARGET_PER_BAY/bay), so the purse
+// tightens as the ladder climbs and the Reactor float install (upgrades.ts)
+// becomes the deep-run economy answer. The $25+2i lost-piece penalty and
+// wasted shots are what put a sloppy bay out of reach.
 const LEVEL_NAMES = [
   "Launch Bay", "Cargo Dock", "Freight Yard", "Assembly Line", "Foundry",
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
@@ -220,7 +231,7 @@ const LEVEL_NAMES = [
  *  ramp out of the player's draft: the ladder's own climb is no longer
  *  something a hazard card can be spent opting into (hazards.ts's Quota Raise
  *  is retuned to mean something on top of this). */
-export const TARGET_PER_BAY = 120;
+export const TARGET_PER_BAY = 100;
 
 function targetScoreFor(i: number): number {
   return 800 + TARGET_PER_BAY * i;
@@ -239,7 +250,7 @@ function targetScoreFor(i: number): number {
  * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
  *   sloppy play faster and harder.
  * - targetScore (800 + TARGET_PER_BAY·i) climbs every bay on its own; the
- *   clock (150s), launch cost ($30) and startingFunds ($170) are flat
+ *   clock (150s), launch cost ($25) and startingFunds ($200) are flat
  *   PER-BAY floats — only the prior bay's CAPPED overshoot (RunState.carry)
  *   stacks on top. The purse is deliberately tight: a flat float against a
  *   rising quota means later bays demand more lines from the same money,
@@ -413,11 +424,11 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // The TARGET climbs every bay on its own (see targetScoreFor) — that is
     // the ladder's own difficulty curve, and it is deliberately NOT one of the
     // axes the hazard draft can spend a notch on. Float and launch price stay
-    // flat: the purse is the pressure. A flat $170 float buys fewer than six
-    // stock launches, so bays are won by placing shots, not volume.
+    // flat: the purse is the pressure. A flat $200 float buys eight stock
+    // launches, so bays are won by placing shots, not by volume.
     targetScore: Math.round(targetScoreFor(i) * targetMult),
-    startingFunds: 170,
-    launchCost: 30,
+    startingFunds: 200,
+    launchCost: 25,
     // null = the seeded 7-bag (see the field's doc). This was a fixed
     // I,O,T,L,J,S,Z rotation, which made every bay open with the same pieces
     // in the same order — the first minute of every run played out identically
