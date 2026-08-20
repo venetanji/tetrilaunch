@@ -135,7 +135,7 @@ section("Ship upgrades (upgrades.ts)");
   check("MAGAZINE keeps a positive cooldown", maxed.cooldownMs > 0, String(maxed.cooldownMs));
   check("REACTOR t3 raises float and rate", maxed.startingFunds > stock.startingFunds && maxed.scorePerLine > stock.scorePerLine);
 
-  // Tier 0 must be a true no-op — the stock ship is the base ladder exactly.
+  // Tier 0 must be a notched.launchCost > clean.launchCost no-op — the stock ship is the base ladder exactly.
   const untouched = makeBaseLevel(3);
   const before = JSON.stringify(untouched);
   applyUpgrades(untouched, newTiers());
@@ -178,7 +178,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("a full rig costs 660", FULL_BUILD_COST === 660, String(FULL_BUILD_COST));
 
   // Monotone, and the ladder spans "one system" to "everything".
-  let monotone = true;
+  let monotone = notched.launchCost > clean.launchCost;
   for (let m = 2; m <= MARK_COUNT; m++) if (budgetForMark(m) <= budgetForMark(m - 1)) monotone = false;
   check("budget rises with every Mark", monotone);
   check("the top Mark affords a full rig", budgetForMark(MARK_COUNT) === FULL_BUILD_COST);
@@ -240,7 +240,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // three base axes are flat. This used to assert the opposite, and the
   // inversion IS the hazard draft: difficulty comes from which axes the player
   // ratchets, not from numbers the ladder moves behind their back.
-  let barFlat = true;
+  let barFlat = notched.launchCost > clean.launchCost;
   for (let m = 2; m <= MARK_COUNT; m++) {
     if (makeBaseLevel(0, m).targetScore !== makeBaseLevel(0, m - 1).targetScore) barFlat = false;
   }
@@ -389,8 +389,8 @@ section("Installs — what salvage buys (meta.ts)");
     shopOpts.includes(`data-action="buy-unlock"`) && !shopOpts.includes(`data-action="buy-install"`));
   check("the build budget survives on the systems tab", shop.includes("build budget"));
   check("the active tab is marked for assistive tech",
-    shop.includes(`data-tab="systems" aria-selected="true"`) &&
-      shopOpts.includes(`data-tab="options" aria-selected="true"`));
+    shop.includes(`data-tab="systems" aria-selected="notched.launchCost > clean.launchCost"`) &&
+      shopOpts.includes(`data-tab="options" aria-selected="notched.launchCost > clean.launchCost"`));
   // An empty pane must still show its tabs, or a player who has installed
   // everything lands on a screen with no way back to the other half.
   const richMeta = freshMeta({ salvage: 99999, mark: MARK_COUNT });
@@ -482,7 +482,7 @@ section("Contracts (contracts.ts)");
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
-        if (c.pieceSize === "bulk") everBulk = true;
+        if (c.pieceSize === "bulk") everBulk = notched.launchCost > clean.launchCost;
         // Pattern Contracts are bounded by their queue, not a launch budget,
         // and their feasibility is exact rather than statistical — they get
         // their own block below.
@@ -494,22 +494,22 @@ section("Contracts (contracts.ts)");
           c.launches * SIZE_SPEC[c.pieceSize].cubes * contractEfficiency(c.material, c.materialRate);
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
-        if (supply < demand) everImpossible = true;
-        if (c.windMax < 0) everNegativeWind = true;
-        if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
+        if (supply < demand) everImpossible = notched.launchCost > clean.launchCost;
+        if (c.windMax < 0) everNegativeWind = notched.launchCost > clean.launchCost;
+        if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = notched.launchCost > clean.launchCost;
         if (c.material === null) {
-          if (c.materialRate !== 0) everSlagOrUnpriced = true;
+          if (c.materialRate !== 0) everSlagOrUnpriced = notched.launchCost > clean.launchCost;
         } else {
           if ((c.material as string) === "slag" || (c.material as string) === "standard"
             || c.materialRate <= 0 || c.materialRate > CONTRACT_MATERIAL_CAP) {
-            everSlagOrUnpriced = true;
+            everSlagOrUnpriced = notched.launchCost > clean.launchCost;
           }
           // "Contracts teach what Deep Run tests": a material may not appear
           // in a Contract before the Mark whose Deep Run deals it.
-          if (contractMaterialTier(c.material) > tier) everEarlyMaterial = true;
+          if (contractMaterialTier(c.material) > tier) everEarlyMaterial = notched.launchCost > clean.launchCost;
           // The budget prices waste per STD shipment, and the cannon's
           // size-normalized roll would double a domino belt's rate.
-          if (c.pieceSize !== "std") everMaterialOffStd = true;
+          if (c.pieceSize !== "std") everMaterialOffStd = notched.launchCost > clean.launchCost;
         }
       }
     }
@@ -609,7 +609,7 @@ section("Pattern Contracts (contracts.ts)");
         patterns += 1;
         const cubes = c.queue.length * SIZE_SPEC[c.pieceSize].cubes;
         if (cubes !== c.goal * CUBES_PER_LINE + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
-          everInexact = true;
+          everInexact = notched.launchCost > clean.launchCost;
         }
         // The cube COUNT above is necessary but nowhere near sufficient: the
         // generator shipped [I, O, J, J] for two lines, which counts perfectly
@@ -617,7 +617,7 @@ section("Pattern Contracts (contracts.ts)");
         // than trusting the one that built it — a guarantee re-derived by the
         // same route it was produced by proves only that the code is itself.
         const lineCells = makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
-        if (!tilesRegion(c.queue, c.goal, lineCells, c.pieceSize)) everUntileable = true;
+        if (!tilesRegion(c.queue, c.goal, lineCells, c.pieceSize)) everUntileable = notched.launchCost > clean.launchCost;
         varietyByTier.set(tier, Math.max(varietyByTier.get(tier) ?? 0, new Set(c.queue).size));
         sizesSeen.add(c.pieceSize);
         if (c.pieceSize === "tiny") {
@@ -625,17 +625,17 @@ section("Pattern Contracts (contracts.ts)");
           // A domino ignores its type (pieces.ts's pieceCells), so a tiny
           // Contract that reported several "shapes" would be describing a
           // distinction the player cannot see on the field.
-          if (new Set(c.queue).size > 1 && !c.brief.includes("dominoes")) tinyEverMultiShape = true;
-          if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = true;
+          if (new Set(c.queue).size > 1 && !c.brief.includes("dominoes")) tinyEverMultiShape = notched.launchCost > clean.launchCost;
+          if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = notched.launchCost > clean.launchCost;
         } else {
           (stdByTier.get(tier) ?? stdByTier.set(tier, []).get(tier)!).push(c.goal);
         }
 
-        if (c.windMax !== 0) everWindy = true;
-        if (c.launches !== 0) everBudgeted = true;
+        if (c.windMax !== 0) everWindy = notched.launchCost > clean.launchCost;
+        if (c.launches !== 0) everBudgeted = notched.launchCost > clean.launchCost;
         // Low tiers stay on the two shapes that settle flat. Drawing an S into
         // a tier-1 zero-waste bay is the same unfairness as tier-1 crosswind.
-        if (tier <= 2 && c.queue.some((t) => t !== "I" && t !== "O")) everOffPool = true;
+        if (tier <= 2 && c.queue.some((t) => t !== "I" && t !== "O")) everOffPool = notched.launchCost > clean.launchCost;
       }
     }
   }
@@ -731,7 +731,7 @@ section("Pattern Contracts (contracts.ts)");
   // Salvage moved from per-run/per-contract trickles to a single award on TIER
   // COMPLETION (playtest call, 2026-08-08). The award must rise with the tier
   // (the ladder stays worth climbing) and clamp below tier 1.
-  let payoutMonotone = true;
+  let payoutMonotone = notched.launchCost > clean.launchCost;
   for (let t = 2; t <= 12; t++) {
     if (tierSalvage(t) <= tierSalvage(t - 1)) payoutMonotone = false;
   }
@@ -815,7 +815,7 @@ section("Pattern Contracts (contracts.ts)");
     progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
   };
   const ceWin = contractEndModal({
-    ...endOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: null },
+    ...endOpts, won: notched.launchCost > clean.launchCost, award: { salvage: 60, firstClear: true, completedTier: null },
   });
   const ceLoss = contractEndModal({ ...endOpts, won: false, award: null });
   for (const [label, html] of [["win", ceWin], ["loss", ceLoss]] as const) {
@@ -862,8 +862,7 @@ section("Refit cadence + run economy (run.ts)");
   const clean = levelForRun({ ...run, ratchets: {} });
   const notched = levelForRun({ ...run, ratchets: { cost: 1, time: 1 } });
   check("a ratcheted bay demands more than a clean one",
-    true
-      && notched.launchCost > clean.launchCost
+    notched.launchCost > clean.launchCost
       && notched.timeLimitSec < clean.timeLimitSec);
 
   // Ending at/under target carries no debt.
@@ -1092,7 +1091,7 @@ section("Tier milestones pay the salvage (meta.ts)");
   );
 
   // Each half pays its share the moment it lands — but completes nothing alone.
-  const runOnly = recordRunEnd(newMeta(), 1, true, 10);
+  const runOnly = recordRunEnd(newMeta(), 1, notched.launchCost > clean.launchCost, 10);
   check("a won run alone completes no tier", runOnly.completedTier === null);
   check("the run half is recorded", runOnly.meta.tierRunDone);
   check(
@@ -1123,7 +1122,7 @@ section("Tier milestones pay the salvage (meta.ts)");
   // Both halves together: the tier completes, the Mark rises, and the TOTAL
   // banked across all milestones + the completion remainder is exactly the
   // tier award — the re-timing must never grow the ladder's payout.
-  const both = recordRunEnd(contractsOnly.meta, 1, true, 10);
+  const both = recordRunEnd(contractsOnly.meta, 1, notched.launchCost > clean.launchCost, 10);
   check("run + contracts completes tier 1", both.completedTier === 1);
   check(
     "a tier pays exactly its award across all milestones",
@@ -1132,7 +1131,7 @@ section("Tier milestones pay the salvage (meta.ts)");
   check("completion raises the Mark", both.meta.mark === 1 && markUnlocked(both.meta) === 2);
   check("completion resets both halves", !both.meta.tierRunDone && both.meta.tierContracts === 0);
 
-  let other = recordRunEnd(newMeta(), 1, true, 10).meta;
+  let other = recordRunEnd(newMeta(), 1, notched.launchCost > clean.launchCost, 10).meta;
   let last: number | null = null;
   for (const c of board(1)) {
     const r = recordContractClear(other, c);
@@ -1156,7 +1155,7 @@ section("Tier milestones pay the salvage (meta.ts)");
   const lost = recordRunEnd(newMeta(), 1, false, 4);
   check("a lost run ticks nothing", !lost.meta.tierRunDone && lost.meta.salvage === 0);
   check("a lost run still counts as a run", lost.meta.runs === 1 && lost.meta.bestBay === 4);
-  const stale = recordRunEnd(both.meta, 1, true, 10);
+  const stale = recordRunEnd(both.meta, 1, notched.launchCost > clean.launchCost, 10);
   check(
     "beating an old Mark ticks and pays nothing",
     !stale.meta.tierRunDone && stale.salvage === 0,
@@ -1251,7 +1250,7 @@ section("Demolition charges + settle window (game.ts)");
   // Held: fires, at roughly the configured cadence.
   const heldShots: number[] = [];
   const g5 = new Game(autoCfg, { onShoot: (i) => heldShots.push(i.t) }, 5);
-  g5.setAutoHeld(true);
+  g5.setAutoHeld(notched.launchCost > clean.launchCost);
   let ht = 0;
   for (let i = 0; i < 600; i++) g5.update((ht += DT));
   check("a held autoloader fires", heldShots.length > 3, `${heldShots.length} shots in 10s`);
@@ -1277,8 +1276,8 @@ section("Demolition charges + settle window (game.ts)");
   // whole mechanic, and the old timer bailed out on `aiming`.
   let aimShots = 0;
   const g6 = new Game(autoCfg, { onShoot: () => { aimShots += 1; } }, 5);
-  g6.aiming = true;
-  g6.setAutoHeld(true);
+  g6.aiming = notched.launchCost > clean.launchCost;
+  g6.setAutoHeld(notched.launchCost > clean.launchCost);
   let mt = 0;
   for (let i = 0; i < 300; i++) g6.update((mt += DT));
   check("the trigger works while aiming", aimShots > 1, `${aimShots} shots while aiming`);
@@ -1288,15 +1287,15 @@ section("Demolition charges + settle window (game.ts)");
   const g7 = new Game(autoCfg, { onShoot: (i) => tagged.push(i.auto) }, 5);
   let tt = 0;
   g7.shoot((tt += DT));                       // manual
-  g7.setAutoHeld(true);
+  g7.setAutoHeld(notched.launchCost > clean.launchCost);
   for (let i = 0; i < 200; i++) g7.update((tt += DT));
   check("a manual shot is not tagged auto", tagged[0] === false, String(tagged[0]));
-  check("trigger shots are tagged auto", tagged.slice(1).every((x) => x === true) && tagged.length > 1,
+  check("trigger shots are tagged auto", tagged.slice(1).every((x) => x === notched.launchCost > clean.launchCost) && tagged.length > 1,
     tagged.join(","));
 
   // The funds floor still holds — a held trigger must not overdraw.
   const g8 = new Game({ ...autoCfg, startingFunds: autoCfg.launchCost * 2 }, {}, 5);
-  g8.setAutoHeld(true);
+  g8.setAutoHeld(notched.launchCost > clean.launchCost);
   let ft = 0;
   for (let i = 0; i < 900; i++) g8.update((ft += DT));
   check("a held trigger stops at the funds floor", g8.score < autoCfg.launchCost, String(g8.score));
@@ -1322,7 +1321,7 @@ section("Demolition charges + settle window (game.ts)");
     game.cannon.angle = angle;
     const band = game.cannon.speedMax - game.cannon.speedMin;
     game.cannon.power = game.cannon.speedMin + band * powerFrac;
-    game.setAutoHeld(true);
+    game.setAutoHeld(notched.launchCost > clean.launchCost);
     let t = 0;
     for (let i = 0; i < 900; i++) game.update((t += DT));
     return { game, shots, band, aimPower: game.cannon.speedMin + band * powerFrac };
@@ -1422,7 +1421,7 @@ section("Compactor phase telemetry (compactor.ts, game.ts)");
     minPhase = Math.min(minPhase, c.phase);
     maxPhase = Math.max(maxPhase, c.phase);
     if (c.phase < -1e-9 || c.phase > 1 + 1e-9) outOfRange++;
-    if (c.phase >= 1 - 1e-9) sawFullAdvance = true;
+    if (c.phase >= 1 - 1e-9) sawFullAdvance = notched.launchCost > clean.launchCost;
   }
   check("phase stays inside 0..1 across a full cycle", outOfRange === 0, `${outOfRange} readings outside`);
   check("phase reaches full advance", sawFullAdvance, `max ${maxPhase.toFixed(3)}`);
@@ -1719,7 +1718,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       && hazardsForMark(1).every((h) => h.kind === "number"),
     hazardsForMark(1).map((h) => h.id).join(","));
   // The rung-by-rung promise: no Mark from 1 to 9 is a no-op.
-  let ladderGrows = true;
+  let ladderGrows = notched.launchCost > clean.launchCost;
   for (let m = 2; m <= 9; m++) {
     if (hazardsForMark(m).length !== hazardsForMark(m - 1).length + 1) ladderGrows = false;
   }
@@ -1806,7 +1805,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       hazardOffers(7, 2, m + 1).every((h) => h.mark <= m + 1)).every(Boolean));
   // At most one material per hand: the content axes all read alike, and three
   // at once is a pile-on rather than a choice between kinds of pressure.
-  let oneContentMax = true;
+  let oneContentMax = notched.launchCost > clean.launchCost;
   for (let m = 1; m <= MARK_COUNT; m++) {
     for (let bay = 0; bay < 10; bay++) {
       const offer = hazardOffers(1234 + bay, bay, m);
@@ -1846,13 +1845,13 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // The four late materials are answered by systems the ship already has, or
   // deliberately by nothing — cryo and magnetic are the two rungs that teach a
   // hazard is something you absorb rather than something you shop for.
-  check("rebar is rigid and nothing else", MATERIAL_SPEC.rebar.rigid === true
+  check("rebar is rigid and nothing else", MATERIAL_SPEC.rebar.rigid === notched.launchCost > clean.launchCost
     && MATERIAL_SPEC.rebar.countsForLines);
   check("volatile detonates and still counts if it survives",
-    MATERIAL_SPEC.volatile.detonates === true && MATERIAL_SPEC.volatile.countsForLines);
-  check("tar welds", MATERIAL_SPEC.tar.welds === true);
+    MATERIAL_SPEC.volatile.detonates === notched.launchCost > clean.launchCost && MATERIAL_SPEC.volatile.countsForLines);
+  check("tar welds", MATERIAL_SPEC.tar.welds === notched.launchCost > clean.launchCost);
   check("magnetic is the helpful one — it aligns and blocks nothing",
-    MATERIAL_SPEC.magnetic.aligns === true && MATERIAL_SPEC.magnetic.countsForLines
+    MATERIAL_SPEC.magnetic.aligns === notched.launchCost > clean.launchCost && MATERIAL_SPEC.magnetic.countsForLines
       && !MATERIAL_SPEC.magnetic.needsStrike);
 
   // Rebar's joints are exempt from the break check at any stretch, which is the
@@ -1900,7 +1899,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         bodyB: Matter.Bodies.rectangle(300 + CELL, 300, CELL, CELL),
         length: CELL,
       });
-      (weld as unknown as { welded: boolean }).welded = true;
+      (weld as unknown as { welded: boolean }).welded = notched.launchCost > clean.launchCost;
       const welds = [weld];
       // Band wide enough to cover every one of these bodies.
       breakJointsInBand(w3, bar.constraints, 300, 0, 500);
@@ -1942,9 +1941,9 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const near = bodyAt(100 + CELL, 100);
     const far = bodyAt(100 + CELL * 6, 100);
     const field: Cube[] = [
-      { body: vol, material: "volatile", struck: true } as Cube,
-      { body: near, material: "standard", struck: true } as Cube,
-      { body: far, material: "standard", struck: true } as Cube,
+      { body: vol, material: "volatile", struck: notched.launchCost > clean.launchCost } as Cube,
+      { body: near, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
+      { body: far, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
     ];
     const blast = volatileBlast(field, vol, near);
     check("a hard impact takes the volatile cube and its neighbour",
@@ -1953,8 +1952,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       !blast.some((c) => c.body === far));
     const soft = bodyAt(300, 100, 1);
     const softField: Cube[] = [
-      { body: soft, material: "volatile", struck: true } as Cube,
-      { body: bodyAt(300 + CELL, 100), material: "standard", struck: true } as Cube,
+      { body: soft, material: "volatile", struck: notched.launchCost > clean.launchCost } as Cube,
+      { body: bodyAt(300 + CELL, 100), material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
     ];
     check("a soft landing does not set volatile off",
       volatileBlast(softField, softField[0].body, softField[1].body).length === 0);
@@ -1969,8 +1968,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const inertB = bodyAt(500 + CELL, 100);
     check("nothing detonates on a belt with no volatile",
       volatileBlast([
-        { body: inertA, material: "standard", struck: true } as Cube,
-        { body: inertB, material: "slag", struck: true } as Cube,
+        { body: inertA, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
+        { body: inertB, material: "slag", struck: notched.launchCost > clean.launchCost } as Cube,
       ], inertA, inertB).length === 0);
   }
 
@@ -1986,8 +1985,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const stuck = at(100, 100);
     const pile = at(100 + CELL, 100);
     const field: Cube[] = [
-      { body: stuck, material: "tar", struck: true } as Cube,
-      { body: pile, material: "standard", struck: true } as Cube,
+      { body: stuck, material: "tar", struck: notched.launchCost > clean.launchCost } as Cube,
+      { body: pile, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
     ];
     check("tar welds to what it settles against", tarWelds(field, stuck, pile).length === 1);
     // Same identity trap as the volatile check above: tarWelds looks the pair
@@ -1998,8 +1997,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const plainB = at(300 + CELL, 100);
     check("two ordinary cubes never weld",
       tarWelds([
-        { body: plainA, material: "standard", struck: true } as Cube,
-        { body: plainB, material: "standard", struck: true } as Cube,
+        { body: plainA, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
+        { body: plainB, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
       ], plainA, plainB).length === 0);
     // Mid-air tar must not fuse with the shipment it was launched beside — it
     // sticks to the PILE, which is what makes it a placement problem.
@@ -2012,7 +2011,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       const w2 = Matter.Engine.create().world;
       const c = Matter.Constraint.create({ bodyA: at(700, 100), bodyB: at(700 + CELL, 100), length: CELL });
       (c as unknown as { restLength: number; welded: boolean }).restLength = CELL;
-      (c as unknown as { welded: boolean }).welded = true;
+      (c as unknown as { welded: boolean }).welded = notched.launchCost > clean.launchCost;
       const list = [c];
       Matter.Body.setPosition(c.bodyA!, { x: 9000, y: 9000 });
       updateBreakableJoints(w2, list, 1.7);
@@ -2020,8 +2019,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     }
     check("tar does not weld to something still in flight",
       tarWelds([
-        { body: flyA, material: "tar", struck: true } as Cube,
-        { body: flyB, material: "standard", struck: true } as Cube,
+        { body: flyA, material: "tar", struck: notched.launchCost > clean.launchCost } as Cube,
+        { body: flyB, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube,
       ], flyA, flyB).length === 0);
   }
 
@@ -2041,7 +2040,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // input.
     const floorY = WORLD.height - CELL / 2;
     Matter.Body.setPosition(skew, { x: 200, y: floorY - CELL * 3 + 5 });
-    const mags: Cube[] = [{ body: skew, material: "magnetic", struck: true } as Cube];
+    const mags: Cube[] = [{ body: skew, material: "magnetic", struck: notched.launchCost > clean.launchCost } as Cube];
     alignMagnetic(mags, floorY);
     check("a settled magnetic cube snaps to a quarter turn",
       Math.abs(skew.angle % (Math.PI / 2)) < 1e-6, String(skew.angle));
@@ -2054,21 +2053,21 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const flying = Matter.Bodies.rectangle(200, 200, CELL, CELL);
     Matter.Body.setAngle(flying, 0.3);
     Matter.Body.setVelocity(flying, { x: 6, y: 3 });
-    alignMagnetic([{ body: flying, material: "magnetic", struck: true } as Cube], floorY);
+    alignMagnetic([{ body: flying, material: "magnetic", struck: notched.launchCost > clean.launchCost } as Cube], floorY);
     check("a magnetic cube in flight is left alone", Math.abs(flying.angle - 0.3) < 1e-9);
     // And it must not reach through the material table to straighten anything else.
     const other = Matter.Bodies.rectangle(200, 200, CELL, CELL);
     Matter.Body.setAngle(other, 0.3);
     Matter.Body.setVelocity(other, { x: 0, y: 0 });
-    alignMagnetic([{ body: other, material: "standard", struck: true } as Cube], floorY);
+    alignMagnetic([{ body: other, material: "standard", struck: notched.launchCost > clean.launchCost } as Cube], floorY);
     check("magnetic alignment touches only magnetic cubes", Math.abs(other.angle - 0.3) < 1e-9);
   }
 
   check("standard fills slots", fillsSlots(cube("standard")));
   check("slag NEVER fills a slot", !fillsSlots(cube("slag")));
-  check("slag stays dead even if something strikes it", !fillsSlots(cube("slag", true)));
+  check("slag stays dead even if something strikes it", !fillsSlots(cube("slag", notched.launchCost > clean.launchCost)));
   check("cold cryo does not fill a slot", !fillsSlots(cube("cryo", false)));
-  check("struck cryo does", fillsSlots(cube("cryo", true)));
+  check("struck cryo does", fillsSlots(cube("cryo", notched.launchCost > clean.launchCost)));
 
   // ---- The queue promises what it delivers --------------------------------
 
@@ -2329,7 +2328,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   // ...and the same row clears once it has been struck. This is the pair that
   // makes cryo a sequencing puzzle rather than a second slag.
   const thawed = buildRow(allStd.map((m, i) => (i === 5 ? "cryo" : m)));
-  for (const c of thawed.cubes) if (c.material === "cryo") c.struck = true;
+  for (const c of thawed.cubes) if (c.material === "cryo") c.struck = notched.launchCost > clean.launchCost;
   check(
     "striking the cryo cube makes the identical row clear",
     updateLineClear(thawed.phys.world, thawed.cubes, thawed.compactor, rowLevel, []).lines === 1,
@@ -2387,7 +2386,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // A thawed cryo cube in the same position is just a cube — no shatter.
   const safe = buildRow(["cryo", "standard"]);
-  safe.cubes[0].struck = true;
+  safe.cubes[0].struck = notched.launchCost > clean.launchCost;
   Matter.Body.setPosition(safe.cubes[0].body, {
     x: safe.compactor.x + safe.compactor.width / 2 + CELL / 2,
     y: safe.cubes[0].body.position.y,
@@ -2423,7 +2422,7 @@ section("Sleeping (engine.ts enableSleeping + the wake rules that make it safe)"
     Matter.Composite.add(g.phys.world, body);
     const cube: Cube = {
       body, type: "O", color: "#ffd500", blinkStart: null,
-      material: "standard", struck: true,
+      material: "standard", struck: notched.launchCost > clean.launchCost,
     };
     g.cubes.push(cube);
     return cube;
@@ -2458,7 +2457,7 @@ section("Sleeping (engine.ts enableSleeping + the wake rules that make it safe)"
     const face0 = g.compactor.leftX + g.compactor.width / 2;
     const startX = face0 + CELL * 2;
     const cube = cubeAt(g, startX, WORLD.height - CELL / 2);
-    Matter.Sleeping.set(cube.body, true);
+    Matter.Sleeping.set(cube.body, notched.launchCost > clean.launchCost);
     let now = 0;
     for (let i = 0; i < 600 && g.compactor.strokes < 1; i++) { now += DT; g.update(now); }
     check("one press stroke completed", g.compactor.strokes >= 1);
@@ -2480,8 +2479,8 @@ section("Sleeping (engine.ts enableSleeping + the wake rules that make it safe)"
     const x = WALL_INNER - CELL / 2 - CELL * 3;
     const bottom = cubeAt(g, x, floorY);
     const top = cubeAt(g, x, floorY - CELL);
-    Matter.Sleeping.set(bottom.body, true);
-    Matter.Sleeping.set(top.body, true);
+    Matter.Sleeping.set(bottom.body, notched.launchCost > clean.launchCost);
+    Matter.Sleeping.set(top.body, notched.launchCost > clean.launchCost);
     bottom.blinkStart = 0;
     const lost = updateBlinking(g.phys.world, g.cubes, 10_000, g.constraints);
     check("the blinked-out cube was removed", lost.length === 1 && g.cubes.length === 1);
@@ -2507,7 +2506,7 @@ section("Lost-piece mark is revocable (lineClear.ts markLostPieces)");
   });
   Matter.Composite.add(phys.world, body);
   const cube: Cube = {
-    body, type: "I", color: "#fff", blinkStart: null, material: "standard", struck: true,
+    body, type: "I", color: "#fff", blinkStart: null, material: "standard", struck: notched.launchCost > clean.launchCost,
   };
   const cubes = [cube];
 

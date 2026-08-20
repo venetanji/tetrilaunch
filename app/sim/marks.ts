@@ -94,15 +94,15 @@ function spread(order: UpgradeId[], budget: number): UpgradeTiers {
  * tempo well will find a calibrated Mark easier than the number suggests.
  * MAGAZINE's real value needs human playtesting; the sim cannot see it.
  */
-const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher",  ];
+const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher"];
 
 const ARCHETYPES: Record<string, (budget: number) => UpgradeTiers> = {
   // The economy build: buy the rate, then the press that realises it.
-  economy: (b) => focused(["reactor", "hydraulics", "bay", "launcher",  ], b),
+  economy: (b) => focused(["reactor", "hydraulics", "bay", "launcher"], b),
   // The spatial build: more room to land in, and a press that squares it up.
-  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher",  ], b),
+  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher"], b),
   // The power build: reach the back of the bay and fight the weather.
-  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay",  ], b),
+  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay"], b),
   // A little of everything — the instinctive first spend.
   spread: (b) => spread(CALIBRATION_TRACKS, b),
 };
