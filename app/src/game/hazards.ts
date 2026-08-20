@@ -168,6 +168,10 @@ export const HAZARDS: HazardDef[] = [
     desc: `Every bay's funding target rises by $${TARGET_NOTCH} per bay.`,
     mark: 1,
     kind: "number",
+    // cfg.id is the bay's 1-BASED number (makeBaseLevel sets id: i + 1), so
+    // the notch already lands on bay 1 (+120) and compounds down the ladder
+    // (+1200 by bay 10) — a flat notch would shrink against the ladder's own
+    // TARGET_PER_BAY ramp the deeper a run goes.
     apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n * cfg.id; },
   },
   {
