@@ -1474,13 +1474,26 @@ body.crt-off #app::after { display: none; }
 .modal h2 { font-family: var(--font-display); font-size: var(--fs-h1); }
 .modal .row { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .stat-row { display: flex; justify-content: center; gap: var(--sp-6); margin: var(--sp-2) 0; }
-.stat { display: flex; flex-direction: column; }
+/* align-items: center, not the default stretch. Each .stat is a mono figure
+   over a pixel-font label, and those two have very different intrinsic
+   widths — a four-digit best over the word BEST. Stretched, both children
+   filled a column sized by the wider one and sat flush to its left edge,
+   so the number and its label were centred on nothing and the three stats
+   read as staggered rather than as a row. */
+.stat { display: flex; flex-direction: column; align-items: center; text-align: center; }
 .stat b { font-family: var(--font-mono); font-size: 28px; }
 .stat span { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 /* The run-end score breakdown, under the stat row. A class rather than the
    inline style it shipped as, so the compact tier can reach it — the loss
    modal's uncompacted breakdown was most of its last 640x360 overflow. */
-.end__breakdown { text-align: center; font-size: 12px; margin-top: -8px; }
+/* 14px, not 12. This line is the arithmetic BEHIND the score row above it —
+   bays x500, lines x100, funds left — so it is read on purpose by anyone
+   asking where their number came from, and 12px of muted grey set it
+   below the threshold where that is possible at arm's length on a phone.
+   The -8px pull that used to tuck it under the labels goes with it: that
+   number was chosen against the smaller line and at 14px it ran into the
+   SCORE/LINES/BEST row underneath. */
+.end__breakdown { text-align: center; font-size: 14px; margin-top: 2px; }
 /* The loss modal's "Made it to Bay N/10" line — it rendered at the inherited
    16px body size, a third taller than every muted line around it. */
 .end__where { font-size: var(--fs-sm); margin-top: -8px; }
@@ -1490,7 +1503,7 @@ body.crt-off #app::after { display: none; }
   .end .end__breakdown { text-align: left; }
 }
 @media (max-height: 480px) {
-  .end .end__breakdown { font-size: 10px; margin-top: -8px; }
+  .end .end__breakdown { font-size: 12px; margin-top: 2px; }
   .end .end__next { font-size: 10.5px; line-height: 1.3; }
 }
 
@@ -3106,8 +3119,6 @@ button.panel { color: var(--text); }
   border-radius: var(--r-md);
 }
 .end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
-.end__why .end__tip { color: var(--text); }
-.end__tip b { color: var(--accent); }
 
 /* Short (landscape-phone) viewports. This block shipped without the
    short-viewport variant that every other region of the end modal carries,

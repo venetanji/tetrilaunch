@@ -47,3 +47,6 @@ audio/*
 .DS_Store
 .vscode/
 __pycache__/
+
+# superpowers brainstorming scratch (visual companion mockups)
+.superpowers/

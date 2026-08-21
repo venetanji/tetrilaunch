@@ -1609,23 +1609,19 @@ export function endModal(opts: {
   // but not the mechanic, so a new player couldn't say whether they lost to
   // time or money, or what to change next run. One plain sentence for the
   // cause, one concrete adjustment. Only on a loss; a win explains itself.
-  const lossWhy: Record<string, [string, string]> = {
-    broke: [
-      "You spent all your Funds on launches before reaching the target.",
-      "Complete more lines with fewer launches — every full row pays Funds back.",
-    ],
-    time: [
-      "The clock ran out before your Funds reached the target.",
-      "Line up your next shot while the cannon reloads, and let full rows pay you forward.",
-    ],
-    launches: [
-      "You used up every launch before hitting the goal.",
-      "Make each shot part of a row — stray cubes are launches spent for nothing.",
-    ],
-    topout: [
-      "The pile reached the ceiling.",
-      "Clear full rows to keep the stack low — only complete lines remove cubes.",
-    ],
+  // Cause only, no advice. The "Try next time:" line that used to follow each
+  // of these restated the rules to someone who had just spent a whole run
+  // learning them, on the one screen where they are least able to act on it —
+  // and it was the block pushing the score row and its breakdown down the
+  // panel. Dropped rather than shortened: a tip nobody reads is not improved
+  // by being briefer. The tips are gone from the table too, so this stays a
+  // map of reason -> cause and cannot rot into a pair whose second half is
+  // never rendered.
+  const lossWhy: Record<string, string> = {
+    broke: "You spent all your Funds on launches before reaching the target.",
+    time: "The clock ran out before your Funds reached the target.",
+    launches: "You used up every launch before hitting the goal.",
+    topout: "The pile reached the ceiling.",
   };
   const why = !opts.won && opts.reason ? lossWhy[opts.reason] : null;
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
@@ -1647,7 +1643,7 @@ export function endModal(opts: {
       ${!opts.won ? `<p class="muted end__where">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
       ${
         why
-          ? `<div class="end__why"><p>${why[0]}</p><p class="end__tip"><b>Try next time:</b> ${why[1]}</p></div>`
+          ? `<div class="end__why"><p>${why}</p></div>`
           : ""
       }
       <div class="stat-row">
@@ -1681,10 +1677,23 @@ export function endModal(opts: {
         <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? `♻ +${opts.tierSalvage}` : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1} (♻ ${opts.progress.award} total per tier).</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
         </div>
-        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+        ${
+          // Only when this end actually BANKED something. The row is a flex
+          // three-up — figure, body, button — and the button is `flex: none`,
+          // so on a run that earned nothing it took width off the one part
+          // carrying information and wrapped the progress sentence into the
+          // cramped block this screen is trying not to be. It was also an
+          // invitation to go shopping with no new money: the Workshop spends
+          // salvage, and a run that banked none has nothing there it did not
+          // have before starting. Tier-complete keeps its button
+          // unconditionally — that branch always carries an award.
+          opts.tierSalvage > 0
+            ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>`
+            : ""
+        }
       </div>`
       }
       ${
