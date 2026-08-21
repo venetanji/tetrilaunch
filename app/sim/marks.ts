@@ -34,6 +34,7 @@ import {
   applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
   UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "../src/game/upgrades";
+import { installById } from "../src/game/meta";
 import { RUN_LEVELS } from "../src/game/run";
 import { BOTS } from "./bots";
 import { runBay } from "./runner";
@@ -99,15 +100,26 @@ function spread(order: UpgradeId[], budget: number): UpgradeTiers {
  */
 const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher", "bonds"];
 
-const ARCHETYPES: Record<string, (budget: number) => UpgradeTiers> = {
+/** The tracks a Mark-M pilot can actually OWN: an install's requiresMark
+ *  counts Marks BEATEN (meta.ts), and a player flying Mark M has beaten
+ *  M - 1. Without this gate the Mark-1 row is judged against a rig no
+ *  first-run player can build — measured: its "best" build put 75 of 77
+ *  points into BAY2+HYD1, both requiresMark 1, i.e. locked until the Mark
+ *  it was supposed to be measuring is already beaten. In-run refits cannot
+ *  reach them either (run.ts's buyUpgrade refuses tier-0 tracks). */
+function ownableTracks(order: UpgradeId[], mark: number): UpgradeId[] {
+  return order.filter((id) => (installById(id)?.requiresMark ?? 0) <= mark - 1);
+}
+
+const ARCHETYPES: Record<string, (budget: number, mark: number) => UpgradeTiers> = {
   // The economy build: buy the rate, then the press that realises it.
-  economy: (b) => focused(["reactor", "hydraulics", "bay", "launcher", "bonds"], b),
+  economy: (b, m) => focused(ownableTracks(["reactor", "hydraulics", "bay", "launcher", "bonds"], m), b),
   // The spatial build: more room to land in, and a press that squares it up.
-  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher", "bonds"], b),
+  spatial: (b, m) => focused(ownableTracks(["bay", "hydraulics", "reactor", "launcher", "bonds"], m), b),
   // The power build: reach the back of the bay and fight the weather.
-  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay", "bonds"], b),
+  power: (b, m) => focused(ownableTracks(["launcher", "hydraulics", "reactor", "bay", "bonds"], m), b),
   // A little of everything — the instinctive first spend.
-  spread: (b) => spread(CALIBRATION_TRACKS, b),
+  spread: (b, m) => spread(ownableTracks(CALIBRATION_TRACKS, m), b),
 };
 
 // ---------------------------------------------------------------------------
@@ -258,7 +270,7 @@ for (const mark of marks) {
   const cells: string[] = [];
   let best = { name: "", overall: -1, perBay: new Map<number, number>() };
   for (const [name, build] of Object.entries(ARCHETYPES)) {
-    const tiers = build(budget);
+    const tiers = build(budget, mark);
     const res = evaluate(mark, tiers);
     cells.push(pct(res.overall));
     if (res.overall > best.overall) best = { name, overall: res.overall, perBay: res.perBay };
@@ -282,7 +294,7 @@ console.log("\nPer-Mark detail for the winning build:");
 for (const mark of marks) {
   const budget = budgetForMark(mark);
   const row = rows.find((r) => r.mark === mark)!;
-  const tiers = ARCHETYPES[row.best](budget);
+  const tiers = ARCHETYPES[row.best](budget, mark);
   const spent = tiersCost(tiers);
   const desc = UPGRADES.filter((u) => tiers[u.id] > 0).map((u) => `${u.glyph}${tiers[u.id]}`).join(" ") || "stock";
   console.log(`  Mark ${String(mark).padStart(2)}  ${row.best.padEnd(8)} ${String(spent).padStart(3)}/${budget}  ${desc}`);
