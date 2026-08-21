@@ -99,6 +99,24 @@ const ALLOWED_SCROLLERS = [
  */
 const DECORATIVE = [".belt", ".bayclear__rays", ".lose-fx"];
 
+/**
+ * Rows whose design contract is ONE line, so a second line is a defect rather
+ * than a reflow.
+ *
+ * This exists because a wrap here is invisible to every other assertion. When
+ * .pl-meta wrapped inside the plant's compact grid it did not overflow the
+ * viewport, did not scroll, did not clip and did not go under the tap floor —
+ * the grid row simply grew 8px -> 20px and swallowed it. What the player saw
+ * was `Combo x1 · Launch $25` with a stranded "·" heading the next line, and
+ * nothing in CI had an opinion.
+ *
+ * The deeper reason to assert it: these rows are sized by a hand-tuned column
+ * split, and the comment justifying that split had measured the WRONG case (a
+ * contract HUD, where screens.ts drops the "Launch $N" span). A number in a
+ * comment cannot be trusted to stay true across a content change; this can.
+ */
+const SINGLE_LINE = [".pl-meta", ".pl-load", ".plant__hdr", ".bay-banner"];
+
 /** `id` is what the baseline keys off, so these are stable API — renaming one
  *  silently invalidates its baseline entries. */
 const ASSERTIONS = [
@@ -110,6 +128,7 @@ const ASSERTIONS = [
   { id: "plant", desc: "the HUD plant panel stays inside its design box" },
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop shop pane is two columns" },
+  { id: "oneline", desc: "rows designed as one line render on one line" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -119,13 +138,13 @@ type Findings = Record<AssertionId, string[]> & { warn: string[] };
  * Runs INSIDE the page. Returns raw findings; all judgement happens back in
  * node so the rules read in one place and the browser side stays mechanical.
  */
-function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Findings {
-  const { allowedScrollers, decorative } = cfg;
+function measure(cfg: { allowedScrollers: string[]; decorative: string[]; singleLine: string[] }): Findings {
+  const { allowedScrollers, decorative, singleLine } = cfg;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
-    plant: [], rail: [], twocol: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -293,6 +312,37 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
     if (tracks < 2) out.twocol.push(`workshop grid has ${tracks} column(s)`);
   }
 
+  // --- oneline: rows contracted to a single line must not wrap --------------
+  // Vertical SPAN, not box height: the row's own height is unreliable because a
+  // grid/flex parent can stretch it well past its content (.pl-load measures
+  // 20px tall around an 8px label whenever it shares a stretched row), which a
+  // height test would read as a wrap. Comparing how far the children spread
+  // vertically against the tallest single child is immune to that, and to the
+  // baseline nudges that `align-items: center` introduces between a label and a
+  // shorter bar sitting beside it.
+  singleLine.forEach((sel) => {
+    document.querySelectorAll(sel).forEach((row) => {
+      const kids = [...row.children]
+        .map((k) => k.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0);
+      if (kids.length < 2) return;
+      const span = Math.max(...kids.map((r) => r.bottom)) - Math.min(...kids.map((r) => r.top));
+      const tallest = Math.max(...kids.map((r) => r.height));
+      if (span <= tallest + 1) return;
+      // Report the gap-inclusive requirement, not the bare sum of the children.
+      // A row that wraps at 189px "needing" 172px reads as a harness bug; the
+      // 24px of column gaps between five items is the whole difference, and
+      // whoever reads this line is about to pick a column width from it.
+      const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+      const needs = kids.reduce((n, r) => n + r.width, 0) + gap * (kids.length - 1);
+      out.oneline.push(
+        `${label(row)} wrapped — children span ${Math.round(span)}px of a ` +
+          `${Math.round(tallest)}px line (${Math.round(row.getBoundingClientRect().width)}px wide, ` +
+          `needs ${Math.round(needs)}px incl. ${kids.length - 1} gaps)`,
+      );
+    });
+  });
+
   return out;
 }
 
@@ -409,6 +459,7 @@ for (const device of devices) {
     const res = await page.evaluate(measure, {
       allowedScrollers: ALLOWED_SCROLLERS,
       decorative: DECORATIVE,
+      singleLine: SINGLE_LINE,
     });
     for (const { id } of ASSERTIONS) {
       if (res[id]?.length) found[`${device.name}|${screen}|${id}`] = res[id];

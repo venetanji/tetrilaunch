@@ -181,6 +181,17 @@ export const SCREENS: Record<string, () => string> = {
     S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE),
   "menu-unlimited-live": () =>
     live(S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE)),
+  // No store at all: `available: false` renders neither the upsell nor the
+  // badge, so the status strip is three readouts instead of four rows. Every
+  // other menu fixture sets `available: true`, which left this state — the one
+  // the web build and every keyless APK actually shows, including the debug
+  // APK this repo's own CI hands out — untested. It is not merely a shorter
+  // menu: app.css sizes the demo panel off whether that row exists, so this is
+  // the fixture that holds the larger panel's width honest.
+  "menu-nostore": () =>
+    S.menuScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE),
+  "menu-nostore-live": () =>
+    live(S.menuScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.
