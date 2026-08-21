@@ -79,7 +79,7 @@ export function menuScreen(
           <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-          run that drafts stranger modifiers onto your bankroll every stop.</p>
+          where every cleared bay ratchets one difficulty axis of your choosing.</p>
         </div>
         <div class="menu__status" aria-label="Player progress">
           ${tierChip}
@@ -150,9 +150,9 @@ export function howtoScreen(): string {
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
-    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is paid out at the end of <b>every</b> run — win or lose — and buys permanent unlocks in the Workshop.`],
+    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
-    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target, a tighter clock and stiffer joints. Clear one and <b>draft a modifier</b> from three — it stacks for the rest of the run. Shipments come in three sizes: <b>micro</b> dominoes are cheap and precise but too light to press the pile flat, <b>bulk</b> pentominoes are rigid and heavy, and standard tetrominoes sit between. Go broke or run out the clock and the run ends there.`],
+    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
@@ -912,7 +912,7 @@ export function refitScreen(opts: {
       <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
       ${
         tracks.length < UPGRADES.length
-          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Mark 1 refits focus the reactor — the rest of the yard opens at Mark 2.</p>`
+          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Tier 1 refits focus the reactor — the rest of the yard opens at Tier 2.</p>`
           : ""
       }
       <button class="btn btn--primary" data-action="refit-done">Undock →</button>
@@ -1048,7 +1048,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           : ""}
        ${installCards
           ? `<div class="workshop__grid">${installCards}</div>`
-          : `<p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`}`
+          : `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`}`
     : `${ownedStrip}
        ${done
           ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
@@ -1060,7 +1060,7 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
         <div style="text-align:left">
           <div class="eyebrow">Between runs</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
-          <p class="muted workshop__blurb" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+          <p class="muted workshop__blurb" style="margin:0">Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
@@ -1131,6 +1131,9 @@ export function pauseModal(): string {
 export function draftScreen(opts: {
   bayNum: number;
   bayName: string;
+  /** The run's tier (its Mark, in player-facing words) — carried on the
+   *  eyebrow so the draft states which rung's pressure is being priced. */
+  tier: number;
   nextBayName: string;
   funds: number;
   /** Overshoot above this bay's target (0 if it ended right at target) —
@@ -1198,17 +1201,23 @@ export function draftScreen(opts: {
         : `<span class="preview-stat__to">${r.from}</span>`;
       // An unmoved context row is the one class of tile a landscape phone can
       // afford to drop (app.css, at compact density) — it is neither the frame
-      // the change is read against nor the change itself.
+      // the change is read against nor the change itself. An ACTIVE row is
+      // never that class: its axis has banked notches, so the pressure is live
+      // whatever this selection touches (previewRows promotes it to core), and
+      // the tag says why the row refuses to leave (Codex #1 / canvas A12).
       const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
-      return `<div class="preview-stat${cls}">
-        <div class="preview-stat__label">${r.label}</div>
+      const label = r.active
+        ? `<span class="preview-stat__labeltxt">${r.label}</span><span class="preview-stat__live">ACTIVE</span>`
+        : r.label;
+      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
+        <div class="preview-stat__label">${label}</div>
         <div class="preview-stat__val">${val}</div>
       </div>`;
     })
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
@@ -1247,7 +1256,11 @@ export function draftScreen(opts: {
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
           ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
         </button>
-        <p class="draft__confirm-note muted">Every bay costs one notch — there is no skip. Pick the pressure you are equipped for.</p>
+        <p class="draft__confirm-note muted">${
+          opts.picksNeeded > 1
+            ? "The capstone costs two notches a bay — there is no skip. Pick the pressures you are equipped for."
+            : "Every bay costs one notch — there is no skip. Pick the pressure you are equipped for."
+        }</p>
       </div>
     </div>
   </div>`;

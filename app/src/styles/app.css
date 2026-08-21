@@ -183,8 +183,10 @@ body.crt-off #app::after { display: none; }
 }
 .screen > * { min-height: 0; }
 
-/* THE scroll opt-in. sim/uifit's `scrollers` assertion enforces that only
-   #lb-body and .workshop__shop ever carry it — a third one fails the build. */
+/* THE scroll opt-in. sim/uifit's `scrollers` assertion enforces the allowlist
+   (#lb-body, .workshop__shop, #refit-grid — plus the coach card's give-way
+   body, which scrolls without the attribute); an entry beyond it fails the
+   build. */
 [data-scroll] {
   flex: 1 1 auto;
   min-height: 0;
@@ -1499,6 +1501,24 @@ body.crt-off #app::after { display: none; }
   font-size: 10px; color: var(--text-muted); line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* An ACTIVE row: its axis has banked notches, so the pressure is live whatever
+   the current selection touches (Codex #1 / canvas A12 — previewRows pins the
+   row to the projection; this is the flag that says why). Declared BEFORE the
+   worse/better tones so a row that is both active and moved keeps the tone's
+   border — the movement is the louder fact. */
+.preview-stat--active { border-color: rgba(255, 176, 32, 0.45); }
+.preview-stat--active .preview-stat__label { display: flex; align-items: center; gap: 4px; }
+.preview-stat__labeltxt {
+  min-width: 0; flex: 1 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview-stat__live {
+  flex: none;
+  font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.08em;
+  color: var(--warn);
+  border: 1px solid rgba(255, 176, 32, 0.5); border-radius: var(--r-sm);
+  padding: 1px 3px;
+}
 .preview-stat__val {
   display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap;
   font-family: var(--font-mono); font-weight: 800; font-size: 15px; color: var(--text);
@@ -1552,7 +1572,7 @@ body.crt-off #app::after { display: none; }
    scroll edge. */
 .modal--draft .draft__body { min-height: 96px; }
 @media (max-height: 520px) {
-  .modal--draft { gap: var(--sp-2); }
+  .modal--draft { gap: 6px; }
   .modal--draft .mod-card { padding: 7px 10px; gap: 3px; }
   .modal--draft .mod-card__name { font-size: 13px; }
   /* Clamped rather than shrunk further: a mod's description is the only thing
@@ -1583,23 +1603,32 @@ body.crt-off #app::after { display: none; }
      the cards and the numbers they move — so on a landscape phone the header
      is what gives up its air. Measured at 792x360: the bank row alone was
      wrapping to two rows of 42px chips. */
-  .modal--draft h2 { font-size: 18px; }
+  .modal--draft h2 { font-size: 17px; }
   .modal--draft > .muted { font-size: 10px; }
   .modal--draft .draft__bank { gap: 6px; }
-  .modal--draft .draft__bank .chip { padding: 3px 8px; min-width: 0; gap: 5px !important; }
+  .modal--draft .draft__bank .chip { padding: 2px 8px; min-width: 0; gap: 5px !important; }
   .modal--draft .draft__bank .chip__label { font-size: 7px; }
-  .modal--draft .draft__bank .chip__value { font-size: 13px; }
+  .modal--draft .draft__bank .chip__value { font-size: 12px; }
   /* Kept on one line: wrapped, the projection's own header cost as much height
      as a row of stat tiles. */
   .modal--draft .draft__preview-hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
   .modal--draft .draft__cards { gap: 7px; }
   /* The projection is the reason the modal is worth opening, so it shrinks
      rather than scrolling away: tighter tiles, smaller labels, and a grid that
-     packs four across the column a landscape phone leaves for it. */
-  .modal--draft .draft__body { gap: var(--sp-2); }
-  .modal--draft .draft__preview { padding: 7px 8px; gap: 5px; }
-  .modal--draft .preview-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 5px; }
-  .modal--draft .preview-stat { padding: 3px 6px; gap: 0; }
+     packs four across the column a landscape phone leaves for it.
+     The columns rebalance toward the projection here: with banked axes pinned
+     ACTIVE (Codex #1) a deep run's grid carries up to ten tiles, and at the
+     base 0.95fr split that is four rows — 15-21px past the fold on the
+     tightest devices, scrolling exactly the live-pressure rows the pin exists
+     to keep visible. At 1.15fr the same ten tiles pack four across, three
+     rows, and the whole projection fits beside the cards. */
+  .modal--draft .draft__body {
+    gap: var(--sp-2);
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+  .modal--draft .draft__preview { padding: 5px 7px; gap: 4px; }
+  .modal--draft .preview-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 4px; }
+  .modal--draft .preview-stat { padding: 2px 5px; gap: 0; }
   .modal--draft .preview-stat__label { font-size: 8px; }
   .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
   .modal--draft .preview-stat__from { font-size: 10px; }

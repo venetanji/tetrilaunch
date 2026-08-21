@@ -48,6 +48,7 @@ function draft(selected: HazardId[]): string {
   return S.draftScreen({
     bayNum: 6,
     bayName: "Slag Works",
+    tier: 6,
     nextBayName: "Cryo Vault",
     funds: 1_820,
     carry: 120,
@@ -55,9 +56,13 @@ function draft(selected: HazardId[]): string {
     ratchets: HUD_BASE.ratchets,
     selected,
     picksNeeded: 2,
+    // HUD_BASE's four banked axes make this the widest projection the screen
+    // can produce: every one of their rows is pinned ACTIVE (Codex #1), so a
+    // draft that fits this fixture fits the tallest honest state.
     preview: previewRows(
       levelForRun({ ...run, ratchets: HUD_BASE.ratchets }),
       levelForRun({ ...run, ratchets: withPicks }),
+      HUD_BASE.ratchets,
     ),
     scrap: 340,
     baysToRefit: 2,

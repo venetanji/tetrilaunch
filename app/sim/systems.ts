@@ -351,10 +351,11 @@ section("Installs — what salvage buys (meta.ts)");
     before.loadout.reactor === 0 && before.salvage === 100);
 
   // The locked copy the Workshop prints must name the gate the purchase path
-  // actually applies — one function, so the two can never drift.
+  // actually applies — one function, so the two can never drift. Rendered in
+  // TIER numbering (B8): requiresMark 2 = "beat Mark 2" = "reach Tier 3".
   const gated = INSTALLS.find((i) => i.requiresMark === 2)!;
-  check("installGates names the Mark a gated system waits on",
-    installGates(freshMeta(), gated).some((g) => g.includes("Mark 2")),
+  check("installGates names the tier a gated system waits on",
+    installGates(freshMeta(), gated).some((g) => g.includes("Tier 3")),
     installGates(freshMeta(), gated).join(" · "));
   check("installGates is empty for an available system",
     installGates(freshMeta(), installById("reactor")!).length === 0);
@@ -420,8 +421,8 @@ section("Installs — what salvage buys (meta.ts)");
     shopOpts.slice(shopOpts.indexOf("shop-card__name"), shopOpts.indexOf("shop-card__name") + 80));
   check("both card kinds wrap name and desc in a body",
     shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
-  check("a Mark-gated system is shown, locked, rather than hidden",
-    shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
+  check("a tier-gated system is shown, locked, rather than hidden",
+    shop.includes("Bond Emitter") && shop.includes("Needs Tier 3"),
     shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
@@ -450,7 +451,7 @@ section("Installs — what salvage buys (meta.ts)");
   const mark1 = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 1 });
   check("a Mark-1 stop renders exactly one card",
     (mark1.match(/refit-card__hdr/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
-  check("a Mark-1 stop says why the yard is short", mark1.includes("opens at Mark 2"));
+  check("a Tier-1 stop says why the yard is short", mark1.includes("opens at Tier 2"));
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +871,13 @@ section("Refit cadence + run economy (run.ts)");
   check("carry is capped at CARRY_CAP",
     advanceRun(run, 5000, 1000, 0, 0, []).carry === CARRY_CAP,
     String(advanceRun(run, 5000, 1000, 0, 0, []).carry));
+  // Below the cap the overshoot carries EXACTLY, not the cap: the first
+  // check above happens to land right at CARRY_CAP (950-800=150), so without
+  // this a regression that banked the full cap for any positive overshoot
+  // would pass both.
+  check("a small overshoot carries itself, not the cap",
+    advanceRun(run, 850, 800, 0, 0, []).carry === 50,
+    String(advanceRun(run, 850, 800, 0, 0, []).carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
@@ -1083,6 +1091,20 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   check("a stacked axis projects the stacked number",
     row(rowsFor(["cost", "cost"]), "cost")!.to
       === `$${levelForRun({ ...drafting, ratchets: { cost: 2 } }).launchCost}`);
+
+  // Codex #1 (canvas A12): a BANKED axis is live pressure on the next bay
+  // whatever the current selection touches. Its rows stay on the projection,
+  // flagged active and promoted to core — the compact grid drops context rows,
+  // and a live pressure must never be one of those.
+  const banked = { ...drafting, ratchets: { sweeper: 1 } as Ratchets };
+  const bankedRows = previewRows(levelForRun(banked), levelForRun(banked), banked.ratchets);
+  check("a banked sweeper stays on the projection with nothing selected",
+    row(bankedRows, "sweeper") !== undefined && row(bankedRows, "cells") !== undefined,
+    bankedRows.map((r) => r.id).join(","));
+  check("a banked axis's rows are active and core",
+    bankedRows.filter((r) => r.id === "sweeper" || r.id === "cells")
+      .every((r) => r.active && r.kind === "core"));
+  check("without banked notches nothing is active", rowsFor([]).every((r) => !r.active));
 }
 
 // ---------------------------------------------------------------------------
@@ -1599,7 +1621,7 @@ section("Compactor phase telemetry (compactor.ts, game.ts)");
   // cycle and require the recorded phases to actually differ. The config is
   // deliberately over-funded and over-quota'd: this section measures
   // compactor-phase recording, not the bay economy — and the real bay-1 float
-  // ($170 at $30/launch toward an $800 target) would WIN the bay mid-test (a
+  // ($200 at $25/launch toward an $800 target) would WIN the bay mid-test (a
   // settling bay refuses new shots) before both stroke directions were seen.
   const seen: { phase: number; dir: number; stroke: number; live: number }[] = [];
   const gs = new Game({ ...makeBaseLevel(0), startingFunds: 100_000, targetScore: 10_000_000 }, {
@@ -1905,9 +1927,9 @@ section("HUD readout widths (the $1000+ wrap regression)");
     ["laptop 1600x900", 1600, 900],
     ["ultrawide 2400x1080", 2400, 1080],
   ];
-  // bay-10's target is 800 + TARGET_PER_BAY*9 = 1880, and a Reactor+carry run
+  // bay-10's target is 800 + TARGET_PER_BAY*9 = 1700, and a Reactor+carry run
   // can carry 5 figures.
-  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 1880], [24680, 1880]];
+  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 1700], [24680, 1700]];
 
   for (const [name, w, h] of VIEWPORTS) {
     for (const [funds, target] of CASES) {

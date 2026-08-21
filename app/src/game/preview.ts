@@ -1,4 +1,4 @@
-import { HAZARDS } from "./hazards";
+import { HAZARDS, type HazardId, type Ratchets } from "./hazards";
 import type { LevelConfig } from "./level";
 
 /**
@@ -41,6 +41,14 @@ export interface PreviewRow {
    *  landscape phone drops first (app.css hides it at compact density), because
    *  it is the only class of row that is neither the frame nor the answer. */
   kind: "core" | "context";
+  /** The axis behind this row has BANKED notches on the run — the pressure is
+   *  live whatever the current selection does. An active row is promoted to
+   *  "core" (it is part of the frame the change is read against, so no filter
+   *  and no compact rule may drop it) and the draft flags it ACTIVE. This is
+   *  Codex point #1: a banked Sweeper Detail used to vanish from the
+   *  projection whenever the current pick didn't move press speed, so the
+   *  player priced the next bay against numbers that hid its live pressure. */
+  active: boolean;
 }
 
 const money = (v: number): string => `$${Math.round(v)}`;
@@ -67,6 +75,10 @@ interface Field {
    *  player can see the crosswind they are already flying before deciding to
    *  ratchet it. Anything else appears the moment a pick touches it. */
   showWhen?(baseVal: number): boolean;
+  /** The ratchet axis whose notches make this row's pressure LIVE. A row whose
+   *  axis has banked notches never leaves the projection and is flagged
+   *  active — see PreviewRow.active. */
+  axis?: HazardId;
 }
 
 const FIELDS: Field[] = [
@@ -87,18 +99,18 @@ const FIELDS: Field[] = [
   { id: "clock", label: "Shift clock", read: (c) => c.timeLimitSec, fmt: clock, higherIsWorse: false, always: true },
   {
     id: "wind", label: "Crosswind", read: (c) => c.windMax, fmt: (v) => v.toFixed(2),
-    higherIsWorse: true, showWhen: (v) => v > 0.005,
+    higherIsWorse: true, showWhen: (v) => v > 0.005, axis: "wind",
   },
   {
     id: "sweeper", label: "Press speed", read: (c) => c.compactorSpeed, fmt: (v) => `${v.toFixed(2)}×`,
-    higherIsWorse: true,
+    higherIsWorse: true, axis: "sweeper",
   },
   {
     // Unit in the LABEL, not the value: "11 cells → 10 cells" is the one row
     // wide enough to wrap its tile onto a second line at phone widths, and one
     // taller tile costs a whole row of the grid.
     id: "cells", label: "Press gap (cells)", read: (c) => c.compactorOpenCells, fmt: (v) => `${Math.round(v)}`,
-    higherIsWorse: false,
+    higherIsWorse: false, axis: "sweeper",
   },
   // The content axes, in ladder order, labelled off their own HazardDef so a
   // new material is still one table row in hazards.ts and nothing here.
@@ -109,6 +121,7 @@ const FIELDS: Field[] = [
     fmt: rate,
     higherIsWorse: true,
     showWhen: (v) => v > 0.005,
+    axis: h.id,
   })),
 ];
 
@@ -117,8 +130,19 @@ const FIELDS: Field[] = [
  * run stands, `next` is that same bay with the picks folded in. Pass the same
  * config twice and every row comes back unchanged, which is exactly what an
  * empty selection should look like.
+ *
+ * `banked` is the run's RATCHETS AS THEY STAND (before the tentative picks):
+ * any axis with a banked notch is a live pressure on the next bay whatever the
+ * current selection touches, so its rows stay on the projection, flagged
+ * active and promoted to core (the frame, not droppable context). Defaults to
+ * none so callers without a run — the same config twice, a bare comparison —
+ * keep the old behaviour exactly.
  */
-export function previewRows(base: LevelConfig, next: LevelConfig): PreviewRow[] {
+export function previewRows(
+  base: LevelConfig,
+  next: LevelConfig,
+  banked: Ratchets = {},
+): PreviewRow[] {
   const rows: PreviewRow[] = [];
   for (const f of FIELDS) {
     const a = f.read(base);
@@ -126,7 +150,8 @@ export function previewRows(base: LevelConfig, next: LevelConfig): PreviewRow[] 
     const from = f.fmt(a);
     const to = f.fmt(b);
     const changed = from !== to;
-    if (!changed && !f.always && !(f.showWhen?.(a) ?? false)) continue;
+    const active = f.axis !== undefined && (banked[f.axis] ?? 0) > 0;
+    if (!changed && !active && !f.always && !(f.showWhen?.(a) ?? false)) continue;
     rows.push({
       id: f.id,
       label: f.label,
@@ -134,7 +159,8 @@ export function previewRows(base: LevelConfig, next: LevelConfig): PreviewRow[] 
       to,
       changed,
       tone: !changed ? "same" : (b > a) === f.higherIsWorse ? "worse" : "better",
-      kind: f.always ? "core" : "context",
+      kind: f.always || active ? "core" : "context",
+      active,
     });
   }
   return rows;

@@ -1289,6 +1289,7 @@ class App {
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
       bayName: g.level.name,
+      tier: run.mark,
       nextBayName: makeBaseLevel(run.levelIndex).name,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
@@ -1306,6 +1307,10 @@ class App {
       preview: previewRows(
         levelForRun(run),
         levelForRun({ ...run, ratchets: withPicks(run.ratchets, this.pendingPicks) }),
+        // The BANKED ratchets, not the tentative hand: an axis with notches
+        // already on the run is live pressure on the next bay whatever this
+        // draft selects, so its rows stay on the projection flagged ACTIVE.
+        run.ratchets,
       ),
       scrap: run.scrap,
       // Bay-CLEARS until the next refit stop, counting the bay about to be
@@ -1769,8 +1774,9 @@ class App {
     // stopped arriving: on a touch device the entire in-game control surface —
     // rotate, Bond Breaker, cancel — went silent, and only the Autoloader hold
     // and a SUCCESSFUL bomb arm still fired one. A press is worth confirming
-    // even when it does nothing (an empty bomb rack is the case a player most
-    // needs to feel), so this is unconditional and the arm's own tap goes.
+    // even when its effect is invisible, so this is unconditional for every
+    // press that lands (a disabled trigger never reaches here —
+    // onGamePointerDown drops it), and the arm's own tap goes.
     void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }

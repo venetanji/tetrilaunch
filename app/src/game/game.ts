@@ -666,7 +666,8 @@ export class Game {
   }
 
   /**
-   * Bond Breaker special ability (drafted via mods.ts): shatter EVERY joint on
+   * Bond Breaker special ability (charged by the Bond Emitter track — see
+   * run.ts's bondChargesFor for the run-scoped magazine): shatter EVERY joint on
    * the field at once, turning all pieces into loose cubes. With nothing
    * holding awkward stacks rigid, the pile slumps flatter and the compactor
    * packs the loose cubes into full lines far more easily. Consumes one charge;
@@ -862,7 +863,8 @@ export class Game {
   }
 
   /**
-   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): while the
+   * Autoloader (level.autoLaunchMs — the retired modifier draft was its only
+   * live source, so nothing sets it in a current run): while the
    * trigger is HELD, the cannon fires every level.autoLaunchMs, re-rolling its
    * aim inside a band around wherever the player is pointing rather than
    * shooting the exact same arc forever. Fast, cheap and PROBABILISTIC — it is

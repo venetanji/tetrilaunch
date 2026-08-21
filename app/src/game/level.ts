@@ -229,8 +229,9 @@ const LEVEL_NAMES = [
  *  money is scarce a rising target lengthens the bay's demand against a purse
  *  that does NOT rise with it — which is a difficulty curve. It also takes the
  *  ramp out of the player's draft: the ladder's own climb is no longer
- *  something a hazard card can be spent opting into (hazards.ts's Quota Raise
- *  is retuned to mean something on top of this). */
+ *  something a hazard card can be spent opting into (hazards.ts RETIRED Quota
+ *  Raise from the offer for exactly this reason — the ladder's own ramp is
+ *  that pressure's home now; see RETIRED_AXES). */
 export const TARGET_PER_BAY = 100;
 
 function targetScoreFor(i: number): number {

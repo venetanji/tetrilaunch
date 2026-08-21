@@ -187,7 +187,10 @@ export function unlockAvailable(
 export function unlockGates(def: UnlockDef, owned: string[], mark: number): string[] {
   const gates: string[] = [];
   if (def.requiresMark !== undefined && mark < def.requiresMark) {
-    gates.push(`Mark ${def.requiresMark}`);
+    // Rendered in TIER numbering (B8: "Mark" is internal vocabulary, never
+    // shown). requiresMark counts Marks BEATEN; the tier being flown is
+    // mark + 1, so "reach Tier N+1" is satisfied exactly when Mark N falls.
+    gates.push(`Tier ${def.requiresMark + 1}`);
   }
   for (const r of def.requires ?? []) {
     if (!owned.includes(r)) gates.push(unlockById(r)?.name ?? r);
@@ -274,7 +277,9 @@ export function installAvailable(meta: MetaState, def: InstallDef): boolean {
 export function installGates(meta: MetaState, def: InstallDef): string[] {
   const out: string[] = [];
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) {
-    out.push(`Mark ${def.requiresMark}`);
+    // Tier numbering, same off-by-one as unlockGates: the gate names the tier
+    // the player has to REACH, which is the Mark to beat plus one.
+    out.push(`Tier ${def.requiresMark + 1}`);
   }
   if ((meta.loadout[def.id] ?? 0) === 0 &&
       buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
