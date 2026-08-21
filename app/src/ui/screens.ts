@@ -7,19 +7,56 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, refitTracks, tiersCost, upgradeById, type UpgradeTiers,
+  MAX_TIER, UPGRADES, budgetForMark, nextTierCost, refitTracks, tiersCost, upgradeById,
+  type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
-  markBudget, type MetaState, type TierProgress,
+  installById, markBudget, tierMilestoneSalvage, tierProgressFor,
+  type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
+import { DAILY_COUNT } from "../game/contracts";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
-  totalNotches, type HazardDef, type HazardId, type Ratchets,
+  HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
+import {
+  ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
+  type BindableAction, type InputProfile,
+} from "../game/bindings";
+import type { PreviewRow } from "../game/preview";
+
+/* ---------------------------------------------------------------------------
+ * TIER PLATE — one component at three sizes (canvas A1/A4/C · A15's note):
+ * 58x52 in the Deep Run menu button, 26px on the run-end primary, 11px in the
+ * bay banner. The pixel TIER label with the mono number, always the same two
+ * parts, so the ladder has ONE face wherever it shows up.
+ * ------------------------------------------------------------------------ */
+export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
+  return `<span class="tier-plate tier-plate--${size}" aria-label="Tier ${tier}"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">${tier}</span></span>`;
+}
+
+/** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
+ *  meta.ts's nextStep — this is just the chip. */
+export function nextBadgeHTML(label = "Next step"): string {
+  return `<span class="next-badge">${label}</span>`;
+}
+
+/** The portrait rotate guard. The markup lives here rather than inline in
+ *  main.ts's boot HTML so the uifit harness renders the exact DOM the app
+ *  shows — this was the one screen with zero fit coverage on any viewport.
+ *  main.ts mounts it hidden and toggles `.show`; going portrait mid-bay also
+ *  pauses the game (see onResize). */
+export function rotateGuardHTML(): string {
+  return `<div class="rotate-guard" id="rotate-guard">
+    <div class="phone"></div>
+    <div class="eyebrow">Rotate your device</div>
+    <p class="muted">Tetrilaunch plays in landscape.</p>
+  </div>`;
+}
 
 export function splashScreen(): string {
   // No tagline. "Physics Cannon Puzzle" undersold and mis-sold the game — it
@@ -34,12 +71,20 @@ export function splashScreen(): string {
 }
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
- *  the store entry point hides itself rather than offering a dead button. */
+ *  the store entry point hides itself rather than offering a dead button.
+ *  `guide` carries the first-session system (canvas A2/A3): which action
+ *  holds the ONE NEXT STEP badge, the live numbers the subtitles state the
+ *  offer in, and whether the Guided Tutorial entry is still owed. */
 export function menuScreen(
   best: number,
   salvage = 0,
   store?: StoreState,
   progress?: TierProgress,
+  guide?: {
+    step: NextStepId;
+    install: { name: string; cost: number } | null;
+    firstLaunch: boolean;
+  },
 ): string {
   // The tier chip answers "where am I on the ladder and what's left" from the
   // homepage (playtest call, 2026-08-08): the tier being flown, and the two
@@ -78,15 +123,15 @@ export function menuScreen(
           <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-          run that drafts stranger modifiers onto your bankroll every stop.</p>
+          where every cleared bay ratchets one difficulty axis of your choosing.</p>
         </div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div class="menu__status" aria-label="Player progress">
           ${tierChip}
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip menu__stat">
             <div class="chip__label">Best</div>
             <div class="chip__value" style="color:var(--accent)">${best}</div>
           </div>
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip menu__stat">
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
           </div>
@@ -97,12 +142,40 @@ export function menuScreen(
       <div class="menu__actions">
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
-             a new player until each is explained — keep the flavour, add one
-             plain line saying what the button actually does). -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu" data-action="play">${icon("play")}<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays in one run</span></span></button>
-        <button class="btn btn--secondary btn--block btn--menu" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">Short challenges · retry freely</span></span></button>
-        <button class="btn btn--secondary btn--block btn--menu" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">Spend Salvage on permanent unlocks</span></span></button>
-        <button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>
+             a new player until each is explained). The subtitles state the
+             offer in LIVE numbers (A3), the Deep Run button carries the tier
+             plate (A1 — the plate takes the icon slot), and exactly one
+             button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
+        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play">${
+          progress ? tierPlateHTML(progress.tier, "menu") : icon("play")
+        }<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays${progress ? ` at Tier ${progress.tier}` : ""} in one run</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
+          // Numbers lead (A3): at compact the sub is one ellipsized line, so
+          // the live figures must sit before the prose that can afford to go.
+          progress
+            ? `${DAILY_COUNT} today · ♻ ${progress.milestone} each · no clock, no launch cost`
+            : "Short challenges · retry freely"
+        }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+          guide
+            ? guide.install
+              ? salvage >= guide.install.cost
+                ? `♻ ${salvage} — ${guide.install.name} costs ♻ ${guide.install.cost}`
+                : `♻ ${salvage} — Contracts pay salvage`
+              : `♻ ${salvage} banked`
+            : "Spend Salvage on permanent unlocks"
+        }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
+        ${
+          // A2: on first launch the Guided Tutorial takes How to Play's slot,
+          // badged START HERE — it supersedes the manual for a player who has
+          // never fired a shot, and the column stays six rows at every
+          // density (a seventh row overflows a 360dp phone by 70px). Once the
+          // coach is finished or skipped the entry disappears and How to Play
+          // returns, keeping the guided replay.
+          guide?.firstLaunch
+            ? `<button class="btn btn--secondary btn--block btn--menu btn--next" data-action="tutorial">${icon("howto")}<span class="btn__txt">Guided Tutorial<span class="btn__sub">Learn the cannon in one bay</span></span>${nextBadgeHTML("Start here")}</button>`
+            : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
+        }
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
         <!-- The Unlimited upsell is NOT a seventh button here. This column gets
              325px on a landscape phone and six buttons need 290 — a seventh
@@ -126,38 +199,37 @@ export interface StoreState {
 }
 
 function unlimitedBadgeHTML(): string {
-  return `<div class="chip" style="flex-direction:row;align-items:center;gap:8px;max-width:190px">
+  return `<div class="chip menu__entitlement">
     <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
   </div>`;
 }
 
-/** The pre-purchase counterpart to the badge above, in the same chip row — a
- *  button shaped like a chip so it reads as part of that status strip rather
- *  than as a seventh menu action. See the note in menuScreen's action column
- *  for why it isn't one. */
+/** The pre-purchase counterpart to the badge above, in the same chip row.
+ *  A real `.btn` (B1: a chip is a readout — something pressable is a button),
+ *  restyled by `.chip--cta` to sit in the status strip rather than reading as
+ *  a seventh menu action. See the note in menuScreen's action column for why
+ *  it isn't one. */
 function unlockChipHTML(): string {
-  return `<button class="chip chip--cta" data-action="paywall">
-    <div class="chip__value">★ Unlock Unlimited</div>
-  </button>`;
+  return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
 }
 
 export function howtoScreen(): string {
   const steps = [
-    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
-    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
+    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">${keyLabel(keyFor("aimUp"))}</span><span class="kbd">${keyLabel(keyFor("aimDown"))}</span> to aim, <span class="kbd">${keyLabel(keyFor("powerDown"))}</span><span class="kbd">${keyLabel(keyFor("powerUp"))}</span> for power.`],
+    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">${keyLabel(keyFor("rotl"))}</span><span class="kbd">${keyLabel(keyFor("rotr"))}</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
-    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is paid out at the end of <b>every</b> run — win or lose — and buys permanent unlocks in the Workshop.`],
+    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
-    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target, a tighter clock and stiffer joints. Clear one and <b>draft a modifier</b> from three — it stacks for the rest of the run. Shipments come in three sizes: <b>micro</b> dominoes are cheap and precise but too light to press the pile flat, <b>bulk</b> pentominoes are rigid and heavy, and standard tetrominoes sit between. Go broke or run out the clock and the run ends there.`],
+    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div><div class="eyebrow">Briefing</div><h2 class="display" style="font-size:var(--fs-h1)">How to Play</h2></div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="howto__grid">
         ${steps
@@ -176,7 +248,7 @@ export function howtoScreen(): string {
         ).join("")}
       </div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="btn btn--primary btn--lg" data-action="play">▶ Start Run</button>
+        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
         <button class="btn btn--secondary btn--lg" data-action="tutorial">Guided Tutorial</button>
       </div>
     </div>
@@ -192,23 +264,104 @@ export function howtoScreen(): string {
  * findable. Splitting toggles from actions puts the tallest column near 210px
  * and removes the scroll rather than making it more pleasant.
  */
-export function settingsScreen(s: Settings, store?: StoreState): string {
+export function settingsScreen(
+  s: Settings,
+  store?: StoreState,
+  /** Whether haptics can do anything on this platform (lib/platform's
+   *  hapticsSupported). iOS Safari and the iOS PWA have no
+   *  navigator.vibrate, so the toggle there was a switch wired to nothing —
+   *  it hides instead. Defaults on so headless callers keep the full panel. */
+  hapticsAvailable = true,
+): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal modal--settings pop">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h2 class="display" style="font-size:var(--fs-h1)">Settings</h2>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="split settings__cols">
         <div class="settings__toggles">
           ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
           ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
-          ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
+          ${hapticsAvailable ? toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics) : ""}
         </div>
         <div class="settings__actions">
+          <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
           ${store?.available ? purchaseRowsHTML(store) : ""}
           <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
         </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * CONTROLS (canvas D1) — Settings → Controls: three input families on the
+ * Workshop's tab pattern, every binding a row, keyboard and gamepad
+ * rebindable with a live press-a-key capture state (main.ts drives the
+ * capture; this only renders it). Bindings are read live from
+ * game/bindings.ts — the same table the hints render from (D2), so a row
+ * here and a hint in the coach can never disagree.
+ */
+export type ControlsTab = "touch" | "keyboard" | "gamepad";
+
+export function controlsScreen(opts: {
+  tab: ControlsTab;
+  settings: Settings;
+  /** Detected gamepad id, or null — browsers hide pads until a button is
+   *  pressed, and the pane says so instead of reading as broken. */
+  padName: string | null;
+  /** The action currently capturing a rebind, if any. */
+  rebinding: BindableAction | null;
+}): string {
+  const tabBtn = (id: ControlsTab, label: string) =>
+    `<button class="workshop__tab${opts.tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="controls-tab" data-tab="${id}" aria-selected="${opts.tab === id}">${label}</button>`;
+
+  const bindRow = (a: BindableAction, label: string): string => {
+    const capturing = opts.rebinding === a;
+    return `<div class="bind-row${capturing ? " bind-row--capturing" : ""}">
+      <span class="bind-row__label">${ACTION_LABELS[a]}</span>
+      <span class="bind-row__key">${capturing ? (opts.tab === "gamepad" ? "Press a button…" : "Press a key…") : label}</span>
+      <button class="btn btn--ghost bind-row__btn" data-action="rebind" data-bind="${a}">${capturing ? "Cancel" : "Rebind"}</button>
+    </div>`;
+  };
+  const infoRow = (label: string, value: string): string =>
+    `<div class="bind-row bind-row--info">
+      <span class="bind-row__label">${label}</span>
+      <span class="bind-row__key">${value}</span>
+    </div>`;
+
+  let pane = "";
+  if (opts.tab === "touch") {
+    pane = `${infoRow("Aim & fire", "drag anywhere · release fires")}
+      ${infoRow("Cancel a launch", "second finger taps ✕")}
+      ${infoRow("Rotate", "⟲ / ⟳ on the rail")}
+      ${infoRow("Abilities", "rail buttons · plant chips")}
+      ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
+  } else if (opts.tab === "keyboard") {
+    pane = BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("");
+  } else {
+    pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
+      ${infoRow("Aim & power", "left stick · deflection sets power")}
+      ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
+      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}`;
+  }
+
+  return `<div class="screen neon-backdrop">
+    <div class="controls">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div><div class="eyebrow">Settings</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
+        <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
+      </div>
+      <div class="workshop__tabs" role="tablist">
+        ${tabBtn("touch", "Touch")}
+        ${tabBtn("keyboard", "Keyboard")}
+        ${tabBtn("gamepad", "Gamepad")}
+      </div>
+      <div class="controls__pane" id="controls-grid" role="tabpanel" data-scroll>${pane}</div>
+      <div class="row" style="justify-content:center">
+        <button class="btn btn--primary" data-action="settings">Done</button>
+        ${opts.tab === "touch" ? "" : `<button class="btn btn--ghost" data-action="controls-reset">Reset ${opts.tab}</button>`}
       </div>
     </div>
   </div>`;
@@ -290,10 +443,10 @@ export function leaderboardScreen(rows: string): string {
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="text-align:left"><div class="eyebrow">Launch Bay</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
-      <div id="lb-body">${rows}</div>
-      <button class="btn btn--primary" data-action="play">▶ Play</button>
+      <div id="lb-body" data-scroll>${rows}</div>
+      <button class="btn btn--primary" data-action="play">${icon("play")}Play</button>
     </div>
   </div>`;
 }
@@ -352,9 +505,11 @@ export function hudHTML(opts: {
   timeLimitSec: number;
   timeLeftMs: number;
   pieceSize: PieceSize;
-  /** Whether this bay's run has the Bond Breaker ability drafted — shows its
-   *  glowing chip in the plant's ability row (see main.ts / game.ts's
-   *  useBondBreaker). */
+  /** Whether this bay's run carries the Bond Breaker ability at all — shows
+   *  its glowing chip in the plant's ability row (see main.ts / game.ts's
+   *  useBondBreaker). Charged by CHARGES, not by the config: the stock is a
+   *  consumable run resource, so a run that spent its last charge in an
+   *  earlier bay no longer shows a dead trigger. */
   bondBreakerOwned: boolean;
   /** Charges left this bay, shown on the chip. */
   bondCharges: number;
@@ -371,6 +526,16 @@ export function hudHTML(opts: {
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
   tiers: UpgradeTiers;
+  /** The run's tier, for the bay banner's plate (canvas A4). Null in
+   *  Contract mode, whose banner names the Contract instead. */
+  tier?: number | null;
+  /** The active input family (D2): the hint strip renders its bindings from
+   *  this. main.ts re-patches the strip when the profile flips mid-bay. */
+  profile?: InputProfile;
+  /** What the cannon is HOLDING — the transport's first queue slot (canvas
+   *  A5's two-deep read: loaded full-size, next behind it). The canvas draws
+   *  the same piece at the muzzle; the housing is where it reads as a queue. */
+  loaded?: BeltPreview | null;
   /** Present only in CONTRACT mode. A Contract has no bankroll and no clock, so
    *  the funds/launches readout would show $0 and 0 launches forever; this
    *  swaps in the two numbers that actually govern it — lines toward the goal,
@@ -392,7 +557,7 @@ export function hudHTML(opts: {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    contract,
+    tier, loaded, contract,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -401,7 +566,18 @@ export function hudHTML(opts: {
     ? beltBombHTML()
     : beltPreview.empty
       ? ""
-      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize);
+      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
+  const beltLoadedHTML = !loaded
+    ? ""
+    : loaded.bomb
+      ? beltBombHTML()
+      : loaded.empty
+        ? ""
+        : beltPieceHTML(loaded.type, loaded.quarterTurns, pieceSize, loaded.material);
+  // A5's size tag: the shipment class this bay runs on, said in one word at
+  // the housing. Dropped at compact density (the phone rule) — the tile's own
+  // cube count already carries the read there.
+  const sizeTag = pieceSize === "tiny" ? "Micro" : pieceSize === "bulk" ? "Bulk" : "Std";
   const launches = Math.floor(score / Math.max(1, launchCost));
   const timeBlock =
     timeLimitSec > 0
@@ -415,19 +591,19 @@ export function hudHTML(opts: {
   // of sync with the live charge count.
   const bondChip = bondBreakerOwned
     ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
-        <span class="g">⚡</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
+        <span class="g">${icon("bond", 15)}</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
       </button>`
     : "";
   const bondRailBtn = bondBreakerOwned
-    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
+    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   const demoChip = demoOwned
     ? `<button class="mod mod--demo demo-trigger" data-game="demo" id="demo-chip" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>
-        <span class="g">💥</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
+        <span class="g">${icon("demo", 15)}</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
       </button>`
     : "";
   const demoRailBtn = demoOwned
-    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>💥<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
+    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
   // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
   // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
@@ -448,7 +624,8 @@ export function hudHTML(opts: {
     ? `<div class="bay-banner bay-banner--contract" role="status">
         <span class="bay-banner__mode">Contract</span> ${contract.name}
       </div>`
-    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}">
+    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, tier ${tier}` : ""}">
+        ${tier ? tierPlateHTML(tier, "banner") : ""}
         <span class="bay-banner__mode">Bay</span>
         <span class="bay-banner__n">${bayNum}<span class="bay-banner__of">/${RUN_LEVELS}</span></span>
         <span class="bay-banner__pips" aria-hidden="true">${Array.from(
@@ -456,45 +633,60 @@ export function hudHTML(opts: {
           (_, i) => `<i class="${i + 1 < bayNum ? "done" : i + 1 === bayNum ? "cur" : ""}"></i>`,
         ).join("")}</span>
       </div>`;
-  return `<div class="hud" id="hud">
-    <!-- button rail: ONE same-width column of at most seven buttons —
-         fullscreen, pause, rotate CCW/CW, Bond Breaker + Demolition (if
-         drafted), and the aim-state cancel ✕. Where it SITS is decided by the
-         layout solver (game/layout.ts): centered in the right letterbox gutter
-         when one is wide enough, in a reserved right band on near-16:9
-         viewports where there is no natural gutter, or as a horizontal strip in
-         the bottom band on tablet-ish aspects (see app.css's [data-layout]
-         rules). There's no keyboard on mobile, so this rail IS the touch
-         control surface. The ✕ is only visible mid-drag (main.ts's syncHud
-         toggles .hud--aiming) but its slot is always reserved so appearing
-         never shifts the other buttons under a hovering thumb; a second finger
-         taps it to abort the queued launch. Rotate taps mid-drag do NOT cancel
-         (see input.ts). Desktop hides the game buttons and uses Q/E + B/X
-         instead (see the @media (pointer: fine) rule in app.css), per the
-         kbd-hint strip down in .hud__bottom. -->
+  return `<div class="hud${contract ? " hud--contract" : ""}" id="hud">
+    <!-- button rail: ONE same-width column of four base buttons — fullscreen,
+         pause, rotate CCW/CW — plus a slot per drafted ability (Bond Breaker,
+         Demolition, Autoloader). Where it SITS is decided by the layout solver
+         (game/layout.ts): centered in the right letterbox gutter when one is
+         wide enough, in a reserved right band on near-16:9 viewports where
+         there is no natural gutter, or as a horizontal strip in the bottom
+         band when the column genuinely cannot fit (see app.css's [data-layout]
+         rules). The solver budgets the column for the buttons ACTUALLY here
+         (main.ts's hudOpts feeds railSlotsFor), which is what keeps the
+         vertical rail on 360dp landscape phones. There's no keyboard on
+         mobile, so this rail IS the touch control surface. The aim-state
+         cancel ✕ is only visible mid-drag (main.ts's syncHud toggles
+         .hud--aiming) and does NOT own a slot: it swaps into the pause
+         button's slot (a CSS order pair — it is last in the DOM but renders
+         second), so the column's count and every other button's position hold
+         steady under a hovering thumb; a second finger taps it to abort the
+         queued launch. Rotate taps mid-drag do NOT cancel (see input.ts).
+         Desktop hides the game buttons and uses Q/E + B/X instead (see the
+         @media (pointer: fine) rule in app.css), per the kbd-hint strip down
+         in .hud__bottom. -->
     <div class="side-rail">
-      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
-      <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
-      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
-      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
+      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>
+      <button class="icon-btn" data-action="pause" aria-label="Pause">${icon("pause", 22)}</button>
+      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
+      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
       ${demoRailBtn}
       ${autoRailBtn}
-      <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
+      <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">${icon("close", 22)}</button>
     </div>
 
     ${bayBanner}
 
-    <!-- conveyor belt: the piece that fires AFTER the loaded one rides in
-         from the top-left and feeds the cannon (see components.ts's
-         beltPieceHTML/beltBombHTML — the real queued piece's shape/colors,
-         not a mockup stand-in). -->
-    <div class="belt" aria-label="Next piece">
+    <!-- INFEED TRANSPORT (canvas A5, proposal A "infeed housing"): the feed
+         head takes hazard stripes, the tread animates toward the cannon, and
+         the queue reads TWO deep — the piece the cannon is HOLDING full-size
+         at the downhill (muzzle) end, the piece coming after it behind at
+         reduced opacity. Real queue data, not a mockup: components.ts's
+         beltPieceHTML renders the exact shape/rotation/material, and the
+         MATERIAL_SPEC colour makes cryo/slag legible before firing. The size
+         tag names the bay's shipment class; compact drops it (A5's phone
+         rule), and the whole transport hides under the coach card at compact
+         (A6 — see app.css). -->
+    <div class="belt" aria-label="Shipment feed">
+      <span class="belt__feed" aria-hidden="true">Feed</span>
       <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
       <div class="belt__roller belt__roller--l"></div>
       <div class="belt__roller belt__roller--r"></div>
       <span class="belt__lbl">◂ NEXT</span>
-      <div class="belt-piece" id="hud-next">${beltNextHTML}</div>
+      <div class="belt-piece belt-piece--next" id="hud-next">${beltNextHTML}</div>
+      ${loaded ? `<div class="belt-piece belt-piece--loaded" id="hud-loaded">${beltLoadedHTML}</div>` : ""}
+      <span class="belt__tag" aria-hidden="true">${sizeTag}</span>
+      <span class="belt__out" aria-hidden="true">${icon("play", 10)}</span>
     </div>
 
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
@@ -515,7 +707,7 @@ export function hudHTML(opts: {
           ${
             contract
               ? `<div class="pl-funds">
-            <div class="lbl">Lines / Goal</div>
+            <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
@@ -524,7 +716,7 @@ export function hudHTML(opts: {
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
           </div>`
               : `<div class="pl-funds">
-            <div class="lbl">Funds / Target</div>
+            <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
           </div>
@@ -544,15 +736,25 @@ export function hudHTML(opts: {
         </div>
         <div class="pl-meta">
           <span>Combo <b id="hud-combo">×0</b></span>
-          <span class="pl-meta__sep">·</span>
           ${
             contract?.kind === "pattern"
-              ? `<span>Left <b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></span>`
-              : `<span>Launch $${launchCost}</span>`
+              ? ""
+              : `<span class="pl-meta__sep">·</span><span class="pl-meta__launch" id="hud-launch">Launch $${launchCost}</span>`
           }
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>
         </div>
+        ${
+          // The remaining manifest gets its OWN row rather than riding the
+          // meta line: the tally is the widest thing the plant can hold (six
+          // piece types × "I×3"), and inline it wrapped the meta line onto a
+          // second and third line — which is what pushed the panel past its
+          // design box on the tightest inset device (iPhone 13 mini). A row
+          // can scroll its tail horizontally; a wrapped line can only grow.
+          contract?.kind === "pattern"
+            ? `<div class="pl-queue"><span class="lbl">Left</span><b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></div>`
+            : ""
+        }
         <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
              The row scrolls horizontally (a full run drafts more than fits), so
              whatever is last gets cut off first — and the ability chips are the
@@ -570,20 +772,7 @@ export function hudHTML(opts: {
     </div>
 
     <div class="hud__bottom">
-      <div class="kbd-hint" aria-hidden="true">
-        <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">W</span>/<span class="kbd">S</span> aim
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">A</span>/<span class="kbd">D</span> power
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">Space</span> fire
-        ${bondBreakerOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">B</span> break bonds' : ""}
-        ${demoOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">X</span> arm charge' : ""}
-        ${autoloaderOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">F</span> hold to autofire' : ""}
-        <span class="kbd-hint__sep">·</span>
-        drag to aim
-      </div>
+      ${hintStripHTML(opts.profile ?? "keyboard", { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned })}
     </div>
     <!-- Settle banner: shown while the bay's funding target is met and the
          field is still coming to rest (game.ts's Game.settling). Reassures the
@@ -594,6 +783,42 @@ export function hudHTML(opts: {
     </div>
     ${dragHintHTML()}
   </div>`;
+}
+
+/**
+ * The HUD's input-hint strip (D2): rendered FROM the live bindings per
+ * profile, never hardcoded — a rebound key changes the strip, and the
+ * gamepad family gets its own strip (CSS shows it whenever the profile is
+ * gamepad, whatever the pointer type). Touch renders the keyboard strip's
+ * content — the strip itself is hidden on coarse pointers, where the rail is
+ * the control surface.
+ */
+export function hintStripHTML(
+  profile: InputProfile,
+  owned: { bond: boolean; demo: boolean; auto: boolean },
+): string {
+  const kbd = (s: string) => `<span class="kbd">${s}</span>`;
+  const sep = `<span class="kbd-hint__sep">·</span>`;
+  const parts: string[] = [];
+  if (profile === "gamepad") {
+    parts.push(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
+    parts.push(`${kbd("Stick")} aim + power`);
+    parts.push(`${kbd(padLabel(padFor("fire")))} fire`);
+    if (owned.bond) parts.push(`${kbd(padLabel(padFor("bond")))} break bonds`);
+    if (owned.demo) parts.push(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.auto) parts.push(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
+    parts.push(`${kbd(padLabel(padFor("pause")))} pause`);
+  } else {
+    parts.push(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    parts.push(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
+    parts.push(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
+    parts.push(`${kbd(keyLabel(keyFor("fire")))} fire`);
+    if (owned.bond) parts.push(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
+    if (owned.demo) parts.push(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    if (owned.auto) parts.push(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    parts.push("drag to aim");
+  }
+  return `<div class="kbd-hint" aria-hidden="true">${parts.join(`\n        ${sep}\n        `)}</div>`;
 }
 
 /** First-play / idle-timeout onboarding overlay teaching the slingshot drag
@@ -644,21 +869,27 @@ export interface CoachStep {
 }
 
 /** The level's real numbers are baked into the copy so the tutorial teaches
- *  THIS bay's economy, not a stale example. */
+ *  THIS bay's economy, not a stale example — and the GESTURE copy renders
+ *  through the one hint table (D2, game/bindings.ts) per input family, so
+ *  the coach can never tell a desktop player to tap a button that
+ *  `pointer: fine` hides (which is exactly what it used to do). */
 export function coachSteps(level: {
   launchCost: number;
   scorePerLine: number;
   targetScore: number;
   penaltyPerLostPiece: number;
-}): CoachStep[] {
+}, profile: InputProfile = "touch"): CoachStep[] {
   return [
     {
       title: "Aim & fire",
-      body: `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`,
+      body:
+        profile === "touch"
+          ? `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`
+          : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> The dotted arc is exactly where the shipment flies.`,
     },
     {
       title: "Rotate",
-      body: `Between shots, tap <b>⟲ / ⟳</b> on the right to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
+      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
     },
     {
       title: "Complete a row",
@@ -679,8 +910,9 @@ export function coachHTML(
     targetScore: number;
     penaltyPerLostPiece: number;
   },
+  profile: InputProfile = "touch",
 ): string {
-  const steps = coachSteps(level);
+  const steps = coachSteps(level, profile);
   const s = steps[Math.min(step, steps.length - 1)];
   const last = step >= steps.length - 1;
   const dots = steps
@@ -698,6 +930,100 @@ export function coachHTML(
             ? `<button class="btn btn--primary coach__btn" data-action="coach-done">Got it!</button>`
             : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">Skip tutorial</button>`
         }
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * TUTORIAL FAILURE — the coach handling a lost first bay.
+ *
+ * A first-timer who runs the purse dry ninety seconds into their first game
+ * used to get the full run-end modal: "Game Over", a leaderboard submit box, a
+ * tier-progress ledger and a score breakdown reading zero. Every one of those
+ * is an answer to a question they have not thought to ask yet, and the two
+ * things they actually needed — what went wrong, and how to get back in — were
+ * a "Play Again" button and a themed one-liner. A tutorial that can hard-fail
+ * into a leaderboard is a tutorial that stops teaching at the first mistake.
+ *
+ * So the coach handles its own failures. Same card, same voice, same place on
+ * screen as the four teaching steps — the lesson simply continues, because
+ * losing a bay to an empty bankroll IS the lesson this mode is built around.
+ * The run is not recorded, no score is submitted and nothing is banked: the
+ * bay did not happen. (main.ts's onGameStatus is where that is enforced.)
+ *
+ * The copy is cause-specific and carries THIS bay's real numbers for the same
+ * reason coachSteps does — a tutorial that teaches a stale example teaches the
+ * player to distrust it. `broke` is deliberately the fullest explanation: with
+ * the float now a tight eight launches (level.ts's economy note), it is the
+ * failure a new player will actually meet, and "you ran out of money" without
+ * "here is the arithmetic" is a verdict rather than a lesson.
+ */
+export function coachFailSteps(
+  reason: LossReason | null,
+  level: { launchCost: number; scorePerLine: number; targetScore: number; startingFunds: number },
+): { title: string; body: string } {
+  const launches = Math.floor(level.startingFunds / Math.max(1, level.launchCost));
+  switch (reason) {
+    case "broke":
+      return {
+        title: "Out of Funds",
+        body: `Every launch costs <b>$${level.launchCost}</b>, so a bay opens with about <b>${launches} shots</b> in the bank — and you ran out before reaching <b>$${level.targetScore}</b>. That budget is the puzzle: a full row pays <b>$${level.scorePerLine}</b> back, so a row built in two or three shots <i>earns</i>, and cubes that miss the compactor are money gone. <b>Aim for the row, not for the pile.</b>`,
+      };
+    case "time":
+      return {
+        title: "Time's Up",
+        body: `The clock ran out before your Funds reached <b>$${level.targetScore}</b>. You have more time than it feels like — line up the next shot <i>while</i> the cannon reloads, and let each full row pay you <b>$${level.scorePerLine}</b> forward.`,
+      };
+    case "topout":
+      return {
+        title: "The Pile Topped Out",
+        body: `Cubes stacked to the ceiling. Only <b>complete rows</b> remove cubes from the bay, so a pile that keeps growing never comes down — spend your shots finishing the row nearest the compactor before starting a new layer.`,
+      };
+    default:
+      return {
+        title: "Bay Lost",
+        body: `That bay got away. Nothing is lost — the tutorial run does not count against you. Take another go at <b>$${level.targetScore}</b>.`,
+      };
+  }
+}
+
+/** The failure card itself. Rendered as a modal rather than in the plant panel
+ *  flow (where the teaching steps live) because the field behind it is dead and
+ *  there is a decision to make: the card has to be the only thing to look at.
+ *  Retry is the primary and it is a full-width target — a player who just lost
+ *  their first bay should not have to hunt for the way back in. */
+export function coachFailHTML(
+  reason: LossReason | null,
+  level: { launchCost: number; scorePerLine: number; targetScore: number; startingFunds: number },
+  bayName: string,
+): string {
+  const s = coachFailSteps(reason, level);
+  // A8: the one NEXT STEP block, explaining the chain out of the wall the
+  // player just hit — Contracts pay salvage, salvage buys the Reactor, the
+  // Reactor is a bigger float for THIS bay. Tier-1 numbers, stated live,
+  // because the coach only ever runs on a first-tier run.
+  const milestone = tierMilestoneSalvage(1);
+  const reactor = installById("reactor")!;
+  const nextBlock = `<div class="coach__next">
+          ${nextBadgeHTML()}
+          <p>Contracts have no clock and no launch cost, and each first clear banks <b>♻ ${milestone}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (♻ ${reactor.cost}), a bigger float for this exact bay.</p>
+        </div>`;
+  return `<div class="modal-scrim" id="scrim">
+    <div class="coach coach--fail">
+      <div class="coach__card">
+        <div class="coach__eyebrow">Tutorial · ${bayName}</div>
+        <div class="coach__title">${s.title}</div>
+        <p class="coach__body">${s.body}</p>
+        ${nextBlock}
+        <div class="coach__foot coach__foot--fail">
+          <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">${icon("retry", 13)}Try this bay again</button>
+          <div class="row coach__foot-row">
+            <button class="btn btn--secondary" data-action="contracts">View Contracts</button>
+            <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
+            <button class="btn btn--ghost" data-action="menu">Menu</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>`;
@@ -760,6 +1086,11 @@ export function refitScreen(opts: {
    *  upgrades.ts's refitTracks for the tuning rationale). */
   mark: number;
 }): string {
+  // A14: ROWS on the leaderboard's scroll pattern, not cards. The grammar per
+  // row: glyph · name over its state line · tier pips · the price button (in
+  // B6's "T2 · ♻ 35" words). An uninstalled track says where it IS bought —
+  // the Workshop — instead of wearing a live-looking price, and the full
+  // ladder survives in `title` for where hover exists.
   const tracks = refitTracks(opts.mark);
   const cards = tracks.map((u) => {
     const tier = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
@@ -769,40 +1100,29 @@ export function refitScreen(opts: {
       `<i class="${i < tier ? "on" : ""}"></i>`,
     ).join("");
     // The button carries the whole purchase: which way the number moves, by how
-    // much, and what it costs. Previously it said only "♻ 120", so the price
-    // was on the button and the thing being bought was three lines above it.
+    // much, and what it costs (B6's grammar for the price).
     const step = cost === null ? null : u.step(tier);
     // Tier 0 is NOT INSTALLED, and refit cannot install (run.ts's buyUpgrade
-    // refuses it): a system is bought once, with salvage, in the Workshop. The
-    // card used to price tier 0 like any other rung, which after that rule
-    // landed meant a live 20-scrap button that tapped to nothing.
+    // refuses it): a system is bought once, with salvage, in the Workshop.
     const btn =
       tier === 0
-        ? `<span class="refit-card__locked">Not installed · Workshop</span>`
+        ? `<span class="refit-row__locked">Not installed — buy it in the <b>Workshop</b></span>`
         : cost === null || step === null
-        ? `<span class="refit-card__max">MAX</span>`
+        ? `<span class="refit-row__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
-            <span class="refit-card__price">♻ ${cost}</span>
+            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</span>
           </button>`;
-    // One line, and it states what the ship HAS rather than what a purchase
-    // would add. The full three-line ladder cost 43px per card and six of them
-    // overflowed the grid by 145px on a 360px-tall phone; two of those lines
-    // described purchases the player could not make yet. The pips carry
-    // progress, the button carries the change, and the ladder survives in
-    // `title` for where hover exists.
-    const now = `<div class="refit-card__now">${u.current(tier)}</div>`;
     const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
-    return `<div class="refit-card${tier > 0 ? " refit-card--owned" : ""}" title="${u.name} — ${ladder}">
-      <div class="refit-card__hdr">
-        <span class="refit-card__glyph">${icon(u.id as IconName, 15)}</span>
-        <span class="refit-card__name">${u.name}</span>
-        <span class="refit-card__pips">${pips}</span>
+    return `<div class="refit-row${tier > 0 ? " refit-row--owned" : ""}" title="${u.name} — ${ladder}">
+      <span class="refit-row__glyph">${icon(u.id as IconName, 26)}</span>
+      <div class="refit-row__body">
+        <span class="refit-row__name">${u.name}</span>
+        <span class="refit-row__state">${u.current(tier)}</span>
       </div>
-      <p class="refit-card__blurb">${u.blurb}</p>
-      <div class="refit-card__tiers">${now}</div>
-      <div class="refit-card__foot">${btn}</div>
+      <span class="refit-row__pips">${pips}</span>
+      <div class="refit-row__foot">${btn}</div>
     </div>`;
   }).join("");
 
@@ -814,15 +1134,15 @@ export function refitScreen(opts: {
           <h2 class="display">Yard &amp; Dry Dock</h2>
           <p class="muted" style="margin:0"><span class="refit__hint">The compactor rig is your ship. Spend scrap; it lasts the run. </span>Next up: ${opts.nextBayName}.</p>
         </div>
-        <div class="chip refit__scrap">
+        <div class="chip chip--inline refit__scrap">
           <div class="chip__label">Scrap</div>
           <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="refit__grid" id="refit-grid">${cards}</div>
+      <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
       ${
         tracks.length < UPGRADES.length
-          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Mark 1 refits focus the reactor — the rest of the yard opens at Mark 2.</p>`
+          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Tier 1 refits focus the reactor — the rest of the yard opens at Tier 2.</p>`
           : ""
       }
       <button class="btn btn--primary" data-action="refit-done">Undock →</button>
@@ -856,15 +1176,18 @@ export function refitScreen(opts: {
 /** Which half of the shop is showing. Systems and Options are two lists of the
  *  same kind of decision, and at 792x360 both at once is 689px of cards in a
  *  189px window — see the spec's measurement table. */
-export type ShopTab = "systems" | "options";
 
-export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): string {
+export function workshopScreen(meta: MetaState): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
   const mark = meta.mark;
-  const owned = UNLOCKS.filter((u) => meta.unlocks.includes(u.id));
-  const forSale = UNLOCKS.filter((u) => !meta.unlocks.includes(u.id))
+  // Retired unlocks (the mod-pool shelf — see meta.ts's UnlockDef.retired)
+  // are never merchandise and never reference: they do nothing, so listing
+  // them anywhere would be the dishonest shelf this filter removes.
+  const live = UNLOCKS.filter((u) => !u.retired);
+  const owned = live.filter((u) => meta.unlocks.includes(u.id));
+  const forSale = live.filter((u) => !meta.unlocks.includes(u.id))
     .sort((a, b) => a.rank - b.rank || a.cost - b.cost);
 
   const cards = forSale
@@ -872,8 +1195,10 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       const available = unlockAvailable(u, meta.unlocks, mark);
       const affordable = meta.salvage >= u.cost;
       const gates = unlockGates(u, meta.unlocks, mark);
+      // B6's grammar without a tier: an option is not a rung on a track, so
+      // its price is just the salvage glyph and the number.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       // "Permanent" on every card (playtest feedback): the Workshop and the
       // mid-run Refit both sell upgrades, and nothing on screen said which
@@ -895,8 +1220,6 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       </div>`
     : "";
 
-  const done = !forSale.length;
-
   // ---- Systems -------------------------------------------------------------
   // Installs sit ABOVE the unlock cards: a system is permanent power the player
   // keeps, an unlock is an option that may or may not be dealt, and the shop
@@ -904,18 +1227,27 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
   // rides on the section label because the cap, not the price, is what usually
   // stops a purchase here — a player staring at 400 salvage and a greyed card
   // needs to be told it is the Mark talking.
+  // A11: the ONE next-step card — the cheapest system the player can both
+  // reach and afford right now carries the badge and the warm border, so the
+  // shelf answers "which of these should I buy" instead of just listing.
+  const nextId = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
+    .filter((i) => installAvailable(meta, i) && meta.salvage >= i.cost)
+    .sort((a, b) => a.cost - b.cost)[0]?.id;
   const installCards = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
     .map((i) => {
       const def = upgradeById(i.id)!;
       const available = installAvailable(meta, i);
       const affordable = meta.salvage >= i.cost;
       const gates = installGates(meta, i);
+      // B6: one price grammar — "T1 · ♻ 15". An install is tier 1 of a track
+      // by definition, and the button says so in the same words the refit
+      // yard's buy buttons use for tiers 2 and 3.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>♻ ${i.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
-      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
+      return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
-        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
+        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
         <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
       </div>
       <div class="shop-card__foot">${foot}</div>
@@ -927,62 +1259,72 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
     .join("");
 
-  // The counts are what let the hidden half advertise itself. A tab that just
-  // says "Options" gives a player no reason to look, and the cheapest unlock
-  // they can afford is behind it.
-  const systemsBuyable = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0 &&
-    installAvailable(meta, i) && meta.salvage >= i.cost).length;
-  const optionsBuyable = forSale.filter((u) => unlockAvailable(u, meta.unlocks, mark) &&
-    meta.salvage >= u.cost).length;
+  // ONE SHELF. The Systems/Options tabs are gone.
+  //
+  // They split the shop by a distinction the player does not have: both halves
+  // are salvage, spent once, kept forever. What the split actually did was
+  // hide merchandise — the tab bar had to carry per-tab COUNTS precisely
+  // because, in its own words, "a tab that just says Options gives a player no
+  // reason to look, and the cheapest unlock they can afford is behind it". A
+  // shelf that needs a badge advertising the half you cannot see is one shelf
+  // too many.
+  //
+  // Systems lead, which is the ordering the tab bar was already asserting by
+  // putting them first: a system is power you are guaranteed to keep, an
+  // option changes what a run may attempt. Same order, no click.
+  const shelf = installCards + cards;
+  const shelfEmpty = !shelf;
 
-  const tabBtn = (id: ShopTab, label: string, n: number) =>
-    `<button class="workshop__tab${tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="shop-tab" data-tab="${id}" aria-selected="${tab === id}">${label}${n ? ` <b>${n}</b>` : ""}</button>`;
+  // The FIXED column. Everything here is state rather than merchandise — what
+  // you have, and what the Mark will let you spend — so it must not scroll
+  // away from the cards it constrains. The build budget in particular is the
+  // usual reason a card is greyed out, and it used to ride on the tab bar,
+  // which is exactly the element being deleted.
+  const aside = `<aside class="workshop__aside">
+        <div class="workshop__budget-box">
+          <span class="workshop__aside-label">build budget</span>
+          <span class="workshop__budget">${tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
+        </div>
+        ${
+          installedStrip
+            ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+            : ""
+        }
+        ${ownedStrip}
+      </aside>`;
 
-  // The bar is a SIBLING of .workshop__shop, never a child: app.css makes
-  // .workshop__shop the scroller on short viewports, so a bar inside it
-  // scrolls away exactly when the player needs it.
-  const tabBar = `<div class="workshop__tabs" role="tablist">
-        ${tabBtn("systems", "Systems", systemsBuyable)}
-        ${tabBtn("options", "Options", optionsBuyable)}
-        ${tab === "systems"
-          ? `<span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span>`
-          : ""}
-      </div>`;
-
-  // Each strip belongs to its own pane. Left above the shop they would show the
-  // Installed list while the player is shopping for Options, and both would eat
-  // fixed chrome off the only scroller.
-  const pane = tab === "systems"
-    ? `${installedStrip
-          ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-          : ""}
-       ${installCards
-          ? `<div class="workshop__grid">${installCards}</div>`
-          : `<p class="muted" style="margin:0">Every system your Mark allows is installed. Beat this Mark to open the next one.</p>`}`
-    : `${ownedStrip}
-       ${done
-          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
-          : `<div class="workshop__grid">${cards}</div>`}`;
-
-  return `<div class="screen screen--fit neon-backdrop">
+  return `<div class="screen neon-backdrop">
     <div class="workshop">
       <div class="workshop__hdr">
         <div style="text-align:left">
           <div class="eyebrow">Between runs</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
-          <p class="muted workshop__blurb" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+          <p class="muted workshop__blurb" style="margin:0">Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${meta.salvage}</div>
           </div>
-          <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
       </div>
-      <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
-      ${tabBar}
-      <div class="workshop__shop" role="tabpanel">${pane}</div>
+      <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"} · ${
+        // A11: the meta line carries tier progress, in the same grammar the
+        // menu chip and the end modals use.
+        (() => {
+          const p = tierProgressFor(meta);
+          return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
+        })()
+      }</div>
+      <div class="workshop__body">
+        ${aside}
+        <div class="workshop__shop" data-scroll>${
+          shelfEmpty
+            ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
+            : `<div class="workshop__grid">${shelf}</div>`
+        }</div>
+      </div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;
@@ -995,7 +1337,7 @@ export function pauseModal(): string {
       <h2 class="display">Take a breath</h2>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
-        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">⛶ <span class="fs-label">Fullscreen</span></button>
+        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
@@ -1020,12 +1362,30 @@ export function pauseModal(): string {
  * the exact number a notch adds: the player is pricing a choice, and a vague
  * card turns a deliberate trade into a guess.
  *
- * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `picked` holds what
- * has been taken so far at this draft so the second pass can show it.
+ * Mark 10 asks for TWO picks (hazards.ts's picksPerBay); `selected` holds the
+ * tentative hand so far, and the modal only commits when the player confirms.
+ *
+ * The cards SELECT, they do not commit. A tap used to be the decision — the
+ * modal closed and the next bay started — which made a screen full of prose
+ * ("Every launch costs $5 more") the only thing the player had to price the
+ * notch by. It did not even read as a choice: two cards, no selected state, no
+ * confirm. Now a tap toggles the card and the projection under it redraws with
+ * the numbers the next bay would ACTUALLY be flown at (preview.ts, off the real
+ * levelForRun pipeline), and a separate confirm button is the commitment. The
+ * player can try both cards, read what each does to their float and their
+ * clock, and only then spend the notch.
+ *
+ * Still no skip. Toggling is not declining: the confirm stays disabled until
+ * the Mark's full quota is selected, so the ratchet remains the mandatory price
+ * of the bay just cleared. What changed is that the price is now legible before
+ * it is paid, not after.
  */
 export function draftScreen(opts: {
   bayNum: number;
   bayName: string;
+  /** The run's tier (its Mark, in player-facing words) — carried on the
+   *  eyebrow so the draft states which rung's pressure is being priced. */
+  tier: number;
   nextBayName: string;
   funds: number;
   /** Overshoot above this bay's target (0 if it ended right at target) —
@@ -1035,10 +1395,15 @@ export function draftScreen(opts: {
   offers: HazardDef[];
   /** Every notch taken across the run so far, for the running tally. */
   ratchets: Ratchets;
-  /** Axes taken at THIS draft already (Mark 10's first of two picks). */
-  picked: HazardId[];
+  /** Axes SELECTED at this draft but not yet confirmed. Tentative: nothing here
+   *  has touched RunState.ratchets, and the tally/projection show it as pending
+   *  rather than banked. */
+  selected: HazardId[];
   /** How many notches this Mark demands before the next bay. */
   picksNeeded: number;
+  /** The next bay's numbers as they stand vs. with `selected` folded in — see
+   *  preview.ts. Rendered live, so this is what makes the toggle worth having. */
+  preview: PreviewRow[];
   /** Unspent scrap — shown here too (not only at refit stops) so the player can
    *  see capital accumulating between stops and plan the next refit. */
   scrap: number;
@@ -1046,38 +1411,82 @@ export function draftScreen(opts: {
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
 }): string {
-  const taken = totalNotches(opts.ratchets) + opts.picked.length;
+  const banked = totalNotches(opts.ratchets);
+  const pending = opts.selected.length;
+  const remaining = Math.max(0, opts.picksNeeded - pending);
+  const ready = remaining === 0;
   const cards = opts.offers
     .map((h) => {
+      const picks = opts.selected.filter((p) => p === h.id).length;
       // An axis already ratcheted says so on the card. Taking the same notch a
       // second time is a legitimate build, but it is a different decision from
       // taking it the first time, and the card has to admit which one it is.
-      const owned = (opts.ratchets[h.id] ?? 0) + opts.picked.filter((p) => p === h.id).length;
+      // The tentative picks count toward the badge too — the card has to show
+      // the notch level the projection below it is currently drawing.
+      const owned = (opts.ratchets[h.id] ?? 0) + picks;
       const stack = owned > 0 ? ` <span class="mod-card__stack">at ${owned}</span>` : "";
       const kind = h.kind === "content" ? "bane" : "tradeoff";
-      return `<button class="mod-card mod-card--${kind}" data-action="pick-hazard" data-hazard="${h.id}">
+      // The card's own footer says what the NEXT tap does, which is not the
+      // same on every card: taps fill the hand while there is room and edit it
+      // once it is full (hazards.ts's togglePick). Without it a selected card
+      // in a one-pick draft looks like a dead end, and the capstone's
+      // double-notch tap is invisible.
+      const mark = `<span class="mod-card__mark">${icon("check", 10)}</span> Selected${picks > 1 ? ` ×${picks}` : ""}`;
+      const foot = picks > 0
+        ? ready ? `${mark} — tap to undo` : `${mark} — tap to double`
+        : ready
+          ? "Tap to swap this in"
+          : "Tap to preview";
+      return `<button class="mod-card mod-card--${kind}${picks > 0 ? " mod-card--picked" : ""}"
+        data-action="pick-hazard" data-hazard="${h.id}" aria-pressed="${picks > 0}">
         <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
         <div class="mod-card__name">${h.name}</div>
         <p class="mod-card__desc">${h.desc}</p>
+        <div class="mod-card__pick">${foot}</div>
       </button>`;
     })
     .join("");
-  const remaining = opts.picksNeeded - opts.picked.length;
+  const stats = opts.preview
+    .map((r) => {
+      const val = r.changed
+        ? `<span class="preview-stat__from">${r.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${r.to}</span>`
+        : `<span class="preview-stat__to">${r.from}</span>`;
+      // An unmoved context row is the one class of tile a landscape phone can
+      // afford to drop (app.css, at compact density) — it is neither the frame
+      // the change is read against nor the change itself. An ACTIVE row is
+      // never that class: its axis has banked notches, so the pressure is live
+      // whatever this selection touches (previewRows promotes it to core), and
+      // the tag says why the row refuses to leave (Codex #1 / canvas A12).
+      const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
+      // Both labels ship; app.css picks one by density. A landscape phone packs
+      // this grid four across, and at ~63px of interior "Shots in the bank"
+      // ellipsised to "S…" — with the ACTIVE tag beside it, four of the ten
+      // tiles named nothing at all.
+      const txt = `<span class="preview-stat__long">${r.label}</span><span class="preview-stat__short">${r.short}</span>`;
+      const label = r.active
+        ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
+        : txt;
+      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
+        <div class="preview-stat__label">${label}</div>
+        <div class="preview-stat__val">${val}</div>
+      </div>`;
+    })
+    .join("");
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--draft pop" style="width:min(760px,94vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName}</div>
-      <h2 class="display">${remaining > 1 ? `Ratchet ${remaining} axes` : "Ratchet one axis"}</h2>
+    <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
+      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
+      <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
-        <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--accent chip--inline">
           <div class="chip__label">Ended $${opts.funds} — carries</div>
           <div class="chip__value">$${opts.carry}</div>
         </div>
-        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--inline">
           <div class="chip__label">Notches taken</div>
-          <div class="chip__value">${taken}</div>
+          <div class="chip__value" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
         </div>
-        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--inline">
           <div class="chip__label">Scrap${
             opts.baysToRefit === null
               ? ""
@@ -1088,7 +1497,28 @@ export function draftScreen(opts: {
           <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
         </div>
       </div>
-      <div class="draft__cards">${cards}</div>
+      <div class="draft__body">
+        <div class="draft__cards" id="draft-cards">${cards}</div>
+        <!-- aria-live: the projection is the ANSWER to tapping a card, and a
+             screen-reader user who tapped one gets nothing back otherwise. -->
+        <div class="draft__preview" id="draft-preview" aria-live="polite">
+          <div class="draft__preview-hd">
+            <span>${opts.nextBayName} — projected</span>
+            <span class="draft__preview-note">${pending > 0 ? "with your selection" : "as it stands"}</span>
+          </div>
+          <div class="preview-grid">${stats}</div>
+        </div>
+      </div>
+      <div class="draft__confirm" id="draft-confirm">
+        <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
+          ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
+        </button>
+        <p class="draft__confirm-note muted">${
+          opts.picksNeeded > 1
+            ? "The capstone costs two notches a bay — there is no skip. Pick the pressures you are equipped for."
+            : "Every bay costs one notch — there is no skip. Pick the pressure you are equipped for."
+        }</p>
+      </div>
     </div>
   </div>`;
 }
@@ -1179,23 +1609,19 @@ export function endModal(opts: {
   // but not the mechanic, so a new player couldn't say whether they lost to
   // time or money, or what to change next run. One plain sentence for the
   // cause, one concrete adjustment. Only on a loss; a win explains itself.
-  const lossWhy: Record<string, [string, string]> = {
-    broke: [
-      "You spent all your Funds on launches before reaching the target.",
-      "Complete more lines with fewer launches — every full row pays Funds back.",
-    ],
-    time: [
-      "The clock ran out before your Funds reached the target.",
-      "Line up your next shot while the cannon reloads, and let full rows pay you forward.",
-    ],
-    launches: [
-      "You used up every launch before hitting the goal.",
-      "Make each shot part of a row — stray cubes are launches spent for nothing.",
-    ],
-    topout: [
-      "The pile reached the ceiling.",
-      "Clear full rows to keep the stack low — only complete lines remove cubes.",
-    ],
+  // Cause only, no advice. The "Try next time:" line that used to follow each
+  // of these restated the rules to someone who had just spent a whole run
+  // learning them, on the one screen where they are least able to act on it —
+  // and it was the block pushing the score row and its breakdown down the
+  // panel. Dropped rather than shortened: a tip nobody reads is not improved
+  // by being briefer. The tips are gone from the table too, so this stays a
+  // map of reason -> cause and cannot rot into a pair whose second half is
+  // never rendered.
+  const lossWhy: Record<string, string> = {
+    broke: "You spent all your Funds on launches before reaching the target.",
+    time: "The clock ran out before your Funds reached the target.",
+    launches: "You used up every launch before hitting the goal.",
+    topout: "The pile reached the ceiling.",
   };
   const why = !opts.won && opts.reason ? lossWhy[opts.reason] : null;
   const loseFx = !opts.won && opts.reason ? loseFxHTML(opts.reason) : "";
@@ -1214,10 +1640,10 @@ export function endModal(opts: {
       <div class="end__main">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
-      ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
+      ${!opts.won ? `<p class="muted end__where">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
       ${
         why
-          ? `<div class="end__why"><p>${why[0]}</p><p class="end__tip"><b>Try next time:</b> ${why[1]}</p></div>`
+          ? `<div class="end__why"><p>${why}</p></div>`
           : ""
       }
       <div class="stat-row">
@@ -1225,7 +1651,7 @@ export function endModal(opts: {
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
         <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
       </div>
-      <div class="muted" style="text-align:center;font-size:12px;margin-top:-8px">
+      <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
@@ -1251,23 +1677,59 @@ export function endModal(opts: {
         <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? `♻ +${opts.tierSalvage}` : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1} (♻ ${opts.progress.award} total per tier).</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
         </div>
-        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+        ${
+          // Only when this end actually BANKED something. The row is a flex
+          // three-up — figure, body, button — and the button is `flex: none`,
+          // so on a run that earned nothing it took width off the one part
+          // carrying information and wrapped the progress sentence into the
+          // cramped block this screen is trying not to be. It was also an
+          // invitation to go shopping with no new money: the Workshop spends
+          // salvage, and a run that banked none has nothing there it did not
+          // have before starting. Tier-complete keeps its button
+          // unconditionally — that branch always carries an award.
+          opts.tierSalvage > 0
+            ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>`
+            : ""
+        }
       </div>`
+      }
+      ${
+        // A15: a completed tier's end names what the NEXT rung actually
+        // changes — truthfully. A Mark no longer scales the ladder's numbers
+        // (level.ts's zeroed MARK_*_STEP), so what a tier opens is a hazard
+        // axis and a bigger build budget, and that is what the line says.
+        opts.runComplete && opts.tierCompleted !== null
+          ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
+              (() => {
+                const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
+                return opened ? `${opened.name} joins the draft, and ` : "";
+              })()
+            }the build budget rises to ${budgetForMark(opts.progress.tier)}.</p>`
+          : ""
       }
       </div>
       <div class="end__side">
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
             value="${opts.name}" autocomplete="off" spellcheck="false" />
-          <button class="btn btn--primary" data-action="submit-score">Submit</button>
+          <!-- Secondary, not primary (B2): the screen's one forward move is
+               the restart button below — submitting a score is a sideways
+               action, and two primaries made the exit compete with it. -->
+          <button class="btn btn--secondary" data-action="submit-score">Submit</button>
         </div>
-        <div id="lb-body">${opts.rows}</div>
+        <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
-        <button class="btn btn--primary" data-action="restart">Play Again</button>
+        <button class="btn btn--primary" data-action="restart">${
+          // A15: the bay-10 primary carries the tier plate (the 26px size of
+          // the one component) and names the rung it flies next.
+          opts.runComplete
+            ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
+            : "Play Again"
+        }</button>
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
     </div>
@@ -1292,6 +1754,8 @@ export function contractsScreen(opts: {
    *  two halves that complete a tier (meta.ts), and this screen is where the
    *  player decides whether to play one, so the count belongs here. */
   progress?: TierProgress;
+  /** The cheapest installable system, for the WHY strip's target price (A9). */
+  nextInstall?: { name: string; cost: number } | null;
 }): string {
   const cards = opts.contracts
     .map((c, i) => {
@@ -1338,7 +1802,7 @@ export function contractsScreen(opts: {
           <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
         </div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <p class="muted" style="margin:0">
         No clock, no launch costs — your supply of shipments is the only budget.
@@ -1346,6 +1810,19 @@ export function contractsScreen(opts: {
       </p>
       ${status}
       <div class="howto__grid">${cards}</div>
+      ${
+        // A9: the WHY strip — the board's bottom line closes the loop the
+        // cards open, in the tier's own numbers.
+        opts.progress
+          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ♻ ${
+              opts.progress.milestone * opts.progress.needed
+            }${
+              opts.nextInstall
+                ? ` — ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop, before your next run`
+                : " toward the Workshop"
+            }.</p>`
+          : ""
+      }
     </div>
   </div>`;
 }
@@ -1383,18 +1860,18 @@ export function queueTallyHTML(queue: readonly PieceType[]): string {
 }
 
 /**
- * End-of-Contract modal.
+ * End-of-Contract modal — built from the ONE end-screen skeleton (canvas A10/
+ * A15): eyebrow, display title, `.stat-row`, `.salvage-row`, one
+ * `.end__actions` row. These are the run-end modal's own parts, so the two
+ * ways a session ends read as one family; `.end--contract` drops only the
+ * geometry the run modal grids around its leaderboard column, because there
+ * is no leaderboard here. The old bespoke `.ce__*` layout is gone.
  *
- * Win and loss are genuinely different screens, not one screen with a recoloured
- * label. The earlier version differed only by a small eyebrow while the big
- * heading showed the Contract's NAME — which carries no outcome — and offered
- * "Try Again" as the primary action on a bay the player had just WON. Winning
- * read like failing.
- *
- * So on a win the outcome is the headline, the payout is stated plainly (the
- * player should never have to go to the Workshop to find out whether a clear
- * counted), and the primary action moves forward to the board. Replaying stays
- * available, worded as "Play Again" — it is practice, not another attempt.
+ * Win and loss are still genuinely different screens: on a win the outcome is
+ * the headline, the payout is stated plainly in the salvage row (with the
+ * price it is walking toward, when the caller knows one — A10's "state the
+ * target"), and the primary action moves forward. On a loss the primary is
+ * the retry, and the margin missed by is the whole feedback.
  */
 export function contractEndModal(opts: {
   won: boolean;
@@ -1415,26 +1892,24 @@ export function contractEndModal(opts: {
   /** Where the (possibly new) current tier stands after this clear. */
   progress: TierProgress;
   salvageTotal: number;
+  /** The cheapest system the player could install next, so the salvage row can
+   *  name the price the payout is walking toward (A10). Null when everything
+   *  reachable is installed. */
+  nextInstall?: { name: string; cost: number } | null;
+  /** Next unfinished card from the board this attempt came from. */
+  nextContract?: { name: string } | null;
+  /** All three cards on that board are now cleared. */
+  boardComplete?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
   const supplyTotal = pattern ? opts.queue.length : opts.launches;
-  const stats = `
-    <div class="ce__stats">
-      <div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">Lines</div>
-        <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
-      </div>
-      <div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">${supplyLabel}</div>
-        <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</div>
-      </div>
+  const stats = `<div class="stat-row">
+      <div class="stat"><b style="color:var(--accent)">${opts.lines}/${opts.goal}</b><span>Lines</span></div>
+      <div class="stat"><b style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</b><span>${supplyLabel}</span></div>
       ${
         pattern
-          ? `<div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">Manifest</div>
-        <div class="chip__value" style="font-size:var(--fs-sm)">${queueTallyHTML(opts.queue)}</div>
-      </div>`
+          ? `<div class="stat"><b class="stat__tally">${queueTallyHTML(opts.queue)}</b><span>Manifest</span></div>`
           : ""
       }
     </div>`;
@@ -1444,21 +1919,23 @@ export function contractEndModal(opts: {
     // goal — it ends the moment the cubes to finish it stop existing. Saying
     // how many were lost is the whole feedback: "you were one cube short" is
     // what makes the retry a decision rather than another roll.
-    const heading = pattern ? "Manifest short" : "Out of launches";
+    const heading = pattern ? "Manifest Short" : "Out of Launches";
     const why = pattern
       ? opts.cubesWasted > 0
         ? `<b>${opts.cubesWasted}</b> cube${opts.cubesWasted === 1 ? "" : "s"} never made it into a line — with an exact manifest, that's the whole margin.`
         : "The manifest ran out before the goal did."
       : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
-      <div class="panel modal modal--contract-end pop">
-        <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
-        <h2 class="display">${heading}</h2>
-        <p class="muted" style="margin:2px 0 0">${why}</p>
-        <div class="ce__cols">${stats}</div>
-        <div class="ce__btns">
-          <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
-          <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+      <div class="panel modal end end--contract pop">
+        <div class="end__main">
+          <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
+          <h2 class="display">${heading}</h2>
+          <p class="muted" style="margin-top:-6px">${why}</p>
+          ${stats}
+        </div>
+        <div class="row end__actions">
+          <button class="btn btn--primary" data-action="contract-retry">${icon("retry", 12)}Try Again</button>
+          <button class="btn btn--ghost" data-action="contracts">Contract Board</button>
         </div>
       </div>
     </div>`;
@@ -1469,54 +1946,79 @@ export function contractEndModal(opts: {
   // A pattern Contract has no spare by construction, so clearing one at all IS
   // the flourish and the copy says that instead.
   const spare = pattern ? 0 : opts.launches - opts.launchesUsed;
-  // Three outcomes, three chips: the clear COMPLETED the tier (the salvage
-  // moment — celebrate it), the clear ticked tier progress (say what's still
-  // missing), or it was a replay (free practice, nothing moved).
   const p = opts.progress;
-  const reward =
+  // A10's "state the target": salvage in hand is only meaningful against the
+  // next thing it buys, so the row names it whenever the caller knows one.
+  const target = opts.nextInstall
+    ? ` ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop.`
+    : "";
+  // Three outcomes, one salvage row: the clear COMPLETED the tier (the
+  // celebration), the clear ticked tier progress (say what's still missing),
+  // or it was a replay (free practice, nothing moved — the quiet variant).
+  const salvageRow =
     opts.award?.firstClear && opts.award.completedTier !== null
-      ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--success)">Tier ${opts.award.completedTier} complete!</div>
-         <div class="chip__value" style="color:var(--warn);font-size:var(--fs-h2)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} banked · Tier ${p.tier} is open · spend it in the Workshop</div>
-       </div>`
+      ? `<div class="salvage-row salvage-row--tier-done">
+        <div class="salvage-row__amt">♻ +${opts.award.salvage}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${opts.award.completedTier} complete!</b>
+          <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
       : opts.award?.firstClear
-        ? `<div class="chip" style="border-color:var(--accent);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--accent)">Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</div>
-         ${
-           opts.award.salvage > 0
-             ? `<div class="chip__value" style="color:var(--warn)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">Milestone banked — ${opts.salvageTotal} salvage total, spend it in the Workshop.</div>`
-             : ""
-         }
-         <div class="muted" style="font-size:var(--fs-sm)">${
-           p.contracts >= p.needed
-             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
-             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
-         }</div>
-       </div>`
-        : `<div class="chip" style="gap:2px;padding:12px 14px">
-         <div class="chip__label">Already logged</div>
-         <div class="muted" style="font-size:var(--fs-sm)">This Contract counted on your first clear. Replays are free practice.</div>
-       </div>`;
+        ? `<div class="salvage-row">
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? `♻ +${opts.award.salvage}` : `T${p.tier}`}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
+          <span class="muted">${
+            opts.award.salvage > 0
+              ? `<b>♻ +${opts.award.salvage} banked</b> — ${opts.salvageTotal} salvage total.`
+              : ""
+          } ${
+            p.contracts >= p.needed
+              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
+              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
+          }${target}</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
+        : `<div class="salvage-row salvage-row--quiet">
+        <div class="salvage-row__amt">✓</div>
+        <div class="salvage-row__body">
+          <b>Already logged</b>
+          <span class="muted">This Contract counted on your first clear. Replays are free practice.</span>
+        </div>
+      </div>`;
 
+  // One primary (B2): the forward move. The ghost board link only renders
+  // when the primary is routing somewhere ELSE — a primary that already goes
+  // to the board does not need a quieter twin.
+  const primaryIsBoard = !opts.boardComplete && !opts.nextContract;
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--contract-end pop">
-      <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
-      <h2 class="display neon-text" style="color:var(--success)">
-        ✓ Contract Complete
-      </h2>
-      <p class="muted" style="margin:2px 0 0">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
+        <h2 class="display" style="color:var(--success)">Contract Complete</h2>
+        <p class="muted" style="margin-top:-6px">
+          ${
+            pattern
+              ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
+              : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
+          }
+        </p>
+        ${stats}
+        ${salvageRow}
+      </div>
+      <div class="row end__actions">
         ${
-          pattern
-            ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
-            : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
+          opts.boardComplete
+            ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
+            : opts.nextContract
+              ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
+              : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
         }
-      </p>
-      <div class="ce__cols">${stats}<div class="ce__reward">${reward}</div></div>
-      <div class="ce__btns">
-        <button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>
-        <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+        <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play Again</button>
+        ${primaryIsBoard ? "" : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`}
       </div>
     </div>
   </div>`;

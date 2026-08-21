@@ -6,9 +6,20 @@ import {
   RUN_LEVELS, type RunState,
 } from "./game/run";
 import {
-  hazardOffers, hazardById, picksPerBay, HAZARDS,
+  hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
+import { previewRows } from "./game/preview";
+
+/** A run's ratchets with a draft's tentative picks folded in — the map the
+ *  next-bay projection is drawn from, and the same map onPickHazard's confirm
+ *  banks. Written once so the preview can never disagree with what confirming
+ *  actually does. */
+function withPicks(ratchets: Ratchets, picks: HazardId[]): Ratchets {
+  const out: Ratchets = { ...ratchets };
+  for (const id of picks) out[id] = (out[id] ?? 0) + 1;
+  return out;
+}
 
 /** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
  *  so two runs with the same build produce byte-identical strings. */
@@ -17,10 +28,13 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .filter((h) => (ratchets[h.id] ?? 0) > 0)
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
-import { MAX_TIER, nextTierCost, refitTracks, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  buyInstall, markUnlocked, recordContractClear, recordRunEnd, safeLoadout,
-  tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
+  MAX_TIER, nextTierCost, refitTracks, upgradeById, type UpgradeId, type UpgradeTiers,
+} from "./game/upgrades";
+import {
+  INSTALLS, buyInstall, installAvailable, markUnlocked, nextStep, recordContractClear,
+  recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable, unlockById,
+  type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -28,19 +42,32 @@ import {
 import { render } from "./game/render";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
-import { computeLayout } from "./game/layout";
+import {
+  computeLayout,
+  getRailSlots,
+  RAIL_GAP,
+  RAIL_SLOTS_BASE,
+  railSlotsFor,
+  setRailSlots,
+} from "./game/layout";
 
 import { InputController } from "./game/input";
+import {
+  actionForKey, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+  type BindableAction, type InputProfile,
+} from "./game/bindings";
+import { GamepadPoller } from "./game/gamepad";
+import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
-  loadMeta, saveMeta, type Settings,
+  loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
+  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
   applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
@@ -54,9 +81,9 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
+  | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end";
+  | "contracts" | "contract-end" | "coach-fail";
 
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
@@ -104,7 +131,6 @@ class App {
    *  renderOverlay() rewrites overlay.innerHTML wholesale and both purchase
    *  handlers call it, so a :checked-sibling or :target tab would snap back to
    *  Systems on every buy (and :target would push history entries besides). */
-  private workshopTab: S.ShopTab = "systems";
   /** What the run that just ended did to tier progress, held so the end modal
    *  can show it without recomputing (and so re-rendering the modal — e.g.
    *  after the leaderboard fetch lands — can't award a completion twice). */
@@ -117,6 +143,9 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** Forward route prepared when a Contract resolves, from that tier's board. */
+  private nextContract: Contract | null = null;
+  private contractBoardComplete = false;
   /** Rising-edge latch for the reload-ready cue (see syncHud). */
   private reloadWasReady = true;
   /** What the Contract just finished did to tier progress — whether this
@@ -127,9 +156,11 @@ class App {
   private dpr = 1;
   private last = 0;
   private acc = 0;
-  /** Composite "type:quarterTurns:bomb:pieceCubes" key so the HUD preview
-   *  refreshes on rotation, bomb telegraph, or a piece-size mutator too. */
+  /** Composite render key so the HUD's queue tiles refresh on rotation, bomb
+   *  telegraph, or a piece-size mutator too — plus the identity half alone,
+   *  which gates the arrival animation (see syncHud's queue block). */
   private lastNext: string | null = null;
+  private lastNextId: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
 
@@ -159,15 +190,27 @@ class App {
    *  button. */
   private autoPointerId: number | null = null;
 
+  /** The active input family (canvas D2), set by the LAST INPUT SEEN — a
+   *  touch, a keypress, or gamepad activity. Every hint surface renders from
+   *  it (the strip, the coach), so hints can never name a control the
+   *  profile hides. Published as <html data-profile>. */
+  private profile: InputProfile = "touch";
+  /** Gamepad poller (canvas D1) — driven once per rendered frame from loop(). */
+  private pad: GamepadPoller;
+  /** Controls screen state: which tab, and which action is capturing a
+   *  rebind (null = none). */
+  private controlsTab: S.ControlsTab = "touch";
+  private rebinding: BindableAction | null = null;
+  /** Lifetime bays started (canvas D3) — past three, the finger-drag hint
+   *  retires for good. Persisted; cached here so the hot path never reads
+   *  localStorage. */
+  private baysPlayed = loadBaysPlayed();
+
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <canvas id="game"></canvas>
       <div id="overlay"></div>
-      <div class="rotate-guard" id="rotate-guard">
-        <div class="phone"></div>
-        <div class="eyebrow">Rotate your device</div>
-        <p class="muted">Tetrilaunch plays in landscape.</p>
-      </div>`;
+      ${S.rotateGuardHTML()}`;
     this.canvas = root.querySelector("#game")!;
     this.ctx = this.canvas.getContext("2d")!;
     this.overlay = root.querySelector("#overlay")!;
@@ -201,7 +244,48 @@ class App {
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
     lockLandscape();
+    // Before the first solve: the boot screens carry no abilities, so the rail
+    // budget is the four base buttons (two on fine-pointer devices, where the
+    // CSS hides the game buttons). Without this the solver's conservative
+    // default (a full seven-slot draft) could pick the bottom-strip layout on
+    // a 360dp phone that the real rail fits fine.
+    setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() }));
+    // The rail's edge (Controls → left-handed rail) has to be set before the
+    // first solve too — snug mode reserves the band on the rail's side.
+    this.applyRailSide(false);
+    // The starting input family: fine pointer means keyboard+mouse until an
+    // input says otherwise (D2 — the profile follows the last input seen).
+    this.setProfile(this.finePointer() ? "keyboard" : "touch");
     this.onResize();
+
+    // Profile detection: the LAST input seen wins. Touch contact flips to
+    // touch; any mouse/pen contact or keypress flips to keyboard; gamepad
+    // activity flips in the poller's onActivity hook.
+    window.addEventListener(
+      "pointerdown",
+      (e) => this.setProfile(e.pointerType === "touch" ? "touch" : "keyboard"),
+      { capture: true },
+    );
+
+    this.pad = new GamepadPoller({
+      game: () => this.game,
+      playing: () => this.state === "playing",
+      onActivity: () => this.setProfile("gamepad"),
+      onPause: () => {
+        if (this.state === "playing") this.pause();
+        else if (this.state === "paused") this.resume();
+      },
+      onCapture: (button) => {
+        if (this.state !== "controls" || this.controlsTab !== "gamepad" || !this.rebinding) {
+          return false;
+        }
+        setPadBinding(this.rebinding, button);
+        this.rebinding = null;
+        this.renderOverlay();
+        return true;
+      },
+      assist: () => this.settings.stickAssist,
+    });
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a
     // no-op. See platform.ts — a native shell updated from an older build is
@@ -267,6 +351,9 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // A rebind capture cannot outlive the Controls screen — a keypress on the
+    // menu must never silently rebind Fire.
+    if (s !== "controls") this.rebinding = null;
     this.state = s;
     this.syncMusic(s);
     this.renderOverlay();
@@ -310,7 +397,13 @@ class App {
 
       // Pausing drops to the lounge bed: the driving track under a paused game
       // reads as pressure while nothing is happening.
+      //
+      // A tutorial failure gets the SAME treatment, and pointedly not "lost"'s
+      // game-over sting: the run has not ended, the bay is about to be handed
+      // straight back, and a funeral cue would tell the player the opposite of
+      // what the card in front of them says.
       case "paused":
+      case "coach-fail":
         stopStinger();
         playMusic("menu");
         return;
@@ -322,19 +415,119 @@ class App {
     }
   }
 
+  private finePointer(): boolean {
+    return window.matchMedia?.("(pointer: fine)").matches ?? false;
+  }
+
+  /** Flip the input family (D2) and refresh every surface that renders from
+   *  it: the <html data-profile> hook, the HUD's hint strip, and the coach's
+   *  current card — all patched in place, because a profile flip mid-bay
+   *  must not re-mount the HUD the per-frame sync is patching. */
+  private setProfile(p: InputProfile): void {
+    const changed = this.profile !== p;
+    this.profile = p;
+    document.documentElement.dataset.profile = p;
+    if (!changed) return;
+    const g = this.game;
+    if (!g) return;
+    const strip = this.overlay.querySelector(".kbd-hint");
+    if (strip) {
+      strip.outerHTML = S.hintStripHTML(p, {
+        bond: g.bondCharges > 0,
+        demo: g.level.bombCharges > 0,
+        auto: g.level.autoLaunchMs > 0,
+      });
+    }
+    if (this.tutorialStep !== null && this.state === "playing") {
+      this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
+    }
+  }
+
+  /** The left-handed rail (Controls → touch): the solver reserves its snug
+   *  band on the chosen side (layout.ts setRailSide) and the CSS mirrors the
+   *  column off <html data-rail-side>. */
+  private applyRailSide(resize = true): void {
+    const side = this.settings.leftHandRail ? "left" : "right";
+    setRailSide(side);
+    document.documentElement.dataset.railSide = side;
+    if (resize) this.onResize();
+  }
+
+  /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
+   *  their rail triggers can also VANISH mid-bay (a spent-down Bond Breaker
+   *  stock hides its button, see hudOpts's bondBreakerOwned), and letting the
+   *  budget shrink then would let the layout MODE flip — a field resize in the
+   *  middle of play. Latching to the run's high-water mark keeps the geometry
+   *  stable; a new run (or contract) resets it. */
+  private railKey: object | null = null;
+  private railSlotsLatch = RAIL_SLOTS_BASE;
+
+  /** Back at the menu there is no rail, so the budget returns to the base
+   *  buttons — a heavily drafted run must not keep pricing the menu's attract
+   *  field after it ended. */
+  private resetRailBudget(): void {
+    this.railKey = null;
+    this.railSlotsLatch = RAIL_SLOTS_BASE;
+    const slots = railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() });
+    if (slots !== getRailSlots()) {
+      setRailSlots(slots);
+      this.onResize();
+    }
+  }
+
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
-   *  bay/time/next-piece fields consistent across playing/paused/draft/end. */
+   *  bay/time/next-piece fields consistent across playing/paused/draft/end.
+   *  Also the one choke point where the rail's button set is decided, so it
+   *  feeds the layout solver's slot budget (see railSlotsLatch above) as a
+   *  side effect — every mount of the HUD re-solves with the real loadout. */
   private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
+    const slots = railSlotsFor({
+      bond: g.bondCharges > 0,
+      demo: g.level.bombCharges > 0,
+      auto: g.level.autoLaunchMs > 0,
+      finePointer: this.finePointer(),
+    });
+    const key: object = this.run ?? g;
+    if (key !== this.railKey) {
+      this.railKey = key;
+      this.railSlotsLatch = slots;
+    } else {
+      this.railSlotsLatch = Math.max(this.railSlotsLatch, slots);
+    }
+    if (this.railSlotsLatch !== getRailSlots()) {
+      setRailSlots(this.railSlotsLatch);
+      this.onResize();
+    }
     return {
       beltPreview: g.beltPreview,
+      // The transport's first queue slot (canvas A5): what the cannon is
+      // holding, at its live rotation — a bomb tile while one is armed,
+      // because that is what the next trigger pull actually fires.
+      loaded: {
+        bomb: g.bombArmed,
+        type: g.cannon.currentType,
+        quarterTurns: g.cannon.quarterTurns,
+        empty: false,
+        material: g.cannon.currentMaterial,
+      },
+      tier: this.run?.mark ?? null,
+      profile: this.profile,
       target: g.target,
       score: g.score,
-      launchCost: g.level.launchCost,
+      // launchCostNow, not level.launchCost: under a congestion tier the shot
+      // is priced above the bay's base rate (level.ts's PILE_TIERS), and the
+      // whole mechanic depends on the player seeing the price BEFORE they fire.
+      // A surcharge you only discover from a faster-falling bankroll teaches
+      // nothing except that the game is cheating.
+      launchCost: g.launchCostNow,
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
       pieceSize: g.level.pieceSize,
-      bondBreakerOwned: g.level.bondBreakerCharges > 0,
+      // Owned == charges in hand: the Bond Breaker stock is a consumable run
+      // resource now (see startLevel), so a spent-down stock hides the trigger
+      // rather than leaving a dead button on the rail.
+      bondBreakerOwned: g.bondCharges > 0,
       autoloaderOwned: g.level.autoLaunchMs > 0,
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
@@ -373,16 +566,35 @@ class App {
     return { available: purchasesReady(), unlimited: isUnlimited() };
   }
 
+  /** The cheapest system the player could install next — what the contract
+   *  end's salvage row names as the price the payout is walking toward
+   *  (canvas A10). Null once everything the tier allows is installed. */
+  private nextInstall(): { name: string; cost: number } | null {
+    const next = INSTALLS
+      .filter((i) => installAvailable(this.meta, i))
+      .sort((a, b) => a.cost - b.cost)[0];
+    return next ? { name: upgradeById(next.id)!.name, cost: next.cost } : null;
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
+        this.resetRailBudget();
         this.overlay.innerHTML = S.menuScreen(
           loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
+          // The first-session system (canvas A2/A3): the one computed NEXT
+          // STEP, the live numbers for the subtitles, and the Guided
+          // Tutorial entry until the coach has been finished or skipped.
+          {
+            step: nextStep(this.meta),
+            install: this.nextInstall(),
+            firstLaunch: !this.settings.seenTutorial,
+          },
         );
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
+      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
@@ -394,6 +606,7 @@ class App {
           // when the player comes back to see what they'd already done.
           cleared: this.meta.claimedContracts,
           progress: tierProgressFor(this.meta),
+          nextInstall: this.nextInstall(),
         });
         break;
       case "contract-end":
@@ -425,12 +638,23 @@ class App {
                 : null,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
+              nextInstall: this.nextInstall(),
+              nextContract: this.nextContract ? { name: this.nextContract.name } : null,
+              boardComplete: this.contractBoardComplete,
             });
         }
         break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
       case "settings":
-        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
+        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
+        break;
+      case "controls":
+        this.overlay.innerHTML = S.controlsScreen({
+          tab: this.controlsTab,
+          settings: this.settings,
+          padName: this.pad.detected(),
+          rebinding: this.rebinding,
+        });
         break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
@@ -444,9 +668,10 @@ class App {
           // INSIDE the plant panel's column (see mountCoach), which a sibling
           // string appended after the HUD cannot express.
           if (this.tutorialStep !== null) {
-            this.mountCoach(S.coachHTML(this.tutorialStep, g.level));
+            this.mountCoach(S.coachHTML(this.tutorialStep, g.level, this.profile));
           }
           this.lastNext = null;
+          this.lastNextId = null;
           this.syncCoachReveal();
         }
         break;
@@ -484,29 +709,17 @@ class App {
         }
         break;
       case "draft":
-        if (g && this.run) {
+        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
+        break;
+      // The tutorial handling its own failure. The HUD stays behind the card
+      // on purpose: the numbers the card is explaining (Funds, Target, the
+      // clock) are right there to be pointed at, which a run-end modal that
+      // replaces the whole screen cannot do.
+      case "coach-fail":
+        if (g) {
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
-            S.draftScreen({
-              // Same already-advanced levelIndex as the refit screen above.
-              bayNum: this.run.levelIndex,
-              bayName: g.level.name,
-              nextBayName: makeBaseLevel(this.run.levelIndex).name,
-              funds: g.score,
-              // Read the carry the RUN actually recorded rather than
-              // recomputing it, so what's displayed can't drift from what the
-              // next bay's float is really getting (see advanceRun).
-              carry: this.run.carry,
-              offers: this.pendingOffers,
-              ratchets: this.run.ratchets,
-              picked: this.pendingPicks,
-              picksNeeded: picksPerBay(this.run.mark),
-              scrap: this.run.scrap,
-              // Bay-CLEARS until the next refit stop, counting the bay about to
-              // be played; 1 means "clear this one and you dock". Null late in a
-              // run when no stop remains.
-              baysToRefit: baysUntilRefit(this.run.levelIndex),
-            });
+            S.coachFailHTML(g.lossReason, g.level, g.level.name);
         }
         break;
       case "won":
@@ -635,12 +848,33 @@ class App {
     // the natural letterbox gutter; either way the rail reads one number and
     // never has to know which mode produced it.
     rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
+    rs.setProperty("--gutter-l", `${Math.max(0, l.ox)}px`);
     rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
     rs.setProperty("--rail-btn", `${l.railSize}px`);
+    // The gap the solver budgeted the column with — the CSS reads it back so
+    // the rendered stack matches the fit prediction exactly.
+    rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
     document.documentElement.dataset.layout = l.mode;
+    // `data-density` is the solver's one channel into the stylesheet's
+    // structural switches (see game/layout.ts's Density). The continuous
+    // uiScale behind it is deliberately NOT published as a custom property:
+    // no rule ever consumed one (the responsive plan's "tokens as functions
+    // of --ui-scale" task never landed), and publishing a channel nothing
+    // reads claimed a mechanism the CSS does not have. Publish it again the
+    // day a rule actually reads it.
+    document.documentElement.dataset.density = l.density;
 
     const mobile = "ontouchstart" in window || w < 900;
-    this.guard.classList.toggle("show", isPortrait() && mobile);
+    const covered = isPortrait() && mobile;
+    this.guard.classList.toggle("show", covered);
+    // The guard is opaque and covers the whole app, and it used to cover a bay
+    // that KEPT RUNNING — physics stepping, the shift clock draining — behind a
+    // card the player can neither see through nor reach past, so a rotation
+    // (or a system overlay that resizes to portrait) could lose the run blind.
+    // Going portrait mid-bay is a pause, exactly as if ⏸ had been tapped;
+    // rotating back lands on the pause modal and resuming is the player's own
+    // tap, never an ambush back into live physics.
+    if (covered && this.state === "playing") this.pause();
     // The guard just went up or came down — the demo follows it (see
     // syncAttract). Cheap when nothing changed: mount() is a no-op once it's
     // already running against this canvas.
@@ -682,6 +916,9 @@ class App {
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
+    // levelForRun already seeds the bay's Bond Breaker charges from the run's
+    // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
+    // refill — so the config arrives complete and nothing is patched here.
     const cfg = levelForRun(this.run);
     this.game = new Game(cfg, {
       onShoot: (info) => {
@@ -723,6 +960,7 @@ class App {
     // is the honest reset (the steps not yet performed weren't learned).
     this.tutorialStep =
       this.run.levelIndex === 0 && !this.settings.seenTutorial ? 0 : null;
+    this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
   }
@@ -733,6 +971,11 @@ class App {
    *  bay's start with no shot fired. */
   private armDragHint(): void {
     if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    // D3: past the first three bays the hint retires for good — the gesture
+    // is learned, the rail is the control surface, and a looping finger over
+    // a veteran's bay is chrome pretending to teach. (The counter is bumped
+    // at bay start, so bays 1-3 still get the first-play and idle paths.)
+    if (this.baysPlayed > 3) return;
     if (!this.settings.seenDragHint) {
       this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
     } else if (!this.dragHintShownThisSession) {
@@ -767,7 +1010,7 @@ class App {
     // AFTER markShot resets the fresh piece's rotation, so the baseline read
     // here is the new piece's, and only a real ⟲/⟳ tap can move it.
     if (to === 1) this.tutorialTurns = g.cannon.quarterTurns;
-    this.mountCoach(S.coachHTML(to, g.level));
+    this.mountCoach(S.coachHTML(to, g.level, this.profile));
     this.syncCoachReveal();
   }
 
@@ -883,6 +1126,8 @@ class App {
     this.game?.destroy();
     this.run = null;
     this.contract = c;
+    this.nextContract = null;
+    this.contractBoardComplete = false;
     // No coach in Contract mode — it teaches the Deep Run economy, and half
     // its steps (funds, target) don't exist here.
     this.tutorialStep = null;
@@ -915,6 +1160,7 @@ class App {
       compactorMinLineCells: cfg.compactorMinLineCells,
       notches: [c.brief], pieceSize: cfg.pieceSize,
     });
+    this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
   }
@@ -943,6 +1189,10 @@ class App {
           this.meta = result.meta;
           saveMeta(this.meta);
         }
+        const board = dailyContracts(this.contract.tier);
+        const remaining = board.filter((c) => !this.meta.claimedContracts.includes(c.id));
+        this.contractBoardComplete = remaining.length === 0;
+        this.nextContract = remaining.find((c) => c.id !== this.contract?.id) ?? null;
         this.contractAward = result;
       } else {
         void impactHaptic();
@@ -987,6 +1237,17 @@ class App {
     } else if (s === "lost") {
       void impactHaptic();
       this.showSettleNote(false);
+      // A loss WHILE THE COACH IS RUNNING is a teaching moment, not a run end.
+      // The tutorial explains what happened and offers the bay back (see
+      // screens.ts's coachFailHTML) — deliberately BEFORE finishRun, so none
+      // of its bookkeeping happens: no recordRunEnd (a fumbled tutorial must
+      // not spend the player's run count or their tier progress), no saveBest,
+      // no leaderboard submit on a run that scored nothing. The bay telemetry
+      // above is already recorded, which is the half worth keeping.
+      if (this.tutorialStep !== null) {
+        this.setState("coach-fail");
+        return;
+      }
       this.finishRun(false);
     }
   }
@@ -1023,6 +1284,9 @@ class App {
       g.linesTotal,
       g.scrapEarned + g.level.scrapPerBay,
       [],
+      // What the bay ENDED with: Bond Breakers are the run's consumable, so
+      // whatever this bay did not spend is what the next one opens with.
+      g.bondCharges,
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
@@ -1134,35 +1398,116 @@ class App {
   /** Workshop: switch shop halves. Anything other than the two known ids is
    *  ignored rather than defaulted, so a stale attribute cannot silently park
    *  the player on Systems forever. */
-  private onShopTab(tab: string): void {
-    if (tab !== "systems" && tab !== "options") return;
-    if (tab === this.workshopTab) return;
-    this.workshopTab = tab;
-    this.renderOverlay();
-  }
 
-  /** "pick-hazard": bank one ratchet notch, and start the next bay once the
-   *  Mark's full quota of picks is in. The bay itself was already banked into
-   *  the run by afterBayClear (so a refit stop could spend its scrap), so this
-   *  ONLY records the choice — it must not call advanceRun again or the run
-   *  would skip a bay.
+  /** "pick-hazard": TOGGLE one axis in the tentative hand. Nothing is banked
+   *  here — the picks live in `pendingPicks` until "confirm-hazards" commits
+   *  them, which is what lets the modal redraw the next bay's projected numbers
+   *  under each candidate before the player spends the notch.
    *
-   *  There is no skip. The ratchet is the price of the bay just cleared, and a
-   *  draft you can decline is a draft with a dominant option. */
+   *  The toggle rules themselves live in hazards.ts's togglePick, next to the
+   *  picksPerBay quota they depend on and where the sim can reach them.
+   *
+   *  There is still no skip: confirming is gated on a full hand (see
+   *  onConfirmHazards), so the ratchet remains the mandatory price of the bay
+   *  just cleared. */
   private onPickHazard(id: string): void {
     if (!this.run || this.state !== "draft") return;
     if (!hazardById(id)) return;
     // Only from the hand actually dealt — a stale or hand-edited data-hazard
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
-    this.pendingPicks = [...this.pendingPicks, id as HazardId];
-    if (this.pendingPicks.length < picksPerBay(this.run.mark)) {
-      this.renderOverlay();
-      return;
+    this.pendingPicks = togglePick(this.pendingPicks, id as HazardId, picksPerBay(this.run.mark));
+    this.refreshDraft();
+  }
+
+  /** The bay-clear ratchet modal's markup. Built here rather than inline in
+   *  renderOverlay because refreshDraft renders it a second time, into a
+   *  detached container, to lift the live regions out — two call sites, one
+   *  set of options. */
+  private draftHTML(g: Game): string {
+    const run = this.run!;
+    return S.draftScreen({
+      // levelIndex has already been stepped past the cleared bay by
+      // afterBayClear, so it IS the just-cleared bay's 1-based number, and
+      // makeBaseLevel(levelIndex) is the bay about to be played.
+      bayNum: run.levelIndex,
+      bayName: g.level.name,
+      tier: run.mark,
+      nextBayName: makeBaseLevel(run.levelIndex).name,
+      funds: g.score,
+      // Read the carry the RUN actually recorded rather than recomputing it, so
+      // what's displayed can't drift from what the next bay's float is really
+      // getting (see advanceRun).
+      carry: run.carry,
+      offers: this.pendingOffers,
+      ratchets: run.ratchets,
+      selected: this.pendingPicks,
+      picksNeeded: picksPerBay(run.mark),
+      // Both sides of the projection come from levelForRun, so what the player
+      // reads here is the config the bay is actually built from — run.ts stays
+      // the single source of a bay's numbers, and a notch's effect is never
+      // modelled twice.
+      preview: previewRows(
+        levelForRun(run),
+        levelForRun({ ...run, ratchets: withPicks(run.ratchets, this.pendingPicks) }),
+        // The BANKED ratchets, not the tentative hand: an axis with notches
+        // already on the run is live pressure on the next bay whatever this
+        // draft selects, so its rows stay on the projection flagged ACTIVE.
+        run.ratchets,
+      ),
+      scrap: run.scrap,
+      // Bay-CLEARS until the next refit stop, counting the bay about to be
+      // played; 1 means "clear this one and you dock". Null late in a run when
+      // no stop remains.
+      baysToRefit: baysUntilRefit(run.levelIndex),
+    });
+  }
+
+  /** Re-render the draft's live regions IN PLACE on every toggle — the cards,
+   *  the projection, the confirm button and the notch tally — rather than
+   *  calling renderOverlay(). A full re-render recreates `.modal-scrim` and
+   *  `.panel.modal.pop`, so their fade and entrance animations replay on every
+   *  tap: the whole screen flashes, which is exactly the feedback the
+   *  projection is trying to give with a 220ms pop on the tiles that MOVED.
+   *  Same idiom as refreshRefit and renderBoardRows — render the screen to a
+   *  detached container and lift the live regions out, so screens.ts stays the
+   *  one source of the markup. */
+  private refreshDraft(): void {
+    if (!this.run || this.state !== "draft") return;
+    const g = this.game;
+    if (!g) return;
+    // The innerHTML patch destroys the node keyboard focus is sitting on —
+    // mid-draft that is the card the player just toggled, so a keyboard (or
+    // D-pad) flow lost its place on every single choice. Remember which
+    // control held focus and put it back on the fresh copy (D4).
+    const active = document.activeElement as HTMLElement | null;
+    const focusSel = active?.closest("[data-hazard]")
+      ? `[data-hazard="${active.closest("[data-hazard]")!.getAttribute("data-hazard")}"]`
+      : active?.closest('[data-action="confirm-hazards"]')
+        ? '[data-action="confirm-hazards"]'
+        : null;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = this.draftHTML(g);
+    for (const id of ["#draft-cards", "#draft-preview", "#draft-confirm", "#draft-notches"]) {
+      const live = this.overlay.querySelector(id);
+      const fresh = tmp.querySelector(id);
+      if (live && fresh) live.innerHTML = fresh.innerHTML;
     }
-    const ratchets = { ...this.run.ratchets };
-    for (const axis of this.pendingPicks) ratchets[axis] = (ratchets[axis] ?? 0) + 1;
-    this.run = { ...this.run, ratchets };
+    if (focusSel) this.overlay.querySelector<HTMLElement>(focusSel)?.focus();
+  }
+
+  /** "confirm-hazards": bank the tentative hand onto the run and fly the next
+   *  bay. The bay itself was already banked into the run by afterBayClear (so a
+   *  refit stop could spend its scrap), so this ONLY records the choice — it
+   *  must not call advanceRun again or the run would skip a bay.
+   *
+   *  Re-checks the quota rather than trusting the button's disabled state: the
+   *  gate is what makes the ratchet mandatory, and a gate that lives only in
+   *  the markup is not a gate. */
+  private onConfirmHazards(): void {
+    if (!this.run || this.state !== "draft") return;
+    if (this.pendingPicks.length < picksPerBay(this.run.mark)) return;
+    this.run = { ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) };
     this.pendingPicks = [];
     this.startLevel();
   }
@@ -1185,6 +1530,16 @@ class App {
    *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
    *  keeping the run's carried surplus and drafted mods exactly as they were
    *  at this bay's entry. */
+  /** Replay the bay the tutorial just lost. Distinct from restartBay only in
+   *  the state it will accept: restartBay is the pause-menu path, this one is
+   *  the failure card's, and neither should fire from the other's screen. */
+  private coachRetry(): void {
+    if (this.state !== "coach-fail" || !this.run) return;
+    this.startLevel();
+    this.last = performance.now();
+    this.acc = 0;
+  }
+
   private restartBay(): void {
     if (this.state !== "paused") return;
     // Restarting a Contract re-generates the same bay from its seed, which is
@@ -1235,6 +1590,10 @@ class App {
 
   // ---------------- main loop ----------------
   private loop = (now: number): void => {
+    // The Gamepad API is a state snapshot, not events — poll once per frame,
+    // in every state: the Controls screen needs the Detected chip and rebind
+    // capture, and Start has to pause/resume from anywhere.
+    this.pad.poll(now);
     const g = this.game;
     if (g && this.state === "playing" && !g.paused) {
       this.acc += now - this.last;
@@ -1272,7 +1631,7 @@ class App {
     // frame, on the one screen that should be idle.
     if (g && this.state !== "menu") {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
-        cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
+        cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
         windNow: g.windNow,
@@ -1329,12 +1688,35 @@ class App {
     // is the exact point where the right play changes from "keep feeding the
     // bay" to "this shot has to count". Computed from funds, so it also drops
     // when a mod raises launchCost — the warning tracks affordability, not a
-    // separate ammo counter.
+    // separate ammo counter — and, for the same reason, when congestion raises
+    // the price of the next shot (level.ts's PILE_TIERS). That is the readout
+    // doing exactly its job: a bay you have filled up really does hold fewer
+    // shots than the same bankroll bought a minute ago, and the number falling
+    // as the pile grows is the clearest statement of the rule the HUD can make.
     if (!this.contract) {
-      const launches = Math.floor(g.score / Math.max(1, g.level.launchCost));
+      const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
+      // The QUOTED price, live. Congestion moves launchCostNow while the bay
+      // is running, and this readout is rendered once with the rest of the
+      // HUD — so without patching it here the plant would keep advertising the
+      // price the bay opened at while charging the congested one. The colour
+      // is the same three-step the bay floor is lit in (render.ts's congestion
+      // rows): list price plain, first tier amber, second red.
+      const tierIdx = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
+      const launchEl = this.overlay.querySelector("#hud-launch");
+      if (launchEl) {
+        launchEl.textContent = `Launch $${g.launchCostNow}`;
+        launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
+        launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
+      }
       this.overlay
         .querySelector("#hud-launches-chip")
+        ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+      // B7: the funds block joins the one urgency treatment at the same
+      // threshold — the goal bar is the biggest funds surface on screen, and
+      // it stayed serenely cyan while the number beside it flashed.
+      this.overlay
+        .querySelector(".pl-funds")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
     }
 
@@ -1372,21 +1754,38 @@ class App {
       this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
-    // NEXT preview rides the conveyor belt (top-left) — the shot that fires
-    // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
-    // grid, no label/type text (see components.ts's beltPieceHTML).
+    // The transport's two-deep queue (canvas A5): the piece the cannon is
+    // HOLDING at the muzzle end (a bomb tile while one is armed — that is
+    // what the next trigger pull fires) and the piece coming AFTER it behind
+    // (game.ts's beltPreview). The identity key gates the ~180ms load
+    // animation separately from the render key: a rotate tap re-renders the
+    // held tile at its new orientation but must not replay the arrival slide.
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}:${bp.material}`;
+    const idKey = [
+      g.cannon.currentType, g.bombArmed ? 1 : 0, g.cannon.currentMaterial,
+      bp.type, bp.bomb ? 1 : 0, bp.empty ? 1 : 0, bp.material, g.level.pieceSize,
+    ].join(":");
+    const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
-      const next = this.overlay.querySelector("#hud-next");
+      const arrived = this.lastNextId !== idKey;
+      const next = this.overlay.querySelector<HTMLElement>("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
           : bp.empty
             ? ""
             : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
+        next.classList.toggle("belt-piece--still", !arrived);
+      }
+      const held = this.overlay.querySelector<HTMLElement>("#hud-loaded");
+      if (held) {
+        held.innerHTML = g.bombArmed
+          ? beltBombHTML()
+          : beltPieceHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceSize, g.cannon.currentMaterial);
+        held.classList.toggle("belt-piece--still", !arrived);
       }
       this.lastNext = nextKey;
+      this.lastNextId = idKey;
     }
     // Each ABILITY has TWO triggers on screen at once when drafted — the plant
     // chip and the touch-rail button (see screens.ts's hudHTML) — kept in sync
@@ -1414,7 +1813,19 @@ class App {
 
   // ---------------- events ----------------
   private onGlobalKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") {
+    // A live keyboard rebind capture eats the next keypress whole (Escape
+    // cancels rather than binding — a pause key you can't type would strand
+    // the player).
+    if (this.state === "controls" && this.controlsTab === "keyboard" && this.rebinding) {
+      e.preventDefault();
+      if (e.key !== "Escape") setKeyBinding(this.rebinding, e.key);
+      this.rebinding = null;
+      this.renderOverlay();
+      return;
+    }
+    this.setProfile("keyboard");
+    // The pause binding, from the rebindable table (Escape by default).
+    if (actionForKey(e.key) === "pause") {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }
@@ -1437,9 +1848,17 @@ class App {
 
     const gameAct = el.getAttribute("data-game");
     if (gameAct) {
-      // Pointer taps already acted on pointerdown (see onGamePointerDown);
-      // only keyboard activation (click with detail 0) still lands here.
-      if (e.detail === 0) this.onGameAction(gameAct);
+      // Pointer taps already acted on pointerdown (see onGamePointerDown); only
+      // keyboard activation may act again here.
+      //
+      // `detail === 0` alone was NOT that test. The click a browser synthesizes
+      // after a TOUCH tap also carries detail 0 (verified in Chromium: the tap
+      // produces `pointerdown pointerType=touch` then `click pointerType=touch,
+      // detail 0`), so every rail press on a phone ran its action twice — one
+      // tap on ⟲ turned the piece 180°, not 90°. What separates the two is
+      // `pointerType`: a real keyboard activation has none. Mouse clicks carry
+      // "mouse" and detail 1, and are excluded either way.
+      if (e.detail === 0 && !(e as PointerEvent).pointerType) this.onGameAction(gameAct);
       return;
     }
 
@@ -1461,8 +1880,32 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
+      case "controls": this.setState("controls"); break;
+      case "controls-tab": {
+        const tab = el.getAttribute("data-tab");
+        if (tab === "touch" || tab === "keyboard" || tab === "gamepad") {
+          this.controlsTab = tab;
+          this.rebinding = null;
+          this.renderOverlay();
+        }
+        break;
+      }
+      // Toggle a rebind capture on/off for one action row. The capture itself
+      // lands in onGlobalKey (keyboard) or the gamepad poller's onCapture.
+      case "rebind": {
+        const bind = el.getAttribute("data-bind") as BindableAction | null;
+        this.rebinding = bind && this.rebinding !== bind ? bind : null;
+        this.renderOverlay();
+        break;
+      }
+      case "controls-reset":
+        if (this.controlsTab === "keyboard") resetKeyBindings();
+        else if (this.controlsTab === "gamepad") resetPadBindings();
+        this.rebinding = null;
+        this.renderOverlay();
+        break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
-      case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
+      case "workshop": this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
@@ -1473,12 +1916,29 @@ class App {
       case "contract-retry":
         if (this.contract) this.startContract(this.contract);
         break;
+      case "contract-next":
+        if (this.nextContract) this.startContract(this.nextContract);
+        else this.setState("contracts");
+        break;
       case "menu": this.contract = null; this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
       case "restart": this.startGame(); break;
       case "restart-bay": this.restartBay(); break;
+      // Retry from the tutorial's failure card. startLevel rebuilds this bay
+      // from the run (which never advanced, so its seed, funds and Bond
+      // Breaker stock are untouched) and re-arms the coach at step 0 — the
+      // honest reset, since the steps that were never performed were never
+      // learned.
+      case "coach-retry": this.coachRetry(); break;
+      // "Skip tutorial" from the failure card: drop the coach for good, then
+      // hand the bay back anyway. A player who is done being taught still
+      // wants the bay they just lost, not the main menu.
+      case "coach-skip-run":
+        this.finishTutorial();
+        this.coachRetry();
+        break;
       case "submit-score": void this.onSubmitScore(); break;
       case "paywall": void this.onPaywall(); break;
       case "customer-center": void presentCustomerCenter(); break;
@@ -1486,6 +1946,7 @@ class App {
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
         break;
+      case "confirm-hazards": this.onConfirmHazards(); break;
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.
       case "skip-bayclear": this.afterBayClear(); break;
@@ -1493,7 +1954,6 @@ class App {
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
-      case "shop-tab": this.onShopTab(el.getAttribute("data-tab") ?? ""); break;
     }
   };
 
@@ -1541,10 +2001,20 @@ class App {
   private onGameAction(a: string): void {
     const g = this.game;
     if (!g || this.state !== "playing") return;
+    // Every rail press buzzes, here rather than at either call site. The rail
+    // moved to pointerdown (see onGamePointerDown) and onClick returns early
+    // for [data-game], so the tap that used to come from onClick's dispatcher
+    // stopped arriving: on a touch device the entire in-game control surface —
+    // rotate, Bond Breaker, cancel — went silent, and only the Autoloader hold
+    // and a SUCCESSFUL bomb arm still fired one. A press is worth confirming
+    // even when its effect is invisible, so this is unconditional for every
+    // press that lands (a disabled trigger never reaches here —
+    // onGamePointerDown drops it), and the arm's own tap goes.
+    void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
-    else if (a === "demo") { if (g.armBomb()) { telemetry.ability("bomb-arm", g.elapsedMs); void tapHaptic(); } }
+    else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
     else if (a === "cancel") this.input.cancelAim();
   }
 
@@ -1561,6 +2031,9 @@ class App {
     (this.settings as unknown as Record<string, boolean>)[key] = next;
     saveSettings(this.settings);
     this.syncAudioSettings();
+    // The rail mirror re-solves the layout on the spot; stickAssist is read
+    // live by the gamepad poller and needs nothing here.
+    if (key === "leftHandRail") this.applyRailSide();
     void tapHaptic();
   }
 

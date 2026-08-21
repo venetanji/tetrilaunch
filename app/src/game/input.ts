@@ -1,5 +1,6 @@
 import { Game } from "./game";
 import { screenToWorld } from "./render";
+import { actionForKey, keyFor } from "./bindings";
 
 /**
  * Angry-Birds-style drag aiming on the canvas + keyboard fallback (web).
@@ -116,29 +117,34 @@ export class InputController {
     // above before this guard. The discrete actions must not repeat: OS key
     // repeat delivers a keydown every ~30ms while held, which would rapid-fire
     // the cannon at its cooldown rate and — worse — spend every Bond Breaker
-    // charge on one leaned-on B. In a Contract that empties the launch budget,
-    // which is the whole bay.
+    // charge on one leaned-on key. In a Contract that empties the launch
+    // budget, which is the whole bay.
     if (e.repeat) return;
-    if (k === " " || e.code === "Space") {
-      e.preventDefault();
-      g.shoot(performance.now());
+    // Actions come from the REBINDABLE table (game/bindings.ts, the Controls
+    // screen edits it) rather than hardcoded letters, so a hint and its key
+    // can never disagree.
+    switch (actionForKey(k)) {
+      case "fire":
+        e.preventDefault();
+        g.shoot(performance.now());
+        break;
+      case "rotl": g.cannon.rotateLeft(); break;
+      case "rotr": g.cannon.rotateRight(); break;
+      case "bond": g.useBondBreaker(performance.now()); break;
+      // Arms/disarms a demolition charge — the next launch then fires the
+      // bomb along the current aim instead of the loaded piece (armBomb).
+      case "demo": g.armBomb(); break;
+      // Autoloader: HELD, not tapped. setAutoHeld is idempotent, so OS key
+      // repeat re-asserts the same state instead of restarting the burst.
+      case "auto": g.setAutoHeld(true); break;
+      default: break;
     }
-    if (k === "q") g.cannon.rotateLeft();
-    if (k === "e") g.cannon.rotateRight();
-    if (k === "b") g.useBondBreaker(performance.now());
-    // X arms/disarms a demolition charge — the next launch then fires the bomb
-    // along the current aim instead of the loaded piece (see game.ts's armBomb).
-    if (k === "x") g.armBomb();
-    // Autoloader: HELD, not tapped. setAutoHeld is idempotent, so OS key repeat
-    // (which fires keydown every ~30ms) re-asserts the same state instead of
-    // restarting the burst cadence on every repeat.
-    if (k === "f") g.setAutoHeld(true);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
     const k = e.key.toLowerCase();
     this.keys.delete(k);
-    if (k === "f") this.game()?.setAutoHeld(false);
+    if (k === keyFor("auto")) this.game()?.setAutoHeld(false);
   };
 
   /** A window that loses focus never delivers keyup, so an alt-tab mid-burst
@@ -148,14 +154,16 @@ export class InputController {
     this.game()?.setAutoHeld(false);
   };
 
-  // Continuous keyboard aim/power (web fallback).
+  // Continuous keyboard aim/power (web fallback). The arrows stay as fixed
+  // aliases alongside the bindable letters — they are the convention every
+  // keyboard player tries first.
   private tickKeys = (): void => {
     const g = this.game();
     if (g && g.status === "playing" && !g.paused) {
-      if (this.keys.has("w") || this.keys.has("arrowup")) g.cannon.aimUp();
-      if (this.keys.has("s") || this.keys.has("arrowdown")) g.cannon.aimDown();
-      if (this.keys.has("d") || this.keys.has("arrowright")) g.cannon.powerUp();
-      if (this.keys.has("a") || this.keys.has("arrowleft")) g.cannon.powerDown();
+      if (this.keys.has(keyFor("aimUp")) || this.keys.has("arrowup")) g.cannon.aimUp();
+      if (this.keys.has(keyFor("aimDown")) || this.keys.has("arrowdown")) g.cannon.aimDown();
+      if (this.keys.has(keyFor("powerUp")) || this.keys.has("arrowright")) g.cannon.powerUp();
+      if (this.keys.has(keyFor("powerDown")) || this.keys.has("arrowleft")) g.cannon.powerDown();
       if (this.keys.size) g.updateTrajectory();
     }
     this.raf = requestAnimationFrame(this.tickKeys);

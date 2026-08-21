@@ -69,7 +69,11 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Bay Extension",
     glyph: "BAY",
     blurb: "Widens the compaction zone at the open stop — more room to land in, longer lines to sell.",
-    tiers: ["+2 open cells (14)", "+4 open cells (16)", "+6 open cells (18)"],
+    tiers: [
+      "+2 open cells (14) · +4 cubes before congestion",
+      "+4 open cells (16) · +8 cubes before congestion",
+      "+6 open cells (18) · +12 cubes before congestion",
+    ],
     // 12 is makeBaseLevel's stock width and, now that Wide Bay is gone, the
     // only thing that moves it is this track — so the reading is exact rather
     // than an estimate that a draft could silently invalidate.
@@ -81,6 +85,22 @@ export const UPGRADES: UpgradeDef[] = [
       // answer to a bay whose stack keeps topping out, so it should be
       // something you can decide to build toward.
       cfg.compactorOpenCells = Math.min(18, cfg.compactorOpenCells + 2 * tier);
+      // The congestion tax's counter, and the reason it is a SYSTEM rather
+      // than a difficulty setting. level.ts ships pileAllowance as an
+      // explicit upgrade seam — "a player who invests here buys back the right
+      // to fire into a fuller bay" — and nothing set it: the field was read by
+      // game.ts's pileTier and swept by sim/pile.ts, but every real level got 0
+      // and no purchase could move it, so the tax had no answer you could buy.
+      //
+      // It belongs on THIS track and not its own. A wider compaction zone
+      // literally is more room for loose cargo to sit in without being in the
+      // way, so the allowance is the same purchase read a second way rather
+      // than a second purchase; and pricing congestion relief separately would
+      // sell the player a way to opt out of the mechanic instead of a way to
+      // play further into it. +4 a tier against thresholds of 32 and 48 moves
+      // the first tax from four lines' worth of clutter to just under six at
+      // tier 3 — later, never absent.
+      cfg.pileAllowance += 4 * tier;
     },
   },
   {
@@ -163,17 +183,23 @@ export const UPGRADES: UpgradeDef[] = [
     id: "bonds",
     name: "Bond Emitter",
     glyph: "BND",
-    blurb: "Bond Breaker charges every bay — shatter the field flat on demand.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no extra charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
+    blurb: "Ships ONE Bond Breaker charge for the whole run — shatter the field flat, once, where it counts most.",
+    tiers: ["+1 charge per run", "+2 charges per run", "+3 charges per run"],
+    current: (t) => (t === 0 ? "no charges" : `${t} charge${t === 1 ? "" : "s"} for the run`),
     step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
       // cubes are too light for weight alone to square off the layers below
-      // (see pieces.ts's SIZE_SPEC). Buying them as a SYSTEM (rather than
-      // hoping the Bond Breaker mod shows up in a draft) is what makes the
-      // Autoloader endgame something you can plan for.
+      // (see pieces.ts's SIZE_SPEC).
+      //
+      // This is the emitter's grant onto a SINGLE config, and it is the whole
+      // story only outside a Deep Run. In a run the charges are consumable and
+      // the magazine belongs to the run rather than the bay, so run.ts's
+      // levelForRun overwrites this with RunState.bondCharges — what is
+      // actually left — right after applyUpgrades returns. The rule that turns
+      // a tier into charges lives once, in run.ts's bondChargesFor, and this
+      // line is the same rule at the config layer: one charge per tier.
       cfg.bondBreakerCharges += tier;
     },
   },
@@ -182,17 +208,18 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Demolition Rack",
     glyph: "DEM",
     blurb: "Demolition charges every bay — sell a dead pile back for cash.",
-    tiers: ["+1 charge per bay", "+2 charges per bay", "+3 charges per bay"],
-    current: (t) => (t === 0 ? "no charges" : `+${t} charge${t === 1 ? "" : "s"}/bay`),
-    step: () => ({ dir: "up", text: "+1 charge" }),
+    tiers: ["+2 charges per bay", "+4 charges per bay", "+6 charges per bay"],
+    current: (t) => (t === 0 ? "no charges" : `+${2 * t} charges/bay`),
+    step: () => ({ dir: "up", text: "+2 charges" }),
     apply(cfg, tier) {
-      // The exact shape of the `bonds` track, and for the same reason: a
-      // charge you can PLAN for beats a charge you might be dealt. Demolition
-      // is slag's only clean answer (a slag cube is worth $0 as line material
-      // and salvagePerCube as scrap, so bombing it is strictly positive
-      // value), and leaving that answer to a draft shuffle meant a player who
-      // had paid for it went whole runs without one.
-      cfg.bombCharges += tier;
+      // Twice the old size, and deliberately more generous than the bond
+      // track: a bomb is a SALVAGE tool (it refunds what it vaporizes) rather
+      // than a field-flattening reset, so it can afford to be the abundant
+      // consumable now that Bond Breakers are the rare one. A charge you can
+      // PLAN for beats a charge you might be dealt — demolition is slag's
+      // only clean answer, and leaving that answer to a draft shuffle meant a
+      // player who had paid for it went whole runs without one.
+      cfg.bombCharges += 2 * tier;
     },
   },
 ];

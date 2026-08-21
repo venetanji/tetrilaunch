@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Identical to the app's own viewport meta (index.html), viewport-fit
+         included — the harness measures what the app measures. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Tetrilaunch UI-fit harness</title>
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+  </head>
+  <body>
+    <!-- The same shell App's constructor builds (main.ts). The canvas is a
+         plain element here — nothing draws into it — but it has to exist,
+         because #overlay's stacking and the .hud rules position against it. -->
+    <div id="app">
+      <canvas id="game"></canvas>
+      <div id="overlay"></div>
+    </div>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>

@@ -64,23 +64,32 @@ export interface UnlockDef {
    *  guarantees no amount of Contract income finishes it, which is what keeps
    *  the subscription selling throughput instead of power. */
   requiresMark?: number;
+  /** RETIRED: this unlock existed to put a card in the MODIFIER draft pool
+   *  (mods.ts's draftOffers) — a system the hazard ratchet replaced, and one
+   *  nothing in the app consumes any more. A retired unlock is never sold and
+   *  never listed; a save that already owns one is refunded in full on load
+   *  (refundRetiredUnlocks), because salvage spent on a card that changes
+   *  nothing is a broken promise, not a purchase. The def itself stays so the
+   *  refund can resolve its cost and old ids keep meaning something. */
+  retired?: boolean;
 }
 
 /**
- * The unlock tree — which is, mostly, the modifier list.
+ * The unlock tree — two live options, and the retired mod-pool shelf.
  *
- * Every modifier except four now costs salvage to put IN THE DRAFT POOL. That
- * distinction is the whole design: salvage buys the right for a modifier to be
- * offered, never the modifier itself. You are still dealt a choice and still
- * make it, so a purchase adds an option rather than power, which is the rule
- * this file's header sets out. The four left free — Overtime, Premium
- * Contracts, Ballast Load, Rapid Loader — are the plain tradeoffs, none of
- * which defines a build, so a player who owns nothing still gets a real
- * roguelite loop on their first run. Four against DRAFT_BASE_SLOTS' two is
- * deliberate: a free pool the same size as the draft is not a choice.
+ * This list was mostly the MODIFIER list: eight of its ten entries sold the
+ * right for a card to enter mods.ts's draft pool. The hazard ratchet replaced
+ * that draft, nothing in the app imports mods.ts any more, and the Workshop
+ * was still selling those eight as if they did something — a player could
+ * spend real salvage on cards that changed nothing. They are `retired` now:
+ * off the shelf, refunded on load if owned (refundRetiredUnlocks below).
  *
- * Rank 1 keeps the prices it always had. The player who most needs a first
- * option is the one with the least salvage, so the on-ramp does not move.
+ * What survives is what the app actually consumes: Weather Survey (main.ts
+ * reads it into the HUD's wind gauge) and Scrap Cache (startGame seeds the
+ * run's scrap from it). Both are information/head-start OPTIONS rather than
+ * stat bumps, which keeps the header's rule intact. The abilities the
+ * retired cards used to gate live on as ship systems — INSTALLS below is
+ * where Demolition and the Bond Emitter are actually bought.
  */
 export const UNLOCKS: UnlockDef[] = [
   {
@@ -88,6 +97,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Demolition Licence",
     cost: 45,
     rank: 1,
+    retired: true,
     desc: "Adds Demolition Charges to the draft pool: armed bombs that cost nothing to fire and refund funds for every cube they vaporize. Turns a dead junk pile into cash.",
   },
   {
@@ -95,6 +105,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Bulk Freight Permit",
     cost: 55,
     rank: 1,
+    retired: true,
     desc: "Adds Bulk Shipments to the draft pool: 5-cube pentominoes. Dense and rigid — they survive landings that shatter a tetromino, and their weight squares up the layers underneath.",
   },
   {
@@ -107,7 +118,7 @@ export const UNLOCKS: UnlockDef[] = [
   {
     id: "scrap-cache",
     name: "Scrap Cache",
-    cost: 70,
+    cost: 85,
     rank: 1,
     desc: "Every run starts with 30 scrap banked, so the first refit stop is a real decision instead of a window-shop.",
   },
@@ -116,6 +127,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Micro Freight Licence",
     cost: 90,
     rank: 2,
+    retired: true,
     desc: "Adds Micro Shipments to the draft pool: 2-cube dominoes at a heavy launch discount. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile beneath them.",
   },
   {
@@ -123,6 +135,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Reinforced Bonds",
     cost: 110,
     rank: 2,
+    retired: true,
     desc: "Adds Sturdy Shipments to the draft pool: pieces that survive landings which would shatter a tetromino. Clean if you aim well — and a liability when you needed them to break into fillers.",
   },
   {
@@ -130,6 +143,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Press Overclock",
     cost: 140,
     rank: 2,
+    retired: true,
     desc: "Adds Overclock to the draft pool: the compactor sweeps half again as fast, for twenty seconds off the clock. More presses per bay, and less time to think between them.",
   },
   {
@@ -137,6 +151,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Line Recalibration",
     cost: 150,
     rank: 2,
+    retired: true,
     desc: "Adds Short Lines to the draft pool: one cell fewer per line, at lower pay per line. Turns a target you cannot reach into one you can, and a good bay into a cheaper one.",
   },
   {
@@ -144,14 +159,16 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Bond Breaker Rig",
     cost: 320,
     rank: 3,
+    retired: true,
     requiresMark: 2,
-    desc: "Adds Bond Breakers to the draft pool: a charge each bay that shatters every joint on the field into loose cubes, which settle flatter and pack into lines far more easily. The answer to a pile that has stopped cooperating.",
+    desc: "Bond Breakers shatter every joint on the field into loose cubes, which settle flatter and pack into lines far more easily — the answer to a pile that has stopped cooperating. Charges are a RUN-LONG consumable, not a per-bay refill: fit the Bond Emitter to carry them, and spend them on the bay that needs one most.",
   },
   {
     id: "auto",
     name: "Autoloader Rig",
     cost: 360,
     rank: 3,
+    retired: true,
     requires: ["demo", "micro"],
     requiresMark: 3,
     desc: "Adds the Autoloader to the draft pool — the endgame of the micro build. The cannon fires itself, fast and roughly aimed, at half cost. You will need Bond Breakers to flatten what it makes.",
@@ -187,12 +204,32 @@ export function unlockAvailable(
 export function unlockGates(def: UnlockDef, owned: string[], mark: number): string[] {
   const gates: string[] = [];
   if (def.requiresMark !== undefined && mark < def.requiresMark) {
-    gates.push(`Mark ${def.requiresMark}`);
+    // Rendered in TIER numbering (B8: "Mark" is internal vocabulary, never
+    // shown). requiresMark counts Marks BEATEN; the tier being flown is
+    // mark + 1, so "reach Tier N+1" is satisfied exactly when Mark N falls.
+    gates.push(`Tier ${def.requiresMark + 1}`);
   }
   for (const r of def.requires ?? []) {
     if (!owned.includes(r)) gates.push(unlockById(r)?.name ?? r);
   }
   return gates;
+}
+
+/**
+ * Refund every RETIRED unlock a save still owns — full price back, id removed.
+ * Pure and idempotent: once the refunded meta is saved no retired id remains,
+ * and a save that owns none passes through untouched (same object, no churn).
+ * Called on load (lib/store's loadMeta), which is the one door every save
+ * walks through.
+ */
+export function refundRetiredUnlocks(meta: MetaState): MetaState {
+  const owned = UNLOCKS.filter((u) => u.retired && meta.unlocks.includes(u.id));
+  if (!owned.length) return meta;
+  return {
+    ...meta,
+    salvage: meta.salvage + owned.reduce((sum, u) => sum + u.cost, 0),
+    unlocks: meta.unlocks.filter((id) => !owned.some((u) => u.id === id)),
+  };
 }
 
 /**
@@ -227,25 +264,35 @@ export interface InstallDef {
 }
 
 export const INSTALLS: InstallDef[] = [
-  // The two entry systems are priced UNDER a day of the easiest dailies (three
-  // tier-1 Contracts pay 18), not at it. The spec's pacing target is "a day's
-  // Contracts should fund roughly one install", and pricing the on-ramp at 20
-  // missed it by two — a player's first full day of Contracts would have bought
-  // nothing at all. Same reasoning as UNLOCKS' rank 1: the player who most needs
-  // a first system is the one with the least salvage.
+  // PRICES, re-derived. The old comment here justified them against "three
+  // tier-1 Contracts pay 18" — which has not been true for some time: a tier's
+  // three contracts pay 45 (three 15-salvage milestones), so every price below
+  // was set against an income two and a half times smaller than the one that
+  // actually arrives. That, plus the retired-unlock hole above, is the surplus.
+  //
+  // The two ENTRY systems stay at 15 and are not negotiable: 15 is one
+  // milestone, so a player's first cleared Contract buys their first system.
+  // That is the on-ramp, and it is the thing the 2026-08-09 deadlock proved
+  // the economy cannot do without.
+  //
+  // Everything past the on-ramp is priced against the day it takes to earn:
+  // 30 is most of a tier's contracts, 50 is a tier, 70 is a tier plus its run
+  // win. The shelf now totals 460 (with the two former Options folded in
+  // below) against 600 of income — slack enough to make a wrong purchase
+  // survivable, tight enough that the choice is a choice.
   { id: "reactor", cost: 15 },
   { id: "launcher", cost: 15 },
-  { id: "magazine", cost: 25 },
-  { id: "bay", cost: 30, requiresMark: 1 },
-  { id: "hydraulics", cost: 30, requiresMark: 1 },
-  { id: "bonds", cost: 40, requiresMark: 2 },
+  { id: "magazine", cost: 30 },
+  { id: "bay", cost: 50, requiresMark: 1 },
+  { id: "hydraulics", cost: 50, requiresMark: 1 },
+  { id: "bonds", cost: 70, requiresMark: 2 },
   // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
   // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
   // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one
   // Mark beaten). Gating its only clean answer at 3 would ship a counter two
   // Marks behind its hazard, which is strictly worse than today. Raise this to
   // 3 in the same change that moves materials off the schedule.
-  { id: "demolition", cost: 40, requiresMark: 1 },
+  { id: "demolition", cost: 70, requiresMark: 1 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
@@ -274,7 +321,9 @@ export function installAvailable(meta: MetaState, def: InstallDef): boolean {
 export function installGates(meta: MetaState, def: InstallDef): string[] {
   const out: string[] = [];
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) {
-    out.push(`Mark ${def.requiresMark}`);
+    // Tier numbering, same off-by-one as unlockGates: the gate names the tier
+    // the player has to REACH, which is the Mark to beat plus one.
+    out.push(`Tier ${def.requiresMark + 1}`);
   }
   if ((meta.loadout[def.id] ?? 0) === 0 &&
       buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
@@ -398,7 +447,26 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
  * ---------------------------------------------------------------------- */
 export const TIER_CONTRACTS_REQUIRED = 3;
 export const TIER_SALVAGE_BASE = 60;
-export const TIER_SALVAGE_PER_TIER = 20;
+/**
+ * FLAT, deliberately — this was 20, and the slope is where the salvage economy
+ * came apart.
+ *
+ * The ladder was sized honestly once: awards summed to 1,500 across ten tiers
+ * against ~1,600 of things to buy, so the tree could not outrun it. Then eight
+ * of the ten UNLOCKS were retired — their abilities moved into INSTALLS, which
+ * was right — and 1,270 of SINK left the game while the income was never
+ * re-derived. Measured: 1,500 earned against 325 spendable, a 4.6x oversupply,
+ * and salvage stopped being a decision anywhere past the first tier.
+ *
+ * The base stays 60 because it is load-bearing: 60/4 milestones is 15, exactly
+ * an entry install, which is the on-ramp a device session found the hard way
+ * (2026-08-09, stuck on 8 salvage against a 15-salvage Reactor). Cutting the
+ * base would re-break that. The SLOPE is what compounded — +20/tier reaches
+ * 240 a tier by tier 10, against a shelf that does not grow — so the slope is
+ * what goes. Every tier now pays 60, one contract still buys the entry system,
+ * and total income falls 1,500 -> 600 against a ~460 shelf.
+ */
+export const TIER_SALVAGE_PER_TIER = 0;
 
 /** TOTAL salvage a tier yields across its milestones + completion. */
 export function tierSalvage(tier: number): number {
@@ -525,6 +593,31 @@ export function tierProgressFor(meta: MetaState): TierProgress {
     award: tierSalvage(tier),
     milestone: tierMilestoneSalvage(tier),
   };
+}
+
+/* -------------------------------------------------------------------------
+ * NEXT STEP (canvas A3) — the ONE thing the loop asks for right now.
+ * Exactly one surface ever carries the badge, and this is the rule that
+ * picks it, stated once so the menu, the Workshop and the fail card can
+ * never point at different doors:
+ *   salvage covers an installable system  -> Workshop (spend it)
+ *   contracts still owed this tier        -> Contracts (earn it)
+ *   otherwise                             -> Deep Run (the exam)
+ * ---------------------------------------------------------------------- */
+export type NextStepId = "workshop" | "contracts" | "run";
+
+/** The cheapest system the player could install right now, or null. */
+export function cheapestInstall(meta: MetaState): InstallDef | null {
+  return (
+    INSTALLS.filter((i) => installAvailable(meta, i)).sort((a, b) => a.cost - b.cost)[0] ?? null
+  );
+}
+
+export function nextStep(meta: MetaState): NextStepId {
+  const next = cheapestInstall(meta);
+  if (next && meta.salvage >= next.cost) return "workshop";
+  if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
+  return "run";
 }
 
 /** Draft cards offered before the third slot is earned, and the number of

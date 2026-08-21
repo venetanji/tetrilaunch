@@ -23,10 +23,15 @@ import { WIND_GUST_FRACTION } from "./level";
  *    hazard cheap for you. Own the Launcher and crosswind is the notch you can
  *    afford. So the draft asks "what have you prepared for?" and the poison you
  *    are equipped for costs you nothing.
+ *  - **The hand is small.** Two cards per draft, not three (see hazardOffers):
+ *    with the purse now the binding constraint (level.ts's economy note), every
+ *    notch is a real fork, and a third card only invited the least-bad shrug.
  *  - **Marks add axes rather than steepen them.** Higher Marks do not make the
  *    ratchet bigger; they put more kinds of pressure on the table. A Mark is a
  *    statement about which hazards and systems exist, and nothing else — which
- *    is why level.ts's MARK_TARGET_STEP is now 0.
+ *    is why level.ts's MARK_TARGET_STEP is 0 (the ladder's OWN per-bay target
+ *    ramp, TARGET_PER_BAY, is a different thing: it is the baseline climb every
+ *    run faces, not a knob a Mark moves).
  *  - **Content axes are the same object as number axes.** Slag is not a
  *    scheduled probability the ladder inflicts any more; it is a notch the
  *    player took instead of a harder number. That swap is only attractive once
@@ -34,10 +39,8 @@ import { WIND_GUST_FRACTION } from "./level";
  *    sells.
  *
  * Notch sizes are a first guess, sized by arithmetic against the curve they
- * replace: today two of three base axes harden every bay (time is relief), so
- * ~18 axis-steps across a run against the ratchet's 9. A notch is therefore
- * about double a current per-bay step. This is the single most likely thing in
- * the design to need a play pass — see the spec's open calls.
+ * replace. This is the single most likely thing in the design to need a play
+ * pass — see the spec's open calls.
  */
 
 /** Every axis that can be ratcheted. Ordered by the Mark that opens it. */
@@ -73,12 +76,84 @@ export interface HazardDef {
   apply(cfg: LevelConfig, notches: number): void;
 }
 
-/** One notch on each of the three base axes. Named rather than inlined because
- *  the spec's whole pacing argument is stated in these three numbers, and a
- *  play pass will edit them first. */
+/** One notch on each of the base axes. Named rather than inlined because the
+ *  spec's whole pacing argument is stated in these numbers, and a play pass
+ *  will edit them first. */
+/** RETIRED — Quota Raise is no longer dealt (see RETIRED_AXES). The constant
+ *  and the notch it sizes stay so a `target` ratchet already recorded on a run
+ *  still resolves to the number it was taken at, but nothing in a new run can
+ *  reach it: the quota's growth lives in level.ts's TARGET_PER_BAY now. */
 export const TARGET_NOTCH = 300;
-export const COST_NOTCH = 5;
-export const TIME_NOTCH = 20;
+/**
+ * ESCALATING LADDERS — what the nth notch on the cost and time axes costs.
+ *
+ * These two axes used to be linear (a flat +$5 and a flat -5s however many
+ * notches deep you already were), and linear is the wrong shape for a ratchet
+ * the player takes one notch at a time. Under a flat step the tenth notch is
+ * the same decision as the first, so the axis a player opened early is the axis
+ * they keep taking — it never stops being the cheapest card on the table, and
+ * the draft quietly collapses into one axis repeated.
+ *
+ * Fibonacci fixes that without needing a cap: every notch is affordable
+ * relative to the one before it and brutal relative to the one before THAT, so
+ * an axis prices itself out of the draft on its own and the player is pushed to
+ * spread. It also starts gentler than the flat step it replaces (notch 1 is -1s
+ * and +$1 where both used to be 5), which matters because the FIRST notch is
+ * taken by a player who has no idea yet what a notch feels like — the same
+ * reasoning that took TIME_NOTCH from 20 to 5, carried the rest of the way.
+ *
+ * The two ladders are deliberately OFFSET by one — time runs 1,2,3,5,8,13 and
+ * money runs 1,1,2,3,5,8. Money is the axis with an in-run answer (the reactor
+ * track, a good line rate, a fat carry), so it is allowed to lag; the clock has
+ * no such answer, so it leads.
+ *
+ * Past the table's end the recurrence simply continues (see notchTotal), so
+ * neither ladder has an edge a Mark-10 run taking two notches a bay can fall
+ * off.
+ */
+export const TIME_LADDER = [1, 2, 3, 5, 8, 13] as const;
+export const COST_LADDER = [1, 1, 2, 3, 5, 8] as const;
+
+/**
+ * Cumulative cost of `n` notches on a ladder — the sum of its first n rungs,
+ * continuing the Fibonacci recurrence past the table rather than clamping.
+ *
+ * Cumulative rather than "the nth rung" because apply() is called ONCE with the
+ * total notch count (see applyRatchets), not once per notch: a run three
+ * notches into the cost axis has paid rungs 1, 2 and 3, and the config has to
+ * reflect all three.
+ *
+ * `startAt` advances where the ladder BEGINS, and it is how the Mark makes the
+ * same choice cost more. Every run used to open on rung 0 whatever it had
+ * beaten, so a Mark-3 pilot's first Shift Cut took the same 1s a first-timer's
+ * did and the ratchet asked an easier question the further you got — exactly
+ * backwards. At startAt = mark - 1 a Mark-2 run opens on 2s and a Mark-3 on 3s,
+ * and because the whole ladder slides rather than being scaled, the SHAPE of
+ * the decision is preserved: still Fibonacci, still steeply worse per notch,
+ * just never as cheap again.
+ */
+export function notchTotal(ladder: readonly number[], n: number, startAt = 0): number {
+  const rung = (i: number): number => {
+    if (i < ladder.length) return ladder[i];
+    let prev = ladder[ladder.length - 2];
+    let last = ladder[ladder.length - 1];
+    for (let k = ladder.length; k <= i; k++) {
+      const next = prev + last;
+      prev = last;
+      last = next;
+    }
+    return last;
+  };
+  let total = 0;
+  for (let i = 0; i < n; i++) total += rung(startAt + i);
+  return total;
+}
+
+/** The FIRST rung of each ladder — what one notch costs a player who has never
+ *  taken that axis before. Kept as named constants because card copy and docs
+ *  quote them, but neither axis is linear any more. */
+export const COST_NOTCH = COST_LADDER[0];
+export const TIME_NOTCH = TIME_LADDER[0];
 
 /** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
  *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
@@ -142,9 +217,11 @@ function contentAxis(
 
 /**
  * The ladder. Every Mark from 1 to 9 opens exactly one new axis except Mark 1,
- * which opens the three base numbers together — a first rung offering one card
- * is not a draft. Mark 10 adds no axis and instead offers TWO ratchets per bay;
- * see offersFor.
+ * which opens the base numbers together — a first rung offering one card is not
+ * a draft. Of those, Quota Raise is retired from the offer (RETIRED_AXES), so
+ * Mark 1 deals a two-card hand of Fuel Levy and Shift Cut: the ladder's own
+ * quota ramp is not something a card sells any more. Mark 10 adds no axis and
+ * instead offers TWO ratchets per bay; see offersFor.
  *
  * Marks 4-9 are the six materials — cryo first and slag deliberately third
  * (see the note at the material rows). Four of them had only a line of design
@@ -158,26 +235,36 @@ export const HAZARDS: HazardDef[] = [
     desc: `Every bay's funding target rises by $${TARGET_NOTCH}.`,
     mark: 1,
     kind: "number",
+    // Retired from the draft (RETIRED_AXES) but deliberately still applied:
+    // the quota ramp is the ladder's own job now (level.ts's TARGET_PER_BAY),
+    // and an axis that stopped applying would silently rewrite the difficulty
+    // of any run that had already banked a notch on it.
     apply: (cfg, n) => { cfg.targetScore += TARGET_NOTCH * n; },
   },
   {
     id: "cost",
     name: "Fuel Levy",
-    desc: `Every launch costs $${COST_NOTCH} more.`,
+    // The card quotes the FIRST rung and warns that it steepens — an
+    // escalating axis whose card reads the same at every depth is a trap.
+    desc: `Every launch costs more — ${COST_LADDER[0]} at the first levy, steeply more at each one after.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.launchCost += COST_NOTCH * n; },
+    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n, cfg.mark - 1); },
   },
   {
     id: "time",
     name: "Shift Cut",
-    desc: `Every bay's clock loses ${TIME_NOTCH}s.`,
+    desc: `Every bay's clock loses time — ${TIME_LADDER[0]}s at the first cut, steeply more at each one after.`,
     mark: 1,
     kind: "number",
     // Floored well above zero: an axis that can reach an unplayable bay is not a
     // difficulty knob, it is a lose button, and the player picking it has no way
-    // to know which notch was the last survivable one.
-    apply: (cfg, n) => { cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - TIME_NOTCH * n); },
+    // to know which notch was the last survivable one. The floor matters more
+    // under Fibonacci than under a flat step — the ladder reaches it in far
+    // fewer notches.
+    apply: (cfg, n) => {
+      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n, cfg.mark - 1));
+    },
   },
   {
     id: "wind",
@@ -243,9 +330,53 @@ export function picksPerBay(mark: number): number {
   return mark >= CAPSTONE_MARK ? 2 : 1;
 }
 
-/** Every axis on offer at `mark`, in ladder order. */
+/**
+ * Toggle one axis in a draft's TENTATIVE hand (screens.ts's draftScreen selects
+ * before it commits; main.ts's onPickHazard is the only caller).
+ *
+ * One rule, read in two halves: **a tap fills the hand while there is room, and
+ * edits it once it is full.** At the one-pick draft every rung below Mark 10
+ * deals, that collapses to the radio group a player expects — tapping the other
+ * card switches to it, tapping the selected one clears it. At the capstone's
+ * two-pick draft the same rule stacks: tapping one card twice is how a double
+ * notch on a single axis is asked for, which is a real build and one the card's
+ * "at N" badge already knows how to show.
+ *
+ * What matters either way is that every tap moves the hand — a full hand never
+ * silently swallows one — and that any hand is reachable without a reset
+ * button. A removal drops the LAST notch of that axis, so a hand of A,B,A falls
+ * back to A,B instead of reordering itself between two taps that both said A.
+ *
+ * Returns a new array; never mutates `picks`.
+ */
+export function togglePick(picks: HazardId[], axis: HazardId, need: number): HazardId[] {
+  if (picks.length < need) return [...picks, axis];
+  const cut = picks.lastIndexOf(axis);
+  if (cut >= 0) return picks.filter((_, i) => i !== cut);
+  // A full hand of other axes still has to move. At one pick that is a straight
+  // swap; past one, the oldest notch is the one that gives way.
+  return need === 1 ? [axis] : [...picks.slice(1), axis];
+}
+
+/** Axes the draft is NOT allowed to deal.
+ *
+ *  "target" is the only member, and it is a deliberate retirement rather than a
+ *  deletion. The quota now climbs on its own, every bay, via level.ts's
+ *  TARGET_PER_BAY — so a card that sold the player MORE of that climb was
+ *  asking them to opt into the ladder they were already on, which is not a
+ *  choice, it is a tax with a card frame around it. The ladder's own ramp is
+ *  the honest home for that pressure.
+ *
+ *  The HazardDef stays in HAZARDS rather than being deleted, and applyRatchets
+ *  still applies it: a run (or a saved leaderboard entry, or a replayed seed)
+ *  that already banked a `target` notch has to keep resolving to the same
+ *  numbers, and the axis badge in components.ts's AXIS_GLYPHS has to keep
+ *  finding its glyph. Retiring it from the OFFER is the whole change. */
+const RETIRED_AXES: ReadonlySet<HazardId> = new Set<HazardId>(["target"]);
+
+/** Every axis the draft may deal at `mark`, in ladder order. */
 export function hazardsForMark(mark: number): HazardDef[] {
-  return HAZARDS.filter((h) => h.mark <= mark);
+  return HAZARDS.filter((h) => h.mark <= mark && !RETIRED_AXES.has(h.id));
 }
 
 /**
@@ -253,6 +384,11 @@ export function hazardsForMark(mark: number): HazardDef[] {
  *
  * Deterministic in the run seed, so a bay replayed from the same save deals the
  * same table — the ratchet is a choice under pressure, not a reroll to fish in.
+ *
+ * The hand is deliberately SMALL — two cards. A three-card hand invited a
+ * "pick the least-bad" shrug; two cards is a real fork, and with the purse now
+ * tight enough that every notch hurts, the fork is the decision the bay-clear
+ * moment is about.
  *
  * Two rules shape the hand rather than dealing straight from the pool:
  *
@@ -263,15 +399,15 @@ export function hazardsForMark(mark: number): HazardDef[] {
  *    means at least two cards, or the capstone would silently hand the player
  *    the same axis twice.
  *
- * Returns every eligible axis when the pool is small (Mark 1 has exactly three),
- * which is intentional: at the bottom of the ladder the ratchet IS the whole
- * table, and hiding one of three would only make the choice arbitrary.
+ * Returns every eligible axis when the pool is small, which is intentional: at
+ * the bottom of the ladder the ratchet IS the whole table, and hiding one of
+ * the few open axes would only make the choice arbitrary.
  */
 export function hazardOffers(
   seed: number,
   levelIndex: number,
   mark: number,
-  count = 3,
+  count = 2,
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
   const want = Math.max(count, picksPerBay(mark));
@@ -320,6 +456,9 @@ export function applyRatchets(base: LevelConfig, ratchets: Ratchets): LevelConfi
     ...base,
     pieceSequence: base.pieceSequence ? [...base.pieceSequence] : null,
     materialMix: { ...base.materialMix },
+    // Copied for the same reason materialMix is: applyRatchets promises not to
+    // mutate `base`, and a shared array would leak an edit back into it.
+    pileTiers: base.pileTiers.map((t) => ({ ...t })),
   };
   for (const h of HAZARDS) {
     const n = ratchets[h.id] ?? 0;

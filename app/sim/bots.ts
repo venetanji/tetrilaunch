@@ -501,15 +501,78 @@ interface AimCandidate {
   err: number;
 }
 
-function aimBot(seed = 1): Bot {
+/**
+ * How long the `patient` variant will sit on its hands waiting for a congested
+ * bay to drain, as a multiple of one compactor round trip.
+ *
+ * A backstop, not the mechanic. Refusing to fire while congested is only a
+ * strategy if the congestion actually clears; a pile stuck above the threshold
+ * (slag it cannot sell, cubes stranded outside the zone) would otherwise stall
+ * the bot until the clock ran out, and the sweep would report the congestion
+ * tax as unsurvivable when what it actually measured was a bot with no give-up
+ * rule. Two cycles is long enough for a press stroke to pay out a line and the
+ * count to fall, short enough that a permanently-clogged bay still gets played.
+ */
+const PATIENT_MAX_WAIT_CYCLES = 2;
+
+/**
+ * `congestionAware` is the COUNTER-PLAY switch, and the whole reason the
+ * congestion sweep can say anything useful.
+ *
+ * Every other bot here fires the instant cooldown and funds allow — which is
+ * exactly the spam the tax exists to price, so measuring the tax against them
+ * alone can only ever report "it costs money". The interesting question is
+ * whether a player who ANSWERS it (stop firing, let the press work, resume once
+ * the bay has drained) comes out ahead of one who does not. This flag is that
+ * player: identical search, identical aim, one extra rule.
+ */
+interface AimOpts {
+  congestionAware?: boolean;
+  /**
+   * Drop the aim search's own patience rule, so the bot takes EVERY cooldown
+   * with the best shot available rather than waiting out a bad gust.
+   *
+   * This is the harness's model of the strategy the congestion tax exists to
+   * price. `random-up` is not that model and measuring against it is
+   * misleading: a button-masher throws its cargo out of the bay, eats the
+   * lost-piece fine and goes broke inside 80 shots, so its pile stays SMALL —
+   * it fails to spam. The player in the complaint is competent and rich,
+   * banking a surplus off cleared lines and then emptying it into the bay
+   * because nothing prices the shot. Same aim, same landing zone, no restraint:
+   * that is this flag.
+   */
+  impatient?: boolean;
+}
+
+function aimBot(seed = 1, opts: AimOpts = {}): Bot {
   const rng = mulberry32(seed);
   const gapTargeter = makeGapTargeter();
+  /** `now` at which the current congestion hold began, or null when not
+   *  holding. Wall-clock ms rather than Game.stepCount, which is private —
+   *  act() is handed `now` on every tick, so it is the clock available here. */
+  let holdingSince: number | null = null;
 
   return {
-    name: "aim",
+    name: opts.congestionAware ? "patient" : opts.impatient ? "impatient" : "aim",
     act(g, now) {
       if (!g.cannon.canShoot(now)) return;
       if (g.score < g.level.launchCost) return;
+
+      if (opts.congestionAware) {
+        if (g.pileTier === null) {
+          holdingSince = null;
+        } else {
+          // Endgame override, mirroring the aim search's own patience rule
+          // below: with the clock this short, a tax is cheaper than a bay
+          // left unfinished.
+          const deadline = g.timeLeftMs < AIM_PATIENCE_DEADLINE_MS;
+          if (holdingSince === null) holdingSince = now;
+          // cycleSteps is in physics steps; the harness drives one step per
+          // 1000/60 ms of `now`, so convert rather than comparing units.
+          const capMs = (g.compactor.cycleSteps / 60) * 1000 * PATIENT_MAX_WAIT_CYCLES;
+          if (!deadline && now - holdingSince <= capMs) return;
+        }
+      }
 
       const { x: target, slot } = gapTargeter.read(g, now);
       const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
@@ -553,7 +616,7 @@ function aimBot(seed = 1): Bot {
       // Patience: sit out a shot whose best-found landing still misses badly
       // — UNLESS the clock is running out, in which case firing something
       // beats a guaranteed zero from waiting out a gust that never ends.
-      if (chosen.err > AIM_PATIENCE_TOL && g.timeLeftMs >= AIM_PATIENCE_DEADLINE_MS) {
+      if (!opts.impatient && chosen.err > AIM_PATIENCE_TOL && g.timeLeftMs >= AIM_PATIENCE_DEADLINE_MS) {
         // Still leave the cannon parked on the best candidate found, so the
         // live preview reflects the closest option even while holding fire.
         g.cannon.angle = (chosen.deg * Math.PI) / 180;
@@ -635,4 +698,10 @@ export const BOTS: Record<string, (seed: number) => Bot> = {
   // Adaptive: re-solves its angle against the live wind reading every shot
   // (see aimBot above) — the existence proof that changing aim beats wind.
   aim: (seed) => aimBot(seed),
+  // Same search as `aim`, plus the one rule the congestion tax is meant to
+  // teach: don't fire into a bay that's already too full. See AimOpts.
+  patient: (seed) => aimBot(seed, { congestionAware: true }),
+  // Same search as `aim`, minus its restraint — fires on every cooldown. The
+  // harness's model of "spam pieces and let gravity do the rest". See AimOpts.
+  impatient: (seed) => aimBot(seed, { impatient: true }),
 };

@@ -142,12 +142,23 @@
   --ctrl-inset-x: clamp(16px, 4vw, 32px); /* cluster offset from the left/right screen edge */
   --ctrl-inset-b: clamp(16px, 5vh, 32px); /* cluster offset from the bottom edge */
 
+  /* The raw safe-area insets, as tokens. Every rule that needs an inset reads
+     THESE, never env() directly: on a device the token IS env(), but the
+     uifit harness overrides the tokens with each device row's faked insets —
+     raw env() resolves to 0 in a headless viewport, so a rule reading it
+     directly would be measured at a position no notched device ever renders
+     (which is exactly what happened to the side rail). */
+  --inset-t: env(safe-area-inset-top, 0px);
+  --inset-r: env(safe-area-inset-right, 0px);
+  --inset-b: env(safe-area-inset-bottom, 0px);
+  --inset-l: env(safe-area-inset-left, 0px);
+
   /* Safe-area-aware positions for the corner-anchored clusters. env() falls
      back to 0px on browsers without notch/home-indicator insets, so
      --ctrl-inset-x/b alone still applies there. */
-  --safe-l: calc(env(safe-area-inset-left, 0px) + var(--ctrl-inset-x));
-  --safe-r: calc(env(safe-area-inset-right, 0px) + var(--ctrl-inset-x));
-  --safe-b: calc(env(safe-area-inset-bottom, 0px) + var(--ctrl-inset-b));
+  --safe-l: calc(var(--inset-l) + var(--ctrl-inset-x));
+  --safe-r: calc(var(--inset-r) + var(--ctrl-inset-x));
+  --safe-b: calc(var(--inset-b) + var(--ctrl-inset-b));
 
   /* Finger-drag onboarding hint (see screens.ts's dragHintHTML + app.css's
      .drag-hint rules) */

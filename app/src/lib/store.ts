@@ -1,5 +1,5 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
-import { newMeta, type MetaState } from "../game/meta";
+import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
 import { newTiers, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
@@ -15,6 +15,12 @@ export interface Settings {
    *  driver + ui/screens.ts's coachHTML). The How to Play screen's "Guided
    *  Tutorial" button clears it to replay the coach on demand. */
   seenTutorial: boolean;
+  /** Mirror the touch rail to the LEFT edge (Controls screen's touch tab) —
+   *  the solver reserves its band on that side too (layout.ts setRailSide). */
+  leftHandRail: boolean;
+  /** Gamepad stick-aiming assist: the left stick's aim is smoothed through a
+   *  short lerp so analogue jitter doesn't wobble the arc (gamepad.ts). */
+  stickAssist: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -24,6 +30,7 @@ const META_KEY = "tetrilaunch.meta";
 
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
+  leftHandRail: false, stickAssist: true,
 };
 
 export function loadSettings(): Settings {
@@ -58,6 +65,26 @@ export function loadBest(): number {
 }
 export function saveBest(score: number): void {
   if (score > loadBest()) localStorage.setItem(BEST_KEY, String(score));
+}
+
+/** Lifetime bays STARTED, any mode (canvas D3): once it passes three, the
+ *  finger-drag hint retires for good — the rail and the gesture are the
+ *  control surface by then, and a looping finger over a veteran's bay is
+ *  chrome pretending to teach. */
+const BAYS_KEY = "tetrilaunch.bays";
+
+export function loadBaysPlayed(): number {
+  const n = Number(localStorage.getItem(BAYS_KEY) || 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+export function bumpBaysPlayed(): number {
+  const n = loadBaysPlayed() + 1;
+  try {
+    localStorage.setItem(BAYS_KEY, String(n));
+  } catch {
+    /* ignore */
+  }
+  return n;
 }
 
 /**
@@ -107,7 +134,11 @@ export function loadMeta(): MetaState {
       }
       meta.loadout = tiers;
     }
-    return meta;
+    // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
+    // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
+    // ratchet replaced the modifier draft). Pure and idempotent, so a save
+    // that never rewrites itself just re-derives the same refund each load.
+    return refundRetiredUnlocks(meta);
   } catch {
     return newMeta();
   }

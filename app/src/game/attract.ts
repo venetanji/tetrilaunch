@@ -299,6 +299,7 @@ export class AttractDemo {
     // out of it and no notch inset applied (see render.ts's fitViewport).
     render(ctx, w, h, this.dpr, {
       cubes: g.cubes,
+      constraints: g.constraints,
       compactor: g.compactor,
       cannon: g.cannon,
       trajectory: g.trajectory,

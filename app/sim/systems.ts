@@ -14,12 +14,16 @@
  */
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
-import { makeBaseLevel } from "../src/game/level";
 import {
-  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets,
+  makeBaseLevel, TARGET_PER_BAY, type LevelConfig, type PileTier,
+} from "../src/game/level";
+import {
+  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
-  CAPSTONE_MARK, type Ratchets,
+  CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
+  type HazardId, type Ratchets,
 } from "../src/game/hazards";
+import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import { Cannon } from "../src/game/cannon";
 import { Compactor } from "../src/game/compactor";
@@ -40,10 +44,11 @@ import {
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, type InstallDef, type MetaState,
+  buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
+  CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
   dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
@@ -54,13 +59,30 @@ import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
-import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
+import {
+  computeLayout,
+  getRailSlots,
+  RAIL_GAP,
+  RAIL_MIN,
+  RAIL_SLOTS_BASE,
+  RAIL_SLOTS_MAX,
+  railSlotsFor,
+  setRailSlots,
+  setSafeAreaInsets,
+  UI_SCALE_MIN,
+} from "../src/game/layout";
 import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal, coachSteps,
+  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
+  menuScreen,
 } from "../src/ui/screens";
+import {
+  BINDABLE_ACTIONS, actionForKey, hintRotate, keyFor, padFor,
+  resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+} from "../src/game/bindings";
+import { setRailSide } from "../src/game/layout";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
 
@@ -158,7 +180,7 @@ section("Ship upgrades (upgrades.ts)");
   // buys nothing — which is the bug this whole layer exists to fix.
   const demoCfg = makeBaseLevel(0);
   applyUpgrades(demoCfg, { ...newTiers(), demolition: 2 });
-  check("the demolition track grants charges", demoCfg.bombCharges === 2, String(demoCfg.bombCharges));
+  check("the demolition track grants charges", demoCfg.bombCharges === 4, String(demoCfg.bombCharges));
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
@@ -338,10 +360,11 @@ section("Installs — what salvage buys (meta.ts)");
     before.loadout.reactor === 0 && before.salvage === 100);
 
   // The locked copy the Workshop prints must name the gate the purchase path
-  // actually applies — one function, so the two can never drift.
+  // actually applies — one function, so the two can never drift. Rendered in
+  // TIER numbering (B8): requiresMark 2 = "beat Mark 2" = "reach Tier 3".
   const gated = INSTALLS.find((i) => i.requiresMark === 2)!;
-  check("installGates names the Mark a gated system waits on",
-    installGates(freshMeta(), gated).some((g) => g.includes("Mark 2")),
+  check("installGates names the tier a gated system waits on",
+    installGates(freshMeta(), gated).some((g) => g.includes("Tier 3")),
     installGates(freshMeta(), gated).join(" · "));
   check("installGates is empty for an available system",
     installGates(freshMeta(), installById("reactor")!).length === 0);
@@ -374,41 +397,84 @@ section("Installs — what salvage buys (meta.ts)");
     UNLOCKS.every((u) => !icon(u.id as IconName).includes("undefined")),
     UNLOCKS.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
 
-  const shop = workshopScreen(freshMeta({ salvage: 50 }), "systems");
-  const shopOpts = workshopScreen(freshMeta({ salvage: 50 }), "options");
+  // The retired mod-pool shelf (meta.ts's UnlockDef.retired): eight cards
+  // whose only consumer was the retired modifier draft. Never sold, never
+  // listed, refunded in full when a save owns one.
+  check("the mod-pool shelf is retired and the live options are not",
+    UNLOCKS.filter((u) => u.retired).length === 8
+      && ["survey", "scrap-cache"].every((id) => UNLOCKS.some((u) => u.id === id && !u.retired)),
+    UNLOCKS.filter((u) => u.retired).map((u) => u.id).join(","));
+  const owedRefund = freshMeta({ salvage: 10, unlocks: ["demo", "survey", "bond-breaker"] });
+  const refunded = refundRetiredUnlocks(owedRefund);
+  check("owned retired unlocks refund in full and leave the list",
+    refunded.salvage === 10 + 45 + 320 && JSON.stringify(refunded.unlocks) === '["survey"]',
+    `${refunded.salvage} · ${refunded.unlocks.join(",")}`);
+  check("a clean save passes through the refund untouched",
+    refundRetiredUnlocks(refunded) === refunded);
+  check("the Workshop never lists a retired unlock",
+    !workshopScreen(freshMeta({ salvage: 9_999, mark: 9 })).includes("Bulk Freight Permit"));
+
+  // A3: ONE computed next step, the rule stated once (meta.ts's nextStep) so
+  // the menu, the Workshop and the fail card can never point at different
+  // doors: cover an install -> spend it; contracts owed -> earn it;
+  // otherwise the run is the exam.
+  check("a fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
+  check("salvage covering an install says Workshop",
+    nextStep(freshMeta({ salvage: 15 })) === "workshop");
+  check("contracts done and salvage spent point at the run",
+    nextStep(freshMeta({
+      tierContracts: 3, salvage: 0,
+      loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
+    })) === "run");
+  // …and the menu renders exactly the one badge the rule picked (A3), the
+  // tier plate in the Deep Run button (A1), and — on first launch only — the
+  // Guided Tutorial in How to Play's slot, with its own START HERE marker
+  // (A2: a seventh row overflows a 360dp phone, so it takes a slot).
+  const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: false });
+  check("exactly one menu action carries the NEXT STEP badge",
+    (menuMid.match(/next-badge/g) ?? []).length === 1);
+  check("the Deep Run button carries the tier plate", menuMid.includes("tier-plate--menu"));
+  const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: true });
+  check("first launch swaps How to Play for the badged Guided Tutorial",
+    menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
+  check("once seen, How to Play returns and the tutorial entry goes",
+    menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+
+  const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
   check("the Workshop shows the build budget", shop.includes("build budget"));
-  // Tabs, and only the active pane. The whole 500px-of-overflow fix rests on
-  // the inactive section NOT being in the output — if both render, the shop is
-  // the same length it always was and the CSS is decoration.
-  check("both tabs render on either pane",
-    shop.includes(`data-tab="systems"`) && shop.includes(`data-tab="options"`) &&
-      shopOpts.includes(`data-tab="systems"`) && shopOpts.includes(`data-tab="options"`));
-  check("the systems pane omits the option cards",
-    shop.includes(`data-action="buy-install"`) && !shop.includes(`data-action="buy-unlock"`));
-  check("the options pane omits the install cards",
-    shopOpts.includes(`data-action="buy-unlock"`) && !shopOpts.includes(`data-action="buy-install"`));
-  check("the build budget survives on the systems tab", shop.includes("build budget"));
-  check("the active tab is marked for assistive tech",
-    shop.includes(`data-tab="systems" aria-selected="true"`) &&
-      shopOpts.includes(`data-tab="options" aria-selected="true"`));
-  // An empty pane must still show its tabs, or a player who has installed
-  // everything lands on a screen with no way back to the other half.
+  // ONE SHELF. The tab assertions these replace were the mirror image: they
+  // pinned the INACTIVE pane out of the output, because the overflow fix of
+  // the day depended on only half the stock rendering. The split is gone, so
+  // the property worth holding is the opposite one — every purchasable thing
+  // is in the markup at once, and neither kind can go missing behind a click.
+  check("the shelf carries systems and options together",
+    shop.includes(`data-action="buy-install"`) && shop.includes(`data-action="buy-unlock"`));
+  check("the Workshop has no tab bar", !shop.includes(`data-action="shop-tab"`));
+  // The aside is the fixed column; the budget lives there now rather than on
+  // the deleted tab bar, and it is the usual reason a card is greyed out.
+  check("the build budget rides in the fixed aside",
+    shop.includes("workshop__aside") && shop.includes("workshop__budget"));
   const richMeta = freshMeta({ salvage: 99999, mark: MARK_COUNT });
   let allIn = richMeta;
   for (const i of INSTALLS) { const n = buyInstall(allIn, i.id); if (n) allIn = n; }
-  const shopFull = workshopScreen(allIn, "systems");
-  check("an exhausted systems pane keeps its tabs", shopFull.includes(`data-tab="options"`));
-  // Both card kinds carry a glyph and a body wrapper, or the row layout has
-  // nothing to put in its tracks and Options rows sit at a different left edge
-  // from Systems rows.
+  const shopFull = workshopScreen(allIn);
+  check("an exhausted shelf still shows what is installed",
+    shopFull.includes("✓ Installed"));
+  // Both card kinds carry a glyph and a body wrapper. This mattered more once
+  // they shared a shelf than it did when they sat on separate tabs: a card
+  // missing its glyph now sits directly beside one that has it, at a visibly
+  // different left edge, in the same grid.
   check("an option card carries its glyph",
-    shopOpts.includes(`class="shop-card__name"><svg`),
-    shopOpts.slice(shopOpts.indexOf("shop-card__name"), shopOpts.indexOf("shop-card__name") + 80));
+    shop.includes(`class="shop-card__name"><svg`),
+    shop.slice(shop.indexOf("shop-card__name"), shop.indexOf("shop-card__name") + 80));
   check("both card kinds wrap name and desc in a body",
-    shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
-  check("a Mark-gated system is shown, locked, rather than hidden",
-    shop.includes("Bond Emitter") && shop.includes("Needs Mark 2"),
+    shop.includes(`class="shop-card__body"`) &&
+      shop.split(`class="shop-card__body"`).length - 1 >= 2);
+  check("a tier-gated system is shown, locked, rather than hidden",
+    shop.includes("Bond Emitter") && shop.includes("Needs Tier 3"),
     shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
@@ -435,9 +501,9 @@ section("Installs — what salvage buys (meta.ts)");
     refitTracks(1).length === 1 && refitTracks(1)[0].id === "reactor");
   check("refitTracks(2) opens the full yard", refitTracks(2).length === UPGRADES.length);
   const mark1 = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 1 });
-  check("a Mark-1 stop renders exactly one card",
-    (mark1.match(/refit-card__hdr/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
-  check("a Mark-1 stop says why the yard is short", mark1.includes("opens at Mark 2"));
+  check("a Tier-1 stop renders exactly one row",
+    (mark1.match(/refit-row__name/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
+  check("a Tier-1 stop says why the yard is short", mark1.includes("opens at Tier 2"));
 }
 
 // ---------------------------------------------------------------------------
@@ -730,13 +796,17 @@ section("Pattern Contracts (contracts.ts)");
 
   // --- Tier award ------------------------------------------------------------
   // Salvage moved from per-run/per-contract trickles to a single award on TIER
-  // COMPLETION (playtest call, 2026-08-08). The award must rise with the tier
-  // (the ladder stays worth climbing) and clamp below tier 1.
-  let payoutMonotone = true;
+  // FLAT across tiers, deliberately — this used to assert the award RISES.
+  // The slope was the whole surplus: +20/tier reached 240 a tier against a
+  // shelf that does not grow, and after eight of the ten unlocks were retired
+  // the ladder paid 1,500 against 325 of spendable stock. What has to hold now
+  // is the opposite property — every tier pays the same, so a milestone is
+  // always exactly one entry system and never drifts into pocket change.
+  let payoutFlat = true;
   for (let t = 2; t <= 12; t++) {
-    if (tierSalvage(t) <= tierSalvage(t - 1)) payoutMonotone = false;
+    if (tierSalvage(t) !== tierSalvage(1)) payoutFlat = false;
   }
-  check("tier award rises with tier", payoutMonotone);
+  check("tier award is flat across the ladder", payoutFlat);
   check("award clamps below tier 1", tierSalvage(0) === tierSalvage(1));
 
   // A Contract clear pays its MILESTONE SHARE and nothing more (see meta.ts's
@@ -803,12 +873,11 @@ section("Pattern Contracts (contracts.ts)");
       .includes("contract-card--done"),
   );
 
-  // The end-of-Contract modal's layout hooks. Measured in a real WebView at the
-  // device's 792x360 landscape viewport, the win screen stacked to 477px inside
-  // a 322px box and SCROLLED — the payout sat below the fold on the screen whose
-  // job is to report it. app.css lays the stats, the payout and the buttons out
-  // in wrapping ROWS off these three classes; heights can only be checked in a
-  // browser, but their absence can be caught here.
+  // The end-of-Contract modal is built from the ONE end-screen skeleton
+  // (canvas A10): the run-end modal's own parts — stat-row, salvage-row, one
+  // end__actions row — with the leaderboard geometry dropped via
+  // .end--contract. Heights can only be checked in a browser (sim/uifit's
+  // contract-end fixture); the shared parts' absence can be caught here.
   const endOpts = {
     name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
     launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
@@ -820,16 +889,30 @@ section("Pattern Contracts (contracts.ts)");
   });
   const ceLoss = contractEndModal({ ...endOpts, won: false, award: null });
   for (const [label, html] of [["win", ceWin], ["loss", ceLoss]] as const) {
-    check(`the ${label} contract modal opts into the end-of-Contract layout`,
-      html.includes("modal--contract-end"));
-    check(`its ${label} stats and buttons sit in the wrapping rows`,
-      html.includes("ce__cols") && html.includes("ce__stats") && html.includes("ce__btns"));
+    check(`the ${label} contract modal shares the end-screen skeleton`,
+      html.includes("end--contract") && html.includes("stat-row") && html.includes("end__actions"));
     // The inline width is what pinned the panel to 460px inside a 792px
     // viewport — the whole reason it had no room to lay out sideways.
     check(`the ${label} modal takes its width from CSS, not an inline cap`,
       !html.includes("width:min(460px"));
+    // B4: a decide-modal has no close ✕; B2: exactly one primary.
+    check(`the ${label} modal keeps decide-modal discipline`,
+      !html.includes('aria-label="Back"'));
+    check(`the ${label} modal has exactly one primary action (B2)`,
+      (html.match(/btn--primary/g) ?? []).length === 1);
   }
-  check("only a won contract shows a payout block", ceWin.includes("ce__reward") && !ceLoss.includes("ce__reward"));
+  check("only a won contract shows a payout row",
+    ceWin.includes("salvage-row") && !ceLoss.includes("salvage-row"));
+  // A10's "state the target": the payout names the price it is walking toward
+  // when the caller knows one, and stays silent when it doesn't.
+  const ceTarget = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: null },
+    nextInstall: { name: "Reactor Output", cost: 15 },
+  });
+  check("the salvage row states the target price",
+    ceTarget.includes("Reactor Output costs ♻ 15 in the Workshop"));
+  check("no target price is invented without one", !ceWin.includes("costs ♻"));
 }
 
 // ---------------------------------------------------------------------------
@@ -850,6 +933,20 @@ section("Refit cadence + run economy (run.ts)");
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
   check("overshoot carries as funds", run.carry === 150, String(run.carry));
+  // ...but only up to CARRY_CAP: an uncapped carry let one blowout bay bank
+  // the next one outright (the "carry clears two levels" exploit), which
+  // removed the puzzle from the deep run. Past the cap the excess is banked
+  // nowhere — the reward for a blowout is the capped head start, not the bay.
+  check("carry is capped at CARRY_CAP",
+    advanceRun(run, 5000, 1000, 0, 0, []).carry === CARRY_CAP,
+    String(advanceRun(run, 5000, 1000, 0, 0, []).carry));
+  // Below the cap the overshoot carries EXACTLY, not the cap: the first
+  // check above happens to land right at CARRY_CAP (950-800=150), so without
+  // this a regression that banked the full cap for any positive overshoot
+  // would pass both.
+  check("a small overshoot carries itself, not the cap",
+    advanceRun(run, 850, 800, 0, 0, []).carry === 50,
+    String(advanceRun(run, 850, 800, 0, 0, []).carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
@@ -859,6 +956,52 @@ section("Refit cadence + run economy (run.ts)");
   check("a second notch on an axis stacks rather than replacing",
     twice.ratchets.cost === 2 && twice.ratchets.time === 1);
   check("advanceRun never mutates the run's ratchets", run.ratchets.cost === 1);
+
+  // ---- The Bond Breaker magazine: rare, consumable, run-scoped ------------
+  // This is the mechanic the "one carry clears two bays" exploit was built on.
+  // The charges used to be REDERIVED every bay (applyUpgrades wrote them onto
+  // a fresh base each level), which silently refilled the magazine at every
+  // bay boundary — so "flatten the entire field into loose cubes" was a free
+  // action once per level. It is a run-long consumable now, and every claim in
+  // that sentence is checked here.
+  {
+    const emitter = { ...newTiers(), bonds: 2 };
+    let br = newRun(7, [], 0, emitter, 1);
+    check("the emitter's tier is the run's whole magazine",
+      br.bondCharges === bondChargesFor(2) && br.bondCharges === 2, String(br.bondCharges));
+    check("a stock ship carries no charges", newRun(7).bondCharges === 0);
+    check("bay 1 opens with the full magazine",
+      levelForRun(br).bondBreakerCharges === 2);
+
+    // Spend one in bay 1: bay 2 opens with what is LEFT, not with a refill.
+    br = advanceRun(br, 900, 800, 8, 10, [], 1);
+    check("a spent charge stays spent into the next bay",
+      br.bondCharges === 1 && levelForRun(br).bondBreakerCharges === 1,
+      `${br.bondCharges} left, cfg says ${levelForRun(br).bondBreakerCharges}`);
+    // Spend the last one: the magazine is empty for the rest of the run, and
+    // the config must say so rather than quietly re-granting the tier.
+    br = advanceRun(br, 900, 800, 8, 10, [], 0);
+    check("an emptied magazine stays empty for the rest of the run",
+      br.bondCharges === 0 && levelForRun(br).bondBreakerCharges === 0);
+    check("applyUpgrades alone would still have re-granted them — levelForRun is what stops it",
+      (() => { const c = makeBaseLevel(br.levelIndex, 1); applyUpgrades(c, br.tiers); return c.bondBreakerCharges === 2; })());
+
+    // A bay cannot hand back more than it was issued.
+    check("a bay cannot return more charges than it was issued",
+      advanceRun({ ...br, bondCharges: 1 }, 900, 800, 0, 0, [], 99).bondCharges === 1);
+    // ...and a caller that forgets the argument must not confiscate the stock.
+    check("omitting the ending stock leaves the magazine untouched",
+      advanceRun({ ...br, bondCharges: 2 }, 900, 800, 0, 0, []).bondCharges === 2);
+
+    // A refit issues the DELTA between tiers, never a refill of what was spent.
+    const spent = { ...newRun(7, [], 500, { ...newTiers(), bonds: 1 }, 1), bondCharges: 0 };
+    const refit = buyUpgrade(spent, "bonds", 10, MAX_TIER)!;
+    check("refitting the emitter issues only the tier's extra charge",
+      refit.tiers.bonds === 2 && refit.bondCharges === 1, String(refit.bondCharges));
+    check("refitting another system leaves the magazine alone",
+      buyUpgrade({ ...spent, tiers: { ...spent.tiers, bay: 1 }, bondCharges: 1 }, "bay", 10, MAX_TIER)!
+        .bondCharges === 1);
+  }
   // A ratcheted run must actually play harder than a clean one at the same bay.
   const clean = levelForRun({ ...run, ratchets: {} });
   const notched = levelForRun({ ...run, ratchets: { target: 1, cost: 1, time: 1 } });
@@ -922,6 +1065,122 @@ section("Refit cadence + run economy (run.ts)");
   check("a notch lands on top of the refitted ship, not a stock one",
     withShip.windMax > shipOnly.windMax && withShip.launchPower === shipOnly.launchPower,
     `${withShip.windMax} vs ${shipOnly.windMax}`);
+}
+
+// ---------------------------------------------------------------------------
+section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The draft SELECTS before it commits, so the hand has to behave like a hand:
+  // every tap moves it, and any hand is reachable without a reset button.
+  check("a tap selects", JSON.stringify(togglePick([], "cost", 1)) === '["cost"]');
+  check("a second tap on the same axis takes it back",
+    togglePick(["cost"], "cost", 1).length === 0);
+  check("at one pick, another card SWITCHES rather than stacking",
+    JSON.stringify(togglePick(["cost"], "time", 1)) === '["time"]');
+  check("at two picks, a second axis is added",
+    JSON.stringify(togglePick(["cost"], "time", 2)) === '["cost","time"]');
+  // The capstone's double notch: with room left in the hand, a second tap on
+  // the same card asks for the axis twice rather than taking it back.
+  check("at two picks, the same axis stacks to a double notch",
+    JSON.stringify(togglePick(["cost"], "cost", 2)) === '["cost","cost"]');
+  check("once the hand is full, a tap on a selected card takes one back",
+    JSON.stringify(togglePick(["cost", "time"], "cost", 2)) === '["time"]');
+  check("a stacked axis un-stacks one notch at a time",
+    JSON.stringify(togglePick(["cost", "cost"], "cost", 2)) === '["cost"]');
+  // A,B,A must fall back to A,B — dropping the FIRST A would reorder the hand
+  // under the player between two taps that both said "cost".
+  check("un-picking drops the last notch of that axis, not the first",
+    JSON.stringify(togglePick(["cost", "time", "cost"], "cost", 3)) === '["cost","time"]');
+  check("a full hand still moves when a new card is tapped",
+    JSON.stringify(togglePick(["cost", "time"], "wind", 2)) === '["time","wind"]');
+  check("togglePick never mutates the hand it was given", (() => {
+    const hand: HazardId[] = ["cost"];
+    togglePick(hand, "time", 2);
+    return hand.length === 1;
+  })());
+
+  // The projection is drawn from levelForRun on both sides — the same call the
+  // bay is actually built with — so what the modal promises is what gets flown.
+  const drafting = { ...newRun(11, [], 500, newTiers(), 3), levelIndex: 3 };
+  const rowsFor = (picks: HazardId[]): PreviewRow[] => previewRows(
+    levelForRun(drafting),
+    levelForRun({
+      ...drafting,
+      ratchets: picks.reduce<Ratchets>((r, id) => ({ ...r, [id]: (r[id] ?? 0) + 1 }), { ...drafting.ratchets }),
+    }),
+  );
+  const row = (rows: PreviewRow[], id: string): PreviewRow | undefined => rows.find((r) => r.id === id);
+
+  const idle = rowsFor([]);
+  // The compact grid drops unmoved CONTEXT rows and keeps the priced five (see
+  // app.css's [data-density="compact"] rule). That only holds if every always-on
+  // row is tagged core and everything else context.
+  // The compact grid is four tiles across a phone's projection column, so every
+  // row needs a label that survives ~63px. The long ones do not, which is what
+  // `short` is for — and a short label that isn't shorter is a row that will
+  // ellipsise to a single letter in the dense grid.
+  check("every row carries a dense-grid label that fits one",
+    idle.every((r) => r.short.length > 0 && r.short.length <= r.label.length && r.short.length <= 11),
+    idle.filter((r) => r.short.length > 11 || r.short.length > r.label.length).map((r) => r.short).join(","));
+  check("the priced numbers are the core rows, and nothing else is",
+    idle.filter((r) => r.kind === "core").map((r) => r.id).join(",") === "target,float,cost,shots,clock",
+    idle.filter((r) => r.kind === "core").map((r) => r.id).join(","));
+  check("an empty selection changes nothing", idle.every((r) => !r.changed && r.tone === "same"));
+  // The four numbers a bay is priced by are the frame the change is read
+  // against, so they are on screen before anything is picked.
+  check("the priced numbers are always on screen",
+    ["target", "float", "cost", "shots", "clock"].every((id) => row(idle, id) !== undefined),
+    idle.map((r) => r.id).join(","));
+
+  const levy = rowsFor(["cost"]);
+  check("Fuel Levy moves the launch cost", row(levy, "cost")!.changed);
+  check("a dearer launch reads as worse", row(levy, "cost")!.tone === "worse");
+  check("the levy's real cost — fewer shots in the bank — is projected",
+    row(levy, "shots")!.changed && row(levy, "shots")!.tone === "worse",
+    `${row(levy, "shots")!.from} -> ${row(levy, "shots")!.to}`);
+  check("an untouched number stays quiet", !row(levy, "clock")!.changed);
+  check("the projection matches the config the bay is built from",
+    row(levy, "cost")!.to === `$${levelForRun({ ...drafting, ratchets: { cost: 1 } }).launchCost}`);
+
+  const shift = rowsFor(["time"]);
+  check("Shift Cut shortens the clock", row(shift, "clock")!.changed);
+  // A shorter clock is a SMALLER number and still bad news; a projection that
+  // colours by direction alone would call it an improvement.
+  check("a shorter clock still reads as worse", row(shift, "clock")!.tone === "worse");
+
+  // Axes that are not in play stay off the grid until a pick touches them —
+  // the grid is a landscape phone's worth of space, and a row that never moves
+  // is a row that buries the one that did.
+  check("a dormant axis is hidden until it is picked", row(idle, "sweeper") === undefined);
+  const sweep = rowsFor(["sweeper"]);
+  check("picking the sweeper reveals both halves of its notch",
+    row(sweep, "sweeper")!.changed && row(sweep, "cells")!.changed);
+  check("the press gap closing reads as worse", row(sweep, "cells")!.tone === "worse");
+  check("a material appears on the belt only once its axis is picked",
+    row(idle, "mat:cryo") === undefined && row(rowsFor(["cryo"]), "mat:cryo")!.changed);
+
+  // Two notches at Mark 10 project as one bay, not as two separate promises.
+  const both = rowsFor(["cost", "time"]);
+  check("a two-pick hand projects both notches at once",
+    row(both, "cost")!.changed && row(both, "clock")!.changed);
+  check("a stacked axis projects the stacked number",
+    row(rowsFor(["cost", "cost"]), "cost")!.to
+      === `$${levelForRun({ ...drafting, ratchets: { cost: 2 } }).launchCost}`);
+
+  // Codex #1 (canvas A12): a BANKED axis is live pressure on the next bay
+  // whatever the current selection touches. Its rows stay on the projection,
+  // flagged active and promoted to core — the compact grid drops context rows,
+  // and a live pressure must never be one of those.
+  const banked = { ...drafting, ratchets: { sweeper: 1 } as Ratchets };
+  const bankedRows = previewRows(levelForRun(banked), levelForRun(banked), banked.ratchets);
+  check("a banked sweeper stays on the projection with nothing selected",
+    row(bankedRows, "sweeper") !== undefined && row(bankedRows, "cells") !== undefined,
+    bankedRows.map((r) => r.id).join(","));
+  check("a banked axis's rows are active and core",
+    bankedRows.filter((r) => r.id === "sweeper" || r.id === "cells")
+      .every((r) => r.active && r.kind === "core"));
+  check("without banked notches nothing is active", rowsFor([]).every((r) => !r.active));
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,12 +1306,19 @@ section("Draft gating (mods.ts + meta.ts)");
   );
 
   // --- Shape of the ladder --------------------------------------------------
-  const total = UNLOCKS.reduce((a, u) => a + u.cost, 0);
-  check(`the tree costs ${total} salvage`, total === 1400, String(total));
+  // LIVE stock only. This counted every UNLOCKS row including the eight marked
+  // retired, which is how a 1,500-salvage ladder came to look balanced against
+  // a "1,600-salvage tree" that the player could not actually buy: 1,270 of
+  // that total does nothing and is never listed. Counting what ships is the
+  // point of the assertion.
+  const liveUnlocks = UNLOCKS.filter((u) => !u.retired);
+  const total = liveUnlocks.reduce((a, u) => a + u.cost, 0)
+    + INSTALLS.reduce((a, i) => a + i.cost, 0);
+  check(`the shelf costs ${total} salvage`, total === 445, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
-  const maxOf = (r: number) => Math.max(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
-  const minOf = (r: number) => Math.min(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
+  const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
+  const minOf = (r: number) => Math.min(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
   check("rank 2 is dearer than rank 1", minOf(2) > maxOf(1));
   check("rank 3 is dearer than rank 2", minOf(3) > maxOf(2));
   check("only rank 3 carries a Mark gate", markGated.every((u) => u.rank === 3));
@@ -1069,9 +1335,15 @@ section("Draft gating (mods.ts + meta.ts)");
   // afford would make the last unlocks purely theoretical.
   const ladderTotal = Array.from({ length: MARK_COUNT }, (_, i) => tierSalvage(i + 1))
     .reduce((a, b) => a + b, 0);
+  // Income against LIVE stock, with a ceiling that actually bites. The old
+  // bound allowed 1.3x and was measured against retired merchandise, so a
+  // 4.6x real oversupply passed it. Between 1.0x and 1.6x: the ladder must
+  // finish the shelf (or the last systems are theoretical) without paying for
+  // it several times over (or salvage stops being a decision).
   check(
-    `the ten-tier ladder (${ladderTotal}) covers most of the ${total}-salvage tree`,
-    ladderTotal >= total * 0.8 && ladderTotal <= total * 1.3,
+    `the ten-tier ladder (${ladderTotal}) covers the ${total}-salvage shelf without flooding it`,
+    ladderTotal >= total && ladderTotal <= total * 1.6,
+    `${(ladderTotal / total).toFixed(2)}x`,
   );
 }
 
@@ -1435,9 +1707,13 @@ section("Compactor phase telemetry (compactor.ts, game.ts)");
   );
 
   // A shot must carry the LIVE bar reading, not a constant. Fire across the
-  // cycle and require the recorded phases to actually differ.
+  // cycle and require the recorded phases to actually differ. The config is
+  // deliberately over-funded and over-quota'd: this section measures
+  // compactor-phase recording, not the bay economy — and the real bay-1 float
+  // ($200 at $25/launch toward an $800 target) would WIN the bay mid-test (a
+  // settling bay refuses new shots) before both stroke directions were seen.
   const seen: { phase: number; dir: number; stroke: number; live: number }[] = [];
-  const gs = new Game(makeBaseLevel(0), {
+  const gs = new Game({ ...makeBaseLevel(0), startingFunds: 100_000, targetScore: 10_000_000 }, {
     onShoot: (info) => seen.push({
       phase: info.cphase, dir: info.cdir, stroke: info.cstroke, live: gs.compactor.phase,
     }),
@@ -1484,6 +1760,8 @@ section("Layout solver (layout.ts)");
 // ---------------------------------------------------------------------------
 {
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  // The solver's worst case: a fully drafted run's rail (see railSlotsFor).
+  setRailSlots(RAIL_SLOTS_MAX);
   const cases: [string, number, number][] = [
     ["21:9 phone", 2400, 1080],
     ["19.5:9 phone", 2556, 1179],
@@ -1511,6 +1789,16 @@ section("Layout solver (layout.ts)");
     // A cube must stay finger-sized; below this the game is unplayable rather
     // than merely cramped.
     check(`${name} keeps cubes visible`, CELL * l.scale >= 12, `${(CELL * l.scale).toFixed(1)}px cubes`);
+    // The rail's buttons are the game's PRIMARY touch controls, and a flex
+    // column will happily shrink them past the tap floor to make a stack fit.
+    // The solver has to hand back a size whose whole column actually stacks —
+    // it did not, and the buttons came out at 46px on a Pixel 7.
+    check(`${name} rail buttons meet the tap floor`, l.railSize >= RAIL_MIN, `${l.railSize.toFixed(1)}px`);
+    if (l.mode !== "tall") {
+      const uh = h - l.safe.top - l.safe.bottom;
+      const stack = getRailSlots() * l.railSize + (getRailSlots() - 1) * RAIL_GAP;
+      check(`${name} fits all ${getRailSlots()} rail buttons in its column`, stack <= uh, `${stack.toFixed(0)}px stack in ${uh}px`);
+    }
   }
 
   // Safe areas must actually push the field off the notch.
@@ -1519,6 +1807,237 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
+// The regression this guards: a fixed worst-case budget (8 slots, counting the
+// aim-state cancel) needs a 410px column at the 44px floor, which priced the
+// vertical rail off every 360dp-tall landscape phone — the most common Android
+// class got the bottom strip and a ~19% smaller field, for buttons that were
+// not on screen. The budget is now the loadout the run actually has, and the
+// cancel ✕ swaps into the pause slot instead of owning one (app.css).
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  // B5: no emoji or dingbat in a CONTROL — an emoji is platform-drawn art
+  // that can't take the accent colour and wobbles the button metrics. The
+  // rail, the plant's ability chips and every buy/close button carry inline
+  // SVG now; the flavour glyphs (♻ in readouts, the belt's 💣 tile, the
+  // leaderboard medals) are copy and stay.
+  {
+    const hud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, material: "standard" },
+      tier: 2,
+      target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+      timeLeftMs: 150_000, pieceSize: "std",
+      bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+      autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const rail = hud.slice(hud.indexOf('class="side-rail"'), hud.indexOf('class="bay-banner"'));
+    check("no emoji or dingbat survives in a rail control (B5)",
+      !/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u.test(rail), rail.match(/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u)?.[0] ?? "");
+    check("the rail's controls are drawn as inline SVG",
+      (rail.match(/<svg/g) ?? []).length >= 7, String((rail.match(/<svg/g) ?? []).length));
+    // A4: the run's tier rides the bay banner as the plate's banner size;
+    // A5: the transport carries both queue slots and the shipment-class tag.
+    check("the bay banner carries the tier plate", hud.includes("tier-plate--banner"));
+    check("the transport renders the two-deep queue and its size tag",
+      hud.includes('id="hud-loaded"') && hud.includes('id="hud-next"') && hud.includes('class="belt__tag"'));
+  }
+
+  check("a bare rail is the four base buttons",
+    railSlotsFor({ bond: false, demo: false, auto: false }) === RAIL_SLOTS_BASE);
+  check("each drafted ability adds exactly one slot",
+    railSlotsFor({ bond: true, demo: false, auto: false }) === 5 &&
+    railSlotsFor({ bond: true, demo: true, auto: false }) === 6 &&
+    railSlotsFor({ bond: true, demo: true, auto: true }) === RAIL_SLOTS_MAX);
+  check("fine pointers budget only fullscreen + pause",
+    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true }) === 2);
+  check("the budget clamps to the seven-slot worst case",
+    (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
+  check("the budget clamps above the fine-pointer floor",
+    (setRailSlots(0), getRailSlots() === 2));
+
+  // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
+  // fullscreen Chrome. It must keep the vertical side rail at every loadout —
+  // at the full seven-slot draft the column fits its 360px exactly
+  // (7x44 + 6x6 + 16 = 360).
+  for (const slots of [RAIL_SLOTS_BASE, 5, 6, RAIL_SLOTS_MAX]) {
+    setRailSlots(slots);
+    const l = computeLayout(792, 360);
+    check(`792x360 keeps the side rail with ${slots} buttons`, l.mode === "wide", l.mode);
+  }
+
+  // A 16:9 phone has no natural gutter: the solver must still prefer the
+  // reserved RIGHT band (vertical rail) over the bottom strip while the
+  // column fits...
+  setRailSlots(RAIL_SLOTS_MAX);
+  check("640x360 reserves a right band, not the bottom", computeLayout(640, 360).mode === "snug",
+    computeLayout(640, 360).mode);
+  // ...and fall back to the bottom strip only when it genuinely cannot
+  // (7x44 + gaps = 360 > 320).
+  check("640x320 falls back to the bottom strip at a full draft",
+    computeLayout(640, 320).mode === "tall", computeLayout(640, 320).mode);
+  setRailSlots(RAIL_SLOTS_BASE);
+  check("640x320 keeps a vertical rail with the base buttons",
+    computeLayout(640, 320).mode !== "tall", computeLayout(640, 320).mode);
+
+  // The budget must never move the field mid-aim: the cancel swap keeps the
+  // slot count constant, so the same viewport at the same budget is the same
+  // layout — aiming state is invisible to the solver by construction.
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
+// ---------------------------------------------------------------------------
+section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
+// ---------------------------------------------------------------------------
+{
+  resetKeyBindings();
+  resetPadBindings();
+  check("every action has a key and a pad button",
+    BINDABLE_ACTIONS.every((a) => typeof keyFor(a) === "string" && Number.isInteger(padFor(a))));
+  check("no two actions share a key",
+    new Set(BINDABLE_ACTIONS.map(keyFor)).size === BINDABLE_ACTIONS.length);
+  check("actionForKey inverts keyFor",
+    BINDABLE_ACTIONS.every((a) => actionForKey(keyFor(a)) === a));
+
+  // A conflicting rebind SWAPS rather than steals — every action stays
+  // reachable through any sequence of rebinds.
+  setKeyBinding("fire", "q");
+  check("a conflicting key rebind swaps, never strands",
+    keyFor("fire") === "q" && keyFor("rotl") === " " &&
+      new Set(BINDABLE_ACTIONS.map(keyFor)).size === BINDABLE_ACTIONS.length);
+  resetKeyBindings();
+  check("reset restores the keyboard defaults", keyFor("fire") === " " && keyFor("rotl") === "q");
+  setPadBinding("bond", 5);
+  check("a conflicting pad rebind swaps the same way",
+    padFor("bond") === 5 && padFor("rotr") === 2);
+  resetPadBindings();
+
+  // D2: one hint, three renderings — and the keyboard rendering can never
+  // tell the player to tap a rail button `pointer: fine` hides, which is the
+  // shipping bug this table exists to make unwritable.
+  check("the rotate hint renders per input family",
+    hintRotate("touch").includes("⟲") && hintRotate("keyboard").includes("Q") &&
+      hintRotate("gamepad").includes("LB"));
+  check("the keyboard hint never points at the touch rail",
+    !hintRotate("keyboard").includes("⟲"));
+  const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
+  check("the desktop coach teaches keys, not hidden buttons",
+    !desktopCoach[1].body.includes("⟲") && desktopCoach[1].body.includes("Q"));
+  check("the gamepad coach teaches the pad",
+    coachSteps(makeBaseLevel(0), "gamepad")[1].body.includes("LB"));
+  check("the touch coach still points at the rail",
+    coachSteps(makeBaseLevel(0))[1].body.includes("⟲"));
+
+  // D1: the Controls screen renders every binding as a rebindable row, says
+  // when it is capturing, and reports an absent pad as absent — not broken.
+  const ctrlSettings = {
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    leftHandRail: false, stickAssist: true,
+  };
+  const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
+  check("every action is a rebindable row",
+    BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
+  check("a capturing row says so",
+    controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
+      .includes("Press a key…"));
+  const padPane = controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null });
+  check("an absent gamepad reads as absent, not broken", padPane.includes("No gamepad"));
+  check("the touch tab carries the left-hand rail toggle",
+    controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-toggle="leftHandRail"'));
+  check("the gamepad tab carries the stick-assist toggle",
+    padPane.includes('data-toggle="stickAssist"'));
+
+  // The left-handed mirror is solver state, not just CSS: snug mode reserves
+  // its band on the rail's side, so the field shifts the other way.
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(4);
+  setRailSide("left");
+  const mirrored = computeLayout(800, 450);
+  setRailSide("right");
+  const standard = computeLayout(800, 450);
+  if (standard.mode === "snug") {
+    check("a left-handed snug layout reserves its band on the left",
+      mirrored.reserve.left > 0 && mirrored.reserve.right === 0 && mirrored.ox > standard.ox,
+      `${mirrored.reserve.left}/${mirrored.reserve.right} ox ${mirrored.ox} vs ${standard.ox}`);
+  } else {
+    check("mirroring never changes the field's size", mirrored.fw === standard.fw);
+  }
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
+// ---------------------------------------------------------------------------
+section("Chrome scale (layout.ts uiScaleFor / data-density)");
+// The DOM chrome's counterpart to the field's --fpx. These are the invariants
+// the 15 hand-tuned `max-height` blocks in app.css never had: monotonic, bounded
+// and, above all, aware of the safe-area insets a media query cannot see.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  check("a desktop viewport is never scaled", computeLayout(1600, 900).uiScale === 1);
+  check("a desktop viewport is roomy", computeLayout(1600, 900).density === "roomy");
+
+  // Every landscape phone in the device matrix lands on the floor. That is the
+  // finding, not a rounding artifact: below it the answer has to be a
+  // structural change, which is what `compact` exists to trigger.
+  for (const [name, w, h] of [
+    ["640x360 budget", 640, 360],
+    ["OnePlus 12", 792, 360],
+    ["Pixel 7", 915, 412],
+    ["iPhone SE 3", 667, 375],
+  ] as [string, number, number][]) {
+    const l = computeLayout(w, h);
+    check(`${name} bottoms out at the scale floor`, l.uiScale === UI_SCALE_MIN, String(l.uiScale));
+    check(`${name} is compact`, l.density === "compact", l.density);
+  }
+
+  // Monotonic in both axes — a bigger viewport can never scale the chrome down.
+  let prev = 0;
+  for (const h of [360, 420, 480, 540, 600, 660, 720, 900]) {
+    const s = computeLayout(1600, h).uiScale;
+    check(`ui scale is monotonic at ${h}px tall`, s >= prev, `${s} < ${prev}`);
+    prev = s;
+  }
+
+  check("ui scale never exceeds 1", computeLayout(4000, 3000).uiScale === 1);
+  check("ui scale never drops below the floor", computeLayout(320, 200).uiScale === UI_SCALE_MIN);
+
+  // The reason this is solved in JS at all: a media query cannot subtract the
+  // notch. An iPhone's landscape insets take ~120px of width and 21px of height,
+  // and the chrome has to answer to the box that is actually left.
+  const bare = computeLayout(1100, 760);
+  setSafeAreaInsets({ left: 62, right: 62, top: 0, bottom: 21 });
+  const inset = computeLayout(1100, 760);
+  check(
+    "safe-area insets shrink the chrome scale",
+    inset.uiScale < bare.uiScale,
+    `${inset.uiScale} vs ${bare.uiScale}`,
+  );
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  // Density tiers must partition the scale range with no gap and no overlap —
+  // at full width, where the HEIGHT term is the binding axis. (Width may
+  // bottom the scale out without forcing compact; see the check below.)
+  for (const h of [300, 400, 500, 560, 620, 680, 720, 800]) {
+    const l = computeLayout(1600, h);
+    const expected =
+      l.uiScale === 1 ? "roomy" : l.uiScale === UI_SCALE_MIN ? "compact" : "regular";
+    check(`density agrees with scale at ${h}px tall`, l.density === expected, `${l.density} vs ${expected} (${l.uiScale})`);
+  }
+
+  // Compact is a HEIGHT verdict. The compact rules RESTRUCTURE — they drop
+  // rows, chips and context tiles measured against 360px-tall phones — and a
+  // narrow-but-tall desktop window still has the height those rules exist to
+  // buy back. The scale may bottom out on the width term; the restructure may
+  // not fire on it.
+  const narrow = computeLayout(700, 720);
+  check("a narrow-but-tall window bottoms the scale without going compact",
+    narrow.uiScale === UI_SCALE_MIN && narrow.density === "regular",
+    `${narrow.uiScale} / ${narrow.density}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1556,6 +2075,15 @@ section("HUD readout widths (the $1000+ wrap regression)");
   const TGT_EM = 0.62;
   const STAT_LBL_MIN = 6, STAT_LBL_FPX = 8.6;
   const STAT_VAL_MIN = 15, STAT_VAL_FPX = 30;
+  // COMPACT overrides (app.css's [data-density="compact"] plant rules). At the
+  // scale floor the funds figure steps down a notch and the tier-2 labels leave
+  // the pixel face for Rajdhani — which is the whole point of those rules, so
+  // the budget has to model them or it prices a layout that no phone renders.
+  const C_FUNDS_FS_MIN = 15, C_FUNDS_FS_FPX = 34;
+  const C_STAT_LBL_MIN = 8, C_STAT_LBL_FPX = 12;
+  /** Rajdhani's advance, vs the pixel face's 1.45em — this ratio is exactly why
+   *  an 8-glyph heading fits a phone column in one face and not the other. */
+  const UI_ADV = 0.45;
 
   /** Width the funds line needs vs. the width its column actually gets. */
   function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
@@ -1563,9 +2091,15 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const fpx = l.fw / 1280;
     const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
 
+    const compact = l.density === "compact";
     const content = PANEL_W_FRAC * l.fw - 2 * PANEL_PAD_FPX * fpx;
-    const fundsFs = mx(FUNDS_FS_MIN, FUNDS_FS_FPX);
-    const statLbl = mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const fundsFs = compact
+      ? mx(C_FUNDS_FS_MIN, C_FUNDS_FS_FPX)
+      : mx(FUNDS_FS_MIN, FUNDS_FS_FPX);
+    const statLbl = compact
+      ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX)
+      : mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
     const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
     const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
 
@@ -1573,7 +2107,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
     // mono value — the label is what dominates at small scales, and missing that
     // is what made the original budget wrong.
     const col = (label: string, value: string) =>
-      Math.max(label.length * PIXEL_ADV * statLbl, value.length * MONO_ADV * statVal) + statPad;
+      Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
     const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)));
     const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 
@@ -1601,8 +2135,9 @@ section("HUD readout widths (the $1000+ wrap regression)");
     ["laptop 1600x900", 1600, 900],
     ["ultrawide 2400x1080", 2400, 1080],
   ];
-  // bay-10's target is 2150, and a Reactor+carry run can carry 5 figures.
-  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 2150], [24680, 2150]];
+  // bay-10's target is 800 + TARGET_PER_BAY*9 = 1700, and a Reactor+carry run
+  // can carry 5 figures.
+  const CASES: [number, number][] = [[250, 800], [1259, 1700], [9999, 1700], [24680, 1700]];
 
   for (const [name, w, h] of VIEWPORTS) {
     for (const [funds, target] of CASES) {
@@ -1698,15 +2233,31 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     everyBayEveryMark.every((cfg) =>
       Object.values(cfg.materialMix).every((v) => v === 0)));
 
-  // The three base axes are flat now. A ramp nobody can lose to was only ever a
-  // longer bay — see level.ts's calibration note.
+  // The three base economies: the target climbs every bay on its own (that
+  // ramp IS the ladder's difficulty now that the purse is the constraint —
+  // see level.ts's targetScoreFor note), while launch cost and the clock stay
+  // flat so the pressure comes from the quota rising against the same money.
   const bays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1));
-  check("the funding target is flat across a run",
-    bays.every((b) => b.targetScore === bays[0].targetScore), `${bays.map((b) => b.targetScore).join(",")}`);
+  check("the funding target rises every bay",
+    bays.every((b, i) => b.targetScore === 800 + TARGET_PER_BAY * i),
+    `${bays.map((b) => b.targetScore).join(",")}`);
+  check("the rise is strictly positive",
+    TARGET_PER_BAY > 0 && bays[1].targetScore > bays[0].targetScore);
   check("launch cost is flat across a run",
     bays.every((b) => b.launchCost === bays[0].launchCost));
   check("the clock is flat across a run",
     bays.every((b) => b.timeLimitSec === bays[0].timeLimitSec));
+  // The purse is TIGHT: the float is the mistake budget, and at eight stock
+  // launches a bay is a small number of precise shots rather than a spray.
+  // Asserted as a RANGE, because this number is wrong in both directions —
+  // above nine the volume strategy pays for itself again (the sweep put the
+  // bay-1 volume bot at 38% on the old ten-launch float), and at six or fewer
+  // the bay is decided by the first two shots and stops being a puzzle at all.
+  // Loosening or tightening it should be a deliberate act with a failing test
+  // to read.
+  check("the starting float is a tight budget, but a playable one",
+    bays.every((b) => b.startingFunds >= 7 * b.launchCost && b.startingFunds <= 9 * b.launchCost),
+    `${bays[0].startingFunds} float vs $${bays[0].launchCost}/launch`);
   // A Mark no longer moves any of the ladder's numbers — it only changes which
   // hazards and systems exist.
   check("a Mark changes no number on the base ladder",
@@ -1715,10 +2266,22 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
 
   // ---- The ladder: every Mark means something -----------------------------
-  check("Mark 1 opens exactly the three base axes",
-    hazardsForMark(1).length === 3
+  // Mark 1's rung is the two base numbers the draft may still deal. The third,
+  // Quota Raise, is retired from the offer (hazards.ts's RETIRED_AXES) now
+  // that the quota climbs on its own every bay — so hazardsForMark, which is
+  // what the draft deals from, must not return it at any Mark.
+  check("Mark 1 opens exactly the two dealt base axes",
+    hazardsForMark(1).length === 2
       && hazardsForMark(1).every((h) => h.kind === "number"),
     hazardsForMark(1).map((h) => h.id).join(","));
+  check("the retired quota axis is never dealt, at any Mark",
+    Array.from({ length: CAPSTONE_MARK }, (_, i) => hazardsForMark(i + 1))
+      .every((pool) => !pool.some((h) => h.id === "target")));
+  // ...but it is still APPLIED, so a run that banked a notch on it before it
+  // was retired keeps resolving to the numbers it was taken at.
+  check("an already-banked quota notch still applies",
+    applyRatchets(makeBaseLevel(0, 1), { target: 1 }).targetScore
+      === makeBaseLevel(0, 1).targetScore + TARGET_NOTCH);
   // The rung-by-rung promise: no Mark from 1 to 9 is a no-op.
   let ladderGrows = true;
   for (let m = 2; m <= 9; m++) {
@@ -1737,10 +2300,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- Notches actually bite ----------------------------------------------
   const flat = makeBaseLevel(0, 1);
-  check("a target notch raises the target by exactly one step",
-    applyRatchets(flat, { target: 1 }).targetScore === flat.targetScore + TARGET_NOTCH);
+  // Asserted on a DEEP bay rather than bay 1: the retired quota notch is flat,
+  // and at bay 1 (cfg.id === 1) a flat notch and a per-bay one are the same
+  // number, so bay 1 alone could not tell a regression from correct code.
+  const deep = makeBaseLevel(6, 1);
+  check("a target notch raises the target by exactly one flat step",
+    applyRatchets(deep, { target: 1 }).targetScore === deep.targetScore + TARGET_NOTCH);
   check("notches stack linearly",
-    applyRatchets(flat, { target: 3 }).targetScore === flat.targetScore + TARGET_NOTCH * 3);
+    applyRatchets(deep, { target: 3 }).targetScore === deep.targetScore + TARGET_NOTCH * 3);
   check("a cost notch raises the launch cost",
     applyRatchets(flat, { cost: 2 }).launchCost === flat.launchCost + COST_NOTCH * 2);
   check("a time notch cuts the clock",
@@ -2298,6 +2865,37 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       steps[0].body.includes("power") && steps[0].body.includes("release"));
     check("the coach deck is one card per completable action",
       steps.length === 4);
+
+    // ---- The coach handles its own failures --------------------------------
+    // A lost first bay used to route straight into the run-end modal: "Game
+    // Over", a leaderboard submit box and a zeroed tier ledger, ninety seconds
+    // into a first game. The tutorial explains the loss and hands the bay back
+    // instead (screens.ts's coachFailHTML) — and since the tightened float
+    // (level.ts's economy note) makes "broke" the failure a new player will
+    // actually meet, that branch has to carry the arithmetic, not a mood.
+    const broke = coachFailSteps("broke", rowLevel);
+    check("the failure card names the launch price and the target",
+      broke.body.includes(`$${rowLevel.launchCost}`)
+        && broke.body.includes(`$${rowLevel.targetScore}`),
+      broke.body);
+    check("the failure card counts the bay's shots rather than asserting a number",
+      broke.body.includes(`${Math.floor(rowLevel.startingFunds / rowLevel.launchCost)} shots`),
+      broke.body);
+    check("every Deep Run loss reason gets its own explanation",
+      new Set((["broke", "time", "topout"] as const).map((r) => coachFailSteps(r, rowLevel).title)).size === 3);
+    check("an unknown reason still explains itself rather than rendering blank",
+      coachFailSteps(null, rowLevel).body.length > 40);
+    // The whole point of the card: one obvious way back in, and no leaderboard.
+    const failCard = coachFailHTML("broke", rowLevel, "Launch Bay");
+    check("the failure card offers retry as the primary, full-width action",
+      failCard.includes(`data-action="coach-retry"`) && failCard.includes("btn--block"));
+    check("the failure card offers a way past the tutorial and a way out",
+      failCard.includes(`data-action="coach-skip-run"`) && failCard.includes(`data-action="menu"`));
+    check("the failure card never asks a beaten first-timer for a leaderboard name",
+      !failCard.includes(`data-action="submit-score"`) && !failCard.includes("name-input")
+        && !failCard.toLowerCase().includes("game over"));
+    check("the failure card is a scrim modal, not an in-panel step",
+      failCard.includes(`class="modal-scrim"`) && failCard.includes("coach--fail"));
   }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic
@@ -2527,6 +3125,236 @@ section("Lost-piece mark is revocable (lineClear.ts markLostPieces)");
   markLostPieces(cubes, comp, 1200);
   check("re-stranded, it re-marks with a fresh blink", cube.blinkStart === 1200);
 }
+
+
+// ---------------------------------------------------------------------------
+section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
+{
+  // A bay with the tax on. Every assertion here is about PRICING, so the
+  // thresholds are set absurdly low and the physics is left to do whatever it
+  // likes — what matters is the cube count and the price it implies.
+  // Thresholds are EXCLUSIVE (game.ts's pileTier tests `n > t.cubes`), so 8
+  // cubes on the field trips a tier written at 7 and not one written at 8.
+  const tiers: PileTier[] = [
+    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1 },
+    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1 },
+  ];
+  const congestedCfg: LevelConfig = {
+    ...makeBaseLevel(0), pileTiers: tiers, pileAllowance: 0,
+  };
+  const cg = new Game(congestedCfg, {}, 1);
+
+  check("an empty bay is untaxed", cg.pileTier === null);
+  // The reload penalty. Money and clock both come out of stores a player can
+  // rebuild by clearing lines; a slower reload is taken in the shots they will
+  // never get back, and it is the one a spam volley feels immediately.
+  //
+  // Tested on the cannon rather than through a populated bay because the
+  // interesting property is that the scale is LIVE and reversible — folding it
+  // into cooldownMs would make the tax permanent from the moment it first
+  // fired, which is the opposite of a rule you can play your way out of.
+  {
+    const cn = cg.cannon;
+    cn.markCooldown(0);
+    const listPrice = cn.cooldownRemaining(0);
+    check("a clean bay reloads at the level's cooldown",
+      Math.round(listPrice) === makeBaseLevel(0).cooldownMs, String(listPrice));
+    cn.setCooldownScale(1.5);
+    check("the first tier reloads half again as slowly",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice * 1.5),
+      String(cn.cooldownRemaining(0)));
+    cn.setCooldownScale(2);
+    check("the second tier reloads twice as slowly",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice * 2),
+      String(cn.cooldownRemaining(0)));
+    check("the reload bar reports the congested fill, not the list one",
+      Math.abs(cn.reloadRatio(listPrice) - 0.5) < 0.01, String(cn.reloadRatio(listPrice)));
+    cn.setCooldownScale(1);
+    check("clearing the bay gives the reload back",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice));
+  }
+  // Crossing into congestion ends the streak. The other three taxes are rates
+  // a player can decide to keep paying; a combo can only be charged by being
+  // ended, which makes this the part of congestion that cannot be absorbed by
+  // firing anyway.
+  {
+    const g2 = new Game(
+      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1 }] },
+      {}, 1);
+    g2.combo = 4;
+    g2.update(0);
+    check("a clean bay leaves the combo alone", g2.combo === 4, String(g2.combo));
+    // cubes > 0 puts it over the `cubes: 0` threshold on the next step.
+    g2.shoot(0);
+    g2.update(16);
+    check("crossing into congestion kills the combo", g2.combo === 0, String(g2.combo));
+    // And it charges once, on the transition — not every step it stays there,
+    // which would make the combo unrebuildable until the bay was tidied.
+    g2.combo = 3;
+    g2.update(32);
+    check("staying congested does not keep charging", g2.combo === 3, String(g2.combo));
+  }
+
+  // The joint ramp, stated where it can be checked: bay 10 is exactly twice
+  // bay 1, and bay 1 opens where the old ramp's bay 5/6 sat.
+  check("bay 10 bonds are twice bay 1's",
+    Math.abs(makeBaseLevel(9).jointBreakStretch - makeBaseLevel(0).jointBreakStretch * 2) < 1e-9,
+    `${makeBaseLevel(0).jointBreakStretch} -> ${makeBaseLevel(9).jointBreakStretch}`);
+  // The tax has a purchase that answers it. pileAllowance shipped as a seam
+  // nothing could move — read by pileTier, swept by sim/pile.ts, and 0 in
+  // every real level — so the congestion rule had no counter you could buy.
+  // Bay Extension raises it, which is what makes a system the coping
+  // mechanism rather than the tax being a flat difficulty knob.
+  {
+    const allowanceAt = (bay: number): number => {
+      const cfg = makeBaseLevel(0);
+      applyUpgrades(cfg, { ...newTiers(), bay });
+      return cfg.pileAllowance;
+    };
+    check("a stock rig gets no congestion allowance", allowanceAt(0) === 0,
+      String(allowanceAt(0)));
+    check("Bay Extension buys room before the tax bites", allowanceAt(3) === 12,
+      String(allowanceAt(3)));
+    check("the allowance rises with the tier",
+      allowanceAt(1) === 4 && allowanceAt(2) === 8,
+      `${allowanceAt(1)}/${allowanceAt(2)}`);
+  }
+  check("an untaxed launch costs the base rate", cg.launchCostNow === congestedCfg.launchCost);
+
+  // A std shipment is 4 cubes, so two launches put 8 on the field — past both
+  // thresholds. Stepping only a few frames between them keeps everything alive.
+  const fireTwice = (game: Game) => {
+    for (let i = 0; i < 2; i++) {
+      const t = 10_000 + i * 10_000;
+      game.shoot(t);
+      for (let s = 0; s < 5; s++) game.update(t + s);
+    }
+  };
+  fireTwice(cg);
+  check("8 cubes trips the second tier", cg.cubes.length === 8 && cg.pileTier === tiers[1],
+    `${cg.cubes.length} cubes`);
+  check("the second tier doubles the launch price",
+    cg.launchCostNow === congestedCfg.launchCost * 2, String(cg.launchCostNow));
+
+  // The allowance is the upgrade seam: identical field, higher bar.
+  const roomy = new Game({ ...congestedCfg, pileAllowance: 8 }, {}, 1);
+  fireTwice(roomy);
+  check("an allowance lifts the same field back under the tax",
+    roomy.cubes.length === 8 && roomy.pileTier === null,
+    `${roomy.cubes.length} cubes, tier ${roomy.pileTier ? "set" : "null"}`);
+
+  // The clock tax, and the reason burnCongestionClock floors at 1ms rather
+  // than 0: a bay must be SHORTENED by the tax, never ended by it.
+  //
+  // Note the ORDER this depends on: shoot() prices the launch and burns the
+  // clock from the PRE-shot field, before the new piece exists. So the first
+  // launch into an empty bay is always untaxed, however low the threshold —
+  // it is the launch AFTER it that pays.
+  const clock = new Game(
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1 }] }, {}, 1);
+  clock.shoot(10_000);
+  for (let s = 0; s < 5; s++) clock.update(10_000 + s);
+  check("the first launch into an empty bay is untaxed", clock.timeLeftMs > 140_000,
+    String(clock.timeLeftMs));
+  const before = clock.timeLeftMs;
+  clock.shoot(20_000);
+  check("the next launch, over the threshold, burns clock", clock.timeLeftMs < before,
+    String(clock.timeLeftMs));
+  check("an absurd clock tax still leaves the bay alive", clock.timeLeftMs > 0,
+    String(clock.timeLeftMs));
+
+  // REGRESSION: funds between the base price and the congested price must not
+  // strand the bay. shoot() refuses the launch, so if the broke countdown read
+  // the BASE cost it would report the player solvent and the bay would sit
+  // there saying nothing until the clock ran out.
+  const stuck = new Game(
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1 }] }, {}, 1);
+  // One launch to put cargo on the field, so the NEXT one is priced congested.
+  stuck.shoot(10_000);
+  for (let s = 0; s < 5; s++) stuck.update(10_000 + s);
+  stuck.score = congestedCfg.launchCost + 1; // affords the base rate, not the doubled one
+  check("congested pricing sits above the player's funds", stuck.launchCostNow > stuck.score,
+    `cost ${stuck.launchCostNow} vs funds ${stuck.score}`);
+  check("the launch is refused", stuck.shoot(20_000) === false);
+  // Long enough for the broke grace (one compactor round trip plus a buffer)
+  // to elapse — the point is that a verdict ARRIVES, not that it is instant.
+  for (let s = 0; s < 4000 && stuck.status === "playing"; s++) stuck.update(20_000 + s * 16);
+  check("the bay reaches a verdict instead of stalling",
+    stuck.status === "lost" && stuck.lossReason === "broke",
+    `status ${stuck.status}, reason ${stuck.lossReason}`);
+}
+
+// ---------------------------------------------------------------------------
+section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
+{
+  // The whole point of the shape: notch N+1 must cost strictly more than notch
+  // N. Under the flat step this replaced, every notch cost the same, so the
+  // axis a player opened early stayed the cheapest card on the table forever.
+  for (const [name, ladder] of [["time", TIME_LADDER], ["cost", COST_LADDER]] as const) {
+    let strictlyRising = true;
+    let prevRung = 0;
+    for (let n = 1; n <= 10; n++) {
+      const rung = notchTotal(ladder, n) - notchTotal(ladder, n - 1);
+      // COST_LADDER opens 1,1 — deliberately flat for exactly one step, so the
+      // first two levies feel the same and the third is where it bites.
+      if (n > 2 && rung <= prevRung) strictlyRising = false;
+      prevRung = rung;
+    }
+    check(`the ${name} ladder never gets cheaper per notch`, strictlyRising);
+  }
+
+  check("notchTotal(time, 0) is free", notchTotal(TIME_LADDER, 0) === 0);
+  check("notchTotal(time, 3) sums 1+2+3", notchTotal(TIME_LADDER, 3) === 6,
+    String(notchTotal(TIME_LADDER, 3)));
+  check("notchTotal(cost, 5) sums 1+1+2+3+5", notchTotal(COST_LADDER, 5) === 12,
+    String(notchTotal(COST_LADDER, 5)));
+  // Past the table the recurrence continues rather than clamping — a Mark-10
+  // run taking two notches a bay can walk off the end of the written rungs.
+  check("the time ladder continues past its table",
+    notchTotal(TIME_LADDER, 7) === 32 + 21, String(notchTotal(TIME_LADDER, 7)));
+
+  // And the axes actually spend it.
+  const base = makeBaseLevel(0);
+  const oneLevy = applyRatchets(base, { cost: 1 });
+  const fiveLevies = applyRatchets(base, { cost: 5 });
+  check("one levy costs the first rung",
+    oneLevy.launchCost === base.launchCost + 1, String(oneLevy.launchCost));
+  check("five levies cost the cumulative ladder",
+    fiveLevies.launchCost === base.launchCost + 12, String(fiveLevies.launchCost));
+
+  // The ladder STARTS higher the further you have got. Every run used to open
+  // on rung 0 whatever it had beaten, so the same choice got cheaper in
+  // relative terms the deeper the ladder went — backwards for a difficulty
+  // axis. A Mark-N run begins N-1 rungs up.
+  {
+    const m1 = applyRatchets(makeBaseLevel(0, 1), { time: 1 });
+    const m2 = applyRatchets(makeBaseLevel(0, 2), { time: 1 });
+    const m3 = applyRatchets(makeBaseLevel(0, 3), { time: 1 });
+    const cut = (c: LevelConfig, at: number): number =>
+      makeBaseLevel(0, at).timeLimitSec - c.timeLimitSec;
+    check("a Mark-1 first cut costs the first rung", cut(m1, 1) === TIME_LADDER[0],
+      String(cut(m1, 1)));
+    check("a Mark-2 first cut starts one rung up", cut(m2, 2) === TIME_LADDER[1],
+      String(cut(m2, 2)));
+    check("a Mark-3 first cut starts two rungs up", cut(m3, 3) === TIME_LADDER[2],
+      String(cut(m3, 3)));
+    // The SHAPE survives the slide — still Fibonacci, just never as cheap.
+    const m3two = applyRatchets(makeBaseLevel(0, 3), { time: 2 });
+    check("a slid ladder still compounds",
+      makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec === TIME_LADDER[2] + TIME_LADDER[3],
+      String(makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec));
+  }
+
+  const threeCuts = applyRatchets(base, { time: 3 });
+  check("three shift cuts take 1+2+3 seconds",
+    threeCuts.timeLimitSec === base.timeLimitSec - 6, String(threeCuts.timeLimitSec));
+  // The floor still holds, and matters MORE under Fibonacci than it did under a
+  // flat step — the ladder reaches it in far fewer notches.
+  const manyCuts = applyRatchets(base, { time: 12 });
+  check("the clock floor still holds at depth", manyCuts.timeLimitSec === 45,
+    String(manyCuts.timeLimitSec));
+}
+
 
 console.log(
   failures === 0

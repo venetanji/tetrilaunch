@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
+import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
 import { COLORS, PIECE_COLORS, shade, type PieceSize, type PieceType } from "./theme";
 import { pieceOffsets, type Cube } from "./pieces";
@@ -64,6 +65,10 @@ export function screenToWorld(
 
 export interface Scene {
   cubes: Cube[];
+  /** The live piece joints, for the weld seams drawn between adjacent cubes
+   *  (see drawJointSeams). Optional: a caller with nothing to say about
+   *  structure simply draws no seams. */
+  constraints?: Matter.Constraint[];
   compactor: Compactor;
   cannon: Cannon;
   trajectory: Matter.Vector[];
@@ -97,6 +102,169 @@ export interface Scene {
  * attract demo passes fitViewport() instead: it renders the same scene into a
  * small decorative canvas that reserves no controls and receives no input.
  */
+/**
+ * WELD SEAMS — how strong this bay's shipments are, and which of them is
+ * currently coming apart.
+ *
+ * jointBreakStretch ramps 1.7 -> 2.8 across the ten bays and jointStiffness
+ * with it (level.ts calls this "the core difficulty ramp"), and until now
+ * nothing on screen said so: the player met stiffer cargo every bay with no
+ * way to see it coming and no way to connect it to the press that answers it.
+ *
+ * WHY SEAMS RATHER THAN THE JOINTS THEMSELVES. pieces.ts joins every PAIR of
+ * cubes in a shipment, so a four-cube piece carries six constraints and a bulk
+ * one ten — and the constraint between two ADJACENT cubes runs centre to
+ * centre, which is to say entirely underneath the two cubes it connects.
+ * Stroking the constraints draws nothing at all where a seam belongs, and a
+ * diagonal X across everything else; on a full field that is ~220 lines of
+ * crosshatch in a colour that fights the cargo. What reads as structure is a
+ * bar across the SHARED EDGE, which means adjacent pairs only — a rest length
+ * longer than about one cube is a diagonal, and is skipped.
+ *
+ * Flat strokes, no shadowBlur, deliberately: the per-cube glow was profiled
+ * out of drawCube for exactly this reason (see the note above cubeSprites),
+ * and a seam per cube-pair would put the same cost straight back.
+ */
+
+/** Rest colour of a seam: dark graphite, and neither of the two obvious
+ *  choices. Near-black read as a GAP between cubes rather than hardware
+ *  holding them together — the field is already dark, so the darkest thing in
+ *  it looks like absence. Full steel read as a stripe painted ON the piece,
+ *  brighter than the cargo it is meant to be subordinate to. */
+const SEAM_REST: readonly [number, number, number] = [47, 49, 60];
+const SEAM_WARM: readonly [number, number, number] = [255, 176, 32];
+const SEAM_HOT: readonly [number, number, number] = [255, 59, 59];
+
+/** breakStretch 2.2 (bay 1) -> 0, 4.4 (bay 10) -> 1 — level.ts's ramp, and it
+ *  has to be READ from there rather than hardcoded twice. When the ramp moved
+ *  from 1.7-2.78 to 2.2-4.4 these constants stayed behind for a moment, and
+ *  every bay's seams pinned at full width: the visualisation quietly stopped
+ *  saying anything while still looking like it did. Rigid material is Infinity
+ *  and pins at 1, which is correct — rebar is the strongest thing in the bay
+ *  and should look it. */
+const SEAM_MIN_STRETCH = BASE_BREAK_STRETCH;
+const SEAM_MAX_STRETCH = BASE_BREAK_STRETCH * 2;
+function seamStrength(breakStretch: number | undefined): number {
+  if (!breakStretch || !Number.isFinite(breakStretch)) return 1;
+  const span = SEAM_MAX_STRETCH - SEAM_MIN_STRETCH;
+  return Math.max(0, Math.min(1, (breakStretch - SEAM_MIN_STRETCH) / span));
+}
+
+/** Graphite -> amber -> red by strain. */
+function seamColor(strain: number, alpha: number): string {
+  const seg = strain < 0.5 ? 0 : 1;
+  const k = strain < 0.5 ? strain / 0.5 : (strain - 0.5) / 0.5;
+  const a = seg === 0 ? SEAM_REST : SEAM_WARM;
+  const b = seg === 0 ? SEAM_WARM : SEAM_HOT;
+  const ch = (i: number): number => Math.round(a[i] + (b[i] - a[i]) * k);
+  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${alpha.toFixed(3)})`;
+}
+
+function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] | undefined): void {
+  if (!cs?.length) return;
+  ctx.save();
+  ctx.lineCap = "butt";
+  for (const c of cs) {
+    const a = c.bodyA;
+    const b = c.bodyB;
+    if (!a || !b) continue;
+    const meta = c as unknown as { restLength?: number; breakStretch?: number };
+    const rest = meta.restLength
+      ?? Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y);
+    // CELL, not a measurement off the body's vertices: pieces.ts builds cubes
+    // with `chamfer: { radius: 3 }`, so a cube has EIGHT vertices and v[0]->v[1]
+    // is a 3px chamfer chord rather than its side. Reading it that way makes
+    // every rest length look like a diagonal and draws no seams at all.
+    if (rest > CELL * 1.35) continue;
+    const t = seamStrength(meta.breakStretch);
+    const dx = b.position.x - a.position.x;
+    const dy = b.position.y - a.position.y;
+    const len = Math.hypot(dx, dy) || 1;
+    // How far this joint is toward its OWN breaking point right now. Referenced
+    // against min(breakStretch, 3) so rebar — Infinity — still shows strain
+    // instead of flatlining at zero forever, which would make the one material
+    // that cannot break also the one that never looks stressed.
+    const limit = Math.min(meta.breakStretch ?? 2, 3);
+    const strain = Math.max(0, Math.min(1, (len / rest - 1) / Math.max(0.05, limit - 1)));
+    // Perpendicular to the joint axis: the seam lies ALONG the shared edge.
+    const px = -dy / len;
+    const py = dx / len;
+    const half = CELL * (0.2 + 0.16 * t);
+    const mx = (a.position.x + b.position.x) / 2;
+    const my = (a.position.y + b.position.y) / 2;
+    ctx.strokeStyle = seamColor(strain, 0.55 + 0.35 * t);
+    ctx.lineWidth = 1.4 + 3.6 * t;
+    ctx.beginPath();
+    ctx.moveTo(mx - px * half, my - py * half);
+    ctx.lineTo(mx + px * half, my + py * half);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * CONGESTION ROWS — how full the bay is, drawn as light on the floor.
+ *
+ * The congestion tax (level.ts's PILE_TIERS) prices a launch off the number of
+ * live cubes, and a number the player cannot see is a rule they can only learn
+ * by being charged for it. This turns the count into the one quantity the bay
+ * already speaks in: LINES. compactorMinLineCells cubes make a line, so the
+ * pile lights that many rows from the floor up, and the row where the colour
+ * changes is the row where the price does.
+ *
+ * Green while a launch costs list price, amber from the row that triggers the
+ * first tier, red from the row that triggers the second — the same three
+ * colours, in the same order, that the Launch readout in the plant panel wears
+ * (app.css's .pl-meta__launch--warn/--danger). One rule, stated twice, so a
+ * player can be looking at either one when the price moves.
+ *
+ * Thresholds are DERIVED from the level rather than written here, so a bay
+ * whose player bought Bay Extension lights amber later — the relief they
+ * purchased is visible as the thing it actually is, more green rows.
+ *
+ * Behind everything: this is floor light, not a HUD overlay. It draws inside
+ * the world clip after the cached backdrop and before the compactor, so cargo,
+ * the press and the cannon all sit on top of it.
+ */
+function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const tiers = scene.level.pileTiers;
+  if (!tiers.length || !scene.cubes.length) return;
+  const perLine = Math.max(1, scene.level.compactorMinLineCells);
+  const allowance = scene.level.pileAllowance;
+  const maxRows = Math.floor(WORLD.height / CELL);
+  const lit = Math.min(maxRows, Math.ceil(scene.cubes.length / perLine));
+  // The row index at which each tier starts biting. `> t.cubes + allowance`
+  // is game.ts's own test, so the first taxed cube is t.cubes + allowance + 1
+  // and the row holding it is that count divided by a line.
+  const rowFor = (t: { cubes: number }): number =>
+    Math.floor((t.cubes + allowance) / perLine);
+  const warnRow = tiers[0] ? rowFor(tiers[0]) : Infinity;
+  const dangerRow = tiers[1] ? rowFor(tiers[1]) : Infinity;
+
+  ctx.save();
+  for (let r = 0; r < lit; r++) {
+    const rgb = r >= dangerRow ? "255, 45, 85" : r >= warnRow ? "255, 176, 32" : "0, 255, 156";
+    // Rows are floor-anchored on the same grid lineClear snaps to (game.ts
+    // aligns against WORLD.height - CELL/2), so row r spans the cell whose
+    // bottom is r cells off the floor.
+    const y = WORLD.height - (r + 1) * CELL;
+    // 0.30 -> 0.09 up the row. Checked at the size that matters least: the
+    // menu's attract panel is ~10px a row, and 0.16 was invisible there while
+    // 0.55 turned the bay into a colour field the cargo had to fight. This
+    // reads as floor light at panel size and stays background at bay size.
+    const g = ctx.createLinearGradient(0, y + CELL, 0, y);
+    g.addColorStop(0, `rgba(${rgb}, 0.30)`);
+    g.addColorStop(1, `rgba(${rgb}, 0.09)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, WORLD.width, CELL);
+    // A brighter rule on the row's own floor line, so the bands read as
+    // discrete rows to count rather than one wash that happens to be taller.
+    ctx.fillStyle = `rgba(${rgb}, 0.45)`;
+    ctx.fillRect(0, y + CELL - 1.5, WORLD.width, 1.5);
+  }
+  ctx.restore();
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   cssW: number,
@@ -121,10 +289,14 @@ export function render(
   ctx.rect(0, 0, WORLD.width, WORLD.height);
   ctx.clip();
 
+  drawCongestionRows(ctx, scene);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
+  // Over the cubes, not under: a seam between adjacent cubes is covered by the
+  // very cubes it joins, so drawing it underneath draws nothing.
+  drawJointSeams(ctx, scene.constraints);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
   drawTrajectory(ctx, scene.trajectory);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
@@ -617,16 +789,20 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     const rodX0 = barrelX1;
     const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
 
-    // Rod first (it tucks under both the barrel and the head), stretched to
-    // the live length — the glow pad stretches with it, which is invisible
-    // in practice because both rod ends sit under the barrel/head anyway.
+    // Rod first (it tucks under both the barrel and the head). Crop away the
+    // sprite's transparent glow padding before stretching: scaling that padding
+    // created visible gaps at BOTH joints when the piston was fully extended.
     if (rodX1 > rodX0) {
       ctx.drawImage(
         rodSprite,
-        rodX0 - PISTON_PART_PAD,
-        y - PISTON_ROD_H / 2 - PISTON_PART_PAD,
-        rodX1 - rodX0 + PISTON_PART_PAD * 2,
-        PISTON_ROD_H + PISTON_PART_PAD * 2,
+        PISTON_PART_PAD,
+        PISTON_PART_PAD,
+        PISTON_ROD_BAKE_LEN,
+        PISTON_ROD_H,
+        rodX0,
+        y - PISTON_ROD_H / 2,
+        rodX1 - rodX0,
+        PISTON_ROD_H,
       );
     }
     ctx.drawImage(

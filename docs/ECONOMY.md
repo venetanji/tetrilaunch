@@ -145,6 +145,132 @@ pool, a new consumable exists, the wind gets surveyed. That constraint keeps a
 veteran's run harder-won rather than merely bigger-numbered, while still making a
 failed run worth having played.
 
+## Congestion: pricing the spam endgame
+
+**Status: measured, not shipped.** `makeBaseLevel` sets `pileTiers: []`, so the
+mechanic is inert until one line in `level.ts` turns it on. Everything below is
+what `npm run sim:pile` says about it.
+
+### The problem
+
+A bay's launch budget is loosest exactly when it should be tightest. Late in a
+bay the player is sitting on the surplus every cleared line paid out, launchCost
+is flat, and nothing prices a shot against the state of the field — so the
+dominant endgame is to stop aiming and empty the bankroll into the bay, letting
+gravity and the press resolve whatever lands. The economy *rewards* the strategy
+that skips the game.
+
+### The rule
+
+Count live cubes on the field. Past a threshold, every launch costs a multiple of
+the bay's launchCost and burns seconds off the bay clock. Highest matching tier
+wins; the tiers do not stack. The tax is charged **on the shot**, never held
+against the pile — a player who stops firing and lets the press work pays
+nothing, which is what makes this a disincentive rather than a punishment.
+
+### What the sim found
+
+Three findings, in descending order of how much they should change the design.
+
+**1. The first-guess thresholds were far too tight.** 32 and 48 cubes was pitched
+as "four lines' worth of cargo loose on the field, then six", which sounds like a
+bay you have let get away from you. Measured (`--census`, `aim` bot, 5 bays ×
+16 seeds), the median untaxed field holds ~24 cubes and the p90 is ~65 — and
+**58% of a clean bot's shots would pay tier 1, 29% tier 2**. At those numbers the
+tax is not an anti-spam rule; it is a rate rise with extra steps, and the win
+rates agree: careful play fell from 73% to 49%.
+
+**2. No field-state metric identifies a spammer.** `sim/pile-metrics.ts` tested
+five readings — total cubes, settled cubes, moving cubes, cubes outside the
+zone, cubes still in flight — against a careful bot and an impatient one on the
+same seeds. Set any of them gently enough to leave 90% of careful shots untaxed
+and it still catches only ~10% of spam shots, which is what a threshold drawn at
+random would catch. The reason is structural: both players are capped by the same
+cooldown, so the pile they build looks the same. **Congestion measures how far
+into a bay you are, not how recklessly you are playing.**
+
+That is not fatal, and it is worth being precise about why. The tax does not have
+to detect spam to work — it has to make the correct response cheap and the
+incorrect one expensive. "The bay is full, stop firing" is a true statement
+whoever hears it, and stopping is exactly the behaviour the design wants.
+
+**3. Money is the wrong axis; the clock is the right one.** Isolating the two
+halves at the original thresholds (N=80 per cell, baseline 73% careful / 48%
+spam):
+
+| Tax | careful | spam | gap |
+|---|---|---|---|
+| none | 73% | 48% | 25 |
+| money only (×1.5 / ×2) | 60% | 43% | 17 |
+| clock only (2s / 5s) | 71% | 41% | **30** |
+| both | 59% | 35% | 24 |
+
+A funds tax turns into **bankruptcy**, which ends a bay early and unrecoverably,
+and it does that to the careful player as readily as the reckless one — so it
+*compresses* the skill gap, which is the opposite of the point. A clock tax turns
+into a time loss, which still lets the bay settle what is in the air, and it
+falls hardest on whoever fired the most shots.
+
+### Where it landed
+
+Move the thresholds, keep the penalties. At **48 and 64 cubes** with the
+originally-specced ×1.5/×2 and 2s/5s, the tax fires on 23%/17% of careful shots
+instead of 58%/29%, and:
+
+| | careful | spam | gap |
+|---|---|---|---|
+| no tax | 73% | 48% | 25 |
+| 48/64, ×1.5/×2, 2s/5s | 70% | 39% | **31** |
+
+Careful play gives up 3 points, spam gives up 9, and the spread between them
+widens. The careful bot also converts better under the tax than without it
+(3.9 shots per line against 4.2) — waiting for the bay to drain means the shot
+lands on a settled pile that can actually complete a row, which was true before
+the tax existed and is the thing the tax gets the player to notice.
+
+`pileAllowance` adds cubes to every threshold and is the upgrade seam: a track
+that raises it sells back the right to fire into a fuller bay. Verified
+equivalent to moving the thresholds outright (48/64 and 32/48-plus-16 produce
+byte-identical sweeps).
+
+### Caveats the sim cannot see past
+
+- **Sample size.** N=80 per cell puts the 95% interval on any single win-rate
+  difference at roughly ±14 points, so no one row above is significant on its
+  own. The direction is consistent across every variant tested — spam falls in
+  all of them, careful play barely moves in the loose ones — and that consistency
+  is the claim, not any single number.
+- **The bots cannot spam the way a human does.** Every bot fires the moment the
+  cooldown allows, so `impatient` differs from `aim` only in shot *quality*, not
+  tempo. The real complaint is about a player emptying a fat bankroll at the end
+  of a bay, and no bot models the decision to do that. Telemetry shows humans
+  time their shots to the compactor window (z=4.27) where bots do not, so a human
+  has counter-play the sim cannot exercise.
+- **Nothing here is a substitute for playing it.** The census is a direct
+  measurement and should be trusted; the win rates are a direction, not a
+  calibration.
+
+## Escalating hazard notches
+
+`Fuel Levy` and `Shift Cut` used to charge a flat +$5 and −5s however many
+notches deep the run already was. Linear is the wrong shape for a ratchet taken
+one notch at a time: under a flat step the tenth notch is the same decision as
+the first, so the axis a player opened early never stops being the cheapest card
+on the table and the draft collapses into one axis repeated.
+
+Both now run Fibonacci ladders — time `1, 2, 3, 5, 8, 13`, money `1, 1, 2, 3, 5,
+8`, continuing the recurrence past the written table. Every notch is affordable
+relative to the one before it and brutal relative to the one before *that*, so an
+axis prices itself out of the draft on its own. They are offset by one on
+purpose: money has an in-run answer (the reactor track, a good line rate, a fat
+carry) so it may lag, while the clock has none and leads.
+
+Both ladders also start *gentler* than the flat step they replace — the first
+notch is −1s and +$1 where both were 5 — which matters because the first notch is
+taken by a player who has no idea yet what a notch feels like. That is the same
+reasoning that already took `TIME_NOTCH` from 20 to 5, carried the rest of the
+way.
+
 ## Tuning
 
 Everything is a named constant with a comment:
@@ -155,8 +281,11 @@ Everything is a named constant with a comment:
 - `mods.ts` — per-mod numbers
 - `pieces.ts` — `SIZE_SPEC`
 - `run.ts` — `REFIT_EVERY`
+- `level.ts` — `PILE_TIERS` (congestion thresholds and penalties)
+- `hazards.ts` — `TIME_LADDER`, `COST_LADDER`
 
-`npm run sim:balance` sweeps bays × bots × mods. Two caveats it can't see past:
+`npm run sim:balance` sweeps bays × bots × mods; `npm run sim:pile` sweeps the
+congestion tax (and `--census` alone answers "how full is a bay actually"). Two caveats it can't see past:
 the bots never use abilities (Bond Breaker, Demolition read as 0 delta), and the
 Autoloader is now a held trigger no bot holds, so it reads as a clean 0 delta
 too rather than the old *fight for the cannon* whose sweep numbers measured a

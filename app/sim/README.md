@@ -177,6 +177,50 @@ rules, `status`/`lossReason` are forced back to `"playing"`/`null`
 immediately **after** each timed call (never inside the timed window, so it
 never affects the measurement itself).
 
+## `uifit/` — does every screen fit every device?
+
+The only harness here that runs a browser. `systems.ts` checks the layout
+solver's *arithmetic*; `uifit` checks what that arithmetic plus
+`src/styles/app.css` actually **lay out** in a real engine, at real device
+viewports with real landscape safe-area insets.
+
+```
+npm run test:uifit                      # Chromium, assert against the baseline
+npm run test:uifit:shots                # ...and write a PNG per device x screen
+npx tsx sim/uifit/run.ts --engine=webkit           # closest cheap proxy for iOS
+npx tsx sim/uifit/run.ts --screen=menu --device=SE # narrow a single failure
+npx tsx sim/uifit/run.ts --update-baseline
+```
+
+It renders the **real** screen functions from `src/ui/screens.ts` into the
+**real** stylesheet — no mock markup — and drives the same `computeLayout` +
+`applySafeAreaInsets` path `main.ts`'s `onResize` does. Insets are faked by
+overriding `env(safe-area-inset-*)` in a stylesheet rule that the app's own
+`.safe-probe` then measures back, so the iOS inset plumbing is exercised
+rather than stubbed.
+
+Eight assertions per device x screen, listed in `run.ts`'s `ASSERTIONS`. The
+load-bearing one is `scrollers`: `ALLOWED_SCROLLERS` is the single place the
+product rule *"no vertical scrolling except the leaderboard rows and the
+workshop pane"* is written down, and a third entry cannot appear without
+someone editing that list on purpose.
+
+**The baseline.** `uifit/baseline.json` records the violations that exist
+today, keyed `device|screen|assertion`. A run fails on violations NOT in it,
+and *also* fails when a baselined violation stops reproducing without being
+removed — so the file shrinks as the responsive work lands and cannot rot
+into a blanket suppression. Re-record with `--update-baseline` and commit the
+diff; that diff is the progress report.
+
+**Playwright is pinned exactly** (not `^`) in `package.json`. Every number
+this harness reports is a text-measurement result, so a browser upgrade
+shifts the baseline for reasons that have nothing to do with the app.
+
+**Chromium is not WKWebView.** The `--engine=webkit` run is the closest cheap
+proxy for iOS and skips cleanly (exit 0, with a message) when the browser
+binary is absent, because claiming iOS coverage we do not have would be worse
+than not running it.
+
 ## Extending
 
 - **New bot preset**: add an entry to the `BOTS` record in `bots.ts` — a

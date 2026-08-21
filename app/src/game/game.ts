@@ -26,7 +26,7 @@ import {
   wakeNear,
   type ClearResult,
 } from "./lineClear";
-import type { LevelConfig } from "./level";
+import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
 import type { Material, PieceSize, PieceType } from "./theme";
@@ -272,6 +272,9 @@ export class Game {
 
   score: number;
   combo = 0;
+  /** Index into level.pileTiers of the congestion tier in force last step, or
+   *  -1 for a clean bay. Only used to detect crossing UP — see update(). */
+  private lastCongestionIdx = -1;
   linesTotal = 0;
   lostTotal = 0;
   status: GameStatus = "playing";
@@ -284,8 +287,9 @@ export class Game {
   timeLeftMs: number;
   /** Pieces AND bombs fired so far this level — drives nextIsBomb. */
   shotsFired = 0;
-  /** Bond Breaker charges left this bay (see useBondBreaker). Seeded from
-   *  level.bondBreakerCharges — 0 unless the player drafted the mod. */
+  /** Bond Breaker charges left in the RUN's stock (see useBondBreaker).
+   *  Seeded from level.bondBreakerCharges — which main.ts threads bay-to-bay,
+   *  so this is the run's remaining magazine, not a per-bay refill. */
   bondCharges: number;
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */
@@ -665,7 +669,8 @@ export class Game {
   }
 
   /**
-   * Bond Breaker special ability (drafted via mods.ts): shatter EVERY joint on
+   * Bond Breaker special ability (charged by the Bond Emitter track — see
+   * run.ts's bondChargesFor for the run-scoped magazine): shatter EVERY joint on
    * the field at once, turning all pieces into loose cubes. With nothing
    * holding awkward stacks rigid, the pile slumps flatter and the compactor
    * packs the loose cubes into full lines far more easily. Consumes one charge;
@@ -756,6 +761,41 @@ export class Game {
   }
 
   /**
+   * The active congestion tier, or null when the bay is clean enough (or the
+   * mechanic is off — level.pileTiers empty; see level.ts's PILE_TIERS).
+   *
+   * Reads `cubes.length`, i.e. every live cube ANYWHERE on the field, not just
+   * the ones inside the compaction zone. Deliberate: cargo strewn on the
+   * launcher side of the bar is exactly what a spam volley produces, and it is
+   * still the player's mess — pricing only the zone would make "fire wildly and
+   * miss" the cheap option and "land it where the press can reach" the
+   * expensive one, which is backwards. Cubes leave this array when a line
+   * clears, a bomb vaporizes them or they decay out of the bay, so the reading
+   * falls the moment the bay is actually tidied.
+   *
+   * Highest matching tier wins rather than summing: the tiers are a staircase
+   * describing one state, not stacking debuffs.
+   */
+  get pileTier(): PileTier | null {
+    const tiers = this.level.pileTiers;
+    if (!tiers.length) return null;
+    const n = this.cubes.length;
+    let active: PileTier | null = null;
+    for (const t of tiers) {
+      if (n > t.cubes + this.level.pileAllowance) active = t;
+    }
+    return active;
+  }
+
+  /** What the NEXT launch actually costs, congestion included. The HUD reads
+   *  this rather than level.launchCost so the price the player is quoted is the
+   *  price they pay — a tax you only discover after firing teaches nothing. */
+  get launchCostNow(): number {
+    const tier = this.pileTier;
+    return tier ? Math.round(this.level.launchCost * tier.costMult) : this.level.launchCost;
+  }
+
+  /**
    * Recomputes the dotted preview arc against the CURRENT wind held constant
    * across the whole predicted flight. Unlike the old deterministic sine, a
    * drunk walk's future is genuinely unknowable, so the current reading is
@@ -806,7 +846,10 @@ export class Game {
     // That's the whole economic fix: the old bomb burned a full-price launch
     // and returned nothing, so it was never the right call at any funds level.
     const firingBomb = this.bombArmed && this.bombCharges > 0;
-    if (!firingBomb && this.score < this.level.launchCost) return false;
+    // Congestion is priced HERE, on the shot (see level.ts's PILE_TIERS): the
+    // quote the HUD showed and the amount deducted below are the same number.
+    const cost = this.launchCostNow;
+    if (!firingBomb && this.score < cost) return false;
 
     // Captured BEFORE markShot/markCooldown move the cannon's clock forward.
     // lastShot starts at a large negative sentinel, so a bay's first shot has
@@ -837,7 +880,8 @@ export class Game {
       // Cooldown-only: the queued piece stays loaded for the next real shot.
       this.cannon.markCooldown(now);
     } else {
-      this.score -= this.level.launchCost;
+      this.score -= cost;
+      this.burnCongestionClock();
       const piece = createTetrisPiece(
         this.phys.world,
         this.cannon.tip.x,
@@ -861,7 +905,30 @@ export class Game {
   }
 
   /**
-   * Autoloader (mods.ts's "autoloader", gated behind the meta unlock): while the
+   * Charge the congestion tier's clock tax for the shot just fired.
+   *
+   * Floored at 1ms rather than 0, and that is the whole subtlety: the clock is
+   * the bay's other loss condition, and letting a tax drive timeLeftMs to
+   * exactly 0 would hand the player a time-loss authored by the tax rather
+   * than by the clock. Leaving a millisecond means the bay still ends on its
+   * own terms — the overtime block in update() takes it from there, settling
+   * what is already in the air, which is the same ending a player who simply
+   * ran long would get.
+   *
+   * No-ops on an untimed bay (timeLeftMs Infinity — Contracts, the attract
+   * demo), where there is no clock to tax and the funds multiplier carries the
+   * whole mechanic on its own.
+   */
+  private burnCongestionClock(): void {
+    const tier = this.pileTier;
+    if (!tier || tier.clockSec <= 0) return;
+    if (this.timeLeftMs === Infinity) return;
+    this.timeLeftMs = Math.max(1, this.timeLeftMs - tier.clockSec * 1000);
+  }
+
+  /**
+   * Autoloader (level.autoLaunchMs — the retired modifier draft was its only
+   * live source, so nothing sets it in a current run): while the
    * trigger is HELD, the cannon fires every level.autoLaunchMs, re-rolling its
    * aim inside a band around wherever the player is pointing rather than
    * shooting the exact same arc forever. Fast, cheap and PROBABILISTIC — it is
@@ -882,7 +949,7 @@ export class Game {
     const stepsPerMs = 1 / DT;
     if (this.stepCount - this.lastAutoStep < interval * stepsPerMs) return;
     if (!this.cannon.canShoot(now)) return;
-    if (this.score < this.level.launchCost) return;
+    if (this.score < this.launchCostNow) return;
 
     // The player's aim is the ANCHOR of the burst and survives it: the jitter
     // below is applied for this one shot and restored immediately after.
@@ -955,6 +1022,34 @@ export class Game {
     }
 
     this.stepCount++;
+    // Congestion's third pressure, re-read every step because the bay floor
+    // changes every step. Pushed onto the cannon rather than consulted at fire
+    // time so the RELOAD BAR is honest while it fills: a penalty the player
+    // only discovers when the shot refuses to leave teaches nothing, where a
+    // bar visibly crawling is the rule explaining itself in the moment the
+    // player is already looking at it.
+    const congestion = this.pileTier;
+    // Crossing UP into a congestion tier kills the combo.
+    //
+    // The other three taxes are all rates — money, clock, reload — and a rate
+    // is something a player can decide to keep paying. The combo is a STREAK,
+    // and the only way to charge a streak is to end it, which makes this the
+    // one part of congestion that cannot be absorbed by simply firing anyway.
+    // It also aims the rule at precisely the play it exists to discourage:
+    // spamming into a full bay is exactly how a careful run's multiplier gets
+    // thrown away, and now it says so.
+    //
+    // On the transition, not while congested. A tax levied every step for
+    // sitting above the line would mean the combo could never be rebuilt
+    // without first tidying the bay, which punishes the recovery it should be
+    // rewarding — the player who keeps clearing while congested is doing the
+    // right thing. Comparing INDEX rather than identity so a slide from amber
+    // to red charges again, while dropping back down and re-crossing later is
+    // a new offence rather than a free pass.
+    const tierIdx = congestion ? this.level.pileTiers.indexOf(congestion) : -1;
+    if (tierIdx > this.lastCongestionIdx) this.combo = 0;
+    this.lastCongestionIdx = tierIdx;
+    this.cannon.setCooldownScale(congestion ? congestion.reloadMult : 1);
     this.stepWind();
     this.stepAutoLaunch(now);
     stepPhysics(this.phys);
@@ -1082,7 +1177,18 @@ export class Game {
     // broke-loss forever. allAtRest is only computed when it's actually needed
     // (score below cost AND the countdown hasn't started yet) to skip the
     // per-cube scan during normal play.
-    if (this.score >= this.level.launchCost) {
+    // launchCostNow, not level.launchCost: the question this asks is "can the
+    // player fire the shot they would actually fire", and under a congestion
+    // tier that shot is priced above the bay's base rate (see level.ts's
+    // PILE_TIERS). Reading the base cost here leaves a silent dead zone —
+    // funds between the base and congested price mean shoot() refuses every
+    // launch while this branch reports the player as solvent, so the bay
+    // stalls with no verdict at all until the clock runs out or a lost-cargo
+    // fine happens to drop them under the base rate. The rescue path is not
+    // weakened by pricing it correctly; it is strengthened, because the line
+    // clear that cancels the countdown ALSO removes the cubes that raised the
+    // price, so a rescue fixes both halves at once.
+    if (this.score >= this.launchCostNow) {
       this.brokeSinceStep = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
