@@ -64,23 +64,32 @@ export interface UnlockDef {
    *  guarantees no amount of Contract income finishes it, which is what keeps
    *  the subscription selling throughput instead of power. */
   requiresMark?: number;
+  /** RETIRED: this unlock existed to put a card in the MODIFIER draft pool
+   *  (mods.ts's draftOffers) — a system the hazard ratchet replaced, and one
+   *  nothing in the app consumes any more. A retired unlock is never sold and
+   *  never listed; a save that already owns one is refunded in full on load
+   *  (refundRetiredUnlocks), because salvage spent on a card that changes
+   *  nothing is a broken promise, not a purchase. The def itself stays so the
+   *  refund can resolve its cost and old ids keep meaning something. */
+  retired?: boolean;
 }
 
 /**
- * The unlock tree — which is, mostly, the modifier list.
+ * The unlock tree — two live options, and the retired mod-pool shelf.
  *
- * Every modifier except four now costs salvage to put IN THE DRAFT POOL. That
- * distinction is the whole design: salvage buys the right for a modifier to be
- * offered, never the modifier itself. You are still dealt a choice and still
- * make it, so a purchase adds an option rather than power, which is the rule
- * this file's header sets out. The four left free — Overtime, Premium
- * Contracts, Ballast Load, Rapid Loader — are the plain tradeoffs, none of
- * which defines a build, so a player who owns nothing still gets a real
- * roguelite loop on their first run. Four against DRAFT_BASE_SLOTS' two is
- * deliberate: a free pool the same size as the draft is not a choice.
+ * This list was mostly the MODIFIER list: eight of its ten entries sold the
+ * right for a card to enter mods.ts's draft pool. The hazard ratchet replaced
+ * that draft, nothing in the app imports mods.ts any more, and the Workshop
+ * was still selling those eight as if they did something — a player could
+ * spend real salvage on cards that changed nothing. They are `retired` now:
+ * off the shelf, refunded on load if owned (refundRetiredUnlocks below).
  *
- * Rank 1 keeps the prices it always had. The player who most needs a first
- * option is the one with the least salvage, so the on-ramp does not move.
+ * What survives is what the app actually consumes: Weather Survey (main.ts
+ * reads it into the HUD's wind gauge) and Scrap Cache (startGame seeds the
+ * run's scrap from it). Both are information/head-start OPTIONS rather than
+ * stat bumps, which keeps the header's rule intact. The abilities the
+ * retired cards used to gate live on as ship systems — INSTALLS below is
+ * where Demolition and the Bond Emitter are actually bought.
  */
 export const UNLOCKS: UnlockDef[] = [
   {
@@ -88,6 +97,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Demolition Licence",
     cost: 45,
     rank: 1,
+    retired: true,
     desc: "Adds Demolition Charges to the draft pool: armed bombs that cost nothing to fire and refund funds for every cube they vaporize. Turns a dead junk pile into cash.",
   },
   {
@@ -95,6 +105,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Bulk Freight Permit",
     cost: 55,
     rank: 1,
+    retired: true,
     desc: "Adds Bulk Shipments to the draft pool: 5-cube pentominoes. Dense and rigid — they survive landings that shatter a tetromino, and their weight squares up the layers underneath.",
   },
   {
@@ -116,6 +127,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Micro Freight Licence",
     cost: 90,
     rank: 2,
+    retired: true,
     desc: "Adds Micro Shipments to the draft pool: 2-cube dominoes at a heavy launch discount. Cheap volume and pinpoint placement — but too light for their own weight to square up the pile beneath them.",
   },
   {
@@ -123,6 +135,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Reinforced Bonds",
     cost: 110,
     rank: 2,
+    retired: true,
     desc: "Adds Sturdy Shipments to the draft pool: pieces that survive landings which would shatter a tetromino. Clean if you aim well — and a liability when you needed them to break into fillers.",
   },
   {
@@ -130,6 +143,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Press Overclock",
     cost: 140,
     rank: 2,
+    retired: true,
     desc: "Adds Overclock to the draft pool: the compactor sweeps half again as fast, for twenty seconds off the clock. More presses per bay, and less time to think between them.",
   },
   {
@@ -137,6 +151,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Line Recalibration",
     cost: 150,
     rank: 2,
+    retired: true,
     desc: "Adds Short Lines to the draft pool: one cell fewer per line, at lower pay per line. Turns a target you cannot reach into one you can, and a good bay into a cheaper one.",
   },
   {
@@ -144,6 +159,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Bond Breaker Rig",
     cost: 320,
     rank: 3,
+    retired: true,
     requiresMark: 2,
     desc: "Bond Breakers shatter every joint on the field into loose cubes, which settle flatter and pack into lines far more easily — the answer to a pile that has stopped cooperating. Charges are a RUN-LONG consumable, not a per-bay refill: fit the Bond Emitter to carry them, and spend them on the bay that needs one most.",
   },
@@ -152,6 +168,7 @@ export const UNLOCKS: UnlockDef[] = [
     name: "Autoloader Rig",
     cost: 360,
     rank: 3,
+    retired: true,
     requires: ["demo", "micro"],
     requiresMark: 3,
     desc: "Adds the Autoloader to the draft pool — the endgame of the micro build. The cannon fires itself, fast and roughly aimed, at half cost. You will need Bond Breakers to flatten what it makes.",
@@ -196,6 +213,23 @@ export function unlockGates(def: UnlockDef, owned: string[], mark: number): stri
     if (!owned.includes(r)) gates.push(unlockById(r)?.name ?? r);
   }
   return gates;
+}
+
+/**
+ * Refund every RETIRED unlock a save still owns — full price back, id removed.
+ * Pure and idempotent: once the refunded meta is saved no retired id remains,
+ * and a save that owns none passes through untouched (same object, no churn).
+ * Called on load (lib/store's loadMeta), which is the one door every save
+ * walks through.
+ */
+export function refundRetiredUnlocks(meta: MetaState): MetaState {
+  const owned = UNLOCKS.filter((u) => u.retired && meta.unlocks.includes(u.id));
+  if (!owned.length) return meta;
+  return {
+    ...meta,
+    salvage: meta.salvage + owned.reduce((sum, u) => sum + u.cost, 0),
+    unlocks: meta.unlocks.filter((id) => !owned.some((u) => u.id === id)),
+  };
 }
 
 /**

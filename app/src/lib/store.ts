@@ -1,5 +1,5 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
-import { newMeta, type MetaState } from "../game/meta";
+import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
 import { newTiers, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
@@ -107,7 +107,11 @@ export function loadMeta(): MetaState {
       }
       meta.loadout = tiers;
     }
-    return meta;
+    // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
+    // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
+    // ratchet replaced the modifier draft). Pure and idempotent, so a save
+    // that never rewrites itself just re-derives the same refund each load.
+    return refundRetiredUnlocks(meta);
   } catch {
     return newMeta();
   }

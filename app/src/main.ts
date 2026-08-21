@@ -714,12 +714,13 @@ class App {
     // the rendered stack matches the fit prediction exactly.
     rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
     document.documentElement.dataset.layout = l.mode;
-    // Chrome scale, the DOM's counterpart to --fpx. tokens.css derives the type
-    // and spacing scales from it, so a short viewport shrinks the chrome
-    // continuously instead of stepping through hand-tuned `max-height` blocks —
-    // and `data-density` carries the cases that have to RESTRUCTURE rather than
-    // shrink (see game/layout.ts's Density).
-    rs.setProperty("--ui-scale", `${l.uiScale}`);
+    // `data-density` is the solver's one channel into the stylesheet's
+    // structural switches (see game/layout.ts's Density). The continuous
+    // uiScale behind it is deliberately NOT published as a custom property:
+    // no rule ever consumed one (the responsive plan's "tokens as functions
+    // of --ui-scale" task never landed), and publishing a channel nothing
+    // reads claimed a mechanism the CSS does not have. Publish it again the
+    // day a rule actually reads it.
     document.documentElement.dataset.density = l.density;
 
     const mobile = "ontouchstart" in window || w < 900;

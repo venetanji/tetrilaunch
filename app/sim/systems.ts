@@ -41,7 +41,7 @@ import {
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, type InstallDef, type MetaState,
+  buyInstall, markBudget, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
   advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
@@ -387,6 +387,23 @@ section("Installs — what salvage buys (meta.ts)");
   check("every unlock has an icon",
     UNLOCKS.every((u) => !icon(u.id as IconName).includes("undefined")),
     UNLOCKS.filter((u) => icon(u.id as IconName).includes("undefined")).map((u) => u.id).join(","));
+
+  // The retired mod-pool shelf (meta.ts's UnlockDef.retired): eight cards
+  // whose only consumer was the retired modifier draft. Never sold, never
+  // listed, refunded in full when a save owns one.
+  check("the mod-pool shelf is retired and the live options are not",
+    UNLOCKS.filter((u) => u.retired).length === 8
+      && ["survey", "scrap-cache"].every((id) => UNLOCKS.some((u) => u.id === id && !u.retired)),
+    UNLOCKS.filter((u) => u.retired).map((u) => u.id).join(","));
+  const owedRefund = freshMeta({ salvage: 10, unlocks: ["demo", "survey", "bond-breaker"] });
+  const refunded = refundRetiredUnlocks(owedRefund);
+  check("owned retired unlocks refund in full and leave the list",
+    refunded.salvage === 10 + 45 + 320 && JSON.stringify(refunded.unlocks) === '["survey"]',
+    `${refunded.salvage} · ${refunded.unlocks.join(",")}`);
+  check("a clean save passes through the refund untouched",
+    refundRetiredUnlocks(refunded) === refunded);
+  check("the Workshop never lists a retired unlock",
+    !workshopScreen(freshMeta({ salvage: 9_999, mark: 9 }), "options").includes("Bulk Freight Permit"));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }), "systems");
   const shopOpts = workshopScreen(freshMeta({ salvage: 50 }), "options");
@@ -1775,7 +1792,7 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
 }
 
 // ---------------------------------------------------------------------------
-section("Chrome scale (--ui-scale / data-density)");
+section("Chrome scale (layout.ts uiScaleFor / data-density)");
 // The DOM chrome's counterpart to the field's --fpx. These are the invariants
 // the 15 hand-tuned `max-height` blocks in app.css never had: monotonic, bounded
 // and, above all, aware of the safe-area insets a media query cannot see.
@@ -1823,13 +1840,25 @@ section("Chrome scale (--ui-scale / data-density)");
   );
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
 
-  // Density tiers must partition the scale range with no gap and no overlap.
+  // Density tiers must partition the scale range with no gap and no overlap —
+  // at full width, where the HEIGHT term is the binding axis. (Width may
+  // bottom the scale out without forcing compact; see the check below.)
   for (const h of [300, 400, 500, 560, 620, 680, 720, 800]) {
     const l = computeLayout(1600, h);
     const expected =
       l.uiScale === 1 ? "roomy" : l.uiScale === UI_SCALE_MIN ? "compact" : "regular";
     check(`density agrees with scale at ${h}px tall`, l.density === expected, `${l.density} vs ${expected} (${l.uiScale})`);
   }
+
+  // Compact is a HEIGHT verdict. The compact rules RESTRUCTURE — they drop
+  // rows, chips and context tiles measured against 360px-tall phones — and a
+  // narrow-but-tall desktop window still has the height those rules exist to
+  // buy back. The scale may bottom out on the width term; the restructure may
+  // not fire on it.
+  const narrow = computeLayout(700, 720);
+  check("a narrow-but-tall window bottoms the scale without going compact",
+    narrow.uiScale === UI_SCALE_MIN && narrow.density === "regular",
+    `${narrow.uiScale} / ${narrow.density}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -203,6 +203,14 @@ body.crt-off #app::after { display: none; }
    (landscape phone) viewport. */
 .center { display: flex; }
 
+/* The FALLBACK scrollers get the same containment [data-scroll] argues for: a
+   rubber-band at their edge must not propagate to the WebView and drag the
+   whole app (the iOS PWA has no scrollEnabled setting to turn that off). The
+   modal pair and the draft body scroll vertically as a last resort; the mods
+   row and the how-to snap row scroll horizontally by design. */
+.modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
+.pl-mods, .howto__grid { overscroll-behavior-x: contain; }
+
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
    actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):
@@ -478,7 +486,10 @@ body.crt-off #app::after { display: none; }
   min-height: var(--tap-min);
   border-color: var(--warn);
   background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
-  transition: filter var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+  /* --dur-fast, not the undefined --dur-1 it shipped with — an undefined
+     custom property makes the whole transition invalid, so the chip SNAPPED
+     between states while every other control eased. */
+  transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 .chip--cta .chip__value { color: var(--warn); font-size: 15px; white-space: nowrap; }
 .chip--cta:hover { filter: brightness(1.15); }
@@ -2311,25 +2322,16 @@ button.panel { color: var(--text); }
     line-height: 1.25;
     display: block;
   }
-  /* Four columns, not three. Six tracks were two tidy rows of three; the
-     seventh (Demolition Rack) started a third row that the grid could only
-     reach by scrolling, so the card sat half-cut against the Undock button —
-     a card you can see the top of reads as broken, not as scrollable.
-     168px buys four across in the 792px-wide viewport it was measured in, but
-     only three in a 640px one (a 578px grid fits 3x190 there), which puts the
-     seventh card back on a third row and the grid back into scrolling.
-     Tuning the auto-fit floor cannot fix that: four across at 640 needs a
-     floor of at most 139.25px, and holding 792 to four rather than five needs
-     more than 138.6px. A 0.65px window is not a layout rule, it is a
-     coincidence waiting to break — 140px duly gave five columns of 137.9px at
-     792, narrower cards than the three-column version it replaced.
-     So the count is stated instead of derived. Seven cards are two rows at
-     every width in this range, and each row's cards are as wide as the
-     viewport can afford. */
-  .refit__grid {
-    gap: 7px; min-height: 0;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+  /* Column policy and gap live in the [data-density="compact"] .refit__grid
+     rule at the bottom of this file — compact density covers every viewport
+     this height query matches (density is a height verdict at the same ~518px
+     threshold), so declarations here would be dead on arrival. This block kept
+     a fixed repeat(4) rule for a while after the density rule landed; it never
+     applied, and its rationale contradicted the density rule's in-file. Only
+     the min-height release survives, because the density rule doesn't set it:
+     the base .refit__grid's 120px floor has to give way for the grid to shrink
+     into a short viewport at all. */
+  .refit__grid { min-height: 0; }
   /* The sentence explains the SCREEN; "Next up: <bay>" is the only part that
      changes and the only part worth a line of a 360px viewport. Dropping it
      buys back the row the seventh card needs. Same trade as .workshop__blurb. */
@@ -2771,7 +2773,11 @@ button.panel { color: var(--text); }
     bottom: 0;
     z-index: 1;
     padding-top: 6px;
-    background: linear-gradient(180deg, rgba(13, 13, 24, 0) 0%, var(--surface-1) 35%);
+    /* #0d0d18 is the .panel gradient's bottom stop, stated literally — the
+       gradient shipped ending in an UNDEFINED --surface-1, which resolves to
+       transparent, so the occlusion fade did nothing on exactly the overflow
+       screen it exists for (the baselined end-lost at 640x360). */
+    background: linear-gradient(180deg, rgba(13, 13, 24, 0) 0%, #0d0d18 35%);
   }
 }
 

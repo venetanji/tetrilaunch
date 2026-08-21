@@ -953,8 +953,12 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
   const mark = meta.mark;
-  const owned = UNLOCKS.filter((u) => meta.unlocks.includes(u.id));
-  const forSale = UNLOCKS.filter((u) => !meta.unlocks.includes(u.id))
+  // Retired unlocks (the mod-pool shelf — see meta.ts's UnlockDef.retired)
+  // are never merchandise and never reference: they do nothing, so listing
+  // them anywhere would be the dishonest shelf this filter removes.
+  const live = UNLOCKS.filter((u) => !u.retired);
+  const owned = live.filter((u) => meta.unlocks.includes(u.id));
+  const forSale = live.filter((u) => !meta.unlocks.includes(u.id))
     .sort((a, b) => a.rank - b.rank || a.cost - b.cost);
 
   const cards = forSale

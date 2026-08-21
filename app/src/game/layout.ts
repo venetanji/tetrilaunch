@@ -137,7 +137,7 @@ function railColumnCap(uh: number): number {
  */
 export type Density = "compact" | "regular" | "roomy";
 
-/** Viewport the chrome is authored against. At or above this, --ui-scale is 1
+/** Viewport the chrome is authored against. At or above this, uiScale is 1
  *  and nothing is shrunk. 720 is the world's own height, which is also roughly
  *  where the old hand-tuned `max-height` breakpoint stack used to start firing. */
 const UI_REF_H = 720;
@@ -170,8 +170,11 @@ export interface Layout {
   fh: number;
   /** Rail button edge length for this layout. */
   railSize: number;
-  /** Multiplier the DOM chrome's type and spacing scale by (published as
-   *  --ui-scale). 1 on a comfortable viewport, never below UI_SCALE_MIN. */
+  /** Continuous chrome scale the density tier is derived from. 1 on a
+   *  comfortable viewport, never below UI_SCALE_MIN. NOT published to CSS:
+   *  no rule ever consumed a --ui-scale property, so the channel was removed
+   *  rather than left claiming a mechanism the stylesheet does not have —
+   *  `density` is the shipped switch. */
   uiScale: number;
   /** Coarse tier for rules that must SWITCH rather than scale (published as
    *  <html data-density>). */
@@ -210,8 +213,18 @@ export function getSafeAreaInsets(): Insets {
 export function uiScaleFor(uw: number, uh: number): { uiScale: number; density: Density } {
   const raw = Math.min(uh / UI_REF_H, uw / UI_REF_W);
   const uiScale = Math.max(UI_SCALE_MIN, Math.min(1, raw));
+  // Compact is a HEIGHT verdict. The scale takes the tighter of the two axes
+  // (a 640x400 window is as cramped as a 1000x360 one), but the compact
+  // tier's rules RESTRUCTURE — they drop rows, chips and context tiles, all
+  // measured against 360px-tall phones — and a narrow-but-tall desktop window
+  // still has the height those rules exist to buy back. So width may bottom
+  // the scale out, but only height may force the restructure.
   const density: Density =
-    uiScale >= DENSITY_ROOMY ? "roomy" : uiScale <= UI_SCALE_MIN ? "compact" : "regular";
+    uiScale >= DENSITY_ROOMY
+      ? "roomy"
+      : uh / UI_REF_H <= UI_SCALE_MIN
+        ? "compact"
+        : "regular";
   return { uiScale, density };
 }
 
