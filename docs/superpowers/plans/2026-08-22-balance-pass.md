@@ -1,8 +1,10 @@
 # Balance pass: the congestion build, every tier
 
 **For:** a long-running, goal-oriented session (cloud, overnight).
-**Branch:** `claude/bay-cleared-screen-ux-klz9n3` — PR #40, base `staging`.
-**Baseline commit:** `59dcca1`.
+**Start from:** `staging`, which is where PR #40 landed.
+**Work on:** a new branch off `staging` — e.g. `claude/balance-pass-<slug>`.
+**Finish with:** a PR back into `staging`. Do not commit to `staging` directly.
+**Baseline commit:** the merge of PR #40 (`d8a7820`'s content).
 
 The goal is one sentence: **decide whether the numbers changed on 2026-08-21/22
 are right, using the sim, at every tier — and fix the ones that are not.**
@@ -203,9 +205,25 @@ moves, the seam scale must move with it, and the shared constant is how.
 
 ## 6. Working agreement for the session
 
-- Land on `claude/bay-cleared-screen-ux-klz9n3` (PR #40, base `staging`).
-  **Never push `main`** — `wrangler.jsonc` binds `tetrilaunch.com` as a custom
-  domain and Play releases are cut from it, so merging there publishes.
+- **Branch off `staging`, PR back into `staging`.** Not directly onto
+  `staging`, and never onto `main`.
+
+  Not onto `staging` because of what this run is: a night of tuning is a night
+  of EXPERIMENTS, and most of them are wrong. Landing them straight on the
+  integration branch means the good ones and the discarded ones arrive
+  indistinguishable, on the branch that eventually merges to `main`, with no
+  point at which a human agreed to any of it. On a PR the whole night is one
+  reviewable object that can be taken in part or rejected whole.
+
+  Never onto `main` because `wrangler.jsonc` binds `tetrilaunch.com` as a
+  custom domain and Play releases are cut from it — merging there publishes the
+  live game as a side effect.
+
+- **Push early and often to the working branch**, so an overnight run that dies
+  at 3am leaves its findings behind rather than losing them. A dead-end
+  experiment is worth committing WITH the measurement that killed it; the next
+  session should not have to re-run a sweep to learn something was already
+  tried.
 - Every commit: `npm run typecheck && npm run test && npx tsx sim/uifit/run.ts`
   clean before pushing. CI runs `apk`, `fit` and `fit-webkit` per push.
 - **Record the measurement in the commit message**, not just the change. A
@@ -216,7 +234,7 @@ moves, the seam scale must move with it, and the shared constant is how.
 
 ## 7. Deliverable
 
-A summary naming, per tier: the implied run clear rate, whether the Mark is
+A PR into `staging`, plus a summary naming, per tier: the implied run clear rate, whether the Mark is
 free / impossible / just-short, how often the congestion tax fired and what it
 cost, and every number changed with the sweep that justified it.
 
