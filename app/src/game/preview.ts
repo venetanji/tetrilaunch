@@ -41,6 +41,10 @@ export interface PreviewRow {
    *  landscape phone drops first (app.css hides it at compact density), because
    *  it is the only class of row that is neither the frame nor the answer. */
   kind: "core" | "context";
+  /** The label a DENSE grid uses. A landscape phone packs the projection four
+   *  tiles across, ~63px of interior each; "Shots in the bank" does not survive
+   *  that, and a tile labelled "S…" names nothing. Same row, fewer words. */
+  short: string;
   /** The axis behind this row has BANKED notches on the run — the pressure is
    *  live whatever the current selection does. An active row is promoted to
    *  "core" (it is part of the frame the change is read against, so no filter
@@ -62,6 +66,9 @@ const clock = (sec: number): string => {
 interface Field {
   id: string;
   label: string;
+  /** Dense-grid label — see PreviewRow.short. Defaults to `label`, which is
+   *  right for anything already short enough to read at four across. */
+  short?: string;
   read(cfg: LevelConfig): number;
   fmt(v: number): string;
   /** True when a bigger number is worse news for the player. Drives colour
@@ -82,34 +89,35 @@ interface Field {
 }
 
 const FIELDS: Field[] = [
-  { id: "target", label: "Funding target", read: (c) => c.targetScore, fmt: money, higherIsWorse: true, always: true },
-  { id: "float", label: "Opening float", read: (c) => c.startingFunds, fmt: money, higherIsWorse: false, always: true },
-  { id: "cost", label: "Launch cost", read: (c) => c.launchCost, fmt: money, higherIsWorse: true, always: true },
+  { id: "target", label: "Funding target", short: "Target", read: (c) => c.targetScore, fmt: money, higherIsWorse: true, always: true },
+  { id: "float", label: "Opening float", short: "Float", read: (c) => c.startingFunds, fmt: money, higherIsWorse: false, always: true },
+  { id: "cost", label: "Launch cost", short: "Launch", read: (c) => c.launchCost, fmt: money, higherIsWorse: true, always: true },
   // Derived, and deliberately the headline the economy note argues in: a bay
   // opens with N shots in the bank. It is the one row where the levy's $5 and
   // the float's carry meet, so it moves when EITHER does.
   {
     id: "shots",
     label: "Shots in the bank",
+    short: "Shots",
     read: (c) => (c.launchCost > 0 ? Math.floor(c.startingFunds / c.launchCost) : 0),
     fmt: int,
     higherIsWorse: false,
     always: true,
   },
-  { id: "clock", label: "Shift clock", read: (c) => c.timeLimitSec, fmt: clock, higherIsWorse: false, always: true },
+  { id: "clock", label: "Shift clock", short: "Clock", read: (c) => c.timeLimitSec, fmt: clock, higherIsWorse: false, always: true },
   {
-    id: "wind", label: "Crosswind", read: (c) => c.windMax, fmt: (v) => v.toFixed(2),
+    id: "wind", label: "Crosswind", short: "Wind", read: (c) => c.windMax, fmt: (v) => v.toFixed(2),
     higherIsWorse: true, showWhen: (v) => v > 0.005, axis: "wind",
   },
   {
-    id: "sweeper", label: "Press speed", read: (c) => c.compactorSpeed, fmt: (v) => `${v.toFixed(2)}×`,
+    id: "sweeper", label: "Press speed", short: "Press", read: (c) => c.compactorSpeed, fmt: (v) => `${v.toFixed(2)}×`,
     higherIsWorse: true, axis: "sweeper",
   },
   {
     // Unit in the LABEL, not the value: "11 cells → 10 cells" is the one row
     // wide enough to wrap its tile onto a second line at phone widths, and one
     // taller tile costs a whole row of the grid.
-    id: "cells", label: "Press gap (cells)", read: (c) => c.compactorOpenCells, fmt: (v) => `${Math.round(v)}`,
+    id: "cells", label: "Press gap (cells)", short: "Gap (cells)", read: (c) => c.compactorOpenCells, fmt: (v) => `${Math.round(v)}`,
     higherIsWorse: false, axis: "sweeper",
   },
   // The content axes, in ladder order, labelled off their own HazardDef so a
@@ -117,6 +125,7 @@ const FIELDS: Field[] = [
   ...HAZARDS.filter((h) => h.material).map((h): Field => ({
     id: `mat:${h.material}`,
     label: `${h.name.replace(/ Contract$/, "")} on the belt`,
+    short: h.name.replace(/ Contract$/, ""),
     read: (c) => c.materialMix[h.material!] ?? 0,
     fmt: rate,
     higherIsWorse: true,
@@ -155,6 +164,7 @@ export function previewRows(
     rows.push({
       id: f.id,
       label: f.label,
+      short: f.short ?? f.label,
       from,
       to,
       changed,

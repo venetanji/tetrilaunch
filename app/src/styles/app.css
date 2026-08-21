@@ -1679,6 +1679,10 @@ body.crt-off #app::after { display: none; }
   font-size: 10px; color: var(--text-muted); line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* One row, two labels, one shown (see screens.ts). The long one everywhere
+   there is room; the short one in the compact grid, where the tile is a
+   quarter of a phone's projection column. */
+.preview-stat__short { display: none; }
 /* An ACTIVE row: its axis has banked notches, so the pressure is live whatever
    the current selection touches (Codex #1 / canvas A12 — previewRows pins the
    row to the projection; this is the flag that says why). Declared BEFORE the
@@ -1805,9 +1809,24 @@ body.crt-off #app::after { display: none; }
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   }
   .modal--draft .draft__preview { padding: 5px 7px; gap: 4px; }
-  .modal--draft .preview-grid { grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 4px; }
+  /* FOUR across, stated rather than solved. `auto-fit, minmax(76px, 1fr)` made
+     the column count a function of a width the modal computes from vw: at
+     640x360 the grid comes out 313.7px, four tracks need 4x76 + 3x4 = 316, and
+     it lost by 2.3px — so the tightest device in the matrix, and only that one,
+     dropped to three columns and paid a fourth 37px row for it. That was the
+     2px WebKit overflow: an engine whose text metrics differ by a pixel could
+     flip the whole layout. A fixed count cannot be flipped by rounding, and at
+     the four widths that reach compact it produces 75-90px tiles either way. */
+  .modal--draft .preview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
   .modal--draft .preview-stat { padding: 2px 5px; gap: 0; }
   .modal--draft .preview-stat__label { font-size: 8px; }
+  .modal--draft .preview-stat__long { display: none; }
+  .modal--draft .preview-stat__short { display: inline; }
+  /* The ACTIVE tag stands down here and lets the amber border carry the same
+     fact. Four across, the tag took most of the tile's width and left the
+     label as one letter — which loses the row's identity to keep a flag that
+     the border was already flying. */
+  .modal--draft .preview-stat__live { display: none; }
   .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
   .modal--draft .preview-stat__from { font-size: 10px; }
   .modal--draft .draft__confirm-note { font-size: 9px; }

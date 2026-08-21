@@ -1111,6 +1111,13 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   // The compact grid drops unmoved CONTEXT rows and keeps the priced five (see
   // app.css's [data-density="compact"] rule). That only holds if every always-on
   // row is tagged core and everything else context.
+  // The compact grid is four tiles across a phone's projection column, so every
+  // row needs a label that survives ~63px. The long ones do not, which is what
+  // `short` is for — and a short label that isn't shorter is a row that will
+  // ellipsise to a single letter in the dense grid.
+  check("every row carries a dense-grid label that fits one",
+    idle.every((r) => r.short.length > 0 && r.short.length <= r.label.length && r.short.length <= 11),
+    idle.filter((r) => r.short.length > 11 || r.short.length > r.label.length).map((r) => r.short).join(","));
   check("the priced numbers are the core rows, and nothing else is",
     idle.filter((r) => r.kind === "core").map((r) => r.id).join(",") === "target,float,cost,shots,clock",
     idle.filter((r) => r.kind === "core").map((r) => r.id).join(","));

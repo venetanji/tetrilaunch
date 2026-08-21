@@ -1458,9 +1458,14 @@ export function draftScreen(opts: {
       // whatever this selection touches (previewRows promotes it to core), and
       // the tag says why the row refuses to leave (Codex #1 / canvas A12).
       const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
+      // Both labels ship; app.css picks one by density. A landscape phone packs
+      // this grid four across, and at ~63px of interior "Shots in the bank"
+      // ellipsised to "S…" — with the ACTIVE tag beside it, four of the ten
+      // tiles named nothing at all.
+      const txt = `<span class="preview-stat__long">${r.label}</span><span class="preview-stat__short">${r.short}</span>`;
       const label = r.active
-        ? `<span class="preview-stat__labeltxt">${r.label}</span><span class="preview-stat__live">ACTIVE</span>`
-        : r.label;
+        ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
+        : txt;
       return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
         <div class="preview-stat__label">${label}</div>
         <div class="preview-stat__val">${val}</div>
