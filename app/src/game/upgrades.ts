@@ -69,7 +69,11 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Bay Extension",
     glyph: "BAY",
     blurb: "Widens the compaction zone at the open stop — more room to land in, longer lines to sell.",
-    tiers: ["+2 open cells (14)", "+4 open cells (16)", "+6 open cells (18)"],
+    tiers: [
+      "+2 open cells (14) · +4 cubes before congestion",
+      "+4 open cells (16) · +8 cubes before congestion",
+      "+6 open cells (18) · +12 cubes before congestion",
+    ],
     // 12 is makeBaseLevel's stock width and, now that Wide Bay is gone, the
     // only thing that moves it is this track — so the reading is exact rather
     // than an estimate that a draft could silently invalidate.
@@ -81,6 +85,22 @@ export const UPGRADES: UpgradeDef[] = [
       // answer to a bay whose stack keeps topping out, so it should be
       // something you can decide to build toward.
       cfg.compactorOpenCells = Math.min(18, cfg.compactorOpenCells + 2 * tier);
+      // The congestion tax's counter, and the reason it is a SYSTEM rather
+      // than a difficulty setting. level.ts ships pileAllowance as an
+      // explicit upgrade seam — "a player who invests here buys back the right
+      // to fire into a fuller bay" — and nothing set it: the field was read by
+      // game.ts's pileTier and swept by sim/pile.ts, but every real level got 0
+      // and no purchase could move it, so the tax had no answer you could buy.
+      //
+      // It belongs on THIS track and not its own. A wider compaction zone
+      // literally is more room for loose cargo to sit in without being in the
+      // way, so the allowance is the same purchase read a second way rather
+      // than a second purchase; and pricing congestion relief separately would
+      // sell the player a way to opt out of the mechanic instead of a way to
+      // play further into it. +4 a tier against thresholds of 32 and 48 moves
+      // the first tax from four lines' worth of clutter to just under six at
+      // tier 3 — later, never absent.
+      cfg.pileAllowance += 4 * tier;
     },
   },
   {

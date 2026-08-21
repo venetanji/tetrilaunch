@@ -3145,6 +3145,25 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   const cg = new Game(congestedCfg, {}, 1);
 
   check("an empty bay is untaxed", cg.pileTier === null);
+  // The tax has a purchase that answers it. pileAllowance shipped as a seam
+  // nothing could move — read by pileTier, swept by sim/pile.ts, and 0 in
+  // every real level — so the congestion rule had no counter you could buy.
+  // Bay Extension raises it, which is what makes a system the coping
+  // mechanism rather than the tax being a flat difficulty knob.
+  {
+    const allowanceAt = (bay: number): number => {
+      const cfg = makeBaseLevel(0);
+      applyUpgrades(cfg, { ...newTiers(), bay });
+      return cfg.pileAllowance;
+    };
+    check("a stock rig gets no congestion allowance", allowanceAt(0) === 0,
+      String(allowanceAt(0)));
+    check("Bay Extension buys room before the tax bites", allowanceAt(3) === 12,
+      String(allowanceAt(3)));
+    check("the allowance rises with the tier",
+      allowanceAt(1) === 4 && allowanceAt(2) === 8,
+      `${allowanceAt(1)}/${allowanceAt(2)}`);
+  }
   check("an untaxed launch costs the base rate", cg.launchCostNow === congestedCfg.launchCost);
 
   // A std shipment is 4 cubes, so two launches put 8 on the field — past both
