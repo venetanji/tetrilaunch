@@ -16,6 +16,7 @@ import * as S from "../../src/ui/screens";
 import type { ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
+import { LEVEL_1 } from "../../src/game/level";
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { previewRows } from "../../src/game/preview";
@@ -99,6 +100,38 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+/** A first-bay HUD as the tutorial actually meets it: stock rig, no abilities,
+ *  bay 1's real numbers (LEVEL_1). The coach only ever runs on bay 1 of a
+ *  fresh player's Deep Run, so measuring it over HUD_BASE would price a rail
+ *  and a mods row the first session cannot have. */
+const HUD_TUTORIAL = {
+  beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 0, empty: false, material: "standard" as const },
+  target: LEVEL_1.targetScore,
+  score: LEVEL_1.startingFunds,
+  launchCost: LEVEL_1.launchCost,
+  bayNum: 1,
+  timeLimitSec: LEVEL_1.timeLimitSec,
+  timeLeftMs: LEVEL_1.timeLimitSec * 1000,
+  pieceSize: "std" as const,
+  bondBreakerOwned: false,
+  bondCharges: 0,
+  demoOwned: false,
+  autoloaderOwned: false,
+  bombCharges: 0,
+  ratchets: {} as Ratchets,
+  tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+};
+
+/** main.ts's mountCoach puts the card INSIDE .plant as its first child, and
+ *  syncCoachReveal stamps the step onto #hud as `data-coach` — the attribute
+ *  the progressive-reveal CSS keys off. Reproduced as string edits so the
+ *  harness measures the DOM the app actually shows mid-tutorial, not a
+ *  sibling layout it never renders. */
+const withCoach = (hud: string, step: number, coach: string): string =>
+  hud
+    .replace('<div class="hud" id="hud">', `<div class="hud" id="hud" data-coach="${step}">`)
+    .replace('<div class="plant">', `<div class="plant">${coach}`);
+
 /** main.ts adds `is-live` to .menu__demo once the attract demo is running on a
  *  real canvas. Applied here as a string edit rather than by mounting the demo:
  *  the class is the entire difference to LAYOUT, and running Matter.js in the
@@ -180,6 +213,18 @@ export const SCREENS: Record<string, () => string> = {
   // two-pick hand moves the most rows at once. Measured as its own screen so a
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
+
+  // The tutorial, at its two extremes of card height and HUD reveal: step 0
+  // (longest gesture copy, plant fully collapsed) and step 3 (the economy
+  // card's four sentences, most of the readout revealed). Both states ship to
+  // every first-session player, which made them the one flow the harness
+  // couldn't see.
+  coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, LEVEL_1)),
+  "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, LEVEL_1)),
+  // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
+  // fullest explanation copy of the three causes.
+  "coach-fail": () =>
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null }) + S.coachFailHTML("broke", LEVEL_1, LEVEL_1.name),
 
   "end-won": () => endModal(true),
   "end-lost": () => endModal(false),

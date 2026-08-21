@@ -2596,9 +2596,17 @@ button.panel { color: var(--text); }
    If the card ever exceeds the cap, its body gives up the tail rather than the
    panel eating the cannon — min-height:0 is what lets a flex child shrink. */
 .hud[data-coach] .plant { max-height: calc(0.52 * var(--field-h)); }
+/* The card is the child that gives way at the cap, because its body is the one
+   block in the panel that can scroll. `flex: none` (the base .coach rule) pins
+   flex-shrink at 0, which quietly defeated the min-height chain below: at the
+   cap the panel could not shrink the card, so the overflow went to the READOUT
+   instead — Launches and Reload spilled below the panel's bottom edge, off the
+   bottom of a 360px viewport, on exactly the step that had just revealed them
+   (caught by the coach-final fixture on five of twelve devices). */
+.hud[data-coach] .coach { flex: 0 1 auto; }
 .hud[data-coach] .coach,
 .hud[data-coach] .coach__card { min-height: 0; }
-.hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; }
+.hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---------- Rotate-step spotlight (tutorial only) ----------
    While the rotate card is up (data-coach="1"), the two ⟲/⟳ rail buttons

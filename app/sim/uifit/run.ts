@@ -68,6 +68,12 @@ const ALLOWED_SCROLLERS = [
   // screen. Packed to three columns at compact density so it scrolls as little
   // as possible.
   "#refit-grid",
+  // The tutorial card's body, at the plant panel's tutorial cap only. The cap
+  // (52% of the field height, from clearing the cannon sprite — see app.css's
+  // `.hud[data-coach] .plant`) is a hard ceiling, and when a step's copy wants
+  // more than the cap leaves, the DESIGNED give-way is the card's own body
+  // scrolling its tail — never the readout spilling off the panel's bottom.
+  ".coach__body",
 ];
 
 /**
@@ -220,10 +226,17 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
   const cssPx = (name: string): number => parseFloat(rootStyle.getPropertyValue(name));
 
   // --- plant: the HUD panel must stay inside its 42.96%-of-field box ---------
+  // The TUTORIAL state has its own, deliberately larger budget: while the coach
+  // card shares the panel's column, app.css caps .plant at 52% of the field
+  // height — a cap derived from clearing the cannon sprite, see the
+  // `.hud[data-coach] .plant` max-height rule — so THAT cap is the design box
+  // the assertion holds the panel to on the coach screens. Same number, one
+  // source of truth in the stylesheet, read here rather than re-derived.
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
-    const design = 0.4296 * fh;
+    const coached = !!document.querySelector(".hud[data-coach]");
+    const design = (coached ? 0.52 : 0.4296) * fh;
     const h = plant.getBoundingClientRect().height;
     if (h > design + 1) {
       out.plant.push(

@@ -723,7 +723,16 @@ class App {
     document.documentElement.dataset.density = l.density;
 
     const mobile = "ontouchstart" in window || w < 900;
-    this.guard.classList.toggle("show", isPortrait() && mobile);
+    const covered = isPortrait() && mobile;
+    this.guard.classList.toggle("show", covered);
+    // The guard is opaque and covers the whole app, and it used to cover a bay
+    // that KEPT RUNNING — physics stepping, the shift clock draining — behind a
+    // card the player can neither see through nor reach past, so a rotation
+    // (or a system overlay that resizes to portrait) could lose the run blind.
+    // Going portrait mid-bay is a pause, exactly as if ⏸ had been tapped;
+    // rotating back lands on the pause modal and resuming is the player's own
+    // tap, never an ambush back into live physics.
+    if (covered && this.state === "playing") this.pause();
     // The guard just went up or came down — the demo follows it (see
     // syncAttract). Cheap when nothing changed: mount() is a no-op once it's
     // already running against this canvas.
