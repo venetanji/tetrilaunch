@@ -83,6 +83,10 @@ function midMeta(): MetaState {
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, material: "cryo" as const },
+  // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
+  // wide piece so the muzzle-end tile is measured at its fattest.
+  loaded: { bomb: false, type: "I" as PieceType, quarterTurns: 1, empty: false, material: "slag" as const },
+  tier: 6,
   target: 1_700,
   score: 1_259,
   launchCost: 25,
@@ -105,12 +109,23 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+/** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
+ *  NEXT STEP badge on Workshop (salvage covers an install) and the live
+ *  numbers the subtitles state the offer in. */
+const GUIDE = {
+  step: "workshop" as const,
+  install: { name: "Loader Magazine", cost: 25 },
+  firstLaunch: false,
+};
+
 /** A first-bay HUD as the tutorial actually meets it: stock rig, no abilities,
  *  bay 1's real numbers (LEVEL_1). The coach only ever runs on bay 1 of a
  *  fresh player's Deep Run, so measuring it over HUD_BASE would price a rail
  *  and a mods row the first session cannot have. */
 const HUD_TUTORIAL = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 0, empty: false, material: "standard" as const },
+  loaded: { bomb: false, type: "L" as PieceType, quarterTurns: 0, empty: false, material: "standard" as const },
+  tier: 1,
   target: LEVEL_1.targetScore,
   score: LEVEL_1.startingFunds,
   launchCost: LEVEL_1.launchCost,
@@ -158,13 +173,22 @@ export const SCREENS: Record<string, () => string> = {
   // materially different height. The plain fixture is therefore the
   // reduced-motion / no-2D-context fallback, not an artificial state: it is what
   // a player with "reduce motion" on actually sees.
-  menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS),
-  "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS)),
+  menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE)),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>
-    S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS),
+    S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE),
   "menu-unlimited-live": () =>
-    live(S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS)),
+    live(S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE)),
+  // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
+  // the upsell chip — the tallest menu the app can produce, which is exactly
+  // why it is its own fixture.
+  "menu-first": () =>
+    S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "contracts",
+      install: { name: "Reactor Output", cost: 15 },
+      firstLaunch: true,
+    }),
 
   howto: () => S.howtoScreen(),
   settings: () => S.settingsScreen(SETTINGS, STORE),
@@ -179,6 +203,8 @@ export const SCREENS: Record<string, () => string> = {
       tier: 3,
       cleared: [],
       progress: PROGRESS,
+      // The WHY strip's longest state (A9): a named install and its price.
+      nextInstall: { name: "Press Hydraulics", cost: 30 },
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),

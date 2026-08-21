@@ -32,8 +32,9 @@ import {
   MAX_TIER, nextTierCost, refitTracks, upgradeById, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, buyInstall, installAvailable, markUnlocked, recordContractClear, recordRunEnd,
-  safeLoadout, tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
+  INSTALLS, buyInstall, installAvailable, markUnlocked, nextStep, recordContractClear,
+  recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable, unlockById,
+  type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -150,9 +151,11 @@ class App {
   private dpr = 1;
   private last = 0;
   private acc = 0;
-  /** Composite "type:quarterTurns:bomb:pieceCubes" key so the HUD preview
-   *  refreshes on rotation, bomb telegraph, or a piece-size mutator too. */
+  /** Composite render key so the HUD's queue tiles refresh on rotation, bomb
+   *  telegraph, or a piece-size mutator too — plus the identity half alone,
+   *  which gates the arrival animation (see syncHud's queue block). */
   private lastNext: string | null = null;
+  private lastNextId: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
   private submitted = false;
 
@@ -404,6 +407,17 @@ class App {
     }
     return {
       beltPreview: g.beltPreview,
+      // The transport's first queue slot (canvas A5): what the cannon is
+      // holding, at its live rotation — a bomb tile while one is armed,
+      // because that is what the next trigger pull actually fires.
+      loaded: {
+        bomb: g.bombArmed,
+        type: g.cannon.currentType,
+        quarterTurns: g.cannon.quarterTurns,
+        empty: false,
+        material: g.cannon.currentMaterial,
+      },
+      tier: this.run?.mark ?? null,
       target: g.target,
       score: g.score,
       launchCost: g.level.launchCost,
@@ -471,6 +485,14 @@ class App {
         this.resetRailBudget();
         this.overlay.innerHTML = S.menuScreen(
           loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
+          // The first-session system (canvas A2/A3): the one computed NEXT
+          // STEP, the live numbers for the subtitles, and the Guided
+          // Tutorial entry until the coach has been finished or skipped.
+          {
+            step: nextStep(this.meta),
+            install: this.nextInstall(),
+            firstLaunch: !this.settings.seenTutorial,
+          },
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
@@ -485,6 +507,7 @@ class App {
           // when the player comes back to see what they'd already done.
           cleared: this.meta.claimedContracts,
           progress: tierProgressFor(this.meta),
+          nextInstall: this.nextInstall(),
         });
         break;
       case "contract-end":
@@ -541,6 +564,7 @@ class App {
             this.mountCoach(S.coachHTML(this.tutorialStep, g.level));
           }
           this.lastNext = null;
+          this.lastNextId = null;
           this.syncCoachReveal();
         }
         break;
@@ -1600,21 +1624,38 @@ class App {
       this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
-    // NEXT preview rides the conveyor belt (top-left) — the shot that fires
-    // AFTER the muzzle's (see game.ts's beltPreview), just the colored piece
-    // grid, no label/type text (see components.ts's beltPieceHTML).
+    // The transport's two-deep queue (canvas A5): the piece the cannon is
+    // HOLDING at the muzzle end (a bomb tile while one is armed — that is
+    // what the next trigger pull fires) and the piece coming AFTER it behind
+    // (game.ts's beltPreview). The identity key gates the ~180ms load
+    // animation separately from the render key: a rotate tap re-renders the
+    // held tile at its new orientation but must not replay the arrival slide.
     const bp = g.beltPreview;
-    const nextKey = `${bp.type}:${bp.quarterTurns}:${bp.bomb ? 1 : 0}:${bp.empty ? 1 : 0}:${g.level.pieceSize}:${bp.material}`;
+    const idKey = [
+      g.cannon.currentType, g.bombArmed ? 1 : 0, g.cannon.currentMaterial,
+      bp.type, bp.bomb ? 1 : 0, bp.empty ? 1 : 0, bp.material, g.level.pieceSize,
+    ].join(":");
+    const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
-      const next = this.overlay.querySelector("#hud-next");
+      const arrived = this.lastNextId !== idKey;
+      const next = this.overlay.querySelector<HTMLElement>("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
           : bp.empty
             ? ""
             : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
+        next.classList.toggle("belt-piece--still", !arrived);
+      }
+      const held = this.overlay.querySelector<HTMLElement>("#hud-loaded");
+      if (held) {
+        held.innerHTML = g.bombArmed
+          ? beltBombHTML()
+          : beltPieceHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceSize, g.cannon.currentMaterial);
+        held.classList.toggle("belt-piece--still", !arrived);
       }
       this.lastNext = nextKey;
+      this.lastNextId = idKey;
     }
     // Each ABILITY has TWO triggers on screen at once when drafted — the plant
     // chip and the touch-rail button (see screens.ts's hudHTML) — kept in sync

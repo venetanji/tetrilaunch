@@ -12,8 +12,10 @@ import {
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
-  markBudget, type MetaState, type TierProgress,
+  installById, markBudget, tierMilestoneSalvage, tierProgressFor,
+  type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
+import { DAILY_COUNT } from "../game/contracts";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
@@ -22,6 +24,22 @@ import {
   HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
 import type { PreviewRow } from "../game/preview";
+
+/* ---------------------------------------------------------------------------
+ * TIER PLATE — one component at three sizes (canvas A1/A4/C · A15's note):
+ * 58x52 in the Deep Run menu button, 26px on the run-end primary, 11px in the
+ * bay banner. The pixel TIER label with the mono number, always the same two
+ * parts, so the ladder has ONE face wherever it shows up.
+ * ------------------------------------------------------------------------ */
+export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
+  return `<span class="tier-plate tier-plate--${size}" aria-label="Tier ${tier}"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">${tier}</span></span>`;
+}
+
+/** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
+ *  meta.ts's nextStep — this is just the chip. */
+export function nextBadgeHTML(label = "Next step"): string {
+  return `<span class="next-badge">${label}</span>`;
+}
 
 /** The portrait rotate guard. The markup lives here rather than inline in
  *  main.ts's boot HTML so the uifit harness renders the exact DOM the app
@@ -49,12 +67,20 @@ export function splashScreen(): string {
 }
 
 /** `store` is absent on web and on native builds without a RevenueCat key —
- *  the store entry point hides itself rather than offering a dead button. */
+ *  the store entry point hides itself rather than offering a dead button.
+ *  `guide` carries the first-session system (canvas A2/A3): which action
+ *  holds the ONE NEXT STEP badge, the live numbers the subtitles state the
+ *  offer in, and whether the Guided Tutorial entry is still owed. */
 export function menuScreen(
   best: number,
   salvage = 0,
   store?: StoreState,
   progress?: TierProgress,
+  guide?: {
+    step: NextStepId;
+    install: { name: string; cost: number } | null;
+    firstLaunch: boolean;
+  },
 ): string {
   // The tier chip answers "where am I on the ladder and what's left" from the
   // homepage (playtest call, 2026-08-08): the tier being flown, and the two
@@ -112,12 +138,40 @@ export function menuScreen(
       <div class="menu__actions">
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
-             a new player until each is explained — keep the flavour, add one
-             plain line saying what the button actually does). -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu" data-action="play">${icon("play")}<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays in one run</span></span></button>
-        <button class="btn btn--secondary btn--block btn--menu" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">Short challenges · retry freely</span></span></button>
-        <button class="btn btn--secondary btn--block btn--menu" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">Spend Salvage on permanent unlocks</span></span></button>
-        <button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>
+             a new player until each is explained). The subtitles state the
+             offer in LIVE numbers (A3), the Deep Run button carries the tier
+             plate (A1 — the plate takes the icon slot), and exactly one
+             button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
+        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play">${
+          progress ? tierPlateHTML(progress.tier, "menu") : icon("play")
+        }<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays${progress ? ` at Tier ${progress.tier}` : ""} in one run</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
+          // Numbers lead (A3): at compact the sub is one ellipsized line, so
+          // the live figures must sit before the prose that can afford to go.
+          progress
+            ? `${DAILY_COUNT} today · ♻ ${progress.milestone} each · no clock, no launch cost`
+            : "Short challenges · retry freely"
+        }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
+          guide
+            ? guide.install
+              ? salvage >= guide.install.cost
+                ? `♻ ${salvage} — ${guide.install.name} costs ♻ ${guide.install.cost}`
+                : `♻ ${salvage} — Contracts pay salvage`
+              : `♻ ${salvage} banked`
+            : "Spend Salvage on permanent unlocks"
+        }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
+        ${
+          // A2: on first launch the Guided Tutorial takes How to Play's slot,
+          // badged START HERE — it supersedes the manual for a player who has
+          // never fired a shot, and the column stays six rows at every
+          // density (a seventh row overflows a 360dp phone by 70px). Once the
+          // coach is finished or skipped the entry disappears and How to Play
+          // returns, keeping the guided replay.
+          guide?.firstLaunch
+            ? `<button class="btn btn--secondary btn--block btn--menu btn--next" data-action="tutorial">${icon("howto")}<span class="btn__txt">Guided Tutorial<span class="btn__sub">Learn the cannon in one bay</span></span>${nextBadgeHTML("Start here")}</button>`
+            : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
+        }
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
         <!-- The Unlimited upsell is NOT a seventh button here. This column gets
              325px on a landscape phone and six buttons need 290 — a seventh
@@ -387,6 +441,13 @@ export function hudHTML(opts: {
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
   tiers: UpgradeTiers;
+  /** The run's tier, for the bay banner's plate (canvas A4). Null in
+   *  Contract mode, whose banner names the Contract instead. */
+  tier?: number | null;
+  /** What the cannon is HOLDING — the transport's first queue slot (canvas
+   *  A5's two-deep read: loaded full-size, next behind it). The canvas draws
+   *  the same piece at the muzzle; the housing is where it reads as a queue. */
+  loaded?: BeltPreview | null;
   /** Present only in CONTRACT mode. A Contract has no bankroll and no clock, so
    *  the funds/launches readout would show $0 and 0 launches forever; this
    *  swaps in the two numbers that actually govern it — lines toward the goal,
@@ -408,7 +469,7 @@ export function hudHTML(opts: {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    contract,
+    tier, loaded, contract,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -417,7 +478,18 @@ export function hudHTML(opts: {
     ? beltBombHTML()
     : beltPreview.empty
       ? ""
-      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize);
+      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
+  const beltLoadedHTML = !loaded
+    ? ""
+    : loaded.bomb
+      ? beltBombHTML()
+      : loaded.empty
+        ? ""
+        : beltPieceHTML(loaded.type, loaded.quarterTurns, pieceSize, loaded.material);
+  // A5's size tag: the shipment class this bay runs on, said in one word at
+  // the housing. Dropped at compact density (the phone rule) — the tile's own
+  // cube count already carries the read there.
+  const sizeTag = pieceSize === "tiny" ? "Micro" : pieceSize === "bulk" ? "Bulk" : "Std";
   const launches = Math.floor(score / Math.max(1, launchCost));
   const timeBlock =
     timeLimitSec > 0
@@ -464,7 +536,8 @@ export function hudHTML(opts: {
     ? `<div class="bay-banner bay-banner--contract" role="status">
         <span class="bay-banner__mode">Contract</span> ${contract.name}
       </div>`
-    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}">
+    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, tier ${tier}` : ""}">
+        ${tier ? tierPlateHTML(tier, "banner") : ""}
         <span class="bay-banner__mode">Bay</span>
         <span class="bay-banner__n">${bayNum}<span class="bay-banner__of">/${RUN_LEVELS}</span></span>
         <span class="bay-banner__pips" aria-hidden="true">${Array.from(
@@ -506,16 +579,26 @@ export function hudHTML(opts: {
 
     ${bayBanner}
 
-    <!-- conveyor belt: the piece that fires AFTER the loaded one rides in
-         from the top-left and feeds the cannon (see components.ts's
-         beltPieceHTML/beltBombHTML — the real queued piece's shape/colors,
-         not a mockup stand-in). -->
-    <div class="belt" aria-label="Next piece">
+    <!-- INFEED TRANSPORT (canvas A5, proposal A "infeed housing"): the feed
+         head takes hazard stripes, the tread animates toward the cannon, and
+         the queue reads TWO deep — the piece the cannon is HOLDING full-size
+         at the downhill (muzzle) end, the piece coming after it behind at
+         reduced opacity. Real queue data, not a mockup: components.ts's
+         beltPieceHTML renders the exact shape/rotation/material, and the
+         MATERIAL_SPEC colour makes cryo/slag legible before firing. The size
+         tag names the bay's shipment class; compact drops it (A5's phone
+         rule), and the whole transport hides under the coach card at compact
+         (A6 — see app.css). -->
+    <div class="belt" aria-label="Shipment feed">
+      <span class="belt__feed" aria-hidden="true">Feed</span>
       <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
       <div class="belt__roller belt__roller--l"></div>
       <div class="belt__roller belt__roller--r"></div>
       <span class="belt__lbl">◂ NEXT</span>
-      <div class="belt-piece" id="hud-next">${beltNextHTML}</div>
+      <div class="belt-piece belt-piece--next" id="hud-next">${beltNextHTML}</div>
+      ${loaded ? `<div class="belt-piece belt-piece--loaded" id="hud-loaded">${beltLoadedHTML}</div>` : ""}
+      <span class="belt__tag" aria-hidden="true">${sizeTag}</span>
+      <span class="belt__out" aria-hidden="true">${icon("play", 10)}</span>
     </div>
 
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
@@ -798,15 +881,27 @@ export function coachFailHTML(
   bayName: string,
 ): string {
   const s = coachFailSteps(reason, level);
+  // A8: the one NEXT STEP block, explaining the chain out of the wall the
+  // player just hit — Contracts pay salvage, salvage buys the Reactor, the
+  // Reactor is a bigger float for THIS bay. Tier-1 numbers, stated live,
+  // because the coach only ever runs on a first-tier run.
+  const milestone = tierMilestoneSalvage(1);
+  const reactor = installById("reactor")!;
+  const nextBlock = `<div class="coach__next">
+          ${nextBadgeHTML()}
+          <p>Contracts have no clock and no launch cost, and each first clear banks <b>♻ ${milestone}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (♻ ${reactor.cost}), a bigger float for this exact bay.</p>
+        </div>`;
   return `<div class="modal-scrim" id="scrim">
     <div class="coach coach--fail">
       <div class="coach__card">
         <div class="coach__eyebrow">Tutorial · ${bayName}</div>
         <div class="coach__title">${s.title}</div>
         <p class="coach__body">${s.body}</p>
+        ${nextBlock}
         <div class="coach__foot coach__foot--fail">
           <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">${icon("retry", 13)}Try this bay again</button>
           <div class="row coach__foot-row">
+            <button class="btn btn--secondary" data-action="contracts">View Contracts</button>
             <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
             <button class="btn btn--ghost" data-action="menu">Menu</button>
           </div>
@@ -873,6 +968,11 @@ export function refitScreen(opts: {
    *  upgrades.ts's refitTracks for the tuning rationale). */
   mark: number;
 }): string {
+  // A14: ROWS on the leaderboard's scroll pattern, not cards. The grammar per
+  // row: glyph · name over its state line · tier pips · the price button (in
+  // B6's "T2 · ♻ 35" words). An uninstalled track says where it IS bought —
+  // the Workshop — instead of wearing a live-looking price, and the full
+  // ladder survives in `title` for where hover exists.
   const tracks = refitTracks(opts.mark);
   const cards = tracks.map((u) => {
     const tier = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
@@ -882,40 +982,29 @@ export function refitScreen(opts: {
       `<i class="${i < tier ? "on" : ""}"></i>`,
     ).join("");
     // The button carries the whole purchase: which way the number moves, by how
-    // much, and what it costs. Previously it said only "♻ 120", so the price
-    // was on the button and the thing being bought was three lines above it.
+    // much, and what it costs (B6's grammar for the price).
     const step = cost === null ? null : u.step(tier);
     // Tier 0 is NOT INSTALLED, and refit cannot install (run.ts's buyUpgrade
-    // refuses it): a system is bought once, with salvage, in the Workshop. The
-    // card used to price tier 0 like any other rung, which after that rule
-    // landed meant a live 20-scrap button that tapped to nothing.
+    // refuses it): a system is bought once, with salvage, in the Workshop.
     const btn =
       tier === 0
-        ? `<span class="refit-card__locked">Not installed · Workshop</span>`
+        ? `<span class="refit-row__locked">Not installed — buy it in the <b>Workshop</b></span>`
         : cost === null || step === null
-        ? `<span class="refit-card__max">MAX</span>`
+        ? `<span class="refit-row__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
             <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</span>
           </button>`;
-    // One line, and it states what the ship HAS rather than what a purchase
-    // would add. The full three-line ladder cost 43px per card and six of them
-    // overflowed the grid by 145px on a 360px-tall phone; two of those lines
-    // described purchases the player could not make yet. The pips carry
-    // progress, the button carries the change, and the ladder survives in
-    // `title` for where hover exists.
-    const now = `<div class="refit-card__now">${u.current(tier)}</div>`;
     const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
-    return `<div class="refit-card${tier > 0 ? " refit-card--owned" : ""}" title="${u.name} — ${ladder}">
-      <div class="refit-card__hdr">
-        <span class="refit-card__glyph">${icon(u.id as IconName, 15)}</span>
-        <span class="refit-card__name">${u.name}</span>
-        <span class="refit-card__pips">${pips}</span>
+    return `<div class="refit-row${tier > 0 ? " refit-row--owned" : ""}" title="${u.name} — ${ladder}">
+      <span class="refit-row__glyph">${icon(u.id as IconName, 26)}</span>
+      <div class="refit-row__body">
+        <span class="refit-row__name">${u.name}</span>
+        <span class="refit-row__state">${u.current(tier)}</span>
       </div>
-      <p class="refit-card__blurb">${u.blurb}</p>
-      <div class="refit-card__tiers">${now}</div>
-      <div class="refit-card__foot">${btn}</div>
+      <span class="refit-row__pips">${pips}</span>
+      <div class="refit-row__foot">${btn}</div>
     </div>`;
   }).join("");
 
@@ -1023,6 +1112,12 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
   // rides on the section label because the cap, not the price, is what usually
   // stops a purchase here — a player staring at 400 salvage and a greyed card
   // needs to be told it is the Mark talking.
+  // A11: the ONE next-step card — the cheapest system the player can both
+  // reach and afford right now carries the badge and the warm border, so the
+  // shelf answers "which of these should I buy" instead of just listing.
+  const nextId = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
+    .filter((i) => installAvailable(meta, i) && meta.salvage >= i.cost)
+    .sort((a, b) => a.cost - b.cost)[0]?.id;
   const installCards = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
     .map((i) => {
       const def = upgradeById(i.id)!;
@@ -1035,9 +1130,9 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       const foot = available
         ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
-      return `<div class="shop-card${available ? "" : " shop-card--gated"}">
+      return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
-        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}</div>
+        <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
         <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
       </div>
       <div class="shop-card__foot">${foot}</div>
@@ -1102,7 +1197,14 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
       </div>
-      <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
+      <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"} · ${
+        // A11: the meta line carries tier progress, in the same grammar the
+        // menu chip and the end modals use.
+        (() => {
+          const p = tierProgressFor(meta);
+          return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
+        })()
+      }</div>
       ${tabBar}
       <div class="workshop__shop" role="tabpanel" data-scroll>${pane}</div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
@@ -1490,7 +1592,11 @@ export function endModal(opts: {
       </div>
       <div class="row end__actions">
         <button class="btn btn--primary" data-action="restart">${
-          opts.runComplete ? `Run Tier ${opts.progress.tier} →` : "Play Again"
+          // A15: the bay-10 primary carries the tier plate (the 26px size of
+          // the one component) and names the rung it flies next.
+          opts.runComplete
+            ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
+            : "Play Again"
         }</button>
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
@@ -1516,6 +1622,8 @@ export function contractsScreen(opts: {
    *  two halves that complete a tier (meta.ts), and this screen is where the
    *  player decides whether to play one, so the count belongs here. */
   progress?: TierProgress;
+  /** The cheapest installable system, for the WHY strip's target price (A9). */
+  nextInstall?: { name: string; cost: number } | null;
 }): string {
   const cards = opts.contracts
     .map((c, i) => {
@@ -1570,6 +1678,19 @@ export function contractsScreen(opts: {
       </p>
       ${status}
       <div class="howto__grid">${cards}</div>
+      ${
+        // A9: the WHY strip — the board's bottom line closes the loop the
+        // cards open, in the tier's own numbers.
+        opts.progress
+          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ♻ ${
+              opts.progress.milestone * opts.progress.needed
+            }${
+              opts.nextInstall
+                ? ` — ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop, before your next run`
+                : " toward the Workshop"
+            }.</p>`
+          : ""
+      }
     </div>
   </div>`;
 }

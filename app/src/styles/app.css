@@ -1284,7 +1284,12 @@ body.crt-off #app::after { display: none; }
 .belt__tread {
   position: absolute; inset: 0;
   background: repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 3px, transparent 3px 17px);
+  /* A5: the tread MOVES toward the cannon — one background-position loop,
+     the cheapest possible "this machine is running". */
+  background-size: 20px 100%;
+  animation: belt-tread 900ms linear infinite;
 }
+@keyframes belt-tread { to { background-position-x: 20px; } }
 .belt__arrows {
   position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
   text-align: center; color: rgba(0,240,255,.35);
@@ -1306,13 +1311,63 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted);
   white-space: nowrap;
 }
-/* The tile rides the belt's uphill (top-left) end: the downhill end lands
-   right on the cannon (world ~x160 vs the cannon at x150), so pinning the
-   tile there overlapped the barrel and the muzzle ghost. The "◂ NEXT" label
-   at left 34% now points at the tile instead of empty track. */
+/* The queue reads TWO deep (canvas A5): the piece the cannon is HOLDING
+   rides the downhill (muzzle) end full-size, the piece coming after it sits
+   uphill behind at 65% opacity. The "◂ NEXT" label at left 34% points at the
+   next tile. */
 .belt-piece { position: absolute; left: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
+.belt-piece--next { opacity: 0.65; }
+.belt-piece--loaded { left: auto; right: calc(2 * var(--fpx)); }
 .belt-piece .next__grid { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); }
 .belt-piece .next__bomb-tile { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); font-size: max(13px, calc(29 * var(--fpx))); }
+/* A shipment ARRIVES rather than teleporting — main.ts swaps the tile's
+   innerHTML on queue changes, so the fresh node replays this ~180ms slide.
+   Rotate taps re-render the held tile too; main.ts marks those `--still`
+   because a piece turning in place has not arrived anywhere. */
+.belt-piece > * { animation: belt-load 180ms var(--ease); }
+.belt-piece--still > * { animation: none; }
+@keyframes belt-load {
+  from { opacity: 0.25; transform: translate(-8px, 2px) scale(0.92); }
+}
+
+/* A5's housing furniture: the hazard-striped FEED head at the uphill end,
+   the outfeed arrow at the muzzle end, and the shipment-class tag. */
+.belt__feed {
+  position: absolute; left: calc(-6 * var(--fpx)); top: 50%;
+  transform: translate(-100%, -50%);
+  font-family: var(--font-pixel); font-size: max(5px, calc(7.5 * var(--fpx)));
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn);
+  padding: 3px 5px;
+  background:
+    linear-gradient(rgba(10, 10, 20, 0.82), rgba(10, 10, 20, 0.82)),
+    repeating-linear-gradient(45deg, rgba(255, 176, 32, 0.55) 0 5px, rgba(0, 0, 0, 0.65) 5px 10px);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+}
+.belt__out {
+  position: absolute; right: calc(-9 * var(--fpx)); top: 50%;
+  transform: translateY(-50%);
+  display: flex; color: rgba(0, 240, 255, 0.55);
+}
+.belt__tag {
+  position: absolute; left: calc(10 * var(--fpx)); top: calc(100% + 1px);
+  font-family: var(--font-pixel); font-size: max(5px, calc(7 * var(--fpx)));
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+  padding: 1px 4px;
+  background: rgba(10, 10, 20, 0.7);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+/* A5's phone rule: the size tag goes at compact — the tile's own cube count
+   already carries the read there. */
+[data-density="compact"] .belt__tag,
+[data-density="compact"] .belt__feed { display: none; }
+/* A6: at compact the transport HIDES while the coach card is up — keyed off
+   the coach being mounted (data-coach), never off aiming. At 1280 both stay. */
+[data-density="compact"] .hud[data-coach] .belt { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .belt__tread, .belt-piece > * { animation: none; }
+}
 
 /* ---------- Modal overlays ---------- */
 .modal-scrim {
@@ -2153,55 +2208,46 @@ button.panel { color: var(--text); }
    both stay reachable on a short landscape-phone viewport. */
 .refit__grid {
   flex: 1 1 auto; min-height: 120px; overflow-y: auto; padding: 2px;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;
+  /* A14: two columns of ROWS, the leaderboard's own shape — stated, not
+     auto-fit, because the canvas's grammar is a two-column list at every
+     width this modal renders at. */
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
+  align-content: start;
 }
-.refit-card {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 14px;
-  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
-  border: var(--bw) solid var(--line-strong);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-hard-sm);
+/* A14: the refit stop on the leaderboard scroll pattern — rows, not cards.
+   One row's grammar: glyph · name over its state line · tier pips · price
+   button (B6's words). The full tier ladder survives in `title`. */
+.refit-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; gap: 10px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-md);
 }
-.refit-card--owned { border-color: rgba(0,240,255,0.45); }
-.refit-card__hdr { display: flex; align-items: center; gap: 8px; }
-/* Was a filled pixel-font chip holding a three-letter code ("BAY", "LCH"). The
-   code had to be READ to be useful, which is the one thing a glyph should not
-   need; it now holds an SVG (ui/icons.ts) that inherits the accent instead of
-   painting a block of it, so the header reads name-first. */
-.refit-card__glyph {
-  display: flex; align-items: center; justify-content: center;
-  color: var(--accent); flex: none;
+.refit-row--owned { border-color: rgba(0,240,255,0.45); }
+.refit-row__glyph { display: flex; color: var(--accent); flex: none; }
+.refit-row__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.refit-row__name {
+  font-family: var(--font-display); font-weight: 700; font-size: 15px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.refit-card__name { font-family: var(--font-display); font-weight: 700; font-size: 15px; flex: 1; min-width: 0; }
-.refit-card__pips { display: flex; gap: 3px; flex: none; }
-.refit-card__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
-.refit-card__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
-.refit-card__blurb { color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.4; }
-.refit-card__tiers { display: flex; flex-direction: column; gap: 3px; }
-.refit-card__tier {
-  font-size: 11px; color: var(--text-muted);
-  padding: 3px 6px; border-radius: var(--r-sm);
-  border-left: 2px solid var(--line);
+/* The ship's CURRENT setting on this track — absolute, not a delta, because
+   the button beside it is the delta. */
+.refit-row__state {
+  font-size: 11px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.refit-card__tier b { font-family: var(--font-mono); color: var(--text-faint); margin-right: 4px; }
-/* Bought tiers read as done; the NEXT tier is highlighted, because that's the
-   one the price on the button actually buys. */
-.refit-card__tier.done { color: var(--text-faint); border-left-color: var(--accent); text-decoration: line-through; }
-.refit-card__tier.next { color: var(--text); border-left-color: var(--warn); background: rgba(255,176,32,0.08); }
-/* The ship's CURRENT setting on this track — absolute, not a delta, because the
-   button beside it is the delta. */
-.refit-card__now {
-  font-size: 11px; color: var(--text);
-  padding: 3px 6px; border-radius: var(--r-sm);
-  border-left: 2px solid var(--accent); background: rgba(0,240,255,0.06);
-}
-.refit-card__foot { margin-top: auto; padding-top: 4px; }
+.refit-row__pips { display: flex; gap: 3px; flex: none; }
+.refit-row__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.refit-row__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
+.refit-row__foot { display: flex; justify-content: flex-end; min-width: 0; }
 /* Three parts on one row: direction, what changes, what it costs. The delta is
    the flexible one, so a long effect string ellipsises instead of pushing the
    price off the button. */
 .refit-card__buy {
-  width: 100%; padding: 8px 12px; font-size: 10px;
+  padding: 8px 10px; font-size: 10px;
   display: flex; align-items: center; gap: 6px;
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
@@ -2210,11 +2256,11 @@ button.panel { color: var(--text); }
 /* B6's separator, shared by every buy button ("T2 · ♻ 35"). */
 .price__sep { opacity: 0.55; margin: 0 2px; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-.refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
-/* Tier 0: the system isn't on the ship at all, and no amount of scrap puts it
-   there. Same weight as MAX — both say "nothing to buy here", in opposite
-   directions. */
-.refit-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--text-faint); letter-spacing: 0.06em; }
+.refit-row__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
+/* Tier 0: the system isn't on the ship, and no amount of scrap puts it there
+   — the row names the door that CAN (A14: never a live-looking price). */
+.refit-row__locked { font-size: 10px; color: var(--text-faint); text-align: right; line-height: 1.25; max-width: 130px; }
+.refit-row__locked b { color: var(--warn); font-weight: 600; }
 
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
@@ -2395,18 +2441,14 @@ button.panel { color: var(--text); }
   /* Vertical padding carries twice its weight here: every pixel is paid by
      both rows of the grid. Horizontal padding stays — that is what keeps the
      upgrade names off the card's edge. */
-  .refit-card { padding: 5px 9px; gap: 3px; }
-  .refit-card__blurb { display: none; }
-  .refit-card__tier { font-size: 10px; padding: 2px 5px; }
-  .refit-card__now { font-size: 9px; padding: 2px 5px; }
-  /* Six cards in two rows against ~200px of grid. The header type and the buy
-     button are what set the card's height once the blurb is gone, so both come
-     down rather than the grid gaining another scroller — a stop the player
-     visits every few bays should not need scrolling to see what it sells. */
-  .refit-card__name { font-size: 12px; }
-  .refit-card__hdr { gap: 6px; }
-  .refit-card__pips i { width: 6px; height: 6px; }
-  .refit-card__foot { padding-top: 2px; }
+  /* Seven rows in two columns against ~200px of grid: the row keeps its
+     shape and gives up its air — a stop the player visits every few bays
+     should need as little scrolling as the tap floor allows. */
+  .refit-row { padding: 3px 8px; gap: 7px; }
+  .refit-row__glyph .ico { width: 18px; height: 18px; }
+  .refit-row__name { font-size: 12px; }
+  .refit-row__state { font-size: 9.5px; }
+  .refit-row__pips i { width: 6px; height: 6px; }
   /* Scoped through .modal--refit to actually WIN. As `.refit-card__buy` this
      rule was (0,1,0) against the `.modal .btn { padding: 10px 20px }` in the
      max-height:480 block above, which is (0,2,0) — so the padding here never
@@ -2420,24 +2462,10 @@ button.panel { color: var(--text); }
   .modal--refit .refit-card__price { gap: 2px; }
   .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
   .modal--refit .price__sep { margin: 0 1px; }
-  /* The not-installed label, off the pixel face and onto the UI one. This is
-     the block that put the grid back into scrolling: refit stopped pricing
-     tier 0 and started saying "Not installed · Workshop" instead, but the
-     label kept the 8px pixel font, whose glyphs are wide enough that 24
-     characters take three lines in a 156px card — a 43.6px foot where the buy
-     button it replaced is 28px. Worst of all it is the DEFAULT state: a player
-     who owns no systems yet gets it on all seven cards at once, so every row
-     in the grid was sized by it.
-     It is a sentence rather than a chip, so the UI face is the right one for
-     it regardless; at 10px it fits on one line and the foot returns to ~16px,
-     which is what brings seven cards back to two rows. */
-  .refit-card__locked {
-    font-family: var(--font-ui);
-    font-size: 10px;
-    letter-spacing: 0.02em;
-    line-height: 1.25;
-    display: block;
-  }
+  /* The not-installed sentence is the DEFAULT state on a fresh rig — every
+     row a player who owns nothing sees is sized by it, so it tightens with
+     the rows. */
+  .refit-row__locked { font-size: 9px; max-width: 104px; }
   /* Column policy and gap live in the [data-density="compact"] .refit__grid
      rule at the bottom of this file — compact density covers every viewport
      this height query matches (density is a height verdict at the same ~518px
@@ -2456,6 +2484,94 @@ button.panel { color: var(--text); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
+
+/* ============================================================================
+   TIER PLATE (canvas A1/A4/C) — ONE component at three sizes: 58x52 in the
+   Deep Run menu button, 26px on the run-end primary, 11px in the bay banner.
+   The ladder gets one face wherever it shows up.
+   ========================================================================== */
+.tier-plate {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; flex: none;
+  border: var(--bw) solid currentColor;
+  border-radius: var(--r-md);
+  background: rgba(4, 4, 10, 0.28);
+}
+.tier-plate__lbl {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
+  text-transform: uppercase; line-height: 1; opacity: 0.8;
+}
+.tier-plate__n { font-family: var(--font-mono); font-weight: 800; line-height: 1; }
+.tier-plate--menu { width: 58px; height: 52px; margin-inline: 2px 4px; }
+.tier-plate--menu .tier-plate__n { font-size: 24px; }
+/* The compact variant the canvas never drew: measured at 640x360 the menu
+   column has ~35px of headroom, and even a 36px-tall plate pushed the
+   primary past the 44px floor every other row sits on — Settings fell off
+   the viewport by 4px. At compact the plate takes its ROW form (the banner's
+   shape at menu weight), which costs the button no height at all. */
+@media (max-height: 460px) {
+  .tier-plate--menu {
+    flex-direction: row; gap: 4px;
+    width: auto; height: auto; padding: 3px 6px;
+    margin-inline: 0;
+  }
+  .tier-plate--menu .tier-plate__lbl { font-size: 6px; }
+  .tier-plate--menu .tier-plate__n { font-size: 14px; }
+}
+.tier-plate--button { min-width: 30px; height: 26px; padding: 0 4px; }
+.tier-plate--button .tier-plate__lbl { font-size: 5px; }
+.tier-plate--button .tier-plate__n { font-size: 12px; }
+/* Banner size: a bordered row chip beside "Bay 1/10" — ~46px of width, zero
+   extra height (the plant panel's budget is untouched, per the canvas). */
+.tier-plate--banner {
+  flex-direction: row; gap: 4px; padding: 2px 6px;
+  border-width: 1px; border-color: var(--line-strong);
+  color: var(--accent);
+}
+.tier-plate--banner .tier-plate__lbl { font-size: 7px; color: var(--text-muted); }
+.tier-plate--banner .tier-plate__n { font-size: 11px; }
+
+/* ---------- NEXT STEP badge (canvas A3/A8/A11) ----------
+   One badge vocabulary for the one computed step: warm chip, pixel face. The
+   carrying control also takes .btn--next's warm border so the badge reads as
+   the surface's state, not a sticker. */
+.next-badge {
+  display: inline-flex; align-items: center; flex: none;
+  font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.1em;
+  text-transform: uppercase; line-height: 1;
+  color: var(--accent-ink); background: var(--warn);
+  border-radius: var(--r-sm); padding: 3px 5px;
+}
+/* On a menu row the badge rides the button's top-right CORNER — the compact
+   placement rule: as a flex member it stole ~50px from the subtitle column
+   and wrapped the live-number subs to two lines on every 360dp phone. */
+.btn--menu { position: relative; }
+.btn--menu .next-badge { position: absolute; top: -6px; right: -4px; }
+.btn--next { border-color: var(--warn); }
+.btn--next.btn--secondary:hover { border-color: var(--warn); }
+/* A8: the fail card's block — the chain out of the wall the player just hit. */
+.coach__next {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 8px 10px;
+  border: var(--bw) solid rgba(255, 176, 32, 0.5);
+  border-radius: var(--r-md);
+  background: rgba(255, 176, 32, 0.07);
+}
+.coach__next p { margin: 0; font-size: var(--fs-xs); line-height: 1.4; color: var(--text-dim); }
+.coach__next b { color: var(--warn); }
+@media (max-height: 460px) {
+  .coach__next { padding: 5px 8px; gap: 3px; }
+  .coach__next p { font-size: 10.5px; line-height: 1.3; }
+}
+/* A9: the Contract board's WHY strip. */
+.contracts__why { margin: 0; font-size: var(--fs-sm); }
+.contracts__why .next-badge { margin-right: 4px; vertical-align: 1px; }
+@media (max-height: 460px) {
+  .contracts__why { font-size: 11px; }
+}
+/* A11: the Workshop's one next-step card. */
+.shop-card--next { border-color: var(--warn); }
+.shop-card__name .next-badge { margin-left: 6px; vertical-align: 2px; }
 
 /* ============================================================================
    TIER PROGRESSION (meta.ts's tier-completion economy) — the menu's tier
@@ -2507,8 +2623,16 @@ button.panel { color: var(--text); }
   opacity: 0.8;
 }
 @media (max-height: 460px) {
-  .btn__sub { font-size: 11px; }
+  /* One line, always: the live-number subtitles (A3) run long, and a wrapped
+     sub costs the row 21px — three of those is the whole menu overflow. The
+     numbers lead in the copy, so the ellipsis only ever eats prose. */
+  .btn__sub {
+    font-size: 11px; line-height: 1.15;
+    max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   .btn__txt { gap: 2px; }
+  .btn--menu { line-height: 1.2; }
   /* The icon shrinks with the label it sits beside; the BUTTON does not shrink
      with either (see the note by .btn--menu). */
   .menu__actions .btn--menu .ico { width: 13px; height: 13px; margin-inline: 0; }
@@ -2942,13 +3066,5 @@ button.panel { color: var(--text); }
   line-height: 1;
 }
 
-/* ---------- Compact: pack the refit yard tighter --------------------------
-   Narrower tracks so seven cards come out three columns wide instead of two.
-   This does NOT make the yard fit — see the note on #refit-grid's [data-scroll]
-   in screens.ts for why it cannot — but three rows of 103px beats four. */
-[data-density="compact"] .refit__grid {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 6px;
-  align-content: start;
-}
-[data-density="compact"] .refit-card { padding: 8px 10px; gap: 4px; }
+/* The refit yard's column policy is the base .refit__grid rule now (A14's
+   two-column row list at every width); density adds nothing on top. */

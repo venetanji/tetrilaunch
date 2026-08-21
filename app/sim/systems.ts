@@ -41,7 +41,7 @@ import {
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, refundRetiredUnlocks, type InstallDef, type MetaState,
+  buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
   advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
@@ -72,7 +72,7 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, hudHTML,
+  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, hudHTML, menuScreen,
 } from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
@@ -405,6 +405,34 @@ section("Installs — what salvage buys (meta.ts)");
   check("the Workshop never lists a retired unlock",
     !workshopScreen(freshMeta({ salvage: 9_999, mark: 9 }), "options").includes("Bulk Freight Permit"));
 
+  // A3: ONE computed next step, the rule stated once (meta.ts's nextStep) so
+  // the menu, the Workshop and the fail card can never point at different
+  // doors: cover an install -> spend it; contracts owed -> earn it;
+  // otherwise the run is the exam.
+  check("a fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
+  check("salvage covering an install says Workshop",
+    nextStep(freshMeta({ salvage: 15 })) === "workshop");
+  check("contracts done and salvage spent point at the run",
+    nextStep(freshMeta({
+      tierContracts: 3, salvage: 0,
+      loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
+    })) === "run");
+  // …and the menu renders exactly the one badge the rule picked (A3), the
+  // tier plate in the Deep Run button (A1), and — on first launch only — the
+  // Guided Tutorial in How to Play's slot, with its own START HERE marker
+  // (A2: a seventh row overflows a 360dp phone, so it takes a slot).
+  const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: false });
+  check("exactly one menu action carries the NEXT STEP badge",
+    (menuMid.match(/next-badge/g) ?? []).length === 1);
+  check("the Deep Run button carries the tier plate", menuMid.includes("tier-plate--menu"));
+  const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
+    { step: "contracts", install: null, firstLaunch: true });
+  check("first launch swaps How to Play for the badged Guided Tutorial",
+    menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
+  check("once seen, How to Play returns and the tutorial entry goes",
+    menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+
   const shop = workshopScreen(freshMeta({ salvage: 50 }), "systems");
   const shopOpts = workshopScreen(freshMeta({ salvage: 50 }), "options");
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
@@ -466,8 +494,8 @@ section("Installs — what salvage buys (meta.ts)");
     refitTracks(1).length === 1 && refitTracks(1)[0].id === "reactor");
   check("refitTracks(2) opens the full yard", refitTracks(2).length === UPGRADES.length);
   const mark1 = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 1 });
-  check("a Mark-1 stop renders exactly one card",
-    (mark1.match(/refit-card__hdr/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
+  check("a Tier-1 stop renders exactly one row",
+    (mark1.match(/refit-row__name/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
   check("a Tier-1 stop says why the yard is short", mark1.includes("opens at Tier 2"));
 }
 
@@ -1769,6 +1797,8 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   {
     const hud = hudHTML({
       beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, material: "standard" },
+      tier: 2,
       target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
       timeLeftMs: 150_000, pieceSize: "std",
       bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
@@ -1779,6 +1809,11 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       !/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u.test(rail), rail.match(/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u)?.[0] ?? "");
     check("the rail's controls are drawn as inline SVG",
       (rail.match(/<svg/g) ?? []).length >= 7, String((rail.match(/<svg/g) ?? []).length));
+    // A4: the run's tier rides the bay banner as the plate's banner size;
+    // A5: the transport carries both queue slots and the shipment-class tag.
+    check("the bay banner carries the tier plate", hud.includes("tier-plate--banner"));
+    check("the transport renders the two-deep queue and its size tag",
+      hud.includes('id="hud-loaded"') && hud.includes('id="hud-next"') && hud.includes('class="belt__tag"'));
   }
 
   check("a bare rail is the four base buttons",

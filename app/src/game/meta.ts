@@ -566,6 +566,31 @@ export function tierProgressFor(meta: MetaState): TierProgress {
   };
 }
 
+/* -------------------------------------------------------------------------
+ * NEXT STEP (canvas A3) — the ONE thing the loop asks for right now.
+ * Exactly one surface ever carries the badge, and this is the rule that
+ * picks it, stated once so the menu, the Workshop and the fail card can
+ * never point at different doors:
+ *   salvage covers an installable system  -> Workshop (spend it)
+ *   contracts still owed this tier        -> Contracts (earn it)
+ *   otherwise                             -> Deep Run (the exam)
+ * ---------------------------------------------------------------------- */
+export type NextStepId = "workshop" | "contracts" | "run";
+
+/** The cheapest system the player could install right now, or null. */
+export function cheapestInstall(meta: MetaState): InstallDef | null {
+  return (
+    INSTALLS.filter((i) => installAvailable(meta, i)).sort((a, b) => a.cost - b.cost)[0] ?? null
+  );
+}
+
+export function nextStep(meta: MetaState): NextStepId {
+  const next = cheapestInstall(meta);
+  if (next && meta.salvage >= next.cost) return "workshop";
+  if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
+  return "run";
+}
+
 /** Draft cards offered before the third slot is earned, and the number of
  *  cleared Contracts that earns it. */
 export const DRAFT_BASE_SLOTS = 2;
