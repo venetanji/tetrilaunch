@@ -33,7 +33,6 @@ import type { Insets } from "../../src/game/layout";
 import type {} from "./harness";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BASELINE = resolve(HERE, "baseline.json");
 const SHOTS_DIR = resolve(HERE, "..", "results", "uifit");
 
 const argv = process.argv.slice(2);
@@ -44,6 +43,12 @@ const opt = (name: string): string | null => {
 };
 
 const ENGINE = opt("engine") ?? "chromium";
+/** One baseline PER ENGINE. Every number in a baseline entry is a
+ *  text-measurement result of one engine's rasteriser, so a WebKit run
+ *  asserted against the Chromium-recorded file could never be green even
+ *  with nothing wrong — the engine dimension has to be part of the key, and
+ *  a separate file per engine is that key. */
+const BASELINE = resolve(HERE, ENGINE === "chromium" ? "baseline.json" : `baseline.${ENGINE}.json`);
 const SHOTS = flag("shots");
 const UPDATE = flag("update-baseline");
 const ONLY_SCREEN = opt("screen");
@@ -123,12 +128,19 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
   };
 
   // --- fit: nothing representing a whole screen may overflow its box ---------
-  document.querySelectorAll(".screen, .modal, .bayclear__card, .howto, .workshop").forEach((el) => {
-    const over = el.scrollHeight - el.clientHeight;
-    if (over > 1) {
-      out.fit.push(`${label(el)} overflows by ${Math.round(over)}px (${el.clientHeight} -> ${el.scrollHeight})`);
-    }
-  });
+  // Overflow only — flex COMPRESSION (a min-height:0 child shrinking instead
+  // of overflowing) is invisible to scrollHeight by construction, and it is
+  // deliberately covered elsewhere: a compressed control falls under the
+  // 44px floor and the `tap` assertion catches it; compressed text clips and
+  // `textclip` catches that. The division of labour is the answer, not a gap.
+  document
+    .querySelectorAll(".screen, .modal, .bayclear__card, .howto, .workshop, .rotate-guard")
+    .forEach((el) => {
+      const over = el.scrollHeight - el.clientHeight;
+      if (over > 1) {
+        out.fit.push(`${label(el)} overflows by ${Math.round(over)}px (${el.clientHeight} -> ${el.scrollHeight})`);
+      }
+    });
 
   // --- scrollers: which elements can actually scroll vertically -------------
   document.querySelectorAll("#overlay *").forEach((el) => {
@@ -143,17 +155,18 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
   // Only CONTENT counts: leaf elements carrying text, plus controls. Decorative
   // chrome (.belt, .bayclear__rays, .lose-fx) bleeds past the edge by design,
   // and a rule that flagged it would need suppressing everywhere it appears.
-  // EITHER axis. Horizontal scrolling is allowed (the product rule is about
-  // vertical), so a card parked to the right of the viewport inside a snap row
-  // is reachable content, not clipped content.
-  const scrollableAncestor = (el: Element): boolean => {
+  // A scrollable ancestor exempts ITS AXES ONLY: a card parked right of the
+  // viewport inside the how-to's x-snap row is reachable content, but the same
+  // row must not launder a card hanging off the BOTTOM — an either-axis
+  // exemption did exactly that.
+  const scrollableAxes = (el: Element): { x: boolean; y: boolean } => {
+    const axes = { x: false, y: false };
     for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
       const cs = getComputedStyle(p);
-      for (const o of [cs.overflowY, cs.overflowX]) {
-        if (o === "auto" || o === "scroll") return true;
-      }
+      if (cs.overflowX === "auto" || cs.overflowX === "scroll") axes.x = true;
+      if (cs.overflowY === "auto" || cs.overflowY === "scroll") axes.y = true;
     }
-    return false;
+    return axes;
   };
   document.querySelectorAll("#overlay *").forEach((el) => {
     const isControl = el.matches("button, .btn, .icon-btn, .toggle, input");
@@ -163,8 +176,10 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
     const r = el.getBoundingClientRect();
     if (r.width <= 2 || r.height <= 2) return;         // visually-hidden a11y text
     if (getComputedStyle(el).visibility === "hidden") return;
-    if (scrollableAncestor(el)) return;                // inside a legitimate scroller
-    if (r.bottom > vh + 1 || r.top < -1 || r.right > vw + 1 || r.left < -1) {
+    const axes = scrollableAxes(el);
+    const offY = r.bottom > vh + 1 || r.top < -1;
+    const offX = r.right > vw + 1 || r.left < -1;
+    if ((offY && !axes.y) || (offX && !axes.x)) {
       out.offscreen.push(
         `${label(el)} at [${Math.round(r.left)},${Math.round(r.top)} → ${Math.round(r.right)},${Math.round(r.bottom)}] outside ${vw}x${vh}`,
       );
@@ -180,10 +195,16 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[] }): Fin
   // flagging them as undersized tap targets was 42 findings about elements
   // nothing can tap. The interactive ones (.mod--bb, .mod--demo, .chip--cta)
   // are real <button>s and are still covered, by being buttons.
+  // The data-attribute selectors are the app's own dispatch surface: main.ts
+  // routes clicks off [data-action]/[data-game]/[data-toggle], not off tag
+  // names. Today every carrier happens to be a <button> or a role-bearing div,
+  // but that is coincidence, and the floor has to hold for whatever the
+  // dispatcher can actually reach.
   const seenTap = new Set<string>();
   document
     .querySelectorAll(
-      'button, input, select, textarea, a[href], [role="button"], [role="switch"], [role="tab"], [role="checkbox"]',
+      'button, input, select, textarea, a[href], [role="button"], [role="switch"], [role="tab"], [role="checkbox"],' +
+        " [data-action], [data-game], [data-toggle]",
     )
     .forEach((el) => {
       const r = el.getBoundingClientRect();
@@ -339,14 +360,38 @@ for (const device of devices) {
   await page.goto(`${base}harness.html`, { waitUntil: "networkidle" });
   await page.waitForFunction(() => !!window.__uifit);
   // Webfonts change every text measurement in here (the pixel face is ~2x the
-  // fallback's advance width); measuring before they land reports fits the
-  // device does not have.
-  await page.evaluate(() => document.fonts.ready);
+  // fallback's advance width). `document.fonts.ready` alone is NOT the wait it
+  // looks like: awaited while the overlay is still empty, it resolves before a
+  // single face has been requested (font-display: swap fetches lazily), so the
+  // first screen per device could be measured in fallback metrics. fonts.load
+  // forces every face the screens measure with to actually fetch first, and
+  // THEN ready means loaded.
+  await page.evaluate(async () => {
+    const faces = [
+      '12px "Press Start 2P"',
+      '500 12px "Rajdhani"', '700 12px "Rajdhani"',
+      '700 12px "Orbitron"', '900 12px "Orbitron"',
+      '400 12px "JetBrains Mono"', '700 12px "JetBrains Mono"', '800 12px "JetBrains Mono"',
+    ];
+    await Promise.all(faces.map((f) => document.fonts.load(f, "TETRILAUNCH 0123456789$♻")));
+    await document.fonts.ready;
+  });
 
   const screens = await page.evaluate(() => window.__uifit.screens);
   for (const screen of screens) {
     if (ONLY_SCREEN && screen !== ONLY_SCREEN) continue;
     combos++;
+    // The rotate guard is the one PORTRAIT screen: it exists to cover every
+    // portrait orientation, so measuring it landscape would measure a state
+    // the app never shows. The device's own short-edge-up orientation is its
+    // portrait: swap the axes for this screen, restore after.
+    const portrait = screen === "guard";
+    const vp = portrait
+      ? { width: Math.min(device.w, device.h), height: Math.max(device.w, device.h) }
+      : { width: device.w, height: device.h };
+    if (page.viewportSize()?.width !== vp.width || page.viewportSize()?.height !== vp.height) {
+      await page.setViewportSize(vp);
+    }
     await page.evaluate(
       ([id, insets]) => window.__uifit.render(id as string, insets as Insets),
       [screen, device.insets] as [string, Insets],
@@ -381,16 +426,52 @@ await server.close();
 // ---------------------------------------------------------------------------
 const foundKeys = Object.keys(found).sort();
 const regressions = foundKeys.filter((k) => !(k in baseline));
-const fixed = Object.keys(baseline).sort().filter((k) => !(k in found));
+// A baseline entry is only THIS RUN's to judge when this run actually
+// measured its combo. With --screen/--device filters active the old logic
+// counted every out-of-filter entry as "no longer reproduces" — the
+// narrowing workflow the README documents exited 1 spuriously, and with
+// --update-baseline it silently deleted the rest of the baseline.
+const deviceNames = new Set(devices.map((d) => d.name));
+const inScope = (k: string): boolean => {
+  const [dev, screen] = k.split("|");
+  return deviceNames.has(dev) && (!ONLY_SCREEN || screen === ONLY_SCREEN);
+};
+const fixed = Object.keys(baseline).sort().filter((k) => inScope(k) && !(k in found));
 const remaining = foundKeys.filter((k) => k in baseline);
 const descOf = (key: string): string =>
   ASSERTIONS.find((a) => a.id === key.split("|")[2])?.desc ?? key;
 
+// A baselined violation is allowed to KEEP REPRODUCING, not to grow: the
+// baseline keys carry their measured magnitudes precisely so an 18px overflow
+// cannot swell to 200px behind a green run. The tolerance absorbs sub-pixel
+// and rounding drift, nothing more.
+const magnitude = (lines: string[]): number =>
+  Math.max(0, ...lines.map((l) => {
+    const m = l.match(/(\d+(?:\.\d+)?)px/);
+    return m ? parseFloat(m[1]) : 0;
+  }));
+const grown = remaining.filter((k) => {
+  const before = magnitude(baseline[k]);
+  const now = magnitude(found[k]);
+  return before > 0 && now > before * 1.25 + 8;
+});
+
 if (UPDATE) {
   const next: Record<string, string[]> = {};
+  // Everything this run did not measure survives verbatim — a filtered update
+  // must never destroy the rest of the file.
+  for (const k of Object.keys(baseline)) if (!inScope(k)) next[k] = baseline[k];
   for (const k of foundKeys) next[k] = found[k];
-  await writeFile(BASELINE, `${JSON.stringify(next, null, 2)}\n`);
-  console.log(`baseline updated: ${foundKeys.length} known violation(s) across ${combos} combos`);
+  const sorted = Object.fromEntries(Object.keys(next).sort().map((k) => [k, next[k]]));
+  await writeFile(BASELINE, `${JSON.stringify(sorted, null, 2)}\n`);
+  console.log(
+    `baseline updated: ${Object.keys(sorted).length} known violation(s)` +
+      ` (${foundKeys.length} measured across ${combos} combos${
+        Object.keys(sorted).length - foundKeys.length
+          ? `, ${Object.keys(sorted).length - foundKeys.length} out-of-filter entr(ies) preserved`
+          : ""
+      })`,
+  );
   process.exit(0);
 }
 
@@ -413,6 +494,15 @@ if (fixed.length) {
   console.log("\n  npx tsx sim/uifit/run.ts --update-baseline\n");
 }
 
+if (grown.length) {
+  console.log(`✗ ${grown.length} baselined violation(s) GREW well past their recorded magnitude:\n`);
+  for (const k of grown) {
+    console.log(`  ${k.split("|").join(" · ")} — ${magnitude(baseline[k])}px recorded, ${magnitude(found[k])}px now`);
+    for (const d of found[k]) console.log(`      ${d}`);
+  }
+  console.log("");
+}
+
 if (warnings.length) {
   console.log(`⚠ ${warnings.length} ellipsis truncation(s) — deliberate unless they aren't:`);
   for (const w of warnings.slice(0, 10)) console.log(`    ${w}`);
@@ -429,8 +519,10 @@ for (const { id, desc } of ASSERTIONS) {
 }
 console.log(`\ntotal ${foundKeys.length} (baselined ${remaining.length}, new ${regressions.length})`);
 
-if (regressions.length || fixed.length) {
-  console.log(`\n${regressions.length} new, ${fixed.length} stale baseline entries.`);
+if (regressions.length || fixed.length || grown.length) {
+  console.log(
+    `\n${regressions.length} new, ${fixed.length} stale, ${grown.length} grown baseline entries.`,
+  );
   process.exit(1);
 }
 console.log("no new violations.");

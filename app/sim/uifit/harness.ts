@@ -56,11 +56,15 @@ function applyInsets(insets: Insets): void {
       padding-bottom: ${bottom}px;
       padding-left: ${left}px;
     }
-    /* tokens.css derives these three straight from env(); Chromium reports no
-       insets, so the corner-anchored clusters would sit at the raw
-       --ctrl-inset-* on an iPhone row and the harness would measure a layout
-       no device produces. */
+    /* tokens.css derives every inset-consuming token from env(); Chromium
+       reports no insets, so without these overrides the corner-anchored
+       clusters and the side rail would sit at raw env()=0 positions on an
+       iPhone row and the harness would measure a layout no device produces. */
     :root {
+      --inset-t: ${top}px;
+      --inset-r: ${right}px;
+      --inset-b: ${bottom}px;
+      --inset-l: ${left}px;
       --safe-l: calc(${left}px + var(--ctrl-inset-x));
       --safe-r: calc(${right}px + var(--ctrl-inset-x));
       --safe-b: calc(${bottom}px + var(--ctrl-inset-b));

@@ -22,6 +22,19 @@ import {
 } from "../game/hazards";
 import type { PreviewRow } from "../game/preview";
 
+/** The portrait rotate guard. The markup lives here rather than inline in
+ *  main.ts's boot HTML so the uifit harness renders the exact DOM the app
+ *  shows — this was the one screen with zero fit coverage on any viewport.
+ *  main.ts mounts it hidden and toggles `.show`; going portrait mid-bay also
+ *  pauses the game (see onResize). */
+export function rotateGuardHTML(): string {
+  return `<div class="rotate-guard" id="rotate-guard">
+    <div class="phone"></div>
+    <div class="eyebrow">Rotate your device</div>
+    <p class="muted">Tetrilaunch plays in landscape.</p>
+  </div>`;
+}
+
 export function splashScreen(): string {
   // No tagline. "Physics Cannon Puzzle" undersold and mis-sold the game — it
   // reads as a physics sandbox, not a bay you have to bank a target out of —

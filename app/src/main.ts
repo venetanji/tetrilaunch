@@ -184,11 +184,7 @@ class App {
     root.innerHTML = `
       <canvas id="game"></canvas>
       <div id="overlay"></div>
-      <div class="rotate-guard" id="rotate-guard">
-        <div class="phone"></div>
-        <div class="eyebrow">Rotate your device</div>
-        <p class="muted">Tetrilaunch plays in landscape.</p>
-      </div>`;
+      ${S.rotateGuardHTML()}`;
     this.canvas = root.querySelector("#game")!;
     this.ctx = this.canvas.getContext("2d")!;
     this.overlay = root.querySelector("#overlay")!;

@@ -13,11 +13,20 @@ on:
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
+      # The harness's numbers are font metrics and engine versions as much as
+      # they are stylesheets: swapping a font file or bumping the pinned
+      # Playwright build shifts measurements with no src/ change at all.
+      - "app/public/fonts/**"
+      - "app/package.json"
+      - "app/package-lock.json"
       - ".github/workflows/ui-fit.yml"
   pull_request:
     paths:
       - "app/src/**"
       - "app/sim/uifit/**"
+      - "app/public/fonts/**"
+      - "app/package.json"
+      - "app/package-lock.json"
       - ".github/workflows/ui-fit.yml"
   workflow_dispatch:
 
@@ -66,5 +75,49 @@ jobs:
         if: failure()
         with:
           name: uifit-screenshots
+          path: app/sim/results/uifit/
+          retention-days: 7
+
+  # The WebKit tier — the closest cheap proxy for the iOS WKWebView the six
+  # iPhone/iPad rows actually ship in; without it every iOS row is tested in
+  # Blink's rasteriser only. It asserts against its OWN baseline
+  # (sim/uifit/baseline.webkit.json — the harness keys baselines per engine,
+  # since every number is one engine's text measurement). Non-gating until
+  # that baseline is recorded from this job's first runs:
+  # `npm run test:uifit -- --engine=webkit --update-baseline` locally on a
+  # machine with WebKit installed, or from this job's uploaded report. Flip
+  # continue-on-error off in the same commit that lands the baseline.
+  fit-webkit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install WebKit
+        run: npx playwright install --with-deps webkit
+
+      - name: UI fit across the device matrix (WebKit)
+        run: npm run test:uifit -- --engine=webkit
+
+      - name: Screenshots
+        if: failure()
+        run: npm run test:uifit:shots -- --engine=webkit || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: uifit-webkit-screenshots
           path: app/sim/results/uifit/
           retention-days: 7

@@ -555,12 +555,15 @@ body.crt-off #app::after { display: none; }
    (see the `@media (pointer: fine)` rule below), matching the kbd-hint strip. */
 .side-rail {
   position: absolute;
-  top: max(8px, env(safe-area-inset-top, 0px));
-  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  /* Inset TOKENS, not raw env() — see tokens.css's --inset-* note: raw env()
+     is 0 in the harness viewport, so the rail's geometry on notched rows was
+     being measured at a position no such device renders. */
+  top: max(8px, var(--inset-t));
+  bottom: max(8px, var(--inset-b));
   /* Centered in whatever right-hand space the solver produced, and never
      narrower than the WCAG tap floor (--rail-btn is already clamped there). */
   right: max(
-    calc(4px + env(safe-area-inset-right, 0px)),
+    calc(4px + var(--inset-r)),
     calc((var(--gutter-r) - var(--rail-btn)) / 2)
   );
   width: var(--rail-btn);
@@ -600,7 +603,7 @@ body.crt-off #app::after { display: none; }
   width: 100%;
   height: var(--rail-btn);
   bottom: max(
-    calc(4px + env(safe-area-inset-bottom, 0px)),
+    calc(4px + var(--inset-b)),
     calc((var(--gutter-b) - var(--rail-btn)) / 2)
   );
 }
@@ -1812,6 +1815,19 @@ body.crt-off #app::after { display: none; }
 button.panel { color: var(--text); }
 .contract-card { text-align: left; cursor: pointer; min-height: 210px; align-items: flex-start; }
 .contract-card > p { margin: 0; }
+/* Landscape phones: the 210px floor loses. Inside the snap row's ~175px of
+   height it pushed every card's bottom third past the viewport edge, where
+   the row's own overflow-y:hidden CLIPPED it — the reward line and the brief
+   were simply unreadable on every 360dp phone (caught the moment the
+   offscreen check stopped letting an x-scroller launder y-overflow). The row
+   stretches the cards to its height; the copy tightens to fit it. */
+@media (max-height: 460px) {
+  .contract-card { min-height: 0; padding: var(--sp-3); gap: 5px; }
+  .contract-card .step__n { font-size: 13px; }
+  .contract-card > b { font-size: 13px; }
+  .contract-card > p { font-size: 11.5px; line-height: 1.3; }
+  .contract-card__reward { font-size: 10.5px; }
+}
 /* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
    Contract stays replayable after it is cleared, so this must not read as
    "spent". */

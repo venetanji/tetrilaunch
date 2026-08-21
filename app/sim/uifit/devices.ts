@@ -29,14 +29,25 @@ const NONE = { left: 0, right: 0, top: 0, bottom: 0 };
 
 export const DEVICES: Device[] = [
   // --- Android -------------------------------------------------------------
-  // No safe-area insets: Android gesture bars are drawn over by the immersive
-  // fullscreen the app requests, and cutouts in landscape are handled by the
-  // WebView's own letterboxing on every device in this range.
+  // Mostly no safe-area insets: Android gesture bars are drawn over by the
+  // immersive fullscreen the app requests. Cutouts are NOT letterboxed away,
+  // though — the native build explicitly sets
+  // windowLayoutInDisplayCutoutMode=shortEdges (scripts/patch-android.mjs),
+  // which disables exactly that letterboxing so the app renders under the
+  // punch-hole — hence the one cutout row below.
   { name: "Android · 640x360 budget", platform: "android", w: 640, h: 360, dpr: 2, insets: NONE },
   { name: "Android · Galaxy S8+", platform: "android", w: 740, h: 360, dpr: 4, insets: NONE },
   { name: "Android · OnePlus 12", platform: "android", w: 792, h: 360, dpr: 3, insets: NONE },
   { name: "Android · Pixel 5", platform: "android", w: 851, h: 393, dpr: 2.75, insets: NONE },
   { name: "Android · Pixel 7", platform: "android", w: 915, h: 412, dpr: 2.625, insets: NONE },
+  // The shortEdges consequence, measured: a punch-hole phone in landscape has
+  // its camera cutout on ONE side, surfaced to the WebView as a left or right
+  // safe-area inset (~34px at this density). One side per row is the same
+  // assumption the iPhone rows make about either-way-up handedness.
+  {
+    name: "Android · Pixel 7 cutout", platform: "android", w: 915, h: 412, dpr: 2.625,
+    insets: { left: 34, right: 0, top: 0, bottom: 0 },
+  },
   { name: "Android · Pixel Tablet", platform: "android", w: 1600, h: 1000, dpr: 2, insets: NONE },
   // --- iOS -----------------------------------------------------------------
   { name: "iOS · iPhone SE 3", platform: "ios", w: 667, h: 375, dpr: 2, insets: NONE },

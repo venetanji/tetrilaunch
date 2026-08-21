@@ -231,6 +231,11 @@ export const SCREENS: Record<string, () => string> = {
   "coach-fail": () =>
     S.hudHTML({ ...HUD_TUTORIAL, contract: null }) + S.coachFailHTML("broke", LEVEL_1, LEVEL_1.name),
 
+  // The one PORTRAIT screen: run.ts swaps the device's axes for it. `show` is
+  // main.ts's toggle; without it the guard is display:none and measures as
+  // nothing.
+  guard: () => S.rotateGuardHTML().replace('class="rotate-guard"', 'class="rotate-guard show"'),
+
   "end-won": () => endModal(true),
   "end-lost": () => endModal(false),
 
