@@ -21,8 +21,50 @@
       "binding": "DB",
       "database_name": "tetrilaunch-leaderboard",
       "database_id": "a9b63a9d-e4a5-4f92-95ff-904bfd1f9450",
+      // Deliberately NO `preview_database_id` here. It reads like the obvious
+      // way to keep dev off the live board, but `wrangler deploy --dry-run`
+      // resolved env.DB to the preview id with it set — i.e. the field changes
+      // what a PRODUCTION command reports it will bind, and the one thing this
+      // binding must never do is point anywhere but the live table. Staging
+      // separation is the `env.staging` block below, which is unambiguous:
+      // a different environment, a different binding, chosen explicitly with
+      // `--env staging`. To develop against the throwaway board, run
+      // `wrangler dev --env staging` rather than relying on preview inference.
       "migrations_dir": "migrations"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // STAGING. Deployed from the `staging` branch, which PRs land on before main.
+  //
+  // The point of the environment is the DATABASE, not the URL. Bindings are
+  // NOT inherited by a named environment in wrangler config — they have to be
+  // redeclared — and that is exactly the property being used here: staging
+  // binds DB to its own D1 instance, so a playtest run cannot write a score
+  // into the production leaderboard. Balance changes are coming that make
+  // staging scores meaningless against live ones, which is what makes sharing
+  // one table actively wrong rather than merely untidy.
+  //
+  // `routes` is deliberately absent. Custom domains are a top-level, non-
+  // inherited key, so staging never claims tetrilaunch.com and instead answers
+  // on its own workers.dev subdomain (the worker is named tetrilaunch-staging).
+  "env": {
+    "staging": {
+      "assets": {
+        "directory": "app/dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": ["/api/*"]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "tetrilaunch-leaderboard-preview",
+          "database_id": "6c2177b7-37dc-4eb2-9692-1f54702ce1f9",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "observability": { "enabled": true }
+    }
+  }
 }
