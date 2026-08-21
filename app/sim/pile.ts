@@ -105,14 +105,8 @@ const VARIANTS: Variant[] = [
   // to get the reload multiplier's own cost. The combo break is the one
   // congestion tax the sim CAN judge (bots build and lose real streaks), and
   // it is multiplicative on income where the rest are additive on cost.
-  { name: "combo-only", tiers: [
-    { cubes: 32, costMult: 1, clockSec: 0, reloadMult: 1 },
-    { cubes: 48, costMult: 1, clockSec: 0, reloadMult: 1 },
-  ], allowance: 0 },
-  { name: "reload-only", tiers: [
-    { cubes: 32, costMult: 1, clockSec: 0, reloadMult: 1.5 },
-    { cubes: 48, costMult: 1, clockSec: 0, reloadMult: 2 },
-  ], allowance: 0 },
+  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
+  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0 })), allowance: 0 },
   { name: "cand-bite", tiers: [
     { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1 },
     { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1 },

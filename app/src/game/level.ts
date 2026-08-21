@@ -60,8 +60,9 @@ export interface LevelConfig {
    *  budget, and a bay carrying both would be counting the same limit twice. */
   pieceQueue: PieceType[] | null;
   /** The Mark this bay is being flown at (1-based). Stored rather than derived
-   *  because the ratchet ladders read it: notchTotal starts a Mark-N run N-1
-   *  rungs up, so the same choice costs more the further you have got. */
+   *  because the ratchet ladders read it: notchTotal starts a Mark-N run
+   *  ladderStart(N) rungs up (hazards.ts — one rung per two Marks), so the
+   *  same choice costs more the further you have got. */
   mark: number;
   /** Fire cooldown in ms. */
   cooldownMs: number;
@@ -433,10 +434,26 @@ export const NO_MATERIALS: MaterialMix = {
  * that is actually the game.
  *
  * Thresholds are stated in cubes and sized in FULL LINES, so the number means
- * something the player can see: compactorMinLineCells is 8, so 32 cubes is
- * "four lines' worth of cargo is loose on the field" and 48 is six. Above the
- * first, a launch costs half again as much and 2s of clock; above the second,
+ * something the player can see: compactorMinLineCells is 8, so 48 cubes is
+ * "six lines' worth of cargo is loose on the field" and 64 is eight. Above the
+ * first, a launch costs a quarter more and 2s of clock; above the second,
  * double and 5s.
+ *
+ * MEASURED at 32/48 (the numbers this shipped with — sim/pile.ts, 6 seeds,
+ * bays 1/3/5/8/10, census + paired variants): a CLEAN aim bot paid tier 1 on
+ * 42% of its shots (47% in bay 1, whose median field sat at exactly 32), and
+ * the stack cost that bot 27 points of win rate (80% -> 53%) — while the
+ * impatient spammer it exists to price lost only 16. A tax that bites
+ * careful play harder than spam is a rate rise, not a rule, and the census
+ * said the knee was simply below where a normal bay LIVES. At 48/64 the
+ * signs come out right: aim -7 (73%), patient (holds fire while congested)
+ * 80% = its untaxed rate exactly — the counter-play recovers everything —
+ * and impatient -10, below aim. Tier 1's multiplier is 1.25 rather than 1.5
+ * because the cost axis is the BANKRUPTCY vector in bay 1, the bay with the
+ * thinnest net-per-line: at 1.5x bay-1's clean win rate dropped 5/6 -> 3/6,
+ * and the clock/reload/combo taxes already carry the warning tier. Tier 2
+ * keeps the doubled price: at 64 cubes (12% of bay-1 shots, ~0-4%
+ * elsewhere) it is genuinely the spam wall, not weather.
  *
  * Two deliberate non-choices:
  *
@@ -470,12 +487,13 @@ export interface PileTier {
   reloadMult: number;
 }
 
-/** The proposed ladder: 4 lines' worth of loose cargo, then 6. Exported and
- *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
- *  variants against the same named default. */
+/** The measured ladder: 6 lines' worth of loose cargo, then 8 (see the
+ *  census note above — 4/6 lines taxed the field a normal bay simply holds).
+ *  Exported and tuned here rather than inlined in makeBaseLevel so
+ *  sim/pile.ts can sweep variants against the same named default. */
 export const PILE_TIERS: PileTier[] = [
-  { cubes: 32, costMult: 1.5, clockSec: 2, reloadMult: 1.5 },
-  { cubes: 48, costMult: 2, clockSec: 5, reloadMult: 2 },
+  { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1.5 },
+  { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 2 },
 ];
 
 /** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:
