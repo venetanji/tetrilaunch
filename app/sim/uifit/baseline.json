@@ -1,11 +1,1 @@
-{
-  "Android · 640x360 budget|end-lost|fit": [
-    ".panel overflows by 18px (328 -> 346)"
-  ],
-  "Android · 640x360 budget|end-lost|scrollers": [
-    ".panel scrolls 18px"
-  ],
-  "iOS · iPhone 13 mini|hud-contract|plant": [
-    "125px vs design 116px (46% of field height)"
-  ]
-}
+{}

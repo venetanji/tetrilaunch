@@ -834,12 +834,11 @@ section("Pattern Contracts (contracts.ts)");
       .includes("contract-card--done"),
   );
 
-  // The end-of-Contract modal's layout hooks. Measured in a real WebView at the
-  // device's 792x360 landscape viewport, the win screen stacked to 477px inside
-  // a 322px box and SCROLLED — the payout sat below the fold on the screen whose
-  // job is to report it. app.css lays the stats, the payout and the buttons out
-  // in wrapping ROWS off these three classes; heights can only be checked in a
-  // browser, but their absence can be caught here.
+  // The end-of-Contract modal is built from the ONE end-screen skeleton
+  // (canvas A10): the run-end modal's own parts — stat-row, salvage-row, one
+  // end__actions row — with the leaderboard geometry dropped via
+  // .end--contract. Heights can only be checked in a browser (sim/uifit's
+  // contract-end fixture); the shared parts' absence can be caught here.
   const endOpts = {
     name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
     launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
@@ -851,16 +850,30 @@ section("Pattern Contracts (contracts.ts)");
   });
   const ceLoss = contractEndModal({ ...endOpts, won: false, award: null });
   for (const [label, html] of [["win", ceWin], ["loss", ceLoss]] as const) {
-    check(`the ${label} contract modal opts into the end-of-Contract layout`,
-      html.includes("modal--contract-end"));
-    check(`its ${label} stats and buttons sit in the wrapping rows`,
-      html.includes("ce__cols") && html.includes("ce__stats") && html.includes("ce__btns"));
+    check(`the ${label} contract modal shares the end-screen skeleton`,
+      html.includes("end--contract") && html.includes("stat-row") && html.includes("end__actions"));
     // The inline width is what pinned the panel to 460px inside a 792px
     // viewport — the whole reason it had no room to lay out sideways.
     check(`the ${label} modal takes its width from CSS, not an inline cap`,
       !html.includes("width:min(460px"));
+    // B4: a decide-modal has no close ✕; B2: exactly one primary.
+    check(`the ${label} modal keeps decide-modal discipline`,
+      !html.includes('aria-label="Back"'));
+    check(`the ${label} modal has exactly one primary action (B2)`,
+      (html.match(/btn--primary/g) ?? []).length === 1);
   }
-  check("only a won contract shows a payout block", ceWin.includes("ce__reward") && !ceLoss.includes("ce__reward"));
+  check("only a won contract shows a payout row",
+    ceWin.includes("salvage-row") && !ceLoss.includes("salvage-row"));
+  // A10's "state the target": the payout names the price it is walking toward
+  // when the caller knows one, and stays silent when it doesn't.
+  const ceTarget = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: null },
+    nextInstall: { name: "Reactor Output", cost: 15 },
+  });
+  check("the salvage row states the target price",
+    ceTarget.includes("Reactor Output costs ♻ 15 in the Workshop"));
+  check("no target price is invented without one", !ceWin.includes("costs ♻"));
 }
 
 // ---------------------------------------------------------------------------

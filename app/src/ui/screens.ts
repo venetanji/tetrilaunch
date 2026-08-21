@@ -7,7 +7,8 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, nextTierCost, refitTracks, tiersCost, upgradeById, type UpgradeTiers,
+  MAX_TIER, UPGRADES, budgetForMark, nextTierCost, refitTracks, tiersCost, upgradeById,
+  type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
@@ -18,7 +19,7 @@ import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
-  totalNotches, type HazardDef, type HazardId, type Ratchets,
+  HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
 import type { PreviewRow } from "../game/preview";
 
@@ -472,7 +473,7 @@ export function hudHTML(opts: {
           (_, i) => `<i class="${i + 1 < bayNum ? "done" : i + 1 === bayNum ? "cur" : ""}"></i>`,
         ).join("")}</span>
       </div>`;
-  return `<div class="hud" id="hud">
+  return `<div class="hud${contract ? " hud--contract" : ""}" id="hud">
     <!-- button rail: ONE same-width column of four base buttons — fullscreen,
          pause, rotate CCW/CW — plus a slot per drafted ability (Bond Breaker,
          Demolition, Autoloader). Where it SITS is decided by the layout solver
@@ -565,15 +566,25 @@ export function hudHTML(opts: {
         </div>
         <div class="pl-meta">
           <span>Combo <b id="hud-combo">×0</b></span>
-          <span class="pl-meta__sep">·</span>
           ${
             contract?.kind === "pattern"
-              ? `<span>Left <b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></span>`
-              : `<span>Launch $${launchCost}</span>`
+              ? ""
+              : `<span class="pl-meta__sep">·</span><span>Launch $${launchCost}</span>`
           }
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>
         </div>
+        ${
+          // The remaining manifest gets its OWN row rather than riding the
+          // meta line: the tally is the widest thing the plant can hold (six
+          // piece types × "I×3"), and inline it wrapped the meta line onto a
+          // second and third line — which is what pushed the panel past its
+          // design box on the tightest inset device (iPhone 13 mini). A row
+          // can scroll its tail horizontally; a wrapped line can only grow.
+          contract?.kind === "pattern"
+            ? `<div class="pl-queue"><span class="lbl">Left</span><b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></div>`
+            : ""
+        }
         <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
              The row scrolls horizontally (a full run drafts more than fits), so
              whatever is last gets cut off first — and the ability chips are the
@@ -1404,7 +1415,7 @@ export function endModal(opts: {
       <div class="end__main">
       <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--danger)"}">${eyebrow}</div>
       <h2 class="display">${title}</h2>
-      ${!opts.won ? `<p class="muted" style="margin-top:-8px">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
+      ${!opts.won ? `<p class="muted end__where">Made it to Bay ${opts.bayNum}/${RUN_LEVELS} — ${opts.bayName}</p>` : ""}
       ${
         why
           ? `<div class="end__why"><p>${why[0]}</p><p class="end__tip"><b>Try next time:</b> ${why[1]}</p></div>`
@@ -1415,7 +1426,7 @@ export function endModal(opts: {
         <div class="stat"><b>${opts.lines}</b><span>Lines</span></div>
         <div class="stat"><b style="color:var(--piece-o)">${opts.best}</b><span>Best</span></div>
       </div>
-      <div class="muted" style="text-align:center;font-size:12px;margin-top:-8px">
+      <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
@@ -1447,17 +1458,36 @@ export function endModal(opts: {
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
       }
+      ${
+        // A15: a completed tier's end names what the NEXT rung actually
+        // changes — truthfully. A Mark no longer scales the ladder's numbers
+        // (level.ts's zeroed MARK_*_STEP), so what a tier opens is a hazard
+        // axis and a bigger build budget, and that is what the line says.
+        opts.runComplete && opts.tierCompleted !== null
+          ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
+              (() => {
+                const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
+                return opened ? `${opened.name} joins the draft, and ` : "";
+              })()
+            }the build budget rises to ${budgetForMark(opts.progress.tier)}.</p>`
+          : ""
+      }
       </div>
       <div class="end__side">
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
             value="${opts.name}" autocomplete="off" spellcheck="false" />
-          <button class="btn btn--primary" data-action="submit-score">Submit</button>
+          <!-- Secondary, not primary (B2): the screen's one forward move is
+               the restart button below — submitting a score is a sideways
+               action, and two primaries made the exit compete with it. -->
+          <button class="btn btn--secondary" data-action="submit-score">Submit</button>
         </div>
         <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
-        <button class="btn btn--primary" data-action="restart">Play Again</button>
+        <button class="btn btn--primary" data-action="restart">${
+          opts.runComplete ? `Run Tier ${opts.progress.tier} →` : "Play Again"
+        }</button>
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
     </div>
@@ -1573,18 +1603,18 @@ export function queueTallyHTML(queue: readonly PieceType[]): string {
 }
 
 /**
- * End-of-Contract modal.
+ * End-of-Contract modal — built from the ONE end-screen skeleton (canvas A10/
+ * A15): eyebrow, display title, `.stat-row`, `.salvage-row`, one
+ * `.end__actions` row. These are the run-end modal's own parts, so the two
+ * ways a session ends read as one family; `.end--contract` drops only the
+ * geometry the run modal grids around its leaderboard column, because there
+ * is no leaderboard here. The old bespoke `.ce__*` layout is gone.
  *
- * Win and loss are genuinely different screens, not one screen with a recoloured
- * label. The earlier version differed only by a small eyebrow while the big
- * heading showed the Contract's NAME — which carries no outcome — and offered
- * "Try Again" as the primary action on a bay the player had just WON. Winning
- * read like failing.
- *
- * So on a win the outcome is the headline, the payout is stated plainly (the
- * player should never have to go to the Workshop to find out whether a clear
- * counted), and the primary action moves forward to the board. Replaying stays
- * available, worded as "Play Again" — it is practice, not another attempt.
+ * Win and loss are still genuinely different screens: on a win the outcome is
+ * the headline, the payout is stated plainly in the salvage row (with the
+ * price it is walking toward, when the caller knows one — A10's "state the
+ * target"), and the primary action moves forward. On a loss the primary is
+ * the retry, and the margin missed by is the whole feedback.
  */
 export function contractEndModal(opts: {
   won: boolean;
@@ -1605,6 +1635,10 @@ export function contractEndModal(opts: {
   /** Where the (possibly new) current tier stands after this clear. */
   progress: TierProgress;
   salvageTotal: number;
+  /** The cheapest system the player could install next, so the salvage row can
+   *  name the price the payout is walking toward (A10). Null when everything
+   *  reachable is installed. */
+  nextInstall?: { name: string; cost: number } | null;
   /** Next unfinished card from the board this attempt came from. */
   nextContract?: { name: string } | null;
   /** All three cards on that board are now cleared. */
@@ -1613,22 +1647,12 @@ export function contractEndModal(opts: {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
   const supplyTotal = pattern ? opts.queue.length : opts.launches;
-  const stats = `
-    <div class="ce__stats">
-      <div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">Lines</div>
-        <div class="chip__value" style="color:var(--accent)">${opts.lines}/${opts.goal}</div>
-      </div>
-      <div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">${supplyLabel}</div>
-        <div class="chip__value" style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</div>
-      </div>
+  const stats = `<div class="stat-row">
+      <div class="stat"><b style="color:var(--accent)">${opts.lines}/${opts.goal}</b><span>Lines</span></div>
+      <div class="stat"><b style="color:var(--warn)">${opts.launchesUsed}/${supplyTotal}</b><span>${supplyLabel}</span></div>
       ${
         pattern
-          ? `<div class="chip" style="flex-direction:row;gap:10px">
-        <div class="chip__label">Manifest</div>
-        <div class="chip__value" style="font-size:var(--fs-sm)">${queueTallyHTML(opts.queue)}</div>
-      </div>`
+          ? `<div class="stat"><b class="stat__tally">${queueTallyHTML(opts.queue)}</b><span>Manifest</span></div>`
           : ""
       }
     </div>`;
@@ -1638,21 +1662,23 @@ export function contractEndModal(opts: {
     // goal — it ends the moment the cubes to finish it stop existing. Saying
     // how many were lost is the whole feedback: "you were one cube short" is
     // what makes the retry a decision rather than another roll.
-    const heading = pattern ? "Manifest short" : "Out of launches";
+    const heading = pattern ? "Manifest Short" : "Out of Launches";
     const why = pattern
       ? opts.cubesWasted > 0
         ? `<b>${opts.cubesWasted}</b> cube${opts.cubesWasted === 1 ? "" : "s"} never made it into a line — with an exact manifest, that's the whole margin.`
         : "The manifest ran out before the goal did."
       : "Nothing lost — a Contract costs you nothing to retry.";
     return `<div class="modal-scrim" id="scrim">
-      <div class="panel modal modal--contract-end pop">
-        <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
-        <h2 class="display">${heading}</h2>
-        <p class="muted" style="margin:2px 0 0">${why}</p>
-        <div class="ce__cols">${stats}</div>
-        <div class="ce__btns">
-          <button class="btn btn--primary btn--lg btn--block" data-action="contract-retry">↻ Try Again</button>
-          <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
+      <div class="panel modal end end--contract pop">
+        <div class="end__main">
+          <div class="eyebrow" style="color:var(--danger)">${opts.name}</div>
+          <h2 class="display">${heading}</h2>
+          <p class="muted" style="margin-top:-6px">${why}</p>
+          ${stats}
+        </div>
+        <div class="row end__actions">
+          <button class="btn btn--primary" data-action="contract-retry">↻ Try Again</button>
+          <button class="btn btn--ghost" data-action="contracts">Contract Board</button>
         </div>
       </div>
     </div>`;
@@ -1663,61 +1689,79 @@ export function contractEndModal(opts: {
   // A pattern Contract has no spare by construction, so clearing one at all IS
   // the flourish and the copy says that instead.
   const spare = pattern ? 0 : opts.launches - opts.launchesUsed;
-  // Three outcomes, three chips: the clear COMPLETED the tier (the salvage
-  // moment — celebrate it), the clear ticked tier progress (say what's still
-  // missing), or it was a replay (free practice, nothing moved).
   const p = opts.progress;
-  const reward =
+  // A10's "state the target": salvage in hand is only meaningful against the
+  // next thing it buys, so the row names it whenever the caller knows one.
+  const target = opts.nextInstall
+    ? ` ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop.`
+    : "";
+  // Three outcomes, one salvage row: the clear COMPLETED the tier (the
+  // celebration), the clear ticked tier progress (say what's still missing),
+  // or it was a replay (free practice, nothing moved — the quiet variant).
+  const salvageRow =
     opts.award?.firstClear && opts.award.completedTier !== null
-      ? `<div class="chip" style="border-color:var(--success);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--success)">Tier ${opts.award.completedTier} complete!</div>
-         <div class="chip__value" style="color:var(--warn);font-size:var(--fs-h2)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">${opts.salvageTotal} banked · Tier ${p.tier} is open · spend it in the Workshop</div>
-       </div>`
+      ? `<div class="salvage-row salvage-row--tier-done">
+        <div class="salvage-row__amt">♻ +${opts.award.salvage}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${opts.award.completedTier} complete!</b>
+          <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
       : opts.award?.firstClear
-        ? `<div class="chip" style="border-color:var(--accent);gap:2px;padding:12px 14px">
-         <div class="chip__label" style="color:var(--accent)">Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</div>
-         ${
-           opts.award.salvage > 0
-             ? `<div class="chip__value" style="color:var(--warn)">♻ +${opts.award.salvage}</div>
-         <div class="muted" style="font-size:var(--fs-sm)">Milestone banked — ${opts.salvageTotal} salvage total, spend it in the Workshop.</div>`
-             : ""
-         }
-         <div class="muted" style="font-size:var(--fs-sm)">${
-           p.contracts >= p.needed
-             ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
-             : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
-         }</div>
-       </div>`
-        : `<div class="chip" style="gap:2px;padding:12px 14px">
-         <div class="chip__label">Already logged</div>
-         <div class="muted" style="font-size:var(--fs-sm)">This Contract counted on your first clear. Replays are free practice.</div>
-       </div>`;
+        ? `<div class="salvage-row">
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? `♻ +${opts.award.salvage}` : `T${p.tier}`}</div>
+        <div class="salvage-row__body">
+          <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
+          <span class="muted">${
+            opts.award.salvage > 0
+              ? `<b>♻ +${opts.award.salvage} banked</b> — ${opts.salvageTotal} salvage total.`
+              : ""
+          } ${
+            p.contracts >= p.needed
+              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
+              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
+          }${target}</span>
+        </div>
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
+      </div>`
+        : `<div class="salvage-row salvage-row--quiet">
+        <div class="salvage-row__amt">✓</div>
+        <div class="salvage-row__body">
+          <b>Already logged</b>
+          <span class="muted">This Contract counted on your first clear. Replays are free practice.</span>
+        </div>
+      </div>`;
 
+  // One primary (B2): the forward move. The ghost board link only renders
+  // when the primary is routing somewhere ELSE — a primary that already goes
+  // to the board does not need a quieter twin.
+  const primaryIsBoard = !opts.boardComplete && !opts.nextContract;
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--contract-end pop">
-      <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
-      <h2 class="display neon-text" style="color:var(--success)">
-        ✓ Contract Complete
-      </h2>
-      <p class="muted" style="margin:2px 0 0">
-        ${
-          pattern
-            ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
-            : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
-        }
-      </p>
-      <div class="ce__cols">${stats}<div class="ce__reward">${reward}</div></div>
-      <div class="ce__btns">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:var(--success)">${opts.name} · cleared</div>
+        <h2 class="display" style="color:var(--success)">Contract Complete</h2>
+        <p class="muted" style="margin-top:-6px">
+          ${
+            pattern
+              ? `${opts.goal} lines from the exact manifest — <b>nothing wasted</b>.`
+              : `${opts.goal} lines delivered${spare > 0 ? ` with <b>${spare}</b> launch${spare === 1 ? "" : "es"} to spare` : ""}.`
+          }
+        </p>
+        ${stats}
+        ${salvageRow}
+      </div>
+      <div class="row end__actions">
         ${
           opts.boardComplete
-            ? `<button class="btn btn--primary btn--lg btn--block" data-action="workshop">Workshop →</button>`
+            ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
             : opts.nextContract
-              ? `<button class="btn btn--primary btn--lg btn--block" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
-              : `<button class="btn btn--primary btn--lg btn--block" data-action="contracts">Contract Board →</button>`
+              ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
+              : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
         }
-        <button class="btn btn--secondary btn--block" data-action="contracts">Contract Board</button>
-        <button class="btn btn--secondary btn--block" data-action="contract-retry">↻ Play Again</button>
+        <button class="btn btn--secondary" data-action="contract-retry">↻ Play Again</button>
+        ${primaryIsBoard ? "" : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`}
       </div>
     </div>
   </div>`;

@@ -28,10 +28,12 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .filter((h) => (ratchets[h.id] ?? 0) > 0)
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
-import { MAX_TIER, nextTierCost, refitTracks, type UpgradeId, type UpgradeTiers } from "./game/upgrades";
 import {
-  buyInstall, markUnlocked, recordContractClear, recordRunEnd, safeLoadout,
-  tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
+  MAX_TIER, nextTierCost, refitTracks, upgradeById, type UpgradeId, type UpgradeTiers,
+} from "./game/upgrades";
+import {
+  INSTALLS, buyInstall, installAvailable, markUnlocked, recordContractClear, recordRunEnd,
+  safeLoadout, tierProgressFor, unlockAvailable, unlockById, type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, levelForContract, type Contract,
@@ -451,6 +453,16 @@ class App {
     return { available: purchasesReady(), unlimited: isUnlimited() };
   }
 
+  /** The cheapest system the player could install next — what the contract
+   *  end's salvage row names as the price the payout is walking toward
+   *  (canvas A10). Null once everything the tier allows is installed. */
+  private nextInstall(): { name: string; cost: number } | null {
+    const next = INSTALLS
+      .filter((i) => installAvailable(this.meta, i))
+      .sort((a, b) => a.cost - b.cost)[0];
+    return next ? { name: upgradeById(next.id)!.name, cost: next.cost } : null;
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     switch (this.state) {
@@ -504,6 +516,7 @@ class App {
                 : null,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
+              nextInstall: this.nextInstall(),
               nextContract: this.nextContract ? { name: this.nextContract.name } : null,
               boardComplete: this.contractBoardComplete,
             });

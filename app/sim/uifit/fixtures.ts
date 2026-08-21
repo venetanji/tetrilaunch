@@ -253,6 +253,8 @@ export const SCREENS: Record<string, () => string> = {
       award: { firstClear: true, completedTier: 3, salvage: 220 },
       progress: PROGRESS,
       salvageTotal: 1_700,
+      // The A10 target-price sentence is the salvage row's longest state.
+      nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
 };
 
