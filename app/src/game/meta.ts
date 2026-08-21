@@ -118,7 +118,7 @@ export const UNLOCKS: UnlockDef[] = [
   {
     id: "scrap-cache",
     name: "Scrap Cache",
-    cost: 70,
+    cost: 85,
     rank: 1,
     desc: "Every run starts with 30 scrap banked, so the first refit stop is a real decision instead of a window-shop.",
   },
@@ -264,25 +264,35 @@ export interface InstallDef {
 }
 
 export const INSTALLS: InstallDef[] = [
-  // The two entry systems are priced UNDER a day of the easiest dailies (three
-  // tier-1 Contracts pay 18), not at it. The spec's pacing target is "a day's
-  // Contracts should fund roughly one install", and pricing the on-ramp at 20
-  // missed it by two — a player's first full day of Contracts would have bought
-  // nothing at all. Same reasoning as UNLOCKS' rank 1: the player who most needs
-  // a first system is the one with the least salvage.
+  // PRICES, re-derived. The old comment here justified them against "three
+  // tier-1 Contracts pay 18" — which has not been true for some time: a tier's
+  // three contracts pay 45 (three 15-salvage milestones), so every price below
+  // was set against an income two and a half times smaller than the one that
+  // actually arrives. That, plus the retired-unlock hole above, is the surplus.
+  //
+  // The two ENTRY systems stay at 15 and are not negotiable: 15 is one
+  // milestone, so a player's first cleared Contract buys their first system.
+  // That is the on-ramp, and it is the thing the 2026-08-09 deadlock proved
+  // the economy cannot do without.
+  //
+  // Everything past the on-ramp is priced against the day it takes to earn:
+  // 30 is most of a tier's contracts, 50 is a tier, 70 is a tier plus its run
+  // win. The shelf now totals 460 (with the two former Options folded in
+  // below) against 600 of income — slack enough to make a wrong purchase
+  // survivable, tight enough that the choice is a choice.
   { id: "reactor", cost: 15 },
   { id: "launcher", cost: 15 },
-  { id: "magazine", cost: 25 },
-  { id: "bay", cost: 30, requiresMark: 1 },
-  { id: "hydraulics", cost: 30, requiresMark: 1 },
-  { id: "bonds", cost: 40, requiresMark: 2 },
+  { id: "magazine", cost: 30 },
+  { id: "bay", cost: 50, requiresMark: 1 },
+  { id: "hydraulics", cost: 50, requiresMark: 1 },
+  { id: "bonds", cost: 70, requiresMark: 2 },
   // The spec's ladder puts Demolition at Mark 4 — but that pairing only works
   // once materials MOVE to the hazard draft in phase 3. Phase 1 leaves
   // MATERIAL_SCHEDULE alone, where slag already appears from Mark 2 (i.e. one
   // Mark beaten). Gating its only clean answer at 3 would ship a counter two
   // Marks behind its hazard, which is strictly worse than today. Raise this to
   // 3 in the same change that moves materials off the schedule.
-  { id: "demolition", cost: 40, requiresMark: 1 },
+  { id: "demolition", cost: 70, requiresMark: 1 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
@@ -437,7 +447,26 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
  * ---------------------------------------------------------------------- */
 export const TIER_CONTRACTS_REQUIRED = 3;
 export const TIER_SALVAGE_BASE = 60;
-export const TIER_SALVAGE_PER_TIER = 20;
+/**
+ * FLAT, deliberately — this was 20, and the slope is where the salvage economy
+ * came apart.
+ *
+ * The ladder was sized honestly once: awards summed to 1,500 across ten tiers
+ * against ~1,600 of things to buy, so the tree could not outrun it. Then eight
+ * of the ten UNLOCKS were retired — their abilities moved into INSTALLS, which
+ * was right — and 1,270 of SINK left the game while the income was never
+ * re-derived. Measured: 1,500 earned against 325 spendable, a 4.6x oversupply,
+ * and salvage stopped being a decision anywhere past the first tier.
+ *
+ * The base stays 60 because it is load-bearing: 60/4 milestones is 15, exactly
+ * an entry install, which is the on-ramp a device session found the hard way
+ * (2026-08-09, stuck on 8 salvage against a 15-salvage Reactor). Cutting the
+ * base would re-break that. The SLOPE is what compounded — +20/tier reaches
+ * 240 a tier by tier 10, against a shelf that does not grow — so the slope is
+ * what goes. Every tier now pays 60, one contract still buys the entry system,
+ * and total income falls 1,500 -> 600 against a ~460 shelf.
+ */
+export const TIER_SALVAGE_PER_TIER = 0;
 
 /** TOTAL salvage a tier yields across its milestones + completion. */
 export function tierSalvage(tier: number): number {

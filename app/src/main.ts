@@ -131,7 +131,6 @@ class App {
    *  renderOverlay() rewrites overlay.innerHTML wholesale and both purchase
    *  handlers call it, so a :checked-sibling or :target tab would snap back to
    *  Systems on every buy (and :target would push history entries besides). */
-  private workshopTab: S.ShopTab = "systems";
   /** What the run that just ended did to tier progress, held so the end modal
    *  can show it without recomputing (and so re-rendering the modal — e.g.
    *  after the leaderboard fetch lands — can't award a completion twice). */
@@ -590,7 +589,7 @@ class App {
           },
         );
         break;
-      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta, this.workshopTab); break;
+      case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
@@ -1394,12 +1393,6 @@ class App {
   /** Workshop: switch shop halves. Anything other than the two known ids is
    *  ignored rather than defaulted, so a stale attribute cannot silently park
    *  the player on Systems forever. */
-  private onShopTab(tab: string): void {
-    if (tab !== "systems" && tab !== "options") return;
-    if (tab === this.workshopTab) return;
-    this.workshopTab = tab;
-    this.renderOverlay();
-  }
 
   /** "pick-hazard": TOGGLE one axis in the tentative hand. Nothing is banked
    *  here — the picks live in `pendingPicks` until "confirm-hazards" commits
@@ -1890,7 +1883,7 @@ class App {
         this.renderOverlay();
         break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
-      case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
+      case "workshop": this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
         const slot = Number(el.getAttribute("data-slot") ?? "0");
@@ -1939,7 +1932,6 @@ class App {
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
-      case "shop-tab": this.onShopTab(el.getAttribute("data-tab") ?? ""); break;
     }
   };
 

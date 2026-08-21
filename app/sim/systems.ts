@@ -409,7 +409,7 @@ section("Installs — what salvage buys (meta.ts)");
   check("a clean save passes through the refund untouched",
     refundRetiredUnlocks(refunded) === refunded);
   check("the Workshop never lists a retired unlock",
-    !workshopScreen(freshMeta({ salvage: 9_999, mark: 9 }), "options").includes("Bulk Freight Permit"));
+    !workshopScreen(freshMeta({ salvage: 9_999, mark: 9 })).includes("Bulk Freight Permit"));
 
   // A3: ONE computed next step, the rule stated once (meta.ts's nextStep) so
   // the menu, the Workshop and the fail card can never point at different
@@ -439,39 +439,37 @@ section("Installs — what salvage buys (meta.ts)");
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
 
-  const shop = workshopScreen(freshMeta({ salvage: 50 }), "systems");
-  const shopOpts = workshopScreen(freshMeta({ salvage: 50 }), "options");
+  const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
   check("the Workshop shows the build budget", shop.includes("build budget"));
-  // Tabs, and only the active pane. The whole 500px-of-overflow fix rests on
-  // the inactive section NOT being in the output — if both render, the shop is
-  // the same length it always was and the CSS is decoration.
-  check("both tabs render on either pane",
-    shop.includes(`data-tab="systems"`) && shop.includes(`data-tab="options"`) &&
-      shopOpts.includes(`data-tab="systems"`) && shopOpts.includes(`data-tab="options"`));
-  check("the systems pane omits the option cards",
-    shop.includes(`data-action="buy-install"`) && !shop.includes(`data-action="buy-unlock"`));
-  check("the options pane omits the install cards",
-    shopOpts.includes(`data-action="buy-unlock"`) && !shopOpts.includes(`data-action="buy-install"`));
-  check("the build budget survives on the systems tab", shop.includes("build budget"));
-  check("the active tab is marked for assistive tech",
-    shop.includes(`data-tab="systems" aria-selected="true"`) &&
-      shopOpts.includes(`data-tab="options" aria-selected="true"`));
-  // An empty pane must still show its tabs, or a player who has installed
-  // everything lands on a screen with no way back to the other half.
+  // ONE SHELF. The tab assertions these replace were the mirror image: they
+  // pinned the INACTIVE pane out of the output, because the overflow fix of
+  // the day depended on only half the stock rendering. The split is gone, so
+  // the property worth holding is the opposite one — every purchasable thing
+  // is in the markup at once, and neither kind can go missing behind a click.
+  check("the shelf carries systems and options together",
+    shop.includes(`data-action="buy-install"`) && shop.includes(`data-action="buy-unlock"`));
+  check("the Workshop has no tab bar", !shop.includes(`data-action="shop-tab"`));
+  // The aside is the fixed column; the budget lives there now rather than on
+  // the deleted tab bar, and it is the usual reason a card is greyed out.
+  check("the build budget rides in the fixed aside",
+    shop.includes("workshop__aside") && shop.includes("workshop__budget"));
   const richMeta = freshMeta({ salvage: 99999, mark: MARK_COUNT });
   let allIn = richMeta;
   for (const i of INSTALLS) { const n = buyInstall(allIn, i.id); if (n) allIn = n; }
-  const shopFull = workshopScreen(allIn, "systems");
-  check("an exhausted systems pane keeps its tabs", shopFull.includes(`data-tab="options"`));
-  // Both card kinds carry a glyph and a body wrapper, or the row layout has
-  // nothing to put in its tracks and Options rows sit at a different left edge
-  // from Systems rows.
+  const shopFull = workshopScreen(allIn);
+  check("an exhausted shelf still shows what is installed",
+    shopFull.includes("✓ Installed"));
+  // Both card kinds carry a glyph and a body wrapper. This mattered more once
+  // they shared a shelf than it did when they sat on separate tabs: a card
+  // missing its glyph now sits directly beside one that has it, at a visibly
+  // different left edge, in the same grid.
   check("an option card carries its glyph",
-    shopOpts.includes(`class="shop-card__name"><svg`),
-    shopOpts.slice(shopOpts.indexOf("shop-card__name"), shopOpts.indexOf("shop-card__name") + 80));
+    shop.includes(`class="shop-card__name"><svg`),
+    shop.slice(shop.indexOf("shop-card__name"), shop.indexOf("shop-card__name") + 80));
   check("both card kinds wrap name and desc in a body",
-    shop.includes(`class="shop-card__body"`) && shopOpts.includes(`class="shop-card__body"`));
+    shop.includes(`class="shop-card__body"`) &&
+      shop.split(`class="shop-card__body"`).length - 1 >= 2);
   check("a tier-gated system is shown, locked, rather than hidden",
     shop.includes("Bond Emitter") && shop.includes("Needs Tier 3"),
     shop.includes("Bond Emitter") ? "gate copy missing" : "card missing");
@@ -795,13 +793,17 @@ section("Pattern Contracts (contracts.ts)");
 
   // --- Tier award ------------------------------------------------------------
   // Salvage moved from per-run/per-contract trickles to a single award on TIER
-  // COMPLETION (playtest call, 2026-08-08). The award must rise with the tier
-  // (the ladder stays worth climbing) and clamp below tier 1.
-  let payoutMonotone = true;
+  // FLAT across tiers, deliberately — this used to assert the award RISES.
+  // The slope was the whole surplus: +20/tier reached 240 a tier against a
+  // shelf that does not grow, and after eight of the ten unlocks were retired
+  // the ladder paid 1,500 against 325 of spendable stock. What has to hold now
+  // is the opposite property — every tier pays the same, so a milestone is
+  // always exactly one entry system and never drifts into pocket change.
+  let payoutFlat = true;
   for (let t = 2; t <= 12; t++) {
-    if (tierSalvage(t) <= tierSalvage(t - 1)) payoutMonotone = false;
+    if (tierSalvage(t) !== tierSalvage(1)) payoutFlat = false;
   }
-  check("tier award rises with tier", payoutMonotone);
+  check("tier award is flat across the ladder", payoutFlat);
   check("award clamps below tier 1", tierSalvage(0) === tierSalvage(1));
 
   // A Contract clear pays its MILESTONE SHARE and nothing more (see meta.ts's
@@ -1301,12 +1303,19 @@ section("Draft gating (mods.ts + meta.ts)");
   );
 
   // --- Shape of the ladder --------------------------------------------------
-  const total = UNLOCKS.reduce((a, u) => a + u.cost, 0);
-  check(`the tree costs ${total} salvage`, total === 1400, String(total));
+  // LIVE stock only. This counted every UNLOCKS row including the eight marked
+  // retired, which is how a 1,500-salvage ladder came to look balanced against
+  // a "1,600-salvage tree" that the player could not actually buy: 1,270 of
+  // that total does nothing and is never listed. Counting what ships is the
+  // point of the assertion.
+  const liveUnlocks = UNLOCKS.filter((u) => !u.retired);
+  const total = liveUnlocks.reduce((a, u) => a + u.cost, 0)
+    + INSTALLS.reduce((a, i) => a + i.cost, 0);
+  check(`the shelf costs ${total} salvage`, total === 445, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
-  const maxOf = (r: number) => Math.max(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
-  const minOf = (r: number) => Math.min(...UNLOCKS.filter((u) => u.rank === r).map((u) => u.cost));
+  const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
+  const minOf = (r: number) => Math.min(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
   check("rank 2 is dearer than rank 1", minOf(2) > maxOf(1));
   check("rank 3 is dearer than rank 2", minOf(3) > maxOf(2));
   check("only rank 3 carries a Mark gate", markGated.every((u) => u.rank === 3));
@@ -1323,9 +1332,15 @@ section("Draft gating (mods.ts + meta.ts)");
   // afford would make the last unlocks purely theoretical.
   const ladderTotal = Array.from({ length: MARK_COUNT }, (_, i) => tierSalvage(i + 1))
     .reduce((a, b) => a + b, 0);
+  // Income against LIVE stock, with a ceiling that actually bites. The old
+  // bound allowed 1.3x and was measured against retired merchandise, so a
+  // 4.6x real oversupply passed it. Between 1.0x and 1.6x: the ladder must
+  // finish the shelf (or the last systems are theoretical) without paying for
+  // it several times over (or salvage stops being a decision).
   check(
-    `the ten-tier ladder (${ladderTotal}) covers most of the ${total}-salvage tree`,
-    ladderTotal >= total * 0.8 && ladderTotal <= total * 1.3,
+    `the ten-tier ladder (${ladderTotal}) covers the ${total}-salvage shelf without flooding it`,
+    ladderTotal >= total && ladderTotal <= total * 1.6,
+    `${(ladderTotal / total).toFixed(2)}x`,
   );
 }
 

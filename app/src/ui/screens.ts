@@ -1176,9 +1176,8 @@ export function refitScreen(opts: {
 /** Which half of the shop is showing. Systems and Options are two lists of the
  *  same kind of decision, and at 792x360 both at once is 689px of cards in a
  *  189px window — see the spec's measurement table. */
-export type ShopTab = "systems" | "options";
 
-export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): string {
+export function workshopScreen(meta: MetaState): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
   // derivation here would risk offering a button the purchase path refuses.
@@ -1221,8 +1220,6 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       </div>`
     : "";
 
-  const done = !forSale.length;
-
   // ---- Systems -------------------------------------------------------------
   // Installs sit ABOVE the unlock cards: a system is permanent power the player
   // keeps, an unlock is an option that may or may not be dealt, and the shop
@@ -1262,42 +1259,39 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
     .join("");
 
-  // The counts are what let the hidden half advertise itself. A tab that just
-  // says "Options" gives a player no reason to look, and the cheapest unlock
-  // they can afford is behind it.
-  const systemsBuyable = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0 &&
-    installAvailable(meta, i) && meta.salvage >= i.cost).length;
-  const optionsBuyable = forSale.filter((u) => unlockAvailable(u, meta.unlocks, mark) &&
-    meta.salvage >= u.cost).length;
+  // ONE SHELF. The Systems/Options tabs are gone.
+  //
+  // They split the shop by a distinction the player does not have: both halves
+  // are salvage, spent once, kept forever. What the split actually did was
+  // hide merchandise — the tab bar had to carry per-tab COUNTS precisely
+  // because, in its own words, "a tab that just says Options gives a player no
+  // reason to look, and the cheapest unlock they can afford is behind it". A
+  // shelf that needs a badge advertising the half you cannot see is one shelf
+  // too many.
+  //
+  // Systems lead, which is the ordering the tab bar was already asserting by
+  // putting them first: a system is power you are guaranteed to keep, an
+  // option changes what a run may attempt. Same order, no click.
+  const shelf = installCards + cards;
+  const shelfEmpty = !shelf;
 
-  const tabBtn = (id: ShopTab, label: string, n: number) =>
-    `<button class="workshop__tab${tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="shop-tab" data-tab="${id}" aria-selected="${tab === id}">${label}${n ? ` <b>${n}</b>` : ""}</button>`;
-
-  // The bar is a SIBLING of .workshop__shop, never a child: app.css makes
-  // .workshop__shop the scroller on short viewports, so a bar inside it
-  // scrolls away exactly when the player needs it.
-  const tabBar = `<div class="workshop__tabs" role="tablist">
-        ${tabBtn("systems", "Systems", systemsBuyable)}
-        ${tabBtn("options", "Options", optionsBuyable)}
-        ${tab === "systems"
-          ? `<span class="workshop__budget">build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}</span>`
-          : ""}
-      </div>`;
-
-  // Each strip belongs to its own pane. Left above the shop they would show the
-  // Installed list while the player is shopping for Options, and both would eat
-  // fixed chrome off the only scroller.
-  const pane = tab === "systems"
-    ? `${installedStrip
-          ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-          : ""}
-       ${installCards
-          ? `<div class="workshop__grid">${installCards}</div>`
-          : `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`}`
-    : `${ownedStrip}
-       ${done
-          ? `<p class="muted" style="margin:0">Every option unlocked. Salvage now rides along for the next thing built.</p>`
-          : `<div class="workshop__grid">${cards}</div>`}`;
+  // The FIXED column. Everything here is state rather than merchandise — what
+  // you have, and what the Mark will let you spend — so it must not scroll
+  // away from the cards it constrains. The build budget in particular is the
+  // usual reason a card is greyed out, and it used to ride on the tab bar,
+  // which is exactly the element being deleted.
+  const aside = `<aside class="workshop__aside">
+        <div class="workshop__budget-box">
+          <span class="workshop__aside-label">build budget</span>
+          <span class="workshop__budget">${tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
+        </div>
+        ${
+          installedStrip
+            ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+            : ""
+        }
+        ${ownedStrip}
+      </aside>`;
 
   return `<div class="screen neon-backdrop">
     <div class="workshop">
@@ -1323,8 +1317,14 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
         })()
       }</div>
-      ${tabBar}
-      <div class="workshop__shop" role="tabpanel" data-scroll>${pane}</div>
+      <div class="workshop__body">
+        ${aside}
+        <div class="workshop__shop" data-scroll>${
+          shelfEmpty
+            ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
+            : `<div class="workshop__grid">${shelf}</div>`
+        }</div>
+      </div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
   </div>`;

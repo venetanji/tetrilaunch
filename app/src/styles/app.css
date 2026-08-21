@@ -2381,8 +2381,12 @@ button.panel { color: var(--text); }
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
    ========================================================================== */
 /* height:100% + min-height:0 make this the middle link of the fit chain
-   .screen -> .workshop -> [data-scroll].workshop__shop: the header, tab bar and
-   Start Run stay pinned, and only the stock scrolls. */
+   .screen -> .workshop -> .workshop__body -> [data-scroll].workshop__shop:
+   the header, the aside and Start Run stay pinned, and only the stock
+   scrolls. The chain gained a link when the tab bar was replaced by a
+   two-column body, and every one of them needs min-height:0 or the scroller
+   resolves its height from its content and the pane grows instead of
+   scrolling. */
 .workshop {
   max-width: 980px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
   display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3);
@@ -2390,7 +2394,7 @@ button.panel { color: var(--text); }
 .workshop__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .workshop__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
 .workshop__meta { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em; }
-.workshop__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.workshop__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; align-content: start; }
 .shop-card {
   display: flex; flex-direction: column; gap: 8px;
   padding: 14px 16px;
@@ -2436,11 +2440,47 @@ button.panel { color: var(--text); }
    a single scroller holding BOTH sections stacked, which is 689px of cards in a
    189px window at 792x360. The tab bar is a sibling, not a child, so it stays
    put while this scrolls. */
+/* TWO COLUMNS, ONE SCROLLER. The left column is state — what you own, and the
+   budget the Mark allows — and it must stay put: the budget is the usual
+   reason a card is greyed out, so scrolling it away from the cards it explains
+   is the one thing this pane must not do. The right column is the shelf, and
+   it is the only thing that moves.
+
+   200px is the aside's cap, not its width: `minmax(0, 200px)` lets it give way
+   on a narrow phone rather than squeezing the merchandise, and both tracks
+   carry minmax(0, …) so a long system name cannot push the grid wider than the
+   panel. */
+.workshop__body {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  gap: var(--sp-3);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.workshop__aside {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  min-width: 0; min-height: 0;
+  align-content: start;
+}
+.workshop__aside-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.workshop__budget-box {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: var(--bw) solid var(--line);
+  background: var(--surface-2);
+}
 .workshop__shop { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
 /* The budget, not the price, is what usually refuses a purchase here. */
 .workshop__budget { font-family: var(--font-mono); font-size: 10px; color: var(--warn); letter-spacing: 0; }
-
-/* The tab bar is fixed chrome above the scroller, not part of it. */
+/* Tab bar. The WORKSHOP no longer has tabs — its Systems/Options split was
+   removed — but the CONTROLS screen (controlsScreen) renders its keyboard /
+   gamepad / touch tabs with these same classes, so the rules stay. Deleting
+   them with the workshop tabs took the Controls screen's tab strip with it.
+   Worth renaming to a neutral .tabs one day; not worth doing blind. */
 .workshop__tabs { display: flex; align-items: center; gap: var(--sp-2); }
 /* Tabs are the workshop's only way to reach half its stock, and they were 20px
    tall. The pane below them scrolls; the control that chooses WHICH pane cannot
@@ -2455,6 +2495,11 @@ button.panel { color: var(--text); }
 .workshop__tab--on { color: var(--text); border-bottom-color: var(--accent); }
 .workshop__tab b { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
 .workshop__tabs .workshop__budget { margin-left: auto; }
+
+/* The tab bar is fixed chrome above the scroller, not part of it. */
+/* Tabs are the workshop's only way to reach half its stock, and they were 20px
+   tall. The pane below them scrolls; the control that chooses WHICH pane cannot
+   be the hardest thing on the screen to hit. */
 
 /* Short (landscape-phone) viewports. The card gives up its SHAPE rather than
    the screen giving up fitting: the blurb goes (it explains the screen, not the
@@ -2498,7 +2543,18 @@ button.panel { color: var(--text); }
     gap: 8px; padding: 5px 10px; border-radius: var(--r-md);
   }
   .shop-card__body { gap: 2px; min-width: 0; }
-  .shop-card__name { font-size: 11px; display: flex; align-items: center; gap: 5px; }
+  /* min-width:0 and wrapping, because the shelf got narrower. The card is a
+     `1fr auto` grid, and this flex row carries icon + name + the NEXT STEP
+     badge. The badge does not shrink, so without a zero min-width the 1fr
+     track refused to go below its content and the badge rode out over the
+     price button in the auto track — visible on the one card that matters
+     most, since the badge only ever appears on the recommended purchase.
+     Wrapping lets it drop under the name instead of colliding with it. */
+  .shop-card__name {
+    font-size: 11px; display: flex; align-items: center; gap: 5px;
+    flex-wrap: wrap; min-width: 0;
+  }
+  .shop-card__name .next-badge { flex: none; }
   .shop-card__desc {
     font-size: 10px; line-height: 1.3;
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
@@ -2530,8 +2586,7 @@ button.panel { color: var(--text); }
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
     overflow: hidden; max-width: 80px; text-align: right; line-height: 1.25;
   }
-  .workshop__tab { padding: 4px 2px; font-size: 8px; }
-}
+  }
 
 /* ============================================================================
    CONTROLS (canvas D1) — Settings → Controls. Three input families on the

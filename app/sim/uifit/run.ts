@@ -127,7 +127,7 @@ const ASSERTIONS = [
   { id: "textclip", desc: "no text is hard-clipped by its box" },
   { id: "plant", desc: "the HUD plant panel stays inside its design box" },
   { id: "rail", desc: "the control rail never overlaps the field" },
-  { id: "twocol", desc: "the workshop shop pane is two columns" },
+  { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
 ] as const;
 
@@ -305,11 +305,21 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[]; single
     }
   }
 
-  // --- twocol: the workshop pane's grid ------------------------------------
-  const grid = document.querySelector(".workshop__grid");
-  if (grid) {
-    const tracks = getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length;
-    if (tracks < 2) out.twocol.push(`workshop grid has ${tracks} column(s)`);
+  // --- twocol: the workshop's two-column body -------------------------------
+  // Asserts the LAYOUT, which moved: it used to check that the card grid ran
+  // two-up. The shop is now one of two columns itself — a fixed aside carrying
+  // budget and owned state, beside the scrolling shelf — so the card grid
+  // reflowing to a single column inside a narrow shelf is correct, and the
+  // thing worth holding is that the body kept its two tracks and that the
+  // aside is NOT the part that scrolls.
+  const body = document.querySelector(".workshop__body");
+  if (body) {
+    const tracks = getComputedStyle(body).gridTemplateColumns.trim().split(/\s+/).length;
+    if (tracks < 2) out.twocol.push(`workshop body has ${tracks} column(s)`);
+    const aside = document.querySelector(".workshop__aside");
+    if (aside && aside.scrollHeight - aside.clientHeight > 1) {
+      out.twocol.push(`workshop aside scrolls ${Math.round(aside.scrollHeight - aside.clientHeight)}px`);
+    }
   }
 
   // --- oneline: rows contracted to a single line must not wrap --------------

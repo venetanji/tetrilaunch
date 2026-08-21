@@ -220,8 +220,9 @@ export const SCREENS: Record<string, () => string> = {
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
 
-  "workshop-systems": () => S.workshopScreen(midMeta(), "systems"),
-  "workshop-options": () => S.workshopScreen(midMeta(), "options"),
+  // One fixture, because there is one shelf: the Systems/Options tabs are gone
+  // and both card kinds render together now.
+  workshop: () => S.workshopScreen(midMeta()),
 
   contracts: () =>
     S.contractsScreen({
