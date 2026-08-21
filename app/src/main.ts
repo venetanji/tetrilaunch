@@ -67,7 +67,7 @@ import {
   loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
+  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic, hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
   applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
@@ -642,7 +642,7 @@ class App {
         break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
       case "settings":
-        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
+        this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
       case "controls":
         this.overlay.innerHTML = S.controlsScreen({

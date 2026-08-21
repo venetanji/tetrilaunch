@@ -168,6 +168,15 @@ export async function autoEnterFullscreenForRun(): Promise<void> {
   await requestFullscreen();
 }
 
+/** Whether haptics can DO anything here: the native shells always can
+ *  (Capacitor Haptics), the web only where navigator.vibrate exists — which
+ *  iOS Safari and the iOS PWA do not have. The Settings screen hides the
+ *  toggle when this is false, because a switch that can never do anything is
+ *  a broken promise, not an option. */
+export function hapticsSupported(): boolean {
+  return isNative || typeof navigator.vibrate === "function";
+}
+
 export async function tapHaptic(): Promise<void> {
   if (!loadSettings().haptics) return;
   try {

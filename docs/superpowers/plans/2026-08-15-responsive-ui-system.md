@@ -239,6 +239,17 @@ Each task is independently shippable and ends with `npx tsc --noEmit`, `npx tsx 
 >   bankroll wrapped the plant's readout.
 > - **The refit yard became a third allowed scroller.** Seven buy buttons at
 >   44px is 308px in a 198px region; no layout fits it.
+> - **How-to shipped as a horizontal scroll-snap row, not §2B's two-column fit
+>   grid.** Nine briefing cards need ~1500px stacked — more content than any
+>   landscape phone has height for — so the screen turns the axis instead:
+>   width is what these devices have spare, and the cards are a sequence read
+>   once in order, which is what scroll-snap is for. This was the one deviation
+>   this note failed to record when it landed.
+> - **`--ui-scale` was later removed as a published property** (kept as solver
+>   state feeding `data-density`): no rule in tokens.css or app.css ever
+>   consumed it — Task 8's "tokens as functions of one scale" never landed, and
+>   publishing a channel nothing reads claimed a mechanism the stylesheet does
+>   not have. Re-publish it in the same change that adds its first consumer.
 
 - [x] **Task 1 — Solve the chrome scale.** `uiScale` + `density` in `game/layout.ts`; publish `--ui-scale` and `data-density` from `main.ts`'s `onResize`; Tier-1 checks for both. No CSS consumes them yet — pure addition, nothing changes on screen.
 - [x] **Task 2 — Fit-first scaffolding.** `.screen` inverts to fit-by-default; `[data-scroll]` on `#lb-body` and `.workshop__shop`; `.screen--fit` folded away. Expect the menu and howto to *clip* rather than scroll at this point — that is the intended intermediate state, and Task 6's harness names it.

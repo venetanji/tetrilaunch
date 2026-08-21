@@ -264,7 +264,15 @@ export function howtoScreen(): string {
  * findable. Splitting toggles from actions puts the tallest column near 210px
  * and removes the scroll rather than making it more pleasant.
  */
-export function settingsScreen(s: Settings, store?: StoreState): string {
+export function settingsScreen(
+  s: Settings,
+  store?: StoreState,
+  /** Whether haptics can do anything on this platform (lib/platform's
+   *  hapticsSupported). iOS Safari and the iOS PWA have no
+   *  navigator.vibrate, so the toggle there was a switch wired to nothing —
+   *  it hides instead. Defaults on so headless callers keep the full panel. */
+  hapticsAvailable = true,
+): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal modal--settings pop">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -275,7 +283,7 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
         <div class="settings__toggles">
           ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
           ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
-          ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
+          ${hapticsAvailable ? toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics) : ""}
         </div>
         <div class="settings__actions">
           <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
