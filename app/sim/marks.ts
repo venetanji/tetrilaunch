@@ -28,6 +28,9 @@
 // rather than reading the pile. A human clears bays these bots lose.
 import { makeBaseLevel, MARK_SPEED_STEP, MARK_TARGET_STEP } from "../src/game/level";
 import {
+  applyRatchets, hazardsForMark, picksPerBay, type Ratchets,
+} from "../src/game/hazards";
+import {
   applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
   UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "../src/game/upgrades";
@@ -133,6 +136,35 @@ const carry = parseInt(get("--carry") ?? "150", 10);
 // be able to try values the source doesn't hold.
 const targetStep = parseFloat(get("--target-step") ?? String(MARK_TARGET_STEP));
 const speedStep = parseFloat(get("--speed-step") ?? String(MARK_SPEED_STEP));
+// --ratchets none|spread. `none` is the harness's original meaning: the rig
+// against STOCK bays, no hazard notches — which measures the SHIP, not the
+// run. `spread` models what a Deep Run actually forces: one ratchet pick per
+// cleared bay (two at the capstone Mark), spread round-robin across the
+// NUMBER axes the Mark offers. Content axes are excluded because every hand
+// holds at least two number axes (hazards.ts) so content is always dodgeable
+// — and because these bots own no answer to a material, which would measure
+// "bots can't play slag", not the ladder. The slid Fibonacci ladders
+// (notchTotal's startAt = mark - 1) are exactly what this mode exists to
+// price: at Mark M the first cost/time notch lands M-1 rungs up.
+const ratchetMode = (get("--ratchets") ?? "none") as "none" | "spread";
+if (ratchetMode !== "none" && ratchetMode !== "spread") {
+  console.error(`Unknown --ratchets "${ratchetMode}" — available: none, spread`);
+  process.exit(1);
+}
+
+/** The forced ratchet stack a Mark-M run carries INTO bay B (1-based):
+ *  (B-1) x picksPerBay notches, round-robin over the number axes the Mark
+ *  deals, in ladder order (cost, time, wind, sweeper). */
+function spreadRatchets(mark: number, bay: number): Ratchets {
+  const axes = hazardsForMark(mark).filter((h) => h.kind === "number").map((h) => h.id);
+  const picks = (bay - 1) * picksPerBay(mark);
+  const out: Ratchets = {};
+  for (let k = 0; k < picks; k++) {
+    const id = axes[k % axes.length];
+    out[id] = (out[id] ?? 0) + 1;
+  }
+  return out;
+}
 
 for (const b of botNames) {
   if (!(b in BOTS)) {
@@ -159,11 +191,17 @@ function evaluate(mark: number, tiers: UpgradeTiers): { perBay: Map<number, numb
         // Order mirrors run.ts's levelForRun exactly — base, then upgrades —
         // because REACTOR raises scorePerLine and would otherwise be measured
         // against the wrong target.
-        const cfg = makeBaseLevel(bay - 1, 1);
+        // mark (not 1) so cfg.mark is honest: the ratchet ladders read it
+        // (notchTotal starts at mark - 1). With MARK_TARGET_STEP and
+        // MARK_SPEED_STEP both 0 nothing else in the base config moves.
+        let cfg = makeBaseLevel(bay - 1, mark);
         const marksAbove = mark - 1;
         cfg.targetScore = Math.round(cfg.targetScore * (1 + targetStep * marksAbove));
         cfg.compactorSpeed *= 1 + speedStep * marksAbove;
         applyUpgrades(cfg, tiers);
+        // Same order as run.ts's levelForRun: the ship first, then the
+        // conditions it is flown in, then cash in hand.
+        if (ratchetMode === "spread") cfg = applyRatchets(cfg, spreadRatchets(mark, bay));
         if (bay > 1) cfg.startingFunds += carry;
         const out = runBay(cfg, BOTS[botName](s + 1), s + 1);
         if (out.status === "won") bayWins += 1;
@@ -205,7 +243,7 @@ function verdict(runRate: number): string {
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
 
 console.log(
-  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-step ${targetStep} · speed-step ${speedStep}`,
+  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-step ${targetStep} · speed-step ${speedStep} · ratchets ${ratchetMode}`,
 );
 console.log(
   `Criterion: the BEST build at a Mark should fall JUST SHORT (run clear 2-35%).\n`,
