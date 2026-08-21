@@ -1,0 +1,80 @@
+name: Deploy staging worker
+
+# The `staging` branch, and only it. PRs land here before main, and main is the
+# one branch that must never be deployed by accident: wrangler.jsonc binds
+# tetrilaunch.com as a custom domain and Play release builds are cut from it, so
+# a workflow that fired on main would publish the live game as a side effect of
+# a merge. Production deploys stay exactly as they are today — manual, from a
+# person who meant it.
+#
+# This is a different thing from the pages.dev branch previews. Those are a
+# Pages project serving the built SPA with no worker behind it, so /api/scores
+# on a preview URL answers text/html, not JSON — fine for looking at layout,
+# useless for anything touching the leaderboard. This workflow is what gives
+# staging a real worker: the API, and its own D1 (see wrangler.jsonc's
+# env.staging), so a playtest score can never land on the live board.
+on:
+  push:
+    branches: [staging]
+  # Manual re-deploy without an empty commit, e.g. after rotating the token.
+  workflow_dispatch:
+
+# A deploy is a mutation of one named worker. Two of them racing would leave
+# whichever finished last live, which is not necessarily the newer commit —
+# so queue rather than cancel: the in-flight one is already talking to the API.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Names the URL in the Actions UI and gives the deploy a rollback trail.
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches android.yml: the Capacitor 8 CLI floor is >=22, and using
+          # one node across workflows keeps the lockfile resolution identical.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # Fail here, loudly, rather than letting wrangler fail with an auth error
+      # that reads like a network problem. The token needs Workers Scripts:Edit
+      # (deploy the worker) and D1:Edit (bind the database).
+      - name: Require the API token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not set — add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      # Root `npm ci` installs wrangler itself; the app's own dependencies are
+      # installed by wrangler's configured build command (wrangler.jsonc's
+      # build.command -> root package.json's `build` -> npm --prefix app).
+      # Deploying through `npm ci` rather than `npm install` so the wrangler
+      # version is the one the lockfile pins, not whatever is newest today.
+      - name: Install workspace tooling
+        run: npm ci
+
+      # --env staging is the whole point: it selects the environment block that
+      # rebinds DB to tetrilaunch-leaderboard-preview. Bindings are NOT
+      # inherited by a named environment, so dropping this flag would deploy a
+      # worker pointed at the production leaderboard.
+      #
+      # Migrations are deliberately NOT run here. Applying schema changes on
+      # every push means a bad migration ships without anyone deciding to ship
+      # it; run `wrangler d1 migrations apply tetrilaunch-leaderboard-preview
+      # --remote --env staging` when a migration is what you actually intend.
+      - name: Deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy --env staging
