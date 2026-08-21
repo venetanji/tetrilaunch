@@ -37,6 +37,15 @@
 
   // STAGING. Deployed from the `staging` branch, which PRs land on before main.
   //
+  // Not to be confused with the pages.dev branch previews, which are a
+  // different thing on a different product: those serve the built SPA only,
+  // with no worker behind them — /api/scores on a preview URL answers
+  // text/html (the single-page fallback), not JSON — so they have no D1
+  // binding and never touched the production leaderboard. This environment is
+  // what makes a staging WORKER, API and all, safe to run: without it a
+  // staging deploy would inherit the one d1_databases entry below and write
+  // straight into the live board.
+  //
   // The point of the environment is the DATABASE, not the URL. Bindings are
   // NOT inherited by a named environment in wrangler config — they have to be
   // redeclared — and that is exactly the property being used here: staging
