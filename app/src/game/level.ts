@@ -527,10 +527,14 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
     bondBreakerCharges: 0,
-    // OFF by default — the congestion tax is an experiment measured in
-    // sim/pile.ts, not a shipped rule. Flip to `[...PILE_TIERS]` here (and
-    // nowhere else) to turn it on for every Deep Run bay.
-    pileTiers: [],
+    // ON. sim/pile.ts measured it, the bay now SHOWS it (render.ts's
+    // congestion rows light the bay floor-up and the plant's Launch price
+    // glows with them), and Bay Extension buys relief from it — the three
+    // things a rule needs before it stops being an experiment. Copied rather
+    // than shared: mods.ts and hazards.ts both clone pileTiers per level, and
+    // handing every bay the same array would let one bay's tuning leak into
+    // the next.
+    pileTiers: [...PILE_TIERS],
     pileAllowance: 0,
     launchBudget: 0,
     objectiveLines: 0,

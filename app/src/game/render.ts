@@ -194,6 +194,69 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
   ctx.restore();
 }
 
+/**
+ * CONGESTION ROWS — how full the bay is, drawn as light on the floor.
+ *
+ * The congestion tax (level.ts's PILE_TIERS) prices a launch off the number of
+ * live cubes, and a number the player cannot see is a rule they can only learn
+ * by being charged for it. This turns the count into the one quantity the bay
+ * already speaks in: LINES. compactorMinLineCells cubes make a line, so the
+ * pile lights that many rows from the floor up, and the row where the colour
+ * changes is the row where the price does.
+ *
+ * Green while a launch costs list price, amber from the row that triggers the
+ * first tier, red from the row that triggers the second — the same three
+ * colours, in the same order, that the Launch readout in the plant panel wears
+ * (app.css's .pl-meta__launch--warn/--danger). One rule, stated twice, so a
+ * player can be looking at either one when the price moves.
+ *
+ * Thresholds are DERIVED from the level rather than written here, so a bay
+ * whose player bought Bay Extension lights amber later — the relief they
+ * purchased is visible as the thing it actually is, more green rows.
+ *
+ * Behind everything: this is floor light, not a HUD overlay. It draws inside
+ * the world clip after the cached backdrop and before the compactor, so cargo,
+ * the press and the cannon all sit on top of it.
+ */
+function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
+  const tiers = scene.level.pileTiers;
+  if (!tiers.length || !scene.cubes.length) return;
+  const perLine = Math.max(1, scene.level.compactorMinLineCells);
+  const allowance = scene.level.pileAllowance;
+  const maxRows = Math.floor(WORLD.height / CELL);
+  const lit = Math.min(maxRows, Math.ceil(scene.cubes.length / perLine));
+  // The row index at which each tier starts biting. `> t.cubes + allowance`
+  // is game.ts's own test, so the first taxed cube is t.cubes + allowance + 1
+  // and the row holding it is that count divided by a line.
+  const rowFor = (t: { cubes: number }): number =>
+    Math.floor((t.cubes + allowance) / perLine);
+  const warnRow = tiers[0] ? rowFor(tiers[0]) : Infinity;
+  const dangerRow = tiers[1] ? rowFor(tiers[1]) : Infinity;
+
+  ctx.save();
+  for (let r = 0; r < lit; r++) {
+    const rgb = r >= dangerRow ? "255, 45, 85" : r >= warnRow ? "255, 176, 32" : "0, 255, 156";
+    // Rows are floor-anchored on the same grid lineClear snaps to (game.ts
+    // aligns against WORLD.height - CELL/2), so row r spans the cell whose
+    // bottom is r cells off the floor.
+    const y = WORLD.height - (r + 1) * CELL;
+    // 0.30 -> 0.09 up the row. Checked at the size that matters least: the
+    // menu's attract panel is ~10px a row, and 0.16 was invisible there while
+    // 0.55 turned the bay into a colour field the cargo had to fight. This
+    // reads as floor light at panel size and stays background at bay size.
+    const g = ctx.createLinearGradient(0, y + CELL, 0, y);
+    g.addColorStop(0, `rgba(${rgb}, 0.30)`);
+    g.addColorStop(1, `rgba(${rgb}, 0.09)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y, WORLD.width, CELL);
+    // A brighter rule on the row's own floor line, so the bands read as
+    // discrete rows to count rather than one wash that happens to be taller.
+    ctx.fillStyle = `rgba(${rgb}, 0.45)`;
+    ctx.fillRect(0, y + CELL - 1.5, WORLD.width, 1.5);
+  }
+  ctx.restore();
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   cssW: number,
@@ -218,6 +281,7 @@ export function render(
   ctx.rect(0, 0, WORLD.width, WORLD.height);
   ctx.clip();
 
+  drawCongestionRows(ctx, scene);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);

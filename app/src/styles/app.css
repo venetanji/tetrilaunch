@@ -1035,6 +1035,25 @@ body.crt-off #app::after { display: none; }
 .pl-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .pl-meta b { color: var(--piece-o); font-weight: 700; }
 .pl-meta__sep { color: var(--text-faint); }
+/* The Launch price under congestion (level.ts's PILE_TIERS). The plant already
+   quotes the CONGESTED price — main.ts feeds it launchCostNow — but a number
+   that silently went from $25 to $38 reads as a misprint rather than a rule.
+   These two states say the increase is being applied, in the same amber and
+   red, in the same order, as the rows lighting the bay floor beneath them
+   (render.ts's drawCongestionRows). A player watching either one sees the
+   price move for a reason they can point at.
+
+   Glow rather than colour alone: this line is 8px pixel type at compact
+   density, where a hue change on four characters is easy to miss against
+   cargo that is itself brightly coloured. */
+.pl-meta__launch--warn {
+  color: var(--warn);
+  text-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
+}
+.pl-meta__launch--danger {
+  color: var(--danger);
+  text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
+}
 
 /* The pattern Contract's remaining manifest — its OWN row under the meta
    line, never inline in it: the tally is the widest thing the panel can hold

@@ -739,7 +739,7 @@ export function hudHTML(opts: {
           ${
             contract?.kind === "pattern"
               ? ""
-              : `<span class="pl-meta__sep">·</span><span>Launch $${launchCost}</span>`
+              : `<span class="pl-meta__sep">·</span><span class="pl-meta__launch" id="hud-launch">Launch $${launchCost}</span>`
           }
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>

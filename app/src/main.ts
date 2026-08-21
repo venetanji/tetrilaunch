@@ -1696,6 +1696,19 @@ class App {
     if (!this.contract) {
       const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
+      // The QUOTED price, live. Congestion moves launchCostNow while the bay
+      // is running, and this readout is rendered once with the rest of the
+      // HUD — so without patching it here the plant would keep advertising the
+      // price the bay opened at while charging the congested one. The colour
+      // is the same three-step the bay floor is lit in (render.ts's congestion
+      // rows): list price plain, first tier amber, second red.
+      const tierIdx = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
+      const launchEl = this.overlay.querySelector("#hud-launch");
+      if (launchEl) {
+        launchEl.textContent = `Launch $${g.launchCostNow}`;
+        launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
+        launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
+      }
       this.overlay
         .querySelector("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
