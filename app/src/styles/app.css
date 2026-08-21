@@ -553,7 +553,10 @@ body.crt-off #app::after { display: none; }
   width: var(--rail-btn);
   z-index: 6;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px;
+  /* Published by main.ts from layout.ts's RAIL_GAP — the same number the
+     solver uses to decide whether this column FITS, so the prediction and the
+     rendered stack cannot drift apart. */
+  gap: var(--rail-gap, 6px);
   /* The rail spans the full viewport height so the column can center in
      it — only the buttons themselves may take pointer events, or the
      column would eat drag-to-aim gestures started in the gutter. */
@@ -602,23 +605,32 @@ body.crt-off #app::after { display: none; }
 }
 .rotate-btn:hover { border-color: var(--accent); color: #b8f7ff; }
 
-/* Aim-state cancel — a danger-red ✕, last in the rail's single column,
-   shown only while a slingshot drag is live (main.ts's syncHud toggles
-   .hud--aiming on the HUD root from game.aiming). Hidden via visibility,
-   NOT display, so its slot stays reserved and the centered column never
-   reflows under a thumb mid-aim. Tapping it with a second finger aborts
-   the launch (input.ts's cancelAim) so releasing the aim finger fires
-   nothing. Touch-only — a mouse mid-drag can't click a second control, so
+/* Aim-state cancel — a danger-red ✕, shown only while a slingshot drag is
+   live (main.ts's syncHud toggles .hud--aiming on the HUD root from
+   game.aiming). It does NOT own a slot: while aiming it swaps into the PAUSE
+   button's slot — pause hides, the ✕ appears at the same visual index (the
+   `order` pair below; the ✕ is last in the DOM but renders second) — so the
+   centered column keeps the same button count and NOTHING reflows under a
+   thumb mid-aim. That swap is also what lets layout.ts budget the column for
+   only the buttons the run actually has (railSlotsFor) instead of reserving
+   a permanent ninth slot. Tapping it with a second finger aborts the launch
+   (input.ts's cancelAim) so releasing the aim finger fires nothing.
+   Touch-only — a mouse mid-drag can't click a second control, so
    fine-pointer devices drop it entirely (see the media rule below). */
+.side-rail #fullscreen-btn { order: -2; }
+.side-rail .cancel-aim-btn { order: -1; }
 .cancel-aim-btn {
-  visibility: hidden;
+  display: none;
   color: var(--danger);
   border-color: rgba(255, 45, 85, 0.6);
   background: radial-gradient(circle at 35% 30%, rgba(255, 45, 85, 0.22), rgba(18, 18, 31, 0.85) 65%);
   box-shadow: 0 0 10px rgba(255, 45, 85, 0.3), var(--shadow-hard-sm);
 }
 .cancel-aim-btn:hover { border-color: var(--danger); color: #ffb8c6; }
-.hud--aiming .cancel-aim-btn { visibility: visible; }
+@media (pointer: coarse) {
+  .hud--aiming .cancel-aim-btn { display: inline-flex; }
+  .hud--aiming .side-rail [data-action="pause"] { display: none; }
+}
 
 /* Bond Breaker ability (see screens.ts's hudHTML / game.ts's useBondBreaker)
    — electric-amber accent so it reads as a special power, not another
@@ -742,22 +754,12 @@ body.crt-off #app::after { display: none; }
   }
 }
 
-/* Short (landscape-phone) viewports: the full six-button column (up to
-   6 × tap-md 60px + gaps ≈ 400px) can overflow a ~400px-tall viewport —
-   cap the rail's button size a notch lower (still above the 44px WCAG
-   tap-target floor) and tighten the gap so the stack fits. */
-/* Short (landscape-phone) viewports: tighten the gap so a full seven-button
-   column still fits. The SIZE is no longer overridden here — game/layout.ts
-   already checks the column fits and falls back to the horizontal bottom strip
-   when it doesn't, which is a better answer than shrinking buttons toward the
-   tap-target floor. */
+/* Short (landscape-phone) viewports: only the glyph size steps down. The
+   stack arithmetic — button size, gap, whether the column fits at all — is
+   entirely the solver's (game/layout.ts budgets the buttons the run actually
+   has via railSlotsFor and publishes --rail-btn/--rail-gap), so this block no
+   longer second-guesses it with its own gap override. */
 @media (max-height: 480px) {
-  /* A fully drafted rail is now EIGHT buttons tall (fullscreen, pause, two
-     rotates, Bond Breaker, Demolition, the Autoloader trigger, and the aim-state
-     cancel). At 39px each the 5px gap put the stack at 347px against a 344px
-     rail — 3px over. 4px gaps bring it to 340 and leave the button size alone,
-     which is the part a thumb actually needs. */
-  .side-rail { gap: 4px; }
   .side-rail .icon-btn { font-size: 18px; }
 }
 

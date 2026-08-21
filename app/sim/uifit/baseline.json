@@ -5,15 +5,6 @@
   "Android · 640x360 budget|end-lost|scrollers": [
     ".panel scrolls 18px"
   ],
-  "Android · 640x360 budget|hud-contract|plant": [
-    "127px vs design 125px (43% of field height)"
-  ],
-  "Android · Galaxy S8+|hud-contract|plant": [
-    "127px vs design 125px (43% of field height)"
-  ],
-  "Android · OnePlus 12|hud-contract|plant": [
-    "127px vs design 125px (43% of field height)"
-  ],
   "iOS · iPhone 13 mini|hud-contract|plant": [
     "125px vs design 116px (46% of field height)"
   ]

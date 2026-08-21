@@ -56,7 +56,18 @@ import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
-import { computeLayout, setSafeAreaInsets, RAIL_MIN, RAIL_SLOTS, UI_SCALE_MIN } from "../src/game/layout";
+import {
+  computeLayout,
+  getRailSlots,
+  RAIL_GAP,
+  RAIL_MIN,
+  RAIL_SLOTS_BASE,
+  RAIL_SLOTS_MAX,
+  railSlotsFor,
+  setRailSlots,
+  setSafeAreaInsets,
+  UI_SCALE_MIN,
+} from "../src/game/layout";
 import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
@@ -1638,6 +1649,8 @@ section("Layout solver (layout.ts)");
 // ---------------------------------------------------------------------------
 {
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  // The solver's worst case: a fully drafted run's rail (see railSlotsFor).
+  setRailSlots(RAIL_SLOTS_MAX);
   const cases: [string, number, number][] = [
     ["21:9 phone", 2400, 1080],
     ["19.5:9 phone", 2556, 1179],
@@ -1672,8 +1685,8 @@ section("Layout solver (layout.ts)");
     check(`${name} rail buttons meet the tap floor`, l.railSize >= RAIL_MIN, `${l.railSize.toFixed(1)}px`);
     if (l.mode !== "tall") {
       const uh = h - l.safe.top - l.safe.bottom;
-      const stack = RAIL_SLOTS * l.railSize + (RAIL_SLOTS - 1) * 6;
-      check(`${name} fits all ${RAIL_SLOTS} rail buttons in its column`, stack <= uh, `${stack.toFixed(0)}px stack in ${uh}px`);
+      const stack = getRailSlots() * l.railSize + (getRailSlots() - 1) * RAIL_GAP;
+      check(`${name} fits all ${getRailSlots()} rail buttons in its column`, stack <= uh, `${stack.toFixed(0)}px stack in ${uh}px`);
     }
   }
 
@@ -1683,6 +1696,60 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
+// The regression this guards: a fixed worst-case budget (8 slots, counting the
+// aim-state cancel) needs a 410px column at the 44px floor, which priced the
+// vertical rail off every 360dp-tall landscape phone — the most common Android
+// class got the bottom strip and a ~19% smaller field, for buttons that were
+// not on screen. The budget is now the loadout the run actually has, and the
+// cancel ✕ swaps into the pause slot instead of owning one (app.css).
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  check("a bare rail is the four base buttons",
+    railSlotsFor({ bond: false, demo: false, auto: false }) === RAIL_SLOTS_BASE);
+  check("each drafted ability adds exactly one slot",
+    railSlotsFor({ bond: true, demo: false, auto: false }) === 5 &&
+    railSlotsFor({ bond: true, demo: true, auto: false }) === 6 &&
+    railSlotsFor({ bond: true, demo: true, auto: true }) === RAIL_SLOTS_MAX);
+  check("fine pointers budget only fullscreen + pause",
+    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true }) === 2);
+  check("the budget clamps to the seven-slot worst case",
+    (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
+  check("the budget clamps above the fine-pointer floor",
+    (setRailSlots(0), getRailSlots() === 2));
+
+  // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
+  // fullscreen Chrome. It must keep the vertical side rail at every loadout —
+  // at the full seven-slot draft the column fits its 360px exactly
+  // (7x44 + 6x6 + 16 = 360).
+  for (const slots of [RAIL_SLOTS_BASE, 5, 6, RAIL_SLOTS_MAX]) {
+    setRailSlots(slots);
+    const l = computeLayout(792, 360);
+    check(`792x360 keeps the side rail with ${slots} buttons`, l.mode === "wide", l.mode);
+  }
+
+  // A 16:9 phone has no natural gutter: the solver must still prefer the
+  // reserved RIGHT band (vertical rail) over the bottom strip while the
+  // column fits...
+  setRailSlots(RAIL_SLOTS_MAX);
+  check("640x360 reserves a right band, not the bottom", computeLayout(640, 360).mode === "snug",
+    computeLayout(640, 360).mode);
+  // ...and fall back to the bottom strip only when it genuinely cannot
+  // (7x44 + gaps = 360 > 320).
+  check("640x320 falls back to the bottom strip at a full draft",
+    computeLayout(640, 320).mode === "tall", computeLayout(640, 320).mode);
+  setRailSlots(RAIL_SLOTS_BASE);
+  check("640x320 keeps a vertical rail with the base buttons",
+    computeLayout(640, 320).mode !== "tall", computeLayout(640, 320).mode);
+
+  // The budget must never move the field mid-aim: the cancel swap keeps the
+  // slot count constant, so the same viewport at the same budget is the same
+  // layout — aiming state is invisible to the solver by construction.
+  setRailSlots(RAIL_SLOTS_MAX);
 }
 
 // ---------------------------------------------------------------------------

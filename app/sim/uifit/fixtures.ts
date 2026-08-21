@@ -225,3 +225,20 @@ function endModal(won: boolean): string {
 }
 
 export const SCREEN_IDS = Object.keys(SCREENS);
+
+/** The rail loadout each screen renders, mirroring what main.ts's hudOpts
+ *  feeds the layout solver (layout.ts's railSlotsFor). Screens built on
+ *  HUD_BASE carry all three abilities — the seven-slot worst case — and
+ *  screens with no HUD have no rail, so they get the base budget. The harness
+ *  applies this BEFORE publishing the layout, exactly like the app. */
+const HUD_LOADOUT = {
+  bond: HUD_BASE.bondBreakerOwned,
+  demo: HUD_BASE.demoOwned,
+  auto: HUD_BASE.autoloaderOwned,
+};
+const NO_RAIL = { bond: false, demo: false, auto: false };
+export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
+  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "pause" || id === "bayclear"
+    ? HUD_LOADOUT
+    : NO_RAIL;
+}

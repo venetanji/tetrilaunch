@@ -39,7 +39,14 @@ import {
 import { render } from "./game/render";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
-import { computeLayout } from "./game/layout";
+import {
+  computeLayout,
+  getRailSlots,
+  RAIL_GAP,
+  RAIL_SLOTS_BASE,
+  railSlotsFor,
+  setRailSlots,
+} from "./game/layout";
 
 import { InputController } from "./game/input";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
@@ -215,6 +222,12 @@ class App {
     document.addEventListener("webkitfullscreenchange", this.onFullscreenChange);
 
     lockLandscape();
+    // Before the first solve: the boot screens carry no abilities, so the rail
+    // budget is the four base buttons (two on fine-pointer devices, where the
+    // CSS hides the game buttons). Without this the solver's conservative
+    // default (a full seven-slot draft) could pick the bottom-strip layout on
+    // a 360dp phone that the real rail fits fine.
+    setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() }));
     this.onResize();
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a
@@ -342,9 +355,55 @@ class App {
     }
   }
 
+  private finePointer(): boolean {
+    return window.matchMedia?.("(pointer: fine)").matches ?? false;
+  }
+
+  /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
+   *  their rail triggers can also VANISH mid-bay (a spent-down Bond Breaker
+   *  stock hides its button, see hudOpts's bondBreakerOwned), and letting the
+   *  budget shrink then would let the layout MODE flip — a field resize in the
+   *  middle of play. Latching to the run's high-water mark keeps the geometry
+   *  stable; a new run (or contract) resets it. */
+  private railKey: object | null = null;
+  private railSlotsLatch = RAIL_SLOTS_BASE;
+
+  /** Back at the menu there is no rail, so the budget returns to the base
+   *  buttons — a heavily drafted run must not keep pricing the menu's attract
+   *  field after it ended. */
+  private resetRailBudget(): void {
+    this.railKey = null;
+    this.railSlotsLatch = RAIL_SLOTS_BASE;
+    const slots = railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() });
+    if (slots !== getRailSlots()) {
+      setRailSlots(slots);
+      this.onResize();
+    }
+  }
+
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
-   *  bay/time/next-piece fields consistent across playing/paused/draft/end. */
+   *  bay/time/next-piece fields consistent across playing/paused/draft/end.
+   *  Also the one choke point where the rail's button set is decided, so it
+   *  feeds the layout solver's slot budget (see railSlotsLatch above) as a
+   *  side effect — every mount of the HUD re-solves with the real loadout. */
   private hudOpts(g: Game): Parameters<typeof S.hudHTML>[0] {
+    const slots = railSlotsFor({
+      bond: g.bondCharges > 0,
+      demo: g.level.bombCharges > 0,
+      auto: g.level.autoLaunchMs > 0,
+      finePointer: this.finePointer(),
+    });
+    const key: object = this.run ?? g;
+    if (key !== this.railKey) {
+      this.railKey = key;
+      this.railSlotsLatch = slots;
+    } else {
+      this.railSlotsLatch = Math.max(this.railSlotsLatch, slots);
+    }
+    if (this.railSlotsLatch !== getRailSlots()) {
+      setRailSlots(this.railSlotsLatch);
+      this.onResize();
+    }
     return {
       beltPreview: g.beltPreview,
       target: g.target,
@@ -401,6 +460,7 @@ class App {
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
+        this.resetRailBudget();
         this.overlay.innerHTML = S.menuScreen(
           loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
         );
@@ -650,6 +710,9 @@ class App {
     rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
     rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
     rs.setProperty("--rail-btn", `${l.railSize}px`);
+    // The gap the solver budgeted the column with — the CSS reads it back so
+    // the rendered stack matches the fit prediction exactly.
+    rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
     document.documentElement.dataset.layout = l.mode;
     // Chrome scale, the DOM's counterpart to --fpx. tokens.css derives the type
     // and spacing scales from it, so a short viewport shrinks the chrome

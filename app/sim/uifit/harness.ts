@@ -14,9 +14,9 @@
  *     The harness exercises the path the device uses.
  */
 import "../../src/styles/app.css";
-import { computeLayout, type Insets } from "../../src/game/layout";
+import { computeLayout, railSlotsFor, setRailSlots, type Insets } from "../../src/game/layout";
 import { applySafeAreaInsets } from "../../src/lib/platform";
-import { SCREENS, SCREEN_IDS } from "./fixtures";
+import { railLoadoutFor, SCREENS, SCREEN_IDS } from "./fixtures";
 
 const overlay = document.getElementById("overlay") as HTMLElement;
 
@@ -112,6 +112,10 @@ const api: UiFitApi = {
     const make = SCREENS[id];
     if (!make) throw new Error(`unknown screen "${id}"`);
     applyInsets(insets);
+    // The same loadout -> slot budget hand-off main.ts's hudOpts performs, so
+    // the solver prices the rail this screen actually renders. The harness
+    // runs with hasTouch, so no fine-pointer branch here.
+    setRailSlots(railSlotsFor(railLoadoutFor(id)));
     publishLayout();
     overlay.innerHTML = make();
   },

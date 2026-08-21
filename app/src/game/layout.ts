@@ -67,24 +67,62 @@ export const RAIL_MAX = 60;
  *  edge. A gutter must fit RAIL_MIN + this to count as usable. */
 const RAIL_PAD = 12;
 
-/** Number of buttons the rail can hold at once: fullscreen, pause, rotate CCW,
- *  rotate CW, bond breaker, demolition, AUTOLOADER, cancel-aim. Used to check a
- *  vertical rail actually FITS its column on short viewports before choosing it.
+/** Buttons the rail ALWAYS carries: fullscreen, pause, rotate CCW, rotate CW.
+ *  The aim-state cancel ✕ does not add a slot: it swaps into the pause
+ *  button's slot while a drag is live (see app.css's .hud--aiming rules), so
+ *  the column's geometry never changes mid-gesture. */
+export const RAIL_SLOTS_BASE = 4;
+/** ...plus up to three drafted abilities (Bond Breaker, Demolition, the
+ *  Autoloader trigger) — the most the solver can ever be asked to budget.
  *
- *  Was 7 — the Autoloader trigger was added to screens.ts's hudHTML without
- *  this constant following it, so the solver was sizing a column for seven
- *  buttons and the CSS was rendering eight into it. */
-export const RAIL_SLOTS = 8;
+ *  History: this was a fixed worst-case constant (7, then 8 when the
+ *  Autoloader and the cancel ✕ were counted). Budgeting the worst case
+ *  permanently priced the vertical rail off every 360dp-tall landscape phone
+ *  — an 8-slot column at the 44px floor needs 410px — so the most common
+ *  Android class got the bottom-strip fallback and a ~19% smaller field for
+ *  buttons that mostly weren't on screen. The budget is now the loadout the
+ *  run actually has (railSlotsFor + setRailSlots below). */
+export const RAIL_SLOTS_MAX = 7;
 
-/** Gap between rail buttons and the slack at both ends, matching app.css's
- *  .side-rail. Kept here because the solver has to predict the CSS's own
- *  stacking to decide whether a column fits. */
-const RAIL_GAP = 6;
+/** What the rail is being asked to hold right now. */
+export interface RailLoadout {
+  bond: boolean;
+  demo: boolean;
+  auto: boolean;
+  /** Fine-pointer devices hide the game buttons entirely (app.css's
+   *  `@media (pointer: fine)` rule) — only fullscreen + pause remain. */
+  finePointer?: boolean;
+}
+
+export function railSlotsFor(l: RailLoadout): number {
+  if (l.finePointer) return 2;
+  return RAIL_SLOTS_BASE + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.auto ? 1 : 0);
+}
+
+/** Gap between rail buttons and the slack at both ends. The CSS reads the gap
+ *  back as --rail-gap (published by main.ts's onResize), so the solver's fit
+ *  prediction and the rendered stack cannot disagree. */
+export const RAIL_GAP = 6;
 const RAIL_EDGE = 16;
+
+/** Module-level slot budget, same pattern as the safe-area cache below:
+ *  main.ts (and the uifit harness) set it whenever the HUD's loadout changes,
+ *  and computeLayout — called per-frame from render.ts — reads it without
+ *  re-deriving game state. Defaults to the worst case so callers that never
+ *  set it (headless checks, first paint) stay conservative. */
+let railSlots = RAIL_SLOTS_MAX;
+
+export function setRailSlots(n: number): void {
+  railSlots = Math.max(2, Math.min(RAIL_SLOTS_MAX, Math.round(n)));
+}
+
+export function getRailSlots(): number {
+  return railSlots;
+}
 
 /** The largest button edge whose full column still fits `uh`. */
 function railColumnCap(uh: number): number {
-  return (uh - RAIL_EDGE - (RAIL_SLOTS - 1) * RAIL_GAP) / RAIL_SLOTS;
+  return (uh - RAIL_EDGE - (railSlots - 1) * RAIL_GAP) / railSlots;
 }
 
 /**
