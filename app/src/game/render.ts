@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
+import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
 import { COLORS, PIECE_COLORS, shade, type PieceSize, type PieceType } from "./theme";
 import { pieceOffsets, type Cube } from "./pieces";
@@ -134,12 +135,19 @@ const SEAM_REST: readonly [number, number, number] = [47, 49, 60];
 const SEAM_WARM: readonly [number, number, number] = [255, 176, 32];
 const SEAM_HOT: readonly [number, number, number] = [255, 59, 59];
 
-/** breakStretch 1.7 (bay 1) -> 0, 2.8 (bay 10) -> 1. Rigid material is
- *  Infinity and pins at 1, which is correct: rebar is the strongest thing in
- *  the bay and should look it. */
+/** breakStretch 2.2 (bay 1) -> 0, 4.4 (bay 10) -> 1 — level.ts's ramp, and it
+ *  has to be READ from there rather than hardcoded twice. When the ramp moved
+ *  from 1.7-2.78 to 2.2-4.4 these constants stayed behind for a moment, and
+ *  every bay's seams pinned at full width: the visualisation quietly stopped
+ *  saying anything while still looking like it did. Rigid material is Infinity
+ *  and pins at 1, which is correct — rebar is the strongest thing in the bay
+ *  and should look it. */
+const SEAM_MIN_STRETCH = BASE_BREAK_STRETCH;
+const SEAM_MAX_STRETCH = BASE_BREAK_STRETCH * 2;
 function seamStrength(breakStretch: number | undefined): number {
   if (!breakStretch || !Number.isFinite(breakStretch)) return 1;
-  return Math.max(0, Math.min(1, (breakStretch - 1.7) / 1.1));
+  const span = SEAM_MAX_STRETCH - SEAM_MIN_STRETCH;
+  return Math.max(0, Math.min(1, (breakStretch - SEAM_MIN_STRETCH) / span));
 }
 
 /** Graphite -> amber -> red by strain. */

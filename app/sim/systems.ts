@@ -3136,8 +3136,8 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // Thresholds are EXCLUSIVE (game.ts's pileTier tests `n > t.cubes`), so 8
   // cubes on the field trips a tier written at 7 and not one written at 8.
   const tiers: PileTier[] = [
-    { cubes: 3, costMult: 1.5, clockSec: 2 },
-    { cubes: 7, costMult: 2, clockSec: 5 },
+    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1 },
+    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1 },
   ];
   const congestedCfg: LevelConfig = {
     ...makeBaseLevel(0), pileTiers: tiers, pileAllowance: 0,
@@ -3145,6 +3145,39 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   const cg = new Game(congestedCfg, {}, 1);
 
   check("an empty bay is untaxed", cg.pileTier === null);
+  // The reload penalty. Money and clock both come out of stores a player can
+  // rebuild by clearing lines; a slower reload is taken in the shots they will
+  // never get back, and it is the one a spam volley feels immediately.
+  //
+  // Tested on the cannon rather than through a populated bay because the
+  // interesting property is that the scale is LIVE and reversible — folding it
+  // into cooldownMs would make the tax permanent from the moment it first
+  // fired, which is the opposite of a rule you can play your way out of.
+  {
+    const cn = cg.cannon;
+    cn.markCooldown(0);
+    const listPrice = cn.cooldownRemaining(0);
+    check("a clean bay reloads at the level's cooldown",
+      Math.round(listPrice) === makeBaseLevel(0).cooldownMs, String(listPrice));
+    cn.setCooldownScale(1.5);
+    check("the first tier reloads half again as slowly",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice * 1.5),
+      String(cn.cooldownRemaining(0)));
+    cn.setCooldownScale(2);
+    check("the second tier reloads twice as slowly",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice * 2),
+      String(cn.cooldownRemaining(0)));
+    check("the reload bar reports the congested fill, not the list one",
+      Math.abs(cn.reloadRatio(listPrice) - 0.5) < 0.01, String(cn.reloadRatio(listPrice)));
+    cn.setCooldownScale(1);
+    check("clearing the bay gives the reload back",
+      Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice));
+  }
+  // The joint ramp, stated where it can be checked: bay 10 is exactly twice
+  // bay 1, and bay 1 opens where the old ramp's bay 5/6 sat.
+  check("bay 10 bonds are twice bay 1's",
+    Math.abs(makeBaseLevel(9).jointBreakStretch - makeBaseLevel(0).jointBreakStretch * 2) < 1e-9,
+    `${makeBaseLevel(0).jointBreakStretch} -> ${makeBaseLevel(9).jointBreakStretch}`);
   // The tax has a purchase that answers it. pileAllowance shipped as a seam
   // nothing could move — read by pileTier, swept by sim/pile.ts, and 0 in
   // every real level — so the congestion rule had no counter you could buy.
@@ -3196,7 +3229,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // launch into an empty bay is always untaxed, however low the threshold —
   // it is the launch AFTER it that pays.
   const clock = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1 }] }, {}, 1);
   clock.shoot(10_000);
   for (let s = 0; s < 5; s++) clock.update(10_000 + s);
   check("the first launch into an empty bay is untaxed", clock.timeLeftMs > 140_000,
@@ -3213,7 +3246,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // the BASE cost it would report the player solvent and the bay would sit
   // there saying nothing until the clock ran out.
   const stuck = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1 }] }, {}, 1);
   // One launch to put cargo on the field, so the NEXT one is priced congested.
   stuck.shoot(10_000);
   for (let s = 0; s < 5; s++) stuck.update(10_000 + s);
@@ -3266,6 +3299,29 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
     oneLevy.launchCost === base.launchCost + 1, String(oneLevy.launchCost));
   check("five levies cost the cumulative ladder",
     fiveLevies.launchCost === base.launchCost + 12, String(fiveLevies.launchCost));
+
+  // The ladder STARTS higher the further you have got. Every run used to open
+  // on rung 0 whatever it had beaten, so the same choice got cheaper in
+  // relative terms the deeper the ladder went — backwards for a difficulty
+  // axis. A Mark-N run begins N-1 rungs up.
+  {
+    const m1 = applyRatchets(makeBaseLevel(0, 1), { time: 1 });
+    const m2 = applyRatchets(makeBaseLevel(0, 2), { time: 1 });
+    const m3 = applyRatchets(makeBaseLevel(0, 3), { time: 1 });
+    const cut = (c: LevelConfig, at: number): number =>
+      makeBaseLevel(0, at).timeLimitSec - c.timeLimitSec;
+    check("a Mark-1 first cut costs the first rung", cut(m1, 1) === TIME_LADDER[0],
+      String(cut(m1, 1)));
+    check("a Mark-2 first cut starts one rung up", cut(m2, 2) === TIME_LADDER[1],
+      String(cut(m2, 2)));
+    check("a Mark-3 first cut starts two rungs up", cut(m3, 3) === TIME_LADDER[2],
+      String(cut(m3, 3)));
+    // The SHAPE survives the slide — still Fibonacci, just never as cheap.
+    const m3two = applyRatchets(makeBaseLevel(0, 3), { time: 2 });
+    check("a slid ladder still compounds",
+      makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec === TIME_LADDER[2] + TIME_LADDER[3],
+      String(makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec));
+  }
 
   const threeCuts = applyRatchets(base, { time: 3 });
   check("three shift cuts take 1+2+3 seconds",

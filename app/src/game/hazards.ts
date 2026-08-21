@@ -122,21 +122,30 @@ export const COST_LADDER = [1, 1, 2, 3, 5, 8] as const;
  * total notch count (see applyRatchets), not once per notch: a run three
  * notches into the cost axis has paid rungs 1, 2 and 3, and the config has to
  * reflect all three.
+ *
+ * `startAt` advances where the ladder BEGINS, and it is how the Mark makes the
+ * same choice cost more. Every run used to open on rung 0 whatever it had
+ * beaten, so a Mark-3 pilot's first Shift Cut took the same 1s a first-timer's
+ * did and the ratchet asked an easier question the further you got — exactly
+ * backwards. At startAt = mark - 1 a Mark-2 run opens on 2s and a Mark-3 on 3s,
+ * and because the whole ladder slides rather than being scaled, the SHAPE of
+ * the decision is preserved: still Fibonacci, still steeply worse per notch,
+ * just never as cheap again.
  */
-export function notchTotal(ladder: readonly number[], n: number): number {
-  let total = 0;
-  let prev = ladder[ladder.length - 2];
-  let last = ladder[ladder.length - 1];
-  for (let i = 0; i < n; i++) {
-    if (i < ladder.length) {
-      total += ladder[i];
-      continue;
+export function notchTotal(ladder: readonly number[], n: number, startAt = 0): number {
+  const rung = (i: number): number => {
+    if (i < ladder.length) return ladder[i];
+    let prev = ladder[ladder.length - 2];
+    let last = ladder[ladder.length - 1];
+    for (let k = ladder.length; k <= i; k++) {
+      const next = prev + last;
+      prev = last;
+      last = next;
     }
-    const next = prev + last;
-    prev = last;
-    last = next;
-    total += next;
-  }
+    return last;
+  };
+  let total = 0;
+  for (let i = 0; i < n; i++) total += rung(startAt + i);
   return total;
 }
 
@@ -240,7 +249,7 @@ export const HAZARDS: HazardDef[] = [
     desc: `Every launch costs more — ${COST_LADDER[0]} at the first levy, steeply more at each one after.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n); },
+    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n, cfg.mark - 1); },
   },
   {
     id: "time",
@@ -254,7 +263,7 @@ export const HAZARDS: HazardDef[] = [
     // under Fibonacci than under a flat step — the ladder reaches it in far
     // fewer notches.
     apply: (cfg, n) => {
-      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n));
+      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n, cfg.mark - 1));
     },
   },
   {

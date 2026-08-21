@@ -225,8 +225,29 @@ export class Cannon {
     return this.piecesLeft > 1;
   }
 
+  /**
+   * Live multiplier on the reload, 1 = the level's own cooldown.
+   *
+   * Separate from cooldownMs rather than folded into it because the two have
+   * different lifetimes: cooldownMs is the bay's, set once from the level and
+   * raised permanently by the Magazine track, while this is the CURRENT state
+   * of the bay floor and moves both ways as cargo piles up and clears. Folding
+   * congestion into cooldownMs would make the tax permanent the moment it first
+   * fired, which is the opposite of a rule you can play your way out of.
+   */
+  private cooldownScale = 1;
+
+  setCooldownScale(mult: number): void {
+    this.cooldownScale = Math.max(0.1, mult);
+  }
+
+  /** The reload actually in force right now. */
+  private get effectiveCooldown(): number {
+    return this.cooldownMs * this.cooldownScale;
+  }
+
   canShoot(now: number): boolean {
-    return now - this.lastShot >= this.cooldownMs;
+    return now - this.lastShot >= this.effectiveCooldown;
   }
 
   /** The moment this cannon became (or becomes) able to fire again. Exposed for
@@ -237,18 +258,19 @@ export class Cannon {
    *  routinely exceeds the cooldown, the cooldown never binds and the track is
    *  worth nothing to them either. See lib/telemetry.ts. */
   readyAt(): number {
-    return this.lastShot + this.cooldownMs;
+    return this.lastShot + this.effectiveCooldown;
   }
   cooldownRemaining(now: number): number {
-    return Math.max(0, this.cooldownMs - (now - this.lastShot));
+    return Math.max(0, this.effectiveCooldown - (now - this.lastShot));
   }
   /** 0 = just fired, 1 = fully reloaded — what the HUD reload bar and the
    *  canvas muzzle ring both animate from (see render.ts's drawReloadRing and
    *  main.ts's syncHud). Guards a zero/negative cooldown (a degenerate
    *  Magazine + Rapid Loader stack) as always-ready rather than dividing by 0. */
   reloadRatio(now: number): number {
-    if (this.cooldownMs <= 0) return 1;
-    return Math.max(0, Math.min(1, (now - this.lastShot) / this.cooldownMs));
+    const cd = this.effectiveCooldown;
+    if (cd <= 0) return 1;
+    return Math.max(0, Math.min(1, (now - this.lastShot) / cd));
   }
 
   /** Reset the fire cooldown only, without advancing the piece queue — a

@@ -59,6 +59,10 @@ export interface LevelConfig {
    *  It replaces launchBudget rather than stacking with it — the queue IS the
    *  budget, and a bay carrying both would be counting the same limit twice. */
   pieceQueue: PieceType[] | null;
+  /** The Mark this bay is being flown at (1-based). Stored rather than derived
+   *  because the ratchet ladders read it: notchTotal starts a Mark-N run N-1
+   *  rungs up, so the same choice costs more the further you have got. */
+  mark: number;
   /** Fire cooldown in ms. */
   cooldownMs: number;
   /** Countdown for the level, in seconds; 0 = no limit. A roguelite-run knob:
@@ -457,15 +461,28 @@ export interface PileTier {
   costMult: number;
   /** Seconds burned off the bay clock per launch fired at this tier. */
   clockSec: number;
+  /** Multiplier on the fire cooldown while this tier is active. The third
+   *  pressure and the one that cannot be paid off: money and clock both come
+   *  out of stores the player can rebuild by clearing lines, but a slower
+   *  reload is taken in the only currency a bay never refunds — the shots you
+   *  would have had. It is also the one a spam volley feels IMMEDIATELY,
+   *  rather than at the next price check. */
+  reloadMult: number;
 }
 
 /** The proposed ladder: 4 lines' worth of loose cargo, then 6. Exported and
  *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
  *  variants against the same named default. */
 export const PILE_TIERS: PileTier[] = [
-  { cubes: 32, costMult: 1.5, clockSec: 2 },
-  { cubes: 48, costMult: 2, clockSec: 5 },
+  { cubes: 32, costMult: 1.5, clockSec: 2, reloadMult: 1.5 },
+  { cubes: 48, costMult: 2, clockSec: 5, reloadMult: 2 },
 ];
+
+/** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:
+ *  bay 10 is exactly twice this. Exported because render.ts sizes its weld
+ *  seams against the same range, and two copies of a range that moves is how a
+ *  visualisation ends up describing a game that no longer exists. */
+export const BASE_BREAK_STRETCH = 2.2;
 
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
@@ -485,7 +502,19 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     compactorMinLineCells: 8,
     compactorWidth: 26,
     compactorHeightFrac: 0.5,
-    jointBreakStretch: 1.7 + i * 0.12,
+    // 2.2 -> 4.4 across the ten bays, where it used to be 1.7 -> 2.78. Bonds
+    // came apart too readily at the old numbers: bay 1 opened at a stretch
+    // tolerance a bad landing beat routinely, so a shipment shattering was the
+    // NORM rather than the price of a bad shot, and the ramp's top end was
+    // barely past where the old bay 5 already sat. This opens where the old
+    // bay 5/6 did and doubles from there, so a piece holding together is the
+    // default and breaking one means something.
+    //
+    // Written as base x (1 + i/9) rather than base + i x step so the two
+    // numbers that were actually decided — where it starts, and that bay 10 is
+    // twice bay 1 — are both readable in the expression instead of being
+    // recoverable only by arithmetic.
+    jointBreakStretch: BASE_BREAK_STRETCH * (1 + i / 9),
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
@@ -505,7 +534,14 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // so a restarted bay replays its exact deal.
     pieceSequence: null,
     pieceQueue: null,
-    cooldownMs: 900,
+    mark: Math.max(1, Math.floor(mark)),
+    // 1350, up from 900. The old cooldown was short enough that the reload bar
+    // was almost never the thing you were waiting on — you fired, and by the
+    // time you had read the bay and picked a target it had already refilled,
+    // so "when can I shoot" was never a question the player had to hold. A
+    // launch you have to wait for is a launch worth aiming, and it is also
+    // what gives congestion's reload penalty something to bite on.
+    cooldownMs: 1350,
     timeLimitSec: 150,
     pieceSize: "std",
     // Clean. Materials are no longer scheduled by bay and Mark at all — they

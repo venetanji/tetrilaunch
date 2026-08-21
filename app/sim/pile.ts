@@ -67,8 +67,8 @@ const VARIANTS: Variant[] = [
   {
     name: "loose",
     tiers: [
-      { cubes: 48, costMult: 1.5, clockSec: 2 },
-      { cubes: 64, costMult: 2, clockSec: 5 },
+      { cubes: 48, costMult: 1.5, clockSec: 2, reloadMult: 1 },
+      { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 1 },
     ],
     allowance: 0,
   },
@@ -77,8 +77,8 @@ const VARIANTS: Variant[] = [
   {
     name: "harsh",
     tiers: [
-      { cubes: 32, costMult: 2, clockSec: 3 },
-      { cubes: 48, costMult: 4, clockSec: 8 },
+      { cubes: 32, costMult: 2, clockSec: 3, reloadMult: 1 },
+      { cubes: 48, costMult: 4, clockSec: 8, reloadMult: 1 },
     ],
     allowance: 0,
   },
@@ -90,17 +90,17 @@ const VARIANTS: Variant[] = [
   // bay settle what is in the air. So these keep the clock and drop or soften
   // the multiplier, at the looser thresholds the census argued for.
   { name: "cand-clock", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 2 },
-    { cubes: 64, costMult: 1, clockSec: 5 },
+    { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1 },
+    { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1 },
   ], allowance: 0 },
   { name: "cand-mild", tiers: [
-    { cubes: 48, costMult: 1.25, clockSec: 2 },
-    { cubes: 64, costMult: 1.5, clockSec: 5 },
+    { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1 },
+    { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1 },
   ], allowance: 0 },
   // Same thresholds, a harder clock. Brackets the clock axis on its own.
   { name: "cand-bite", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 3 },
-    { cubes: 64, costMult: 1, clockSec: 8 },
+    { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1 },
+    { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1 },
   ], allowance: 0 },
   // The upgrade track, at what tier 1/2/3 might each be worth. Same tax, more
   // room before it triggers — this is the "buy back the spam strategy" lever.

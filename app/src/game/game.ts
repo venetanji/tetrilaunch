@@ -1019,6 +1019,14 @@ export class Game {
     }
 
     this.stepCount++;
+    // Congestion's third pressure, re-read every step because the bay floor
+    // changes every step. Pushed onto the cannon rather than consulted at fire
+    // time so the RELOAD BAR is honest while it fills: a penalty the player
+    // only discovers when the shot refuses to leave teaches nothing, where a
+    // bar visibly crawling is the rule explaining itself in the moment the
+    // player is already looking at it.
+    const congestion = this.pileTier;
+    this.cannon.setCooldownScale(congestion ? congestion.reloadMult : 1);
     this.stepWind();
     this.stepAutoLaunch(now);
     stepPhysics(this.phys);
