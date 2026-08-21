@@ -256,7 +256,18 @@ body.crt-off #app::after { display: none; }
    8.33x the font size, so 12cqw is the exact fit and 11.5cqw keeps a margin
    for a fallback face. The vw declaration below stays as the pre-container-
    query fallback; `overflow-wrap` is the backstop if a wider font loads. */
-.menu__brand { display: flex; flex-direction: column; gap: var(--sp-4); container-type: inline-size; }
+/* One width for the whole brand column, not one per child. The demo panel and
+   the status strip are read as a single stack — the wordmark's frame with its
+   readouts bolted underneath — so a strip wider than the panel above it reads
+   as a mistake, which is exactly what 440px vs 540px produced on every device.
+   Declaring it once here means the two can never drift apart again; the media
+   queries below step this token instead of stepping each child. `100%`
+   resolves against .menu__brand's content box for both, so they always agree. */
+.menu__brand {
+  display: flex; flex-direction: column; gap: var(--sp-4);
+  container-type: inline-size;
+  --brand-w: min(100%, 440px);
+}
 .menu__title {
   font-size: clamp(30px, 6.2vw, 66px);
   font-size: clamp(24px, 11.5cqw, 66px);
@@ -278,7 +289,7 @@ body.crt-off #app::after { display: none; }
    layout on bars, not about correctness. */
 .menu__demo.is-live {
   position: relative;
-  width: min(100%, 440px);
+  width: var(--brand-w);
   aspect-ratio: 16 / 9;
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-xl);
@@ -394,7 +405,7 @@ body.crt-off #app::after { display: none; }
   grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 0.65fr));
   gap: var(--sp-2);
   align-items: stretch;
-  width: min(100%, 540px);
+  width: var(--brand-w);
 }
 .menu__status .chip { min-width: 0; min-height: 58px; justify-content: center; }
 .menu__stat, .menu__entitlement {
@@ -915,7 +926,15 @@ body.crt-off #app::after { display: none; }
   border: var(--bw) solid var(--line-strong);
   border-bottom: none;
   border-radius: var(--r-md) var(--r-md) 0 0;
-  box-shadow: var(--shadow-hard-sm);
+  /* The x-offset of --shadow-hard-sm, without its y-offset. That token is
+     `2px 2px 0 rgba(0,0,0,.85)` — a hard, unblurred slab — and this cap's
+     bottom edge is not a free edge, it is a JOIN: the cap overlaps the panel
+     top by 2px so it reads as bolted on. A 2px downward shadow therefore lands
+     ON the panel and paints a solid black bar the full width of the cap, which
+     is the stray line under the PWR meter. `border-bottom: none` above is the
+     same decision already taken for the border; the shadow just never followed
+     it. The right edge IS free, so that half of the offset stays. */
+  box-shadow: 2px 0 0 rgba(0, 0, 0, 0.85);
 }
 .pl-pwr .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted); flex: none; }
 .pl-pwr__track { flex: 1; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
@@ -1116,36 +1135,57 @@ body.crt-off #app::after { display: none; }
    floor (7px pixel-font labels, the 17px funds figure), and shrinking past a
    floor is how this panel got into trouble in the first place.
 
-   It comes out of the ROW COUNT instead. The reload bar and the meta line are
-   both single-line strips that use a fraction of the panel's width, stacked only
-   because a column was the simplest thing to write. Side by side they cost one
-   row instead of two. Four rows become three; the panel lands inside its box. */
+   It comes out of the row's CONTENT, not its count. The reload bar is a label
+   plus a flexible bar and is happy at any width; the meta line is not. */
 [data-density="compact"] .plant__body {
   display: grid;
-  /* Not 1fr 1fr. The reload strip is a label plus a flexible bar and is happy
-     narrow; the meta line is ~30 glyphs of a fixed-advance pixel font and wraps
-     to two lines at anything under ~120px, which cost the shared row 17px —
-     more than the row saved. Measured across five splits; 0.8/1.2 is the one
-     where both sit on a single line. */
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  /* The meta line gets its own full-width row, and the reload bar gets one.
+     This used to share a row on a 0.8/1.2 split, under a comment claiming the
+     meta line "wraps to two lines at anything under ~120px" and that 0.8/1.2
+     was "the one where both sit on a single line". Measured on-device in a
+     Deep Run it needs 238.5px and was handed 165.2 — short by 73.3px, so it
+     wrapped, and `justify-content: flex-end` right-aligned the remainder and
+     stranded a "·" separator at the head of the second line. No split fixes
+     that: 238.5 of the 278.3px row is 86%, and the word "Reload" alone is
+     50.2px, so the two cannot share a row at all once the launch cost is
+     present. The ~120px figure holds only in contract/pattern mode, where
+     screens.ts drops the "Launch $N" span — almost certainly what it was
+     measured against.
+
+     The extra row is free: `align-content: space-between` absorbs it, and
+     unwrapping the meta line gives back the 12px the second line cost. The
+     panel measures 154.7px tall either way. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "hdr  hdr"
-    "read read"
-    "load meta"
-    "mods mods";
+    "hdr"
+    "read"
+    "load"
+    "meta"
+    "mods";
   align-content: space-between;
   gap: max(2px, calc(6 * var(--fpx)));
 }
 [data-density="compact"] .plant__hdr { grid-area: hdr; }
 [data-density="compact"] .pl-read { grid-area: read; }
 [data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
-[data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-end; align-items: center; }
+/* flex-start, not flex-end: on its own full-width row the line has room to
+   spare, and every other row in this panel starts at the same left edge. */
+[data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-start; align-items: center; }
 [data-density="compact"] .pl-mods { grid-area: mods; }
 /* Contract mode adds the manifest row (.pl-queue), so ONLY there does the
    grid gain its row — declared on the .hud--contract scope rather than the
    base template, because a named row exists (and costs its share of the row
    gap) even when nothing renders into it. */
+/* Contract mode keeps load and meta SHARING a row, on the old 0.8/1.2 split.
+   That split is sound here and only here: screens.ts drops the "Launch $N"
+   span for a contract, which takes the meta line from 238.5px to ~138px — well
+   inside the 165px the 1.2fr share provides. It has to stay shared, too: this
+   scope also carries the manifest row, and giving meta its own row as well put
+   the panel 3px over its design box on an iPhone 13 mini. The `oneline`
+   assertion is what keeps this honest — if a contract ever grows the meta line
+   back, CI says so instead of it silently wrapping. */
 [data-density="compact"] .hud--contract .plant__body {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   grid-template-areas:
     "hdr   hdr"
     "read  read"
@@ -1153,6 +1193,7 @@ body.crt-off #app::after { display: none; }
     "queue queue"
     "mods  mods";
 }
+[data-density="compact"] .hud--contract .pl-meta { justify-content: flex-end; }
 [data-density="compact"] .hud--contract .pl-queue {
   grid-area: queue;
   margin-top: 0;
@@ -2085,11 +2126,28 @@ button.panel { color: var(--text); }
    competing with a headline — and it can't shrink far now that it carries the
    wordmark, which has to stay legible. */
 @media (max-height: 620px) {
-  .menu__demo.is-live { width: min(100%, 360px); }
+  /* Two widths, because the column holds two different amounts of content. The
+     status strip is three readouts for a build with no store (the web build and
+     any APK without a RevenueCat key), and FOUR rows once there is one — the
+     ★ Unlock upsell before purchase, the ★ UNLIMITED badge after, both spanning
+     `grid-column: 1 / -1`. That extra row is ~52px, and it comes straight out of
+     the panel's height budget: measured, 360px overflows a 360px-tall viewport
+     by 23px with the store row present and fits with 14px to spare without it.
+     Keying the width off the row itself is what lets the no-store case use the
+     room it actually has instead of paying for content it never renders. */
+  .menu__brand { --brand-w: min(100%, 360px); }
+  .menu__brand:has(.chip--cta, .menu__entitlement) { --brand-w: min(100%, 280px); }
 }
-@media (max-height: 460px) {
-  .menu__demo.is-live { width: min(100%, 280px); }
-}
+/* No second step at 460px. The old one took the panel to 280px in a 386px
+   column, leaving 106px — 27% of the column — empty to its right while the
+   status strip below still spanned the full width, so the column read as
+   ragged rather than as one stack. It also cost the brand column the height
+   that made the two columns line up: measured on a OnePlus at 792x360, the
+   360px panel puts the brand column at 310.2px against the action rail's
+   311.1px, which aligns their top AND bottom edges to within half a pixel.
+   The 280px step put it 45.9px short, and `align-items: center` split that
+   into ~23px of mismatch at each end. Keeping the 620px step all the way down
+   spends the room on a bigger, more legible demo and squares the columns. */
 
 /* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed
    off it. A 1080p phone at dpr 3 is 792x360 CSS px — too wide to trip the
@@ -2097,7 +2155,17 @@ button.panel { color: var(--text); }
    silently clipped the Best/Salvage chips off the bottom edge. Desktop-sized
    padding and button spacing are what overflow; the type scale is fine. */
 @media (max-height: 460px) {
-  .menu { padding: clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
+  /* Block padding is split off the shorthand and pinned small on purpose. The
+     action rail is the tallest thing the menu holds (311.1px measured at
+     792x360) and .screen's own padding has already taken 34.9px off the
+     viewport, leaving 325.2px — so anything over ~7px a side makes the rail
+     taller than the box that holds it. Grid rows overflow DOWNWARD, not
+     symmetrically, so the 17.4px this used to inherit did not shrink the menu,
+     it shunted it: 34.8px of air above the rail and 14px below, which is the
+     off-centre, bottom-heavy look. At 6px the rail fits with 2px to spare and
+     `align-items: center` can actually centre it — 24.4px above, 24.4px below.
+     The inline value is untouched; width was never the constraint here. */
+  .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
   .menu__brand { gap: var(--sp-2); }
   .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
   .menu__actions { gap: var(--sp-2); }
