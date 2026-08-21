@@ -3173,6 +3173,28 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
     check("clearing the bay gives the reload back",
       Math.round(cn.cooldownRemaining(0)) === Math.round(listPrice));
   }
+  // Crossing into congestion ends the streak. The other three taxes are rates
+  // a player can decide to keep paying; a combo can only be charged by being
+  // ended, which makes this the part of congestion that cannot be absorbed by
+  // firing anyway.
+  {
+    const g2 = new Game(
+      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1 }] },
+      {}, 1);
+    g2.combo = 4;
+    g2.update(0);
+    check("a clean bay leaves the combo alone", g2.combo === 4, String(g2.combo));
+    // cubes > 0 puts it over the `cubes: 0` threshold on the next step.
+    g2.shoot(0);
+    g2.update(16);
+    check("crossing into congestion kills the combo", g2.combo === 0, String(g2.combo));
+    // And it charges once, on the transition — not every step it stays there,
+    // which would make the combo unrebuildable until the bay was tidied.
+    g2.combo = 3;
+    g2.update(32);
+    check("staying congested does not keep charging", g2.combo === 3, String(g2.combo));
+  }
+
   // The joint ramp, stated where it can be checked: bay 10 is exactly twice
   // bay 1, and bay 1 opens where the old ramp's bay 5/6 sat.
   check("bay 10 bonds are twice bay 1's",

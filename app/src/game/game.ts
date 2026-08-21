@@ -272,6 +272,9 @@ export class Game {
 
   score: number;
   combo = 0;
+  /** Index into level.pileTiers of the congestion tier in force last step, or
+   *  -1 for a clean bay. Only used to detect crossing UP — see update(). */
+  private lastCongestionIdx = -1;
   linesTotal = 0;
   lostTotal = 0;
   status: GameStatus = "playing";
@@ -1026,6 +1029,26 @@ export class Game {
     // bar visibly crawling is the rule explaining itself in the moment the
     // player is already looking at it.
     const congestion = this.pileTier;
+    // Crossing UP into a congestion tier kills the combo.
+    //
+    // The other three taxes are all rates — money, clock, reload — and a rate
+    // is something a player can decide to keep paying. The combo is a STREAK,
+    // and the only way to charge a streak is to end it, which makes this the
+    // one part of congestion that cannot be absorbed by simply firing anyway.
+    // It also aims the rule at precisely the play it exists to discourage:
+    // spamming into a full bay is exactly how a careful run's multiplier gets
+    // thrown away, and now it says so.
+    //
+    // On the transition, not while congested. A tax levied every step for
+    // sitting above the line would mean the combo could never be rebuilt
+    // without first tidying the bay, which punishes the recovery it should be
+    // rewarding — the player who keeps clearing while congested is doing the
+    // right thing. Comparing INDEX rather than identity so a slide from amber
+    // to red charges again, while dropping back down and re-crossing later is
+    // a new offence rather than a free pass.
+    const tierIdx = congestion ? this.level.pileTiers.indexOf(congestion) : -1;
+    if (tierIdx > this.lastCongestionIdx) this.combo = 0;
+    this.lastCongestionIdx = tierIdx;
     this.cannon.setCooldownScale(congestion ? congestion.reloadMult : 1);
     this.stepWind();
     this.stepAutoLaunch(now);
