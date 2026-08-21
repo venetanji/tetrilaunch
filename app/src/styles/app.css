@@ -146,6 +146,15 @@ body.crt-off #app::after { display: none; }
 }
 .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 .icon-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+
+/* ---------- D4: ONE focus token ----------
+   What .setting:focus-visible already used — 2px accent outline, 2px offset —
+   now on every control, stated once. Cards, tabs, rail buttons and inputs
+   all show the same ring, so a D-pad or keyboard walk reads one vocabulary. */
+:is(button, input, a[href], [role="switch"], [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* JS-toggled visibility (fullscreen button on platforms without the
    Fullscreen API) — a plain class, not the `hidden` attribute, so it isn't
    fighting `.icon-btn`/`.btn`'s own `display` in the cascade. */
@@ -471,33 +480,23 @@ body.crt-off #app::after { display: none; }
 }
 .chip__label { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .chip__value { font-family: var(--font-mono); font-weight: 700; font-size: 20px; color: var(--text); }
+/* B3: the horizontal chip, as a modifier — this exact declaration used to be
+   repeated inline on the draft bank, the refit header and the workshop
+   header, which is how the three drifted apart by a pixel at a time. */
+.chip--inline { flex-direction: row; align-items: center; gap: 10px; }
 .chip--accent .chip__value { color: var(--accent); }
-/* The pre-purchase upsell: a chip that is actually a <button>, so it sits in
-   the menu's status strip instead of adding a seventh row to the action column
-   (which overflows a 360px-tall landscape phone). Reset the UA button styling
-   the other chips never needed, and mark it as interactive — the surrounding
-   chips are not, so it has to look pressable to be found. */
+/* The pre-purchase upsell: a real `.btn` (B1 — a chip is a readout; anything
+   pressable is a button on the one control base) restyled to sit in the
+   menu's status strip instead of adding a seventh row to the action column
+   (which overflows a 360px-tall landscape phone). It keeps .btn's tap floor,
+   press behaviour and focus token; only the warm merchandising skin is its
+   own. */
 .chip--cta {
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  /* A chip that is a real button, so it answers to the tap floor. The
-     surrounding .chip readouts are divs and correctly do not. */
-  min-height: var(--tap-min);
   border-color: var(--warn);
+  color: var(--warn);
   background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
-  /* --dur-fast, not the undefined --dur-1 it shipped with — an undefined
-     custom property makes the whole transition invalid, so the chip SNAPPED
-     between states while every other control eased. */
-  transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
-.chip--cta .chip__value { color: var(--warn); font-size: 15px; white-space: nowrap; }
 .chip--cta:hover { filter: brightness(1.15); }
-.chip--cta:active { transform: translateY(1px); }
-@media (prefers-reduced-motion: reduce) {
-  .chip--cta { transition: none; }
-  .chip--cta:active { transform: none; }
-}
 .chip--combo .chip__value { color: var(--piece-o); }
 /* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud). Reduced
    motion keeps the color cue but drops the pulse. */
@@ -973,8 +972,19 @@ body.crt-off #app::after { display: none; }
    "you are about to run out of the thing that lets you keep playing". */
 .pl-stat--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
 .pl-stat--danger .lbl { color: var(--danger); }
+/* B7: the funds bar joins the ONE urgency treatment. When the launches
+   counter goes danger, the same class on the funds block turns the goal
+   bar's fill danger-red with the shared pulse — the bar is the biggest
+   funds surface on screen and it used to stay serenely cyan while the
+   number beside it flashed. */
+.pl-funds.pl-stat--danger .pl-goal i {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(255, 45, 85, 0.6);
+  animation: pulse-danger 1s var(--ease) infinite;
+}
 @media (prefers-reduced-motion: reduce) {
-  .pl-stat--danger .v { animation: none; }
+  .pl-stat--danger .v,
+  .pl-funds.pl-stat--danger .pl-goal i { animation: none; }
 }
 
 /* Reload — tier 4. Amber while the loader runs, flipping to the aim cyan the
@@ -1458,7 +1468,16 @@ body.crt-off #app::after { display: none; }
   gap: 12px;
 }
 .mod-card {
-  all: unset;
+  /* Explicit resets, NOT `all: unset` (B1): a pressable card is a control on
+     the same base as every other control, and `all: unset` silently removed
+     things the vocabulary depends on — most damagingly the focus outline, so
+     the draft's cards were invisible to keyboard focus while every other
+     control showed the token. */
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  color: var(--text);
+  margin: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -2126,7 +2145,9 @@ button.panel { color: var(--text); }
    read as a layout bug that came and went depending on the next bay's name. */
 .refit__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .refit__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
-.refit__scrap { flex-direction: row !important; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* Row form comes from .chip--inline (B3); only the flex sizing is this
+   chip's own. */
+.refit__scrap { flex: 0 0 auto; }
 /* The grid is the modal's flexible scrollable region (same idiom as #lb-body):
    it shrinks and scrolls before the header or the Undock button ever clip, so
    both stay reachable on a short landscape-phone viewport. */
@@ -2185,7 +2206,9 @@ button.panel { color: var(--text); }
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
 .refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; }
+.refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
+/* B6's separator, shared by every buy button ("T2 · ♻ 35"). */
+.price__sep { opacity: 0.55; margin: 0 2px; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
 /* Tier 0: the system isn't on the ship at all, and no amount of scrap puts it
@@ -2390,7 +2413,13 @@ button.panel { color: var(--text); }
      applied at any viewport where both queries match, i.e. every landscape
      phone. Only the font-size landed, and the button stayed 35.5px tall.
      That is 12px per card, 25px per grid, which is most of the second row. */
-  .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; }
+  .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; gap: 4px; }
+  /* B6's tier prefix widened the price; on the narrow compact cards the
+     price gives back its air rather than the delta giving up its tail
+     ("+2 ce…" is not a delta). */
+  .modal--refit .refit-card__price { gap: 2px; }
+  .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
+  .modal--refit .price__sep { margin: 0 1px; }
   /* The not-installed label, off the pixel face and onto the UI one. This is
      the block that put the grid back into scrolling: refit stopped pricing
      tier 0 and started saying "Not installed · Workshop" instead, but the

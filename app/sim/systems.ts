@@ -72,7 +72,7 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal, coachSteps, coachFailSteps, coachFailHTML,
+  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, hudHTML,
 } from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
@@ -1760,6 +1760,26 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
 // cancel ✕ swaps into the pause slot instead of owning one (app.css).
 {
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+
+  // B5: no emoji or dingbat in a CONTROL — an emoji is platform-drawn art
+  // that can't take the accent colour and wobbles the button metrics. The
+  // rail, the plant's ability chips and every buy/close button carry inline
+  // SVG now; the flavour glyphs (♻ in readouts, the belt's 💣 tile, the
+  // leaderboard medals) are copy and stay.
+  {
+    const hud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
+      target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+      timeLeftMs: 150_000, pieceSize: "std",
+      bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+      autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const rail = hud.slice(hud.indexOf('class="side-rail"'), hud.indexOf('class="bay-banner"'));
+    check("no emoji or dingbat survives in a rail control (B5)",
+      !/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u.test(rail), rail.match(/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u)?.[0] ?? "");
+    check("the rail's controls are drawn as inline SVG",
+      (rail.match(/<svg/g) ?? []).length >= 7, String((rail.match(/<svg/g) ?? []).length));
+  }
 
   check("a bare rail is the four base buttons",
     railSlotsFor({ bond: false, demo: false, auto: false }) === RAIL_SLOTS_BASE);

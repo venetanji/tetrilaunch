@@ -1343,6 +1343,16 @@ class App {
     if (!this.run || this.state !== "draft") return;
     const g = this.game;
     if (!g) return;
+    // The innerHTML patch destroys the node keyboard focus is sitting on —
+    // mid-draft that is the card the player just toggled, so a keyboard (or
+    // D-pad) flow lost its place on every single choice. Remember which
+    // control held focus and put it back on the fresh copy (D4).
+    const active = document.activeElement as HTMLElement | null;
+    const focusSel = active?.closest("[data-hazard]")
+      ? `[data-hazard="${active.closest("[data-hazard]")!.getAttribute("data-hazard")}"]`
+      : active?.closest('[data-action="confirm-hazards"]')
+        ? '[data-action="confirm-hazards"]'
+        : null;
     const tmp = document.createElement("div");
     tmp.innerHTML = this.draftHTML(g);
     for (const id of ["#draft-cards", "#draft-preview", "#draft-confirm", "#draft-notches"]) {
@@ -1350,6 +1360,7 @@ class App {
       const fresh = tmp.querySelector(id);
       if (live && fresh) live.innerHTML = fresh.innerHTML;
     }
+    if (focusSel) this.overlay.querySelector<HTMLElement>(focusSel)?.focus();
   }
 
   /** "confirm-hazards": bank the tentative hand onto the run and fly the next
@@ -1546,6 +1557,12 @@ class App {
       set("#hud-launches", String(launches));
       this.overlay
         .querySelector("#hud-launches-chip")
+        ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+      // B7: the funds block joins the one urgency treatment at the same
+      // threshold — the goal bar is the biggest funds surface on screen, and
+      // it stayed serenely cyan while the number beside it flashed.
+      this.overlay
+        .querySelector(".pl-funds")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
     }
 

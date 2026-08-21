@@ -146,14 +146,13 @@ function unlimitedBadgeHTML(): string {
   </div>`;
 }
 
-/** The pre-purchase counterpart to the badge above, in the same chip row — a
- *  button shaped like a chip so it reads as part of that status strip rather
- *  than as a seventh menu action. See the note in menuScreen's action column
- *  for why it isn't one. */
+/** The pre-purchase counterpart to the badge above, in the same chip row.
+ *  A real `.btn` (B1: a chip is a readout — something pressable is a button),
+ *  restyled by `.chip--cta` to sit in the status strip rather than reading as
+ *  a seventh menu action. See the note in menuScreen's action column for why
+ *  it isn't one. */
 function unlockChipHTML(): string {
-  return `<button class="chip chip--cta" data-action="paywall">
-    <div class="chip__value">★ Unlock Unlimited</div>
-  </button>`;
+  return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
 }
 
 export function howtoScreen(): string {
@@ -172,7 +171,7 @@ export function howtoScreen(): string {
     <div class="howto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div><div class="eyebrow">Briefing</div><h2 class="display" style="font-size:var(--fs-h1)">How to Play</h2></div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="howto__grid">
         ${steps
@@ -191,7 +190,7 @@ export function howtoScreen(): string {
         ).join("")}
       </div>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="btn btn--primary btn--lg" data-action="play">▶ Start Run</button>
+        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
         <button class="btn btn--secondary btn--lg" data-action="tutorial">Guided Tutorial</button>
       </div>
     </div>
@@ -212,7 +211,7 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
     <div class="panel modal modal--settings pop">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h2 class="display" style="font-size:var(--fs-h1)">Settings</h2>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="split settings__cols">
         <div class="settings__toggles">
@@ -305,10 +304,10 @@ export function leaderboardScreen(rows: string): string {
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="text-align:left"><div class="eyebrow">Launch Bay</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div id="lb-body" data-scroll>${rows}</div>
-      <button class="btn btn--primary" data-action="play">▶ Play</button>
+      <button class="btn btn--primary" data-action="play">${icon("play")}Play</button>
     </div>
   </div>`;
 }
@@ -432,19 +431,19 @@ export function hudHTML(opts: {
   // of sync with the live charge count.
   const bondChip = bondBreakerOwned
     ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
-        <span class="g">⚡</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
+        <span class="g">${icon("bond", 15)}</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
       </button>`
     : "";
   const bondRailBtn = bondBreakerOwned
-    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>⚡<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
+    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   const demoChip = demoOwned
     ? `<button class="mod mod--demo demo-trigger" data-game="demo" id="demo-chip" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>
-        <span class="g">💥</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
+        <span class="g">${icon("demo", 15)}</span><span class="nm">DEMO</span><span class="stk">×<span class="demo-trigger__count">${bombCharges}</span></span><span class="key">X</span>
       </button>`
     : "";
   const demoRailBtn = demoOwned
-    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>💥<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
+    ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
   // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
   // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
@@ -495,14 +494,14 @@ export function hudHTML(opts: {
          @media (pointer: fine) rule in app.css), per the kbd-hint strip down
          in .hud__bottom. -->
     <div class="side-rail">
-      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">⛶</button>
-      <button class="icon-btn" data-action="pause" aria-label="Pause">⏸</button>
-      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">⟲</button>
-      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">⟳</button>
+      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>
+      <button class="icon-btn" data-action="pause" aria-label="Pause">${icon("pause", 22)}</button>
+      <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
+      <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
       ${demoRailBtn}
       ${autoRailBtn}
-      <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">✕</button>
+      <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">${icon("close", 22)}</button>
     </div>
 
     ${bayBanner}
@@ -806,7 +805,7 @@ export function coachFailHTML(
         <div class="coach__title">${s.title}</div>
         <p class="coach__body">${s.body}</p>
         <div class="coach__foot coach__foot--fail">
-          <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">↻ Try this bay again</button>
+          <button class="btn btn--primary btn--lg btn--block" data-action="coach-retry">${icon("retry", 13)}Try this bay again</button>
           <div class="row coach__foot-row">
             <button class="btn btn--ghost" data-action="coach-skip-run">Skip tutorial</button>
             <button class="btn btn--ghost" data-action="menu">Menu</button>
@@ -898,7 +897,7 @@ export function refitScreen(opts: {
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
-            <span class="refit-card__price">♻ ${cost}</span>
+            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</span>
           </button>`;
     // One line, and it states what the ship HAS rather than what a purchase
     // would add. The full three-line ladder cost 43px per card and six of them
@@ -928,7 +927,7 @@ export function refitScreen(opts: {
           <h2 class="display">Yard &amp; Dry Dock</h2>
           <p class="muted" style="margin:0"><span class="refit__hint">The compactor rig is your ship. Spend scrap; it lasts the run. </span>Next up: ${opts.nextBayName}.</p>
         </div>
-        <div class="chip refit__scrap">
+        <div class="chip chip--inline refit__scrap">
           <div class="chip__label">Scrap</div>
           <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
         </div>
@@ -990,8 +989,10 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       const available = unlockAvailable(u, meta.unlocks, mark);
       const affordable = meta.salvage >= u.cost;
       const gates = unlockGates(u, meta.unlocks, mark);
+      // B6's grammar without a tier: an option is not a rung on a track, so
+      // its price is just the salvage glyph and the number.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>♻ ${u.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-unlock" data-unlock="${u.id}"${affordable ? "" : " disabled"}>${icon("salvage", 11)}${u.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       // "Permanent" on every card (playtest feedback): the Workshop and the
       // mid-run Refit both sell upgrades, and nothing on screen said which
@@ -1028,8 +1029,11 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
       const available = installAvailable(meta, i);
       const affordable = meta.salvage >= i.cost;
       const gates = installGates(meta, i);
+      // B6: one price grammar — "T1 · ♻ 15". An install is tier 1 of a track
+      // by definition, and the button says so in the same words the refit
+      // yard's buy buttons use for tiers 2 and 3.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>♻ ${i.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}">
       <div class="shop-card__body">
@@ -1091,11 +1095,11 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
           <p class="muted workshop__blurb" style="margin:0">Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before.</p>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
-          <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+          <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
             <div class="chip__value" style="color:var(--warn)">♻ ${meta.salvage}</div>
           </div>
-          <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
       </div>
       <div class="workshop__meta muted">${meta.runs} run${meta.runs === 1 ? "" : "s"} logged · deepest bay ${meta.bestBay || "—"}</div>
@@ -1113,7 +1117,7 @@ export function pauseModal(): string {
       <h2 class="display">Take a breath</h2>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
-        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">⛶ <span class="fs-label">Fullscreen</span></button>
+        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
@@ -1207,7 +1211,7 @@ export function draftScreen(opts: {
       // once it is full (hazards.ts's togglePick). Without it a selected card
       // in a one-pick draft looks like a dead end, and the capstone's
       // double-notch tap is invisible.
-      const mark = `<span class="mod-card__mark">✓</span> Selected${picks > 1 ? ` ×${picks}` : ""}`;
+      const mark = `<span class="mod-card__mark">${icon("check", 10)}</span> Selected${picks > 1 ? ` ×${picks}` : ""}`;
       const foot = picks > 0
         ? ready ? `${mark} — tap to undo` : `${mark} — tap to double`
         : ready
@@ -1249,15 +1253,15 @@ export function draftScreen(opts: {
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
       <div class="draft__bank">
-        <div class="chip chip--accent" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--accent chip--inline">
           <div class="chip__label">Ended $${opts.funds} — carries</div>
           <div class="chip__value">$${opts.carry}</div>
         </div>
-        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--inline">
           <div class="chip__label">Notches taken</div>
           <div class="chip__value" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
         </div>
-        <div class="chip" style="flex-direction:row;align-items:center;gap:10px">
+        <div class="chip chip--inline">
           <div class="chip__label">Scrap${
             opts.baysToRefit === null
               ? ""
@@ -1558,7 +1562,7 @@ export function contractsScreen(opts: {
           <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
           <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
         </div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">✕</button>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <p class="muted" style="margin:0">
         No clock, no launch costs — your supply of shipments is the only budget.
@@ -1677,7 +1681,7 @@ export function contractEndModal(opts: {
           ${stats}
         </div>
         <div class="row end__actions">
-          <button class="btn btn--primary" data-action="contract-retry">↻ Try Again</button>
+          <button class="btn btn--primary" data-action="contract-retry">${icon("retry", 12)}Try Again</button>
           <button class="btn btn--ghost" data-action="contracts">Contract Board</button>
         </div>
       </div>
@@ -1760,7 +1764,7 @@ export function contractEndModal(opts: {
               ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
               : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
         }
-        <button class="btn btn--secondary" data-action="contract-retry">↻ Play Again</button>
+        <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play Again</button>
         ${primaryIsBoard ? "" : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`}
       </div>
     </div>

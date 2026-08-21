@@ -39,7 +39,14 @@ export type IconName =
   // exactly the reason in the header note: a font glyph carries the font's own
   // metrics, and those do not line up with a different family at a different
   // size. An SVG on a known 16x16 box does.
-  | "up" | "down";
+  | "up" | "down"
+  // The control glyphs (canvas B5): the touch rail — the PRIMARY control
+  // surface on mobile — ran on ⛶⏸⟲⟳✕⚡💥, i.e. emoji and dingbats the
+  // platform draws. Android's full-colour art, Apple's flat art and desktop's
+  // outlines disagree per device, none can take the button's accent colour,
+  // and their metrics wobble the buttons. Emoji survive only in flavour copy
+  // now, never in a control.
+  | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "salvage" | "retry";
 
 /** Inner markup per icon. Shapes that read better solid are filled; the rest
  *  stroke, and the wrapper supplies the shared stroke attributes. */
@@ -144,6 +151,31 @@ const PATHS: Record<IconName, string> = {
   // height whichever way they point.
   up: `<path d="M8 4l5 8H3z" fill="currentColor" stroke="none"/>`,
   down: `<path d="M8 12L3 4h10z" fill="currentColor" stroke="none"/>`,
+
+  // ---- control glyphs (canvas B5) -----------------------------------------
+  // Two solid bars — the one shape everyone reads as pause at any size.
+  pause: `<path d="M4.5 3h2.5v10H4.5z" fill="currentColor" stroke="none"/><path d="M9 3h2.5v10H9z" fill="currentColor" stroke="none"/>`,
+  // Four corners opening outward. Square caps keep it on the pixel grid where
+  // ⛶'s font metrics floated it.
+  fullscreen:
+    `<path d="M2 6V2h4"/><path d="M10 2h4v4"/><path d="M14 10v4h-4"/><path d="M6 14H2v-4"/>`,
+  // The rotate pair: a three-quarter arc with a blocky arrowhead at its open
+  // end. Mirrored, not rotated — the arrowheads must sit at the TOP on both,
+  // where a thumb on the rail actually looks.
+  rotl: `<path d="M12.6 11.2A5.6 5.6 0 1 1 12.6 4.8"/><path d="M13.4 1.6v3.8H9.6"/>`,
+  rotr: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
+  close: `<path d="M3.5 3.5l9 9"/><path d="M12.5 3.5l-9 9"/>`,
+  check: `<path d="M2.5 8.5l4 4L13.5 4.5"/>`,
+  // The Bond Breaker bolt — the same silhouette `bond-breaker`'s shop glyph
+  // throws between its blocks, solid here because it is a lit trigger.
+  bond: `<path d="M9.5 1L4 9h3.2L6 15l6-8H8.6z" fill="currentColor" stroke="none"/>`,
+  // Salvage (♻ in every price): two arcs chasing each other with blocky
+  // arrowheads — recycling without the emoji's per-platform art.
+  salvage:
+    `<path d="M12.8 6A5.2 5.2 0 0 0 3.5 5"/><path d="M13.5 2.2v3.9H9.6"/>` +
+    `<path d="M3.2 10a5.2 5.2 0 0 0 9.3 1"/><path d="M2.5 13.8V9.9h3.9"/>`,
+  // The retry arrow (was the ↻ dingbat on Try/Play Again buttons).
+  retry: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
 };
 
 /**
