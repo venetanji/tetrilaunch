@@ -14,11 +14,14 @@
  */
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
-import { makeBaseLevel, TARGET_PER_BAY } from "../src/game/level";
+import {
+  makeBaseLevel, TARGET_PER_BAY, type LevelConfig, type PileTier,
+} from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
-  CAPSTONE_MARK, type HazardId, type Ratchets,
+  CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
+  type HazardId, type Ratchets,
 } from "../src/game/hazards";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -3122,6 +3125,139 @@ section("Lost-piece mark is revocable (lineClear.ts markLostPieces)");
   markLostPieces(cubes, comp, 1200);
   check("re-stranded, it re-marks with a fresh blink", cube.blinkStart === 1200);
 }
+
+
+// ---------------------------------------------------------------------------
+section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
+{
+  // A bay with the tax on. Every assertion here is about PRICING, so the
+  // thresholds are set absurdly low and the physics is left to do whatever it
+  // likes — what matters is the cube count and the price it implies.
+  // Thresholds are EXCLUSIVE (game.ts's pileTier tests `n > t.cubes`), so 8
+  // cubes on the field trips a tier written at 7 and not one written at 8.
+  const tiers: PileTier[] = [
+    { cubes: 3, costMult: 1.5, clockSec: 2 },
+    { cubes: 7, costMult: 2, clockSec: 5 },
+  ];
+  const congestedCfg: LevelConfig = {
+    ...makeBaseLevel(0), pileTiers: tiers, pileAllowance: 0,
+  };
+  const cg = new Game(congestedCfg, {}, 1);
+
+  check("an empty bay is untaxed", cg.pileTier === null);
+  check("an untaxed launch costs the base rate", cg.launchCostNow === congestedCfg.launchCost);
+
+  // A std shipment is 4 cubes, so two launches put 8 on the field — past both
+  // thresholds. Stepping only a few frames between them keeps everything alive.
+  const fireTwice = (game: Game) => {
+    for (let i = 0; i < 2; i++) {
+      const t = 10_000 + i * 10_000;
+      game.shoot(t);
+      for (let s = 0; s < 5; s++) game.update(t + s);
+    }
+  };
+  fireTwice(cg);
+  check("8 cubes trips the second tier", cg.cubes.length === 8 && cg.pileTier === tiers[1],
+    `${cg.cubes.length} cubes`);
+  check("the second tier doubles the launch price",
+    cg.launchCostNow === congestedCfg.launchCost * 2, String(cg.launchCostNow));
+
+  // The allowance is the upgrade seam: identical field, higher bar.
+  const roomy = new Game({ ...congestedCfg, pileAllowance: 8 }, {}, 1);
+  fireTwice(roomy);
+  check("an allowance lifts the same field back under the tax",
+    roomy.cubes.length === 8 && roomy.pileTier === null,
+    `${roomy.cubes.length} cubes, tier ${roomy.pileTier ? "set" : "null"}`);
+
+  // The clock tax, and the reason burnCongestionClock floors at 1ms rather
+  // than 0: a bay must be SHORTENED by the tax, never ended by it.
+  //
+  // Note the ORDER this depends on: shoot() prices the launch and burns the
+  // clock from the PRE-shot field, before the new piece exists. So the first
+  // launch into an empty bay is always untaxed, however low the threshold —
+  // it is the launch AFTER it that pays.
+  const clock = new Game(
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999 }] }, {}, 1);
+  clock.shoot(10_000);
+  for (let s = 0; s < 5; s++) clock.update(10_000 + s);
+  check("the first launch into an empty bay is untaxed", clock.timeLeftMs > 140_000,
+    String(clock.timeLeftMs));
+  const before = clock.timeLeftMs;
+  clock.shoot(20_000);
+  check("the next launch, over the threshold, burns clock", clock.timeLeftMs < before,
+    String(clock.timeLeftMs));
+  check("an absurd clock tax still leaves the bay alive", clock.timeLeftMs > 0,
+    String(clock.timeLeftMs));
+
+  // REGRESSION: funds between the base price and the congested price must not
+  // strand the bay. shoot() refuses the launch, so if the broke countdown read
+  // the BASE cost it would report the player solvent and the bay would sit
+  // there saying nothing until the clock ran out.
+  const stuck = new Game(
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0 }] }, {}, 1);
+  // One launch to put cargo on the field, so the NEXT one is priced congested.
+  stuck.shoot(10_000);
+  for (let s = 0; s < 5; s++) stuck.update(10_000 + s);
+  stuck.score = congestedCfg.launchCost + 1; // affords the base rate, not the doubled one
+  check("congested pricing sits above the player's funds", stuck.launchCostNow > stuck.score,
+    `cost ${stuck.launchCostNow} vs funds ${stuck.score}`);
+  check("the launch is refused", stuck.shoot(20_000) === false);
+  // Long enough for the broke grace (one compactor round trip plus a buffer)
+  // to elapse — the point is that a verdict ARRIVES, not that it is instant.
+  for (let s = 0; s < 4000 && stuck.status === "playing"; s++) stuck.update(20_000 + s * 16);
+  check("the bay reaches a verdict instead of stalling",
+    stuck.status === "lost" && stuck.lossReason === "broke",
+    `status ${stuck.status}, reason ${stuck.lossReason}`);
+}
+
+// ---------------------------------------------------------------------------
+section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
+{
+  // The whole point of the shape: notch N+1 must cost strictly more than notch
+  // N. Under the flat step this replaced, every notch cost the same, so the
+  // axis a player opened early stayed the cheapest card on the table forever.
+  for (const [name, ladder] of [["time", TIME_LADDER], ["cost", COST_LADDER]] as const) {
+    let strictlyRising = true;
+    let prevRung = 0;
+    for (let n = 1; n <= 10; n++) {
+      const rung = notchTotal(ladder, n) - notchTotal(ladder, n - 1);
+      // COST_LADDER opens 1,1 — deliberately flat for exactly one step, so the
+      // first two levies feel the same and the third is where it bites.
+      if (n > 2 && rung <= prevRung) strictlyRising = false;
+      prevRung = rung;
+    }
+    check(`the ${name} ladder never gets cheaper per notch`, strictlyRising);
+  }
+
+  check("notchTotal(time, 0) is free", notchTotal(TIME_LADDER, 0) === 0);
+  check("notchTotal(time, 3) sums 1+2+3", notchTotal(TIME_LADDER, 3) === 6,
+    String(notchTotal(TIME_LADDER, 3)));
+  check("notchTotal(cost, 5) sums 1+1+2+3+5", notchTotal(COST_LADDER, 5) === 12,
+    String(notchTotal(COST_LADDER, 5)));
+  // Past the table the recurrence continues rather than clamping — a Mark-10
+  // run taking two notches a bay can walk off the end of the written rungs.
+  check("the time ladder continues past its table",
+    notchTotal(TIME_LADDER, 7) === 32 + 21, String(notchTotal(TIME_LADDER, 7)));
+
+  // And the axes actually spend it.
+  const base = makeBaseLevel(0);
+  const oneLevy = applyRatchets(base, { cost: 1 });
+  const fiveLevies = applyRatchets(base, { cost: 5 });
+  check("one levy costs the first rung",
+    oneLevy.launchCost === base.launchCost + 1, String(oneLevy.launchCost));
+  check("five levies cost the cumulative ladder",
+    fiveLevies.launchCost === base.launchCost + 12, String(fiveLevies.launchCost));
+
+  const threeCuts = applyRatchets(base, { time: 3 });
+  check("three shift cuts take 1+2+3 seconds",
+    threeCuts.timeLimitSec === base.timeLimitSec - 6, String(threeCuts.timeLimitSec));
+  // The floor still holds, and matters MORE under Fibonacci than it did under a
+  // flat step — the ladder reaches it in far fewer notches.
+  const manyCuts = applyRatchets(base, { time: 12 });
+  check("the clock floor still holds at depth", manyCuts.timeLimitSec === 45,
+    String(manyCuts.timeLimitSec));
+}
+
 
 console.log(
   failures === 0

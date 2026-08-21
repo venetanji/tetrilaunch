@@ -26,7 +26,7 @@ import {
   wakeNear,
   type ClearResult,
 } from "./lineClear";
-import type { LevelConfig } from "./level";
+import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
 import type { Material, PieceSize, PieceType } from "./theme";
@@ -758,6 +758,41 @@ export class Game {
   }
 
   /**
+   * The active congestion tier, or null when the bay is clean enough (or the
+   * mechanic is off — level.pileTiers empty; see level.ts's PILE_TIERS).
+   *
+   * Reads `cubes.length`, i.e. every live cube ANYWHERE on the field, not just
+   * the ones inside the compaction zone. Deliberate: cargo strewn on the
+   * launcher side of the bar is exactly what a spam volley produces, and it is
+   * still the player's mess — pricing only the zone would make "fire wildly and
+   * miss" the cheap option and "land it where the press can reach" the
+   * expensive one, which is backwards. Cubes leave this array when a line
+   * clears, a bomb vaporizes them or they decay out of the bay, so the reading
+   * falls the moment the bay is actually tidied.
+   *
+   * Highest matching tier wins rather than summing: the tiers are a staircase
+   * describing one state, not stacking debuffs.
+   */
+  get pileTier(): PileTier | null {
+    const tiers = this.level.pileTiers;
+    if (!tiers.length) return null;
+    const n = this.cubes.length;
+    let active: PileTier | null = null;
+    for (const t of tiers) {
+      if (n > t.cubes + this.level.pileAllowance) active = t;
+    }
+    return active;
+  }
+
+  /** What the NEXT launch actually costs, congestion included. The HUD reads
+   *  this rather than level.launchCost so the price the player is quoted is the
+   *  price they pay — a tax you only discover after firing teaches nothing. */
+  get launchCostNow(): number {
+    const tier = this.pileTier;
+    return tier ? Math.round(this.level.launchCost * tier.costMult) : this.level.launchCost;
+  }
+
+  /**
    * Recomputes the dotted preview arc against the CURRENT wind held constant
    * across the whole predicted flight. Unlike the old deterministic sine, a
    * drunk walk's future is genuinely unknowable, so the current reading is
@@ -808,7 +843,10 @@ export class Game {
     // That's the whole economic fix: the old bomb burned a full-price launch
     // and returned nothing, so it was never the right call at any funds level.
     const firingBomb = this.bombArmed && this.bombCharges > 0;
-    if (!firingBomb && this.score < this.level.launchCost) return false;
+    // Congestion is priced HERE, on the shot (see level.ts's PILE_TIERS): the
+    // quote the HUD showed and the amount deducted below are the same number.
+    const cost = this.launchCostNow;
+    if (!firingBomb && this.score < cost) return false;
 
     // Captured BEFORE markShot/markCooldown move the cannon's clock forward.
     // lastShot starts at a large negative sentinel, so a bay's first shot has
@@ -839,7 +877,8 @@ export class Game {
       // Cooldown-only: the queued piece stays loaded for the next real shot.
       this.cannon.markCooldown(now);
     } else {
-      this.score -= this.level.launchCost;
+      this.score -= cost;
+      this.burnCongestionClock();
       const piece = createTetrisPiece(
         this.phys.world,
         this.cannon.tip.x,
@@ -860,6 +899,28 @@ export class Game {
     this.events.onShoot?.(shot);
     this.updateTrajectory();
     return true;
+  }
+
+  /**
+   * Charge the congestion tier's clock tax for the shot just fired.
+   *
+   * Floored at 1ms rather than 0, and that is the whole subtlety: the clock is
+   * the bay's other loss condition, and letting a tax drive timeLeftMs to
+   * exactly 0 would hand the player a time-loss authored by the tax rather
+   * than by the clock. Leaving a millisecond means the bay still ends on its
+   * own terms — the overtime block in update() takes it from there, settling
+   * what is already in the air, which is the same ending a player who simply
+   * ran long would get.
+   *
+   * No-ops on an untimed bay (timeLeftMs Infinity — Contracts, the attract
+   * demo), where there is no clock to tax and the funds multiplier carries the
+   * whole mechanic on its own.
+   */
+  private burnCongestionClock(): void {
+    const tier = this.pileTier;
+    if (!tier || tier.clockSec <= 0) return;
+    if (this.timeLeftMs === Infinity) return;
+    this.timeLeftMs = Math.max(1, this.timeLeftMs - tier.clockSec * 1000);
   }
 
   /**
@@ -885,7 +946,7 @@ export class Game {
     const stepsPerMs = 1 / DT;
     if (this.stepCount - this.lastAutoStep < interval * stepsPerMs) return;
     if (!this.cannon.canShoot(now)) return;
-    if (this.score < this.level.launchCost) return;
+    if (this.score < this.launchCostNow) return;
 
     // The player's aim is the ANCHOR of the burst and survives it: the jitter
     // below is applied for this one shot and restored immediately after.
@@ -1085,7 +1146,18 @@ export class Game {
     // broke-loss forever. allAtRest is only computed when it's actually needed
     // (score below cost AND the countdown hasn't started yet) to skip the
     // per-cube scan during normal play.
-    if (this.score >= this.level.launchCost) {
+    // launchCostNow, not level.launchCost: the question this asks is "can the
+    // player fire the shot they would actually fire", and under a congestion
+    // tier that shot is priced above the bay's base rate (see level.ts's
+    // PILE_TIERS). Reading the base cost here leaves a silent dead zone —
+    // funds between the base and congested price mean shoot() refuses every
+    // launch while this branch reports the player as solvent, so the bay
+    // stalls with no verdict at all until the clock runs out or a lost-cargo
+    // fine happens to drop them under the base rate. The rescue path is not
+    // weakened by pricing it correctly; it is strengthened, because the line
+    // clear that cancels the countdown ALSO removes the cubes that raised the
+    // price, so a rescue fixes both halves at once.
+    if (this.score >= this.launchCostNow) {
       this.brokeSinceStep = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));

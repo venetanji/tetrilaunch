@@ -29,6 +29,7 @@
     "test:uifit": "tsx sim/uifit/run.ts",
     "test:uifit:shots": "tsx sim/uifit/run.ts --shots",
     "sim:balance": "tsx sim/sweep.ts",
+    "sim:pile": "tsx sim/pile.ts",
     "sim:perf": "tsx sim/perf.ts",
     "sim:systems": "tsx sim/systems.ts",
     "store:graphics": "node scripts/store-graphics.mjs",

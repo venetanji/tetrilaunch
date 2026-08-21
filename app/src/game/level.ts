@@ -185,6 +185,21 @@ export interface LevelConfig {
    *  bankroll two clears in a row, which is the exact spray-and-pray loop this
    *  field used to feed. 0 = the player never bought one. */
   bondBreakerCharges: number;
+  /** CONGESTION TIERS — the anti-spam rule (see PILE_TIERS below).
+   *
+   *  Ascending by `cubes`. Once the field holds MORE than a tier's `cubes`
+   *  live cubes, every launch costs `costMult` x this bay's launchCost and
+   *  burns `clockSec` seconds off the bay clock. The highest tier whose
+   *  threshold is exceeded wins; they do not stack.
+   *
+   *  Empty = the mechanic is OFF, which is what makeBaseLevel ships today.
+   *  Same inert-by-default stance as windMax 0 and autoLaunchMs 0. */
+  pileTiers: PileTier[];
+  /** Cubes added to EVERY tier's threshold before it triggers — the upgrade
+   *  seam. 0 = stock. A player who invests here buys back the right to fire
+   *  into a fuller bay, which is the whole point of gating spam behind a
+   *  threshold rather than banning it outright. */
+  pileAllowance: number;
 }
 
 // Economy balance note: each bay is its OWN economy — targetScore, launchCost,
@@ -400,6 +415,58 @@ export const NO_MATERIALS: MaterialMix = {
  * "which systems can be installed" — see HAZARDS and meta.ts's INSTALLS.
  */
 
+
+/**
+ * CONGESTION — a launch-cost and clock tax that scales with how cluttered the
+ * bay already is (see LevelConfig.pileTiers).
+ *
+ * The problem it exists for: a bay's launch budget is at its LOOSEST right
+ * before the bay ends. Late in a bay the player is sitting on the surplus every
+ * cleared line paid out, launchCost is flat, and nothing else prices a shot —
+ * so the dominant endgame play is to stop aiming and empty the bankroll into
+ * the bay, letting gravity and the press resolve whatever lands. That is a
+ * strategy the economy currently REWARDS, and it skips the part of the game
+ * that is actually the game.
+ *
+ * Thresholds are stated in cubes and sized in FULL LINES, so the number means
+ * something the player can see: compactorMinLineCells is 8, so 32 cubes is
+ * "four lines' worth of cargo is loose on the field" and 48 is six. Above the
+ * first, a launch costs half again as much and 2s of clock; above the second,
+ * double and 5s.
+ *
+ * Two deliberate non-choices:
+ *
+ *  - The tax is charged on the SHOT, not held against the pile. A player who
+ *    stops firing and lets the compactor work pays nothing at all — the
+ *    counter-play is free, which is what makes this a disincentive rather than
+ *    a punishment. A drain-per-second version would tax the patience it is
+ *    trying to buy.
+ *  - The broke check (game.ts) reads the CONGESTED price, not the base one.
+ *    The instinct is the opposite — congestion should not be a second
+ *    bankruptcy — but pricing it at the base rate produces something worse
+ *    than a loss: a bay where funds sit between the two prices, every launch
+ *    is refused, and the game says nothing while the clock drains. Reading the
+ *    real price starts the normal grace countdown instead, and that countdown
+ *    is cancelled by a line clear, which pays out AND drops the cube count
+ *    below the tier. One rescue, both halves.
+ */
+export interface PileTier {
+  /** Live cubes on the field ABOVE which this tier applies (exclusive). */
+  cubes: number;
+  /** Multiplier on launchCost while this tier is the active one. */
+  costMult: number;
+  /** Seconds burned off the bay clock per launch fired at this tier. */
+  clockSec: number;
+}
+
+/** The proposed ladder: 4 lines' worth of loose cargo, then 6. Exported and
+ *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
+ *  variants against the same named default. */
+export const PILE_TIERS: PileTier[] = [
+  { cubes: 32, costMult: 1.5, clockSec: 2 },
+  { cubes: 48, costMult: 2, clockSec: 5 },
+];
+
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
   // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
@@ -460,6 +527,11 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
     bondBreakerCharges: 0,
+    // OFF by default — the congestion tax is an experiment measured in
+    // sim/pile.ts, not a shipped rule. Flip to `[...PILE_TIERS]` here (and
+    // nowhere else) to turn it on for every Deep Run bay.
+    pileTiers: [],
+    pileAllowance: 0,
     launchBudget: 0,
     objectiveLines: 0,
   };

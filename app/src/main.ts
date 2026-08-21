@@ -514,7 +514,12 @@ class App {
       profile: this.profile,
       target: g.target,
       score: g.score,
-      launchCost: g.level.launchCost,
+      // launchCostNow, not level.launchCost: under a congestion tier the shot
+      // is priced above the bay's base rate (level.ts's PILE_TIERS), and the
+      // whole mechanic depends on the player seeing the price BEFORE they fire.
+      // A surcharge you only discover from a faster-falling bankroll teaches
+      // nothing except that the game is cheating.
+      launchCost: g.launchCostNow,
       bayNum: (this.run?.levelIndex ?? 0) + 1,
       timeLimitSec: g.level.timeLimitSec,
       timeLeftMs: g.timeLeftMs,
@@ -1683,9 +1688,13 @@ class App {
     // is the exact point where the right play changes from "keep feeding the
     // bay" to "this shot has to count". Computed from funds, so it also drops
     // when a mod raises launchCost — the warning tracks affordability, not a
-    // separate ammo counter.
+    // separate ammo counter — and, for the same reason, when congestion raises
+    // the price of the next shot (level.ts's PILE_TIERS). That is the readout
+    // doing exactly its job: a bay you have filled up really does hold fewer
+    // shots than the same bankroll bought a minute ago, and the number falling
+    // as the pile grows is the clearest statement of the rule the HUD can make.
     if (!this.contract) {
-      const launches = Math.floor(g.score / Math.max(1, g.level.launchCost));
+      const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
       this.overlay
         .querySelector("#hud-launches-chip")

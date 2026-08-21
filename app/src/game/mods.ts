@@ -223,6 +223,7 @@ export function applyMods(base: LevelConfig, ids: string[]): LevelConfig {
   const cfg: LevelConfig = {
     ...base,
     pieceSequence: base.pieceSequence ? [...base.pieceSequence] : null,
+    pileTiers: base.pileTiers.map((t) => ({ ...t })),
   };
   for (const id of ids) {
     modById(id)?.apply(cfg);

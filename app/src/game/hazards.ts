@@ -84,11 +84,67 @@ export interface HazardDef {
  *  still resolves to the number it was taken at, but nothing in a new run can
  *  reach it: the quota's growth lives in level.ts's TARGET_PER_BAY now. */
 export const TARGET_NOTCH = 300;
-export const COST_NOTCH = 5;
-/** A gentle notch: at 20s the clock was a trap card (three notches quietly
- *  halved the bay), so the player never took it — which made it dead weight
- *  in the hand. 5s is a pick you can actually afford. */
-export const TIME_NOTCH = 5;
+/**
+ * ESCALATING LADDERS — what the nth notch on the cost and time axes costs.
+ *
+ * These two axes used to be linear (a flat +$5 and a flat -5s however many
+ * notches deep you already were), and linear is the wrong shape for a ratchet
+ * the player takes one notch at a time. Under a flat step the tenth notch is
+ * the same decision as the first, so the axis a player opened early is the axis
+ * they keep taking — it never stops being the cheapest card on the table, and
+ * the draft quietly collapses into one axis repeated.
+ *
+ * Fibonacci fixes that without needing a cap: every notch is affordable
+ * relative to the one before it and brutal relative to the one before THAT, so
+ * an axis prices itself out of the draft on its own and the player is pushed to
+ * spread. It also starts gentler than the flat step it replaces (notch 1 is -1s
+ * and +$1 where both used to be 5), which matters because the FIRST notch is
+ * taken by a player who has no idea yet what a notch feels like — the same
+ * reasoning that took TIME_NOTCH from 20 to 5, carried the rest of the way.
+ *
+ * The two ladders are deliberately OFFSET by one — time runs 1,2,3,5,8,13 and
+ * money runs 1,1,2,3,5,8. Money is the axis with an in-run answer (the reactor
+ * track, a good line rate, a fat carry), so it is allowed to lag; the clock has
+ * no such answer, so it leads.
+ *
+ * Past the table's end the recurrence simply continues (see notchTotal), so
+ * neither ladder has an edge a Mark-10 run taking two notches a bay can fall
+ * off.
+ */
+export const TIME_LADDER = [1, 2, 3, 5, 8, 13] as const;
+export const COST_LADDER = [1, 1, 2, 3, 5, 8] as const;
+
+/**
+ * Cumulative cost of `n` notches on a ladder — the sum of its first n rungs,
+ * continuing the Fibonacci recurrence past the table rather than clamping.
+ *
+ * Cumulative rather than "the nth rung" because apply() is called ONCE with the
+ * total notch count (see applyRatchets), not once per notch: a run three
+ * notches into the cost axis has paid rungs 1, 2 and 3, and the config has to
+ * reflect all three.
+ */
+export function notchTotal(ladder: readonly number[], n: number): number {
+  let total = 0;
+  let prev = ladder[ladder.length - 2];
+  let last = ladder[ladder.length - 1];
+  for (let i = 0; i < n; i++) {
+    if (i < ladder.length) {
+      total += ladder[i];
+      continue;
+    }
+    const next = prev + last;
+    prev = last;
+    last = next;
+    total += next;
+  }
+  return total;
+}
+
+/** The FIRST rung of each ladder — what one notch costs a player who has never
+ *  taken that axis before. Kept as named constants because card copy and docs
+ *  quote them, but neither axis is linear any more. */
+export const COST_NOTCH = COST_LADDER[0];
+export const TIME_NOTCH = TIME_LADDER[0];
 
 /** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
  *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
@@ -179,21 +235,27 @@ export const HAZARDS: HazardDef[] = [
   {
     id: "cost",
     name: "Fuel Levy",
-    desc: `Every launch costs $${COST_NOTCH} more.`,
+    // The card quotes the FIRST rung and warns that it steepens — an
+    // escalating axis whose card reads the same at every depth is a trap.
+    desc: `Every launch costs more — ${COST_LADDER[0]} at the first levy, steeply more at each one after.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.launchCost += COST_NOTCH * n; },
+    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n); },
   },
   {
     id: "time",
     name: "Shift Cut",
-    desc: `Every bay's clock loses ${TIME_NOTCH}s.`,
+    desc: `Every bay's clock loses time — ${TIME_LADDER[0]}s at the first cut, steeply more at each one after.`,
     mark: 1,
     kind: "number",
     // Floored well above zero: an axis that can reach an unplayable bay is not a
     // difficulty knob, it is a lose button, and the player picking it has no way
-    // to know which notch was the last survivable one.
-    apply: (cfg, n) => { cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - TIME_NOTCH * n); },
+    // to know which notch was the last survivable one. The floor matters more
+    // under Fibonacci than under a flat step — the ladder reaches it in far
+    // fewer notches.
+    apply: (cfg, n) => {
+      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n));
+    },
   },
   {
     id: "wind",
@@ -385,6 +447,9 @@ export function applyRatchets(base: LevelConfig, ratchets: Ratchets): LevelConfi
     ...base,
     pieceSequence: base.pieceSequence ? [...base.pieceSequence] : null,
     materialMix: { ...base.materialMix },
+    // Copied for the same reason materialMix is: applyRatchets promises not to
+    // mutate `base`, and a shared array would leak an edit back into it.
+    pileTiers: base.pileTiers.map((t) => ({ ...t })),
   };
   for (const h of HAZARDS) {
     const n = ratchets[h.id] ?? 0;
