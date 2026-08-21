@@ -23,6 +23,10 @@ import type { PieceSize, PieceType } from "../game/theme";
 import {
   HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
+import {
+  ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
+  type BindableAction, type InputProfile,
+} from "../game/bindings";
 import type { PreviewRow } from "../game/preview";
 
 /* ---------------------------------------------------------------------------
@@ -211,8 +215,8 @@ function unlockChipHTML(): string {
 
 export function howtoScreen(): string {
   const steps = [
-    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">W</span><span class="kbd">S</span> to aim, <span class="kbd">A</span><span class="kbd">D</span> for power.`],
-    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
+    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">${keyLabel(keyFor("aimUp"))}</span><span class="kbd">${keyLabel(keyFor("aimDown"))}</span> to aim, <span class="kbd">${keyLabel(keyFor("powerDown"))}</span><span class="kbd">${keyLabel(keyFor("powerUp"))}</span> for power.`],
+    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">${keyLabel(keyFor("rotl"))}</span><span class="kbd">${keyLabel(keyFor("rotr"))}</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
@@ -274,9 +278,82 @@ export function settingsScreen(s: Settings, store?: StoreState): string {
           ${toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics)}
         </div>
         <div class="settings__actions">
+          <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
           ${store?.available ? purchaseRowsHTML(store) : ""}
           <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
         </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * CONTROLS (canvas D1) — Settings → Controls: three input families on the
+ * Workshop's tab pattern, every binding a row, keyboard and gamepad
+ * rebindable with a live press-a-key capture state (main.ts drives the
+ * capture; this only renders it). Bindings are read live from
+ * game/bindings.ts — the same table the hints render from (D2), so a row
+ * here and a hint in the coach can never disagree.
+ */
+export type ControlsTab = "touch" | "keyboard" | "gamepad";
+
+export function controlsScreen(opts: {
+  tab: ControlsTab;
+  settings: Settings;
+  /** Detected gamepad id, or null — browsers hide pads until a button is
+   *  pressed, and the pane says so instead of reading as broken. */
+  padName: string | null;
+  /** The action currently capturing a rebind, if any. */
+  rebinding: BindableAction | null;
+}): string {
+  const tabBtn = (id: ControlsTab, label: string) =>
+    `<button class="workshop__tab${opts.tab === id ? " workshop__tab--on" : ""}" role="tab" data-action="controls-tab" data-tab="${id}" aria-selected="${opts.tab === id}">${label}</button>`;
+
+  const bindRow = (a: BindableAction, label: string): string => {
+    const capturing = opts.rebinding === a;
+    return `<div class="bind-row${capturing ? " bind-row--capturing" : ""}">
+      <span class="bind-row__label">${ACTION_LABELS[a]}</span>
+      <span class="bind-row__key">${capturing ? (opts.tab === "gamepad" ? "Press a button…" : "Press a key…") : label}</span>
+      <button class="btn btn--ghost bind-row__btn" data-action="rebind" data-bind="${a}">${capturing ? "Cancel" : "Rebind"}</button>
+    </div>`;
+  };
+  const infoRow = (label: string, value: string): string =>
+    `<div class="bind-row bind-row--info">
+      <span class="bind-row__label">${label}</span>
+      <span class="bind-row__key">${value}</span>
+    </div>`;
+
+  let pane = "";
+  if (opts.tab === "touch") {
+    pane = `${infoRow("Aim & fire", "drag anywhere · release fires")}
+      ${infoRow("Cancel a launch", "second finger taps ✕")}
+      ${infoRow("Rotate", "⟲ / ⟳ on the rail")}
+      ${infoRow("Abilities", "rail buttons · plant chips")}
+      ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
+  } else if (opts.tab === "keyboard") {
+    pane = BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("");
+  } else {
+    pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
+      ${infoRow("Aim & power", "left stick · deflection sets power")}
+      ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
+      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}`;
+  }
+
+  return `<div class="screen neon-backdrop">
+    <div class="controls">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div><div class="eyebrow">Settings</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
+        <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
+      </div>
+      <div class="workshop__tabs" role="tablist">
+        ${tabBtn("touch", "Touch")}
+        ${tabBtn("keyboard", "Keyboard")}
+        ${tabBtn("gamepad", "Gamepad")}
+      </div>
+      <div class="controls__pane" id="controls-grid" role="tabpanel" data-scroll>${pane}</div>
+      <div class="row" style="justify-content:center">
+        <button class="btn btn--primary" data-action="settings">Done</button>
+        ${opts.tab === "touch" ? "" : `<button class="btn btn--ghost" data-action="controls-reset">Reset ${opts.tab}</button>`}
       </div>
     </div>
   </div>`;
@@ -444,6 +521,9 @@ export function hudHTML(opts: {
   /** The run's tier, for the bay banner's plate (canvas A4). Null in
    *  Contract mode, whose banner names the Contract instead. */
   tier?: number | null;
+  /** The active input family (D2): the hint strip renders its bindings from
+   *  this. main.ts re-patches the strip when the profile flips mid-bay. */
+  profile?: InputProfile;
   /** What the cannon is HOLDING — the transport's first queue slot (canvas
    *  A5's two-deep read: loaded full-size, next behind it). The canvas draws
    *  the same piece at the muzzle; the housing is where it reads as a queue. */
@@ -684,20 +764,7 @@ export function hudHTML(opts: {
     </div>
 
     <div class="hud__bottom">
-      <div class="kbd-hint" aria-hidden="true">
-        <span class="kbd">Q</span>/<span class="kbd">E</span> rotate
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">W</span>/<span class="kbd">S</span> aim
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">A</span>/<span class="kbd">D</span> power
-        <span class="kbd-hint__sep">·</span>
-        <span class="kbd">Space</span> fire
-        ${bondBreakerOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">B</span> break bonds' : ""}
-        ${demoOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">X</span> arm charge' : ""}
-        ${autoloaderOwned ? '<span class="kbd-hint__sep">·</span><span class="kbd">F</span> hold to autofire' : ""}
-        <span class="kbd-hint__sep">·</span>
-        drag to aim
-      </div>
+      ${hintStripHTML(opts.profile ?? "keyboard", { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned })}
     </div>
     <!-- Settle banner: shown while the bay's funding target is met and the
          field is still coming to rest (game.ts's Game.settling). Reassures the
@@ -708,6 +775,42 @@ export function hudHTML(opts: {
     </div>
     ${dragHintHTML()}
   </div>`;
+}
+
+/**
+ * The HUD's input-hint strip (D2): rendered FROM the live bindings per
+ * profile, never hardcoded — a rebound key changes the strip, and the
+ * gamepad family gets its own strip (CSS shows it whenever the profile is
+ * gamepad, whatever the pointer type). Touch renders the keyboard strip's
+ * content — the strip itself is hidden on coarse pointers, where the rail is
+ * the control surface.
+ */
+export function hintStripHTML(
+  profile: InputProfile,
+  owned: { bond: boolean; demo: boolean; auto: boolean },
+): string {
+  const kbd = (s: string) => `<span class="kbd">${s}</span>`;
+  const sep = `<span class="kbd-hint__sep">·</span>`;
+  const parts: string[] = [];
+  if (profile === "gamepad") {
+    parts.push(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
+    parts.push(`${kbd("Stick")} aim + power`);
+    parts.push(`${kbd(padLabel(padFor("fire")))} fire`);
+    if (owned.bond) parts.push(`${kbd(padLabel(padFor("bond")))} break bonds`);
+    if (owned.demo) parts.push(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.auto) parts.push(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
+    parts.push(`${kbd(padLabel(padFor("pause")))} pause`);
+  } else {
+    parts.push(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    parts.push(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
+    parts.push(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
+    parts.push(`${kbd(keyLabel(keyFor("fire")))} fire`);
+    if (owned.bond) parts.push(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
+    if (owned.demo) parts.push(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    if (owned.auto) parts.push(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    parts.push("drag to aim");
+  }
+  return `<div class="kbd-hint" aria-hidden="true">${parts.join(`\n        ${sep}\n        `)}</div>`;
 }
 
 /** First-play / idle-timeout onboarding overlay teaching the slingshot drag
@@ -758,21 +861,27 @@ export interface CoachStep {
 }
 
 /** The level's real numbers are baked into the copy so the tutorial teaches
- *  THIS bay's economy, not a stale example. */
+ *  THIS bay's economy, not a stale example — and the GESTURE copy renders
+ *  through the one hint table (D2, game/bindings.ts) per input family, so
+ *  the coach can never tell a desktop player to tap a button that
+ *  `pointer: fine` hides (which is exactly what it used to do). */
 export function coachSteps(level: {
   launchCost: number;
   scorePerLine: number;
   targetScore: number;
   penaltyPerLostPiece: number;
-}): CoachStep[] {
+}, profile: InputProfile = "touch"): CoachStep[] {
   return [
     {
       title: "Aim & fire",
-      body: `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`,
+      body:
+        profile === "touch"
+          ? `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`
+          : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> The dotted arc is exactly where the shipment flies.`,
     },
     {
       title: "Rotate",
-      body: `Between shots, tap <b>⟲ / ⟳</b> on the right to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
+      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
     },
     {
       title: "Complete a row",
@@ -793,8 +902,9 @@ export function coachHTML(
     targetScore: number;
     penaltyPerLostPiece: number;
   },
+  profile: InputProfile = "touch",
 ): string {
-  const steps = coachSteps(level);
+  const steps = coachSteps(level, profile);
   const s = steps[Math.min(step, steps.length - 1)];
   const last = step >= steps.length - 1;
   const dots = steps

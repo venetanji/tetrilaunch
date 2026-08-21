@@ -72,8 +72,14 @@ import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/ga
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
-  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, hudHTML, menuScreen,
+  contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
+  menuScreen,
 } from "../src/ui/screens";
+import {
+  BINDABLE_ACTIONS, actionForKey, hintRotate, keyFor, padFor,
+  resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+} from "../src/game/bindings";
+import { setRailSide } from "../src/game/layout";
 import { icon, type IconName } from "../src/ui/icons";
 import type { ScoreEntry } from "../src/lib/api";
 
@@ -1856,6 +1862,86 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // The budget must never move the field mid-aim: the cancel swap keeps the
   // slot count constant, so the same viewport at the same budget is the same
   // layout — aiming state is invisible to the solver by construction.
+  setRailSlots(RAIL_SLOTS_MAX);
+}
+
+// ---------------------------------------------------------------------------
+section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
+// ---------------------------------------------------------------------------
+{
+  resetKeyBindings();
+  resetPadBindings();
+  check("every action has a key and a pad button",
+    BINDABLE_ACTIONS.every((a) => typeof keyFor(a) === "string" && Number.isInteger(padFor(a))));
+  check("no two actions share a key",
+    new Set(BINDABLE_ACTIONS.map(keyFor)).size === BINDABLE_ACTIONS.length);
+  check("actionForKey inverts keyFor",
+    BINDABLE_ACTIONS.every((a) => actionForKey(keyFor(a)) === a));
+
+  // A conflicting rebind SWAPS rather than steals — every action stays
+  // reachable through any sequence of rebinds.
+  setKeyBinding("fire", "q");
+  check("a conflicting key rebind swaps, never strands",
+    keyFor("fire") === "q" && keyFor("rotl") === " " &&
+      new Set(BINDABLE_ACTIONS.map(keyFor)).size === BINDABLE_ACTIONS.length);
+  resetKeyBindings();
+  check("reset restores the keyboard defaults", keyFor("fire") === " " && keyFor("rotl") === "q");
+  setPadBinding("bond", 5);
+  check("a conflicting pad rebind swaps the same way",
+    padFor("bond") === 5 && padFor("rotr") === 2);
+  resetPadBindings();
+
+  // D2: one hint, three renderings — and the keyboard rendering can never
+  // tell the player to tap a rail button `pointer: fine` hides, which is the
+  // shipping bug this table exists to make unwritable.
+  check("the rotate hint renders per input family",
+    hintRotate("touch").includes("⟲") && hintRotate("keyboard").includes("Q") &&
+      hintRotate("gamepad").includes("LB"));
+  check("the keyboard hint never points at the touch rail",
+    !hintRotate("keyboard").includes("⟲"));
+  const desktopCoach = coachSteps(makeBaseLevel(0), "keyboard");
+  check("the desktop coach teaches keys, not hidden buttons",
+    !desktopCoach[1].body.includes("⟲") && desktopCoach[1].body.includes("Q"));
+  check("the gamepad coach teaches the pad",
+    coachSteps(makeBaseLevel(0), "gamepad")[1].body.includes("LB"));
+  check("the touch coach still points at the rail",
+    coachSteps(makeBaseLevel(0))[1].body.includes("⟲"));
+
+  // D1: the Controls screen renders every binding as a rebindable row, says
+  // when it is capturing, and reports an absent pad as absent — not broken.
+  const ctrlSettings = {
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    leftHandRail: false, stickAssist: true,
+  };
+  const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
+  check("every action is a rebindable row",
+    BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
+  check("a capturing row says so",
+    controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
+      .includes("Press a key…"));
+  const padPane = controlsScreen({ tab: "gamepad", settings: ctrlSettings, padName: null, rebinding: null });
+  check("an absent gamepad reads as absent, not broken", padPane.includes("No gamepad"));
+  check("the touch tab carries the left-hand rail toggle",
+    controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null })
+      .includes('data-toggle="leftHandRail"'));
+  check("the gamepad tab carries the stick-assist toggle",
+    padPane.includes('data-toggle="stickAssist"'));
+
+  // The left-handed mirror is solver state, not just CSS: snug mode reserves
+  // its band on the rail's side, so the field shifts the other way.
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(4);
+  setRailSide("left");
+  const mirrored = computeLayout(800, 450);
+  setRailSide("right");
+  const standard = computeLayout(800, 450);
+  if (standard.mode === "snug") {
+    check("a left-handed snug layout reserves its band on the left",
+      mirrored.reserve.left > 0 && mirrored.reserve.right === 0 && mirrored.ox > standard.ox,
+      `${mirrored.reserve.left}/${mirrored.reserve.right} ox ${mirrored.ox} vs ${standard.ox}`);
+  } else {
+    check("mirroring never changes the field's size", mirrored.fw === standard.fw);
+  }
   setRailSlots(RAIL_SLOTS_MAX);
 }
 

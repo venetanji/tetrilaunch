@@ -120,6 +120,21 @@ export function getRailSlots(): number {
   return railSlots;
 }
 
+/** Which edge the vertical rail lives on — the left-handed mirror (Controls
+ *  screen). Solver state rather than a pure CSS flip because "snug" RESERVES
+ *  a band for the rail: mirroring only the CSS would park the buttons on top
+ *  of a field that had been shifted the other way. */
+export type RailSide = "left" | "right";
+let railSide: RailSide = "right";
+
+export function setRailSide(s: RailSide): void {
+  railSide = s;
+}
+
+export function getRailSide(): RailSide {
+  return railSide;
+}
+
 /** The largest button edge whose full column still fits `uh`. */
 function railColumnCap(uh: number): number {
   return (uh - RAIL_EDGE - (railSlots - 1) * RAIL_GAP) / railSlots;
@@ -294,12 +309,17 @@ export function computeLayout(cw: number, ch: number): Layout {
   // bottom for a horizontal bar instead.
   if (columnFits) {
     const band = RAIL_MAX + RAIL_PAD * 2;
-    const reserve: Insets = { left: 0, right: band, top: 0, bottom: 0 };
+    // The band goes on the rail's edge (setRailSide): a left-handed rail
+    // needs its reserve on the left, or the mirror would sit on the field.
+    const left = railSide === "left";
+    const reserve: Insets = {
+      left: left ? band : 0, right: left ? 0 : band, top: 0, bottom: 0,
+    };
     return {
       mode: "snug",
       reserve,
       safe,
-      ...fit(ux, uy, uw - band, uh),
+      ...fit(ux + reserve.left, uy, uw - band, uh),
       railSize: Math.max(RAIL_MIN, Math.min(RAIL_MAX, railColumnCap(uh))),
       ...ui,
     };

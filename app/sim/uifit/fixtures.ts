@@ -34,6 +34,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+  leftHandRail: false, stickAssist: true,
 };
 
 const STORE = { available: true, unlimited: false };
@@ -192,6 +193,20 @@ export const SCREENS: Record<string, () => string> = {
 
   howto: () => S.howtoScreen(),
   settings: () => S.settingsScreen(SETTINGS, STORE),
+  // The Controls screen (canvas D1), one fixture per family: the keyboard tab
+  // in its capture state (the widest row copy), the gamepad tab with a real
+  // pad id detected (the longest Detected line).
+  "controls-touch": () =>
+    S.controlsScreen({ tab: "touch", settings: SETTINGS, padName: null, rebinding: null }),
+  "controls-keyboard": () =>
+    S.controlsScreen({ tab: "keyboard", settings: SETTINGS, padName: null, rebinding: "fire" }),
+  "controls-gamepad": () =>
+    S.controlsScreen({
+      tab: "gamepad",
+      settings: SETTINGS,
+      padName: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 02fd)",
+      rebinding: null,
+    }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
 
   "workshop-systems": () => S.workshopScreen(midMeta(), "systems"),

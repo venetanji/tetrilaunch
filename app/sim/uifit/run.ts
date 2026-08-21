@@ -79,6 +79,11 @@ const ALLOWED_SCROLLERS = [
   // more than the cap leaves, the DESIGNED give-way is the card's own body
   // scrolling its tail — never the readout spilling off the panel's bottom.
   ".coach__body",
+  // The Controls screen's binding list (canvas D1): eleven rebindable rows at
+  // the 44px tap floor is ~290px of rows in two columns — more than a 360px
+  // landscape phone has under the header, tabs and Done. Same category as
+  // the workshop pane: a list with more stock than screen.
+  "#controls-grid",
 ];
 
 /**

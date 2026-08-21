@@ -52,13 +52,19 @@ import {
 } from "./game/layout";
 
 import { InputController } from "./game/input";
+import {
+  actionForKey, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
+  type BindableAction, type InputProfile,
+} from "./game/bindings";
+import { GamepadPoller } from "./game/gamepad";
+import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
-  loadMeta, saveMeta, type Settings,
+  loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
   lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic,
@@ -75,7 +81,7 @@ import {
 } from "./lib/audio";
 
 type AppState =
-  | "splash" | "menu" | "howto" | "settings" | "leaderboard" | "workshop"
+  | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail";
 
@@ -185,6 +191,22 @@ class App {
    *  button. */
   private autoPointerId: number | null = null;
 
+  /** The active input family (canvas D2), set by the LAST INPUT SEEN — a
+   *  touch, a keypress, or gamepad activity. Every hint surface renders from
+   *  it (the strip, the coach), so hints can never name a control the
+   *  profile hides. Published as <html data-profile>. */
+  private profile: InputProfile = "touch";
+  /** Gamepad poller (canvas D1) — driven once per rendered frame from loop(). */
+  private pad: GamepadPoller;
+  /** Controls screen state: which tab, and which action is capturing a
+   *  rebind (null = none). */
+  private controlsTab: S.ControlsTab = "touch";
+  private rebinding: BindableAction | null = null;
+  /** Lifetime bays started (canvas D3) — past three, the finger-drag hint
+   *  retires for good. Persisted; cached here so the hot path never reads
+   *  localStorage. */
+  private baysPlayed = loadBaysPlayed();
+
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <canvas id="game"></canvas>
@@ -229,7 +251,42 @@ class App {
     // default (a full seven-slot draft) could pick the bottom-strip layout on
     // a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() }));
+    // The rail's edge (Controls → left-handed rail) has to be set before the
+    // first solve too — snug mode reserves the band on the rail's side.
+    this.applyRailSide(false);
+    // The starting input family: fine pointer means keyboard+mouse until an
+    // input says otherwise (D2 — the profile follows the last input seen).
+    this.setProfile(this.finePointer() ? "keyboard" : "touch");
     this.onResize();
+
+    // Profile detection: the LAST input seen wins. Touch contact flips to
+    // touch; any mouse/pen contact or keypress flips to keyboard; gamepad
+    // activity flips in the poller's onActivity hook.
+    window.addEventListener(
+      "pointerdown",
+      (e) => this.setProfile(e.pointerType === "touch" ? "touch" : "keyboard"),
+      { capture: true },
+    );
+
+    this.pad = new GamepadPoller({
+      game: () => this.game,
+      playing: () => this.state === "playing",
+      onActivity: () => this.setProfile("gamepad"),
+      onPause: () => {
+        if (this.state === "playing") this.pause();
+        else if (this.state === "paused") this.resume();
+      },
+      onCapture: (button) => {
+        if (this.state !== "controls" || this.controlsTab !== "gamepad" || !this.rebinding) {
+          return false;
+        }
+        setPadBinding(this.rebinding, button);
+        this.rebinding = null;
+        this.renderOverlay();
+        return true;
+      },
+      assist: () => this.settings.stickAssist,
+    });
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a
     // no-op. See platform.ts — a native shell updated from an older build is
@@ -295,6 +352,9 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // A rebind capture cannot outlive the Controls screen — a keypress on the
+    // menu must never silently rebind Fire.
+    if (s !== "controls") this.rebinding = null;
     this.state = s;
     this.syncMusic(s);
     this.renderOverlay();
@@ -360,6 +420,40 @@ class App {
     return window.matchMedia?.("(pointer: fine)").matches ?? false;
   }
 
+  /** Flip the input family (D2) and refresh every surface that renders from
+   *  it: the <html data-profile> hook, the HUD's hint strip, and the coach's
+   *  current card — all patched in place, because a profile flip mid-bay
+   *  must not re-mount the HUD the per-frame sync is patching. */
+  private setProfile(p: InputProfile): void {
+    const changed = this.profile !== p;
+    this.profile = p;
+    document.documentElement.dataset.profile = p;
+    if (!changed) return;
+    const g = this.game;
+    if (!g) return;
+    const strip = this.overlay.querySelector(".kbd-hint");
+    if (strip) {
+      strip.outerHTML = S.hintStripHTML(p, {
+        bond: g.bondCharges > 0,
+        demo: g.level.bombCharges > 0,
+        auto: g.level.autoLaunchMs > 0,
+      });
+    }
+    if (this.tutorialStep !== null && this.state === "playing") {
+      this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
+    }
+  }
+
+  /** The left-handed rail (Controls → touch): the solver reserves its snug
+   *  band on the chosen side (layout.ts setRailSide) and the CSS mirrors the
+   *  column off <html data-rail-side>. */
+  private applyRailSide(resize = true): void {
+    const side = this.settings.leftHandRail ? "left" : "right";
+    setRailSide(side);
+    document.documentElement.dataset.railSide = side;
+    if (resize) this.onResize();
+  }
+
   /** Rail slot budget, latched per run. Abilities only ARRIVE at drafts, but
    *  their rail triggers can also VANISH mid-bay (a spent-down Bond Breaker
    *  stock hides its button, see hudOpts's bondBreakerOwned), and letting the
@@ -418,6 +512,7 @@ class App {
         material: g.cannon.currentMaterial,
       },
       tier: this.run?.mark ?? null,
+      profile: this.profile,
       target: g.target,
       score: g.score,
       launchCost: g.level.launchCost,
@@ -549,6 +644,14 @@ class App {
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState());
         break;
+      case "controls":
+        this.overlay.innerHTML = S.controlsScreen({
+          tab: this.controlsTab,
+          settings: this.settings,
+          padName: this.pad.detected(),
+          rebinding: this.rebinding,
+        });
+        break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
@@ -561,7 +664,7 @@ class App {
           // INSIDE the plant panel's column (see mountCoach), which a sibling
           // string appended after the HUD cannot express.
           if (this.tutorialStep !== null) {
-            this.mountCoach(S.coachHTML(this.tutorialStep, g.level));
+            this.mountCoach(S.coachHTML(this.tutorialStep, g.level, this.profile));
           }
           this.lastNext = null;
           this.lastNextId = null;
@@ -741,6 +844,7 @@ class App {
     // the natural letterbox gutter; either way the rail reads one number and
     // never has to know which mode produced it.
     rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
+    rs.setProperty("--gutter-l", `${Math.max(0, l.ox)}px`);
     rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
     rs.setProperty("--rail-btn", `${l.railSize}px`);
     // The gap the solver budgeted the column with — the CSS reads it back so
@@ -852,6 +956,7 @@ class App {
     // is the honest reset (the steps not yet performed weren't learned).
     this.tutorialStep =
       this.run.levelIndex === 0 && !this.settings.seenTutorial ? 0 : null;
+    this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
   }
@@ -862,6 +967,11 @@ class App {
    *  bay's start with no shot fired. */
   private armDragHint(): void {
     if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    // D3: past the first three bays the hint retires for good — the gesture
+    // is learned, the rail is the control surface, and a looping finger over
+    // a veteran's bay is chrome pretending to teach. (The counter is bumped
+    // at bay start, so bays 1-3 still get the first-play and idle paths.)
+    if (this.baysPlayed > 3) return;
     if (!this.settings.seenDragHint) {
       this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--hidden");
     } else if (!this.dragHintShownThisSession) {
@@ -896,7 +1006,7 @@ class App {
     // AFTER markShot resets the fresh piece's rotation, so the baseline read
     // here is the new piece's, and only a real ⟲/⟳ tap can move it.
     if (to === 1) this.tutorialTurns = g.cannon.quarterTurns;
-    this.mountCoach(S.coachHTML(to, g.level));
+    this.mountCoach(S.coachHTML(to, g.level, this.profile));
     this.syncCoachReveal();
   }
 
@@ -1046,6 +1156,7 @@ class App {
       compactorMinLineCells: cfg.compactorMinLineCells,
       notches: [c.brief], pieceSize: cfg.pieceSize,
     });
+    this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
   }
@@ -1481,6 +1592,10 @@ class App {
 
   // ---------------- main loop ----------------
   private loop = (now: number): void => {
+    // The Gamepad API is a state snapshot, not events — poll once per frame,
+    // in every state: the Controls screen needs the Detected chip and rebind
+    // capture, and Start has to pause/resume from anywhere.
+    this.pad.poll(now);
     const g = this.game;
     if (g && this.state === "playing" && !g.paused) {
       this.acc += now - this.last;
@@ -1683,7 +1798,19 @@ class App {
 
   // ---------------- events ----------------
   private onGlobalKey = (e: KeyboardEvent): void => {
-    if (e.key === "Escape") {
+    // A live keyboard rebind capture eats the next keypress whole (Escape
+    // cancels rather than binding — a pause key you can't type would strand
+    // the player).
+    if (this.state === "controls" && this.controlsTab === "keyboard" && this.rebinding) {
+      e.preventDefault();
+      if (e.key !== "Escape") setKeyBinding(this.rebinding, e.key);
+      this.rebinding = null;
+      this.renderOverlay();
+      return;
+    }
+    this.setProfile("keyboard");
+    // The pause binding, from the rebindable table (Escape by default).
+    if (actionForKey(e.key) === "pause") {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }
@@ -1738,6 +1865,30 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
+      case "controls": this.setState("controls"); break;
+      case "controls-tab": {
+        const tab = el.getAttribute("data-tab");
+        if (tab === "touch" || tab === "keyboard" || tab === "gamepad") {
+          this.controlsTab = tab;
+          this.rebinding = null;
+          this.renderOverlay();
+        }
+        break;
+      }
+      // Toggle a rebind capture on/off for one action row. The capture itself
+      // lands in onGlobalKey (keyboard) or the gamepad poller's onCapture.
+      case "rebind": {
+        const bind = el.getAttribute("data-bind") as BindableAction | null;
+        this.rebinding = bind && this.rebinding !== bind ? bind : null;
+        this.renderOverlay();
+        break;
+      }
+      case "controls-reset":
+        if (this.controlsTab === "keyboard") resetKeyBindings();
+        else if (this.controlsTab === "gamepad") resetPadBindings();
+        this.rebinding = null;
+        this.renderOverlay();
+        break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
       case "workshop": this.workshopTab = "systems"; this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
@@ -1866,6 +2017,9 @@ class App {
     (this.settings as unknown as Record<string, boolean>)[key] = next;
     saveSettings(this.settings);
     this.syncAudioSettings();
+    // The rail mirror re-solves the layout on the spot; stickAssist is read
+    // live by the gamepad poller and needs nothing here.
+    if (key === "leftHandRail") this.applyRailSide();
     void tapHaptic();
   }
 
