@@ -3322,27 +3322,33 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
   check("five levies cost the cumulative ladder",
     fiveLevies.launchCost === base.launchCost + 12, String(fiveLevies.launchCost));
 
-  // The ladder STARTS higher the further you have got. Every run used to open
-  // on rung 0 whatever it had beaten, so the same choice got cheaper in
-  // relative terms the deeper the ladder went — backwards for a difficulty
-  // axis. A Mark-N run begins N-1 rungs up.
+  // The ladder STARTS higher the further you have got — one rung per TWO
+  // Marks (hazards.ts's ladderStart), not per Mark. The full-Mark slide was
+  // measured fatal: sim/marks.ts read Marks 5-10 as 0% run-clear under it,
+  // and at Mark 10 the FIRST Shift Cut cost rung 9 = 89s, an instant clock
+  // floor. First-notch prices now grow linearly with the Mark
+  // (1,1,2,2,3,3,5,5,8,8s), matching the linear build budget, while a run's
+  // own repeats still climb the full Fibonacci from wherever they start.
   {
     const m1 = applyRatchets(makeBaseLevel(0, 1), { time: 1 });
-    const m2 = applyRatchets(makeBaseLevel(0, 2), { time: 1 });
     const m3 = applyRatchets(makeBaseLevel(0, 3), { time: 1 });
+    const m5 = applyRatchets(makeBaseLevel(0, 5), { time: 1 });
+    const m10 = applyRatchets(makeBaseLevel(0, 10), { time: 1 });
     const cut = (c: LevelConfig, at: number): number =>
       makeBaseLevel(0, at).timeLimitSec - c.timeLimitSec;
     check("a Mark-1 first cut costs the first rung", cut(m1, 1) === TIME_LADDER[0],
       String(cut(m1, 1)));
-    check("a Mark-2 first cut starts one rung up", cut(m2, 2) === TIME_LADDER[1],
-      String(cut(m2, 2)));
-    check("a Mark-3 first cut starts two rungs up", cut(m3, 3) === TIME_LADDER[2],
+    check("a Mark-3 first cut starts one rung up", cut(m3, 3) === TIME_LADDER[1],
       String(cut(m3, 3)));
+    check("a Mark-5 first cut starts two rungs up", cut(m5, 5) === TIME_LADDER[2],
+      String(cut(m5, 5)));
+    check("a Mark-10 first cut is steep, never fatal", cut(m10, 10) === TIME_LADDER[4],
+      String(cut(m10, 10)));
     // The SHAPE survives the slide — still Fibonacci, just never as cheap.
-    const m3two = applyRatchets(makeBaseLevel(0, 3), { time: 2 });
+    const m5two = applyRatchets(makeBaseLevel(0, 5), { time: 2 });
     check("a slid ladder still compounds",
-      makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec === TIME_LADDER[2] + TIME_LADDER[3],
-      String(makeBaseLevel(0, 3).timeLimitSec - m3two.timeLimitSec));
+      makeBaseLevel(0, 5).timeLimitSec - m5two.timeLimitSec === TIME_LADDER[2] + TIME_LADDER[3],
+      String(makeBaseLevel(0, 5).timeLimitSec - m5two.timeLimitSec));
   }
 
   const threeCuts = applyRatchets(base, { time: 3 });

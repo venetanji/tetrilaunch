@@ -127,10 +127,14 @@ export const COST_LADDER = [1, 1, 2, 3, 5, 8] as const;
  * same choice cost more. Every run used to open on rung 0 whatever it had
  * beaten, so a Mark-3 pilot's first Shift Cut took the same 1s a first-timer's
  * did and the ratchet asked an easier question the further you got — exactly
- * backwards. At startAt = mark - 1 a Mark-2 run opens on 2s and a Mark-3 on 3s,
- * and because the whole ladder slides rather than being scaled, the SHAPE of
- * the decision is preserved: still Fibonacci, still steeply worse per notch,
- * just never as cheap again.
+ * backwards. The slide fixes that, and because the whole ladder slides rather
+ * than being scaled, the SHAPE of the decision is preserved: still Fibonacci,
+ * still steeply worse per notch, just never as cheap again.
+ *
+ * How FAR it slides is ladderStart below — one rung per TWO Marks, not per
+ * Mark. See its measurement note: the full-Mark slide entered the Fibonacci
+ * table at exponential heights against a build budget that grows linearly,
+ * and sim/marks.ts measured every Mark from 5 up as 0% run-clear under it.
  */
 export function notchTotal(ladder: readonly number[], n: number, startAt = 0): number {
   const rung = (i: number): number => {
@@ -147,6 +151,31 @@ export function notchTotal(ladder: readonly number[], n: number, startAt = 0): n
   let total = 0;
   for (let i = 0; i < n; i++) total += rung(startAt + i);
   return total;
+}
+
+/**
+ * Where the cost/time ladders BEGIN for a run flying `mark` — one rung per
+ * TWO Marks beaten, not one per Mark.
+ *
+ * MEASURED, not asserted (sim/marks.ts --ratchets spread, 3 seeds, bays
+ * 1/4/7/10, aim bot, one forced notch per cleared bay round-robin over the
+ * Mark's number axes): at startAt = mark - 1 every Mark from 5 upward was
+ * 0% run-clear — per-bay win rates fell to 17% by Mark 9 — and the
+ * arithmetic says why. The Fibonacci ladders were priced for rung-0 entry;
+ * entering at mark - 1 re-prices a run's FIRST decision at its
+ * tenth-decision price while the build budget (upgrades.ts's budgetForMark)
+ * grows only linearly. At Mark 10 the first Shift Cut cost rung 9 = 89s —
+ * an instant 45s clock floor, the exact "lose button" the floor note below
+ * says an axis must never be — and bay 10's round-robin toll reached
+ * $923/launch on a $200 float.
+ *
+ * At (mark - 1) / 2 the first notch's price grows LINEARLY with the Mark
+ * (1,1,2,2,3,3,5,5,8,8 seconds across Marks 1-10), matching the linear
+ * budget, while a run's own repeats still climb the full Fibonacci from
+ * there — "never as cheap again" survives, the exponential wall does not.
+ */
+export function ladderStart(mark: number): number {
+  return Math.max(0, Math.floor((Math.floor(mark) - 1) / 2));
 }
 
 /** The FIRST rung of each ladder — what one notch costs a player who has never
@@ -249,7 +278,7 @@ export const HAZARDS: HazardDef[] = [
     desc: `Every launch costs more — ${COST_LADDER[0]} at the first levy, steeply more at each one after.`,
     mark: 1,
     kind: "number",
-    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n, cfg.mark - 1); },
+    apply: (cfg, n) => { cfg.launchCost += notchTotal(COST_LADDER, n, ladderStart(cfg.mark)); },
   },
   {
     id: "time",
@@ -263,7 +292,7 @@ export const HAZARDS: HazardDef[] = [
     // under Fibonacci than under a flat step — the ladder reaches it in far
     // fewer notches.
     apply: (cfg, n) => {
-      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n, cfg.mark - 1));
+      cfg.timeLimitSec = Math.max(45, cfg.timeLimitSec - notchTotal(TIME_LADDER, n, ladderStart(cfg.mark)));
     },
   },
   {
