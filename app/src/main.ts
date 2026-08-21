@@ -1631,7 +1631,7 @@ class App {
     // frame, on the one screen that should be idle.
     if (g && this.state !== "menu") {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
-        cubes: g.cubes, compactor: g.compactor, cannon: g.cannon,
+        cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
         effects: g.effects, level: g.level, nextIsBomb: g.nextIsBomb, bombs: g.bombs,
         windNow: g.windNow,

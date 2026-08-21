@@ -64,6 +64,10 @@ export function screenToWorld(
 
 export interface Scene {
   cubes: Cube[];
+  /** The live piece joints, for the weld seams drawn between adjacent cubes
+   *  (see drawJointSeams). Optional: a caller with nothing to say about
+   *  structure simply draws no seams. */
+  constraints?: Matter.Constraint[];
   compactor: Compactor;
   cannon: Cannon;
   trajectory: Matter.Vector[];
@@ -97,6 +101,99 @@ export interface Scene {
  * attract demo passes fitViewport() instead: it renders the same scene into a
  * small decorative canvas that reserves no controls and receives no input.
  */
+/**
+ * WELD SEAMS — how strong this bay's shipments are, and which of them is
+ * currently coming apart.
+ *
+ * jointBreakStretch ramps 1.7 -> 2.8 across the ten bays and jointStiffness
+ * with it (level.ts calls this "the core difficulty ramp"), and until now
+ * nothing on screen said so: the player met stiffer cargo every bay with no
+ * way to see it coming and no way to connect it to the press that answers it.
+ *
+ * WHY SEAMS RATHER THAN THE JOINTS THEMSELVES. pieces.ts joins every PAIR of
+ * cubes in a shipment, so a four-cube piece carries six constraints and a bulk
+ * one ten — and the constraint between two ADJACENT cubes runs centre to
+ * centre, which is to say entirely underneath the two cubes it connects.
+ * Stroking the constraints draws nothing at all where a seam belongs, and a
+ * diagonal X across everything else; on a full field that is ~220 lines of
+ * crosshatch in a colour that fights the cargo. What reads as structure is a
+ * bar across the SHARED EDGE, which means adjacent pairs only — a rest length
+ * longer than about one cube is a diagonal, and is skipped.
+ *
+ * Flat strokes, no shadowBlur, deliberately: the per-cube glow was profiled
+ * out of drawCube for exactly this reason (see the note above cubeSprites),
+ * and a seam per cube-pair would put the same cost straight back.
+ */
+
+/** Rest colour of a seam: dark graphite, and neither of the two obvious
+ *  choices. Near-black read as a GAP between cubes rather than hardware
+ *  holding them together — the field is already dark, so the darkest thing in
+ *  it looks like absence. Full steel read as a stripe painted ON the piece,
+ *  brighter than the cargo it is meant to be subordinate to. */
+const SEAM_REST: readonly [number, number, number] = [47, 49, 60];
+const SEAM_WARM: readonly [number, number, number] = [255, 176, 32];
+const SEAM_HOT: readonly [number, number, number] = [255, 59, 59];
+
+/** breakStretch 1.7 (bay 1) -> 0, 2.8 (bay 10) -> 1. Rigid material is
+ *  Infinity and pins at 1, which is correct: rebar is the strongest thing in
+ *  the bay and should look it. */
+function seamStrength(breakStretch: number | undefined): number {
+  if (!breakStretch || !Number.isFinite(breakStretch)) return 1;
+  return Math.max(0, Math.min(1, (breakStretch - 1.7) / 1.1));
+}
+
+/** Graphite -> amber -> red by strain. */
+function seamColor(strain: number, alpha: number): string {
+  const seg = strain < 0.5 ? 0 : 1;
+  const k = strain < 0.5 ? strain / 0.5 : (strain - 0.5) / 0.5;
+  const a = seg === 0 ? SEAM_REST : SEAM_WARM;
+  const b = seg === 0 ? SEAM_WARM : SEAM_HOT;
+  const ch = (i: number): number => Math.round(a[i] + (b[i] - a[i]) * k);
+  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${alpha.toFixed(3)})`;
+}
+
+function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] | undefined): void {
+  if (!cs?.length) return;
+  ctx.save();
+  ctx.lineCap = "butt";
+  for (const c of cs) {
+    const a = c.bodyA;
+    const b = c.bodyB;
+    if (!a || !b) continue;
+    const meta = c as unknown as { restLength?: number; breakStretch?: number };
+    const rest = meta.restLength
+      ?? Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y);
+    // CELL, not a measurement off the body's vertices: pieces.ts builds cubes
+    // with `chamfer: { radius: 3 }`, so a cube has EIGHT vertices and v[0]->v[1]
+    // is a 3px chamfer chord rather than its side. Reading it that way makes
+    // every rest length look like a diagonal and draws no seams at all.
+    if (rest > CELL * 1.35) continue;
+    const t = seamStrength(meta.breakStretch);
+    const dx = b.position.x - a.position.x;
+    const dy = b.position.y - a.position.y;
+    const len = Math.hypot(dx, dy) || 1;
+    // How far this joint is toward its OWN breaking point right now. Referenced
+    // against min(breakStretch, 3) so rebar — Infinity — still shows strain
+    // instead of flatlining at zero forever, which would make the one material
+    // that cannot break also the one that never looks stressed.
+    const limit = Math.min(meta.breakStretch ?? 2, 3);
+    const strain = Math.max(0, Math.min(1, (len / rest - 1) / Math.max(0.05, limit - 1)));
+    // Perpendicular to the joint axis: the seam lies ALONG the shared edge.
+    const px = -dy / len;
+    const py = dx / len;
+    const half = CELL * (0.2 + 0.16 * t);
+    const mx = (a.position.x + b.position.x) / 2;
+    const my = (a.position.y + b.position.y) / 2;
+    ctx.strokeStyle = seamColor(strain, 0.55 + 0.35 * t);
+    ctx.lineWidth = 1.4 + 3.6 * t;
+    ctx.beginPath();
+    ctx.moveTo(mx - px * half, my - py * half);
+    ctx.lineTo(mx + px * half, my + py * half);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   cssW: number,
@@ -125,6 +222,9 @@ export function render(
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);
   for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
+  // Over the cubes, not under: a seam between adjacent cubes is covered by the
+  // very cubes it joins, so drawing it underneath draws nothing.
+  drawJointSeams(ctx, scene.constraints);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
   drawTrajectory(ctx, scene.trajectory);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
