@@ -1250,7 +1250,6 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .hud--contract .plant__body {
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   grid-template-areas:
-    "hdr   hdr"
     "read  read"
     "load  meta"
     "queue queue"
