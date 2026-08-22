@@ -2849,20 +2849,33 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // The tutorial teaches the fine with the bay's real number on the card —
     // same rule as every other coach step, and the reason the copy can never
     // drift from the level it narrates.
-    // "fines you $N", not a bare "$N" — bay 1's launch cost is also $25, so a
-    // loose match would pass with the fine sentence deleted.
+    // "fine $N", not a bare "$N" — bay 1's launch cost is also $25, so a loose
+    // match would pass with the fine sentence deleted. The verb and the number
+    // are the assertion; the sentence they sit in is the card's to write, and
+    // is written to a hard height budget (see coachSteps), so this matches as
+    // little of it as it can and still mean something.
+    //
+    // Against the RENDERED text, tags stripped, for the same reason: the cards
+    // emphasise their figures, and where the <b> falls inside a phrase is
+    // typography rather than meaning — "fine <b>$25</b>" and "<b>fine $25</b>"
+    // read identically to a player, and only one matches a raw-markup search.
+    const plain = (html: string): string => html.replace(/<[^>]+>/g, "");
     const steps = coachSteps(rowLevel);
-    const economy = steps.map((s) => s.body).join(" ");
+    const economy = plain(steps.map((s) => s.body).join(" "));
     check("the coach names the lost-cargo fine",
-      economy.includes(`fines you $${rowLevel.penaltyPerLostPiece}`));
+      economy.includes(`fine $${rowLevel.penaltyPerLostPiece}`), economy);
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —
     // split across cards they advance mid-gesture and flash past unread,
     // which is the playtest bug ("steps 2 and 4 are skipped immediately").
     // The first card must therefore cover the whole gesture, and the deck
     // must stay at four steps: fire, rotate, row, resources.
+    // Lower-cased: which clause opens the sentence is the copy's business, and
+    // "Release to fire" teaches the same gesture as "release to fire" while
+    // failing a literal match.
+    const drag = plain(steps[0].body).toLowerCase();
     check("the coach teaches the drag as one card (power and release together)",
-      steps[0].body.includes("power") && steps[0].body.includes("release"));
+      drag.includes("power") && drag.includes("release"), steps[0].body);
     check("the coach deck is one card per completable action",
       steps.length === 4);
 

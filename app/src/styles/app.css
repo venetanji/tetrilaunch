@@ -984,14 +984,13 @@ body.crt-off #app::after { display: none; }
   display: flex; flex-direction: column; justify-content: space-between;
   gap: max(3px, calc(8 * var(--fpx)));
 }
-.plant__hdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.plant__title {
-  font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.1em; color: var(--text-muted);
-  display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.plant__title b { color: var(--accent); }
-.plant__rivets { display: flex; gap: 5px; flex: none; }
-.plant__rivets i { width: max(4px, calc(6.7 * var(--fpx))); height: max(4px, calc(6.7 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+/* No .plant__hdr / .plant__title / .plant__rivets: the panel's title row is
+   gone (see screens.ts's hudHTML). The mockup's `.frame--d` still carries it,
+   and this is the one place the implementation deliberately parts from it —
+   the mockup's title also trailed "· Bay 4/10", which the bay banner took over
+   long ago, and what was left named the panel to someone already reading it.
+   The riveted-machine read the title row was carrying comes from the panel's
+   own border, hard shadow and gradient, which are all still here. */
 
 /* ---------- Plant readout: information hierarchy ----------
    Three columns, weighted by how much each number changes the next decision:
@@ -1115,14 +1114,12 @@ body.crt-off #app::after { display: none; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas:
-    "hdr  hdr"
     "read read"
     "load load"
     "meta queue"
     "mods mods";
   align-content: space-between;
 }
-.hud--contract .plant__hdr { grid-area: hdr; }
 .hud--contract .pl-read { grid-area: read; }
 .hud--contract .pl-load { grid-area: load; }
 .hud--contract .pl-meta { grid-area: meta; }
@@ -1225,7 +1222,6 @@ body.crt-off #app::after { display: none; }
      panel measures 154.7px tall either way. */
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "hdr"
     "read"
     "load"
     "meta"
@@ -1233,7 +1229,6 @@ body.crt-off #app::after { display: none; }
   align-content: space-between;
   gap: max(2px, calc(6 * var(--fpx)));
 }
-[data-density="compact"] .plant__hdr { grid-area: hdr; }
 [data-density="compact"] .pl-read { grid-area: read; }
 [data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
 /* flex-start, not flex-end: on its own full-width row the line has room to
@@ -3130,11 +3125,16 @@ button.panel { color: var(--text); }
    at the step that still needs aiming. This block buys that back.
    No width rule here — the width is the plant's, at every viewport. */
 @media (max-height: 480px) {
-  .coach__card { padding: 7px 10px; gap: 3px; }
+  /* Padding and gap are down again (7px/3px -> 4px/2px). The card's fixed
+     furniture is a title, a 44px button — the tap floor, which is not
+     negotiable and is 41% of the card on the shortest phone — and the space
+     around them; the body is what is left, and it is the only part that is
+     the lesson. Chrome yields to it here, not the other way round. */
+  .coach__card { padding: 4px 9px; gap: 2px; }
   /* "Tutorial · 5/6" says exactly what the six dots in the footer already
      say; where height is scarce the dots are the cheaper of the two. */
   .coach__eyebrow { display: none; }
-  .coach__title { font-size: 10.5px; }
+  .coach__title { font-size: 10px; }
   .coach__body { font-size: 11px; line-height: 1.3; }
   .coach__foot { margin-top: 0; }
   .coach__btn { padding: 5px 10px; font-size: 10px; }
@@ -3180,6 +3180,27 @@ button.panel { color: var(--text); }
 }
 .hud[data-coach] .coach,
 .hud[data-coach] .coach__card { min-height: 0; }
+/* ---------- The card's height budget, while it has the panel ----------
+   Two gutters sized for the panel's OTHER job, cut back for the job it is
+   doing here. `.plant__body`'s vertical padding is set for the full readout
+   running the panel's whole height; while the coach is up it is holding two
+   rows (Launches and Reload) under a card that has its own padding and its own
+   margin off the panel edge, so the panel's padding is a third gutter stacked
+   on two others. `.coach`'s margin is the second of them.
+
+   This is not tidying — it is where a whole LINE of the instruction comes
+   from. The panel is capped at 0.52 of the field height while it carries the
+   card (below), and on the shortest phone in the matrix (640x360, where the
+   field is 556x313) the card's body was left 28px: two lines minus a hair, for
+   copy that needs three. Every card in the deck overran it, the last one by
+   58px — a card read once, in one glance, ending mid-sentence with no
+   affordance saying there was more. These two gutters give back ~8px of that,
+   the short-viewport block above another ~8, and the copy gives back the rest
+   (screens.ts's coachSteps); together the deck fits the cap on all thirteen
+   devices, asserted by sim/uifit rather than assumed. Scoped to `[data-coach]`,
+   so the full readout keeps its own spacing. */
+.hud[data-coach] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
+.hud[data-coach] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
 .hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---------- Rotate-step spotlight (tutorial only) ----------
@@ -3207,8 +3228,8 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Progressive stat reveal (tutorial only) ----------
-   The plant panel is seven stacked readouts — PWR, title, Funds/Target, the
-   goal bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
+   The plant panel is eight stacked readouts — PWR, Funds/Target, the goal
+   bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
    lands on a first-time player at once, before a single piece has been fired,
    which is the "overwhelming" half of the same playtest complaint that moved
    the coach off the field.
@@ -3219,7 +3240,7 @@ button.panel { color: var(--text); }
                            drag gesture this step teaches, and PWR is the
                            number that moves while the player pulls
      step 1 (Rotate)     → Reload, Launches — the first shot just spent one
-     tutorial over       → Funds/Target, Time, the meta row, panel title, Build
+     tutorial over       → Funds/Target, Time, the meta row, Build
    `data-coach` carries the current step (main.ts's syncCoachReveal); it is
    absent for every run without a coach and removed the moment the tutorial is
    finished OR skipped, so this can never strip a returning player's HUD.
@@ -3245,7 +3266,7 @@ button.panel { color: var(--text); }
    them would silently pin the wrong one. A block is visible exactly when no
    rule below selects it. */
 .hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
-.hud[data-coach] :is(.plant__hdr, .pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
+.hud[data-coach] :is(.pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
 
 /* One consequence of that hide list, which has to be styled rather than left
    to fall out: with Funds and Time gone, Launches is the only thing left in

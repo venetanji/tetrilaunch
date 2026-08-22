@@ -272,12 +272,18 @@ export const SCREENS: Record<string, () => string> = {
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
 
-  // The tutorial, at its two extremes of card height and HUD reveal: step 0
-  // (longest gesture copy, plant fully collapsed) and step 3 (the economy
-  // card's four sentences, most of the readout revealed). Both states ship to
-  // every first-session player, which made them the one flow the harness
-  // couldn't see.
+  // The tutorial, EVERY step. It used to be the two extremes — step 0 (plant
+  // fully collapsed) and step 3 (most of the readout revealed) — on the
+  // reasoning that they bracket the card's height budget. They do not: the
+  // budget is the card's copy against what the reveal has already spent, and
+  // those two vary independently, so a middle step can be tighter than both
+  // ends (step 2 carries the second-longest body with Reload and Launches
+  // already taking their rows). Every step ships to every first-session
+  // player and each is read once, in one glance; there is no reason for the
+  // harness to see half of them. Four fixtures, one per card.
   coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, LEVEL_1)),
+  "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, LEVEL_1)),
+  "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, LEVEL_1)),
   "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, LEVEL_1)),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.

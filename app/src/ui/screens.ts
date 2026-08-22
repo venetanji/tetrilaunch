@@ -697,18 +697,16 @@ export function hudHTML(opts: {
         <span class="pl-pwr__val" id="hud-power-val">0%</span>
       </div>
       <div class="plant__body">
-        <div class="plant__hdr">
-          <!-- The panel's name, and nothing else. The bay position ("· Bay
-               7/10") and, in Contract mode, the contract's name used to trail
-               this title, and both are already the HEADLINE of the bay banner
-               at the top of the field. The banner exists precisely because
-               that position did not read as small muted text — see its comment
-               above — so keeping the muted copy here is the losing half of two
-               tellings of one fact, and it is the half that was being
-               ellipsised away on a narrow panel anyway. -->
-          <div class="plant__title"><b>◊</b> Recycling Plant</div>
-          <div class="plant__rivets"><i></i><i></i><i></i></div>
-        </div>
+        <!-- NO TITLE ROW. "Recycling Plant" named the panel to a player who
+             was already looking at it, and the bay banner across the top of
+             the field carries the only naming a bay needs (tier, bay N/10,
+             and in Contract mode the contract's name). The row went the way
+             the bay position that used to trail the title went, and for the
+             same reason: a second, quieter telling of a fact already told
+             louder is the half worth dropping. What went with it — three
+             decorative rivets that were the title's counterweight — was the
+             row's whole remaining content, and a row of three dots is not a
+             readout. Every row left in the panel is a live number. -->
         <div class="pl-read">
           ${
             contract
@@ -878,7 +876,25 @@ export interface CoachStep {
  *  THIS bay's economy, not a stale example — and the GESTURE copy renders
  *  through the one hint table (D2, game/bindings.ts) per input family, so
  *  the coach can never tell a desktop player to tap a button that
- *  `pointer: fine` hides (which is exactly what it used to do). */
+ *  `pointer: fine` hides (which is exactly what it used to do).
+ *
+ *  EVERY BODY HERE IS HEIGHT-BUDGETED, and the budget is small enough to be
+ *  a real constraint on the writing. The card shares the plant panel's column
+ *  with the readout under a hard cap (52% of the field height — see app.css's
+ *  `.hud[data-coach] .plant`), so a sentence that overruns does not push the
+ *  panel: it pushes its own tail out of `.coach__body`, and the player reads
+ *  a card ending mid-word. That is what the resources card did — 58px of
+ *  hidden text on a 640x360 phone, with "that clears the bay" sliced through
+ *  the middle — and it is the LAST card, whose last clause is the one that
+ *  says how to win.
+ *
+ *  So the copy is trimmed to what the step cannot teach without: the economy
+ *  card names the four figures and the two ways a bay ends, and the flourish
+ *  it used to carry ("you'll see the red −$ where it vanished") lives on in
+ *  How to Play's card 06, which has a whole card to spend on it. The harness
+ *  asserts the result rather than trusting it — `.coach__body` is no longer
+ *  an allowed scroller, and all four steps are fixtures (sim/uifit), so copy
+ *  that outgrows the card fails CI instead of shipping half-read. */
 export function coachSteps(level: {
   launchCost: number;
   scorePerLine: number;
@@ -890,20 +906,20 @@ export function coachSteps(level: {
       title: "Aim & fire",
       body:
         profile === "touch"
-          ? `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`
+          ? `<b>Pull back</b> anywhere on the field, like a slingshot — the cannon aims opposite, farther for <b>more power</b>. <b>Release to fire</b> along the dotted arc.`
           : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> The dotted arc is exactly where the shipment flies.`,
     },
     {
       title: "Rotate",
-      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
+      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece 90°. The glowing piece flies exactly as shown.`,
     },
     {
       title: "Complete a row",
-      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Cubes that fall <b>short of the bar</b> blink away and are lost. Keep launching!`,
+      body: `Fill a <b>full row</b> in front of the red compactor: it vanishes and pays. Cubes <b>short of the bar</b> are lost.`,
     },
     {
       title: "Funds & Target",
-      body: `Each launch costs <b>$${level.launchCost} Funds</b>; each full row pays <b>$${level.scorePerLine}</b> back plus <b>♻ scrap</b> for upgrades. Dropped cargo isn't free either — every lost cube <b>fines you $${level.penaltyPerLostPiece}</b> (you'll see the red −$ where it vanished). Reach <b>$${level.targetScore}</b> before Funds or the clock run out — that clears the bay.`,
+      body: `Launches cost <b>$${level.launchCost}</b>; rows pay <b>$${level.scorePerLine}</b> plus <b>♻ scrap</b>; lost cubes fine <b>$${level.penaltyPerLostPiece}</b>. Reach <b>$${level.targetScore}</b> before Funds or time runs out.`,
     },
   ];
 }
