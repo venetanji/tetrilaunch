@@ -56,10 +56,26 @@ const FX = [
  */
 const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
 
+/**
+ * Music: which ROLE each generated master plays. Roles, not song titles — the
+ * role is the shipped filename and the only name the code knows, so re-scoring
+ * a bay is a line in here and nothing in src/ moves.
+ *
+ * `menu` is the lounge bed that plays outside a bay. The `bay-N` roles are the
+ * Deep Run's arc; WHICH bay each one plays over is game/run.ts's BAY_TRACKS,
+ * and this map only decides what it sounds like. Bays 2-4 have no song yet and
+ * borrow bay 1's there — add them here as `bay-2`…`bay-4` and point that table
+ * at them.
+ */
 const MUSIC = {
   "lounge-menu-pause.mp3": "menu",
-  "Neon Pixel Pulse.mp3": "deep-run",
-  "Neon Static.mp3": "contracts",
+  "chilled beginning.mp3": "bay-1",
+  "level 5.mp3": "bay-5",
+  "raggae circuit.mp3": "bay-6",
+  "Chipdisco.mp3": "bay-7",
+  "Neon Circuit.mp3": "bay-8",
+  "Neon Static.mp3": "bay-9",
+  "Neon Pixel Pulse.mp3": "bay-10",
 };
 
 /** Two hits closer than this are one sound, not two — a double-tick reload
@@ -248,6 +264,12 @@ async function main() {
 
   console.log("music (cover art stripped, 128k):");
   const tracks = new Set(await readdir(join(SRC, "tracks")).catch(() => []));
+  // A master dropped into tracks/ that no role claims is silently not shipped,
+  // which from the outside is indistinguishable from "I added the song and
+  // nothing happened". The fx/stinger folders are already checked this way.
+  for (const f of tracks) {
+    if (f.endsWith(".mp3") && !MUSIC[f]) unmapped.push(`tracks/${f}`);
+  }
   for (const [file, name] of Object.entries(MUSIC)) {
     if (!tracks.has(file)) { console.log(`  ${name.padEnd(12)} MISSING (${file})`); continue; }
     const r = await encodeLong(join(SRC, "tracks", file), name, "music");
@@ -260,7 +282,7 @@ async function main() {
   if (missing.length) console.log(`note: mapped but not present: ${missing.join(", ")}`);
   if (unmapped.length) {
     console.log(`note: present but unmapped, so NOT shipped: ${unmapped.join(", ")}`);
-    console.log("      add them to FX in this script with the callback name they belong to.");
+    console.log("      add them to FX / STINGERS / MUSIC above, under the role they play.");
   }
 }
 

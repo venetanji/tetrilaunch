@@ -133,6 +133,60 @@ export function baysUntilRefit(levelIndex: number): number | null {
   return null;
 }
 
+/**
+ * The run's musical arc — which bed plays over which bay.
+ *
+ * These are ROLE names, not song titles, exactly like the effects: which
+ * generated master becomes each one lives in `scripts/prepare-audio.mjs`, so
+ * re-scoring a bay is a line there and nothing here moves. (See
+ * audio/README.md.) `lib/audio.ts` unions this with `menu` — the only bed that
+ * plays outside a bay — to make MusicName.
+ *
+ * The arc lives HERE rather than beside the player because it is run design,
+ * not playback. It is very nearly one bed per bay, and the roles are named for
+ * the bay rather than for the mood precisely because of that: `bay-7` is a
+ * promise about WHERE it plays, and the song that fills it is free to change
+ * without a file rename.
+ *
+ * Bays 2-4 are unwritten and borrow bay 1's opening bed. That is a deliberate
+ * placeholder, not a fallback: give them their own songs by adding `bay-2`…
+ * `bay-4` to the MUSIC map and pointing the table's rows at them.
+ */
+export type BayTrack =
+  | "bay-1" | "bay-2" | "bay-3" | "bay-4" | "bay-5"
+  | "bay-6" | "bay-7" | "bay-8" | "bay-9" | "bay-10";
+
+/** Bay 1 -> bay 10, by index. Written out a bay at a time rather than as ranges
+ *  because the arc is a thing you read, and a wrong assignment should be
+ *  noticeable here instead of twenty minutes into a run. */
+const BAY_TRACKS: readonly BayTrack[] = [
+  "bay-1",  // 1   chilled beginning
+  "bay-1",  // 2   WIP — borrowing bay 1 until its own song exists
+  "bay-1",  // 3   WIP
+  "bay-1",  // 4   WIP
+  "bay-5",  // 5   written in 5/4, which is why it is pinned to this bay NUMBER
+  "bay-6",  // 6   raggae circuit
+  "bay-7",  // 7   chipdisco
+  "bay-8",  // 8   neon circuit
+  "bay-9",  // 9   neon static
+  "bay-10", // 10  neon pixel pulse — the closer
+];
+
+/**
+ * The bed for the bay at `levelIndex` (0-based).
+ *
+ * Total rather than partial — it clamps at both ends and never returns
+ * undefined. It is called from the state-change choke point that every screen
+ * transition passes through, and a music lookup is not allowed to be the thing
+ * that throws on the way into a bay. sim/systems.ts ties the table's length
+ * back to RUN_LEVELS, so a lengthened ladder cannot quietly leave the closer
+ * playing over the last three bays.
+ */
+export function bayMusic(levelIndex: number): BayTrack {
+  const i = Math.min(Math.max(0, levelIndex | 0), BAY_TRACKS.length - 1);
+  return BAY_TRACKS[i];
+}
+
 /** The LevelConfig the run's current levelIndex should actually be played
  *  with: the base ladder entry, then the ship's bought UPGRADE tiers, then all
  *  drafted MODS on top, and (for every level after the first) startingFunds

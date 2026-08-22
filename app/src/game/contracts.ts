@@ -33,9 +33,26 @@ import { HAZARDS } from "./hazards";
 import { makeBaseLevel, NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
+import type { BayTrack } from "./run";
 import {
   MATERIAL_SPEC, PIECE_TYPES, type Material, type PieceSize, type PieceType,
 } from "./theme";
+
+/**
+ * The bed a Contract plays under.
+ *
+ * Contracts have no song of their own: the track that used to be theirs (Neon
+ * Static) is now bay 9's, and the mode is the one place in the game with no
+ * dedicated bed. So it BORROWS one, named here rather than inlined at the call
+ * site so that "which bed do Contracts get" is a decision with an address —
+ * repoint this line the day a Contract track exists and nothing else changes.
+ *
+ * Bay 9 rather than the menu lounge because a Contract is a bay being played,
+ * not a menu being read: the lounge bed is the one that plays while nothing is
+ * happening (see main.ts's syncMusic), and a short, tight, retryable challenge
+ * should not sound like a pause screen.
+ */
+export const CONTRACT_BED: BayTrack = "bay-9";
 
 /**
  * Objectives a Contract can ask for. Deliberately small: every one of these has

@@ -12,6 +12,9 @@
  * numbers compose the way the design says", which is the class of bug that a
  * balance sweep passes right over.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
@@ -47,11 +50,11 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
+  dailyContracts, levelForContract, CONTRACT_BED, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
   contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
@@ -3372,6 +3375,60 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
   const manyCuts = applyRatchets(base, { time: 12 });
   check("the clock floor still holds at depth", manyCuts.timeLimitSec === 45,
     String(manyCuts.timeLimitSec));
+}
+
+// ---------------------------------------------------------------------------
+section("Run music ladder (run.ts bayMusic vs public/audio/music)");
+{
+  // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
+  // MusicName rather than imported: that module reads import.meta.env at load
+  // and reaches for Audio/AudioContext, so it cannot be pulled into a Node
+  // harness at all. One literal is a cheap price for checking the shipped set
+  // against what the game actually asks for.
+  const SCREEN_BEDS = ["menu"];
+
+  const beds = Array.from({ length: RUN_LEVELS }, (_, i) => bayMusic(i));
+  const trace = beds.map((b, i) => `${i + 1}:${b}`).join(" ");
+  /** The bay a bed is NAMED for, which is not always the bay playing it. */
+  const bayOf = (bed: string): number => Number(bed.slice(4));
+
+  check("bay 1 opens on its own bed", beds[0] === "bay-1", beds[0]);
+  // The 5/4 bed is assigned on the bay NUMBER rather than on difficulty, which
+  // makes it the one row a reshuffle can quietly move. Pin both halves.
+  check("bay 5 gets the 5/4 bed", beds[4] === "bay-5", beds[4]);
+  check("nothing but bay 5 gets it", beds.filter((b) => b === "bay-5").length === 1, trace);
+  // This ties the table's LENGTH back to RUN_LEVELS through the naming
+  // convention: lengthen the run without extending the ladder and the extra
+  // bays clamp onto bay-10, so the closer would play over the last three. Fails
+  // here rather than being found by ear at the end of a twenty-minute run.
+  check("the last bay plays the bed named for it",
+    beds[RUN_LEVELS - 1] === `bay-${RUN_LEVELS}`, beds[RUN_LEVELS - 1]);
+  // A bay may borrow an EARLIER bay's bed — 2-4 do, until their songs exist —
+  // but never a later one, and the arc never runs backwards. Two halves of the
+  // same guard, catching a mis-numbered row from either side.
+  check("no bay borrows a later bay's bed", beds.every((b, i) => bayOf(b) <= i + 1), trace);
+  check("the arc never runs backwards",
+    beds.every((b, i) => i === 0 || bayOf(b) >= bayOf(beds[i - 1])), trace);
+
+  // The check that catches drift between this ladder and prepare-audio.mjs's
+  // MUSIC map — the failure neither typecheck nor the browser will report. A
+  // bed with no file behind it is a SILENT bay: playMusic's fetch 404s, the
+  // catch swallows it by design, and the only symptom is one stretch of the run
+  // playing nothing. Set EQUALITY rather than a subset, so the reverse — an
+  // orphaned track hauled around in the PWA precache for nothing — fails too.
+  // CONTRACT_BED is in `wanted` on its own account: it happens to borrow a bay
+  // bed today, and must still resolve to a real file the day it stops.
+  const musicDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)), "..", "public", "audio", "music",
+  );
+  const shipped = new Set(
+    fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
+  );
+  const wanted = new Set([...SCREEN_BEDS, ...beds, CONTRACT_BED]);
+  const absent = [...wanted].filter((n) => !shipped.has(n));
+  const orphaned = [...shipped].filter((n) => !wanted.has(n));
+  check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
+  check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
 }
 
 

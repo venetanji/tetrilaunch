@@ -23,6 +23,8 @@
  * a browser that refuses playback must never interrupt a run.
  */
 
+import type { BayTrack } from "../game/run";
+
 const BASE = import.meta.env.BASE_URL;
 
 export type FxName =
@@ -36,7 +38,16 @@ export type FxName =
   | "bondBreak2"
   | "reloadReady";
 
-export type MusicName = "menu" | "deep-run" | "contracts";
+/**
+ * The menu lounge, plus the Deep Run's per-bay ladder — which Contracts borrow
+ * from too (contracts.ts's CONTRACT_BED).
+ *
+ * WHICH bed covers which bay is run design, not playback, so it lives in
+ * game/run.ts (bayMusic) and this module only knows how to play what it is
+ * handed. The names are roles; scripts/prepare-audio.mjs decides which
+ * generated master becomes each one.
+ */
+export type MusicName = "menu" | BayTrack;
 export type StingerName = "bayClear" | "gameOver" | "gameOver2" | "refit";
 
 const FX_NAMES: FxName[] = [

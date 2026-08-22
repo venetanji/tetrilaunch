@@ -57,9 +57,14 @@ export default defineConfig(({ mode }) => ({
         // /support to anyone who has visited the game once — while the store
         // reviewers, fetching fresh, see the policy. Both must see the policy.
         navigateFallbackDenylist: [/^\/privacy/, /^\/support/],
-        // mp3 included so the PWA still has sound offline. It is the single
-        // biggest thing in the precache (~8.6 MB of the total), which is the
-        // cost of the listing claiming the game plays offline.
+        // mp3 included so the PWA still has sound offline. It is by a wide
+        // margin the biggest thing in the precache — ~20.5 MB, 19 of which is
+        // music, because the Deep Run scores its ten bays in stretches rather
+        // than looping one bed (game/run.ts's bayMusic) and each stretch is a
+        // full-length track. That is the price of the listing claiming the game
+        // plays offline: dropping audio/music/ from this glob would cut the
+        // web install by ~90% and break the claim, so it is a product decision,
+        // not a build tweak.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2,mp3}"],
         // Default is 2 MB and the music tracks exceed it — without this they
         // are silently dropped from the precache manifest and only the effects

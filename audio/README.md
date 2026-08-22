@@ -6,10 +6,10 @@ only the processed, shipped assets in `app/public/audio/` are committed.
 ## Why
 
 Audio was 23 MB of a 36 MB repository, and the six largest objects in the
-history were all mp3s. The plan is roughly ten tracks, which would take the
-masters alone past 39 MB — and git history never shrinks, so every regenerated
-take keeps its old blob forever. Iterate three times on ten tracks and the clone
-carries all thirty.
+history were all mp3s. The eight tracks that exist today are already 29 MB of
+masters on their own — and git history never shrinks, so every regenerated take
+keeps its old blob forever. Iterate three times on eight tracks and the clone
+carries all twenty-four.
 
 The masters are also recoverable: they are in the Suno account that produced
 them, and they are only needed when re-trimming or adding a sound. The shipped
@@ -44,7 +44,46 @@ audio/
 ```
 
 Renaming a generated file on the way in is the step where you decide what it
-is. Anything unrecognised is reported and not shipped, rather than guessed at.
+is. Anything unrecognised is reported and not shipped, rather than guessed at —
+`tracks/` included, so a song dropped in and forgotten says so rather than
+looking like a successful run that shipped nothing.
+
+## The music roles
+
+`menu` is the lounge bed, outside a bay. Everything else is `bay-N` — the bed
+for that bay of a Deep Run — and Contracts borrow one of those rather than
+having a song of their own (`CONTRACT_BED` in `app/src/game/contracts.ts`).
+
+| role     | song                | plays over            |
+| -------- | ------------------- | --------------------- |
+| `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
+| `bay-1`  | chilled beginning   | bays 1–4 *(2–4 unwritten)* |
+| `bay-5`  | level 5             | bay 5 — it is in 5/4, which is why it is pinned to the NUMBER |
+| `bay-6`  | raggae circuit      | bay 6 |
+| `bay-7`  | Chipdisco           | bay 7 |
+| `bay-8`  | Neon Circuit        | bay 8 |
+| `bay-9`  | Neon Static         | bay 9, and every Contract |
+| `bay-10` | Neon Pixel Pulse    | bay 10, the closer |
+
+## Adding a track
+
+Two steps, because a bed has both a sound and a job:
+
+1. **`app/scripts/prepare-audio.mjs`** — add `"Your Song.mp3": "bay-N"` to
+   `MUSIC`. The role is the shipped filename and the only name the code knows,
+   so this is also where you re-score an existing bay: change the key, not the
+   ladder.
+2. **`app/src/game/run.ts`** — point that bay's row in `BAY_TRACKS` at the new
+   role. Bays 2–4 sit on `bay-1` today and this is the line that moves them off
+   it. A new role also needs adding to the `BayTrack` union above the table.
+
+Then `npm run audio:prepare` and `npm run sim:systems`. The harness asserts the
+ladder and the shipped `app/public/audio/music/` are the SAME SET in both
+directions, so doing only step 1 (a file no bay claims — dead megabytes in the
+PWA precache) and doing only step 2 (a role with no file, which is a bay that
+plays in SILENCE, because `playMusic` swallows the 404 by design) each fail
+there rather than in play. It also checks that no bay borrows a *later* bay's
+bed, which is the shape a mis-numbered row takes.
 
 ## Regenerating
 

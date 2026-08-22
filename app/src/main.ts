@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
-  RUN_LEVELS, type RunState,
+  bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import {
   hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
@@ -37,7 +37,7 @@ import {
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, levelForContract, type Contract,
+  dailyContracts, levelForContract, CONTRACT_BED, type Contract,
 } from "./game/contracts";
 import { render } from "./game/render";
 import { AttractDemo } from "./game/attract";
@@ -362,14 +362,16 @@ class App {
   }
 
   /**
-   * One track per context, switched from the single choke point every screen
+   * One bed per context, switched from the single choke point every screen
    * change already passes through. playMusic() ignores a repeat of what's
-   * already playing, so paused/draft/refit keep the bay's bed running rather
-   * than restarting it every time a modal opens.
+   * already playing, so walking between the out-of-run screens keeps the one
+   * lounge bed running instead of restarting it at every menu.
    *
-   * Contracts and the Deep Run get different beds because they are different
-   * modes, not different levels — the run is the long haul, a Contract is a
-   * short retryable challenge.
+   * The Deep Run gets a LADDER rather than one bed (run.ts's bayMusic): it is a
+   * ten-bay arc, and the score should travel with it instead of looping a
+   * single track across the whole thing. A Contract is one short retryable
+   * challenge, so it gets one bed — borrowed, for now, from the run's late
+   * stretch (contracts.ts's CONTRACT_BED).
    */
   private syncMusic(s: AppState): void {
     switch (s) {
@@ -393,7 +395,7 @@ class App {
 
       case "playing":
         stopStinger();
-        playMusic(this.contract ? "contracts" : "deep-run");
+        playMusic(this.contract ? CONTRACT_BED : bayMusic(this.run?.levelIndex ?? 0));
         return;
 
       // Pausing drops to the lounge bed: the driving track under a paused game
