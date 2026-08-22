@@ -1062,15 +1062,19 @@ function expRamp(x: number, k: number): number {
   return (Math.exp(k * x) - 1) / (Math.exp(k) - 1);
 }
 
-/** Steepness of the arc's return: nothing at all for the first fifth of the
- *  cooldown, a ghost that firms up through the middle, unmistakable by the
- *  end. Tuned on a real cycle rather than on the curve: 3.5 looked right
- *  plotted and was wrong on screen, because it held the arc under the
- *  perceptible floor until the last quarter — the blink and the scatter both
- *  had to say their piece inside 250ms, which is not "slowly reappearing", it
- *  is a pop. 2.5 puts first light at about a fifth in and gives the forming
- *  phase most of the cycle. */
-const ARC_RETURN_K = 2.5;
+/** Steepness of the arc's return: nothing at the instant of the shot, a ghost
+ *  within a beat of it, firming through the middle, unmistakable by the end.
+ *
+ *  Tuned on a real cycle, twice, and the plot lied both times. 3.5 held the
+ *  arc under the perceptible floor until the last quarter, so the blink and
+ *  the scatter had to say their piece inside 250ms — a pop, not a return. 2.5
+ *  fixed the pop and left a subtler bug: the scatter is WIDEST while the arc
+ *  is faintest, because the two share this curve (see ARC_JITTER), so the most
+ *  interesting part of the forming happened below the visible floor and only
+ *  its tail ever reached the screen. 1.6 lifts the arc into view early enough
+ *  to watch it converge, and still leaves nothing at all the instant a shot
+ *  goes. */
+const ARC_RETURN_K = 1.6;
 /** Blinks per cooldown, and how hard they bunch toward ready. A COUNT rather
  *  than a rate is what lets one constant serve every cooldown the game can
  *  produce (level.ts's 1350ms, the Magazine track's −15% a tier, congestion's
@@ -1082,19 +1086,23 @@ const ARC_BLINK_K = 2.5;
  *  the blink is fast the arc is also the aim, and one that vanished on every
  *  downbeat would cost the player the shot they are lining up. */
 const ARC_BLINK_DEPTH = 0.45;
-/** Scatter of the FAR end of the arc, in world px — CELL is 40, so about a
- *  third of a cube at its widest, on the dots that are faintest while it is.
+/** Scatter of the FAR end of the arc, in world px — CELL is 40, so two thirds
+ *  of a cube at its widest, on the frame after a shot.
  *  Driven by the INVERSE of the clarity curve rather than a decay of its own:
  *  the two are one statement — the less of the arc there is, the less it is
  *  sure of — and sharing the curve means the scatter reaches exactly zero at
- *  ready, with no second constant to tune and nothing to snap. Scaled along
- *  the arc as well, so the muzzle end barely moves: a solution converges from
- *  its far tip backwards, and a trajectory whose near dots wobbled would read
- *  as a broken renderer rather than a forecast. */
-const ARC_JITTER = 16;
+ *  ready, with no second constant to tune and nothing to snap. Tapered along
+ *  the arc as well: a solution converges from its far tip backwards, so the
+ *  muzzle end moves least. */
+const ARC_JITTER = 26;
 /** Re-rolls a second. Per-frame would be 60Hz static — noise, not hardware;
  *  this is slow enough to read as a solution being re-tried. */
-const ARC_JITTER_HZ = 14;
+const ARC_JITTER_HZ = 18;
+/** What the muzzle end keeps of the scatter. Not zero: a first dot nailed to
+ *  the barrel while the rest of the arc swims reads as a hinge, and it is the
+ *  whole solution that is unsure, not only its tail. Low enough that the taper
+ *  is still what you see. */
+const ARC_JITTER_BASE = 0.3;
 
 /** Deterministic ±1 from (dot, time step, axis) — an integer hash rather than
  *  Math.random() so a paused frame redraws identically instead of crawling,
@@ -1136,8 +1144,9 @@ function drawTrajectory(
     ctx.globalAlpha = (0.9 * (1 - t) + 0.15) * cue;
     // Scale the baked disc (radius DOT_R + its glow) to this dot's radius.
     const half = (DOT_R + DOT_PAD) * ((4 * (1 - t) + 2) / DOT_R);
-    const jx = jitter ? arcJitter(i, step, 0) * jitter * t : 0;
-    const jy = jitter ? arcJitter(i, step, 1) * jitter * t : 0;
+    const spread = jitter * (ARC_JITTER_BASE + (1 - ARC_JITTER_BASE) * t);
+    const jx = jitter ? arcJitter(i, step, 0) * spread : 0;
+    const jy = jitter ? arcJitter(i, step, 1) * spread : 0;
     ctx.drawImage(sprite, pts[i].x + jx - half, pts[i].y + jy - half, half * 2, half * 2);
   }
   ctx.restore();
