@@ -20,6 +20,7 @@ import type { PieceSize, PieceType } from "../game/theme";
 import {
   totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
+import { pickQuip } from "./quips";
 
 export function splashScreen(): string {
   // No tagline. "Physics Cannon Puzzle" undersold and mis-sold the game — it
@@ -147,7 +148,7 @@ export function howtoScreen(): string {
     ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">Q</span><span class="kbd">E</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
-    ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
+    ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top. Have faith in your compactor.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
     ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is paid out at the end of <b>every</b> run — win or lose — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
@@ -592,6 +593,13 @@ export function hudHTML(opts: {
     <div class="settle-note" id="settle-note" aria-live="polite">
       <span class="settle-note__dot"></span> Target met — letting the bay settle
     </div>
+    <!-- Quip bubble: the launch crew's playful one-liners (ui/quips.ts),
+         anchored over the cannon's side of the field so it reads as the crew
+         talking. Strictly flavor — it never carries a rule, which is why it
+         can be aria-hidden (screen readers get the informative channels: the
+         settle note, the readouts) and why main.ts's showQuip may rate-limit
+         or drop it freely. Empty until showQuip fills it. -->
+    <div class="quip" id="quip" aria-hidden="true"></div>
     ${dragHintHTML()}
   </div>`;
 }
@@ -662,7 +670,7 @@ export function coachSteps(level: {
     },
     {
       title: "Complete a row",
-      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Cubes that fall <b>short of the bar</b> blink away and are lost. Keep launching!`,
+      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Cubes that fall <b>short of the bar</b> blink away and are lost. Stack them nicely… or not — the compactor isn't picky. Keep launching!`,
     },
     {
       title: "Funds & Target",
@@ -989,10 +997,15 @@ export function workshopScreen(meta: MetaState, tab: ShopTab = "systems"): strin
 }
 
 export function pauseModal(): string {
+  // One quip under the heading (ui/quips.ts) — the pause screen is the one
+  // in-game surface with nothing at stake on it, so it can afford a joke
+  // without competing with a readout. Picked fresh per open, so pausing
+  // twice doesn't feel like a looping tape.
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
       <div class="eyebrow">Paused</div>
       <h2 class="display">Take a breath</h2>
+      <p class="muted" style="margin-top:-6px">${pickQuip("pause")}</p>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
         <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">⛶ <span class="fs-label">Fullscreen</span></button>

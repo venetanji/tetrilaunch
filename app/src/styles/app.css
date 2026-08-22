@@ -1516,6 +1516,33 @@ button.panel { color: var(--text); }
 }
 
 /* ============================================================================
+   QUIP — the launch crew's playful one-liners (ui/quips.ts, shown by main.ts's
+   showQuip). Anchored over the CANNON's side of the field so it reads as the
+   crew talking, and clear of everything that carries information: the settle
+   note (top-center), the plant readout (bottom-left) and the compactor zone
+   (right). Flavor only — pointer-events none, aria-hidden, and brief.
+   ========================================================================== */
+.quip {
+  position: absolute;
+  left: calc(var(--field-x) + 0.27 * var(--field-w));
+  top: calc(var(--field-y) + 0.30 * var(--field-h));
+  transform: translate(-50%, 6px) scale(0.94);
+  max-width: calc(0.42 * var(--field-w));
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  background: rgba(10, 8, 26, 0.88);
+  border: var(--bw) solid var(--accent);
+  box-shadow: var(--shadow-hard-sm), 0 0 14px rgba(0, 240, 255, 0.25);
+  font-family: var(--font-pixel); font-size: 10px; letter-spacing: 0.05em;
+  line-height: 1.7; text-align: center;
+  color: var(--accent);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  z-index: 7;
+}
+.quip.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+/* ============================================================================
    BAY CLEARED celebration (see screens.ts's bayClearScreen). A short beat
    between the settled field and the draft/refit modal, over the canvas sweep FX
    (render.ts's drawBayClearFx). The whole layer is tappable to skip.

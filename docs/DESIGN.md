@@ -550,6 +550,29 @@ daily cap · one alternate rig.
 Everything else here is post-hackathon runway — which is worth having written
 down when judges ask where it goes next.
 
+## Voice & tone
+
+The game's voice is **playful** — a launch crew that doesn't take the cargo
+business too seriously, muttering over the bay while the player works. It
+lives in two layers, with a hard rule between them:
+
+- **Quips are flavor, never information.** `app/src/ui/quips.ts` holds the
+  one-liner pools ("Have faith in your compactor", "NOOO! Not my luggage!",
+  "Keep calm and launch on", "Try to stack them nicely… or not") and the HUD's
+  quip bubble shows them at gameplay beats: bay start, lost cargo, multi-line
+  clears, the low-launches/low-time thresholds, the settle window, the pause
+  screen. Because a quip never carries a rule, it can be rate-limited (one
+  line per ~9s), suppressed during the tutorial, and hidden from screen
+  readers without costing anyone a fact they needed.
+- **Readouts stay plain.** Everything playtests moved toward clarity — the
+  plant readout, the coach cards, the end modal's cause-and-tip block —
+  stays plain-language first. Playfulness there is a garnish on the end of an
+  informative sentence ("the compactor isn't picky"), never a replacement for
+  the information.
+
+New copy should join one layer or the other: a joke goes in a quip pool, a
+rule goes in a readout. A line trying to be both will do neither well.
+
 ## Settled
 
 - **You fly the rig you built.** Deep Run does not hand out a normalized loadout.

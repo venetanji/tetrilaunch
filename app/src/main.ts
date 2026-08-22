@@ -33,6 +33,7 @@ import { computeLayout } from "./game/layout";
 import { InputController } from "./game/input";
 import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
+import { pickQuip, QUIP_GAP_MS, QUIP_SHOW_MS, type QuipMoment } from "./ui/quips";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
@@ -137,6 +138,18 @@ class App {
    *  once-per-session idle timer, armed at each bay start. */
   private dragHintTimer: number | null = null;
   private dragHintShownThisSession = false;
+
+  /** Quip bubble state (see showQuip / ui/quips.ts): the hide timer, and when
+   *  the last quip landed — the rate limit that keeps the crew's one-liners
+   *  a remark rather than a monologue. */
+  private quipTimer: number | null = null;
+  private lastQuipAt = 0;
+  /** Once-per-bay latches for the threshold quips. The low-launches and
+   *  low-time warnings are read off live readouts in syncHud (60x/sec), so
+   *  without a latch each would re-fire every frame the moment the rate limit
+   *  lapsed — and a warning repeated stops being funny AND stops being read. */
+  private lowLaunchQuipped = false;
+  private lowTimeQuipped = false;
 
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
@@ -690,12 +703,19 @@ class App {
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
         void successHaptic(); playLineClear(n); this.flashGoal(); this.coachOnLineClear();
+        // Only the SPECIAL clears get a cheer — a multi-line payout or a hot
+        // combo. Every single line quipping would wear the voice out on the
+        // game's most common event.
+        if (n >= 2 || (this.game?.combo ?? 0) >= 3) this.showQuip("bigClear");
       },
-      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); this.showQuip("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
       },
-      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onSettleStart: () => {
+        void successHaptic(); playFx("settleStart"); this.showSettleNote(true);
+        this.showQuip("settle", true);
+      },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
       onStatus: (s) => this.onGameStatus(s),
@@ -725,6 +745,11 @@ class App {
       this.run.levelIndex === 0 && !this.settings.seenTutorial ? 0 : null;
     this.setState("playing");
     this.armDragHint();
+    // Fresh bay, fresh voice: re-arm the once-per-bay quip latches and open
+    // with a line (forced — the rate limit is for mid-bay chatter, not the
+    // curtain-raiser). A no-op while the tutorial runs; see showQuip.
+    this.lowLaunchQuipped = this.lowTimeQuipped = false;
+    this.showQuip("bayStart", true);
   }
 
   /** Shows the finger-drag onboarding hint immediately on a brand-new
@@ -894,12 +919,17 @@ class App {
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
         void successHaptic(); playLineClear(n); this.flashGoal();
+        // Same special-clears-only rule as the Deep Run wiring above.
+        if (n >= 2 || (this.game?.combo ?? 0) >= 3) this.showQuip("bigClear");
       },
-      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); this.showQuip("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
       },
-      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onSettleStart: () => {
+        void successHaptic(); playFx("settleStart"); this.showSettleNote(true);
+        this.showQuip("settle", true);
+      },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
       onStatus: (s) => this.onGameStatus(s),
@@ -917,6 +947,9 @@ class App {
     });
     this.setState("playing");
     this.armDragHint();
+    // Same bay-open beat as startLevel — a Contract is a bay too.
+    this.lowLaunchQuipped = this.lowTimeQuipped = false;
+    this.showQuip("bayStart", true);
   }
 
   private onGameStatus(s: GameStatus): void {
@@ -996,6 +1029,36 @@ class App {
    *  can't restart the plant panel's entrance animation mid-bay. */
   private showSettleNote(on: boolean): void {
     this.overlay.querySelector("#settle-note")?.classList.toggle("show", on);
+  }
+
+  /** Pops one of the crew's playful one-liners into the HUD's quip bubble
+   *  (ui/quips.ts / screens.ts's #quip). Flavor only, so it is free to drop
+   *  the line entirely:
+   *   - during the tutorial — a joke competing with the coach card loses both;
+   *   - within QUIP_GAP_MS of the previous quip, unless `force` — reserved for
+   *     once-a-bay milestones (bay start, the settle window), which can't spam
+   *     by construction. Event-driven quips (lost cargo, big clears) just miss
+   *     their slot and the game moves on, which is the right cost for a gag.
+   *  Patched in place for the same reason as showSettleNote. */
+  private showQuip(moment: QuipMoment, force = false): void {
+    if (this.tutorialStep !== null) return;
+    const now = performance.now();
+    if (!force && now - this.lastQuipAt < QUIP_GAP_MS) return;
+    const el = this.overlay.querySelector<HTMLElement>("#quip");
+    if (!el) return;
+    this.lastQuipAt = now;
+    el.textContent = pickQuip(moment);
+    // Force a reflow between remove and add so a quip landing while the last
+    // one is still up restarts the pop transition instead of silently swapping
+    // text mid-fade.
+    el.classList.remove("show");
+    void el.offsetWidth;
+    el.classList.add("show");
+    if (this.quipTimer !== null) window.clearTimeout(this.quipTimer);
+    this.quipTimer = window.setTimeout(() => {
+      this.overlay.querySelector("#quip")?.classList.remove("show");
+      this.quipTimer = null;
+    }, QUIP_SHOW_MS);
   }
 
   /** End of the bay-clear celebration: bank the bay into the run, then route to
@@ -1311,6 +1374,12 @@ class App {
       this.overlay
         .querySelector("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= 2);
+      // One quip as the supply chip first goes red — same beat as the Deep
+      // Run's low-launches line below, latched per bay for the same reason.
+      if (!this.lowLaunchQuipped && supply !== Infinity && supply > 0 && supply <= 2) {
+        this.lowLaunchQuipped = true;
+        this.showQuip("lowLaunches");
+      }
       // The remaining manifest, re-rendered only when it actually changes —
       // it's HTML (colored per piece type), so this can't go through `set`.
       if (pattern) {
@@ -1336,6 +1405,14 @@ class App {
       this.overlay
         .querySelector("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
+      // The quip rides the SAME threshold as the danger-red readout, once per
+      // bay: the readout is the information, the quip is the crew reacting to
+      // it. `launches > 0` keeps the pep talk from landing on an already-lost
+      // bay, where it would read as mockery.
+      if (!this.lowLaunchQuipped && launches > 0 && launches <= S.LOW_LAUNCH_WARN) {
+        this.lowLaunchQuipped = true;
+        this.showQuip("lowLaunches");
+      }
     }
 
     // objectiveProgress reads whichever win condition this bay is running, so
@@ -1370,6 +1447,12 @@ class App {
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
       this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
+      // Same threshold as the clock's red pulse, once per bay (see the
+      // low-launches note above for the latch rationale).
+      if (!this.lowTimeQuipped && g.timeLeftMs > 0 && g.timeLeftMs < 20_000) {
+        this.lowTimeQuipped = true;
+        this.showQuip("lowTime");
+      }
     }
 
     // NEXT preview rides the conveyor belt (top-left) — the shot that fires
