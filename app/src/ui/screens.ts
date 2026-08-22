@@ -740,7 +740,6 @@ export function hudHTML(opts: {
       <div class="belt-piece belt-piece--next" id="hud-next">${beltNextHTML}</div>
       ${loaded ? `<div class="belt-piece belt-piece--loaded" id="hud-loaded">${beltLoadedHTML}</div>` : ""}
       <span class="belt__tag" aria-hidden="true">${sizeTag}</span>
-      <span class="belt__out" aria-hidden="true">${icon("play", 10)}</span>
     </div>
 
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and

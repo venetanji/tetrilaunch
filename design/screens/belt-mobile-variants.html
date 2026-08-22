@@ -157,26 +157,35 @@ td .ok{color:var(--success)}
 /* ---- B, AS SHIPPED: no caption; the belt says it in chevrons and colour.
         This block is app.css verbatim again -- the frame below is the belt
         that is now in the build, not a picture of it. --------------------- */
-.frame--b{--belt-c:var(--piece-s)}
+.frame--b{--belt-c:var(--piece-s);--slat:calc(37 * var(--fpx))}
+.frame--b .belt__tread{background-size:var(--slat) 100%;
+  animation:belt-tread 900ms linear infinite}
+@keyframes belt-tread{to{background-position-x:var(--slat)}}
 .frame--b .belt__tread::after{content:"";position:absolute;inset:0;
   background:linear-gradient(180deg,transparent 38%,var(--belt-c));opacity:.13}
+/* One chevron per slat, riding it: cells of exactly --slat, scrolling right by
+   exactly one slat on the tread's own 900ms clock. */
 .frame--b .belt__arrows{
-  left:0;right:auto;top:50%;width:200%;
-  display:flex;align-items:center;justify-content:space-around;
-  transform:translate(0,-50%);
-  animation:belt-arrows 1800ms linear infinite}
+  left:0;right:auto;top:50%;width:calc(8 * var(--slat));
+  display:flex;align-items:center;
+  transform:translate(calc(-1 * var(--slat)),-50%);
+  animation:belt-arrows 900ms linear infinite}
 .frame--b .belt__arrows i{
-  flex:none;width:max(4px,calc(7 * var(--fpx)));height:max(6px,calc(11 * var(--fpx)));
+  flex:0 0 var(--slat);display:flex;align-items:center;justify-content:center;
+  padding-left:calc(3 / 37 * var(--slat))}
+.frame--b .belt__arrows i::after{content:"";
+  width:max(4px,calc(7 * var(--fpx)));height:max(6px,calc(11 * var(--fpx)));
   background:var(--belt-c);opacity:.8;clip-path:polygon(0 0,100% 50%,0 100%)}
-@keyframes belt-arrows{to{transform:translate(-50%,-50%)}}
+@keyframes belt-arrows{to{transform:translate(0,-50%)}}
+/* 2850ms is the time the roller takes to turn once at the speed the belt is
+   running: circumference over belt speed, with --fpx cancelling out. */
 .frame--b .belt__roller i{position:absolute;inset:14%;border-radius:50%;
   background:radial-gradient(circle,#1a1a2e 0 34%,transparent 36%),
     repeating-conic-gradient(from 0deg,rgba(255,255,255,.15) 0deg 7deg,transparent 7deg 90deg);
-  animation:belt-roll 1800ms linear infinite}
+  animation:belt-roll 2850ms linear infinite}
 @keyframes belt-roll{to{transform:rotate(360deg)}}
-.frame--b .belt__out{color:var(--belt-c);opacity:.7}
 @media (prefers-reduced-motion:reduce){
-  .frame--b .belt__arrows,.frame--b .belt__roller i{animation:none}
+  .frame--b .belt__tread,.frame--b .belt__arrows,.frame--b .belt__roller i{animation:none}
 }
 
 /* ---- C: phone transport (ships behind [data-density="compact"]) -------- */
@@ -360,7 +369,7 @@ td .ok{color:var(--success)}
     <div class="belt__roller belt__roller--r"><i></i></div>
     <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
     <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
-    <span class="belt__out">&#9654;</span>
+    
   </div>
 </div></div>
       </div>
@@ -379,12 +388,12 @@ td .ok{color:var(--success)}
     <div class="belt__roller belt__roller--r"><i></i></div>
     <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
     <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
-    <span class="belt__out">&#9654;</span>
+    
   </div>
 </div></div>
       </div>
     </div>
-    <ul class="note"><li>B moved the caption into the tread, where no tile could reach it. What shipped goes one step further and drops the words altogether, keeping only the <b>small arrows</b> &mdash; a caption that has to be squeezed to survive is a caption the layout has outgrown. The transport carries the meaning now: chevrons marching at the cannon, in the colour of the shipment on the belt.</li><li><b>Colour is the readout.</b> <code>--belt-c</code> is set from the same source as the tile&rsquo;s own cubes (<code>theme.ts</code>&rsquo;s <code>shipmentColor</code>), so cryo reads cold and slag reads dead on the machine as well as the cargo, and &ldquo;what&rsquo;s coming&rdquo; is legible from the belt in peripheral vision. The housing keeps its own cyan, so even a dead-grey run still looks powered.</li><li><b>Motion is the direction.</b> The chevron strip is twice the track wide and loops by scrolling exactly half its own width &mdash; percentages resolve against the element, never a glyph advance, so the seam lands chevron-on-chevron at any size on any device. The rollers turn on spokes under a dark hub, and the tread keeps its existing scroll. All of it stops under <code>prefers-reduced-motion</code>.</li></ul>
+    <ul class="note"><li>B moved the caption into the tread, where no tile could reach it. What shipped goes one step further and drops the words altogether, keeping only the <b>small arrows</b> &mdash; a caption that has to be squeezed to survive is a caption the layout has outgrown. The transport carries the meaning now: chevrons marching at the cannon, in the colour of the shipment on the belt.</li><li><b>Colour is the readout.</b> <code>--belt-c</code> is set from the same source as the tile&rsquo;s own cubes (<code>theme.ts</code>&rsquo;s <code>shipmentColor</code>), so cryo reads cold and slag reads dead on the machine as well as the cargo, and &ldquo;what&rsquo;s coming&rdquo; is legible from the belt in peripheral vision. The housing keeps its own cyan, so even a dead-grey run still looks powered.</li><li><b>Motion is the direction</b>, and the chevrons <em>ride the plates</em> rather than sliding over them. The transport is built on one unit &mdash; <code>--slat</code>, the pitch of a belt plate: the tread tiles at it, there is one chevron per slat, and both scroll right by exactly one slat per 900ms cycle. Measured subpixel, a chevron sits <b>0.01px</b> off its plate&rsquo;s centre and stays there for the whole cycle, at every viewport size.</li><li>The slat is world-space (37 world px), so the plates scale with the belt they belong to &mdash; the tread&rsquo;s old fixed <code>20px</code> tile meant 5 fat plates on a phone and 11 thin ones at 1440. The rollers turn once per <b>2850ms</b>, which is not a taste call but the time a roller of that circumference takes at the speed the belt is actually running. Everything stops under <code>prefers-reduced-motion</code>.</li></ul>
     <pre><s>-  .belt__roller--l { left: -8px; }</s>
 <s>-  .belt__roller--r { right: -8px; }</s>
 <b>+  .belt__roller--l { left:  calc(-8 * var(--fpx)); }</b>
@@ -399,16 +408,23 @@ td .ok{color:var(--success)}
 <b>+  .belt { --belt-c: var(--accent); }            </b><i>set per shipment from main.ts</i>
 <b>+  .belt__tread::after { background: linear-gradient(180deg,</b>
 <b>+      transparent 38%, var(--belt-c)); opacity: 0.13; }</b>
-<b>+  .belt__arrows { left: 0; width: 200%; display: flex;</b>
-<b>+      justify-content: space-around; transform: translate(0, -50%);</b>
-<b>+      animation: belt-arrows 1800ms linear infinite; }</b>
-<b>+  .belt__arrows i { background: var(--belt-c); opacity: 0.8;</b>
+<b>+  .belt { --slat: calc(37 * var(--fpx)); }         </b><i>one plate pitch</i>
+<s>-  .belt__tread { background-size: 20px 100%; }</s>
+<b>+  .belt__tread { background-size: var(--slat) 100%; }</b>
+<b>+  .belt__arrows { left: 0; width: calc(8 * var(--slat)); display: flex;</b>
+<b>+      transform: translate(calc(-1 * var(--slat)), -50%);</b>
+<b>+      animation: belt-arrows 900ms linear infinite; }   </b><i>the tread's clock</i>
+<b>+  .belt__arrows i { flex: 0 0 var(--slat); display: flex;</b>
+<b>+      justify-content: center;                          </b><i>one per plate...</i>
+<b>+      padding-left: calc(3 / 37 * var(--slat)); }       </b><i>...clear of its seam</i>
+<b>+  .belt__arrows i::after { background: var(--belt-c); opacity: 0.8;</b>
 <b>+      clip-path: polygon(0 0, 100% 50%, 0 100%); }</b>
-<b>+  @keyframes belt-arrows { to { transform: translate(-50%, -50%); } }</b>
+<b>+  @keyframes belt-arrows { to { transform: translate(0, -50%); } }</b>
 <b>+  .belt__roller i { ...spokes under a hub...</b>
-<b>+      animation: belt-roll 1800ms linear infinite; }</b>
-<b>+  .belt__out { color: var(--belt-c); }</b></pre>
-    <p class="note"><span class="ok">Gains</span> a collision that cannot come back &mdash; there is no caption left to cover &mdash; plus a peripheral read of the next shipment that the words never gave. <span class="bad">Costs</span> the explicit word for anyone who wanted it spelled out, and three more always-on CSS animations on the transport.</p>
+<b>+      animation: belt-roll 2850ms linear infinite; }</b>
+<s>-  .belt__out { ... }                                </s><i>the outfeed glyph goes</i>
+<s>-  &lt;span class="belt__out"&gt;...&lt;/span&gt;</s></pre>
+    <p class="note"><span class="ok">Gains</span> a collision that cannot come back &mdash; there is no caption left to cover &mdash; plus a peripheral read of the next shipment that the words never gave. <span class="bad">Costs</span> the explicit word for anyone who wanted it spelled out, and three always-on CSS animations on the transport. The outfeed glyph at the discharge roller went with the caption: at phone scale it was larger than the chevrons it was pointing the same way as, and it sat on top of the roller.</p>
     </div>
 
   <div class="card ">
