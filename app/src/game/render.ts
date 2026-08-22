@@ -298,7 +298,7 @@ export function render(
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
-  drawTrajectory(ctx, scene.trajectory);
+  drawTrajectory(ctx, scene.trajectory, scene.reload);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
   drawCannon(ctx, scene.cannon, scene.aiming, scene.settling);
@@ -1020,13 +1020,76 @@ function drawPattern(
   }
 }
 
-function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): void {
+/** The reduced-motion query, made once and READ per frame: a MediaQueryList
+ *  keeps itself current, so a player who flips the preference mid-run is
+ *  honoured without a matchMedia call inside the draw loop. */
+let reduceMotionMQ: MediaQueryList | null | undefined;
+function prefersReducedMotion(): boolean {
+  if (reduceMotionMQ === undefined) {
+    reduceMotionMQ = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  }
+  return !!reduceMotionMQ?.matches;
+}
+
+/** Arc clarity the instant after a shot: faint enough to read as "not yet",
+ *  solid enough that the aim it is showing is still usable. */
+const ARC_FADED = 0.34;
+/** Pulses per reload cycle — a COUNT, not a rate, which is what lets one
+ *  constant serve every cooldown the game can produce (level.ts's 1350ms, the
+ *  Magazine track's −15% a tier, and congestion's live scale on top). The
+ *  cycle always fits the same three beats, so a faster reload IS a faster
+ *  blink without a second number to keep in sync. */
+const ARC_BLINKS = 3;
+/** How much of the arc's alpha the blink swings. Shallow on purpose: the arc
+ *  is a trajectory first and a reload readout second, and one that vanished on
+ *  every downbeat would cost the player the aim they are in the middle of. */
+const ARC_BLINK_DEPTH = 0.4;
+
+/**
+ * The reload, told on the arc itself.
+ *
+ * The muzzle ring and the HUD bar both already carry this number, and both are
+ * in the wrong place for it: the ring is under the player's own dragging
+ * thumb, the bar is down in the plant panel. The arc is the one thing their
+ * eyes are actually on while they line a shot up, so it says it too — faded
+ * and slowly throbbing the instant after a shot, brighter and quicker as the
+ * cooldown burns down, solid at ready.
+ *
+ * WHY THE PHASE COMES FROM `reload` AND NOT FROM `now`. The obvious version —
+ * `sin(now * rate(reload))` — jumps every time the rate changes, because
+ * multiplying a WALL CLOCK by a rising frequency moves the phase itself: the
+ * wave stutters and skips instead of accelerating. Driving the phase from the
+ * ratio squared makes the derivative (and so the blink rate) rise linearly
+ * with the ratio, continuously, with nothing to keep in sync frame to frame.
+ * cos() of a whole number of turns lands at 1 at BOTH ends, so the effect
+ * starts on a bright beat, dips three times, and arrives at ready already at
+ * full alpha — no pop at the hand-off to the steady state.
+ */
+function reloadArcAlpha(reload: number): number {
+  if (reload >= 1) return 1;
+  const clarity = ARC_FADED + (1 - ARC_FADED) * reload;
+  // Reduced motion keeps the RAMP and drops the BLINK. The two halves of this
+  // cue are not the same kind of thing: a brightness that tracks the cooldown
+  // is information, and holds still while it is read; a blink is motion, and
+  // motion is the whole of what the preference asks about (same split the rest
+  // of the app makes — see app.css's prefers-reduced-motion blocks).
+  if (prefersReducedMotion()) return clarity;
+  const osc = 0.5 + 0.5 * Math.cos(2 * Math.PI * ARC_BLINKS * reload * reload);
+  return clarity * (1 - ARC_BLINK_DEPTH * (1 - osc));
+}
+
+function drawTrajectory(
+  ctx: CanvasRenderingContext2D,
+  pts: Matter.Vector[],
+  reload: number,
+): void {
   if (pts.length < 2) return;
+  const cue = reloadArcAlpha(reload);
   const sprite = getDotSprite();
   ctx.save();
   for (let i = 0; i < pts.length; i += 3) {
     const t = i / pts.length;
-    ctx.globalAlpha = 0.9 * (1 - t) + 0.15;
+    ctx.globalAlpha = (0.9 * (1 - t) + 0.15) * cue;
     // Scale the baked disc (radius DOT_R + its glow) to this dot's radius.
     const half = (DOT_R + DOT_PAD) * ((4 * (1 - t) + 2) / DOT_R);
     ctx.drawImage(sprite, pts[i].x - half, pts[i].y - half, half * 2, half * 2);
