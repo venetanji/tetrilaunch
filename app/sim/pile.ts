@@ -2,7 +2,7 @@
 // Congestion-tax sweep CLI.
 //
 //   npx tsx sim/pile.ts [--bays 1,3,5,8,10] [--seeds 6] [--carry 100]
-//     [--bots aim,patient] [--variants off,stock,...] [--census]
+//     [--marks 1,3,5] [--bots aim,patient] [--variants off,stock,...] [--census]
 //
 // Answers the three questions level.ts's PILE_TIERS cannot be tuned without.
 //
@@ -34,6 +34,8 @@ import { fileURLToPath } from "node:url";
 import { Game } from "../src/game/game";
 import { makeBaseLevel, PILE_TIERS, type LevelConfig, type PileTier } from "../src/game/level";
 import { BOTS } from "./bots";
+import { spreadRatchets } from "./ratchet-model";
+import { applyRatchets } from "../src/game/hazards";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DT = 1000 / 60;
@@ -58,17 +60,17 @@ const VARIANTS: Variant[] = [
   { name: "stock", tiers: PILE_TIERS, allowance: 0 },
   // Money only — isolates how much of any effect is the funds multiplier
   // rather than the clock. Against a $25 launch this is +$13/+$25 a shot.
-  { name: "cash-only", tiers: PILE_TIERS.map((t) => ({ ...t, clockSec: 0 })), allowance: 0 },
+  { name: "cash-only", tiers: PILE_TIERS.map((t) => ({ ...t, clockSec: 0, payMult: Infinity })), allowance: 0 },
   // Clock only — the other half. Spam stops costing money and starts costing
   // the one resource a fat bankroll cannot buy back.
-  { name: "clock-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1 })), allowance: 0 },
+  { name: "clock-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, payMult: Infinity })), allowance: 0 },
   // Looser thresholds, same penalties: 6 and 8 lines' worth. If `stock` taxes
   // clean play, this is where the knee should be instead.
   {
     name: "loose",
     tiers: [
-      { cubes: 48, costMult: 1.5, clockSec: 2, reloadMult: 1 },
-      { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 1 },
+      { cubes: 48, costMult: 1.5, clockSec: 2, reloadMult: 1, payMult: Infinity },
+      { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 1, payMult: Infinity },
     ],
     allowance: 0,
   },
@@ -77,8 +79,8 @@ const VARIANTS: Variant[] = [
   {
     name: "harsh",
     tiers: [
-      { cubes: 32, costMult: 2, clockSec: 3, reloadMult: 1 },
-      { cubes: 48, costMult: 4, clockSec: 8, reloadMult: 1 },
+      { cubes: 32, costMult: 2, clockSec: 3, reloadMult: 1, payMult: Infinity },
+      { cubes: 48, costMult: 4, clockSec: 8, reloadMult: 1, payMult: Infinity },
     ],
     allowance: 0,
   },
@@ -90,26 +92,38 @@ const VARIANTS: Variant[] = [
   // bay settle what is in the air. So these keep the clock and drop or soften
   // the multiplier, at the looser thresholds the census argued for.
   { name: "cand-clock", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1 },
-    { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1 },
+    { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   { name: "cand-mild", tiers: [
-    { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1 },
-    { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1 },
+    { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   // Same thresholds, a harder clock. Brackets the clock axis on its own.
-  // ISOLATORS for the two congestion taxes no variant above separates.
+  // ISOLATORS for the congestion taxes no variant above separates.
   // game.ts kills the combo on ANY upward tier crossing whenever pileTiers is
   // non-empty, so `combo-only` (all other taxes zeroed) measures the streak
   // break alone, and `reload-only` measures reload + combo — subtract the two
   // to get the reload multiplier's own cost. The combo break is the one
   // congestion tax the sim CAN judge (bots build and lose real streaks), and
   // it is multiplicative on income where the rest are additive on cost.
-  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
-  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0 })), allowance: 0 },
+  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity })), allowance: 0 },
+  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, payMult: Infinity })), allowance: 0 },
+  // The PAYOUT tax on its own (level.ts's PileTier.payMult) — every other axis
+  // zeroed, so this is the combo break plus the multiplier cap and nothing
+  // else. Unlike the cost and clock axes it is not a drain the bot can go broke
+  // against: it lowers income without ever refusing a shot, so a drop here is a
+  // score drop rather than a bay ending early. Read it next to `combo-only`;
+  // the difference between them is what the cap alone is worth.
+  { name: "pay-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
+  // The ladder EXACTLY as it shipped before the payout cap existed — stock with
+  // payMult turned off. The counterfactual, and the only row that can say
+  // whether the cap earned its place: read `stock` against this one, not
+  // against `off`, or you are measuring the whole tax and calling it the cap.
+  { name: "no-pay", tiers: PILE_TIERS.map((t) => ({ ...t, payMult: Infinity })), allowance: 0 },
   { name: "cand-bite", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1 },
-    { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1 },
+    { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   // The upgrade track, at what tier 1/2/3 might each be worth. Same tax, more
   // room before it triggers — this is the "buy back the spam strategy" lever.
@@ -139,6 +153,13 @@ const seeds = parseInt(get("--seeds") ?? "6", 10);
 // The census is especially sensitive to this: a fat carry buys more shots, and
 // more shots in flight is more cubes on the field.
 const carry = parseInt(get("--carry") ?? "100", 10);
+// The MARK the bay is flown at (run.ts's RunState.mark), which scales every
+// difficulty axis in makeBaseLevel. Defaults to 1 alone, which is what this
+// file measured before the flag existed — so an old invocation still means
+// exactly what it used to. Congestion questions are usually mark-shaped
+// ("does spam still pay at the tier I am actually playing"), and a sweep
+// pinned to Mark 1 cannot answer one.
+const marks = nums(get("--marks") ?? "1");
 const botNames = (get("--bots") ?? "aim,patient").split(",").map((s) => s.trim()).filter(Boolean);
 const variantNames = (get("--variants") ?? VARIANTS.map((v) => v.name).join(","))
   .split(",").map((s) => s.trim()).filter(Boolean);
@@ -163,8 +184,18 @@ const variants = variantNames.map((n) => {
 // Level construction
 // ---------------------------------------------------------------------------
 
-function levelFor(bay: number, variant: Variant): LevelConfig {
-  const cfg = makeBaseLevel(bay - 1);
+function levelFor(bay: number, variant: Variant, mark: number): LevelConfig {
+  // makeBaseLevel(bay, mark) sets `cfg.mark` and changes NOTHING else — the
+  // Mark's difficulty is carried entirely by the ratchets a run is forced to
+  // draft and by the loadout budget, neither of which a bare base level has.
+  // So a --marks sweep has to apply the stack itself or it compares a level
+  // with itself; ratchet-model.ts is the same model marks.ts prices the ladder
+  // with. The LOADOUT half is deliberately not modelled here: this file asks
+  // whether the congestion rule teaches something, and handing the bots a
+  // Mark-appropriate ship would fold "can they afford the answer" into an
+  // answer about the tax. Read these rows as an UNUPGRADED run at that Mark —
+  // the hard case — and marks.ts for the ladder-with-builds question.
+  const cfg = applyRatchets(makeBaseLevel(bay - 1, mark), spreadRatchets(mark, bay));
   if (bay > 1) cfg.startingFunds = cfg.startingFunds + carry;
   cfg.pileTiers = variant.tiers.map((t) => ({ ...t }));
   cfg.pileAllowance = variant.allowance;
@@ -184,6 +215,7 @@ interface PileOutcome {
   bot: string;
   variant: string;
   bay: number;
+  mark: number;
   seed: number;
   status: "won" | "lost" | "cap";
   lossReason: string | null;
@@ -212,8 +244,10 @@ interface PileOutcome {
  *  build and drain, coarse enough not to make the JSON enormous. */
 const SAMPLE_STEPS = 30;
 
-function runPileBay(bay: number, variant: Variant, botName: string, seed: number): PileOutcome {
-  const cfg = levelFor(bay, variant);
+function runPileBay(
+  bay: number, variant: Variant, botName: string, seed: number, mark: number,
+): PileOutcome {
+  const cfg = levelFor(bay, variant, mark);
   let shots = 0;
   let taxedShots = 0;
   let taxedCash = 0;
@@ -268,6 +302,7 @@ function runPileBay(bay: number, variant: Variant, botName: string, seed: number
     bot: botName,
     variant: variant.name,
     bay,
+    mark,
     seed,
     status,
     lossReason: game.lossReason,
@@ -337,7 +372,7 @@ const all: PileOutcome[] = [];
 
 console.log(`# Congestion sweep\n`);
 console.log(
-  `bays ${bays.join(",")} · seeds ${seeds} · carry $${carry} · ` +
+  `bays ${bays.join(",")} · marks ${marks.join(",")} · seeds ${seeds} · carry $${carry} · ` +
   `bots ${botNames.join(",")} · variants ${variantNames.join(",")}\n`,
 );
 
@@ -349,12 +384,12 @@ console.log(
   const census: PileOutcome[] = [];
   for (const bay of bays) {
     for (let seed = 1; seed <= seeds; seed++) {
-      census.push(runPileBay(bay, VARIANTS[0], "aim", seed));
+      census.push(runPileBay(bay, VARIANTS[0], "aim", seed, marks[0]));
     }
   }
   all.push(...census);
 
-  console.log(`## Census — cube counts with NO tax (bot: aim, variant: off)\n`);
+  console.log(`## Census — cube counts with NO tax (bot: aim, variant: off, mark ${marks[0]})\n`);
   console.log(
     "| Bay | Cubes p50 | p90 | max | Shots | fired >32 | fired >48 | field-time >32 | >48 |",
   );
@@ -390,23 +425,31 @@ if (censusOnly) {
 
 // --- 2 & 3. Bite and counter-play ------------------------------------------
 console.log(`## Variants\n`);
+// SCORE is here because the payout cap (level.ts's PileTier.payMult) is the
+// one congestion axis that moves nothing else in this table. It does not refuse
+// a shot, burn a second or slow a reload — it lowers what a clear is worth. A
+// table of win rates and tax taken is structurally blind to it, which is how a
+// payout change ships looking like it did nothing.
 console.log(
-  "| Variant | Bot | N | Win | Secs(win) | Shots | Lines | Shots/line | " +
+  "| Variant | Bot | Mark | N | Win | Score | Secs(win) | Shots | Lines | Shots/line | " +
   "Taxed | $tax | s burned | Held | Losses |",
 );
-console.log("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+console.log("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 
 for (const variant of variants) {
   for (const botName of botNames) {
+  for (const mark of marks) {
     const rows: PileOutcome[] = [];
     for (const bay of bays) {
       for (let seed = 1; seed <= seeds; seed++) {
         // The census already ran (off, aim) on exactly these seeds — reuse it
-        // rather than paying for the same physics twice.
-        const cached = variant.name === "off" && botName === "aim"
-          ? all.find((r) => r.variant === "off" && r.bot === "aim" && r.bay === bay && r.seed === seed)
+        // rather than paying for the same physics twice. Only at the census's
+        // own mark: the same bay at another mark is a different level.
+        const cached = variant.name === "off" && botName === "aim" && mark === marks[0]
+          ? all.find((r) => r.variant === "off" && r.bot === "aim"
+              && r.bay === bay && r.seed === seed && r.mark === mark)
           : undefined;
-        const r = cached ?? runPileBay(bay, variant, botName, seed);
+        const r = cached ?? runPileBay(bay, variant, botName, seed, mark);
         if (!cached) all.push(r);
         rows.push(r);
       }
@@ -418,7 +461,8 @@ for (const variant of variants) {
     const totalShots = rows.reduce((s, r) => s + r.shots, 0);
     const totalTaxed = rows.reduce((s, r) => s + r.taxedShots, 0);
     console.log(
-      `| ${variant.name} | ${botName} | ${rows.length} | ${pct(wins.length / rows.length)} | ` +
+      `| ${variant.name} | ${botName} | ${mark} | ${rows.length} | ${pct(wins.length / rows.length)} | ` +
+      `${fmt(mean(rows.map((r) => r.endScore)), 0)} | ` +
       `${wins.length ? fmt(quantile(winSecs, 0.5)) : "n/a"} | ${fmt(shots)} | ${fmt(lines)} | ` +
       `${lines > 0 ? fmt(shots / lines, 2) : "n/a"} | ` +
       `${pct(totalTaxed / (totalShots || 1))} | ` +
@@ -427,6 +471,7 @@ for (const variant of variants) {
       `${fmt(mean(rows.map((r) => r.heldSteps / 60)), 0)}s | ` +
       `${lossBreakdown(rows)} |`,
     );
+  }
   }
 }
 console.log();

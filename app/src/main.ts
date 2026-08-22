@@ -78,7 +78,7 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
-  playMusic, playStinger, stopStinger, suspendAudio, resumeAudio,
+  playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio,
 } from "./lib/audio";
 
 type AppState =
@@ -144,6 +144,12 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** How congested the bay is, 0 (clean) to 1 (worst tier), as reported by
+   *  game.ts's onCongestion. Held here rather than only pushed to the mixer
+   *  because the cue has to be MUTED off-screen and restored on the way back:
+   *  onCongestion fires on crossings only, so a bay paused while congested and
+   *  then resumed would come back silent until the pile happened to move. */
+  private congestion = 0;
   /** The bed THIS Contract attempt drew (contracts.ts's contractBed), held for
    *  the life of the attempt instead of re-derived. syncMusic runs on every
    *  state change, so deriving it there would re-roll the 5% special each time
@@ -359,6 +365,10 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // The congestion cue belongs to the bay being PLAYED. Muted for every other
+    // screen and restored on the way back in, so it cannot leak into a pause
+    // modal, a draft or the menu — and cannot go missing after one.
+    setCongestion(s === "playing" ? this.congestion : 0);
     // A rebind capture cannot outlive the Controls screen — a keypress on the
     // menu must never silently rebind Fire.
     if (s !== "controls") this.rebinding = null;
@@ -424,6 +434,14 @@ class App {
         stopStinger();
         playMusic("menu");
     }
+  }
+
+  /** Turn a congestion tier into a cue level. Normalised against the bay's own
+   *  ladder rather than a hardcoded 2, so adding a third rung re-spaces the cue
+   *  instead of pinning the new worst tier alongside the old one. */
+  private setCongestion(tier: number, tiers: number): void {
+    this.congestion = tiers > 0 ? Math.min(1, Math.max(0, tier / tiers)) : 0;
+    if (this.state === "playing") setCongestion(this.congestion);
   }
 
   private finePointer(): boolean {
@@ -928,6 +946,7 @@ class App {
   private startLevel(): void {
     if (!this.run) return;
     this.game?.destroy();
+    this.congestion = 0;
     // levelForRun already seeds the bay's Bond Breaker charges from the run's
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
@@ -947,6 +966,7 @@ class App {
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
+      onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
     telemetry.startBay({
@@ -1136,6 +1156,7 @@ class App {
    */
   private startContract(c: Contract): void {
     this.game?.destroy();
+    this.congestion = 0;
     this.run = null;
     this.contract = c;
     // Rolled here, once, because this is the start of an ATTEMPT — a retry is
@@ -1162,6 +1183,7 @@ class App {
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
+      onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (s) => this.onGameStatus(s),
     }, c.seed);
     telemetry.startRun(0, {} as UpgradeTiers, []);

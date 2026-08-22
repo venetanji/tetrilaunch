@@ -18,7 +18,8 @@ import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
-  makeBaseLevel, TARGET_PER_BAY, type LevelConfig, type PileTier,
+  makeBaseLevel, payoutMult, COMBO_STEP, PILE_TIERS, TARGET_PER_BAY,
+  type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
@@ -3158,9 +3159,12 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // likes — what matters is the cube count and the price it implies.
   // Thresholds are EXCLUSIVE (game.ts's pileTier tests `n > t.cubes`), so 8
   // cubes on the field trips a tier written at 7 and not one written at 8.
+  // payMult: Infinity throughout — every assertion below is about PRICING or
+  // the reload, and a payout cap riding along would quietly be a second
+  // variable in each of them. The cap gets its own block at the end.
   const tiers: PileTier[] = [
-    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1 },
-    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1 },
+    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ];
   const congestedCfg: LevelConfig = {
     ...makeBaseLevel(0), pileTiers: tiers, pileAllowance: 0,
@@ -3202,7 +3206,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // firing anyway.
   {
     const g2 = new Game(
-      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1 }] },
+      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity }] },
       {}, 1);
     g2.combo = 4;
     g2.update(0);
@@ -3274,7 +3278,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // launch into an empty bay is always untaxed, however low the threshold —
   // it is the launch AFTER it that pays.
   const clock = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1, payMult: Infinity }] }, {}, 1);
   clock.shoot(10_000);
   for (let s = 0; s < 5; s++) clock.update(10_000 + s);
   check("the first launch into an empty bay is untaxed", clock.timeLeftMs > 140_000,
@@ -3291,7 +3295,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // the BASE cost it would report the player solvent and the bay would sit
   // there saying nothing until the clock ran out.
   const stuck = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1, payMult: Infinity }] }, {}, 1);
   // One launch to put cargo on the field, so the NEXT one is priced congested.
   stuck.shoot(10_000);
   for (let s = 0; s < 5; s++) stuck.update(10_000 + s);
@@ -3305,6 +3309,127 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   check("the bay reaches a verdict instead of stalling",
     stuck.status === "lost" && stuck.lossReason === "broke",
     `status ${stuck.status}, reason ${stuck.lossReason}`);
+
+  // ---- The payout cap (level.ts's payoutMult / PileTier.payMult) -----------
+  //
+  // The fourth pressure. The other three price the SHOT, which left the
+  // stack-and-collapse loop intact: keep stacking until the weight breaks the
+  // bottom bonds, pay ONE congested launch fee, and get the whole multi-row
+  // collapse at list price.
+  {
+    const [t1, t2] = PILE_TIERS;
+    check("the shipped ladder caps payouts below list",
+      t1.payMult === 0.75 && t2.payMult === 0.5, `${t1.payMult}/${t2.payMult}`);
+    check("the second knee cuts deeper than the first", t2.payMult < t1.payMult,
+      `${t1.payMult} vs ${t2.payMult}`);
+
+    // A clean bay is untouched — the streak is the entire reward for tidy play,
+    // and congestion is not allowed to become a tax on recovering from it.
+    check("a clean bay pays the streak",
+      payoutMult(1, null) === 1 && payoutMult(5, null) === 2,
+      `${payoutMult(1, null)} / ${payoutMult(5, null)}`);
+    check("the streak climbs by COMBO_STEP",
+      payoutMult(3, null) - payoutMult(2, null) === COMBO_STEP);
+    check("a combo of 0 is not a negative multiplier", payoutMult(0, null) === 1,
+      String(payoutMult(0, null)));
+
+    // Congested, the cap REPLACES the streak rather than scaling it. The combo
+    // advances once per CRUSH while the payout scales with the LINES inside it,
+    // so scaling would barely dent a four-row collapse.
+    check("a congested clear pays the cap, not the streak",
+      payoutMult(1, t1) === 0.75 && payoutMult(9, t1) === 0.75,
+      `${payoutMult(1, t1)} / ${payoutMult(9, t1)}`);
+    check("no streak climbs back over the cap", payoutMult(99, t2) === 0.5,
+      String(payoutMult(99, t2)));
+    check("every congested payout is below list price",
+      [1, 2, 5, 20, 99].every((c) => payoutMult(c, t1) < 1 && payoutMult(c, t2) < 1));
+    check("Infinity is the off switch",
+      payoutMult(5, { ...t1, payMult: Infinity }) === payoutMult(5, null));
+
+    // THE ORDERING THIS TURNS ON, and the reason stepPileTier exists.
+    //
+    // updateLineClear pulls the crushed cubes out of `cubes` BEFORE the payout
+    // is computed, so the live `pileTier` at that moment describes the bay
+    // after it was tidied. Price the collapse with that and a four-row crush
+    // off a full stack reads as a clean bay — the tax would miss exactly the
+    // play it was added for. stepPileTier is the snapshot from the top of the
+    // step: the bay the player actually built and fired into.
+    const payTiers: PileTier[] = [
+      { cubes: 3, costMult: 1, clockSec: 0, reloadMult: 1, payMult: 0.75 },
+      { cubes: 7, costMult: 1, clockSec: 0, reloadMult: 1, payMult: 0.5 },
+    ];
+    const snap = new Game(
+      { ...makeBaseLevel(0), pileTiers: payTiers, pileAllowance: 0 }, {}, 1);
+    fireTwice(snap);
+    snap.update(30_000);
+    check("the step's tier sees the pile the player built",
+      snap.stepPileTier === payTiers[1], snap.stepPileTier ? "set" : "null");
+    snap.cubes.length = 0; // stands in for the crush emptying the field
+    check("the live reading now calls the bay clean", snap.pileTier === null);
+    check("but the step's tier still prices the crush",
+      snap.stepPileTier === payTiers[1], snap.stepPileTier ? "set" : "null");
+    check("so the collapse is paid at the congested rate, not the tidied one",
+      payoutMult(1, snap.stepPileTier) === 0.5 && payoutMult(1, snap.pileTier) === 1,
+      `${payoutMult(1, snap.stepPileTier)} vs ${payoutMult(1, snap.pileTier)}`);
+    // And the snapshot is a SNAPSHOT, not a stuck value: step again on the now
+    // empty field and it agrees with the live reading.
+    snap.update(30_016);
+    check("the next step re-reads the tidied bay", snap.stepPileTier === null);
+  }
+
+  // ---- The cue event (game.ts's onCongestion) ------------------------------
+  //
+  // What lib/audio.ts's setCongestion is driven by. The contract is the whole
+  // value here: fire on CROSSINGS in both directions, and not in between. The
+  // cue is a rising static bed and a lowpass on the music, so a missed
+  // downward crossing leaves a tidy bay sounding congested for the rest of the
+  // level, and firing every step would restart the ramp 60 times a second.
+  {
+    const seen: number[] = [];
+    const cue = new Game(
+      {
+        ...makeBaseLevel(0),
+        pileTiers: [
+          { cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+          { cubes: 5, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+        ],
+      },
+      { onCongestion: (tier) => seen.push(tier) },
+      1,
+    );
+    cue.update(0);
+    check("a clean bay says nothing at all", seen.length === 0, seen.join(","));
+
+    fireTwice(cue); // a std shipment is 4 cubes, so this clears both rungs
+    check("crossing up reports the rung it reached",
+      seen.length > 0 && seen[seen.length - 1] === 2, seen.join(","));
+    check("it reports the rungs in order, not just the last",
+      seen.join(",") === "1,2", seen.join(","));
+
+    const afterUp = seen.length;
+    for (let i = 0; i < 20; i++) cue.update(30_000 + i * 16);
+    check("staying congested does not keep firing", seen.length === afterUp, seen.join(","));
+
+    // The direction the combo break deliberately ignores, and the one a cue
+    // cannot afford to: something has to say the mess is gone.
+    cue.cubes.length = 0;
+    cue.update(31_000);
+    check("tidying the bay takes the cue back", seen[seen.length - 1] === 0, seen.join(","));
+
+    // 0 is a clean bay, and `tiers` lets a consumer normalise without knowing
+    // how long this bay's ladder is — main.ts scales the cue by tier / tiers.
+    const ladder: number[] = [];
+    const two = new Game(
+      { ...makeBaseLevel(0), pileTiers: [
+        { cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+      ] },
+      { onCongestion: (_t, tiers) => ladder.push(tiers) },
+      1,
+    );
+    fireTwice(two);
+    check("the event reports the ladder's own length",
+      ladder.length > 0 && ladder.every((n) => n === 1), ladder.join(","));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -65,8 +65,48 @@ const STINGER_GAIN = 0.7;
  *  by the next screen. Long enough not to click, short enough not to muddy. */
 const FADE_MS = 450;
 
+/* ------------------------------------------------------ the congestion cue */
+
+/**
+ * Congestion has always been something the player SEES — the bay floor lights
+ * row by row (game/render.ts's drawCongestionRows). This is the same state
+ * offered to the ear: static rises over the bed and the bed itself goes
+ * muffled, so a bay filling up sounds like a signal degrading rather than
+ * sounding like nothing at all.
+ *
+ * The static is GENERATED, not shipped. It is white noise through a bandpass,
+ * which is what static IS, and an mp3 would have cost ~2.5 MB in a precache
+ * already carrying 29 MB of music to say what Math.random says for free.
+ *
+ * Muffling means a lowpass, which means the music has to reach the audio graph
+ * — so playMusic now routes its element through createMediaElementSource. That
+ * does NOT undo the reason music uses <audio> at all (see the module note
+ * above): a MediaElementSource STREAMS. It never decodes the track into an
+ * AudioBuffer, so the megabytes-of-PCM argument holds exactly as written.
+ */
+
+/** Lowpass corner with a clean bay — above hearing, i.e. not filtering at all —
+ *  and where it lands at full congestion. */
+const MUSIC_OPEN_HZ = 20000;
+const MUSIC_MUFFLED_HZ = 900;
+/** Peak static, before the effects bus applies its own 0.75. Broadband noise
+ *  reads far louder than its amplitude suggests, and this cue is meant to nag
+ *  from under the music rather than take the mix over. */
+const STATIC_GAIN = 0.1;
+/** Static rises fast and falls slow. That is the right dramatic shape, and it
+ *  is also free hysteresis: a cube count sitting on a threshold crosses the
+ *  tier several times a second, and a symmetric ramp would stutter audibly. */
+const CUE_RISE_TAU = 0.08;
+const CUE_FALL_TAU = 0.35;
+
 let ctx: AudioContext | null = null;
 let fxBus: GainNode | null = null;
+/** Music's last stop before the output, so congestion can close it down. */
+let musicFilter: BiquadFilterNode | null = null;
+/** The static's level. Null until the first congested bay — a player who never
+ *  fills one never pays for the noise source at all. */
+let staticGain: GainNode | null = null;
+let congestion = 0;
 const buffers = new Map<FxName, AudioBuffer>();
 
 let music: HTMLAudioElement | null = null;
@@ -126,6 +166,10 @@ export function unlockAudio(): void {
     fxBus = ctx.createGain();
     fxBus.gain.value = soundOn ? FX_BUS_GAIN : 0;
     fxBus.connect(ctx.destination);
+    musicFilter = ctx.createBiquadFilter();
+    musicFilter.type = "lowpass";
+    musicFilter.frequency.value = MUSIC_OPEN_HZ;
+    musicFilter.connect(ctx.destination);
     void ctx.resume();
     void loadEffects();
   } catch {
@@ -277,6 +321,7 @@ export function playMusic(track: MusicName | null): void {
     el.loop = true;
     el.preload = "auto";
     music = el;
+    routeMusic(el);
     // play() resolves asynchronously, and a fast screen change can replace
     // `music` before it does. Without this check the superseded element's
     // continuation fades ITSELF back in — against the fade-out already running
@@ -336,6 +381,87 @@ export function stopStinger(): void {
   fadeOutAndStop(stinger);
   stinger = null;
   stingerName = null;
+}
+
+/**
+ * Send a music element through the graph so the congestion lowpass reaches it.
+ *
+ * Best-effort by design, and the failure has to fall the safe way. With no
+ * AudioContext yet — the menu bed starts before the first pointerdown unlocks
+ * one — the element plays straight to the output unfiltered, which is correct:
+ * nothing is congested on a menu, and that bed is replaced before a bay begins.
+ * If createMediaElementSource throws it never captured the element, so the
+ * element goes on playing by itself. Either way the music ends up unmuffled
+ * rather than silent, and silent music would be much the worse bug.
+ */
+function routeMusic(el: HTMLAudioElement): void {
+  if (!ctx || !musicFilter) return;
+  try {
+    ctx.createMediaElementSource(el).connect(musicFilter);
+  } catch {
+    /* left playing to the output on its own — see above */
+  }
+}
+
+/** The noise source, built on the first congested bay and then left running at
+ *  zero gain for good. A BufferSource cannot be restarted, and a looping
+ *  2-second buffer through one filter is not worth the bookkeeping of tearing
+ *  down and rebuilding every time a bay gets tidied. */
+function ensureStatic(): void {
+  if (!ctx || !fxBus || staticGain) return;
+  try {
+    // Two seconds is long enough that the loop point is inaudible in noise.
+    const frames = Math.floor(ctx.sampleRate * 2);
+    const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    // Flat white noise is a hiss. A wide bandpass through the presence range is
+    // what makes it read as a signal breaking up rather than a blown speaker.
+    const band = ctx.createBiquadFilter();
+    band.type = "bandpass";
+    band.frequency.value = 2000;
+    band.Q.value = 0.6;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    // Through the EFFECTS bus rather than straight to the output: the static is
+    // a game cue, so the Sound toggle should govern it and it should sit at the
+    // effects level. Routing it here means both come for free.
+    src.connect(band).connect(gain).connect(fxBus);
+    src.start();
+    staticGain = gain;
+  } catch {
+    staticGain = null;
+  }
+}
+
+/**
+ * How congested the bay is: 0 for clean, 1 for the worst tier.
+ *
+ * Driven by tier CROSSINGS (game.ts's onCongestion) rather than per frame, and
+ * idempotent — so main.ts can also call it on a screen change to guarantee the
+ * cue never outlives the bay that earned it.
+ */
+export function setCongestion(level: number): void {
+  const next = Math.max(0, Math.min(1, level));
+  const rising = next > congestion;
+  congestion = next;
+  if (!ctx) return;
+  if (next > 0) ensureStatic();
+  const now = ctx.currentTime;
+  const tau = rising ? CUE_RISE_TAU : CUE_FALL_TAU;
+  staticGain?.gain.setTargetAtTime(STATIC_GAIN * next, now, tau);
+  // GEOMETRIC between the two corners, because pitch is. Interpolating hertz
+  // linearly would spend the first half of the travel between 20kHz and 10kHz,
+  // where a lowpass does nothing anyone can hear, and then dump the entire
+  // audible change into the last few percent.
+  musicFilter?.frequency.setTargetAtTime(
+    MUSIC_OPEN_HZ * Math.pow(MUSIC_MUFFLED_HZ / MUSIC_OPEN_HZ, next),
+    now,
+    tau,
+  );
 }
 
 /* --------------------------------------------------------- backgrounding */
