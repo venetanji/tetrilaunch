@@ -436,8 +436,18 @@ export const NO_MATERIALS: MaterialMix = {
  * Thresholds are stated in cubes and sized in FULL LINES, so the number means
  * something the player can see: compactorMinLineCells is 8, so 32 cubes is
  * "four lines' worth of cargo is loose on the field" and 48 is six. Above the
- * first, a launch costs a quarter more and 2s of clock; above the second,
- * double and 5s.
+ * first, a launch costs a quarter more and reloads half again as slow; above
+ * the second, double and twice as slow.
+ *
+ * clockSec is 0 at both tiers — the CLOCK BURN IS OFF (device playtest,
+ * 2026-08-22: a hidden bite out of the bay clock on top of the price and
+ * the reload read as unfair rather than as pressure). The field and
+ * game.ts's burnCongestionClock stay wired because the intended future for
+ * the burn is a HAZARD AXIS — a later-tier ratchet the player chooses into
+ * (hazards.ts), not a default every bay carries — and that return needs a
+ * proper visualization first (the clock visibly losing the seconds at the
+ * moment of launch; a tax the player only meets in the end screen teaches
+ * nothing, the same rule the HUD's launchCostNow quote already follows).
  *
  * THE KNEE IS SIZED TO THE HUMAN PILE, NOT THE BOT'S — learned the hard way.
  * A 2026-08-22 balance pass measured the aim bot's census (median bay-1
@@ -499,8 +509,8 @@ export interface PileTier {
  *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
  *  variants against the same named default. */
 export const PILE_TIERS: PileTier[] = [
-  { cubes: 32, costMult: 1.25, clockSec: 2, reloadMult: 1.5 },
-  { cubes: 48, costMult: 2, clockSec: 5, reloadMult: 2 },
+  { cubes: 32, costMult: 1.25, clockSec: 0, reloadMult: 1.5 },
+  { cubes: 48, costMult: 2, clockSec: 0, reloadMult: 2 },
 ];
 
 /** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:
