@@ -29,6 +29,7 @@
  * spends a scalar derived from the tier. That is what separates this from
  * randomness — difficulty is a number we spend, not an accident of the roll.
  */
+import { buildOrder } from "./buildable";
 import { HAZARDS } from "./hazards";
 import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
@@ -708,6 +709,58 @@ export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
 }
 
 /**
+ * The order a pattern Contract's shipments actually arrive in.
+ *
+ * The SET is seeded and shared — every player gets the same day's inventory,
+ * which is what the card advertises and what makes a per-Contract board mean
+ * anything. The ORDER is re-rolled per attempt, and deliberately not seeded:
+ * if it were, one unlucky permutation would make that Contract permanently
+ * unwinnable for everyone who drew it, and free retries would hand back the
+ * identical bad order forever.
+ *
+ * Re-rolling fixes permanence. It does not fix the roll, and that turned out to
+ * matter: `tilingQueue` proves the inventory PACKS the goal rectangle, but a
+ * packing says nothing about assembling it one shipment at a time under gravity,
+ * with rows clearing the instant they fill. The tier-5 board on 2026-08-22 dealt
+ * [I, I, L, L, L, J] for three lines — a set that packs, and whose canonical
+ * order cannot be built by landing each shipment where it falls. 18 of its 60
+ * orders are like that. A player who draws one is being asked for something that
+ * does not exist, and the mode whose whole premise is that it can't beat you
+ * beats them.
+ *
+ * So the deal is now PROVEN rather than rolled. buildable.ts searches for an
+ * order and its placements together, which is what makes this affordable at bay
+ * start — re-shuffling and re-checking pays for the same opening once per
+ * candidate, while one search pays for it once. The randomization inside that
+ * search is what preserves the property re-rolling was for: repeated attempts
+ * get genuinely different orders, all of them finishable.
+ *
+ * Three tiers, strongest first:
+ *
+ *   drop — an order finishable landing every shipment straight down. Preferred
+ *          because it is the one a player can REASON about: no shot has to be
+ *          threaded into a pocket, so the queue looks as winnable as it is.
+ *   tuck — an order finishable if a shipment may come to rest anywhere it fits
+ *          with something under it. Still provably winnable, and honest about
+ *          this bay: shipments arrive on an arc, tumble, shatter on the press
+ *          and get shoved sideways by the bar, all of which reach places a
+ *          straight drop never does. Some inventories (anything S/Z-heavy) have
+ *          no drop order at all, and refusing to deal them would silently
+ *          delete a third of the high-tier board.
+ *   any  — a plain shuffle, if neither search finds anything inside its budget.
+ *          Unreachable for the inventories the generator emits (sim/patterns.ts
+ *          measures this), and here because the alternative to an awkward
+ *          Contract is a crash.
+ */
+export function dealPatternQueue(
+  c: Contract, lineCells: number, rng: () => number,
+): PieceType[] {
+  return buildOrder(c.queue, lineCells, rng, c.pieceSize, "drop")
+    ?? buildOrder(c.queue, lineCells, rng, c.pieceSize, "tuck")
+    ?? shuffleSeeded(c.queue, rng);
+}
+
+/**
  * The playable level for a Contract. Built off the standard ladder so a bay
  * still looks and feels like Tetrilaunch, then stripped of the two pressures
  * Contracts deliberately don't have:
@@ -722,14 +775,10 @@ export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
  *
  * `rng` orders a pattern Contract's queue and defaults to Math.random — i.e.
  * UNSEEDED, deliberately, which is the one place a Contract is not reproducible
- * from its id. The set is seeded and shared; the order is re-rolled on every
- * attempt. The alternative is worse than it looks: if the order were seeded
- * too, then one unlucky permutation would make that Contract permanently
- * unwinnable for every player who drew it, and free retries would hand back the
- * identical bad order forever. That is the same defect class as the launch
- * budgets that turned out 35% infeasible, and it is undetectable without
- * solving the physics. Re-rolling costs a determinism the leaderboard doesn't
- * need — the SET is the challenge, and everyone gets the same one.
+ * from its id. See dealPatternQueue for why the order is re-rolled per attempt
+ * and, since the [I, I, L, L, L, J] board, PROVEN finishable rather than merely
+ * shuffled. Re-rolling costs a determinism the leaderboard doesn't need — the
+ * SET is the challenge, and everyone gets the same one.
  */
 export function levelForContract(c: Contract, rng: () => number = Math.random): LevelConfig {
   const cfg = makeBaseLevel(Math.min(9, c.tier));
@@ -751,7 +800,7 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
   // would be counting the same limit twice under two names.
   if (c.kind === "pattern") {
     cfg.launchBudget = 0;
-    cfg.pieceQueue = shuffleSeeded(c.queue, rng);
+    cfg.pieceQueue = dealPatternQueue(c, cfg.compactorMinLineCells, rng);
   } else {
     cfg.launchBudget = c.launches;
     cfg.pieceQueue = null;
