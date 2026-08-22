@@ -26,6 +26,7 @@ import {
   wakeNear,
   type ClearResult,
 } from "./lineClear";
+import { payoutMult } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
@@ -103,6 +104,17 @@ export interface GameEvents {
    *  landing should be one sound. The consumer throttles again on top (see
    *  lib/audio.ts's playImpact) because consecutive steps also collide. */
   onImpact?: (strength: number) => void;
+  /** Fired when the bay CROSSES a congestion tier boundary (level.ts's
+   *  PILE_TIERS) — on the crossing, never per step. `tier` is 0 for a clean bay
+   *  and 1..`tiers` for each rung of the staircase; `tiers` is how many rungs
+   *  this bay has, so a consumer can scale a cue without hardcoding the ladder.
+   *
+   *  Congestion is already something the player SEES — the bay floor lights row
+   *  by row (render.ts's drawCongestionRows) — and this is the same state
+   *  offered to the ear. On the crossing rather than continuously because the
+   *  state is a staircase and not a rate: what a cue needs to know is that it
+   *  MOVED, and everything between crossings is the same bay. */
+  onCongestion?: (tier: number, tiers: number) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -272,8 +284,17 @@ export class Game {
 
   score: number;
   combo = 0;
-  /** Index into level.pileTiers of the congestion tier in force last step, or
-   *  -1 for a clean bay. Only used to detect crossing UP — see update(). */
+  /** Index into level.pileTiers of the congestion tier in force as of the top
+   *  of the current step, or -1 for a clean bay. Set once per update() before
+   *  the physics runs, and read twice after: to detect crossing UP (which ends
+   *  the combo) and to price the step's line clear (payMult).
+   *
+   *  That second read is why this is a FIELD and not a local. By the time a
+   *  clear is paid out, updateLineClear has already pulled the crushed cubes
+   *  out of this.cubes — so `pileTier` at that moment describes the bay AFTER
+   *  the mess was cleaned up, and a four-row collapse off a 60-cube stack would
+   *  price itself as a clean bay. This is the reading from before the crush,
+   *  which is the bay the player actually built. */
   private lastCongestionIdx = -1;
   linesTotal = 0;
   lostTotal = 0;
@@ -787,6 +808,25 @@ export class Game {
     return active;
   }
 
+  /**
+   * The congestion tier in force as of the TOP OF THE CURRENT STEP, or null.
+   *
+   * Distinct from `pileTier`, which reads the field as it stands right now, and
+   * the two differ in exactly the moment that matters. By the time a clear is
+   * paid out, updateLineClear has already pulled the crushed cubes out of
+   * `cubes` — so `pileTier` describes the bay AFTER it was tidied, while this
+   * still describes the bay the player actually built and fired into. Price a
+   * four-row collapse off a 60-cube stack with the live reading and it looks
+   * like a clean bay: the payout tax would miss precisely the play it exists
+   * for. Payouts read this one; prices, which are quoted before a shot rather
+   * than after a crush, read the live one.
+   */
+  get stepPileTier(): PileTier | null {
+    return this.lastCongestionIdx >= 0
+      ? this.level.pileTiers[this.lastCongestionIdx] ?? null
+      : null;
+  }
+
   /** What the NEXT launch actually costs, congestion included. The HUD reads
    *  this rather than level.launchCost so the price the player is quoted is the
    *  price they pay — a tax you only discover after firing teaches nothing. */
@@ -1037,7 +1077,9 @@ export class Game {
     // one part of congestion that cannot be absorbed by simply firing anyway.
     // It also aims the rule at precisely the play it exists to discourage:
     // spamming into a full bay is exactly how a careful run's multiplier gets
-    // thrown away, and now it says so.
+    // thrown away, and now it says so. (The multiplier is capped while
+    // congested too — see the clear payout below — so the streak is charged on
+    // the way in AND held down for as long as the mess lasts.)
     //
     // On the transition, not while congested. A tax levied every step for
     // sitting above the line would mean the combo could never be rebuilt
@@ -1048,6 +1090,12 @@ export class Game {
     // a new offence rather than a free pass.
     const tierIdx = congestion ? this.level.pileTiers.indexOf(congestion) : -1;
     if (tierIdx > this.lastCongestionIdx) this.combo = 0;
+    // Either direction, unlike the combo break above: a cue has to be taken
+    // BACK when the bay is tidied, or the first mess a player cleans up would
+    // leave the bay sounding congested for the rest of the level.
+    if (tierIdx !== this.lastCongestionIdx) {
+      this.events.onCongestion?.(tierIdx + 1, this.level.pileTiers.length);
+    }
     this.lastCongestionIdx = tierIdx;
     this.cannon.setCooldownScale(congestion ? congestion.reloadMult : 1);
     this.stepWind();
@@ -1130,7 +1178,20 @@ export class Game {
       : { lines: 0, cubes: [], rows: [] };
     if (clear.lines > 0) {
       this.combo += 1;
-      const bonus = 1 + (this.combo - 1) * 0.25;
+      // Congestion's fourth pressure (level.ts's PileTier.payMult): a clear
+      // taken out of a cluttered bay pays less. The other three price the shot,
+      // which left stack-until-it-collapses paying full rate for every row the
+      // collapse crushed.
+      //
+      // The tier comes from lastCongestionIdx — the bay as it stood at the top
+      // of this step — not from this.pileTier, which by now reads the field
+      // with the crushed cubes already removed. See the field's note.
+      //
+      // A ceiling, not a scale: the combo advances once per crush while the
+      // payout scales with the lines in it, so scaling the bonus would barely
+      // touch a four-row collapse. Below 1 it replaces the bonus outright,
+      // which is the intent — a congested bay is not a place to build a streak.
+      const bonus = payoutMult(this.combo, this.stepPileTier);
       const awarded = Math.round(clear.lines * this.level.scorePerLine * bonus);
       this.score += awarded;
       this.linesTotal += clear.lines;

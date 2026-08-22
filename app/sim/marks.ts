@@ -30,7 +30,7 @@ import {
   makeBaseLevel, MARK_SPEED_STEP, MARK_TARGET_STEP, SCRAP_PER_BAY, SCRAP_PER_LINE,
 } from "../src/game/level";
 import {
-  applyRatchets, hazardsForMark, picksPerBay, type Ratchets,
+  applyRatchets,
 } from "../src/game/hazards";
 import {
   applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
@@ -39,6 +39,7 @@ import {
 import { installById } from "../src/game/meta";
 import { REFIT_EVERY, RUN_LEVELS } from "../src/game/run";
 import { BOTS } from "./bots";
+import { spreadRatchets } from "./ratchet-model";
 import { runBay } from "./runner";
 
 // ---------------------------------------------------------------------------
@@ -205,20 +206,6 @@ const ratchetMode = (get("--ratchets") ?? "none") as "none" | "spread";
 if (ratchetMode !== "none" && ratchetMode !== "spread") {
   console.error(`Unknown --ratchets "${ratchetMode}" — available: none, spread`);
   process.exit(1);
-}
-
-/** The forced ratchet stack a Mark-M run carries INTO bay B (1-based):
- *  (B-1) x picksPerBay notches, round-robin over the number axes the Mark
- *  deals, in ladder order (cost, time, wind, sweeper). */
-function spreadRatchets(mark: number, bay: number): Ratchets {
-  const axes = hazardsForMark(mark).filter((h) => h.kind === "number").map((h) => h.id);
-  const picks = (bay - 1) * picksPerBay(mark);
-  const out: Ratchets = {};
-  for (let k = 0; k < picks; k++) {
-    const id = axes[k % axes.length];
-    out[id] = (out[id] ?? 0) + 1;
-  }
-  return out;
 }
 
 for (const b of botNames) {

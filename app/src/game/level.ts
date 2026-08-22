@@ -197,8 +197,10 @@ export interface LevelConfig {
    *  burns `clockSec` seconds off the bay clock. The highest tier whose
    *  threshold is exceeded wins; they do not stack.
    *
-   *  Empty = the mechanic is OFF, which is what makeBaseLevel ships today.
-   *  Same inert-by-default stance as windMax 0 and autoLaunchMs 0. */
+   *  Empty = the mechanic is OFF. makeBaseLevel ships PILE_TIERS on every bay,
+   *  so the only empty ladders are the ones sim/pile.ts builds for its `off`
+   *  control; the inert-by-default stance windMax 0 and autoLaunchMs 0 still
+   *  take does not apply here any more. */
   pileTiers: PileTier[];
   /** Cubes added to EVERY tier's threshold before it triggers — the upgrade
    *  seam. 0 = stock. A player who invests here buys back the right to fire
@@ -422,8 +424,8 @@ export const NO_MATERIALS: MaterialMix = {
 
 
 /**
- * CONGESTION — a launch-cost and clock tax that scales with how cluttered the
- * bay already is (see LevelConfig.pileTiers).
+ * CONGESTION — a tax on firing into, and now on cashing out of, a bay that is
+ * already cluttered (see LevelConfig.pileTiers).
  *
  * The problem it exists for: a bay's launch budget is at its LOOSEST right
  * before the bay ends. Late in a bay the player is sitting on the surplus every
@@ -432,6 +434,12 @@ export const NO_MATERIALS: MaterialMix = {
  * the bay, letting gravity and the press resolve whatever lands. That is a
  * strategy the economy currently REWARDS, and it skips the part of the game
  * that is actually the game.
+ *
+ * Three of the four pressures price the SHOT, which left a second version of
+ * the same play standing: stack deliberately, let the weight break the bottom
+ * bonds, and take the multi-row collapse. The shot tax is paid once and the
+ * collapse pays per row, so the bay still came out ahead. payMult prices the
+ * clear as well — three quarters over the first knee, half over the second.
  *
  * Thresholds are stated in cubes and sized in FULL LINES, so the number means
  * something the player can see: compactorMinLineCells is 8, so 32 cubes is
@@ -501,6 +509,26 @@ export interface PileTier {
    *  would have had. It is also the one a spam volley feels IMMEDIATELY,
    *  rather than at the next price check. */
   reloadMult: number;
+  /** CEILING on the line-payout multiplier while this tier is active — the
+   *  fourth pressure, and the one that closes the stack-and-collapse loop.
+   *
+   *  The other three all price the SHOT. None of them touch what a clear is
+   *  WORTH, so the strongest play in a congested bay was still to keep
+   *  stacking until the weight broke the bottom bonds: the collapse crushes
+   *  several rows in one stroke and every one of them paid list price.
+   *  Congestion charged you for getting into the mess and then paid full rate
+   *  for the mess paying off.
+   *
+   *  A ceiling rather than a multiplier ON the combo bonus, because the two
+   *  scale differently: the combo advances by one per CRUSH, while the payout
+   *  scales with the LINES inside it. Scaling the bonus barely dents a
+   *  four-row collapse; capping the multiplier below 1 prices the collapse
+   *  itself, which is the thing being discouraged.
+   *
+   *  The combo bonus starts at 1 and only climbs, so any value below 1
+   *  replaces it outright — that is the intent, not a side effect. A congested
+   *  bay is not a place to be building a streak. Infinity turns it off. */
+  payMult: number;
 }
 
 /** The ladder: 4 lines' worth of loose cargo, then 6 — the owner's numbers,
@@ -509,9 +537,32 @@ export interface PileTier {
  *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
  *  variants against the same named default. */
 export const PILE_TIERS: PileTier[] = [
-  { cubes: 32, costMult: 1.25, clockSec: 0, reloadMult: 1.5 },
-  { cubes: 48, costMult: 2, clockSec: 0, reloadMult: 2 },
+  { cubes: 32, costMult: 1.25, clockSec: 0, reloadMult: 1.5, payMult: 0.75 },
+  { cubes: 48, costMult: 2, clockSec: 0, reloadMult: 2, payMult: 0.5 },
 ];
+
+/** Each step of the combo adds this much to the payout multiplier: the first
+ *  clear of a streak pays 1x, the second 1.25x, and so on. */
+export const COMBO_STEP = 0.25;
+
+/**
+ * What one line is worth as a multiple of scorePerLine — the combo streak,
+ * capped by congestion.
+ *
+ * One function rather than an expression inside the clear handler because the
+ * two halves are tuned against each other: COMBO_STEP decides how fast a clean
+ * streak climbs, and PileTier.payMult decides how far a cluttered bay is
+ * allowed to climb at all. Reading either number without the other tells you
+ * very little, and sim/systems.ts checks the pair here rather than inferring
+ * them from a bay's score.
+ *
+ * `tier` is the congestion in force when the CRUSH HAPPENED, not when it was
+ * paid — see Game.stepPileTier for why those are different moments.
+ */
+export function payoutMult(combo: number, tier: PileTier | null): number {
+  const streak = 1 + Math.max(0, combo - 1) * COMBO_STEP;
+  return Math.min(streak, tier ? tier.payMult : Infinity);
+}
 
 /** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:
  *  bay 10 is exactly twice this. Exported because render.ts sizes its weld
