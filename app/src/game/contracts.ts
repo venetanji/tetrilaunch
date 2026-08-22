@@ -39,20 +39,32 @@ import {
 } from "./theme";
 
 /**
+ * What a Contract can play under: `"contracts"`, or any bay's bed borrowed from
+ * the Deep Run's ladder. The union exists so the mode can do the second while
+ * waiting for the first.
+ */
+export type ContractBed = "contracts" | BayTrack;
+
+/**
  * The bed a Contract plays under.
  *
- * Contracts have no song of their own: the track that used to be theirs (Neon
- * Static) is now bay 9's, and the mode is the one place in the game with no
- * dedicated bed. So it BORROWS one, named here rather than inlined at the call
- * site so that "which bed do Contracts get" is a decision with an address —
- * repoint this line the day a Contract track exists and nothing else changes.
+ * Contracts have no song of their own yet: the track that used to be theirs
+ * (Neon Static) is now bay 9's, so the mode BORROWS that bay's bed. Named here
+ * rather than inlined at the call site so "which bed do Contracts get" is a
+ * decision with an address.
  *
- * Bay 9 rather than the menu lounge because a Contract is a bay being played,
- * not a menu being read: the lounge bed is the one that plays while nothing is
- * happening (see main.ts's syncMusic), and a short, tight, retryable challenge
- * should not sound like a pause screen.
+ * Bay 9 rather than the menu lounge because a Contract is a bay being PLAYED,
+ * not a menu being read: the lounge is what plays while nothing is happening
+ * (main.ts's syncMusic), and a short, tight, retryable challenge should not
+ * sound like a pause screen.
+ *
+ * A Contract master is coming. When it lands, this is a two-line change and
+ * nothing else moves: add `"Your Song.mp3": "contracts"` to prepare-audio's
+ * MUSIC map and set this to `"contracts"`. The role is already in the type, and
+ * sim/systems.ts checks this bed resolves to a real file either way — so doing
+ * one half without the other fails there rather than in play.
  */
-export const CONTRACT_BED: BayTrack = "bay-9";
+export const CONTRACT_BED: ContractBed = "bay-9";
 
 /**
  * Objectives a Contract can ask for. Deliberately small: every one of these has

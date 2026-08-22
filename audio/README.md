@@ -51,8 +51,10 @@ looking like a successful run that shipped nothing.
 ## The music roles
 
 `menu` is the lounge bed, outside a bay. Everything else is `bay-N` — the bed
-for that bay of a Deep Run — and Contracts borrow one of those rather than
-having a song of their own (`CONTRACT_BED` in `app/src/game/contracts.ts`).
+for that bay of a Deep Run. `contracts` is a role that EXISTS but has no master
+yet, so Contracts borrow bay 9's for now (`CONTRACT_BED` in
+`app/src/game/contracts.ts`); dropping a Contract song in is one line in `MUSIC`
+below and one there.
 
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
@@ -64,6 +66,7 @@ having a song of their own (`CONTRACT_BED` in `app/src/game/contracts.ts`).
 | `bay-8`  | Neon Circuit        | bay 8 |
 | `bay-9`  | Neon Static         | bay 9, and every Contract |
 | `bay-10` | Neon Pixel Pulse    | bay 10, the closer |
+| `contracts` | *(unwritten)*    | every Contract, once it has a song |
 
 ## Adding a track
 
