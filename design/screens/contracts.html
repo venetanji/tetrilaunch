@@ -1,0 +1,258 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contracts — Tetrilaunch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+/* Mirrors app/src/ui/screens.ts contractsScreen + app.css .contracts /
+   .contract-card. The daily, retryable half (docs/DESIGN.md): three generated
+   bays with no clock and no bankroll, free to fail, regenerated every day.
+
+   The board is three offers to COMPARE, so the card is a spec sheet with fixed
+   slots rather than a paragraph — kind + payout, name, goal, supply, brief,
+   always in that order and always in the same place on all three. The goal is
+   the one number sized to be read from across the room, because it is the fact
+   every Contract states in the same unit.
+
+   The KIND badge is load-bearing, not decoration: it says what the supply slot
+   under it means. LINES hands you a launch BUDGET you can waste; PATTERN hands
+   you an EXACT set of shipments you cannot. Same slot, opposite deal.
+
+   Three card states are shown, all three of which the board can hold at once:
+   payable (♻ +15, what a first clear banks toward the tier), cleared (✓, and
+   still replayable — the border stays quiet so it doesn't read as spent), and
+   practice (the tier pays for only its first three clears, so a fourth is
+   worth playing but not worth salvage).
+
+   Everything identical across the three cards lives outside them: the terms
+   are one footnote, and the tier standing is the menu's tier chip. The
+   previous version repeated "First clear counts toward Tier 1 · fail free,
+   retry free" on every card, where it was the widest run on each and wrapped
+   to two lines to say something about the SCREEN.
+
+   The board is its own block, not the How-to deck's `.howto__grid`. That grid
+   is a horizontal SNAP ROW — right for nine cards read once in order, wrong for
+   three offers weighed against each other: cards 2 and 3 sat off-screen behind
+   a sideways scroll, and a board you have to swipe to see is a board you cannot
+   compare. Three cards fit the width every device in the matrix has, so this
+   one neither scrolls nor snaps in either axis.
+
+   Resize below 460px tall for the landscape-phone layout: the card keeps every
+   slot and gives up size, because each slot is a different fact. Resize narrow
+   to watch the grid drop to two columns and then one — the min-width:0 on the
+   tracks and the wrapping on the words are what keep it inside the viewport
+   rather than clipped by the screen's overflow:hidden. */
+:root{
+  --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
+  --line:#2e2e4a; --line-strong:#3d3d63;
+  --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
+  --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
+  --piece-o:#ffe500;
+  --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
+  --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --fs-h1:clamp(28px,5vw,44px); --fs-h3:18px; --fs-sm:14px; --fs-xs:12px;
+  --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  /* Retro pass: square, steppy corners + chunky borders and hard shadows. */
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,0.85); --shadow-hard-lg:4px 4px 0 rgba(0,0,0,0.85);
+  --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
+  --ease:cubic-bezier(0.22,1,0.36,1); --dur-fast:120ms; --dur:220ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-height:100vh}
+.eyebrow{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent)}
+.display{font-family:var(--font-display);font-weight:900;letter-spacing:0.08em;line-height:0.95}
+.muted{color:var(--text-muted)}
+.chip{background:rgba(18,18,31,0.72);border:var(--bw) solid var(--line);border-radius:var(--r-md);padding:8px 14px;
+  display:flex;flex-direction:column;gap:2px;min-width:84px;box-shadow:var(--shadow-hard-sm)}
+.chip__label{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted)}
+.chip__value{font-family:var(--font-mono);font-weight:700;font-size:20px}
+.chip--tier{flex-direction:row;align-items:center;gap:10px}
+.tier-chip__halves{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text-muted);
+  font-family:var(--font-ui);font-weight:600;white-space:nowrap}
+.tier-chip__halves .done{color:var(--success)}
+.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);
+  border:var(--bw) solid var(--line-strong);color:var(--text);font-size:20px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-hard-sm);flex:none}
+.neon-backdrop{
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(122,92,255,0.16), transparent 60%),
+    radial-gradient(90% 70% at 90% 110%, rgba(0,240,255,0.12), transparent 55%),
+    var(--bg);
+  position:relative;
+}
+.neon-backdrop::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.22) 0px,rgba(0,0,0,0.22) 1px,transparent 1px,transparent 3px);
+  mix-blend-mode:multiply;opacity:0.3;
+}
+/* FIT-FIRST, as in app.css: a screen does not scroll, it fits. Nothing here
+   scrolls in either axis, and nothing is marked [data-scroll]. */
+.screen{position:relative;height:100vh;min-height:0;display:flex;flex-direction:column;padding:20px;overflow:hidden}
+.screen > *{min-height:0}
+/* `margin:auto`, not `0 auto`: on a tall window the board centres, and on a
+   short one the auto margins collapse to 0 and it starts at the top, where
+   justify-content:center would push the header out of reach. `max-height`
+   rather than `height` keeps the block its content's size while forbidding it
+   to outgrow the screen that overflow:hidden would then clip. */
+.contracts{max-width:980px;margin:auto;width:100%;min-width:0;max-height:100%;min-height:0;
+  display:flex;flex-direction:column;gap:var(--sp-3);padding-block:var(--sp-3)}
+.contracts__hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4)}
+.contracts__title{min-width:0}
+.contracts__title h2{font-size:var(--fs-h1)}
+/* The subtitle used to be two lines restating the mode's rules. Every one of
+   those facts is now shown where it applies — the supply is a labelled slot on
+   each card, the free retry is the footnote — so what is left is the posture. */
+.contracts__sub{margin:0;color:var(--text-muted)}
+.contracts__hdr-side{display:flex;align-items:center;gap:10px;flex:none}
+/* auto-fit, so the board drops to two columns and then one instead of squeezing
+   three until the name breaks mid-word. min-width:0 on the items is what keeps
+   it inside the viewport: a grid item's automatic minimum is its CONTENT's, so
+   one long name would otherwise push its track — and all three with it. */
+.contracts__board{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(168px,100%),1fr));
+  gap:var(--sp-3);align-content:start;min-width:0;min-height:0}
+.contracts__board > *{min-width:0}
+.contract-card{color:var(--text);font:inherit;text-align:left;cursor:pointer;
+  display:flex;flex-direction:column;gap:6px;padding:12px 14px;min-width:0;
+  background:linear-gradient(180deg,rgba(27,27,46,0.95),rgba(12,12,24,0.97));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-hard-sm);
+  transition:border-color var(--dur-fast) var(--ease),transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease)}
+.contract-card:hover{border-color:var(--accent)}
+.contract-card:active{transform:translate(2px,2px);box-shadow:none}
+/* Cleared today. Deliberately quiet — the "✓ Cleared" chip is the signal, and a
+   Contract stays replayable, so this must not read as spent. */
+.contract-card--done{border-color:rgba(0,255,156,0.55)}
+.contract-card__top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.contract-card__kind{font-family:var(--font-pixel);font-size:7px;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--accent);border:1px solid rgba(0,240,255,0.45);border-radius:var(--r-sm);padding:3px 5px;flex:none}
+/* Mono at 12px, not the 7px pixel font: `♻` has no glyph in "Press Start 2P",
+   so it fell back to a symbol font and drew a 7px blob. */
+.contract-card__state{font-family:var(--font-mono);font-weight:700;font-size:12px;line-height:1;
+  color:var(--text-faint);flex:none;white-space:nowrap}
+.contract-card__state--pays{color:var(--warn)}
+.contract-card__state--done{color:var(--success)}
+.contract-card__name{font-family:var(--font-display);font-weight:700;font-size:var(--fs-h3);
+  line-height:1.1;overflow-wrap:anywhere}
+.contract-card__ask{display:flex;align-items:baseline;gap:6px}
+.contract-card__goal{font-family:var(--font-mono);font-weight:700;font-size:30px;line-height:1;color:var(--accent)}
+.contract-card__unit{font-family:var(--font-pixel);font-size:8px;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--text-muted)}
+.contract-card__supply{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0}
+.contract-card__supply-lbl{font-family:var(--font-pixel);font-size:7px;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--text-faint);flex:none}
+.contract-card__supply-val{font-size:var(--fs-sm);color:var(--text-dim);min-width:0;overflow-wrap:anywhere}
+.contract-card__supply-val b{color:var(--text)}
+/* Pushed to the card's foot by the auto margin, so the three cards line their
+   briefs up regardless of how tall the slots above them ran. */
+.contract-card__brief{margin-top:auto;padding-top:6px;border-top:1px solid var(--line);
+  font-size:var(--fs-xs);color:var(--text-muted);line-height:1.35}
+/* A9's WHY strip and the terms, as one line — all three cards used to carry an
+   identical copy of the terms, where they were the widest run on the card. */
+.contracts__foot{margin:0;font-size:var(--fs-sm);color:var(--text-muted);line-height:1.4}
+.contracts__foot .next-badge{margin-right:4px;vertical-align:1px}
+.next-badge{display:inline-flex;align-items:center;flex:none;font-family:var(--font-pixel);font-size:6px;
+  letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--accent-ink);background:var(--warn);
+  border-radius:var(--r-sm);padding:3px 5px}
+/* Short (landscape-phone) viewports — 792x360 is the measured target. The page
+   stops scrolling and the board becomes the only scroller; the card keeps every
+   slot and gives up size, because each slot is a different fact. */
+@media (max-height:460px){
+  .contracts{gap:var(--sp-2);padding-block:var(--sp-2)}
+  .contracts__title h2{font-size:clamp(16px,4.2vh,26px)}
+  .contracts__sub{font-size:var(--fs-sm)}
+  .contracts__board{gap:var(--sp-2)}
+  .contract-card{gap:4px;padding:8px 10px}
+  .contract-card__name{font-size:13px}
+  .contract-card__goal{font-size:22px}
+  .contract-card__supply-val{font-size:var(--fs-xs)}
+  .contract-card__brief{font-size:10px;padding-top:4px}
+  .contracts__foot{font-size:11px}
+}
+</style>
+</head>
+<body>
+<div class="screen neon-backdrop">
+  <div class="contracts">
+    <div class="contracts__hdr">
+      <div class="contracts__title">
+        <!-- The tier lives in the chip opposite, so the eyebrow does not repeat
+             it — it names the thing the chip cannot. -->
+        <div class="eyebrow">Resets daily</div>
+        <h2 class="display">Contracts</h2>
+        <p class="contracts__sub">No rush, do it right.</p>
+      </div>
+      <div class="contracts__hdr-side">
+        <div class="chip chip--tier">
+          <div class="chip__label">Tier</div>
+          <div class="chip__value" style="color:var(--accent)">2</div>
+          <div class="tier-chip__halves">
+            <span class="done">✓ Run</span>
+            <span>○ Contracts 1/3</span>
+          </div>
+        </div>
+        <button class="icon-btn" aria-label="Back">✕</button>
+      </div>
+    </div>
+    <div class="contracts__board">
+      <button class="contract-card contract-card--done">
+        <span class="contract-card__top">
+          <span class="contract-card__kind">Lines</span>
+          <span class="contract-card__state contract-card__state--done">✓ Cleared</span>
+        </span>
+        <span class="contract-card__name">Scrap Line</span>
+        <span class="contract-card__ask">
+          <b class="contract-card__goal">5</b>
+          <span class="contract-card__unit">lines</span>
+        </span>
+        <span class="contract-card__supply">
+          <span class="contract-card__supply-lbl">Budget</span>
+          <span class="contract-card__supply-val"><b>21</b> launches</span>
+        </span>
+        <span class="contract-card__brief">crosswind</span>
+      </button>
+      <button class="contract-card">
+        <span class="contract-card__top">
+          <span class="contract-card__kind">Lines</span>
+          <span class="contract-card__state contract-card__state--pays">♻ +20</span>
+        </span>
+        <span class="contract-card__name">Night Shift</span>
+        <span class="contract-card__ask">
+          <b class="contract-card__goal">4</b>
+          <span class="contract-card__unit">lines</span>
+        </span>
+        <span class="contract-card__supply">
+          <span class="contract-card__supply-lbl">Budget</span>
+          <span class="contract-card__supply-val"><b>15</b> launches</span>
+        </span>
+        <span class="contract-card__brief">tight launch budget · brittle cargo 30%</span>
+      </button>
+      <button class="contract-card">
+        <span class="contract-card__top">
+          <span class="contract-card__kind">Pattern</span>
+          <span class="contract-card__state">Practice</span>
+        </span>
+        <span class="contract-card__name">Quota Run</span>
+        <span class="contract-card__ask">
+          <b class="contract-card__goal">2</b>
+          <span class="contract-card__unit">lines</span>
+        </span>
+        <span class="contract-card__supply">
+          <span class="contract-card__supply-lbl">Supply</span>
+          <span class="contract-card__supply-val"><span style="color:var(--piece-o);font-weight:700">O</span>×4</span>
+        </span>
+        <span class="contract-card__brief">4 shipments · 1 shape, no waste</span>
+      </button>
+    </div>
+    <p class="contracts__foot"><span class="next-badge">Why</span> Fail free, retry free — and 3 first
+      clears bank ♻ 60, so Press Hydraulics (♻ 30) is waiting in the Workshop before your next run.</p>
+  </div>
+</div>
+</body>
+</html>

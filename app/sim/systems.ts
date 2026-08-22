@@ -841,23 +841,55 @@ section("Pattern Contracts (contracts.ts)");
   const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
 
-  // The tier status is a body-font line, not an eyebrow suffix — the long
-  // suffix wrapped on a landscape phone and dropped an orphaned "♻ 60" into
-  // the heading. It quotes the MILESTONE share (what one clear banks now),
-  // not the old completion-only award.
+  // What one clear banks NOW (the milestone share, not the old completion-only
+  // award) is stated on the card that would bank it, as a value rather than
+  // inside a sentence. It used to be a ~120-character status line above the
+  // board — the same line whose earlier home, an eyebrow suffix, wrapped on a
+  // landscape phone and dropped an orphaned "♻ 60" into the heading.
   const withProgress = contractsScreen({
     contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
   });
   check(
     "the board quotes the per-clear milestone share",
-    withProgress.includes("each first clear banks") &&
-      withProgress.includes(`♻ ${tierMilestoneSalvage(1)}`),
+    withProgress.includes(`contract-card__state--pays">♻ +${tierMilestoneSalvage(1)}<`),
   );
   check(
     "the eyebrow no longer carries the wrapping progress suffix",
     !withProgress.includes("both halves complete the tier for"),
   );
-  check("its slot number is replaced by the tick", ticked.includes(">✓<"));
+  // The tick is on the card, in words, not just in a class name — the border
+  // recolour alone is a cue a player can miss on a board of three.
+  check(
+    "a cleared card says so on its face",
+    ticked.includes(`contract-card__state--done">✓ Cleared<`),
+  );
+  // A cleared Contract stays replayable but pays nothing a second time, so it
+  // must never keep advertising the payout beside the tick.
+  check(
+    "a cleared card drops the payout it can no longer bank",
+    !contractsScreen({
+      contracts: board, tier: 1, cleared: board.map((c) => c.id),
+      progress: tierProgressFor(newMeta()),
+    }).includes("contract-card__state--pays"),
+  );
+  // Past the tier's quota a first clear banks nothing (meta.ts pays for only
+  // the first TIER_CONTRACTS_REQUIRED), and the board has to stop promising a
+  // share it will not pay.
+  const quotaMet = contractsScreen({
+    contracts: board, tier: 1, cleared: [],
+    progress: tierProgressFor({ ...newMeta(), tierContracts: TIER_CONTRACTS_REQUIRED }),
+  });
+  check(
+    "a full quota reads as practice, not as a payout",
+    quotaMet.includes(">Practice<") && !quotaMet.includes("contract-card__state--pays"),
+  );
+  // The board is three offers compared side by side, so it must not borrow the
+  // How-to deck's horizontal snap row — that layout put cards 2 and 3 off-screen
+  // behind a sideways scroll.
+  check(
+    "the board is its own block, not the how-to snap row",
+    withProgress.includes("contracts__board") && !withProgress.includes("howto__grid"),
+  );
   check("an unplayed board shows no ticks", !untouched.includes("contract-card--done"));
   check(
     "only the cleared slot is ticked",

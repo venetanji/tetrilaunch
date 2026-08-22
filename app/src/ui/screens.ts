@@ -1783,7 +1783,29 @@ export function endModal(opts: {
  * ------------------------------------------------------------------------ */
 
 /** The day's Contract board. Failure costs nothing here, so the copy leans on
- *  "pick one and try it" rather than warning the player about anything. */
+ *  "pick one and try it" rather than warning the player about anything.
+ *
+ *  The board is three offers to COMPARE, not three paragraphs to read, so every
+ *  card states the same two facts in the same two slots — the goal, then what
+ *  you get to reach it — and the badge above them names which kind of supply
+ *  that second slot is. The old card wrote each kind as its own sentence
+ *  ("4 lines in 17 launches" beside "O×4 → 2 lines"), which put the goal in a
+ *  different place on each card and made the row unscannable.
+ *
+ *  Everything that was identical on all three cards has moved out of them. The
+ *  reward terms ("First clear counts toward Tier 1 · fail free, retry free")
+ *  were repeated verbatim three times, were the widest line in each card, and
+ *  wrapped to two lines to say something about the SCREEN — they join the WHY
+ *  strip as one footnote, and the salvage a first clear actually banks rides on
+ *  the card as a value instead, which is the part that differs once the tier's
+ *  quota is full.
+ *
+ *  The board is also its own block rather than a borrowed `.howto__grid`. That
+ *  grid is the How-to deck's horizontal SNAP ROW, which is right for nine cards
+ *  read once in order and wrong for three offers compared against each other —
+ *  two of them were off-screen behind a sideways scroll, and a board you have to
+ *  swipe to see is a board you cannot compare. Three cards fit the width they
+ *  are given; nothing here scrolls in either axis. */
 export function contractsScreen(opts: {
   contracts: ContractCard[];
   tier: number;
@@ -1799,72 +1821,99 @@ export function contractsScreen(opts: {
   /** The cheapest installable system, for the WHY strip's target price (A9). */
   nextInstall?: { name: string; cost: number } | null;
 }): string {
+  // Whether a first clear still banks anything. A tier pays its milestone share
+  // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
+  // quota is full the remaining cards are practice — and saying so on the card
+  // is the one piece of reward copy that is worth per-card space.
+  const paying = !opts.progress || opts.progress.contracts < opts.progress.needed;
   const cards = opts.contracts
     .map((c, i) => {
       const done = opts.cleared.includes(c.id);
       // A pattern Contract advertises its exact inventory, because the whole
       // offer is "here is what you get — can you place it?". Knowing the set
-      // before you accept is the planning the mode is made of.
-      const ask =
+      // before you accept is the planning the mode is made of. A lines Contract
+      // advertises its launch budget for the same reason: it is the only thing
+      // that can run out.
+      const supply =
         c.kind === "pattern"
-          ? `<p>${queueTallyHTML(c.queue)} <b>→ ${c.goal}</b> lines</p>`
-          : `<p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>`;
-      // Each card states the full deal up front (playtest feedback): the
-      // objective, the supply limit, the reward, and that retrying is free —
-      // so accepting one is never a leap into unexplained terms.
-      const reward = done
-        ? `<p class="contract-card__reward contract-card__reward--done">✓ Cleared — counted toward its tier · replay for practice</p>`
-        : `<p class="contract-card__reward">First clear counts toward Tier ${opts.tier} · fail free, retry free</p>`;
-      return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
-        <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
-        <b>${c.name}</b>
-        ${ask}
-        ${reward}
-        <p class="muted" style="font-size:12px">${c.brief}</p>
+          ? queueTallyHTML(c.queue)
+          : `<b>${c.launches}</b> launches`;
+      // No progress data (the prop is optional) means no claim either way — the
+      // slot goes empty rather than asserting "Practice", which would be wrong
+      // for a player whose tier quota is in fact still open.
+      const state = done
+        ? `<span class="contract-card__state contract-card__state--done">✓ Cleared</span>`
+        : !opts.progress
+          ? ""
+          : paying
+            ? `<span class="contract-card__state contract-card__state--pays">♻ +${opts.progress.milestone}</span>`
+            : `<span class="contract-card__state">Practice</span>`;
+      return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
+        <span class="contract-card__top">
+          <span class="contract-card__kind">${c.kind === "pattern" ? "Pattern" : "Lines"}</span>
+          ${state}
+        </span>
+        <span class="contract-card__name">${c.name}</span>
+        <span class="contract-card__ask">
+          <b class="contract-card__goal">${c.goal}</b>
+          <span class="contract-card__unit">line${c.goal === 1 ? "" : "s"}</span>
+        </span>
+        <span class="contract-card__supply">
+          <span class="contract-card__supply-lbl">${c.kind === "pattern" ? "Supply" : "Budget"}</span>
+          <span class="contract-card__supply-val">${supply}</span>
+        </span>
+        <span class="contract-card__brief">${c.brief}</span>
       </button>`;
     })
     .join("");
-  // The tier status is its OWN line in the body font, not part of the pixel
-  // eyebrow: with the progress suffix inline, the eyebrow ran to ~90 letter-
-  // spaced glyphs, wrapped on a landscape phone, and dropped an orphaned
-  // "♻ 60" straight into the Contracts heading (seen on device, 2026-08-09).
-  // Copy states the MILESTONE economy — each first clear banks its share now
-  // (meta.ts's tierMilestoneSalvage); completion is what opens the next tier.
-  const status = opts.progress
-    ? `<p class="muted" style="margin:0">
-        <b style="color:var(--accent)">Contracts ${opts.progress.contracts}/${opts.progress.needed}${opts.progress.contracts >= opts.progress.needed ? " ✓" : ""}</b>
-        · <b>Deep Run ${opts.progress.runDone ? "✓" : "○"}</b>
-        — each first clear banks <b style="color:var(--warn)">♻ ${opts.progress.milestone}</b>; finish both halves to open Tier ${opts.progress.tier + 1}.
-      </p>`
-    : "";
-  return `<div class="screen neon-backdrop">
-    <div class="howto">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
-          <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
+  // Tier standing as the menu's tier chip rather than a sentence. The line it
+  // replaces ran ~120 characters, wrapped on a landscape phone, and mixed three
+  // different things — the two halves, the milestone payout and the unlock
+  // condition — into one run of prose. The halves are a status readout, so they
+  // get the readout shape the menu already uses for them, and the payout is now
+  // a value on each card.
+  const tierChip = opts.progress
+    ? `<div class="chip chip--tier">
+        <div class="chip__label">Tier</div>
+        <div class="chip__value" style="color:var(--accent)">${opts.progress.tier}</div>
+        <div class="tier-chip__halves">
+          <span class="${opts.progress.runDone ? "done" : ""}">${opts.progress.runDone ? "✓" : "○"} Run</span>
+          <span class="${opts.progress.contracts >= opts.progress.needed ? "done" : ""}">${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed}</span>
         </div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+      </div>`
+    : "";
+  // A9's WHY strip and the terms, as one line under the board — the terms used
+  // to be a third copy of themselves on each card, and the two lines were
+  // answering the same question from either end ("what does this cost me" and
+  // "what is it for"). The A9 half is unchanged: the tier's total in its own
+  // numbers, against the price of the thing it buys next.
+  const foot = opts.progress
+    ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ♻ ${
+        opts.progress.milestone * opts.progress.needed
+      }${
+        opts.nextInstall
+          ? `, so ${opts.nextInstall.name} (♻ ${opts.nextInstall.cost}) is waiting in the Workshop before your next run`
+          : " toward the Workshop"
+      }.</p>`
+    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.</p>`;
+  return `<div class="screen neon-backdrop">
+    <div class="contracts">
+      <div class="contracts__hdr">
+        <div class="contracts__title">
+          <!-- The tier lives in the chip opposite when there is one, so the
+               eyebrow does not repeat it — it only names the thing the chip
+               cannot, which is that the board is regenerated every day. -->
+          <div class="eyebrow">${opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`}</div>
+          <h2 class="display">Contracts</h2>
+          <p class="contracts__sub muted">No rush, do it right.</p>
+        </div>
+        <div class="contracts__hdr-side">
+          ${tierChip}
+          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+        </div>
       </div>
-      <p class="muted" style="margin:0">
-        No clock, no launch costs — your supply of shipments is the only budget.
-        Fail as many times as you like; nothing is lost.
-      </p>
-      ${status}
-      <div class="howto__grid">${cards}</div>
-      ${
-        // A9: the WHY strip — the board's bottom line closes the loop the
-        // cards open, in the tier's own numbers.
-        opts.progress
-          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ♻ ${
-              opts.progress.milestone * opts.progress.needed
-            }${
-              opts.nextInstall
-                ? ` — ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop, before your next run`
-                : " toward the Workshop"
-            }.</p>`
-          : ""
-      }
+      <div class="contracts__board">${cards}</div>
+      ${foot}
     </div>
   </div>`;
 }
