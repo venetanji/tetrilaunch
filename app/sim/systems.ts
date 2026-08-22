@@ -989,6 +989,21 @@ section("Refit cadence + run economy (run.ts)");
     advanceRun(run, 850, 800, 0, 0, []).carry === 50,
     String(advanceRun(run, 850, 800, 0, 0, []).carry));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
+  // Demolition recovery rides along as a run-long STAT. The default is 0, not
+  // the running total: a caller that forgets the argument must under-report one
+  // bay rather than re-count every bay before it, and the call above (which
+  // omits it) is what proves the default is the harmless one.
+  check("a bay that blew nothing up recovers nothing", run.salvagedFunds === 0,
+    String(run.salvagedFunds));
+  const demoA = advanceRun(run, 800, 800, 0, 0, [], run.bondCharges, 120);
+  const demoB = advanceRun(demoA, 800, 800, 0, 0, [], demoA.bondCharges, 45);
+  check("demolition recovery accumulates across bays", demoB.salvagedFunds === 165,
+    String(demoB.salvagedFunds));
+  // It is a readout, never operating cash: the refund already landed in the
+  // bay's score when the charge blew, so carrying it into the next bay's float
+  // would pay the player for the same blast twice.
+  check("demolition recovery never leaks into the carried float", demoA.carry === 0,
+    String(demoA.carry));
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
   // The capstone hands two axes at once, and the same axis twice is a legal

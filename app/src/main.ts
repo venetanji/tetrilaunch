@@ -780,6 +780,10 @@ class App {
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
+              // Banked bays plus the one still on screen. The current bay has
+              // not been through advanceRun — and on a loss never will be — so
+              // it has to be added here, exactly as scrapEarned above.
+              salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
               tiers: this.run.tiers,
             });
         }
@@ -1324,6 +1328,7 @@ class App {
       // What the bay ENDED with: Bond Breakers are the run's consumable, so
       // whatever this bay did not spend is what the next one opens with.
       g.bondCharges,
+      g.salvagedFunds,
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
