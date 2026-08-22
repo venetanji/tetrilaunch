@@ -98,6 +98,15 @@ const VARIANTS: Variant[] = [
     { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1 },
   ], allowance: 0 },
   // Same thresholds, a harder clock. Brackets the clock axis on its own.
+  // ISOLATORS for the two congestion taxes no variant above separates.
+  // game.ts kills the combo on ANY upward tier crossing whenever pileTiers is
+  // non-empty, so `combo-only` (all other taxes zeroed) measures the streak
+  // break alone, and `reload-only` measures reload + combo — subtract the two
+  // to get the reload multiplier's own cost. The combo break is the one
+  // congestion tax the sim CAN judge (bots build and lose real streaks), and
+  // it is multiplicative on income where the rest are additive on cost.
+  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
+  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0 })), allowance: 0 },
   { name: "cand-bite", tiers: [
     { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1 },
     { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1 },

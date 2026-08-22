@@ -60,8 +60,9 @@ export interface LevelConfig {
    *  budget, and a bay carrying both would be counting the same limit twice. */
   pieceQueue: PieceType[] | null;
   /** The Mark this bay is being flown at (1-based). Stored rather than derived
-   *  because the ratchet ladders read it: notchTotal starts a Mark-N run N-1
-   *  rungs up, so the same choice costs more the further you have got. */
+   *  because the ratchet ladders read it: notchTotal starts a Mark-N run
+   *  ladderStart(N) rungs up (hazards.ts — one rung per two Marks), so the
+   *  same choice costs more the further you have got. */
   mark: number;
   /** Fire cooldown in ms. */
   cooldownMs: number;
@@ -435,8 +436,40 @@ export const NO_MATERIALS: MaterialMix = {
  * Thresholds are stated in cubes and sized in FULL LINES, so the number means
  * something the player can see: compactorMinLineCells is 8, so 32 cubes is
  * "four lines' worth of cargo is loose on the field" and 48 is six. Above the
- * first, a launch costs half again as much and 2s of clock; above the second,
- * double and 5s.
+ * first, a launch costs a quarter more and reloads half again as slow; above
+ * the second, double and twice as slow.
+ *
+ * clockSec is 0 at both tiers — the CLOCK BURN IS OFF (device playtest,
+ * 2026-08-22: a hidden bite out of the bay clock on top of the price and
+ * the reload read as unfair rather than as pressure). The field and
+ * game.ts's burnCongestionClock stay wired because the intended future for
+ * the burn is a HAZARD AXIS — a later-tier ratchet the player chooses into
+ * (hazards.ts), not a default every bay carries — and that return needs a
+ * proper visualization first (the clock visibly losing the seconds at the
+ * moment of launch; a tax the player only meets in the end screen teaches
+ * nothing, the same rule the HUD's launchCostNow quote already follows).
+ *
+ * THE KNEE IS SIZED TO THE HUMAN PILE, NOT THE BOT'S — learned the hard way.
+ * A 2026-08-22 balance pass measured the aim bot's census (median bay-1
+ * field exactly 32 cubes, 42% of shots over the knee) and moved the
+ * thresholds to 48/64 on that evidence. The owner's device playtest
+ * immediately falsified it: a human tossing casually NEVER reached 48 — the
+ * fee simply stopped existing — because the census bot fires every reload,
+ * nonstop, and holds roughly twice the standing pile a human's slower,
+ * aimed cadence does. Deterrence questions are the sim's documented blind
+ * spot (sim/pile.ts's header); the thresholds stay at 32/48, the owner's
+ * numbers, and any future retune of them needs DEVICE telemetry
+ * (sim/playtest.ts), not a bot census.
+ *
+ * What the same pass measured about the COMPONENTS still holds and one
+ * change stays: tier 1 charges 1.25x rather than the original 1.5x. The
+ * cost axis is the BANKRUPTCY vector in the thin-margin bays (bay 1 nets
+ * ~$27.5/line, so a fee that compounds into broke ends the bay
+ * unrecoverably where clock/reload/combo pressure does not — measured:
+ * money-only variants turned careful play's losses into bankruptcies at
+ * every threshold tried). At 1.25x the fee still fires often at 32/48 —
+ * which is the point: visible, frequent, survivable — and tier 2 keeps the
+ * doubled price as the true spam wall.
  *
  * Two deliberate non-choices:
  *
@@ -470,12 +503,14 @@ export interface PileTier {
   reloadMult: number;
 }
 
-/** The proposed ladder: 4 lines' worth of loose cargo, then 6. Exported and
+/** The ladder: 4 lines' worth of loose cargo, then 6 — the owner's numbers,
+ *  confirmed on device (see the knee note above; the bot census that argued
+ *  for 48/64 measured a pile no human cadence actually holds). Exported and
  *  tuned here rather than inlined in makeBaseLevel so sim/pile.ts can sweep
  *  variants against the same named default. */
 export const PILE_TIERS: PileTier[] = [
-  { cubes: 32, costMult: 1.5, clockSec: 2, reloadMult: 1.5 },
-  { cubes: 48, costMult: 2, clockSec: 5, reloadMult: 2 },
+  { cubes: 32, costMult: 1.25, clockSec: 0, reloadMult: 1.5 },
+  { cubes: 48, costMult: 2, clockSec: 0, reloadMult: 2 },
 ];
 
 /** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:

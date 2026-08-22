@@ -26,12 +26,18 @@
 // the bots never use Bond Breaker or Demolition (so the BONDS track measures as
 // worthless and bomb-carrying builds are undersold), and they fire a fixed arc
 // rather than reading the pile. A human clears bays these bots lose.
-import { makeBaseLevel, MARK_SPEED_STEP, MARK_TARGET_STEP } from "../src/game/level";
+import {
+  makeBaseLevel, MARK_SPEED_STEP, MARK_TARGET_STEP, SCRAP_PER_BAY, SCRAP_PER_LINE,
+} from "../src/game/level";
+import {
+  applyRatchets, hazardsForMark, picksPerBay, type Ratchets,
+} from "../src/game/hazards";
 import {
   applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
   UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "../src/game/upgrades";
-import { RUN_LEVELS } from "../src/game/run";
+import { installById } from "../src/game/meta";
+import { REFIT_EVERY, RUN_LEVELS } from "../src/game/run";
 import { BOTS } from "./bots";
 import { runBay } from "./runner";
 
@@ -44,35 +50,76 @@ import { runBay } from "./runner";
 // whether the ladder is beatable by a competent build, not by an average one.
 // ---------------------------------------------------------------------------
 
-/** Max out each track in priority order until the budget won't stretch. */
-function focused(order: UpgradeId[], budget: number): UpgradeTiers {
+/**
+ * The tiers a run can actually HOLD at `bay` are two purchases, not one:
+ *
+ *  1. The Workshop loadout — tier 1 only, per track. buyInstall refuses a
+ *     track already at tier 1 ("an install never stacks" — meta.ts), gated
+ *     by requiresMark and capped by the Mark's build budget. This is the
+ *     whole rig for bays 1-3.
+ *  2. Scrap refits at the stops after bays 3, 6 and 9 (run.ts's
+ *     REFIT_EVERY/isRefitBay), which deepen INSTALLED tracks only
+ *     (run.ts's buyUpgrade refuses tier 0) out of scrap earned in-run.
+ *
+ * The old model here spent the whole budget as deep tiers from bay 1 —
+ * configurations no real run can reach (a "Mark-1 RCT2" opened bay 1 with
+ * a second reactor tier that is only purchasable at the stop after bay 3).
+ * Every bay was being measured against a rig from later in the run.
+ *
+ * Scrap income is modeled at the design's own sizing estimate (level.ts's
+ * SCRAP note: a clean bay is worth ~8 lines) rather than re-measured per
+ * config — the harness needs ONE schedule, not a feedback loop.
+ */
+const SCRAP_PER_CLEARED_BAY = 8 * SCRAP_PER_LINE + SCRAP_PER_BAY;
+
+/** Workshop phase: tier 1 in priority order, requiresMark-gated and
+ *  budget-capped. */
+function loadoutFor(order: UpgradeId[], mark: number): UpgradeTiers {
   const tiers = newTiers();
-  for (const id of order) {
-    for (;;) {
-      const cost = nextTierCost(tiers[id]);
-      if (cost === null) break;
-      const next = { ...tiers, [id]: tiers[id] + 1 };
-      if (tiersCost(next) > budget) break;
-      tiers[id] = next[id];
-    }
+  for (const id of ownableTracks(order, mark)) {
+    const next = { ...tiers, [id]: 1 };
+    if (tiersCost(next) > budgetForMark(mark)) continue;
+    tiers[id] = 1;
   }
   return tiers;
 }
 
-/** Buy tier 1 everywhere affordable, then tier 2 everywhere, and so on. */
-function spread(order: UpgradeId[], budget: number): UpgradeTiers {
-  const tiers = newTiers();
+/** Spend `bank` scrap deepening installed tracks, in priority order.
+ *  focused (breadthFirst=false) re-scans from the top after each buy, so it
+ *  maxes the first track before touching the second; spread buys one tier
+ *  per track per pass. Returns the unspent remainder. */
+function spendScrap(
+  tiers: UpgradeTiers, order: UpgradeId[], bank: number, breadthFirst: boolean,
+): number {
   let bought = true;
   while (bought) {
     bought = false;
     for (const id of order) {
+      if ((tiers[id] ?? 0) < 1) continue;
       const cost = nextTierCost(tiers[id]);
-      if (cost === null) continue;
-      const next = { ...tiers, [id]: tiers[id] + 1 };
-      if (tiersCost(next) > budget) continue;
-      tiers[id] = next[id];
+      if (cost === null || cost > bank) continue;
+      tiers[id] += 1;
+      bank -= cost;
       bought = true;
+      if (!breadthFirst) break;
     }
+  }
+  return bank;
+}
+
+/** The rig as it stands ENTERING `bay` (1-based): the tier-1 loadout plus
+ *  every refit stop the run has already passed, each spending the scrap
+ *  banked since the last one. */
+function tiersForBay(
+  order: UpgradeId[], mark: number, bay: number, breadthFirst: boolean,
+): UpgradeTiers {
+  const tiers = loadoutFor(order, mark);
+  let earnedSpent = 0;
+  for (let stopBay = REFIT_EVERY; stopBay < RUN_LEVELS; stopBay += REFIT_EVERY) {
+    if (bay <= stopBay) break;
+    const bank = SCRAP_PER_CLEARED_BAY * stopBay - earnedSpent;
+    const left = spendScrap(tiers, order, bank, breadthFirst);
+    earnedSpent += bank - left;
   }
   return tiers;
 }
@@ -96,15 +143,26 @@ function spread(order: UpgradeId[], budget: number): UpgradeTiers {
  */
 const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher", "bonds"];
 
-const ARCHETYPES: Record<string, (budget: number) => UpgradeTiers> = {
+/** The tracks a Mark-M pilot can actually OWN: an install's requiresMark
+ *  counts Marks BEATEN (meta.ts), and a player flying Mark M has beaten
+ *  M - 1. Without this gate the Mark-1 row is judged against a rig no
+ *  first-run player can build — measured: its "best" build put 75 of 77
+ *  points into BAY2+HYD1, both requiresMark 1, i.e. locked until the Mark
+ *  it was supposed to be measuring is already beaten. In-run refits cannot
+ *  reach them either (run.ts's buyUpgrade refuses tier-0 tracks). */
+function ownableTracks(order: UpgradeId[], mark: number): UpgradeId[] {
+  return order.filter((id) => (installById(id)?.requiresMark ?? 0) <= mark - 1);
+}
+
+const ARCHETYPES: Record<string, (mark: number, bay: number) => UpgradeTiers> = {
   // The economy build: buy the rate, then the press that realises it.
-  economy: (b) => focused(["reactor", "hydraulics", "bay", "launcher", "bonds"], b),
+  economy: (m, b) => tiersForBay(["reactor", "hydraulics", "bay", "launcher", "bonds"], m, b, false),
   // The spatial build: more room to land in, and a press that squares it up.
-  spatial: (b) => focused(["bay", "hydraulics", "reactor", "launcher", "bonds"], b),
+  spatial: (m, b) => tiersForBay(["bay", "hydraulics", "reactor", "launcher", "bonds"], m, b, false),
   // The power build: reach the back of the bay and fight the weather.
-  power: (b) => focused(["launcher", "hydraulics", "reactor", "bay", "bonds"], b),
+  power: (m, b) => tiersForBay(["launcher", "hydraulics", "reactor", "bay", "bonds"], m, b, false),
   // A little of everything — the instinctive first spend.
-  spread: (b) => spread(CALIBRATION_TRACKS, b),
+  spread: (m, b) => tiersForBay(CALIBRATION_TRACKS, m, b, true),
 };
 
 // ---------------------------------------------------------------------------
@@ -133,6 +191,35 @@ const carry = parseInt(get("--carry") ?? "150", 10);
 // be able to try values the source doesn't hold.
 const targetStep = parseFloat(get("--target-step") ?? String(MARK_TARGET_STEP));
 const speedStep = parseFloat(get("--speed-step") ?? String(MARK_SPEED_STEP));
+// --ratchets none|spread. `none` is the harness's original meaning: the rig
+// against STOCK bays, no hazard notches — which measures the SHIP, not the
+// run. `spread` models what a Deep Run actually forces: one ratchet pick per
+// cleared bay (two at the capstone Mark), spread round-robin across the
+// NUMBER axes the Mark offers. Content axes are excluded because every hand
+// holds at least two number axes (hazards.ts) so content is always dodgeable
+// — and because these bots own no answer to a material, which would measure
+// "bots can't play slag", not the ladder. The slid Fibonacci ladders
+// (notchTotal's startAt = mark - 1) are exactly what this mode exists to
+// price: at Mark M the first cost/time notch lands M-1 rungs up.
+const ratchetMode = (get("--ratchets") ?? "none") as "none" | "spread";
+if (ratchetMode !== "none" && ratchetMode !== "spread") {
+  console.error(`Unknown --ratchets "${ratchetMode}" — available: none, spread`);
+  process.exit(1);
+}
+
+/** The forced ratchet stack a Mark-M run carries INTO bay B (1-based):
+ *  (B-1) x picksPerBay notches, round-robin over the number axes the Mark
+ *  deals, in ladder order (cost, time, wind, sweeper). */
+function spreadRatchets(mark: number, bay: number): Ratchets {
+  const axes = hazardsForMark(mark).filter((h) => h.kind === "number").map((h) => h.id);
+  const picks = (bay - 1) * picksPerBay(mark);
+  const out: Ratchets = {};
+  for (let k = 0; k < picks; k++) {
+    const id = axes[k % axes.length];
+    out[id] = (out[id] ?? 0) + 1;
+  }
+  return out;
+}
 
 for (const b of botNames) {
   if (!(b in BOTS)) {
@@ -145,11 +232,17 @@ for (const b of botNames) {
 
 /** Win rate for one (mark, build) across the tested bays, seeds and bots, plus
  *  the per-bay breakdown the run-clear estimate is built from. */
-function evaluate(mark: number, tiers: UpgradeTiers): { perBay: Map<number, number>; overall: number } {
+function evaluate(
+  mark: number,
+  build: (mark: number, bay: number) => UpgradeTiers,
+): { perBay: Map<number, number>; overall: number } {
   const perBay = new Map<number, number>();
   let wins = 0;
   let total = 0;
   for (const bay of bays) {
+    // The rig as the run actually holds it AT this bay — tier-1 loadout for
+    // bays 1-3, plus every refit stop already passed (see tiersForBay).
+    const tiers = build(mark, bay);
     let bayWins = 0;
     let bayTotal = 0;
     for (const botName of botNames) {
@@ -159,11 +252,17 @@ function evaluate(mark: number, tiers: UpgradeTiers): { perBay: Map<number, numb
         // Order mirrors run.ts's levelForRun exactly — base, then upgrades —
         // because REACTOR raises scorePerLine and would otherwise be measured
         // against the wrong target.
-        const cfg = makeBaseLevel(bay - 1, 1);
+        // mark (not 1) so cfg.mark is honest: the ratchet ladders read it
+        // (notchTotal starts at mark - 1). With MARK_TARGET_STEP and
+        // MARK_SPEED_STEP both 0 nothing else in the base config moves.
+        let cfg = makeBaseLevel(bay - 1, mark);
         const marksAbove = mark - 1;
         cfg.targetScore = Math.round(cfg.targetScore * (1 + targetStep * marksAbove));
         cfg.compactorSpeed *= 1 + speedStep * marksAbove;
         applyUpgrades(cfg, tiers);
+        // Same order as run.ts's levelForRun: the ship first, then the
+        // conditions it is flown in, then cash in hand.
+        if (ratchetMode === "spread") cfg = applyRatchets(cfg, spreadRatchets(mark, bay));
         if (bay > 1) cfg.startingFunds += carry;
         const out = runBay(cfg, BOTS[botName](s + 1), s + 1);
         if (out.status === "won") bayWins += 1;
@@ -205,7 +304,7 @@ function verdict(runRate: number): string {
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
 
 console.log(
-  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-step ${targetStep} · speed-step ${speedStep}`,
+  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-step ${targetStep} · speed-step ${speedStep} · ratchets ${ratchetMode}`,
 );
 console.log(
   `Criterion: the BEST build at a Mark should fall JUST SHORT (run clear 2-35%).\n`,
@@ -220,8 +319,7 @@ for (const mark of marks) {
   const cells: string[] = [];
   let best = { name: "", overall: -1, perBay: new Map<number, number>() };
   for (const [name, build] of Object.entries(ARCHETYPES)) {
-    const tiers = build(budget);
-    const res = evaluate(mark, tiers);
+    const res = evaluate(mark, build);
     cells.push(pct(res.overall));
     if (res.overall > best.overall) best = { name, overall: res.overall, perBay: res.perBay };
   }
@@ -240,12 +338,15 @@ for (const mark of marks) {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\nPer-Mark detail for the winning build:");
+console.log("\nPer-Mark detail for the winning build (rig at bay 1 -> rig at bay 10):");
 for (const mark of marks) {
   const budget = budgetForMark(mark);
   const row = rows.find((r) => r.mark === mark)!;
-  const tiers = ARCHETYPES[row.best](budget);
-  const spent = tiersCost(tiers);
-  const desc = UPGRADES.filter((u) => tiers[u.id] > 0).map((u) => `${u.glyph}${tiers[u.id]}`).join(" ") || "stock";
-  console.log(`  Mark ${String(mark).padStart(2)}  ${row.best.padEnd(8)} ${String(spent).padStart(3)}/${budget}  ${desc}`);
+  const show = (tiers: UpgradeTiers): string =>
+    UPGRADES.filter((u) => tiers[u.id] > 0).map((u) => `${u.glyph}${tiers[u.id]}`).join(" ") || "stock";
+  const first = ARCHETYPES[row.best](mark, 1);
+  const last = ARCHETYPES[row.best](mark, RUN_LEVELS);
+  console.log(
+    `  Mark ${String(mark).padStart(2)}  ${row.best.padEnd(8)} loadout ${String(tiersCost(first)).padStart(3)}/${budget}  ${show(first)}  ->  ${show(last)}`,
+  );
 }
