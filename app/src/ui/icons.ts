@@ -46,7 +46,17 @@ export type IconName =
   // outlines disagree per device, none can take the button's accent colour,
   // and their metrics wobble the buttons. Emoji survive only in flavour copy
   // now, never in a control.
-  | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "salvage" | "retry";
+  | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "retry"
+  // THE TWO CURRENCIES, and they must never look alike. Both used to render as
+  // the ♻ emoji — literally the same character for scrap and for salvage, on
+  // the refit chip and the workshop chip, and on both shops' price buttons —
+  // which is a currency confusion, not a styling one: a player reading "♻ 55"
+  // in the yard and "♻ 15" in the Workshop has no way to know the two numbers
+  // come out of different pockets, one that dies with the run and one that
+  // never does. So they are drawn, they are a stroked pair of arcs against two
+  // solid slabs of cut plate, and the paint mode is the tell at 11px (the same
+  // argument `overclock` and `auto` settle between themselves below).
+  | "salvage" | "scrap";
 
 /** Inner markup per icon. Shapes that read better solid are filled; the rest
  *  stroke, and the wrapper supplies the shared stroke attributes. */
@@ -169,11 +179,28 @@ const PATHS: Record<IconName, string> = {
   // The Bond Breaker bolt — the same silhouette `bond-breaker`'s shop glyph
   // throws between its blocks, solid here because it is a lit trigger.
   bond: `<path d="M9.5 1L4 9h3.2L6 15l6-8H8.6z" fill="currentColor" stroke="none"/>`,
-  // Salvage (♻ in every price): two arcs chasing each other with blocky
-  // arrowheads — recycling without the emoji's per-platform art.
+  // Salvage — the FOREVER currency: two arcs chasing each other with blocky
+  // arrowheads. Recycling, because salvage is what the wreck of a dead run
+  // comes back as, and it is the cycle that never ends.
   salvage:
     `<path d="M12.8 6A5.2 5.2 0 0 0 3.5 5"/><path d="M13.5 2.2v3.9H9.6"/>` +
     `<path d="M3.2 10a5.2 5.2 0 0 0 9.3 1"/><path d="M2.5 13.8V9.9h3.9"/>`,
+  // Scrap — the ONE-RUN currency: two offcuts of cut plate, stacked, sheared
+  // opposite ways so the pair reads as loose material rather than a repeated
+  // pattern. Deliberately the opposite of `salvage` on both axes a glyph has at
+  // 11px: solid against stroked, and flat straight edges against a rotating
+  // cycle of arcs. Nothing here curves, so at the size it renders in on a price
+  // button it can never be read as the arcs.
+  //
+  // It was a jagged heap first, and the heap was wrong for a reason worth
+  // keeping: a flat-bottomed silhouette with three notches in its top edge is a
+  // CROWN at 22px and up, and a crown means rank. Every "pile" variant landed
+  // somewhere in crown / mountain range / sunrise — the notched-top silhouette
+  // is too well spoken for. Straight sheared slabs mean stock metal and nothing
+  // else.
+  scrap:
+    `<path d="M4 3h7l2 3H6z" fill="currentColor" stroke="none"/>` +
+    `<path d="M4 8h9l-2 5H2z" fill="currentColor" stroke="none"/>`,
   // The retry arrow (was the ↻ dingbat on Try/Play Again buttons).
   retry: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
 };

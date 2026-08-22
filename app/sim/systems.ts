@@ -80,7 +80,7 @@ import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen,
+  menuScreen, salvageHTML,
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintRotate, keyFor, padFor,
@@ -846,8 +846,8 @@ section("Pattern Contracts (contracts.ts)");
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
 
   // The tier status is a body-font line, not an eyebrow suffix — the long
-  // suffix wrapped on a landscape phone and dropped an orphaned "♻ 60" into
-  // the heading. It quotes the MILESTONE share (what one clear banks now),
+  // suffix wrapped on a landscape phone and dropped an orphaned salvage
+  // figure into the heading. It quotes the MILESTONE share (what one clear banks now),
   // not the old completion-only award.
   const withProgress = contractsScreen({
     contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
@@ -855,7 +855,11 @@ section("Pattern Contracts (contracts.ts)");
   check(
     "the board quotes the per-clear milestone share",
     withProgress.includes("each first clear banks") &&
-      withProgress.includes(`♻ ${tierMilestoneSalvage(1)}`),
+      // Through salvageHTML rather than a literal: the figure is a drawn glyph
+      // plus a number now (screens.ts's two currencies), and the point of the
+      // check is that the board quotes the SALVAGE share — which a bare number
+      // would no longer prove.
+      withProgress.includes(salvageHTML(tierMilestoneSalvage(1))),
   );
   check(
     "the eyebrow no longer carries the wrapping progress suffix",
@@ -915,8 +919,8 @@ section("Pattern Contracts (contracts.ts)");
     nextInstall: { name: "Reactor Output", cost: 15 },
   });
   check("the salvage row states the target price",
-    ceTarget.includes("Reactor Output costs ♻ 15 in the Workshop"));
-  check("no target price is invented without one", !ceWin.includes("costs ♻"));
+    ceTarget.includes(`Reactor Output costs ${salvageHTML(15)} in the Workshop`));
+  check("no target price is invented without one", !ceWin.includes("in the Workshop"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1827,8 +1831,10 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // B5: no emoji or dingbat in a CONTROL — an emoji is platform-drawn art
   // that can't take the accent colour and wobbles the button metrics. The
   // rail, the plant's ability chips and every buy/close button carry inline
-  // SVG now; the flavour glyphs (♻ in readouts, the belt's 💣 tile, the
-  // leaderboard medals) are copy and stay.
+  // SVG now — and so do both currencies, which used to share the ♻ character
+  // between scrap and salvage and now have a glyph each (icons.ts). The
+  // remaining flavour glyphs (the belt's 💣 tile, the leaderboard medals) are
+  // copy and stay.
   {
     const hud = hudHTML({
       beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },

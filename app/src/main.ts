@@ -1371,7 +1371,10 @@ class App {
     const freshGrid = tmp.querySelector("#refit-grid");
     const freshScrap = tmp.querySelector("#refit-scrap");
     if (freshGrid) grid.innerHTML = freshGrid.innerHTML;
-    if (freshScrap) scrap.textContent = freshScrap.textContent;
+    // innerHTML, not textContent: the scrap readout is a drawn glyph plus a
+    // number (screens.ts's scrapHTML), and copying its text alone dropped the
+    // glyph and left a bare figure the moment a player bought anything.
+    if (freshScrap) scrap.innerHTML = freshScrap.innerHTML;
   }
 
   /** Workshop: buy a permanent unlock with salvage. */
