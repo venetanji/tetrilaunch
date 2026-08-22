@@ -984,14 +984,13 @@ body.crt-off #app::after { display: none; }
   display: flex; flex-direction: column; justify-content: space-between;
   gap: max(3px, calc(8 * var(--fpx)));
 }
-.plant__hdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.plant__title {
-  font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.1em; color: var(--text-muted);
-  display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.plant__title b { color: var(--accent); }
-.plant__rivets { display: flex; gap: 5px; flex: none; }
-.plant__rivets i { width: max(4px, calc(6.7 * var(--fpx))); height: max(4px, calc(6.7 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+/* No .plant__hdr / .plant__title / .plant__rivets: the panel's title row is
+   gone (see screens.ts's hudHTML). The mockup's `.frame--d` still carries it,
+   and this is the one place the implementation deliberately parts from it —
+   the mockup's title also trailed "· Bay 4/10", which the bay banner took over
+   long ago, and what was left named the panel to someone already reading it.
+   The riveted-machine read the title row was carrying comes from the panel's
+   own border, hard shadow and gradient, which are all still here. */
 
 /* ---------- Plant readout: information hierarchy ----------
    Three columns, weighted by how much each number changes the next decision:
@@ -1107,6 +1106,66 @@ body.crt-off #app::after { display: none; }
   min-width: 0; flex: 1 1 auto;
 }
 .pl-queue b::-webkit-scrollbar { display: none; }
+
+/* ---------- Notches: the run's ratcheted axes, one dense line --------------
+   Built on the manifest row above, for the same reason it exists: a list whose
+   length the panel does not control belongs on a row that can scroll its tail,
+   never inline in a line that can only wrap. What is new is WHY it is a line
+   at all — it used to be a row of 30px chips sharing the build row with the
+   ship plates, and once the rack became seven fixed slots (205px of the
+   narrowest panel's 209px) there was no width left for them. See
+   components.ts's runNotchTallyHTML.
+
+   The line costs ~9px against the 18.6px of free height the panel had inside
+   its design box on the tightest device in the matrix, so it is paid for out
+   of air the panel was already spreading between its rows, not out of the box. */
+.pl-notch {
+  margin-top: 2px;
+  display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
+  font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  min-width: 0;
+}
+.pl-notch b {
+  display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 700;
+  white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  min-width: 0; flex: 1 1 auto;
+}
+.pl-notch b::-webkit-scrollbar { display: none; }
+/* The chip's border-top colour, carried over as the glyph colour: content axes
+   bane-red, number axes tradeoff-amber. It is the fastest thing in the row to
+   read and it survives the shrink from a chip to two letters. */
+.pl-notch__ax { flex: none; }
+.pl-notch__ax.k-bane { color: var(--danger); }
+.pl-notch__ax.k-tradeoff { color: var(--warn); }
+.pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
+.pl-notch__sep { flex: none; color: var(--text-faint); }
+.pl-notch__none { color: var(--text-faint); }
+
+/* ---------- The two rows that put a MONO value beside a PIXEL label --------
+   `align-items: baseline` lines these rows up on an edge Press Start 2P does
+   not draw on. The face reserves the bottom row of its pixel grid for
+   descenders, so its capitals stop 0.13em short of the baseline while the
+   mono tally's sit on it — and the tally rendered an eighth of its type size
+   BELOW the label it belongs to, which on the notch line read as the axes
+   having slipped off the row. See tokens.css's --pixel-cap-drop for the
+   measurement.
+
+   Lift the mono run back onto the label's optical line rather than dropping
+   the label onto the mono's: every other row in this panel is pixel type, so
+   the pixel line IS the panel's line, and moving the label would have put
+   NOTCHES and COMBO on two different ones.
+
+   `position: relative` and not a margin: the correction is optical, and the
+   panel's height budget is measured to the row box. Nothing may move.
+
+   Held by sim/uifit's `inkline` assertion, which compares where the two
+   typefaces actually put ink rather than where their baselines are — no other
+   assertion can see this, since the row does not overflow, wrap, clip or
+   scroll while it is wrong. */
+.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-cap-drop)); }
 /* Contract mode's panel is a grid so the manifest row costs no extra height
    where width is abundant: meta and the tally SHARE a row at regular/roomy
    density (the old inline placement's height, without its wrapping), and the
@@ -1115,14 +1174,12 @@ body.crt-off #app::after { display: none; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas:
-    "hdr  hdr"
     "read read"
     "load load"
     "meta queue"
     "mods mods";
   align-content: space-between;
 }
-.hud--contract .plant__hdr { grid-area: hdr; }
 .hud--contract .pl-read { grid-area: read; }
 .hud--contract .pl-load { grid-area: load; }
 .hud--contract .pl-meta { grid-area: meta; }
@@ -1190,13 +1247,70 @@ body.crt-off #app::after { display: none; }
    `display: none` at this density (the rule immediately below) — so nothing at
    compact hangs below a chip except its own `--shadow-hard-sm`, which is a 2px
    offset and is exactly what is left. */
-[data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; }
+/* The GAP's floor drops with it, 5px to 4px. It is not the binding number
+   anywhere else — 10.7·--fpx clears 5px above --fpx 0.467, which is every
+   device in the matrix bar the three tightest phones — so this changes those
+   three alone, and it is what buys the iPhone 13 mini's rack the width the
+   slot floor below spends. 1px between two plates that each carry a 1px
+   border and a hard shadow is not a separation the eye is using; 1px x 6
+   gaps against a 209px row is. */
+[data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; gap: max(4px, calc(10.7 * var(--fpx))); }
 [data-density="compact"] .mod--bb,
 [data-density="compact"] .mod--demo { display: none; }
 [data-density="compact"] .pl-mods .mod,
 [data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod .nm { display: none; }
+/* SLOT WIDTH AT COMPACT — where the plate's two floors stopped agreeing.
+   The base rule draws the plate at 40·--fpx around a glyph set at 9·--fpx, so
+   a slot is 4.44 glyph-ems wide and the 3-character glyph inside it is 3.06 —
+   0.69em of air per side, which is the plate as designed. But the two have
+   DIFFERENT floors: the glyph's is 6px, its legibility floor, while the
+   slot's was 25px — and 4.44 x 6px is 26.7. At the floor the box was 1.7px
+   narrower than its own proportion, and since 40·--fpx does not clear 25px
+   until --fpx 0.625, every one of the ten phones in the matrix sat on both
+   floors at once. That is the reported "text doesn't fit": 0.39em of side
+   air instead of 0.69em, on every phone, all the time.
+
+   A clamp, and each of its three numbers is a budget:
+
+   - FLOOR 26px, which is what the tightest rack in the matrix can pay for.
+     7 slots + 6 gaps against the iPhone 13 mini's 209px row is 182 + 24.2 =
+     206.2px. 27px would need 213.2 and does not fit at any gap the row can
+     offer, so the 13 mini lands at 0.47em of side air and is the ONLY device
+     left under the plate's own proportion. It is also the only device with
+     nothing to spend: every other phone has between 36px and 113px of unused
+     row, because the compact row hides the BUILD tag and both ability chips
+     and leaves the seven slots to themselves.
+   - GROWTH 65·--fpx, which is what actually reaches that unused row. The base
+     40 could not: 40 x the widest phone's --fpx is 23px, still under the old
+     floor, so all ten phones rendered the same 25px slot no matter how much
+     panel they had. 65 is the largest that keeps every compact device inside
+     its row even uncapped — the binding one is the budget 640x360, with
+     30.4px available per slot against 28.2 asked — so the cap below is a
+     shape decision and never a fit one.
+   - CAP 30px, because the slot is 25px TALL at this density — the row's
+     height budget halves it, see the rule above — and a badge that keeps
+     growing sideways against a fixed height stops reading as the plate the
+     tablet draws at 0.58:1 and starts reading as a strip. 30px is 1.2x the
+     height and 0.80em of side air, just past the 0.69em the design asks for;
+     uncapped, a 16 Pro Max slot goes to 37.8px and 1.4em, which is more air
+     than any plate in the app has ever had.
+
+   Where each device lands: 26px on the 13 mini, 28.2 on the budget 640x360,
+   29.6 on an SE 3, 30 on everything from a Galaxy S8+ up, and the tightest
+   rack still clears its row by 2.9px. Side air 0.39em before, 0.47-0.80em
+   after.
+
+   NOT applied to the base rule, which regular and roomy density keep: there
+   the row also carries the vertical BUILD tag and two 79px ability chips, and
+   an iPad mini can only afford 34.9px a slot — 43·--fpx — so a coefficient
+   big enough to matter on a phone would push the seventh slot off a tablet.
+   Different rows, different budgets.
+
+   sim/uifit's `rack` assertion holds the fit; its `badge` assertion holds the
+   air inside the box, which is the half that was silent. */
+[data-density="compact"] .pl-mods .ship-plate { width: clamp(26px, calc(65 * var(--fpx)), 30px); }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -1224,17 +1338,21 @@ body.crt-off #app::after { display: none; }
      unwrapping the meta line gives back the 12px the second line cost. The
      panel measures 154.7px tall either way. */
   grid-template-columns: minmax(0, 1fr);
+  /* `notch` is named here and NOT in either contract template: the notch line
+     renders only in Deep Run (screens.ts's hudHTML), and a named row costs its
+     share of the row gap even when nothing renders into it — the same trap the
+     retired title row left behind in exactly these templates. */
   grid-template-areas:
-    "hdr"
     "read"
     "load"
     "meta"
+    "notch"
     "mods";
   align-content: space-between;
   gap: max(2px, calc(6 * var(--fpx)));
 }
-[data-density="compact"] .plant__hdr { grid-area: hdr; }
 [data-density="compact"] .pl-read { grid-area: read; }
+[data-density="compact"] .pl-notch { grid-area: notch; margin-top: 0; }
 [data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
 /* flex-start, not flex-end: on its own full-width row the line has room to
    spare, and every other row in this panel starts at the same left edge. */
@@ -1255,7 +1373,6 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .hud--contract .plant__body {
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
   grid-template-areas:
-    "hdr   hdr"
     "read  read"
     "load  meta"
     "queue queue"
@@ -1361,14 +1478,29 @@ body.crt-off #app::after { display: none; }
   .mod--bb .key, .mod--demo .key { display: none; }
 }
 
-/* Ship plates — one per UPGRADED system, tier shown as pips (see components.ts's
-   shipPlatesHTML). Visually distinct from the mod chips beside them (narrower,
-   cyan-topped, no name label) because they answer a different question: mods are
-   "what was I dealt", plates are "what did I build". */
+/* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
+   components.ts's shipPlatesHTML for why every track renders). Visually
+   distinct from the mod chips beside them (narrower, cyan-topped, no name
+   label) because they answer a different question: mods are "what was I
+   dealt", plates are "what did I build".
+
+   THE WIDTH FLOOR IS A FIT BUDGET, not a taste. Seven fixed slots have to
+   clear the narrowest panel in the matrix — an iPhone 13 mini, where the
+   field is 482x271 and the plant's content box is 209px — so the floor is
+   `7w + 6·gap <= 209`. Raising either number without re-running sim/uifit
+   puts the last slot behind a scroll.
+
+   This rule now sizes the REGULAR and ROOMY rows only. Compact overrides both
+   the floor and the `--fpx` coefficient a few hundred lines up, because the
+   compact row hides the BUILD tag and both ability chips and so has a
+   completely different budget to spend — read that block for the arithmetic.
+   The 40:9 ratio between this width and the glyph's font-size below is the
+   plate's design proportion and the thing the override is written to keep:
+   4.44 glyph-ems of box around 3.06 of text. */
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  width: max(30px, calc(46 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  width: max(25px, calc(40 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
@@ -1379,6 +1511,20 @@ body.crt-off #app::after { display: none; }
 .ship-plate__pips { display: flex; gap: 2px; }
 .ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
+
+/* An UNINSTALLED slot: the same box, drained of the cyan that means "built".
+   It has to stay legible — the glyph is the whole point of an empty slot, it
+   names the system the player has not bought yet — so this dims rather than
+   hides, and the pips stay in their off state instead of disappearing (three
+   dark pips say "three tiers available"; no pips would say "no such thing").
+   Deliberately no dashed border or other "placeholder" idiom: the rack reads
+   as one instrument with some lamps lit, which is what it is. */
+.ship-plate--empty {
+  background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+}
+.ship-plate--empty .ship-plate__g { color: var(--text-faint); }
 
 /* ============================================================================
    CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
@@ -2103,36 +2249,14 @@ body.crt-off #app::after { display: none; }
 .step p { color: var(--text-dim); font-size: var(--fs-sm); min-height: 0; }
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
-/* ---------- Contracts ---------- */
 /* A card that is ALSO a <button> does not inherit page text colour — the UA
    gives every button `color: buttontext`, which is black, and these panels are
-   near-black. The contract card's own children mostly set a colour and so
-   looked fine, but the Contract NAME is a bare <b>: it rendered #000 on #07070f
-   at a contrast ratio of 1.05:1, i.e. invisible. Measured on device, and the
-   only real contrast failure in the app.
-   Set on the element rather than the <b> so nothing added to this card later
-   inherits black by default, and kept off `.panel` itself so the many non-button
-   panels are untouched. */
+   near-black, so any text on such a card that does not set its own colour
+   renders at ~1.05:1, i.e. invisible. Measured on device; it was the only real
+   contrast failure in the app. Kept off `.panel` itself so the many non-button
+   panels are untouched. The Contracts board sets the same guard on its own card
+   (see the CONTRACTS BOARD section), which no longer uses `.panel`. */
 button.panel { color: var(--text); }
-.contract-card { text-align: left; cursor: pointer; min-height: 210px; align-items: flex-start; }
-.contract-card > p { margin: 0; }
-/* Landscape phones: the 210px floor loses. Inside the snap row's ~175px of
-   height it pushed every card's bottom third past the viewport edge, where
-   the row's own overflow-y:hidden CLIPPED it — the reward line and the brief
-   were simply unreadable on every 360dp phone (caught the moment the
-   offscreen check stopped letting an x-scroller launder y-overflow). The row
-   stretches the cards to its height; the copy tightens to fit it. */
-@media (max-height: 460px) {
-  .contract-card { min-height: 0; padding: var(--sp-3); gap: 5px; }
-  .contract-card .step__n { font-size: 13px; }
-  .contract-card > b { font-size: 13px; }
-  .contract-card > p { font-size: 11.5px; line-height: 1.3; }
-  .contract-card__reward { font-size: 10.5px; }
-}
-/* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
-   Contract stays replayable after it is cleared, so this must not read as
-   "spent". */
-.contract-card--done { border-color: var(--accent); }
 
 /* ---------- Splash ---------- */
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); height: 100%; }
@@ -2436,8 +2560,27 @@ button.panel { color: var(--text); }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
 .refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
-/* B6's separator, shared by every buy button ("T2 · ♻ 35"). */
+/* B6's separator, shared by every buy button ("T2 · <scrap> 35"). */
 .price__sep { opacity: 0.55; margin: 0 2px; }
+
+/* THE CURRENCY READOUT — screens.ts's salvageHTML / scrapHTML, i.e. every scrap
+   and salvage figure in the app. inline-flex rather than block, because the
+   same call has to work in a `.chip__value` div, inside a `<b>` on a stat, and
+   mid-sentence in a paragraph; `.ico` is display:block (it lives in buttons),
+   and a block SVG dropped into prose takes the line with it.
+
+   The gap is what keeps the glyph and its number one object: a currency figure
+   must never wrap between the two, and the number must never end up beside the
+   OTHER currency's glyph. */
+.currency {
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  /* An inline-flex box whose only child is a block SVG has no baseline of its
+     own, so it sits ON the text baseline and grows the line box by its whole
+     height — measured as 2px of overflow on the tutorial's last card, which is
+     written to a height cap. Centring it against the text instead keeps the
+     glyph inside the line it belongs to. */
+  vertical-align: middle;
+}
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-row__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
 /* Tier 0: the system isn't on the ship, and no amount of scrap puts it there
@@ -2462,10 +2605,27 @@ button.panel { color: var(--text); }
 .workshop__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .workshop__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
 .workshop__meta { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em; }
-.workshop__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; align-content: start; }
+/* ONE COLUMN, at every viewport. The shelf ran `auto-fit, minmax(210px, 1fr)`
+   — four columns on a tablet, two on a landscape phone — and every one of those
+   columns was narrower than the merchandise needed: sim/uifit reported 90
+   ellipsis truncations on this screen alone, i.e. the description was cut on
+   every card of every device in the matrix. A shop where you cannot read what
+   you are buying is not a denser shop, it is a broken one.
+
+   Columns were bought to avoid scrolling, and the scroller is already here:
+   .workshop__shop is one of the three allowlisted [data-scroll] regions
+   (sim/uifit's ALLOWED_SCROLLERS), so the shelf being taller than the pane is
+   its designed behaviour rather than a fit failure. Spending the full width on
+   one column is what buys the full sentence back. */
+.workshop__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-content: start; }
+/* THE CARD IS A ROW at every size, not only on a short phone. A single-column
+   tile would put a 500px-wide buy button under a two-word name; the row shape
+   the compact breakpoint already used — body left, price right, both centred —
+   is what a full-width column wants everywhere. */
 .shop-card {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 14px 16px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 4px 16px;
+  padding: 10px 14px;
   background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-lg);
@@ -2475,17 +2635,32 @@ button.panel { color: var(--text); }
 /* Gated unlocks stay VISIBLE (dimmed) rather than hidden — a locked capstone you
    can see is a goal; one you can't is a surprise. */
 .shop-card--gated { opacity: 0.6; }
-.shop-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); }
-.shop-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; flex: 1; }
-/* name + desc as one unit, so the row layout below has a single middle track
-   and the tall card keeps today's spacing (this carries the 8px the two used to
-   get from .shop-card's own column gap). */
-.shop-card__body { display: flex; flex-direction: column; gap: var(--sp-2); flex: 1; min-width: 0; }
-.shop-card__foot { margin-top: auto; }
+.shop-card__name {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0;
+}
+/* NO CLAMP. The description is the only thing on the card that says what the
+   purchase does, and it wraps to as many lines as it needs — the pane scrolls,
+   so the cost of a third line is a third line, not a lost sentence. */
+.shop-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
+/* name + desc as one unit, so the row has a single middle track. */
+.shop-card__body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* The prices line up in a rail down the right edge: a min-width on the trailing
+   track, not on the button, so the gated cards' "Needs …" text shares it. */
+.shop-card__foot { min-width: 96px; display: flex; justify-content: flex-end; }
 .shop-card__foot .btn { width: 100%; }
 .shop-card__foot .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .shop-card__owned { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.06em; }
-.shop-card__locked { font-family: var(--font-pixel); font-size: 8px; color: var(--warn); letter-spacing: 0.04em; }
+/* The gate, in full. It WRAPS inside the price rail instead of ellipsising:
+   meta.ts's unlockGates returns a LIST ("Tier 4 · Demolition Licence"), and a
+   two-line clamp at 80px kept the first fragment and dropped the rest — which
+   is the half a player cannot work out for themselves. Today's live shelf only
+   ever produces "Needs Tier N" (every multi-gate unlock is retired), so this
+   costs nothing now and holds when one is not. */
+.shop-card__locked {
+  font-family: var(--font-pixel); font-size: 8px; color: var(--warn);
+  letter-spacing: 0.04em; line-height: 1.35; text-align: right; max-width: 172px;
+}
 
 /* Owned unlocks, collapsed to one line. They get no card on purpose — this is a
    shop, so what you own is reference and what you can buy is the merchandise.
@@ -2504,23 +2679,23 @@ button.panel { color: var(--text); }
 .workshop__owned-item { font-size: 11px; color: var(--text-dim); }
 .workshop__owned-item:not(:last-child)::after { content: " ·"; color: var(--text-faint); }
 
-/* The shop proper: one pane at a time, chosen by the tab bar above it. This was
-   a single scroller holding BOTH sections stacked, which is 689px of cards in a
-   189px window at 792x360. The tab bar is a sibling, not a child, so it stays
-   put while this scrolls. */
-/* TWO COLUMNS, ONE SCROLLER. The left column is state — what you own, and the
-   budget the Mark allows — and it must stay put: the budget is the usual
-   reason a card is greyed out, so scrolling it away from the cards it explains
-   is the one thing this pane must not do. The right column is the shelf, and
-   it is the only thing that moves.
+/* TWO COLUMNS, ONE SCROLLER. The left column is the build budget and nothing
+   else, and it must stay put: the cap is the usual reason a card is greyed out,
+   so scrolling it away from the cards it explains is the one thing this pane
+   must not do. The right column is the shelf, and it is the only thing that
+   moves.
 
-   200px is the aside's cap, not its width: `minmax(0, 200px)` lets it give way
-   on a narrow phone rather than squeezing the merchandise, and both tracks
-   carry minmax(0, …) so a long system name cannot push the grid wider than the
-   panel. */
+   The aside sizes to ITS CONTENT rather than to a number. It was capped at
+   200px back when it also carried the owned and installed strips — which have
+   moved into the scroller, because a pane that cannot scroll must not hold a
+   list that grows (a Mark-3 save ran five installed names past the bottom of
+   the screen). What is left is one budget box, and a track wide enough for its
+   label is a track wide enough: every pixel past that is width the one column
+   of merchandise wants. Both tracks keep minmax(0, …) so nothing in either can
+   push the grid wider than the panel. */
 .workshop__body {
   display: grid;
-  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
   gap: var(--sp-3);
   flex: 1 1 auto;
   min-height: 0;
@@ -2581,79 +2756,36 @@ button.panel { color: var(--text); }
   .workshop__hdr h2 { font-size: clamp(16px, 4.2vh, 26px); }
   /* Cutting the explanation is the wrong trade — it is the only thing that
      tells you what you are buying — so the PAGE stops scrolling and the card
-     area becomes the only scroller: salvage, the tab bar and Start Run stay
-     pinned and on-screen at every ownership state, and the shopping happens
-     inside a region instead of running off the bottom. The owned/installed
-     strip rides INSIDE that region now, because it belongs to one pane rather
-     than to the screen.
+     area becomes the only scroller: salvage, the build budget and Start Run
+     stay pinned and on-screen at every ownership state, and the shopping
+     happens inside a region instead of running off the bottom. The
+     owned/installed strips ride INSIDE that region, at its foot — reference
+     that grows with the save cannot live in a pane that never scrolls.
 
      The fit/scroll half of this has moved OUT of this breakpoint and into the
      base .screen / [data-scroll] rules — it was never a small-screen special
      case, it was the right structure at every size, and .screen--fit existed
      only because page scrolling used to be the default. */
-  /* A row needs its full name, a readable desc fragment and a price on one
-     line; 148px columns would wrap the name. */
-  /* Exactly two, not `auto-fit`. auto-fit put three ~230px columns on a 792px
-     phone, which is narrower than the card's own content wants: names broke
-     across three lines ("Bulk / Freight / Permit") and the price badge
-     overlapped the PERMANENT tag. Two columns give each card ~350px, which is
-     one line for every name in the set. */
-  .workshop__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
-    align-content: start;
-  }
-  /* The card becomes a ROW. 122px of card in a 189px scroller meant 1.5 cards
-     visible; the leaderboard's row shape (a fixed trailing value against a
-     flexible body) takes it to ~40px. Two columns was measured and is WORSE —
-     see the spec: this content is width-scarce, not height-scarce. */
-  .shop-card {
-    display: grid; grid-template-columns: 1fr auto; align-items: center;
-    gap: 8px; padding: 5px 10px; border-radius: var(--r-md);
-  }
-  .shop-card__body { gap: 2px; min-width: 0; }
-  /* min-width:0 and wrapping, because the shelf got narrower. The card is a
-     `1fr auto` grid, and this flex row carries icon + name + the NEXT STEP
-     badge. The badge does not shrink, so without a zero min-width the 1fr
-     track refused to go below its content and the badge rode out over the
-     price button in the auto track — visible on the one card that matters
-     most, since the badge only ever appears on the recommended purchase.
-     Wrapping lets it drop under the name instead of colliding with it. */
-  .shop-card__name {
-    font-size: 11px; display: flex; align-items: center; gap: 5px;
-    flex-wrap: wrap; min-width: 0;
-  }
+  /* The card is a row at every size now (see .shop-card above); a short
+     viewport only tightens it. What it must NOT do any more is take the
+     description away: two columns of clamped one-line descs was the old trade,
+     and it cost every card on every device its sentence. One column, whole
+     copy, and the pane scrolls — which is what the pane is for. */
+  .workshop__body { gap: var(--sp-2); }
+  .workshop__grid { gap: 4px; }
+  .shop-card { gap: 2px 10px; padding: 6px 10px; border-radius: var(--r-md); }
+  .shop-card__name { font-size: 11px; gap: 5px; }
+  /* min-width:0 and wrapping, because the shelf carries icon + name + the NEXT
+     STEP badge in one flex row. The badge does not shrink, so without a zero
+     min-width the 1fr track refused to go below its content and the badge rode
+     out over the price button in the auto track — visible on the one card that
+     matters most, since the badge only ever appears on the recommended
+     purchase. Wrapping lets it drop under the name instead. */
   .shop-card__name .next-badge { flex: none; }
-  .shop-card__desc {
-    font-size: 10px; line-height: 1.3;
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
-    overflow: hidden; min-width: 0;
-  }
-  /* margin-top:auto is declared OUTSIDE this query (see .shop-card__foot), and
-     an auto margin beats align-items — without this reset the price sinks to
-     the bottom of the row instead of centring against it. */
-  .shop-card__foot { margin-top: 0; }
-  .shop-card__foot .btn { width: auto; padding: 4px 8px; font-size: 9px; }
-  /* The gated branch replaces the button with a long text run. In an `auto`
-     track that run sizes the column and starves the body, so it is capped —
-     and then CLAMPED, because the cap alone only moves the problem: measured
-     at 792x360, "Needs Mark 3 · Demolition Licence" wrapped to four lines
-     inside 96px and took its row from 42px to 50px, breaking the rhythm the
-     row layout exists to create. Two lines is what fits beside the body, and
-     the leading gate is always the Mark — the one thing no amount of salvage
-     can buy. The rest reads in full on a taller screen, same trade the desc
-     above already makes.
-
-     96px was the first cap and it still starved the body: it left the name
-     117px, and "Bond Breaker Rig" wrapped to two lines inside that, taking its
-     row to 55px — the same broken rhythm the clamp above was added to fix, one
-     card over. 80px fits "Needs Mark 2" whole, and anything longer was already
-     truncated by the 2-line clamp at 96px too, so the cap costs nothing the
-     clamp was not already taking. Measured at 792x360 on a fresh save: every
-     row 42px, Options' overflow 30px -> 16px. */
-  .shop-card__locked {
-    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    overflow: hidden; max-width: 80px; text-align: right; line-height: 1.25;
-  }
+  .shop-card__desc { font-size: 10px; line-height: 1.3; }
+  .shop-card__foot .btn { padding: 4px 8px; font-size: 9px; }
+  .shop-card__foot { min-width: 84px; }
+  .shop-card__locked { max-width: 148px; }
   }
 
 /* ============================================================================
@@ -2702,6 +2834,166 @@ button.panel { color: var(--text); }
   .controls__pane { gap: 4px; }
   .bind-row { gap: 6px; padding: 2px 8px; }
   .bind-row__label { font-size: 12px; }
+}
+
+/* ============================================================================
+   CONTRACTS BOARD (see screens.ts's contractsScreen) — the daily, retryable
+   half. Three offers meant to be COMPARED, so the card is a spec sheet with
+   fixed slots rather than a paragraph: kind + payout, name, goal, supply,
+   brief, always in that order and always in the same place on all three.
+
+   Its own block, not the How-to deck's `.howto__grid`. That grid is a
+   horizontal SNAP ROW, which is right for nine cards read once in order and
+   wrong for three offers weighed against each other: two of the three sat
+   off-screen behind a sideways scroll, and a board you have to swipe to see is
+   a board you cannot compare. Three cards fit the width every device in the
+   matrix has, so this one neither scrolls nor snaps — in EITHER axis. It adds
+   no [data-scroll] and needs none.
+   ========================================================================== */
+.contracts {
+  /* `margin: auto`, so the board centres in a tall window and starts at the top
+     of a short one — the same trade `.modal` documents. `max-height` rather
+     than `height` keeps it the size of its content while forbidding it to
+     outgrow the screen `.screen`'s overflow:hidden would then clip. */
+  max-width: 980px; margin: auto; width: 100%; min-width: 0;
+  max-height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding-block: var(--sp-3);
+}
+.contracts__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+.contracts__title { min-width: 0; }
+.contracts__title h2 { font-size: var(--fs-h1); }
+/* The subtitle used to be two lines restating the mode's rules ("No clock, no
+   launch costs — your supply of shipments is the only budget. Fail as many
+   times as you like; nothing is lost."). Every one of those facts is now shown
+   where it applies: the supply is a labelled slot on each card, and the free
+   retry is the footnote. What is left is the posture the mode is for. */
+.contracts__sub { margin: 0; }
+.contracts__hdr-side { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* auto-fit rather than repeat(3, …): the board drops to two columns and then
+   one if it is ever given less width than three cards want, instead of
+   squeezing three until the contract name breaks mid-word.
+
+   min-width:0 on the items is what keeps the board inside the viewport. A grid
+   item's automatic minimum size is its CONTENT's minimum, so without it one
+   long name or a wide `I×3 O×2 T×1` tally pushes its track — and, because the
+   tracks are equal, all three — past the screen edge, where `.screen`'s
+   overflow:hidden clips it rather than showing it. min() on the track floor
+   covers the other direction: a bare `minmax(168px, 1fr)` still reserves 168px
+   per column on a viewport too narrow to hold one. */
+.contracts__board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr));
+  gap: var(--sp-3);
+  align-content: start;
+  min-width: 0; min-height: 0;
+}
+.contracts__board > * { min-width: 0; }
+
+.contract-card {
+  /* See the `button.panel` note above: a card that is also a <button> starts at
+     `color: buttontext` (black) on a near-black panel. */
+  color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; min-width: 0;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.contract-card:hover { border-color: var(--accent); }
+.contract-card:active { transform: translate(2px, 2px); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .contract-card { transition: none; }
+  .contract-card:active { transform: none; }
+}
+/* Cleared today. Deliberately quiet — the "✓ Cleared" state chip is the signal,
+   and a Contract stays replayable afterwards, so this must not read as spent. */
+.contract-card--done { border-color: rgba(0, 255, 156, 0.55); }
+
+.contract-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* The kind badge is load-bearing, not decoration: it says what the supply slot
+   below means. A Lines contract is handed a launch BUDGET it can waste; a
+   Pattern contract is handed an EXACT set it cannot. Same slot, opposite deal.
+   (The old card left the player to infer that from two differently-shaped
+   sentences, and the slot numbers `01 02 03` it showed instead carried nothing
+   — Contracts are three parallel offers, not a sequence.) */
+.contract-card__kind {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid rgba(0, 240, 255, 0.45); border-radius: var(--r-sm);
+  padding: 3px 5px; flex: none;
+}
+/* What this card is worth right now: the milestone share a first clear banks,
+   `✓ Cleared`, or `Practice` once the tier's Contract quota is full (meta.ts —
+   a tier pays for only its first TIER_CONTRACTS_REQUIRED clears).
+   Mono at 12px, not the 7px pixel font the kind badge uses — the shape the HUD
+   chips give a small numeric value, and the salvage share arrives through
+   salvageHTML (screens.ts's two currencies), a drawn glyph beside a number. */
+.contract-card__state {
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px; line-height: 1;
+  color: var(--text-faint); flex: none; white-space: nowrap;
+}
+.contract-card__state--pays { color: var(--warn); }
+.contract-card__state--done { color: var(--success); }
+
+.contract-card__name {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
+  line-height: 1.1; overflow-wrap: anywhere;
+}
+
+/* The goal, as the one number on the card meant to be read from across the room
+   — it is what every Contract asks for, in the same unit, so sizing it this way
+   is what lets three cards be compared without being read. */
+.contract-card__ask { display: flex; align-items: baseline; gap: 6px; }
+.contract-card__goal {
+  font-family: var(--font-mono); font-weight: 700; font-size: 30px; line-height: 1;
+  color: var(--accent);
+}
+.contract-card__unit {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.contract-card__supply { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.contract-card__supply-lbl {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-faint); flex: none;
+}
+.contract-card__supply-val { font-size: var(--fs-sm); color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
+.contract-card__supply-val b { color: var(--text); }
+
+/* The generator's own note about the bay (crosswind, tight launch budget, the
+   shape count). Pushed to the card's foot by the auto margin so the three cards
+   line their briefs up regardless of how tall the slots above them ran. */
+.contract-card__brief {
+  margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line);
+  font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35;
+}
+
+/* A9's WHY strip and the terms, as one line. All three cards used to carry an
+   identical copy of the terms, where they were the widest run on the card. */
+.contracts__foot { margin: 0; font-size: var(--fs-sm); line-height: 1.4; }
+.contracts__foot .next-badge { margin-right: 4px; vertical-align: 1px; }
+
+/* Short (landscape-phone) viewports — 792x360 is the measured target, 640x360
+   the tightest in the matrix. The card keeps every slot and gives up size,
+   because each slot is a different fact and dropping one would make two cards
+   look alike. */
+@media (max-height: 460px) {
+  .contracts { gap: var(--sp-2); padding-block: var(--sp-2); }
+  .contracts__title h2 { font-size: clamp(16px, 4.2vh, 26px); }
+  .contracts__sub { font-size: var(--fs-sm); }
+  .contracts__board { gap: var(--sp-2); }
+  .contract-card { gap: 4px; padding: 8px 10px; }
+  .contract-card__name { font-size: 13px; }
+  .contract-card__goal { font-size: 22px; }
+  .contract-card__supply-val { font-size: var(--fs-xs); }
+  .contract-card__brief { font-size: 10px; padding-top: 4px; }
+  .contracts__foot { font-size: 11px; }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
@@ -2848,12 +3140,6 @@ button.panel { color: var(--text); }
 @media (max-height: 460px) {
   .coach__next { padding: 5px 8px; gap: 3px; }
   .coach__next p { font-size: 10.5px; line-height: 1.3; }
-}
-/* A9: the Contract board's WHY strip. */
-.contracts__why { margin: 0; font-size: var(--fs-sm); }
-.contracts__why .next-badge { margin-right: 4px; vertical-align: 1px; }
-@media (max-height: 460px) {
-  .contracts__why { font-size: 11px; }
 }
 /* A11: the Workshop's one next-step card. */
 .shop-card--next { border-color: var(--warn); }
@@ -3130,11 +3416,16 @@ button.panel { color: var(--text); }
    at the step that still needs aiming. This block buys that back.
    No width rule here — the width is the plant's, at every viewport. */
 @media (max-height: 480px) {
-  .coach__card { padding: 7px 10px; gap: 3px; }
+  /* Padding and gap are down again (7px/3px -> 4px/2px). The card's fixed
+     furniture is a title, a 44px button — the tap floor, which is not
+     negotiable and is 41% of the card on the shortest phone — and the space
+     around them; the body is what is left, and it is the only part that is
+     the lesson. Chrome yields to it here, not the other way round. */
+  .coach__card { padding: 4px 9px; gap: 2px; }
   /* "Tutorial · 5/6" says exactly what the six dots in the footer already
      say; where height is scarce the dots are the cheaper of the two. */
   .coach__eyebrow { display: none; }
-  .coach__title { font-size: 10.5px; }
+  .coach__title { font-size: 10px; }
   .coach__body { font-size: 11px; line-height: 1.3; }
   .coach__foot { margin-top: 0; }
   .coach__btn { padding: 5px 10px; font-size: 10px; }
@@ -3180,6 +3471,27 @@ button.panel { color: var(--text); }
 }
 .hud[data-coach] .coach,
 .hud[data-coach] .coach__card { min-height: 0; }
+/* ---------- The card's height budget, while it has the panel ----------
+   Two gutters sized for the panel's OTHER job, cut back for the job it is
+   doing here. `.plant__body`'s vertical padding is set for the full readout
+   running the panel's whole height; while the coach is up it is holding two
+   rows (Launches and Reload) under a card that has its own padding and its own
+   margin off the panel edge, so the panel's padding is a third gutter stacked
+   on two others. `.coach`'s margin is the second of them.
+
+   This is not tidying — it is where a whole LINE of the instruction comes
+   from. The panel is capped at 0.52 of the field height while it carries the
+   card (below), and on the shortest phone in the matrix (640x360, where the
+   field is 556x313) the card's body was left 28px: two lines minus a hair, for
+   copy that needs three. Every card in the deck overran it, the last one by
+   58px — a card read once, in one glance, ending mid-sentence with no
+   affordance saying there was more. These two gutters give back ~8px of that,
+   the short-viewport block above another ~8, and the copy gives back the rest
+   (screens.ts's coachSteps); together the deck fits the cap on all thirteen
+   devices, asserted by sim/uifit rather than assumed. Scoped to `[data-coach]`,
+   so the full readout keeps its own spacing. */
+.hud[data-coach] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
+.hud[data-coach] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
 .hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---------- Rotate-step spotlight (tutorial only) ----------
@@ -3207,8 +3519,8 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Progressive stat reveal (tutorial only) ----------
-   The plant panel is seven stacked readouts — PWR, title, Funds/Target, the
-   goal bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
+   The plant panel is eight stacked readouts — PWR, Funds/Target, the goal
+   bar, Launches, Time, Reload, Combo/Launch-cost/Scrap, Build. All of it
    lands on a first-time player at once, before a single piece has been fired,
    which is the "overwhelming" half of the same playtest complaint that moved
    the coach off the field.
@@ -3219,7 +3531,11 @@ button.panel { color: var(--text); }
                            drag gesture this step teaches, and PWR is the
                            number that moves while the player pulls
      step 1 (Rotate)     → Reload, Launches — the first shot just spent one
-     tutorial over       → Funds/Target, Time, the meta row, panel title, Build
+     tutorial over       → Funds/Target, Time, the meta row, Notches, Build
+   The notch line is on that last list for two reasons, not one: a first bay
+   has no ratchets to show (they are drafted between bays), and the ~9px it
+   costs comes straight out of the coach card's body, which is written to a
+   budget that has no 9px in it — see coachSteps.
    `data-coach` carries the current step (main.ts's syncCoachReveal); it is
    absent for every run without a coach and removed the moment the tutorial is
    finished OR skipped, so this can never strip a returning player's HUD.
@@ -3245,7 +3561,7 @@ button.panel { color: var(--text); }
    them would silently pin the wrong one. A block is visible exactly when no
    rule below selects it. */
 .hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
-.hud[data-coach] :is(.plant__hdr, .pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
+.hud[data-coach] :is(.pl-funds, .pl-time, .pl-notch, .pl-meta, .pl-mods) { display: none; }
 
 /* One consequence of that hide list, which has to be styled rather than left
    to fall out: with Funds and Time gone, Launches is the only thing left in
@@ -3354,9 +3670,6 @@ button.panel { color: var(--text); }
   }
 }
 
-/* ---------- Contract card reward line ---------- */
-.contract-card__reward { font-size: 12px; color: var(--warn); margin: 0; }
-.contract-card__reward--done { color: var(--success); }
 
 /* ---------- Workshop permanence tag ----------
    Workshop and Refit both sell upgrades; this is the one whose purchases

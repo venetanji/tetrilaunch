@@ -3,7 +3,7 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runRatchetsHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runNotchTallyHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -37,6 +37,29 @@ import type { PreviewRow } from "../game/preview";
  * ------------------------------------------------------------------------ */
 export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
   return `<span class="tier-plate tier-plate--${size}" aria-label="Tier ${tier}"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">${tier}</span></span>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE TWO CURRENCIES. Both used to print as the ♻ character — the same emoji
+ * for scrap and for salvage, side by side on the refit chip and the workshop
+ * chip and on both shops' price buttons. That is not a styling slip: the whole
+ * point of the pair is that one dies with the run and the other never does, and
+ * a shared glyph says the opposite. Every amount now goes through one of these
+ * two, so a number cannot reach the screen without saying which pocket it comes
+ * out of, and the glyph is drawn (icons.ts) rather than typed — the ♻ emoji
+ * could not take the warm colour these readouts wear, and its metrics moved per
+ * platform.
+ *
+ * inline-flex (see .currency) so the same call works in a chip, on a button
+ * and mid sentence, and so the glyph can never wrap away from its number.
+ * ------------------------------------------------------------------------ */
+/** Salvage: banked at tier milestones, spent in the Workshop, kept forever. */
+export function salvageHTML(amount: string | number = "", size = 12): string {
+  return `<span class="currency">${icon("salvage", size)}${amount}</span>`;
+}
+/** Scrap: 2/line and 10/bay, spent at the refit yard, gone when the run ends. */
+export function scrapHTML(amount: string | number = "", size = 12): string {
+  return `<span class="currency">${icon("scrap", size)}${amount}</span>`;
 }
 
 /** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
@@ -133,7 +156,7 @@ export function menuScreen(
           </div>
           <div class="chip menu__stat">
             <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
+            <div class="chip__value" style="color:var(--warn)">${salvageHTML(salvage, 16)}</div>
           </div>
           ${store?.unlimited ? unlimitedBadgeHTML() : ""}
           ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
@@ -153,16 +176,16 @@ export function menuScreen(
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
           progress
-            ? `${DAILY_COUNT} today · ♻ ${progress.milestone} each · no clock, no launch cost`
+            ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
             : "Short challenges · retry freely"
         }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           guide
             ? guide.install
               ? salvage >= guide.install.cost
-                ? `♻ ${salvage} — ${guide.install.name} costs ♻ ${guide.install.cost}`
-                : `♻ ${salvage} — Contracts pay salvage`
-              : `♻ ${salvage} banked`
+                ? `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
+                : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
+              : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
         ${
@@ -221,7 +244,7 @@ export function howtoScreen(): string {
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
-    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
+    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (${scrapHTML()})</b> is earned per line and spent on your ship at refit stops. <b>Salvage (${salvageHTML()})</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
     ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
@@ -521,7 +544,7 @@ export function hudHTML(opts: {
   autoloaderOwned: boolean;
   bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
-   *  chips in the plant panel (see components.ts's runRatchetsHTML). */
+   *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
@@ -697,18 +720,16 @@ export function hudHTML(opts: {
         <span class="pl-pwr__val" id="hud-power-val">0%</span>
       </div>
       <div class="plant__body">
-        <div class="plant__hdr">
-          <!-- The panel's name, and nothing else. The bay position ("· Bay
-               7/10") and, in Contract mode, the contract's name used to trail
-               this title, and both are already the HEADLINE of the bay banner
-               at the top of the field. The banner exists precisely because
-               that position did not read as small muted text — see its comment
-               above — so keeping the muted copy here is the losing half of two
-               tellings of one fact, and it is the half that was being
-               ellipsised away on a narrow panel anyway. -->
-          <div class="plant__title"><b>◊</b> Recycling Plant</div>
-          <div class="plant__rivets"><i></i><i></i><i></i></div>
-        </div>
+        <!-- NO TITLE ROW. "Recycling Plant" named the panel to a player who
+             was already looking at it, and the bay banner across the top of
+             the field carries the only naming a bay needs (tier, bay N/10,
+             and in Contract mode the contract's name). The row went the way
+             the bay position that used to trail the title went, and for the
+             same reason: a second, quieter telling of a fact already told
+             louder is the half worth dropping. What went with it — three
+             decorative rivets that were the title's counterweight — was the
+             row's whole remaining content, and a row of three dots is not a
+             readout. Every row left in the panel is a live number. -->
         <div class="pl-read">
           ${
             contract
@@ -761,18 +782,38 @@ export function hudHTML(opts: {
             ? `<div class="pl-queue"><span class="lbl">Left</span><b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></div>`
             : ""
         }
-        <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
-             The row scrolls horizontally (a full run drafts more than fits), so
-             whatever is last gets cut off first — and the ability chips are the
-             only TAPPABLE things in here. Leading with them keeps the controls
-             reachable however long the build gets; a passive mod scrolling out
-             of view costs nothing but a glance. -->
+        ${
+          // NOTCHES — the run's ratcheted axes, one dense line, and only in
+          // Deep Run: a Contract has no ratchets at all (main.ts's
+          // startContract nulls `run`, and the axes live on the run), so the
+          // row would be a permanent em-dash there. That is also what keeps
+          // the contract grid templates honest — they name no `notch` area,
+          // and an area with nothing in it costs its share of the row gap.
+          //
+          // Rendered on EVERY Deep Run bay including the first, where it reads
+          // "—". A row that appears the moment the first notch lands would
+          // shift every row above it mid-run, and the panel has the ~9px this
+          // costs: measured free space inside the panel's design box is 18.6px
+          // on an iPhone 13 mini, the tightest in the matrix.
+          contract
+            ? ""
+            : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets)}</b></div>`
+        }
+        <!-- Build row: ABILITY chips first, then the ship rack. The rack is
+             seven fixed slots and all seven fit without scrolling on every
+             device (components.ts's shipPlatesHTML, and the harness's "rack"
+             assertion). The row keeps its horizontal scroll for the ability
+             chips at roomy density, where the vertical BUILD tag and two 88px
+             chips lead the row — but nothing informational hides behind it
+             any more. The ratchet chips that used to trail the rack are the
+             notch line above: they could not fit beside seven slots at any
+             legible size, and a notch behind a scroll is a notch the player
+             does not know they took. -->
         <div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
           ${bondChip}
           ${demoChip}
           ${plates}
-          ${runRatchetsHTML(ratchets)}
         </div>
       </div>
     </div>
@@ -878,7 +919,25 @@ export interface CoachStep {
  *  THIS bay's economy, not a stale example — and the GESTURE copy renders
  *  through the one hint table (D2, game/bindings.ts) per input family, so
  *  the coach can never tell a desktop player to tap a button that
- *  `pointer: fine` hides (which is exactly what it used to do). */
+ *  `pointer: fine` hides (which is exactly what it used to do).
+ *
+ *  EVERY BODY HERE IS HEIGHT-BUDGETED, and the budget is small enough to be
+ *  a real constraint on the writing. The card shares the plant panel's column
+ *  with the readout under a hard cap (52% of the field height — see app.css's
+ *  `.hud[data-coach] .plant`), so a sentence that overruns does not push the
+ *  panel: it pushes its own tail out of `.coach__body`, and the player reads
+ *  a card ending mid-word. That is what the resources card did — 58px of
+ *  hidden text on a 640x360 phone, with "that clears the bay" sliced through
+ *  the middle — and it is the LAST card, whose last clause is the one that
+ *  says how to win.
+ *
+ *  So the copy is trimmed to what the step cannot teach without: the economy
+ *  card names the four figures and the two ways a bay ends, and the flourish
+ *  it used to carry ("you'll see the red −$ where it vanished") lives on in
+ *  How to Play's card 06, which has a whole card to spend on it. The harness
+ *  asserts the result rather than trusting it — `.coach__body` is no longer
+ *  an allowed scroller, and all four steps are fixtures (sim/uifit), so copy
+ *  that outgrows the card fails CI instead of shipping half-read. */
 export function coachSteps(level: {
   launchCost: number;
   scorePerLine: number;
@@ -890,20 +949,20 @@ export function coachSteps(level: {
       title: "Aim & fire",
       body:
         profile === "touch"
-          ? `Touch the field and <b>pull back</b> — the cannon aims opposite your drag, like a slingshot. Pull farther for <b>more power</b>, follow the dotted arc, and <b>release to fire</b>!`
+          ? `<b>Pull back</b> anywhere on the field, like a slingshot — the cannon aims opposite, farther for <b>more power</b>. <b>Release to fire</b> along the dotted arc.`
           : `<b>${hintAim(profile)[0].toUpperCase()}${hintAim(profile).slice(1)}.</b> The dotted arc is exactly where the shipment flies.`,
     },
     {
       title: "Rotate",
-      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece in 90° steps. The glowing piece at the cannon shows the exact orientation it will fly in.`,
+      body: `Between shots, <b>${hintRotate(profile)}</b> to turn the next piece 90°. The glowing piece flies exactly as shown.`,
     },
     {
       title: "Complete a row",
-      body: `Land cubes in front of the red compactor until they fill a <b>full row</b> — full rows vanish and pay you. Cubes that fall <b>short of the bar</b> blink away and are lost. Keep launching!`,
+      body: `Fill a <b>full row</b> in front of the red compactor: it vanishes and pays. Cubes <b>short of the bar</b> are lost.`,
     },
     {
       title: "Funds & Target",
-      body: `Each launch costs <b>$${level.launchCost} Funds</b>; each full row pays <b>$${level.scorePerLine}</b> back plus <b>♻ scrap</b> for upgrades. Dropped cargo isn't free either — every lost cube <b>fines you $${level.penaltyPerLostPiece}</b> (you'll see the red −$ where it vanished). Reach <b>$${level.targetScore}</b> before Funds or the clock run out — that clears the bay.`,
+      body: `Launches cost <b>$${level.launchCost}</b>; rows pay <b>$${level.scorePerLine}</b> plus <b>${scrapHTML("scrap")}</b>; lost cubes fine <b>$${level.penaltyPerLostPiece}</b>. Reach <b>$${level.targetScore}</b> before Funds or time runs out.`,
     },
   ];
 }
@@ -1013,7 +1072,7 @@ export function coachFailHTML(
   const reactor = installById("reactor")!;
   const nextBlock = `<div class="coach__next">
           ${nextBadgeHTML()}
-          <p>Contracts have no clock and no launch cost, and each first clear banks <b>♻ ${milestone}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (♻ ${reactor.cost}), a bigger float for this exact bay.</p>
+          <p>Contracts have no clock and no launch cost, and each first clear banks <b>${salvageHTML(milestone)}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (${salvageHTML(reactor.cost)}), a bigger float for this exact bay.</p>
         </div>`;
   return `<div class="modal-scrim" id="scrim">
     <div class="coach coach--fail">
@@ -1065,7 +1124,7 @@ export function bayClearScreen(opts: {
       <div class="bayclear__stats">
         <div class="stat"><b style="color:var(--accent)">$${opts.funds}</b><span>banked / ${opts.target}</span></div>
         <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
-        <div class="stat"><b style="color:var(--warn)">♻ ${opts.scrap}</b><span>scrap</span></div>
+        <div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>
       </div>
       <p class="muted bayclear__hint">tap to continue</p>
     </div>
@@ -1094,7 +1153,9 @@ export function refitScreen(opts: {
 }): string {
   // A14: ROWS on the leaderboard's scroll pattern, not cards. The grammar per
   // row: glyph · name over its state line · tier pips · the price button (in
-  // B6's "T2 · ♻ 35" words). An uninstalled track says where it IS bought —
+  // B6's "T2 · <scrap> 35" words — the yard spends SCRAP, so the glyph on the
+  // button is the cut plate, never the Workshop's salvage arcs). An
+  // uninstalled track says where it IS bought —
   // the Workshop — instead of wearing a live-looking price, and the full
   // ladder survives in `title` for where hover exists.
   const tracks = refitTracks(opts.mark);
@@ -1118,7 +1179,7 @@ export function refitScreen(opts: {
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
-            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</span>
+            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
           </button>`;
     const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
     return `<div class="refit-row${tier > 0 ? " refit-row--owned" : ""}" title="${u.name} — ${ladder}">
@@ -1142,7 +1203,7 @@ export function refitScreen(opts: {
         </div>
         <div class="chip chip--inline refit__scrap">
           <div class="chip__label">Scrap</div>
-          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
+          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">${scrapHTML(opts.scrap, 16)}</div>
         </div>
       </div>
       <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
@@ -1178,11 +1239,14 @@ export function refitScreen(opts: {
  * scrolling on a landscape phone. Collapsing owned entries makes the Workshop
  * get SHORTER the further in you are, and puts the decision you actually came
  * here to make at the top.
+ *
+ * ONE COLUMN OF ROWS, whole copy, and the pane scrolls. The shelf used to run
+ * as many columns as the width allowed, which meant every card's description
+ * was clamped to one line and ellipsised — 90 of them across the device matrix,
+ * i.e. every card on every device. The columns were bought to avoid scrolling,
+ * and this pane is one of the three places allowed to scroll; trading the
+ * sentence for a scrollbar it already had was the wrong way round.
  */
-/** Which half of the shop is showing. Systems and Options are two lists of the
- *  same kind of decision, and at 792x360 both at once is 689px of cards in a
- *  189px window — see the spec's measurement table. */
-
 export function workshopScreen(meta: MetaState): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
@@ -1245,9 +1309,10 @@ export function workshopScreen(meta: MetaState): string {
       const available = installAvailable(meta, i);
       const affordable = meta.salvage >= i.cost;
       const gates = installGates(meta, i);
-      // B6: one price grammar — "T1 · ♻ 15". An install is tier 1 of a track
-      // by definition, and the button says so in the same words the refit
-      // yard's buy buttons use for tiers 2 and 3.
+      // B6: one price grammar — "T1 · <salvage> 15". An install is tier 1 of a
+      // track by definition, and the button says so in the same words the refit
+      // yard's buy buttons use for tiers 2 and 3 — with the one difference that
+      // matters, the currency glyph: this purchase is salvage, that one scrap.
       const foot = available
         ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
@@ -1281,22 +1346,34 @@ export function workshopScreen(meta: MetaState): string {
   const shelf = installCards + cards;
   const shelfEmpty = !shelf;
 
-  // The FIXED column. Everything here is state rather than merchandise — what
-  // you have, and what the Mark will let you spend — so it must not scroll
-  // away from the cards it constrains. The build budget in particular is the
-  // usual reason a card is greyed out, and it used to ride on the tab bar,
-  // which is exactly the element being deleted.
+  // What you already have, at the FOOT of the shelf. Both strips used to ride
+  // in the fixed aside beside it, and that was a fit bug waiting for a save
+  // that owned anything: the aside cannot scroll (sim/uifit asserts it, and it
+  // is not on the allowlist), so on a landscape phone a Mark-3 loadout ran its
+  // five installed names straight down past the pane and level with Start Run.
+  // The new `workshop-owned` fixture is what caught it — the old one was
+  // `newMeta()` with three numbers on it, and owned nothing.
+  //
+  // Reference belongs where reference can scroll, and BELOW the merchandise:
+  // the shop leads with what you can buy, exactly as the owned-collapse note
+  // above argues, and the answer to "what do I already have" is one flick away
+  // rather than in the way.
+  const haveStrips =
+    (installedStrip
+      ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+      : "") + ownedStrip;
+
+  // The FIXED column, and now ONLY the budget. What stays pinned is what
+  // CONSTRAINS a purchase — the cap the Mark sets is the usual reason a card is
+  // greyed out, and scrolling it away from the cards it explains is the one
+  // thing this pane must not do. Everything else in here was reference, and
+  // reference does not need to be pinned; it needs to be readable, which is
+  // what moving it into the scroller buys.
   const aside = `<aside class="workshop__aside">
         <div class="workshop__budget-box">
           <span class="workshop__aside-label">build budget</span>
           <span class="workshop__budget">${tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
         </div>
-        ${
-          installedStrip
-            ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-            : ""
-        }
-        ${ownedStrip}
       </aside>`;
 
   return `<div class="screen neon-backdrop">
@@ -1310,7 +1387,7 @@ export function workshopScreen(meta: MetaState): string {
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">♻ ${meta.salvage}</div>
+            <div class="chip__value" style="color:var(--warn)">${salvageHTML(meta.salvage, 16)}</div>
           </div>
           <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
@@ -1329,7 +1406,7 @@ export function workshopScreen(meta: MetaState): string {
           shelfEmpty
             ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
             : `<div class="workshop__grid">${shelf}</div>`
-        }</div>
+        }${haveStrips}</div>
       </div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
@@ -1500,7 +1577,7 @@ export function draftScreen(opts: {
                 ? " — refit next bay"
                 : ` — refit in ${opts.baysToRefit} bays`
           }</div>
-          <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
+          <div class="chip__value" style="color:var(--warn)">${scrapHTML(opts.scrap, 16)}</div>
         </div>
       </div>
       <div class="draft__body">
@@ -1681,7 +1758,7 @@ export function endModal(opts: {
       ${
         opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">♻ +${opts.tierSalvage}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
@@ -1690,10 +1767,10 @@ export function endModal(opts: {
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
           : `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? `♻ +${opts.tierSalvage}` : `T${opts.progress.tier}`}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? salvageHTML(`+${opts.tierSalvage}`, 16) : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>${salvageHTML(`+${opts.tierSalvage}`)} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked${demoFoot}</span>
         </div>
         ${
@@ -1757,7 +1834,29 @@ export function endModal(opts: {
  * ------------------------------------------------------------------------ */
 
 /** The day's Contract board. Failure costs nothing here, so the copy leans on
- *  "pick one and try it" rather than warning the player about anything. */
+ *  "pick one and try it" rather than warning the player about anything.
+ *
+ *  The board is three offers to COMPARE, not three paragraphs to read, so every
+ *  card states the same two facts in the same two slots — the goal, then what
+ *  you get to reach it — and the badge above them names which kind of supply
+ *  that second slot is. The old card wrote each kind as its own sentence
+ *  ("4 lines in 17 launches" beside "O×4 → 2 lines"), which put the goal in a
+ *  different place on each card and made the row unscannable.
+ *
+ *  Everything that was identical on all three cards has moved out of them. The
+ *  reward terms ("First clear counts toward Tier 1 · fail free, retry free")
+ *  were repeated verbatim three times, were the widest line in each card, and
+ *  wrapped to two lines to say something about the SCREEN — they join the WHY
+ *  strip as one footnote, and the salvage a first clear actually banks rides on
+ *  the card as a value instead, which is the part that differs once the tier's
+ *  quota is full.
+ *
+ *  The board is also its own block rather than a borrowed `.howto__grid`. That
+ *  grid is the How-to deck's horizontal SNAP ROW, which is right for nine cards
+ *  read once in order and wrong for three offers compared against each other —
+ *  two of them were off-screen behind a sideways scroll, and a board you have to
+ *  swipe to see is a board you cannot compare. Three cards fit the width they
+ *  are given; nothing here scrolls in either axis. */
 export function contractsScreen(opts: {
   contracts: ContractCard[];
   tier: number;
@@ -1773,72 +1872,99 @@ export function contractsScreen(opts: {
   /** The cheapest installable system, for the WHY strip's target price (A9). */
   nextInstall?: { name: string; cost: number } | null;
 }): string {
+  // Whether a first clear still banks anything. A tier pays its milestone share
+  // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
+  // quota is full the remaining cards are practice — and saying so on the card
+  // is the one piece of reward copy that is worth per-card space.
+  const paying = !opts.progress || opts.progress.contracts < opts.progress.needed;
   const cards = opts.contracts
     .map((c, i) => {
       const done = opts.cleared.includes(c.id);
       // A pattern Contract advertises its exact inventory, because the whole
       // offer is "here is what you get — can you place it?". Knowing the set
-      // before you accept is the planning the mode is made of.
-      const ask =
+      // before you accept is the planning the mode is made of. A lines Contract
+      // advertises its launch budget for the same reason: it is the only thing
+      // that can run out.
+      const supply =
         c.kind === "pattern"
-          ? `<p>${queueTallyHTML(c.queue)} <b>→ ${c.goal}</b> lines</p>`
-          : `<p><b>${c.goal}</b> lines in <b>${c.launches}</b> launches</p>`;
-      // Each card states the full deal up front (playtest feedback): the
-      // objective, the supply limit, the reward, and that retrying is free —
-      // so accepting one is never a leap into unexplained terms.
-      const reward = done
-        ? `<p class="contract-card__reward contract-card__reward--done">✓ Cleared — counted toward its tier · replay for practice</p>`
-        : `<p class="contract-card__reward">First clear counts toward Tier ${opts.tier} · fail free, retry free</p>`;
-      return `<button class="panel step contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
-        <div class="step__n">${done ? "✓" : String(i + 1).padStart(2, "0")}</div>
-        <b>${c.name}</b>
-        ${ask}
-        ${reward}
-        <p class="muted" style="font-size:12px">${c.brief}</p>
+          ? queueTallyHTML(c.queue)
+          : `<b>${c.launches}</b> launches`;
+      // No progress data (the prop is optional) means no claim either way — the
+      // slot goes empty rather than asserting "Practice", which would be wrong
+      // for a player whose tier quota is in fact still open.
+      const state = done
+        ? `<span class="contract-card__state contract-card__state--done">✓ Cleared</span>`
+        : !opts.progress
+          ? ""
+          : paying
+            ? `<span class="contract-card__state contract-card__state--pays">${salvageHTML(`+${opts.progress.milestone}`)}</span>`
+            : `<span class="contract-card__state">Practice</span>`;
+      return `<button class="contract-card${done ? " contract-card--done" : ""}" data-action="contract" data-slot="${i}">
+        <span class="contract-card__top">
+          <span class="contract-card__kind">${c.kind === "pattern" ? "Pattern" : "Lines"}</span>
+          ${state}
+        </span>
+        <span class="contract-card__name">${c.name}</span>
+        <span class="contract-card__ask">
+          <b class="contract-card__goal">${c.goal}</b>
+          <span class="contract-card__unit">line${c.goal === 1 ? "" : "s"}</span>
+        </span>
+        <span class="contract-card__supply">
+          <span class="contract-card__supply-lbl">${c.kind === "pattern" ? "Supply" : "Budget"}</span>
+          <span class="contract-card__supply-val">${supply}</span>
+        </span>
+        <span class="contract-card__brief">${c.brief}</span>
       </button>`;
     })
     .join("");
-  // The tier status is its OWN line in the body font, not part of the pixel
-  // eyebrow: with the progress suffix inline, the eyebrow ran to ~90 letter-
-  // spaced glyphs, wrapped on a landscape phone, and dropped an orphaned
-  // "♻ 60" straight into the Contracts heading (seen on device, 2026-08-09).
-  // Copy states the MILESTONE economy — each first clear banks its share now
-  // (meta.ts's tierMilestoneSalvage); completion is what opens the next tier.
-  const status = opts.progress
-    ? `<p class="muted" style="margin:0">
-        <b style="color:var(--accent)">Contracts ${opts.progress.contracts}/${opts.progress.needed}${opts.progress.contracts >= opts.progress.needed ? " ✓" : ""}</b>
-        · <b>Deep Run ${opts.progress.runDone ? "✓" : "○"}</b>
-        — each first clear banks <b style="color:var(--warn)">♻ ${opts.progress.milestone}</b>; finish both halves to open Tier ${opts.progress.tier + 1}.
-      </p>`
-    : "";
-  return `<div class="screen neon-backdrop">
-    <div class="howto">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div class="eyebrow">Tier ${opts.tier} · resets daily</div>
-          <h2 class="display" style="font-size:var(--fs-h1)">Contracts</h2>
+  // Tier standing as the menu's tier chip rather than a sentence. The line it
+  // replaces ran ~120 characters, wrapped on a landscape phone, and mixed three
+  // different things — the two halves, the milestone payout and the unlock
+  // condition — into one run of prose. The halves are a status readout, so they
+  // get the readout shape the menu already uses for them, and the payout is now
+  // a value on each card.
+  const tierChip = opts.progress
+    ? `<div class="chip chip--tier">
+        <div class="chip__label">Tier</div>
+        <div class="chip__value" style="color:var(--accent)">${opts.progress.tier}</div>
+        <div class="tier-chip__halves">
+          <span class="${opts.progress.runDone ? "done" : ""}">${opts.progress.runDone ? "✓" : "○"} Run</span>
+          <span class="${opts.progress.contracts >= opts.progress.needed ? "done" : ""}">${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed}</span>
         </div>
-        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+      </div>`
+    : "";
+  // A9's WHY strip and the terms, as one line under the board — the terms used
+  // to be a third copy of themselves on each card, and the two lines were
+  // answering the same question from either end ("what does this cost me" and
+  // "what is it for"). The A9 half is unchanged: the tier's total in its own
+  // numbers, against the price of the thing it buys next.
+  const foot = opts.progress
+    ? `<p class="muted contracts__foot">${nextBadgeHTML("Why")} Fail free, retry free — and ${opts.progress.needed} first clears bank ${
+        salvageHTML(opts.progress.milestone * opts.progress.needed)
+      }${
+        opts.nextInstall
+          ? `, so ${opts.nextInstall.name} (${salvageHTML(opts.nextInstall.cost)}) is waiting in the Workshop before your next run`
+          : " toward the Workshop"
+      }.</p>`
+    : `<p class="muted contracts__foot">Fail free, retry free — a cleared Contract stays replayable.</p>`;
+  return `<div class="screen neon-backdrop">
+    <div class="contracts">
+      <div class="contracts__hdr">
+        <div class="contracts__title">
+          <!-- The tier lives in the chip opposite when there is one, so the
+               eyebrow does not repeat it — it only names the thing the chip
+               cannot, which is that the board is regenerated every day. -->
+          <div class="eyebrow">${opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`}</div>
+          <h2 class="display">Contracts</h2>
+          <p class="contracts__sub muted">No rush, do it right.</p>
+        </div>
+        <div class="contracts__hdr-side">
+          ${tierChip}
+          <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+        </div>
       </div>
-      <p class="muted" style="margin:0">
-        No clock, no launch costs — your supply of shipments is the only budget.
-        Fail as many times as you like; nothing is lost.
-      </p>
-      ${status}
-      <div class="howto__grid">${cards}</div>
-      ${
-        // A9: the WHY strip — the board's bottom line closes the loop the
-        // cards open, in the tier's own numbers.
-        opts.progress
-          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ♻ ${
-              opts.progress.milestone * opts.progress.needed
-            }${
-              opts.nextInstall
-                ? ` — ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop, before your next run`
-                : " toward the Workshop"
-            }.</p>`
-          : ""
-      }
+      <div class="contracts__board">${cards}</div>
+      ${foot}
     </div>
   </div>`;
 }
@@ -1966,7 +2092,7 @@ export function contractEndModal(opts: {
   // A10's "state the target": salvage in hand is only meaningful against the
   // next thing it buys, so the row names it whenever the caller knows one.
   const target = opts.nextInstall
-    ? ` ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop.`
+    ? ` ${opts.nextInstall.name} costs ${salvageHTML(opts.nextInstall.cost)} in the Workshop.`
     : "";
   // Three outcomes, one salvage row: the clear COMPLETED the tier (the
   // celebration), the clear ticked tier progress (say what's still missing),
@@ -1974,7 +2100,7 @@ export function contractEndModal(opts: {
   const salvageRow =
     opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">♻ +${opts.award.salvage}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.award.completedTier} complete!</b>
           <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
@@ -1983,17 +2109,17 @@ export function contractEndModal(opts: {
       </div>`
       : opts.award?.firstClear
         ? `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? `♻ +${opts.award.salvage}` : `T${p.tier}`}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? salvageHTML(`+${opts.award.salvage}`, 16) : `T${p.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
           <span class="muted">${
             opts.award.salvage > 0
-              ? `<b>♻ +${opts.award.salvage} banked</b> — ${opts.salvageTotal} salvage total.`
+              ? `<b>${salvageHTML(`+${opts.award.salvage}`)} banked</b> — ${opts.salvageTotal} salvage total.`
               : ""
           } ${
             p.contracts >= p.needed
-              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
-              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
+              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (${salvageHTML(p.award)} total per tier).`
+              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (${salvageHTML(p.award)} total per tier).`
           }${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>

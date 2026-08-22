@@ -2,7 +2,7 @@ import {
   MATERIAL_SPEC, PIECE_COLORS, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
-import { HAZARDS, type HazardDef, type HazardId, type Ratchets } from "../game/hazards";
+import { HAZARDS, type HazardId, type Ratchets } from "../game/hazards";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 
 /**
@@ -126,27 +126,45 @@ const AXIS_GLYPHS: Record<HazardId, { g: string; nm: string }> = {
   magnetic: { g: "MG", nm: "MAGNET" },
 };
 
-/** One ratchet chip: glyph, tiny name, and a ×N badge once an axis has been
- *  taken more than once. Content axes get the `k-bane` treatment and number
- *  axes `k-tradeoff`, so a glance separates "the belt is dirtier" from "the
- *  numbers are worse" — they are answered by completely different systems. */
-function axisChipHTML(h: HazardDef, count: number): string {
-  const glyph = AXIS_GLYPHS[h.id] ?? {
-    g: h.id.slice(0, 2).toUpperCase(),
-    nm: h.name.slice(0, 8).toUpperCase(),
-  };
-  const stack = count > 1 ? `<span class="stk">×${count}</span>` : "";
-  const kind = h.kind === "content" ? "bane" : "tradeoff";
-  return `<div class="mod k-${kind}" title="${h.name} ×${count}"><span class="g">${glyph.g}</span><span class="nm">${glyph.nm}</span>${stack}</div>`;
-}
-
-/** Ratchet chip row for the recycling-plant HUD panel — one chip per axis the
- *  run has ratcheted, in ladder order (HAZARDS), with a ×N badge for repeats. */
-export function runRatchetsHTML(ratchets: Ratchets): string {
-  return HAZARDS
-    .filter((h) => (ratchets[h.id] ?? 0) > 0)
-    .map((h) => axisChipHTML(h, ratchets[h.id] ?? 0))
-    .join("");
+/**
+ * The run's ratchets as ONE DENSE LINE for the plant panel — "WD×2 · SW · CR",
+ * axes in ladder order (HAZARDS), a ×N on any axis taken more than once.
+ *
+ * This used to be a row of 30px chips sharing the build row with the ship
+ * plates, and the two could not both fit. The build rack is seven fixed slots
+ * that take 205px of the narrowest panel's 209px (see shipPlatesHTML), and a
+ * deep run banks up to ten distinct axes — no arrangement of chips fits beside
+ * that, so every notch a player had taken lived behind a horizontal scroll
+ * they had no reason to know was there.
+ *
+ * A tally is the same information at a fraction of the width: the chip's
+ * 30x25px box carried a 2-letter glyph, a 6-letter name and a badge, and the
+ * glyph plus the count is the part that answers "what is this bay doing to
+ * me". Five or six axes fit the line on the tightest phone, which covers a
+ * real run; a ten-axis Mark 10 scrolls its own tail, which is the same
+ * give-way the pattern manifest beside it uses.
+ *
+ * The kind colouring survives the shrink, because it is the fastest thing in
+ * the row to read: content axes bane-red, number axes tradeoff-amber, so a
+ * glance separates "the belt is dirtier" from "the numbers are worse" — they
+ * are answered by completely different systems.
+ */
+export function runNotchTallyHTML(ratchets: Ratchets): string {
+  const taken = HAZARDS.filter((h) => (ratchets[h.id] ?? 0) > 0);
+  // An em-dash rather than an empty row: the line is rendered on every Deep
+  // Run bay including the first, where no notch has been taken yet, and a row
+  // that appears halfway through a run shifts every row above it. Same idiom
+  // the pattern manifest uses for an empty queue.
+  if (!taken.length) return `<span class="pl-notch__none">—</span>`;
+  return taken
+    .map((h) => {
+      const n = ratchets[h.id] ?? 0;
+      const glyph = AXIS_GLYPHS[h.id] ?? { g: h.id.slice(0, 2).toUpperCase(), nm: "" };
+      const kind = h.kind === "content" ? "bane" : "tradeoff";
+      const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
+      return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph.g}${stack}</span>`;
+    })
+    .join(`<span class="pl-notch__sep" aria-hidden="true">·</span>`);
 }
 
 /** Format a countdown in ms as "m:ss", ceiling-rounded so the displayed
@@ -179,23 +197,44 @@ export function btn(action: string, label: string, variant = "secondary", extra 
 }
 
 /**
- * Compact ship-refit readout for the HUD: one small plate per UPGRADED system
- * with its tier as pips. Only bought tracks render — a stock ship shows nothing
- * rather than six empty plates, so the row grows as the run's build takes shape.
+ * Compact ship-refit readout for the HUD: one small plate per system, tier as
+ * pips, in UPGRADES order.
+ *
+ * EVERY track renders, installed or not — the rack is the ship's full slate of
+ * systems and an empty slot is information ("nothing in the magazine yet"), not
+ * an absence. It used to filter to bought tracks only, on the reasoning that a
+ * stock ship should show nothing rather than seven empty plates, and that reads
+ * well for exactly one moment: the start of a run, before there is anything to
+ * compare against. What it cost was every moment after. The rack re-flowed on
+ * each purchase — a refit inserted a plate in UPGRADES order, so buying the
+ * Magazine pushed Reactor, Bonds and Demolition sideways — and a readout whose
+ * items move is one the eye has to re-find rather than glance at. The player
+ * also could not see what they had NOT built, which is half of what a build
+ * readout is for at a refit stop.
+ *
+ * Fixed slots make both work: the rack is the same seven positions from the
+ * first bay to the last, each one either lit or waiting, and a purchase lights
+ * a plate where the player was already looking. Seven of them fit the panel
+ * without scrolling on every device in the matrix (see app.css's .ship-plate
+ * and sim/uifit) — which is the constraint the fixed count has to earn.
+ *
  * See game/upgrades.ts for the tracks, and screens.ts's hudHTML for placement.
  */
 export function shipPlatesHTML(tiers: UpgradeTiers): string {
-  const plates = UPGRADES.filter((u) => (tiers[u.id] ?? 0) > 0)
-    .map((u) => {
-      const tier = Math.min(MAX_TIER, tiers[u.id]);
-      const pips = Array.from({ length: MAX_TIER }, (_, i) =>
-        `<i class="${i < tier ? "on" : ""}"></i>`,
-      ).join("");
-      return `<div class="ship-plate" title="${u.name} — tier ${tier}">
+  return UPGRADES.map((u) => {
+    const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`,
+    ).join("");
+    // The empty state is a MODIFIER on the same box, not a different element:
+    // the slot has to occupy exactly the space its installed self will, or the
+    // rack moves the moment the track is bought and the fixed slots buy
+    // nothing.
+    const empty = tier === 0 ? " ship-plate--empty" : "";
+    const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — tier ${tier}`;
+    return `<div class="ship-plate${empty}" title="${title}">
         <span class="ship-plate__g">${u.glyph}</span>
         <span class="ship-plate__pips">${pips}</span>
       </div>`;
-    })
-    .join("");
-  return plates;
+  }).join("");
 }

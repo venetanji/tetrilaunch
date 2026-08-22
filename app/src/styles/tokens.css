@@ -49,6 +49,23 @@
      that scale — this is a restyle of the UI chrome, not the brand mark. */
   --font-pixel: "Press Start 2P", "Orbitron", ui-monospace, monospace;
 
+  /* How far a --font-mono run renders BELOW a --font-pixel label when the two
+     share a baseline. Press Start 2P is a pixel-grid face that keeps the
+     bottom row of its em box for descenders, so its CAPITALS stop 0.13em
+     above the alphabetic baseline; JetBrains Mono's sit on it. Baseline
+     alignment is therefore not optical alignment between the two — it lines
+     up an edge only one of them draws on, and the mono run lands an eighth of
+     its type size low.
+
+     Measured, not guessed: canvas actualBoundingBoxDescent for "H" at 100px
+     is -13 for Press Start 2P and 0 for JetBrains Mono 700, and the rendered
+     drift that predicts is what the plant panel's notch line was showing —
+     0.8px at the 6px type floor, 1.7px on a tablet, on a row eight
+     characters tall. Any row that puts a pixel label beside a mono value has
+     to pay it back; sim/uifit's `inkline` assertion is what keeps them
+     honest. */
+  --pixel-cap-drop: 0.13em;
+
   --fs-display: clamp(40px, 8vw, 88px);
   --fs-h1: clamp(28px, 5vw, 44px);
   --fs-h2: clamp(20px, 3.4vw, 30px);

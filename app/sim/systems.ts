@@ -12,10 +12,14 @@
  * numbers compose the way the design says", which is the class of bug that a
  * balance sweep passes right over.
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
-  makeBaseLevel, TARGET_PER_BAY, type LevelConfig, type PileTier,
+  makeBaseLevel, payoutMult, COMBO_STEP, PILE_TIERS, TARGET_PER_BAY,
+  type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
@@ -47,11 +51,12 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
+  dailyContracts, levelForContract, contractBed, CONTRACT_RARE_CHANCE,
+  DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
   contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
@@ -76,7 +81,7 @@ import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen,
+  menuScreen, salvageHTML,
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintRotate, keyFor, padFor,
@@ -841,23 +846,59 @@ section("Pattern Contracts (contracts.ts)");
   const untouched = contractsScreen({ contracts: board, tier: 1, cleared: [] });
   check("a cleared contract is ticked on the board", ticked.includes("contract-card--done"));
 
-  // The tier status is a body-font line, not an eyebrow suffix — the long
-  // suffix wrapped on a landscape phone and dropped an orphaned "♻ 60" into
-  // the heading. It quotes the MILESTONE share (what one clear banks now),
-  // not the old completion-only award.
+  // What one clear banks NOW (the milestone share, not the old completion-only
+  // award) is stated on the card that would bank it, as a value rather than
+  // inside a sentence. It used to be a ~120-character status line above the
+  // board — the same line whose earlier home, an eyebrow suffix, wrapped on a
+  // landscape phone and dropped an orphaned salvage figure into the heading.
   const withProgress = contractsScreen({
     contracts: board, tier: 1, cleared: [], progress: tierProgressFor(newMeta()),
   });
   check(
     "the board quotes the per-clear milestone share",
-    withProgress.includes("each first clear banks") &&
-      withProgress.includes(`♻ ${tierMilestoneSalvage(1)}`),
+    // Through salvageHTML rather than a literal: the figure is a drawn glyph
+    // plus a number now (screens.ts's two currencies), and the point of the
+    // check is that the card quotes the SALVAGE share — which a bare number
+    // would no longer prove.
+    withProgress.includes(`contract-card__state--pays">${salvageHTML(`+${tierMilestoneSalvage(1)}`)}<`),
   );
   check(
     "the eyebrow no longer carries the wrapping progress suffix",
     !withProgress.includes("both halves complete the tier for"),
   );
-  check("its slot number is replaced by the tick", ticked.includes(">✓<"));
+  // The tick is on the card, in words, not just in a class name — the border
+  // recolour alone is a cue a player can miss on a board of three.
+  check(
+    "a cleared card says so on its face",
+    ticked.includes(`contract-card__state--done">✓ Cleared<`),
+  );
+  // A cleared Contract stays replayable but pays nothing a second time, so it
+  // must never keep advertising the payout beside the tick.
+  check(
+    "a cleared card drops the payout it can no longer bank",
+    !contractsScreen({
+      contracts: board, tier: 1, cleared: board.map((c) => c.id),
+      progress: tierProgressFor(newMeta()),
+    }).includes("contract-card__state--pays"),
+  );
+  // Past the tier's quota a first clear banks nothing (meta.ts pays for only
+  // the first TIER_CONTRACTS_REQUIRED), and the board has to stop promising a
+  // share it will not pay.
+  const quotaMet = contractsScreen({
+    contracts: board, tier: 1, cleared: [],
+    progress: tierProgressFor({ ...newMeta(), tierContracts: TIER_CONTRACTS_REQUIRED }),
+  });
+  check(
+    "a full quota reads as practice, not as a payout",
+    quotaMet.includes(">Practice<") && !quotaMet.includes("contract-card__state--pays"),
+  );
+  // The board is three offers compared side by side, so it must not borrow the
+  // How-to deck's horizontal snap row — that layout put cards 2 and 3 off-screen
+  // behind a sideways scroll.
+  check(
+    "the board is its own block, not the how-to snap row",
+    withProgress.includes("contracts__board") && !withProgress.includes("howto__grid"),
+  );
   check("an unplayed board shows no ticks", !untouched.includes("contract-card--done"));
   check(
     "only the cleared slot is ticked",
@@ -911,8 +952,8 @@ section("Pattern Contracts (contracts.ts)");
     nextInstall: { name: "Reactor Output", cost: 15 },
   });
   check("the salvage row states the target price",
-    ceTarget.includes("Reactor Output costs ♻ 15 in the Workshop"));
-  check("no target price is invented without one", !ceWin.includes("costs ♻"));
+    ceTarget.includes(`Reactor Output costs ${salvageHTML(15)} in the Workshop`));
+  check("no target price is invented without one", !ceWin.includes("in the Workshop"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1838,8 +1879,10 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // B5: no emoji or dingbat in a CONTROL — an emoji is platform-drawn art
   // that can't take the accent colour and wobbles the button metrics. The
   // rail, the plant's ability chips and every buy/close button carry inline
-  // SVG now; the flavour glyphs (♻ in readouts, the belt's 💣 tile, the
-  // leaderboard medals) are copy and stay.
+  // SVG now — and so do both currencies, which used to share the ♻ character
+  // between scrap and salvage and now have a glyph each (icons.ts). The
+  // remaining flavour glyphs (the belt's 💣 tile, the leaderboard medals) are
+  // copy and stay.
   {
     const hud = hudHTML({
       beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
@@ -2864,20 +2907,33 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // The tutorial teaches the fine with the bay's real number on the card —
     // same rule as every other coach step, and the reason the copy can never
     // drift from the level it narrates.
-    // "fines you $N", not a bare "$N" — bay 1's launch cost is also $25, so a
-    // loose match would pass with the fine sentence deleted.
+    // "fine $N", not a bare "$N" — bay 1's launch cost is also $25, so a loose
+    // match would pass with the fine sentence deleted. The verb and the number
+    // are the assertion; the sentence they sit in is the card's to write, and
+    // is written to a hard height budget (see coachSteps), so this matches as
+    // little of it as it can and still mean something.
+    //
+    // Against the RENDERED text, tags stripped, for the same reason: the cards
+    // emphasise their figures, and where the <b> falls inside a phrase is
+    // typography rather than meaning — "fine <b>$25</b>" and "<b>fine $25</b>"
+    // read identically to a player, and only one matches a raw-markup search.
+    const plain = (html: string): string => html.replace(/<[^>]+>/g, "");
     const steps = coachSteps(rowLevel);
-    const economy = steps.map((s) => s.body).join(" ");
+    const economy = plain(steps.map((s) => s.body).join(" "));
     check("the coach names the lost-cargo fine",
-      economy.includes(`fines you $${rowLevel.penaltyPerLostPiece}`));
+      economy.includes(`fine $${rowLevel.penaltyPerLostPiece}`), economy);
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —
     // split across cards they advance mid-gesture and flash past unread,
     // which is the playtest bug ("steps 2 and 4 are skipped immediately").
     // The first card must therefore cover the whole gesture, and the deck
     // must stay at four steps: fire, rotate, row, resources.
+    // Lower-cased: which clause opens the sentence is the copy's business, and
+    // "Release to fire" teaches the same gesture as "release to fire" while
+    // failing a literal match.
+    const drag = plain(steps[0].body).toLowerCase();
     check("the coach teaches the drag as one card (power and release together)",
-      steps[0].body.includes("power") && steps[0].body.includes("release"));
+      drag.includes("power") && drag.includes("release"), steps[0].body);
     check("the coach deck is one card per completable action",
       steps.length === 4);
 
@@ -3150,9 +3206,12 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // likes — what matters is the cube count and the price it implies.
   // Thresholds are EXCLUSIVE (game.ts's pileTier tests `n > t.cubes`), so 8
   // cubes on the field trips a tier written at 7 and not one written at 8.
+  // payMult: Infinity throughout — every assertion below is about PRICING or
+  // the reload, and a payout cap riding along would quietly be a second
+  // variable in each of them. The cap gets its own block at the end.
   const tiers: PileTier[] = [
-    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1 },
-    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1 },
+    { cubes: 3, costMult: 1.5, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 7, costMult: 2, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ];
   const congestedCfg: LevelConfig = {
     ...makeBaseLevel(0), pileTiers: tiers, pileAllowance: 0,
@@ -3194,7 +3253,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // firing anyway.
   {
     const g2 = new Game(
-      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1 }] },
+      { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity }] },
       {}, 1);
     g2.combo = 4;
     g2.update(0);
@@ -3266,7 +3325,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // launch into an empty bay is always untaxed, however low the threshold —
   // it is the launch AFTER it that pays.
   const clock = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 1, clockSec: 9999, reloadMult: 1, payMult: Infinity }] }, {}, 1);
   clock.shoot(10_000);
   for (let s = 0; s < 5; s++) clock.update(10_000 + s);
   check("the first launch into an empty bay is untaxed", clock.timeLeftMs > 140_000,
@@ -3283,7 +3342,7 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   // the BASE cost it would report the player solvent and the bay would sit
   // there saying nothing until the clock ran out.
   const stuck = new Game(
-    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1 }] }, {}, 1);
+    { ...makeBaseLevel(0), pileTiers: [{ cubes: 0, costMult: 2, clockSec: 0, reloadMult: 1, payMult: Infinity }] }, {}, 1);
   // One launch to put cargo on the field, so the NEXT one is priced congested.
   stuck.shoot(10_000);
   for (let s = 0; s < 5; s++) stuck.update(10_000 + s);
@@ -3297,6 +3356,127 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
   check("the bay reaches a verdict instead of stalling",
     stuck.status === "lost" && stuck.lossReason === "broke",
     `status ${stuck.status}, reason ${stuck.lossReason}`);
+
+  // ---- The payout cap (level.ts's payoutMult / PileTier.payMult) -----------
+  //
+  // The fourth pressure. The other three price the SHOT, which left the
+  // stack-and-collapse loop intact: keep stacking until the weight breaks the
+  // bottom bonds, pay ONE congested launch fee, and get the whole multi-row
+  // collapse at list price.
+  {
+    const [t1, t2] = PILE_TIERS;
+    check("the shipped ladder caps payouts below list",
+      t1.payMult === 0.75 && t2.payMult === 0.5, `${t1.payMult}/${t2.payMult}`);
+    check("the second knee cuts deeper than the first", t2.payMult < t1.payMult,
+      `${t1.payMult} vs ${t2.payMult}`);
+
+    // A clean bay is untouched — the streak is the entire reward for tidy play,
+    // and congestion is not allowed to become a tax on recovering from it.
+    check("a clean bay pays the streak",
+      payoutMult(1, null) === 1 && payoutMult(5, null) === 2,
+      `${payoutMult(1, null)} / ${payoutMult(5, null)}`);
+    check("the streak climbs by COMBO_STEP",
+      payoutMult(3, null) - payoutMult(2, null) === COMBO_STEP);
+    check("a combo of 0 is not a negative multiplier", payoutMult(0, null) === 1,
+      String(payoutMult(0, null)));
+
+    // Congested, the cap REPLACES the streak rather than scaling it. The combo
+    // advances once per CRUSH while the payout scales with the LINES inside it,
+    // so scaling would barely dent a four-row collapse.
+    check("a congested clear pays the cap, not the streak",
+      payoutMult(1, t1) === 0.75 && payoutMult(9, t1) === 0.75,
+      `${payoutMult(1, t1)} / ${payoutMult(9, t1)}`);
+    check("no streak climbs back over the cap", payoutMult(99, t2) === 0.5,
+      String(payoutMult(99, t2)));
+    check("every congested payout is below list price",
+      [1, 2, 5, 20, 99].every((c) => payoutMult(c, t1) < 1 && payoutMult(c, t2) < 1));
+    check("Infinity is the off switch",
+      payoutMult(5, { ...t1, payMult: Infinity }) === payoutMult(5, null));
+
+    // THE ORDERING THIS TURNS ON, and the reason stepPileTier exists.
+    //
+    // updateLineClear pulls the crushed cubes out of `cubes` BEFORE the payout
+    // is computed, so the live `pileTier` at that moment describes the bay
+    // after it was tidied. Price the collapse with that and a four-row crush
+    // off a full stack reads as a clean bay — the tax would miss exactly the
+    // play it was added for. stepPileTier is the snapshot from the top of the
+    // step: the bay the player actually built and fired into.
+    const payTiers: PileTier[] = [
+      { cubes: 3, costMult: 1, clockSec: 0, reloadMult: 1, payMult: 0.75 },
+      { cubes: 7, costMult: 1, clockSec: 0, reloadMult: 1, payMult: 0.5 },
+    ];
+    const snap = new Game(
+      { ...makeBaseLevel(0), pileTiers: payTiers, pileAllowance: 0 }, {}, 1);
+    fireTwice(snap);
+    snap.update(30_000);
+    check("the step's tier sees the pile the player built",
+      snap.stepPileTier === payTiers[1], snap.stepPileTier ? "set" : "null");
+    snap.cubes.length = 0; // stands in for the crush emptying the field
+    check("the live reading now calls the bay clean", snap.pileTier === null);
+    check("but the step's tier still prices the crush",
+      snap.stepPileTier === payTiers[1], snap.stepPileTier ? "set" : "null");
+    check("so the collapse is paid at the congested rate, not the tidied one",
+      payoutMult(1, snap.stepPileTier) === 0.5 && payoutMult(1, snap.pileTier) === 1,
+      `${payoutMult(1, snap.stepPileTier)} vs ${payoutMult(1, snap.pileTier)}`);
+    // And the snapshot is a SNAPSHOT, not a stuck value: step again on the now
+    // empty field and it agrees with the live reading.
+    snap.update(30_016);
+    check("the next step re-reads the tidied bay", snap.stepPileTier === null);
+  }
+
+  // ---- The cue event (game.ts's onCongestion) ------------------------------
+  //
+  // What lib/audio.ts's setCongestion is driven by. The contract is the whole
+  // value here: fire on CROSSINGS in both directions, and not in between. The
+  // cue is a rising static bed and a lowpass on the music, so a missed
+  // downward crossing leaves a tidy bay sounding congested for the rest of the
+  // level, and firing every step would restart the ramp 60 times a second.
+  {
+    const seen: number[] = [];
+    const cue = new Game(
+      {
+        ...makeBaseLevel(0),
+        pileTiers: [
+          { cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+          { cubes: 5, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+        ],
+      },
+      { onCongestion: (tier) => seen.push(tier) },
+      1,
+    );
+    cue.update(0);
+    check("a clean bay says nothing at all", seen.length === 0, seen.join(","));
+
+    fireTwice(cue); // a std shipment is 4 cubes, so this clears both rungs
+    check("crossing up reports the rung it reached",
+      seen.length > 0 && seen[seen.length - 1] === 2, seen.join(","));
+    check("it reports the rungs in order, not just the last",
+      seen.join(",") === "1,2", seen.join(","));
+
+    const afterUp = seen.length;
+    for (let i = 0; i < 20; i++) cue.update(30_000 + i * 16);
+    check("staying congested does not keep firing", seen.length === afterUp, seen.join(","));
+
+    // The direction the combo break deliberately ignores, and the one a cue
+    // cannot afford to: something has to say the mess is gone.
+    cue.cubes.length = 0;
+    cue.update(31_000);
+    check("tidying the bay takes the cue back", seen[seen.length - 1] === 0, seen.join(","));
+
+    // 0 is a clean bay, and `tiers` lets a consumer normalise without knowing
+    // how long this bay's ladder is — main.ts scales the cue by tier / tiers.
+    const ladder: number[] = [];
+    const two = new Game(
+      { ...makeBaseLevel(0), pileTiers: [
+        { cubes: 0, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity },
+      ] },
+      { onCongestion: (_t, tiers) => ladder.push(tiers) },
+      1,
+    );
+    fireTwice(two);
+    check("the event reports the ladder's own length",
+      ladder.length > 0 && ladder.every((n) => n === 1), ladder.join(","));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3374,6 +3554,116 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
   const manyCuts = applyRatchets(base, { time: 12 });
   check("the clock floor still holds at depth", manyCuts.timeLimitSec === 45,
     String(manyCuts.timeLimitSec));
+}
+
+// ---------------------------------------------------------------------------
+section("Music beds (run ladder + Contract picks vs public/audio/music)");
+{
+  // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
+  // MusicName rather than imported: that module reads import.meta.env at load
+  // and reaches for Audio/AudioContext, so it cannot be pulled into a Node
+  // harness at all. One literal is a cheap price for checking the shipped set
+  // against what the game actually asks for.
+  const SCREEN_BEDS = ["menu"];
+
+  const beds = Array.from({ length: RUN_LEVELS }, (_, i) => bayMusic(i));
+  const trace = beds.map((b, i) => `${i + 1}:${b}`).join(" ");
+  /** The bay a bed is NAMED for, which is not always the bay playing it. */
+  const bayOf = (bed: string): number => Number(bed.slice(4));
+
+  check("bay 1 opens on its own bed", beds[0] === "bay-1", beds[0]);
+  // The 5/4 bed is assigned on the bay NUMBER rather than on difficulty, which
+  // makes it the one row a reshuffle can quietly move. Pin both halves.
+  check("bay 5 gets the 5/4 bed", beds[4] === "bay-5", beds[4]);
+  check("nothing but bay 5 gets it", beds.filter((b) => b === "bay-5").length === 1, trace);
+  // This ties the table's LENGTH back to RUN_LEVELS through the naming
+  // convention: lengthen the run without extending the ladder and the extra
+  // bays clamp onto bay-10, so the closer would play over the last three. Fails
+  // here rather than being found by ear at the end of a twenty-minute run.
+  check("the last bay plays the bed named for it",
+    beds[RUN_LEVELS - 1] === `bay-${RUN_LEVELS}`, beds[RUN_LEVELS - 1]);
+  // A bay may borrow an EARLIER bay's bed — 2-4 do, until their songs exist —
+  // but never a later one, and the arc never runs backwards. Two halves of the
+  // same guard, catching a mis-numbered row from either side.
+  check("no bay borrows a later bay's bed", beds.every((b, i) => bayOf(b) <= i + 1), trace);
+  check("the arc never runs backwards",
+    beds.every((b, i) => i === 0 || bayOf(b) >= bayOf(beds[i - 1])), trace);
+
+  // ---- Contract beds ------------------------------------------------------
+  // Contracts have no theme of their own: each borrows a bay's bed, with two
+  // overrides on top. All three layers are checked, and so is the order they
+  // beat each other in, because the ORDER is the part that reads as arbitrary
+  // and is not.
+  const day = dailyContracts(1, 20260822);
+  const never = () => 1;   // a roll that can never be the special
+  const always = () => 0;  // a roll that always is
+  const withSize = (c: typeof day[0], size: PieceSize, r: () => number) =>
+    contractBed({ ...c, pieceSize: size }, r);
+
+  check("the day deals one Contract per slot", day.length === DAILY_COUNT, String(day.length));
+  check("slots are 0,1,2 in order", day.every((c, i) => c.slot === i),
+    day.map((c) => c.slot).join(","));
+
+  const std = day.map((c) => withSize(c, "std", never));
+  check("Contracts 1-3 borrow bays 1-3", std.join(" ") === "bay-1 bay-2 bay-3", std.join(" "));
+  // Distinct is the point of indexing by slot rather than rolling: the three
+  // cards on the board must never sound like each other. This also catches
+  // DAILY_COUNT growing past the slot table, where slot 3 would wrap to bay 1.
+  check("no two of the day's Contracts share a bed",
+    new Set(std).size === std.length, std.join(" "));
+
+  // The joke: a five-cube shipment gets the bed written in 5/4, from any slot.
+  const bulk = day.map((c) => withSize(c, "bulk", never));
+  check("a pentomino Contract gets the 5/4 bed", bulk.every((b) => b === "bay-5"), bulk.join(" "));
+  check("a domino Contract does not",
+    day.every((c) => withSize(c, "tiny", never) !== "bay-5"));
+
+  // The special outranks both. If it did not, it could never be heard on a
+  // pentomino Contract at all — a rare thing that yields to a rule is not rare.
+  check("the special beats the slot bed", withSize(day[0], "std", always) === "contract-rare");
+  check("the special beats the 5/4 rule", withSize(day[0], "bulk", always) === "contract-rare");
+  // Both sides of the boundary: `<`, not `<=`.
+  check("a roll just under the chance is special",
+    contractBed(day[0], () => CONTRACT_RARE_CHANCE - 1e-9) === "contract-rare");
+  check("a roll exactly at the chance is not",
+    contractBed(day[0], () => CONTRACT_RARE_CHANCE) !== "contract-rare");
+  check("the special is rare by construction",
+    CONTRACT_RARE_CHANCE > 0 && CONTRACT_RARE_CHANCE <= 0.1, String(CONTRACT_RARE_CHANCE));
+
+  // The rate MEASURED through the real function, off a seeded stream so this is
+  // a check and not a coin flip in CI. Catches the wiring being right and the
+  // frequency being wrong — a flipped comparison, or a constant read but not
+  // used, both of which pass every assertion above.
+  {
+    const rng = mulberry32(20260822);
+    const N = 20000;
+    let specials = 0;
+    for (let i = 0; i < N; i++) if (contractBed(day[0], rng) === "contract-rare") specials += 1;
+    const rate = specials / N;
+    check("the special lands at about its stated rate",
+      Math.abs(rate - CONTRACT_RARE_CHANCE) < 0.005, `${(rate * 100).toFixed(2)}%`);
+  }
+
+  // The check that catches drift between this ladder and prepare-audio.mjs's
+  // MUSIC map — the failure neither typecheck nor the browser will report. A
+  // bed with no file behind it is a SILENT bay: playMusic's fetch 404s, the
+  // catch swallows it by design, and the only symptom is one stretch of the run
+  // playing nothing. Set EQUALITY rather than a subset, so the reverse — an
+  // orphaned track hauled around in the PWA precache for nothing — fails too.
+  // Every bed a Contract can draw is in `wanted` on its own account: they
+  // happen to be bay beds today apart from the special, and must each still
+  // resolve to a real file if that stops being true.
+  const musicDir = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)), "..", "public", "audio", "music",
+  );
+  const shipped = new Set(
+    fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
+  );
+  const wanted = new Set([...SCREEN_BEDS, ...beds, ...std, ...bulk, "contract-rare"]);
+  const absent = [...wanted].filter((n) => !shipped.has(n));
+  const orphaned = [...shipped].filter((n) => !wanted.has(n));
+  check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));
+  check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
 }
 
 

@@ -80,6 +80,32 @@ function midMeta(): MetaState {
   return m;
 }
 
+/**
+ * A PROGRESSED save, which midMeta above is not: it is `newMeta()` with three
+ * numbers written on it, so the ✓ Installed and ✓ Owned strips — the only part
+ * of the Workshop that GROWS with the save — were empty in the one fixture
+ * measuring that screen, and never measured at all. Adding this immediately
+ * caught them overflowing the fixed aside they used to live in, on nine of the
+ * thirteen devices; they render in the scroller now.
+ *
+ * Five systems installed at mixed tiers (the long strip), one option owned, two
+ * systems still on the shelf. Mark 3 beaten, so nothing is gated by tier and
+ * the remaining cards render their price rather than their "Needs Tier N" line
+ * — the gated case is midMeta's, at Mark 0. Loadout costs 135 of Mark 4's 308
+ * budget, i.e. a legal one (upgrades.ts's loadoutLegal), because an
+ * over-budget readout is a bug report rather than a layout case.
+ */
+function ownedMeta(): MetaState {
+  const m = newMeta();
+  m.salvage = 240;
+  m.runs = 52;
+  m.bestBay = 10;
+  m.mark = 3;
+  m.unlocks = ["survey"];
+  m.loadout = { ...m.loadout, reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 };
+  return m;
+}
+
 /** Four digits of funds against a four-digit target — the readout width that
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
 const HUD_BASE = {
@@ -220,9 +246,14 @@ export const SCREENS: Record<string, () => string> = {
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
 
-  // One fixture, because there is one shelf: the Systems/Options tabs are gone
-  // and both card kinds render together now.
+  // TWO fixtures, because the screen has two shapes and only one of them was
+  // ever measured. `workshop` is the early save: nothing owned, so there are no
+  // strips and most of the shelf wears a "Needs Tier N" gate. `workshop-owned`
+  // is a Mark-3 save, where the shelf is down to its last cards and carries
+  // both ownership strips at its foot. One shelf in both — the Systems/Options
+  // tabs are gone and both card kinds render together.
   workshop: () => S.workshopScreen(midMeta()),
+  "workshop-owned": () => S.workshopScreen(ownedMeta()),
 
   contracts: () =>
     S.contractsScreen({
@@ -235,13 +266,55 @@ export const SCREENS: Record<string, () => string> = {
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
+  // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
+  // abilities. This is the state the build rack's fixed slots exist for — it
+  // used to render as an empty row, so the one moment the harness measured
+  // (HUD_BASE, six of seven tracks bought) told it nothing about the moment
+  // every run actually starts in. The rack is at its WIDEST here in slot terms
+  // and its emptiest in content, which is exactly the pair worth asserting.
+  "hud-stock": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      tier: 1,
+      bayNum: 1,
+      score: 200,
+      target: 800,
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
+      ratchets: {} as Ratchets,
+      tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+    }),
   // Five figures against a four-figure target. A Reactor build carrying
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
   "hud-rich": () => S.hudHTML({ ...HUD_BASE, score: 24_680, target: 2_150, contract: null }),
+  // A Contract carries NO ratchets — main.ts's startContract nulls the run,
+  // and the axes live on the run — so this inherited HUD_BASE's four of them
+  // and measured a state the app cannot produce. With the notch line rendering
+  // only in Deep Run that would now be invisible rather than merely wrong,
+  // which is the kind of fixture drift worth killing at the source.
+  // The notch line at its WIDEST honest state: every axis a Mark 10 run can
+  // deal, some of them stacked. One notch per bay over ten bays is the cap, so
+  // this is the deepest run's line and the case that decides whether the row
+  // scrolls its tail (see components.ts's runNotchTallyHTML).
+  "hud-notched": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      ratchets: {
+        cost: 2, time: 1, wind: 2, sweeper: 1,
+        cryo: 1, rebar: 1, slag: 1, volatile: 1,
+      } as Ratchets,
+    }),
+
   "hud-contract": () =>
     S.hudHTML({
       ...HUD_BASE,
+      ratchets: {} as Ratchets,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -272,12 +345,18 @@ export const SCREENS: Record<string, () => string> = {
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
 
-  // The tutorial, at its two extremes of card height and HUD reveal: step 0
-  // (longest gesture copy, plant fully collapsed) and step 3 (the economy
-  // card's four sentences, most of the readout revealed). Both states ship to
-  // every first-session player, which made them the one flow the harness
-  // couldn't see.
+  // The tutorial, EVERY step. It used to be the two extremes — step 0 (plant
+  // fully collapsed) and step 3 (most of the readout revealed) — on the
+  // reasoning that they bracket the card's height budget. They do not: the
+  // budget is the card's copy against what the reveal has already spent, and
+  // those two vary independently, so a middle step can be tighter than both
+  // ends (step 2 carries the second-longest body with Reload and Launches
+  // already taking their rows). Every step ships to every first-session
+  // player and each is read once, in one glance; there is no reason for the
+  // harness to see half of them. Four fixtures, one per card.
   coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, LEVEL_1)),
+  "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, LEVEL_1)),
+  "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, LEVEL_1)),
   "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, LEVEL_1)),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
@@ -347,7 +426,9 @@ export const SCREEN_IDS = Object.keys(SCREENS);
 /** The rail loadout each screen renders, mirroring what main.ts's hudOpts
  *  feeds the layout solver (layout.ts's railSlotsFor). Screens built on
  *  HUD_BASE carry all three abilities — the seven-slot worst case — and
- *  screens with no HUD have no rail, so they get the base budget. The harness
+ *  screens with no HUD have no rail, so they get the base budget. `hud-stock`
+ *  falls through to NO_RAIL on purpose rather than by omission: it is a rig
+ *  that owns no abilities, so the rail it renders is the base one. The harness
  *  applies this BEFORE publishing the layout, exactly like the app. */
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
@@ -356,7 +437,8 @@ const HUD_LOADOUT = {
 };
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
-  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "pause" || id === "bayclear"
+  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "hud-notched"
+    || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
 }
