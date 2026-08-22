@@ -18,7 +18,8 @@ import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
-  makeBaseLevel, payoutMult, COMBO_STEP, PILE_TIERS, TARGET_PER_BAY,
+  makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
+  PILE_TIERS, TARGET_PER_BAY, UNBREAKABLE_MARK,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
@@ -287,6 +288,57 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "launch cost and loss penalty are Mark-invariant",
     makeBaseLevel(5, MARK_COUNT).launchCost === makeBaseLevel(5, 1).launchCost &&
       makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
+  );
+
+  // BONDS are the one ladder number a Mark still moves (level.ts's
+  // BOND_MARK_STEP) — content rather than demand: stronger bonds change how
+  // the pile behaves, not how much the bay asks for.
+  check(
+    "bonds strengthen with the Mark",
+    makeBaseLevel(0, 5).jointBreakStretch > makeBaseLevel(0, 1).jointBreakStretch,
+    `${makeBaseLevel(0, 1).jointBreakStretch} -> ${makeBaseLevel(0, 5).jointBreakStretch}`,
+  );
+  check(
+    "...by BOND_MARK_STEP per rung above Mark 1",
+    makeBaseLevel(0, 5).jointBreakStretch === BASE_BREAK_STRETCH * (1 + BOND_MARK_STEP * 4),
+    String(makeBaseLevel(0, 5).jointBreakStretch),
+  );
+  // Mark 1 multiplies by exactly 1, so the tuned 2.2 -> 4.4 bay ramp survives
+  // byte-identically at the bottom of the ladder.
+  check(
+    "Mark 1 keeps the stock bond ramp exactly",
+    Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1).jointBreakStretch)
+      .every((v, i) => v === BASE_BREAK_STRETCH * (1 + i / 9)),
+  );
+  // One rung below the capstone the ramp is still an ordinary ramp — rising
+  // bay over bay, finite everywhere.
+  {
+    const nine = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 9).jointBreakStretch);
+    check(
+      "at Mark 9 bonds rise with the bay and every bay stays finite",
+      nine.every((v) => Number.isFinite(v)) && nine.every((v, i) => i === 0 || v > nine[i - 1]),
+      nine.map((v) => v.toFixed(2)).join(","),
+    );
+  }
+  // The capstone bay at the capstone Mark is ONLY unbreakable bonds — nothing
+  // shatters on landing, the press cannot break a piece (breakJointsInBand
+  // exempts Infinity, the rebar rule), and the per-run Bond Breaker magazine
+  // is the only shatter left. Exactly tier 10 bay 10; one step earlier on
+  // either axis is still a breakable bay.
+  check("tier 10 bay 10 is unbreakable", makeBaseLevel(9, 10).jointBreakStretch === Infinity);
+  check(
+    "the unbreakable bay is only the capstone's",
+    Number.isFinite(makeBaseLevel(8, 10).jointBreakStretch)
+      && Number.isFinite(makeBaseLevel(9, 9).jointBreakStretch),
+    `${makeBaseLevel(8, 10).jointBreakStretch} / ${makeBaseLevel(9, 9).jointBreakStretch}`,
+  );
+  // UNBREAKABLE_MARK is CAPSTONE_MARK's rung restated in level.ts, which
+  // cannot import it back (hazards.ts imports level.ts — the cycle). This
+  // assertion is the tie that replaces the import.
+  check(
+    "UNBREAKABLE_MARK is the capstone rung",
+    UNBREAKABLE_MARK === CAPSTONE_MARK,
+    `${UNBREAKABLE_MARK} vs ${CAPSTONE_MARK}`,
   );
 
   // A run flies the loadout it was handed, and the Mark reaches the level.
