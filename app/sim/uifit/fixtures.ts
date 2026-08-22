@@ -235,6 +235,28 @@ export const SCREENS: Record<string, () => string> = {
     }),
 
   hud: () => S.hudHTML({ ...HUD_BASE, contract: null }),
+  // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
+  // abilities. This is the state the build rack's fixed slots exist for — it
+  // used to render as an empty row, so the one moment the harness measured
+  // (HUD_BASE, six of seven tracks bought) told it nothing about the moment
+  // every run actually starts in. The rack is at its WIDEST here in slot terms
+  // and its emptiest in content, which is exactly the pair worth asserting.
+  "hud-stock": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      tier: 1,
+      bayNum: 1,
+      score: 200,
+      target: 800,
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
+      ratchets: {} as Ratchets,
+      tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+    }),
   // Five figures against a four-figure target. A Reactor build carrying
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
@@ -345,7 +367,9 @@ export const SCREEN_IDS = Object.keys(SCREENS);
 /** The rail loadout each screen renders, mirroring what main.ts's hudOpts
  *  feeds the layout solver (layout.ts's railSlotsFor). Screens built on
  *  HUD_BASE carry all three abilities — the seven-slot worst case — and
- *  screens with no HUD have no rail, so they get the base budget. The harness
+ *  screens with no HUD have no rail, so they get the base budget. `hud-stock`
+ *  falls through to NO_RAIL on purpose rather than by omission: it is a rig
+ *  that owns no abilities, so the rail it renders is the base one. The harness
  *  applies this BEFORE publishing the layout, exactly like the app. */
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,

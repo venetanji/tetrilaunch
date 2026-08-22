@@ -171,6 +171,7 @@ const ASSERTIONS = [
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
+  { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -195,7 +196,7 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -422,6 +423,36 @@ function measure(cfg: {
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
     }
+  }
+
+  // --- rack: the seven system slots must all be reachable at a glance -------
+  // The build row scrolls horizontally, which is right for the HAZARD chips
+  // after it — a deep run banks up to ten distinct axes and no panel holds
+  // them — but wrong for the ship's systems. There are exactly seven, they are
+  // the same seven for the whole run, and they are the readout a player checks
+  // mid-bay to know what their rig can do; one of them parked off the right
+  // edge is not a readout, it is a thing you have to remember to go looking
+  // for. So the slots are sized to the narrowest panel in the matrix rather
+  // than to a comfortable one (app.css's .ship-plate), and this is what holds
+  // that: every plate's right edge inside the row's CLIENT box, measured at
+  // scrollLeft 0, which is where the row sits until a thumb moves it.
+  //
+  // Not derivable from `offscreen` or `clipped`: the row is a legitimate
+  // horizontal scroller, so both of those exempt its overflow by design — a
+  // plate hanging off it is reachable content by their rules, and silent.
+  const modsRow = document.querySelector(".pl-mods");
+  if (modsRow) {
+    const rowBox = modsRow.getBoundingClientRect();
+    // clientWidth excludes the scrollbar; borders are on the panel, not here.
+    const visibleRight = rowBox.left + modsRow.clientWidth;
+    document.querySelectorAll(".pl-mods .ship-plate").forEach((plate, i) => {
+      const r = plate.getBoundingClientRect();
+      const over = r.right - visibleRight;
+      if (over > 1) {
+        const g = plate.querySelector(".ship-plate__g")?.textContent ?? `#${i}`;
+        out.rack.push(`slot ${g} sits ${Math.round(over)}px past the row's visible edge`);
+      }
+    });
   }
 
   // --- reveal: the tutorial's progressive readout, at its first step --------

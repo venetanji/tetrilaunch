@@ -179,23 +179,44 @@ export function btn(action: string, label: string, variant = "secondary", extra 
 }
 
 /**
- * Compact ship-refit readout for the HUD: one small plate per UPGRADED system
- * with its tier as pips. Only bought tracks render — a stock ship shows nothing
- * rather than six empty plates, so the row grows as the run's build takes shape.
+ * Compact ship-refit readout for the HUD: one small plate per system, tier as
+ * pips, in UPGRADES order.
+ *
+ * EVERY track renders, installed or not — the rack is the ship's full slate of
+ * systems and an empty slot is information ("nothing in the magazine yet"), not
+ * an absence. It used to filter to bought tracks only, on the reasoning that a
+ * stock ship should show nothing rather than seven empty plates, and that reads
+ * well for exactly one moment: the start of a run, before there is anything to
+ * compare against. What it cost was every moment after. The rack re-flowed on
+ * each purchase — a refit inserted a plate in UPGRADES order, so buying the
+ * Magazine pushed Reactor, Bonds and Demolition sideways — and a readout whose
+ * items move is one the eye has to re-find rather than glance at. The player
+ * also could not see what they had NOT built, which is half of what a build
+ * readout is for at a refit stop.
+ *
+ * Fixed slots make both work: the rack is the same seven positions from the
+ * first bay to the last, each one either lit or waiting, and a purchase lights
+ * a plate where the player was already looking. Seven of them fit the panel
+ * without scrolling on every device in the matrix (see app.css's .ship-plate
+ * and sim/uifit) — which is the constraint the fixed count has to earn.
+ *
  * See game/upgrades.ts for the tracks, and screens.ts's hudHTML for placement.
  */
 export function shipPlatesHTML(tiers: UpgradeTiers): string {
-  const plates = UPGRADES.filter((u) => (tiers[u.id] ?? 0) > 0)
-    .map((u) => {
-      const tier = Math.min(MAX_TIER, tiers[u.id]);
-      const pips = Array.from({ length: MAX_TIER }, (_, i) =>
-        `<i class="${i < tier ? "on" : ""}"></i>`,
-      ).join("");
-      return `<div class="ship-plate" title="${u.name} — tier ${tier}">
+  return UPGRADES.map((u) => {
+    const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`,
+    ).join("");
+    // The empty state is a MODIFIER on the same box, not a different element:
+    // the slot has to occupy exactly the space its installed self will, or the
+    // rack moves the moment the track is bought and the fixed slots buy
+    // nothing.
+    const empty = tier === 0 ? " ship-plate--empty" : "";
+    const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — tier ${tier}`;
+    return `<div class="ship-plate${empty}" title="${title}">
         <span class="ship-plate__g">${u.glyph}</span>
         <span class="ship-plate__pips">${pips}</span>
       </div>`;
-    })
-    .join("");
-  return plates;
+  }).join("");
 }

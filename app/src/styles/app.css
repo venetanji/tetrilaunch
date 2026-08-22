@@ -1355,14 +1355,23 @@ body.crt-off #app::after { display: none; }
   .mod--bb .key, .mod--demo .key { display: none; }
 }
 
-/* Ship plates — one per UPGRADED system, tier shown as pips (see components.ts's
-   shipPlatesHTML). Visually distinct from the mod chips beside them (narrower,
-   cyan-topped, no name label) because they answer a different question: mods are
-   "what was I dealt", plates are "what did I build". */
+/* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
+   components.ts's shipPlatesHTML for why every track renders). Visually
+   distinct from the mod chips beside them (narrower, cyan-topped, no name
+   label) because they answer a different question: mods are "what was I
+   dealt", plates are "what did I build".
+
+   THE WIDTH FLOOR IS A FIT BUDGET, not a taste. Seven fixed slots have to
+   clear the narrowest panel in the matrix — an iPhone 13 mini, where the
+   field is 482x271 and the plant's content box is 209px — so the floor is
+   `7w + 6·gap <= 209`. At the compact gap (below) that puts w at 25px, which
+   is what this floor is; the `--fpx` term takes over above it and the plates
+   grow with the field, to 54px on a tablet. Raising either number without
+   re-running sim/uifit puts the last slot behind a scroll. */
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  width: max(30px, calc(46 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  width: max(25px, calc(40 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
@@ -1373,6 +1382,20 @@ body.crt-off #app::after { display: none; }
 .ship-plate__pips { display: flex; gap: 2px; }
 .ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
+
+/* An UNINSTALLED slot: the same box, drained of the cyan that means "built".
+   It has to stay legible — the glyph is the whole point of an empty slot, it
+   names the system the player has not bought yet — so this dims rather than
+   hides, and the pips stay in their off state instead of disappearing (three
+   dark pips say "three tiers available"; no pips would say "no such thing").
+   Deliberately no dashed border or other "placeholder" idiom: the rack reads
+   as one instrument with some lamps lit, which is what it is. */
+.ship-plate--empty {
+  background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+  border-top-color: var(--line-strong);
+  box-shadow: none;
+}
+.ship-plate--empty .ship-plate__g { color: var(--text-faint); }
 
 /* ============================================================================
    CONVEYOR BELT — the NEXT piece rides in from the top-left, angled toward
