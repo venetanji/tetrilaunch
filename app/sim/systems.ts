@@ -761,20 +761,23 @@ section("Pattern Contracts (contracts.ts)");
       }
     }
   }
-  // Not "every deal is a straight-drop build": some inventories (anything
-  // S/Z-heavy) have no such order at all, and refusing to deal them would
-  // silently delete a third of the high-tier board. The promise is the weaker,
-  // honest one — every deal can be finished SOMEHOW — plus the measurement that
-  // the strict case is the overwhelming default.
+  // The hard invariant is the weaker of the two, deliberately: the deal search
+  // is randomized, and an assertion that every single roll finds the STRICT
+  // kind of order would be a flake waiting for a slow day. What must never
+  // happen is a deal nobody can finish at all.
   check(
     `every dealt pattern queue can be finished (${dealtPatterns} deals)`,
     everUnbuildableEvenLoosely === 0,
     `${everUnbuildableEvenLoosely} unbuildable under either model`,
   );
+  // And the measurement beside it: since buildable.ts's move ordering landed,
+  // the straight-drop search has not failed once across all 624 inventories
+  // this generator can emit, so the tuck fallback is a safety net under a path
+  // nothing currently takes. If this starts tripping, that has changed.
   check(
-    `almost every deal is buildable landing shipments straight down ` +
+    `deals are buildable landing shipments straight down ` +
       `(${dealtPatterns - everUnbuildable}/${dealtPatterns})`,
-    everUnbuildable <= dealtPatterns * 0.2,
+    everUnbuildable <= dealtPatterns * 0.05,
     `${everUnbuildable} needed a tuck`,
   );
 
