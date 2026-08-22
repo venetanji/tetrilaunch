@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
-  RUN_LEVELS, type RunState,
+  bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import {
   hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
@@ -37,7 +37,7 @@ import {
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, levelForContract, type Contract,
+  dailyContracts, levelForContract, contractBed, type Contract, type ContractBed,
 } from "./game/contracts";
 import { render } from "./game/render";
 import { AttractDemo } from "./game/attract";
@@ -144,6 +144,13 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** The bed THIS Contract attempt drew (contracts.ts's contractBed), held for
+   *  the life of the attempt instead of re-derived. syncMusic runs on every
+   *  state change, so deriving it there would re-roll the 5% special each time
+   *  the pause modal opened — and a bed that changes when you pause is worse
+   *  than never getting the special at all. Non-null exactly while `contract`
+   *  is, which is what lets syncMusic read the two as one. */
+  private contractMusic: ContractBed | null = null;
   /** Forward route prepared when a Contract resolves, from that tier's board. */
   private nextContract: Contract | null = null;
   private contractBoardComplete = false;
@@ -362,14 +369,17 @@ class App {
   }
 
   /**
-   * One track per context, switched from the single choke point every screen
+   * One bed per context, switched from the single choke point every screen
    * change already passes through. playMusic() ignores a repeat of what's
-   * already playing, so paused/draft/refit keep the bay's bed running rather
-   * than restarting it every time a modal opens.
+   * already playing, so walking between the out-of-run screens keeps the one
+   * lounge bed running instead of restarting it at every menu.
    *
-   * Contracts and the Deep Run get different beds because they are different
-   * modes, not different levels — the run is the long haul, a Contract is a
-   * short retryable challenge.
+   * The Deep Run gets a LADDER rather than one bed (run.ts's bayMusic): it is a
+   * ten-bay arc, and the score should travel with it instead of looping a
+   * single track across the whole thing. A Contract borrows one of those beds
+   * per attempt, picked at startContract (contracts.ts's contractBed) and read
+   * from `contractMusic` here — never re-derived, because this method runs on
+   * every screen change and the pick has a random element.
    */
   private syncMusic(s: AppState): void {
     switch (s) {
@@ -393,7 +403,7 @@ class App {
 
       case "playing":
         stopStinger();
-        playMusic(this.contract ? "contracts" : "deep-run");
+        playMusic(this.contractMusic ?? bayMusic(this.run?.levelIndex ?? 0));
         return;
 
       // Pausing drops to the lounge bed: the driving track under a paused game
@@ -904,6 +914,7 @@ class App {
       markUnlocked(this.meta),
     );
     this.contract = null;
+    this.contractMusic = null;
     this.submitted = false;
     this.lastTier = null;
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
@@ -1127,6 +1138,9 @@ class App {
     this.game?.destroy();
     this.run = null;
     this.contract = c;
+    // Rolled here, once, because this is the start of an ATTEMPT — a retry is
+    // a fresh roll (see contractBed), a pause is not.
+    this.contractMusic = contractBed(c);
     this.nextContract = null;
     this.contractBoardComplete = false;
     // No coach in Contract mode — it teaches the Deep Run economy, and half
@@ -1928,7 +1942,7 @@ class App {
         if (this.nextContract) this.startContract(this.nextContract);
         else this.setState("contracts");
         break;
-      case "menu": this.contract = null; this.setState("menu"); break;
+      case "menu": this.contract = null; this.contractMusic = null; this.setState("menu"); break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;

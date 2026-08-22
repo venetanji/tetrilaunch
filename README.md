@@ -281,8 +281,10 @@ Next steps:
    a `RunState.seed` so everyone drafts the same offers, with a per-seed board.
 5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`;
    implement the bag in `Cannon`, seeded from the run.
-6. **Audio** — the Sound FX / Music toggles exist but nothing is wired up
-   (launch, shatter, payout, salvage refund, bomb, clock warning, bay clear).
+6. **Audio gaps** — the nine effects, four stingers and the Deep Run's per-bay
+   music ladder are all wired (`lib/audio.ts`; `bayMusic` in `game/run.ts` is
+   which bed covers which bay). Still silent: the payout, the salvage refund,
+   the volatile blast, and the congestion clock burning down.
 7. **Run history & boards** — the D1 schema keys scores by `level`; everything
    posts to the single run board today. Add bays-reached and a board switcher.
 8. **More juice** — screen shake on detonation, combo streak banner, draft-card
