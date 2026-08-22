@@ -298,7 +298,7 @@ export function render(
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
-  drawTrajectory(ctx, scene.trajectory);
+  drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
   drawCannon(ctx, scene.cannon, scene.aiming, scene.settling);
@@ -1020,16 +1020,134 @@ function drawPattern(
   }
 }
 
-function drawTrajectory(ctx: CanvasRenderingContext2D, pts: Matter.Vector[]): void {
+/** The reduced-motion query, made once and READ per frame: a MediaQueryList
+ *  keeps itself current, so a player who flips the preference mid-run is
+ *  honoured without a matchMedia call inside the draw loop. */
+let reduceMotionMQ: MediaQueryList | null | undefined;
+function prefersReducedMotion(): boolean {
+  if (reduceMotionMQ === undefined) {
+    reduceMotionMQ = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+  }
+  return !!reduceMotionMQ?.matches;
+}
+
+/**
+ * THE ARC IS THE RELOAD (and the aim re-forming on top of it).
+ *
+ * The muzzle ring and the plant panel's bar both already carry this number and
+ * both are in the wrong place for it: the ring sits under the player's own
+ * dragging thumb, the bar is at the bottom of the screen. The arc is the one
+ * thing their eyes are actually on while a shot is lined up, so it says it
+ * too — and it says it by not being there.
+ *
+ * Firing takes the arc away completely. It comes back on an EXPONENTIAL
+ * curve, blinking, with its far end scattered, and every one of those three
+ * settles at ready. A linear fade said the wrong thing: dim-but-readable the
+ * whole way through reads as "wait a moment", when what is true is "there is
+ * no shot yet". Gone, then forming, then solid is the honest shape of it.
+ *
+ * WHY THE BLINK'S PHASE COMES FROM `reload` AND NOT FROM `now`. The obvious
+ * `sin(now * rate(reload))` jumps every time the rate changes, because
+ * multiplying a WALL CLOCK by a rising frequency moves the phase itself: the
+ * wave stutters and skips instead of accelerating. Running the phase through
+ * the same exponential ramp makes the rate rise with the ratio, continuously,
+ * with nothing to keep in sync frame to frame — and cos() of a whole number of
+ * turns lands at 1 at BOTH ends, so the effect starts on a bright beat and
+ * arrives at ready already at full alpha, with no pop at the hand-off.
+ */
+
+/** exp ease over 0..1: 0 at 0, 1 at 1, and the bigger k is the longer it
+ *  stays near nothing before it moves. k -> 0 would be the linear ramp. */
+function expRamp(x: number, k: number): number {
+  return (Math.exp(k * x) - 1) / (Math.exp(k) - 1);
+}
+
+/** Steepness of the arc's return: nothing at the instant of the shot, a ghost
+ *  within a beat of it, firming through the middle, unmistakable by the end.
+ *
+ *  Tuned on a real cycle, twice, and the plot lied both times. 3.5 held the
+ *  arc under the perceptible floor until the last quarter, so the blink and
+ *  the scatter had to say their piece inside 250ms — a pop, not a return. 2.5
+ *  fixed the pop and left a subtler bug: the scatter is WIDEST while the arc
+ *  is faintest, because the two share this curve (see ARC_JITTER), so the most
+ *  interesting part of the forming happened below the visible floor and only
+ *  its tail ever reached the screen. 1.6 lifts the arc into view early enough
+ *  to watch it converge, and still leaves nothing at all the instant a shot
+ *  goes. */
+const ARC_RETURN_K = 1.6;
+/** Blinks per cooldown, and how hard they bunch toward ready. A COUNT rather
+ *  than a rate is what lets one constant serve every cooldown the game can
+ *  produce (level.ts's 1350ms, the Magazine track's −15% a tier, congestion's
+ *  live scale): the cycle always fits the same beats, so a faster reload IS a
+ *  faster blink with no second number to keep in sync. */
+const ARC_BLINKS = 3;
+const ARC_BLINK_K = 2.5;
+/** How much of the arc's alpha a blink swings. Shallow on purpose: by the time
+ *  the blink is fast the arc is also the aim, and one that vanished on every
+ *  downbeat would cost the player the shot they are lining up. */
+const ARC_BLINK_DEPTH = 0.45;
+/** Scatter of the FAR end of the arc, in world px — CELL is 40, so two thirds
+ *  of a cube at its widest, on the frame after a shot.
+ *  Driven by the INVERSE of the clarity curve rather than a decay of its own:
+ *  the two are one statement — the less of the arc there is, the less it is
+ *  sure of — and sharing the curve means the scatter reaches exactly zero at
+ *  ready, with no second constant to tune and nothing to snap. Tapered along
+ *  the arc as well: a solution converges from its far tip backwards, so the
+ *  muzzle end moves least. */
+const ARC_JITTER = 26;
+/** Re-rolls a second. Per-frame would be 60Hz static — noise, not hardware;
+ *  this is slow enough to read as a solution being re-tried. */
+const ARC_JITTER_HZ = 18;
+/** What the muzzle end keeps of the scatter. Not zero: a first dot nailed to
+ *  the barrel while the rest of the arc swims reads as a hinge, and it is the
+ *  whole solution that is unsure, not only its tail. Low enough that the taper
+ *  is still what you see. */
+const ARC_JITTER_BASE = 0.3;
+
+/** Deterministic ±1 from (dot, time step, axis) — an integer hash rather than
+ *  Math.random() so a paused frame redraws identically instead of crawling,
+ *  and so nothing in the renderer consumes randomness the sim could want. */
+function arcJitter(i: number, step: number, axis: number): number {
+  let h = (Math.imul(i, 374761393) + Math.imul(step, 668265263) + Math.imul(axis, 2246822519)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return (h >>> 8) / 8388608 - 1;
+}
+
+function drawTrajectory(
+  ctx: CanvasRenderingContext2D,
+  pts: Matter.Vector[],
+  reload: number,
+  now: number,
+): void {
   if (pts.length < 2) return;
+  // Reduced motion keeps the RAMP and drops the BLINK and the JITTER. The
+  // three are not the same kind of thing: a brightness that tracks the
+  // cooldown is information, and holds still to be read; the other two are
+  // motion, which is the whole of what the preference asks about (same split
+  // the rest of the app makes — see app.css's prefers-reduced-motion blocks).
+  const calm = reload >= 1 || prefersReducedMotion();
+  const clarity = reload >= 1 ? 1 : expRamp(reload, ARC_RETURN_K);
+  const osc = calm
+    ? 1
+    : 0.5 + 0.5 * Math.cos(2 * Math.PI * ARC_BLINKS * expRamp(reload, ARC_BLINK_K));
+  const cue = clarity * (1 - ARC_BLINK_DEPTH * (1 - osc));
+  // Fully gone for the first beats of the cooldown — skip the loop rather than
+  // stamp ~16 invisible sprites a frame.
+  if (cue < 0.004) return;
+
+  const jitter = calm ? 0 : ARC_JITTER * (1 - clarity);
+  const step = Math.floor((now * ARC_JITTER_HZ) / 1000);
   const sprite = getDotSprite();
   ctx.save();
   for (let i = 0; i < pts.length; i += 3) {
     const t = i / pts.length;
-    ctx.globalAlpha = 0.9 * (1 - t) + 0.15;
+    ctx.globalAlpha = (0.9 * (1 - t) + 0.15) * cue;
     // Scale the baked disc (radius DOT_R + its glow) to this dot's radius.
     const half = (DOT_R + DOT_PAD) * ((4 * (1 - t) + 2) / DOT_R);
-    ctx.drawImage(sprite, pts[i].x - half, pts[i].y - half, half * 2, half * 2);
+    const spread = jitter * (ARC_JITTER_BASE + (1 - ARC_JITTER_BASE) * t);
+    const jx = jitter ? arcJitter(i, step, 0) * spread : 0;
+    const jy = jitter ? arcJitter(i, step, 1) * spread : 0;
+    ctx.drawImage(sprite, pts[i].x + jx - half, pts[i].y + jy - half, half * 2, half * 2);
   }
   ctx.restore();
 }

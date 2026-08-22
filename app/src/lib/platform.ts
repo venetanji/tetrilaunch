@@ -207,6 +207,44 @@ export async function impactHaptic(): Promise<void> {
   }
 }
 
+/** Reload complete — the lightest cue in the game, on purpose, because it is
+ *  also by far the most frequent: one per launch cycle (fired on the rising
+ *  edge in main.ts's syncHud), which on a bay being played well is every
+ *  couple of seconds for the whole run. Weight is the enemy here, not
+ *  sameness — `successHaptic`'s three beats or `impactHaptic`'s medium thump
+ *  at that rate would turn the run into one long buzz.
+ *
+ *  iOS gets its own texture: the selection "detent" tick
+ *  (UISelectionFeedbackGenerator) is both crisper AND lighter than
+ *  ImpactStyle.Light, and it is the one channel no other cue here uses — so
+ *  the shot reads as an impact and the reload as a state change. The
+ *  start/end pair is required rather than decorative: selectionChanged() is a
+ *  no-op on both platforms unless a selection was started first.
+ *
+ *  Android deliberately reuses the light impact instead. @capacitor/haptics
+ *  maps selection there to a 100ms / amplitude-100 waveform against light
+ *  impact's 50ms / 110 (and 70ms vs 20ms on motors with no amplitude control,
+ *  i.e. pre-API-26) — twice the duration for the same nudge, which lands
+ *  heavier than the shot rather than lighter. Everything else the plugin
+ *  offers on Android is heavier still, so light IS the right primitive and
+ *  the separation from the shot comes from timing plus the reloadReady SFX.
+ *  Web keeps that same single short tick, so the browser build and the APK
+ *  feel alike on the one device that can run both. */
+export async function readyHaptic(): Promise<void> {
+  if (!loadSettings().haptics) return;
+  try {
+    if (Capacitor.getPlatform() === "ios") {
+      await Haptics.selectionStart();
+      await Haptics.selectionChanged();
+      await Haptics.selectionEnd();
+    } else if (isNative) {
+      await Haptics.impact({ style: ImpactStyle.Light });
+    } else navigator.vibrate?.(8);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Measure the device's real safe-area insets and hand them to the layout solver.
  *

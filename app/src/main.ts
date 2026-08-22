@@ -67,7 +67,8 @@ import {
   loadMeta, saveMeta, loadBaysPlayed, bumpBaysPlayed, type Settings,
 } from "./lib/store";
 import {
-  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic, hapticsSupported,
+  lockLandscape, isPortrait, tapHaptic, successHaptic, impactHaptic, readyHaptic,
+  hapticsSupported,
   autoEnterFullscreenForRun, toggleFullscreen, isFullscreen, fullscreenSupported,
   applySafeAreaInsets, purgeNativeServiceWorker,
 } from "./lib/platform";
@@ -1743,10 +1744,17 @@ class App {
     if (load) load.style.width = Math.round(reload * 100) + "%";
     const ready = reload >= 1;
     this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", ready);
-    // Audible on the RISING edge only. syncHud runs every frame, so testing
-    // `ready` alone would retrigger ~60x/sec for as long as the player takes to
-    // aim — which, per the telemetry note in cannon.ts, is most of the time.
-    if (ready && !this.reloadWasReady) playFx("reloadReady", { gain: 0.5 });
+    // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
+    // testing `ready` alone would retrigger ~60x/sec for as long as the player
+    // takes to aim — which, per the telemetry note in cannon.ts, is most of the
+    // time. The haptic matters more than the sound here: the whole point of the
+    // cue is that it reaches a player whose eyes are on the pile, and phones
+    // get played muted. It is deliberately the lightest one in the game
+    // (platform.ts's readyHaptic) precisely because it repeats every cycle.
+    if (ready && !this.reloadWasReady) {
+      playFx("reloadReady", { gain: 0.5 });
+      void readyHaptic();
+    }
     this.reloadWasReady = ready;
 
     if (g.timeLeftMs !== Infinity) {
