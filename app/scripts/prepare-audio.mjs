@@ -64,10 +64,12 @@ const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
  * `menu` is the lounge bed that plays outside a bay. The `bay-N` roles are the
  * Deep Run's arc, one song per bay; WHICH bay each one plays over is
  * game/run.ts's BAY_TRACKS, and this map only decides what it sounds like.
- * `contracts` is a role with no master yet — see contracts.ts's CONTRACT_BED.
+ * `contract-rare` is the 1-in-20 special a Contract can draw instead of the bay
+ * bed it borrows — see contracts.ts's contractBed.
  */
 const MUSIC = {
   "lounge-menu-pause.mp3": "menu",
+  "Whale Circuit.mp3": "contract-rare",
   "chilled beginning.mp3": "bay-1",
   "2 chill.mp3": "bay-2",
   "Threes.mp3": "bay-3",
@@ -273,7 +275,11 @@ async function main() {
     if (f.endsWith(".mp3") && !MUSIC[f]) unmapped.push(`tracks/${f}`);
   }
   for (const [file, name] of Object.entries(MUSIC)) {
-    if (!tracks.has(file)) { console.log(`  ${name.padEnd(12)} MISSING (${file})`); continue; }
+    if (!tracks.has(file)) {
+      console.log(`  ${name.padEnd(12)} MISSING (${file})`);
+      missing.push(`tracks/${file}`);
+      continue;
+    }
     const r = await encodeLong(join(SRC, "tracks", file), name, "music");
     const size = (await stat(r.dst)).size;
     total += size;
@@ -281,10 +287,26 @@ async function main() {
   }
 
   console.log(`total shipped: ${(total / 1048576).toFixed(2)} MB`);
-  if (missing.length) console.log(`note: mapped but not present: ${missing.join(", ")}`);
   if (unmapped.length) {
     console.log(`note: present but unmapped, so NOT shipped: ${unmapped.join(", ")}`);
     console.log("      add them to FX / STINGERS / MUSIC above, under the role they play.");
+  }
+
+  // A mapped role with no master is a FAILURE, not a note.
+  //
+  // This function deletes app/public/audio/ before rebuilding it, so a run with
+  // the masters missing wipes every shipped asset, prints a wall of MISSING,
+  // reports "total shipped: 0.00 MB" and exits 0 — which is a green build that
+  // has silently unshipped the game's entire soundtrack. Caught exactly that
+  // way: masters cleaned up after an earlier run, script re-run out of habit.
+  // Anything mapped and absent stops the run.
+  if (missing.length) {
+    console.error("");
+    console.error(`✗ audio prepare: mapped but not present — ${missing.join(", ")}`);
+    console.error("  app/public/audio/ was rebuilt WITHOUT them. Restore the masters (see");
+    console.error("  audio/README.md for where they live) and re-run, or check the assets");
+    console.error("  back out of git. Do not commit this state.");
+    process.exitCode = 1;
   }
 }
 

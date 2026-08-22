@@ -54,7 +54,8 @@ import {
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  dailyContracts, levelForContract, CONTRACT_BED, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
+  dailyContracts, levelForContract, contractBed, CONTRACT_RARE_CHANCE,
+  DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
   contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
@@ -3378,7 +3379,7 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
 }
 
 // ---------------------------------------------------------------------------
-section("Run music ladder (run.ts bayMusic vs public/audio/music)");
+section("Music beds (run ladder + Contract picks vs public/audio/music)");
 {
   // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
   // MusicName rather than imported: that module reads import.meta.env at load
@@ -3410,21 +3411,77 @@ section("Run music ladder (run.ts bayMusic vs public/audio/music)");
   check("the arc never runs backwards",
     beds.every((b, i) => i === 0 || bayOf(b) >= bayOf(beds[i - 1])), trace);
 
+  // ---- Contract beds ------------------------------------------------------
+  // Contracts have no theme of their own: each borrows a bay's bed, with two
+  // overrides on top. All three layers are checked, and so is the order they
+  // beat each other in, because the ORDER is the part that reads as arbitrary
+  // and is not.
+  const day = dailyContracts(1, 20260822);
+  const never = () => 1;   // a roll that can never be the special
+  const always = () => 0;  // a roll that always is
+  const withSize = (c: typeof day[0], size: PieceSize, r: () => number) =>
+    contractBed({ ...c, pieceSize: size }, r);
+
+  check("the day deals one Contract per slot", day.length === DAILY_COUNT, String(day.length));
+  check("slots are 0,1,2 in order", day.every((c, i) => c.slot === i),
+    day.map((c) => c.slot).join(","));
+
+  const std = day.map((c) => withSize(c, "std", never));
+  check("Contracts 1-3 borrow bays 1-3", std.join(" ") === "bay-1 bay-2 bay-3", std.join(" "));
+  // Distinct is the point of indexing by slot rather than rolling: the three
+  // cards on the board must never sound like each other. This also catches
+  // DAILY_COUNT growing past the slot table, where slot 3 would wrap to bay 1.
+  check("no two of the day's Contracts share a bed",
+    new Set(std).size === std.length, std.join(" "));
+
+  // The joke: a five-cube shipment gets the bed written in 5/4, from any slot.
+  const bulk = day.map((c) => withSize(c, "bulk", never));
+  check("a pentomino Contract gets the 5/4 bed", bulk.every((b) => b === "bay-5"), bulk.join(" "));
+  check("a domino Contract does not",
+    day.every((c) => withSize(c, "tiny", never) !== "bay-5"));
+
+  // The special outranks both. If it did not, it could never be heard on a
+  // pentomino Contract at all — a rare thing that yields to a rule is not rare.
+  check("the special beats the slot bed", withSize(day[0], "std", always) === "contract-rare");
+  check("the special beats the 5/4 rule", withSize(day[0], "bulk", always) === "contract-rare");
+  // Both sides of the boundary: `<`, not `<=`.
+  check("a roll just under the chance is special",
+    contractBed(day[0], () => CONTRACT_RARE_CHANCE - 1e-9) === "contract-rare");
+  check("a roll exactly at the chance is not",
+    contractBed(day[0], () => CONTRACT_RARE_CHANCE) !== "contract-rare");
+  check("the special is rare by construction",
+    CONTRACT_RARE_CHANCE > 0 && CONTRACT_RARE_CHANCE <= 0.1, String(CONTRACT_RARE_CHANCE));
+
+  // The rate MEASURED through the real function, off a seeded stream so this is
+  // a check and not a coin flip in CI. Catches the wiring being right and the
+  // frequency being wrong — a flipped comparison, or a constant read but not
+  // used, both of which pass every assertion above.
+  {
+    const rng = mulberry32(20260822);
+    const N = 20000;
+    let specials = 0;
+    for (let i = 0; i < N; i++) if (contractBed(day[0], rng) === "contract-rare") specials += 1;
+    const rate = specials / N;
+    check("the special lands at about its stated rate",
+      Math.abs(rate - CONTRACT_RARE_CHANCE) < 0.005, `${(rate * 100).toFixed(2)}%`);
+  }
+
   // The check that catches drift between this ladder and prepare-audio.mjs's
   // MUSIC map — the failure neither typecheck nor the browser will report. A
   // bed with no file behind it is a SILENT bay: playMusic's fetch 404s, the
   // catch swallows it by design, and the only symptom is one stretch of the run
   // playing nothing. Set EQUALITY rather than a subset, so the reverse — an
   // orphaned track hauled around in the PWA precache for nothing — fails too.
-  // CONTRACT_BED is in `wanted` on its own account: it happens to borrow a bay
-  // bed today, and must still resolve to a real file the day it stops.
+  // Every bed a Contract can draw is in `wanted` on its own account: they
+  // happen to be bay beds today apart from the special, and must each still
+  // resolve to a real file if that stops being true.
   const musicDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)), "..", "public", "audio", "music",
   );
   const shipped = new Set(
     fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
   );
-  const wanted = new Set([...SCREEN_BEDS, ...beds, CONTRACT_BED]);
+  const wanted = new Set([...SCREEN_BEDS, ...beds, ...std, ...bulk, "contract-rare"]);
   const absent = [...wanted].filter((n) => !shipped.has(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));

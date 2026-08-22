@@ -58,9 +58,11 @@ export default defineConfig(({ mode }) => ({
         // reviewers, fetching fresh, see the policy. Both must see the policy.
         navigateFallbackDenylist: [/^\/privacy/, /^\/support/],
         // mp3 included so the PWA still has sound offline. It is by a wide
-        // margin the biggest thing in the precache — ~27.8 MB, 26 of which is
-        // music, because the Deep Run gives each of its ten bays its own
-        // full-length bed (game/run.ts's bayMusic) rather than looping one.
+        // margin the biggest thing in the precache — ~30.3 MB of a ~30.7 MB
+        // total, and 29 of that is music, because the Deep Run gives each of
+        // its ten bays a full-length bed of its own (game/run.ts's bayMusic)
+        // rather than looping one, and Contracts add a rare special on top
+        // (contracts.ts's contractBed).
         // That is the price of the listing claiming the game plays offline:
         // dropping audio/music/ from this glob would cut the web install by
         // ~95% and break the claim, so it is a product decision, not a build

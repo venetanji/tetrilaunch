@@ -39,32 +39,49 @@ import {
 } from "./theme";
 
 /**
- * What a Contract can play under: `"contracts"`, or any bay's bed borrowed from
- * the Deep Run's ladder. The union exists so the mode can do the second while
- * waiting for the first.
+ * What a Contract can play under: one of the Deep Run's beds, borrowed, or the
+ * rare special that belongs to no bay. Contracts have no theme of their own by
+ * design — see contractBed.
  */
-export type ContractBed = "contracts" | BayTrack;
+export type ContractBed = "contract-rare" | BayTrack;
+
+/** How often a Contract draws the special instead of its usual bed. Low on
+ *  purpose: at one in twenty it stays something that HAPPENS to you. Raise it
+ *  much and it stops being a surprise and becomes a fourth Contract theme that
+ *  shows up two thirds less often than the others, which is just inconsistent. */
+export const CONTRACT_RARE_CHANCE = 0.05;
+
+/** The usual bed per daily slot — Contracts 1, 2 and 3 borrow the run's first
+ *  three. Indexed by slot rather than rolled, so the day's three Contracts
+ *  always sound different FROM EACH OTHER; a Contract you retry sounds the same
+ *  as it did, and the one next to it never sounds like it. */
+const SLOT_BEDS: readonly BayTrack[] = ["bay-1", "bay-2", "bay-3"];
 
 /**
- * The bed a Contract plays under.
+ * The bed a Contract plays under, in precedence order:
  *
- * Contracts have no song of their own yet: the track that used to be theirs
- * (Neon Static) is now bay 9's, so the mode BORROWS that bay's bed. Named here
- * rather than inlined at the call site so "which bed do Contracts get" is a
- * decision with an address.
+ *  1. **The special**, on a CONTRACT_RARE_CHANCE roll. It beats everything
+ *     below — a rare thing that yields to a rule is not rare, it is
+ *     conditional, and would never be heard on a pentomino Contract at all.
+ *  2. **Bay 5's bed when the belt carries pentominoes.** That track is written
+ *     in 5/4 and a pentomino is five cubes. It outranks the slot bed because it
+ *     is about what you are LAUNCHING rather than which card you tapped, and
+ *     the whole point is that it lines up.
+ *  3. **The slot's bed** — Contract 1, 2 or 3 takes bay 1, 2 or 3's.
  *
- * Bay 9 rather than the menu lounge because a Contract is a bay being PLAYED,
- * not a menu being read: the lounge is what plays while nothing is happening
- * (main.ts's syncMusic), and a short, tight, retryable challenge should not
- * sound like a pause screen.
- *
- * A Contract master is coming. When it lands, this is a two-line change and
- * nothing else moves: add `"Your Song.mp3": "contracts"` to prepare-audio's
- * MUSIC map and set this to `"contracts"`. The role is already in the type, and
- * sim/systems.ts checks this bed resolves to a real file either way — so doing
- * one half without the other fails there rather than in play.
+ * `rng` defaults to Math.random — UNSEEDED, deliberately, the same call this
+ * file already makes for a pattern Contract's queue order. The roll belongs to
+ * the ATTEMPT, not to the Contract: main.ts rolls once in startContract and
+ * holds the result, so retrying can surprise you twice, and so the state
+ * machine's music sync — which runs on every screen change — cannot re-roll the
+ * special every time the pause modal opens.
  */
-export const CONTRACT_BED: ContractBed = "bay-9";
+export function contractBed(c: Contract, rng: () => number = Math.random): ContractBed {
+  if (rng() < CONTRACT_RARE_CHANCE) return "contract-rare";
+  // "bulk" is the five-cube shipment; see pieces.ts's SIZE_SPEC.
+  if (c.pieceSize === "bulk") return "bay-5";
+  return SLOT_BEDS[c.slot % SLOT_BEDS.length];
+}
 
 /**
  * Objectives a Contract can ask for. Deliberately small: every one of these has
@@ -93,6 +110,11 @@ export interface Contract {
   /** Stable id — the daily seed plus its slot, so a Contract can be recorded,
    *  compared across players and re-generated identically. */
   id: string;
+  /** Which of the day's DAILY_COUNT slots this is, 0-based. Baked into `id`
+   *  too, but carried as a number because reading it back out of a string is
+   *  how an id format change becomes a silent behaviour change — and the slot
+   *  decides real things: PATTERN_SLOT, and which bed it plays (contractBed). */
+  slot: number;
   seed: number;
   tier: number;
   name: string;
@@ -499,6 +521,7 @@ function generatePatternContract(seed: number, tier: number, slot: number): Cont
   const shapes = new Set(queue).size;
   return {
     id: `${seed}-${tier}-${slot}`,
+    slot,
     seed: seed + slot * 7919,
     tier,
     name: NAMES[(seed + slot * 3) % NAMES.length],
@@ -624,6 +647,7 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
 
   return {
     id: `${seed}-${tier}-${slot}`,
+    slot,
     seed: seed + slot * 7919,
     tier,
     name: NAMES[(seed + slot * 3) % NAMES.length],
