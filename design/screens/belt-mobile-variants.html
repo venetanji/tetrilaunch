@@ -1,0 +1,472 @@
+<!-- @dsCard group="Screens" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conveyor Belt Phone Fixes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
+  --line:#2e2e4a; --line-strong:#3d3d63;
+  --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
+  --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
+  --piece-i:#00f0ff; --piece-o:#ffe500; --piece-t:#b026ff; --piece-l:#ff8a00; --piece-j:#2979ff; --piece-s:#00ff85; --piece-z:#ff2d55;
+  --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
+  --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-pill:3px; --bw:2px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,.85);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);
+  padding:30px 16px 60px;display:flex;flex-direction:column;align-items:center}
+.page{width:100%;max-width:880px;display:flex;flex-direction:column;gap:22px}
+h1{font-family:var(--font-display);font-weight:900;letter-spacing:.05em;text-transform:uppercase;
+  font-size:clamp(17px,4vw,22px);line-height:1.25;text-wrap:balance}
+.lede{color:var(--text-dim);font-size:15px;line-height:1.65;margin-top:10px;max-width:68ch}
+.lede b{color:var(--accent);font-weight:700}
+code{font-family:var(--font-mono);font-size:.9em;color:var(--text-dim);background:rgba(255,255,255,.05);padding:1px 4px;border-radius:2px}
+.cap{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;
+  font-family:var(--font-display);font-weight:700;letter-spacing:.09em;text-transform:uppercase;font-size:13px;color:var(--text)}
+.cap .sub{font-family:var(--font-ui);font-weight:600;letter-spacing:0;text-transform:none;color:var(--text-muted);font-size:13.5px}
+.badge{font-family:var(--font-pixel);font-size:9px;line-height:1;color:var(--accent-ink);background:var(--accent);padding:6px 8px;border-radius:var(--r-sm);flex:none}
+.badge--bad{background:var(--danger);color:#fff}
+.badge--pick{background:var(--success)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:15px;display:flex;flex-direction:column;gap:13px}
+.card--bad{border-color:rgba(255,45,85,.42);background:linear-gradient(180deg,rgba(255,45,85,.05),transparent 40%),var(--surface)}
+.card--pick{border-color:rgba(0,255,156,.42);background:linear-gradient(180deg,rgba(0,255,156,.05),transparent 40%),var(--surface)}
+.note{color:var(--text-dim);font-size:14px;line-height:1.6;max-width:74ch}
+.note b{color:var(--accent);font-weight:700}
+.note .bad{color:var(--danger);font-weight:700}
+.note .ok{color:var(--success);font-weight:700}
+ul.note{padding-left:19px}
+ul.note li{margin:4px 0}
+pre{background:var(--bg-deep);border:1px solid var(--line);border-radius:var(--r-md);padding:11px 13px;overflow-x:auto;
+  font-family:var(--font-mono);font-size:12px;line-height:1.7;color:var(--text-muted);white-space:pre}
+pre b{color:var(--success);font-weight:400}
+pre s{color:var(--danger);text-decoration-color:rgba(255,45,85,.5)}
+pre i{color:var(--text-faint);font-style:normal}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:13px}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;white-space:nowrap}
+th{font-family:var(--font-pixel);font-size:8px;line-height:1.5;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);font-weight:400}
+td{font-family:var(--font-mono);color:var(--text-dim);font-variant-numeric:tabular-nums}
+td:first-child{font-family:var(--font-ui);font-weight:600;color:var(--text);white-space:normal}
+td .bad{color:var(--danger)}
+td .ok{color:var(--success)}
+
+/* ============================================================================
+   THE PHONE FRAME. Exactly the box game slash layout.ts solves for a 844x390
+   landscape phone: field 693.333x390 letterboxed at x=75.333, so --fpx (one
+   WORLD px) is 0.5417. Everything inside is the app's own CSS, unchanged,
+   so these frames are not an impression of the bug -- they ARE the bug.
+   ========================================================================== */
+.frame{
+  --field-x:75.333px; --field-y:0px; --field-w:693.333px; --field-h:390px;
+  --fpx:calc(var(--field-w) / 1280);
+  width:844px;height:390px;position:relative;overflow:hidden;flex:none;background:var(--bg-deep)}
+.field{position:absolute;left:var(--field-x);top:var(--field-y);width:var(--field-w);height:var(--field-h);
+  background:radial-gradient(120% 90% at 50% -12%,rgba(122,92,255,.14),transparent 60%),
+             radial-gradient(80% 60% at 92% 118%,rgba(0,240,255,.10),transparent 55%),
+             linear-gradient(180deg,#161636,#07070f 70%)}
+.grid{position:absolute;inset:0;background-size:16.25px 16.25px;
+  background-image:linear-gradient(rgba(122,92,255,.10) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(122,92,255,.10) 1px,transparent 1px)}
+.walls{position:absolute;inset:0;border-left:2px solid rgba(0,240,255,.55);border-right:2px solid rgba(0,240,255,.5);
+  border-bottom:2px solid rgba(0,240,255,.5);box-shadow:inset 0 -8px 18px rgba(0,240,255,.08),inset 8px 0 18px rgba(0,240,255,.05)}
+.banner{position:absolute;top:9px;left:50%;transform:translateX(-50%);font-family:var(--font-pixel);font-size:9px;
+  letter-spacing:.1em;color:var(--text-muted);background:rgba(9,9,18,.72);border:1px solid var(--line);border-radius:var(--r-sm);padding:5px 9px}
+.plant{position:absolute;left:calc(0.0167 * var(--field-w));bottom:8px;width:calc(0.4708 * var(--field-w));height:168px;
+  background:linear-gradient(180deg,rgba(22,22,37,.95),rgba(9,9,18,.96));border:var(--bw) solid var(--line-strong);
+  border-radius:var(--r-md);box-shadow:var(--shadow-hard-sm)}
+.plant::after{content:"RECYCLING PLANT \00b7 BAY 1/10";position:absolute;left:11px;top:10px;
+  font-family:var(--font-pixel);font-size:7px;letter-spacing:.09em;color:var(--text-faint)}
+
+/* Cannon, from render.ts's drawCannon at world (150,288): base circle r=30
+   filled #1b1b2e under a 3px cyan stroke; barrel 72x28 rounded 8, rotated
+   -20deg about the base centre off a -14 world-px y offset. */
+.cannon{position:absolute;left:calc(var(--field-x) + 150 * var(--fpx));top:calc(var(--field-y) + 288 * var(--fpx));width:0;height:0;z-index:1}
+  /* z-index 1, under the belt: in the app the cannon is CANVAS and the belt is
+     DOM chrome above it, so the discharge roller really does paint over the
+     base. Drawing it the other way round would hide the bug being argued. */
+.cannon__base{position:absolute;left:calc(-30 * var(--fpx));top:calc(-30 * var(--fpx));
+  width:calc(60 * var(--fpx));height:calc(60 * var(--fpx));border-radius:50%;background:#1b1b2e;
+  border:calc(3 * var(--fpx)) solid var(--accent);box-shadow:0 0 calc(18 * var(--fpx)) rgba(0,240,255,.75)}
+.cannon__barrel{position:absolute;left:0;top:calc(-14 * var(--fpx));width:calc(80 * var(--fpx));height:calc(28 * var(--fpx));
+  border-radius:calc(8 * var(--fpx));background:rgb(150,220,90);box-shadow:0 0 calc(12 * var(--fpx)) rgba(150,220,90,.75);
+  transform-origin:0 calc(14 * var(--fpx));transform:rotate(-20deg)}
+.ghost{position:absolute;left:0;top:calc(-14 * var(--fpx));width:calc(46 * var(--fpx));height:calc(46 * var(--fpx));
+  transform-origin:0 calc(14 * var(--fpx));transform:rotate(-20deg) translate(calc(74 * var(--fpx)),calc(-9 * var(--fpx)));opacity:.55}
+.ghost .next__grid{width:100%;height:100%}
+
+/* ============================================================================
+   CONVEYOR BELT -- app/src/styles/app.css verbatim (staging), so every frame
+   below starts from the shipped geometry and only the variant block moves.
+   ========================================================================== */
+.belt{position:absolute;
+  top:calc(var(--field-y) + 0.30 * var(--field-h));
+  left:calc(var(--field-x) - 0.0229 * var(--field-w));
+  width:calc(0.1583 * var(--field-w));
+  height:calc(0.0519 * var(--field-h));
+  transform:rotate(20deg);transform-origin:left top;z-index:5;pointer-events:none}
+.belt__track{position:absolute;inset:0;background:linear-gradient(180deg,#26263f,#12121c);
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;
+  box-shadow:inset 0 2px 4px rgba(255,255,255,.05),inset 0 -4px 8px rgba(0,0,0,.5),var(--shadow-hard-sm)}
+.belt__tread{position:absolute;inset:0;background-size:20px 100%;
+  background:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 3px,transparent 3px 17px)}
+.belt__arrows{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;
+  color:rgba(0,240,255,.35);font:700 max(8px,calc(16 * var(--fpx))) var(--font-mono);letter-spacing:6px}
+.belt__roller{position:absolute;top:50%;width:calc(0.0519 * var(--field-h));height:calc(0.0519 * var(--field-h));
+  border-radius:50%;background:radial-gradient(circle at 35% 30%,#40406a,transparent 70%),#1a1a2e;
+  border:var(--bw) solid var(--line-strong);transform:translateY(-50%);box-shadow:0 0 0 2px rgba(0,0,0,.45)}
+.belt__roller--l{left:-8px}
+.belt__roller--r{right:-8px}
+.belt__lbl{position:absolute;left:34%;top:calc(-16 * var(--fpx) - 2px);
+  font-family:var(--font-pixel);font-size:max(7px,calc(10.7 * var(--fpx)));letter-spacing:.08em;
+  color:var(--text-muted);white-space:nowrap}
+.belt-piece{position:absolute;left:calc(10 * var(--fpx));bottom:calc(100% - 4px)}
+.belt-piece--next{opacity:.65}
+.belt-piece--loaded{left:auto;right:calc(2 * var(--fpx))}
+.belt-piece .next__grid{width:max(26px,calc(58 * var(--fpx)));height:max(26px,calc(58 * var(--fpx)))}
+.belt__out{position:absolute;right:calc(-9 * var(--fpx));top:50%;transform:translateY(-50%);
+  color:rgba(0,240,255,.55);font-size:calc(13 * var(--fpx));line-height:1}
+.next__grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:1px}
+.next__cell{border-radius:1px;background:rgba(255,255,255,.03)}
+.next__cell.on{background:var(--c);box-shadow:0 0 6px var(--c)}
+
+/* ======================= THE LIFT -- shared by A, B and C ===================
+   `.belt__roller--l/--r` offset the heads by a raw -8px. Every other belt
+   measurement is world-relative and scales; those two are CSS px and do not,
+   so the smaller the phone the further down the slope they push the discharge
+   head. Scaling them with --fpx makes the head scale-invariant, and `top` /
+   `left` then land its CENTRE on the cannon's centre (world 150,288) at every
+   viewport size, from a 667px phone to a 1440px desktop.
+   ========================================================================== */
+.frame--a .belt,.frame--b .belt,.frame--c .belt{
+  top:calc(var(--field-y) + 0.2844 * var(--field-h));
+  left:calc(var(--field-x) - 0.0187 * var(--field-w))}
+.frame--a .belt__roller--l,.frame--b .belt__roller--l,.frame--c .belt__roller--l{left:calc(-8 * var(--fpx))}
+.frame--a .belt__roller--r,.frame--b .belt__roller--r,.frame--c .belt__roller--r{right:calc(-8 * var(--fpx))}
+
+/* ---- A: stencil under the rail ---------------------------------------- */
+.frame--a .belt__lbl{left:calc(52 * var(--fpx));top:calc(100% + 3px)}
+
+/* ---- B: signage in the track ------------------------------------------ */
+.frame--b .belt__arrows{display:none}
+.frame--b .belt__lbl{left:50%;top:50%;transform:translate(-50%,-50%);
+  color:rgba(0,240,255,.5);font-size:max(6px,calc(9 * var(--fpx)));letter-spacing:.14em}
+
+/* ---- C: phone transport (ships behind [data-density="compact"]) -------- */
+.frame--c .belt{
+  top:calc(var(--field-y) + 0.2937 * var(--field-h));
+  left:calc(var(--field-x) - 0.0622 * var(--field-w));
+  width:calc(0.1969 * var(--field-w));
+  transform:rotate(14deg)}
+.frame--c .belt-piece .next__grid{width:max(22px,calc(50 * var(--fpx)));height:max(22px,calc(50 * var(--fpx)))}
+.frame--c .belt-piece--next{left:calc(72 * var(--fpx))}
+.frame--c .belt__lbl{left:64%;transform:translateX(-50%);font-size:0}
+.frame--c .belt__lbl::after{content:"NEXT";font-size:max(6px,calc(9 * var(--fpx)))}
+
+/* ---- presentation. The frames LAY OUT at 1:1 and are only ever magnified
+        by a transform, so the max() floors that cause the bug still bite. --- */
+.views{display:flex;flex-wrap:wrap;gap:13px;align-items:flex-start}
+.view{display:flex;flex-direction:column;gap:6px;min-width:0}
+.view__lbl{font-family:var(--font-pixel);font-size:7px;line-height:1.5;letter-spacing:.06em;color:var(--text-faint);text-transform:uppercase}
+.mag,.mini{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg-deep);flex:none}
+.mag{width:391px;height:238px}
+.mag .frame{position:absolute;left:0;top:0;transform:scale(2.45) translate(-42px,-82px);transform-origin:0 0}
+.mini{width:422px;height:195px}
+.mini .frame{position:absolute;left:0;top:0;transform:scale(.5);transform-origin:0 0}
+@media (max-width:900px){
+  /* flex-wrap on a COLUMN sizes the line to its content, so a percentage width
+     inside it has nothing definite to resolve against and collapses to the
+     caption's width. nowrap lets align-items:stretch do its job. */
+  .views{flex-direction:column;flex-wrap:nowrap;align-items:stretch}
+  .mag{width:100%;max-width:391px}
+  .mini{width:100%;max-width:422px}
+}
+@media (max-width:460px){
+  /* Magnify less rather than crop more, so the belt-to-cannon handoff -- the
+     whole point of the detail view -- still fits on a phone. */
+  .mag{height:186px}
+  .mag .frame{transform:scale(1.85) translate(-42px,-82px)}
+  .mini{height:156px}
+  .mini .frame{transform:scale(.4)}
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <div>
+    <h1>Conveyor belt &mdash; three phone fixes</h1>
+    <p class="lede">Every frame here lays out at <b>844&times;390</b> &mdash; a phone in landscape, the exact box
+    <code>game/layout.ts</code> solves for one &mdash; and is then magnified with a transform. That is the whole
+    point: the belt scales with the field, but the <b>NEXT</b> label and the shipment tiles stop scaling at their
+    <code>max()</code> floors (7px font, 26px tile). Draw the page any bigger than 1:1 and both bugs politely
+    disappear. The belt chrome inside each frame is <code>app.css</code> verbatim, so these are not an impression
+    of the bug &mdash; they are the bug.</p>
+    <p class="lede">All three versions fix <em>both</em> problems. The lift &mdash; the fix for the belt sitting
+    low &mdash; is identical in all three; they differ only in what they do about the label.</p>
+  </div>
+
+  <div class="card card--bad">
+    <div class="cap"><span class="badge badge--bad">now</span> Current <span class="sub">staging, at true phone size &mdash; both bugs</span></div>
+    <div class="views">
+      <div class="view">
+        <span class="view__lbl">belt &amp; cannon &middot; 2.4&times;</span>
+        <div class="mag"><div class="frame frame--cur">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i><div class="ghost"><div class="next__grid" style="--c:var(--piece-l)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+      <div class="view">
+        <span class="view__lbl">whole phone screen &middot; 844&times;390</span>
+        <div class="mini"><div class="frame frame--cur">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+    </div>
+    <ul class="note"><li><span class="bad">&ldquo;NEXT&rdquo; is covered.</span> The label sits at <code>left:34%</code> above the track, between the uphill <code>--next</code> tile and the downhill <code>--loaded</code> one. At 1280 the gap between those tiles is <b>70px</b> and the label needs <b>61px</b> &mdash; it fits. At 844 the gap is <b>41px</b>, at 667 it is <b>34px</b>, and the label still needs <b>43px</b> at both, because its font has bottomed out on the 7px floor. It does not fit, so the tiles paint over it.</li><li><span class="bad">The belt hangs below the cannon.</span> The discharge roller&rsquo;s centre sits <b>+13.5 world px</b> below the cannon&rsquo;s, so the belt reads as passing <em>under</em> it rather than feeding it &mdash; and it gets worse the smaller the phone (+11 at 1280, +14.4 at 667).</li></ul>
+    </div>
+
+  <div class="card ">
+    <div class="cap"><span class="badge ">A</span> Stencil under the rail <span class="sub">smallest diff &middot; CSS only</span></div>
+    <div class="views">
+      <div class="view">
+        <span class="view__lbl">belt &amp; cannon &middot; 2.4&times;</span>
+        <div class="mag"><div class="frame frame--a">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i><div class="ghost"><div class="next__grid" style="--c:var(--piece-l)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+      <div class="view">
+        <span class="view__lbl">whole phone screen &middot; 844&times;390</span>
+        <div class="mini"><div class="frame frame--a">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+    </div>
+    <ul class="note"><li>The two tiles get the airspace above the track to themselves. <b>&#9666; NEXT</b> moves <b>underneath</b> the housing, stencilled on the frame like a real machine label, far enough inboard that it clears the field&rsquo;s left wall instead of hanging over the letterbox.</li><li>Nothing else moves: same belt, same angle, same tiles, same silhouette on desktop and phone. The size tag (<code>.belt__tag</code>, desktop-only) shifts to the muzzle end so it labels the <em>loaded</em> tile rather than fighting for the slot the label just took.</li></ul>
+    <pre><s>-  .belt__roller--l { left: -8px; }</s>
+<s>-  .belt__roller--r { right: -8px; }</s>
+<b>+  .belt__roller--l { left:  calc(-8 * var(--fpx)); }</b>
+<b>+  .belt__roller--r { right: calc(-8 * var(--fpx)); }</b>
+<s>-  .belt { top:  calc(var(--field-y) + 0.30   * var(--field-h));</s>
+<s>-         left: calc(var(--field-x) - 0.0229 * var(--field-w)); }</s>
+<b>+  .belt { top:  calc(var(--field-y) + 0.2844 * var(--field-h));</b>
+<b>+         left: calc(var(--field-x) - 0.0187 * var(--field-w)); }</b>
+<i>  (label)</i>
+<s>-  .belt__lbl { left: 34%; top: calc(-16 * var(--fpx) - 2px); }</s>
+<b>+  .belt__lbl { left: calc(52 * var(--fpx)); top: calc(100% + 3px); }</b>
+<b>+  .belt__tag { left: auto; right: calc(2 * var(--fpx)); }</b></pre>
+    <p class="note"><span class="ok">Keeps</span> the current look exactly. <span class="bad">Costs</span> the label its place in the tiles&rsquo; sightline &mdash; you read it below the belt rather than beside what it names.</p>
+    </div>
+
+  <div class="card card--pick">
+    <div class="cap"><span class="badge badge--pick">B</span> Signage in the track <span class="sub">collision-proof by construction &middot; CSS only</span></div>
+    <div class="views">
+      <div class="view">
+        <span class="view__lbl">belt &amp; cannon &middot; 2.4&times;</span>
+        <div class="mag"><div class="frame frame--b">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i><div class="ghost"><div class="next__grid" style="--c:var(--piece-l)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+      <div class="view">
+        <span class="view__lbl">whole phone screen &middot; 844&times;390</span>
+        <div class="mini"><div class="frame frame--b">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+    </div>
+    <ul class="note"><li>The belt <b>itself</b> says NEXT: the label drops into the tread, taking the slot the decorative <code>&#9656; &#9656; &#9656; &#9656;</code> arrows occupied. The tiles ride 4px <em>above</em> the track, so no tile at any size on any device can ever cover it &mdash; this one cannot regress.</li><li>It also buys back the horizontal room the label was fighting for, which is the room the two-deep queue wanted in the first place. Reads as industrial signage stencilled on a running belt, which is what the whole recycling-plant layout is going for.</li></ul>
+    <pre><s>-  .belt__roller--l { left: -8px; }</s>
+<s>-  .belt__roller--r { right: -8px; }</s>
+<b>+  .belt__roller--l { left:  calc(-8 * var(--fpx)); }</b>
+<b>+  .belt__roller--r { right: calc(-8 * var(--fpx)); }</b>
+<s>-  .belt { top:  calc(var(--field-y) + 0.30   * var(--field-h));</s>
+<s>-         left: calc(var(--field-x) - 0.0229 * var(--field-w)); }</s>
+<b>+  .belt { top:  calc(var(--field-y) + 0.2844 * var(--field-h));</b>
+<b>+         left: calc(var(--field-x) - 0.0187 * var(--field-w)); }</b>
+<i>  (label)</i>
+<b>+  .belt__arrows { display: none; }</b>
+<s>-  .belt__lbl { left: 34%; top: calc(-16 * var(--fpx) - 2px);</s>
+<s>-              font-size: max(7px, calc(10.7 * var(--fpx))); }</s>
+<b>+  .belt__lbl { left: 50%; top: 50%; transform: translate(-50%, -50%);</b>
+<b>+              color: rgba(0,240,255,0.5); letter-spacing: 0.14em;</b>
+<b>+              font-size: max(6px, calc(9 * var(--fpx))); }</b></pre>
+    <p class="note"><span class="ok">Keeps</span> the label beside the tiles and makes the collision structurally impossible. <span class="bad">Costs</span> the tread its arrows &mdash; the direction cue now comes from the moving tread and the outfeed <span style="color:var(--accent)">&#9654;</span> alone. Swapping the text to <code>NEXT &#9656;&#9656;</code> puts it back, one string in <code>screens.ts</code>.</p>
+    </div>
+
+  <div class="card ">
+    <div class="cap"><span class="badge ">C</span> Phone transport <span class="sub">biggest change &middot; behind [data-density=&quot;compact&quot;]</span></div>
+    <div class="views">
+      <div class="view">
+        <span class="view__lbl">belt &amp; cannon &middot; 2.4&times;</span>
+        <div class="mag"><div class="frame frame--c">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i><div class="ghost"><div class="next__grid" style="--c:var(--piece-l)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+      <div class="view">
+        <span class="view__lbl">whole phone screen &middot; 844&times;390</span>
+        <div class="mini"><div class="frame frame--c">
+  <div class="field">
+    <div class="grid"></div><div class="walls"></div>
+    <div class="banner">BAY 1/10</div>
+    <div class="plant"></div>
+  </div>
+  <div class="cannon"><i class="cannon__base"></i><i class="cannon__barrel"></i></div>
+  <div class="belt">
+    <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">&#9656; &#9656; &#9656; &#9656;</span></div>
+    <div class="belt__roller belt__roller--l"></div>
+    <div class="belt__roller belt__roller--r"></div>
+    <span class="belt__lbl">&#9666; NEXT</span>
+    <div class="belt-piece belt-piece--next"><div class="next__grid" style="--c:var(--piece-s)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <div class="belt-piece belt-piece--loaded"><div class="next__grid" style="--c:var(--piece-t)"><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell on"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i><i class="next__cell"></i></div></div>
+    <span class="belt__out">&#9654;</span>
+  </div>
+</div></div>
+      </div>
+    </div>
+    <ul class="note"><li>Stop shrinking the desktop belt and give the phone its own. At compact the transport runs <b>longer</b> (0.1583 &rarr; 0.1969 of the field) and <b>flatter</b> (20&deg; &rarr; 14&deg;), the tiles drop their floor (26px &rarr; 22px) and pull inboard so both sit over the field instead of straddling the wall.</li><li>That reopens the gap between the tiles to <b>42px</b> for a <b>26px</b> label &mdash; the same easy fit the desktop layout has. The label keeps its spot above the track and loses only its <code>&#9666;</code> prefix, joining <code>.belt__feed</code> and <code>.belt__tag</code>, which compact already drops.</li></ul>
+    <pre><s>-  .belt__roller--l { left: -8px; }</s>
+<s>-  .belt__roller--r { right: -8px; }</s>
+<b>+  .belt__roller--l { left:  calc(-8 * var(--fpx)); }</b>
+<b>+  .belt__roller--r { right: calc(-8 * var(--fpx)); }</b>
+<s>-  .belt { top:  calc(var(--field-y) + 0.30   * var(--field-h));</s>
+<s>-         left: calc(var(--field-x) - 0.0229 * var(--field-w)); }</s>
+<b>+  .belt { top:  calc(var(--field-y) + 0.2844 * var(--field-h));</b>
+<b>+         left: calc(var(--field-x) - 0.0187 * var(--field-w)); }</b>
+<i>  (compact only)</i>
+<b>+  [data-density="compact"] .belt {</b>
+<b>+    top:   calc(var(--field-y) + 0.2937 * var(--field-h));</b>
+<b>+    left:  calc(var(--field-x) - 0.0622 * var(--field-w));</b>
+<b>+    width: calc(0.1969 * var(--field-w));</b>
+<b>+    transform: rotate(14deg); }</b>
+<b>+  [data-density="compact"] .belt-piece .next__grid {</b>
+<b>+    width:  max(22px, calc(50 * var(--fpx)));</b>
+<b>+    height: max(22px, calc(50 * var(--fpx))); }</b>
+<b>+  [data-density="compact"] .belt-piece--next { left: calc(72 * var(--fpx)); }</b>
+<b>+  [data-density="compact"] .belt__lbl { left: 64%; transform: translateX(-50%); }</b>
+<i>  plus one span in screens.ts so the arrow can be dropped at compact:</i>
+<b>+  &lt;span class="belt__lbl"&gt;&lt;i&gt;&#9666;&lt;/i&gt; NEXT&lt;/span&gt;</b></pre>
+    <p class="note"><span class="ok">Buys</span> real clearance rather than 2px of it, and pulls the incoming tile back over the playfield. <span class="bad">Costs</span> a second belt geometry to keep in step with the first, a smaller preview tile, and ~23px more of the intake running off the left edge on the narrowest phones.</p>
+    </div>
+
+  <div class="card">
+    <div class="cap">Measured in the live build <span class="sub">staging + the variant CSS, driven through Chromium at eight viewport sizes</span></div>
+    <div class="tbl-wrap"><table>
+      <tr><th>Version</th><th>Label px covered<br>844&times;390</th><th>Label px covered<br>667&times;375</th><th>Roller vs cannon<br>(world px)</th><th>Diff</th></tr>
+      <tr><td>Current</td><td><span class="bad">8 / 73</span></td><td><span class="bad">18 / 73</span></td><td><span class="bad">+13.5 &hellip; +14.4</span></td><td>&mdash;</td></tr>
+      <tr><td>A &middot; stencil under the rail</td><td><span class="ok">0 / 73</span></td><td><span class="ok">0 / 75</span></td><td><span class="ok">0.0</span></td><td>6 CSS lines</td></tr>
+      <tr><td>B &middot; signage in the track</td><td><span class="ok">0 / 70</span></td><td><span class="ok">0 / 69</span></td><td><span class="ok">0.0</span></td><td>7 CSS lines</td></tr>
+      <tr><td>C &middot; phone transport</td><td><span class="ok">0 / 100</span></td><td><span class="ok">0 / 102</span></td><td><span class="ok">0.0</span></td><td>14 CSS lines + 1 span</td></tr>
+    </table></div>
+    <p class="note">Coverage is a paint-order probe, not a bounding box: the label&rsquo;s painted area is sampled on a
+    grid and each point asks <code>elementsFromPoint</code> whether a <code>.belt-piece</code> is stacked above the
+    label there. Rotation and the <code>::after</code> text swap can&rsquo;t fool it. Sizes checked: 932&times;430,
+    884&times;390, 844&times;390, 800&times;360, 740&times;360, 667&times;375, 1280&times;720, 1440&times;810 &mdash;
+    all four rows hold at every one of them, and none of the three versions changes anything at 1280 or above
+    except the lift.</p>
+  </div>
+</div>
+</body>
+</html>
