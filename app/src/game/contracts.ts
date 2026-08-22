@@ -30,7 +30,7 @@
  * randomness — difficulty is a number we spend, not an accident of the roll.
  */
 import { HAZARDS } from "./hazards";
-import { makeBaseLevel, NO_MATERIALS, type LevelConfig } from "./level";
+import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
 import type { BayTrack } from "./run";
@@ -566,7 +566,10 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   // Wind scales with tier rather than rolling free. A first-tier Contract
   // drawing the same crosswind as bay 8 of a Deep Run is exactly the "unfair,
   // and you could see it coming" failure the weather rework existed to remove.
-  const windCap = Math.min(0.3, 0.05 + Math.max(0, tier - 1) * 0.03);
+  // Halved with the Deep Run ladder (2026-08-22, level.ts's BALANCE KNOBS
+  // note): the ceiling is bay 10's windMax (0.15), so no Contract is ever
+  // windier than the windiest bay the run itself deals.
+  const windCap = Math.min(0.15, 0.025 + Math.max(0, tier - 1) * 0.015);
 
   // Which materials this tier's Contracts may ship — empty until the hazard
   // ladder's first countable material rung (cryo, Mark 4). Empty is the whole
@@ -722,7 +725,11 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
   cfg.objectiveLines = c.goal;
   cfg.pieceSize = c.pieceSize;
   cfg.windMax = c.windMax;
-  cfg.windGust = c.windMax * 0.025;
+  // The SAME fraction Deep Run bays are sized with (level.ts) — this used to
+  // be a hardcoded 0.025 that silently forked from WIND_GUST_FRACTION the
+  // moment the fraction was retuned; importing the constant makes that fork
+  // impossible.
+  cfg.windGust = c.windMax * WIND_GUST_FRACTION;
   // The two limits are alternatives, never both: a pattern bay is bounded by
   // its queue and a lines bay by its launch budget, and a bay carrying both
   // would be counting the same limit twice under two names.

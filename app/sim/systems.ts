@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
-  makeBaseLevel, payoutMult, COMBO_STEP, PILE_TIERS, TARGET_PER_BAY,
+  makeBaseLevel, payoutMult, COMBO_STEP, PILE_TIERS, TARGET_PER_BAY, WIND_GUST_FRACTION,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
@@ -540,6 +540,8 @@ section("Contracts (contracts.ts)");
   let everImpossible = false;
   let everNegativeWind = false;
   let tierOneTooWindy = false;
+  let windiestTierOne = 0;
+  let windiestEver = 0;
   let worstRatio = Infinity;
   // The pentomino Contract is gone by design (playtest, 2026-08-09): bulk
   // pieces pack visibly worse than tetrominoes, so those Contracts read as
@@ -569,6 +571,8 @@ section("Contracts (contracts.ts)");
         if (supply < demand) everImpossible = true;
         if (c.windMax < 0) everNegativeWind = true;
         if (tier === 1 && c.windMax > 0.1) tierOneTooWindy = true;
+        if (tier === 1) windiestTierOne = Math.max(windiestTierOne, c.windMax);
+        windiestEver = Math.max(windiestEver, c.windMax);
         if (c.material === null) {
           if (c.materialRate !== 0) everSlagOrUnpriced = true;
         } else {
@@ -606,6 +610,15 @@ section("Contracts (contracts.ts)");
   // Tier 1 drawing bay-8 weather is the "unfair and you saw it coming" failure
   // the wind rework existed to remove.
   check("tier 1 stays gentle", !tierOneTooWindy);
+  // The tier cap, pinned at both ends of the 2026-08-22 halving: tier 1 caps
+  // at 0.025 and the ladder tops out at 0.15 — bay 10's windMax — so a
+  // generated Contract can never be windier than the windiest bay Deep Run
+  // itself deals. A regression to the old 0.05 +0.03/tier cap would pass the
+  // structural checks above while doubling the weather.
+  check("tier 1 wind never exceeds its 0.025 cap",
+    windiestTierOne <= 0.025 + 1e-9, `windiest ${windiestTierOne}`);
+  check("no contract exceeds the 0.15 wind ceiling",
+    windiestEver <= 0.15 + 1e-9, `windiest ${windiestEver}`);
 
   // A clean belt and the standard model must be the same number, or the
   // material-aware sweep above quietly stopped testing the material-free case.
@@ -633,6 +646,11 @@ section("Contracts (contracts.ts)");
     // A funds target of 0 would win the bay on frame one; it must be
     // unreachable so the objective is the only thing that can end it.
     check(`${c.name}: funds target unreachable`, cfg.targetScore > 1e9);
+    // The gust fraction is the SHARED constant, not a copy — levelForContract
+    // used to hardcode 0.025, which would have silently forked from Deep Run
+    // the day WIND_GUST_FRACTION was retuned (it was, to 0.015).
+    check(`${c.name}: gust rides the shared fraction`,
+      cfg.windGust === cfg.windMax * WIND_GUST_FRACTION);
     // Exactly ONE supply limit, whichever kind this is. A bay carrying both a
     // queue and a launch budget would count the same limit twice under two
     // names, and whichever ran out first would end it for the wrong stated
@@ -2316,6 +2334,27 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("the starting float is a tight budget, but a playable one",
     bays.every((b) => b.startingFunds >= 7 * b.launchCost && b.startingFunds <= 9 * b.launchCost),
     `${bays[0].startingFunds} float vs $${bays[0].launchCost}/launch`);
+  // The wind ladder, at HALF its previous strength (playtest, 2026-08-22:
+  // wind at 0.06 +0.04/bay discouraged aiming — and the gust noise punished a
+  // solved shot with a random miss, so WIND_GUST_FRACTION was cut on top).
+  // Pinned exactly, because the halving was deliberate and a regression to
+  // the old ramp would double the weather without failing any structural
+  // check. Epsilon for the float sums, not slack: 0.02 has no exact binary
+  // representation.
+  const WIND_EPS = 1e-9;
+  check("the first three bays are dead calm",
+    bays.slice(0, 3).every((b) => b.windMax === 0 && b.windGust === 0),
+    bays.slice(0, 3).map((b) => b.windMax).join(","));
+  check("bay 4 opens the weather at 0.03",
+    Math.abs(bays[3].windMax - 0.03) < WIND_EPS, String(bays[3].windMax));
+  check("bay 10 tops the ramp at 0.15",
+    Math.abs(bays[9].windMax - 0.15) < WIND_EPS, String(bays[9].windMax));
+  // Gust rides the cap by the ONE shared fraction on every bay — the same
+  // invariant hazards.ts's wind notch and contracts.ts's levelForContract
+  // maintain at their ends, asserted here at the source.
+  check("windGust is windMax * WIND_GUST_FRACTION on every bay",
+    bays.every((b) => b.windGust === b.windMax * WIND_GUST_FRACTION),
+    `${bays[3].windGust} at bay 4, ${bays[9].windGust} at bay 10`);
   // A Mark no longer moves any of the ladder's numbers — it only changes which
   // hazards and systems exist.
   check("a Mark changes no number on the base ladder",
