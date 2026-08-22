@@ -468,7 +468,7 @@ function measure(cfg: {
   // Restated as a list rather than derived from the stylesheet on purpose:
   // read off the CSS it would agree with any bug the CSS has.
   if (screen === "coach") {
-    [".pl-funds", ".pl-time", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
+    [".pl-funds", ".pl-time", ".pl-notch", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
       .forEach((sel) => {
         const el = document.querySelector(sel);
         if (el && el.getBoundingClientRect().height > 0) {

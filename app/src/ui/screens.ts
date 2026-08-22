@@ -3,7 +3,7 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runRatchetsHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runNotchTallyHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -521,7 +521,7 @@ export function hudHTML(opts: {
   autoloaderOwned: boolean;
   bombCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
-   *  chips in the plant panel (see components.ts's runRatchetsHTML). */
+   *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). */
@@ -759,18 +759,38 @@ export function hudHTML(opts: {
             ? `<div class="pl-queue"><span class="lbl">Left</span><b id="hud-queue">${queueTallyHTML(contract.remaining)}</b></div>`
             : ""
         }
-        <!-- Build row: ABILITY chips first, then ship plates, then passive mods.
-             The row scrolls horizontally (a full run drafts more than fits), so
-             whatever is last gets cut off first — and the ability chips are the
-             only TAPPABLE things in here. Leading with them keeps the controls
-             reachable however long the build gets; a passive mod scrolling out
-             of view costs nothing but a glance. -->
+        ${
+          // NOTCHES — the run's ratcheted axes, one dense line, and only in
+          // Deep Run: a Contract has no ratchets at all (main.ts's
+          // startContract nulls `run`, and the axes live on the run), so the
+          // row would be a permanent em-dash there. That is also what keeps
+          // the contract grid templates honest — they name no `notch` area,
+          // and an area with nothing in it costs its share of the row gap.
+          //
+          // Rendered on EVERY Deep Run bay including the first, where it reads
+          // "—". A row that appears the moment the first notch lands would
+          // shift every row above it mid-run, and the panel has the ~9px this
+          // costs: measured free space inside the panel's design box is 18.6px
+          // on an iPhone 13 mini, the tightest in the matrix.
+          contract
+            ? ""
+            : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets)}</b></div>`
+        }
+        <!-- Build row: ABILITY chips first, then the ship rack. The rack is
+             seven fixed slots and all seven fit without scrolling on every
+             device (components.ts's shipPlatesHTML, and the harness's "rack"
+             assertion). The row keeps its horizontal scroll for the ability
+             chips at roomy density, where the vertical BUILD tag and two 88px
+             chips lead the row — but nothing informational hides behind it
+             any more. The ratchet chips that used to trail the rack are the
+             notch line above: they could not fit beside seven slots at any
+             legible size, and a notch behind a scroll is a notch the player
+             does not know they took. -->
         <div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
           ${bondChip}
           ${demoChip}
           ${plates}
-          ${runRatchetsHTML(ratchets)}
         </div>
       </div>
     </div>

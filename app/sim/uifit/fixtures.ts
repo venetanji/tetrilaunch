@@ -261,9 +261,29 @@ export const SCREENS: Record<string, () => string> = {
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
   "hud-rich": () => S.hudHTML({ ...HUD_BASE, score: 24_680, target: 2_150, contract: null }),
+  // A Contract carries NO ratchets — main.ts's startContract nulls the run,
+  // and the axes live on the run — so this inherited HUD_BASE's four of them
+  // and measured a state the app cannot produce. With the notch line rendering
+  // only in Deep Run that would now be invisible rather than merely wrong,
+  // which is the kind of fixture drift worth killing at the source.
+  // The notch line at its WIDEST honest state: every axis a Mark 10 run can
+  // deal, some of them stacked. One notch per bay over ten bays is the cap, so
+  // this is the deepest run's line and the case that decides whether the row
+  // scrolls its tail (see components.ts's runNotchTallyHTML).
+  "hud-notched": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      ratchets: {
+        cost: 2, time: 1, wind: 2, sweeper: 1,
+        cryo: 1, rebar: 1, slag: 1, volatile: 1,
+      } as Ratchets,
+    }),
+
   "hud-contract": () =>
     S.hudHTML({
       ...HUD_BASE,
+      ratchets: {} as Ratchets,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -378,7 +398,8 @@ const HUD_LOADOUT = {
 };
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
-  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "pause" || id === "bayclear"
+  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "hud-notched"
+    || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
 }
