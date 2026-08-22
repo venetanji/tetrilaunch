@@ -266,8 +266,9 @@ function targetScoreFor(i: number): number {
  * `makeBaseLevel(0..9)`; a modifier draft (mods.ts) then layers on top of
  * whichever base level is current.
  *
- * - jointBreakStretch grows with i: the core difficulty ramp, pieces get
- *   progressively harder to shatter apart from bad landings.
+ * - jointBreakStretch grows with i (and, tier over tier, with the Mark — see
+ *   BOND_MARK_STEP): the core difficulty ramp, pieces get progressively
+ *   harder to shatter apart from bad landings.
  * - jointStiffness edges up too (capped at 0.98) so joints stay crisp instead
  *   of rubbery as break-resistance rises.
  * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
@@ -364,8 +365,8 @@ export const SCRAP_PER_BAY = 10;
  * matching rise in what a bay demands. Without it a Mark would just be free
  * power and every board above Mark 1 would be easier than the one below it.
  *
- * Only the two knobs that state the bay's DEMAND are scaled — the funding
- * target and the press tempo. Deliberately not scaled: launchCost and
+ * Only the two knobs that state the bay's DEMAND were ever scaled here — the
+ * funding target and the press tempo. Deliberately not scaled: launchCost and
  * penaltyPerLostPiece (which would compound with the target into a difficulty
  * cliff), and windMax (weather is the bay's character, and the launcher track
  * is the sanctioned answer to it — see the BALANCE KNOBS note).
@@ -395,8 +396,11 @@ export const SCRAP_PER_BAY = 10;
  *
  * TARGET_STEP is now 0, which is where the measurement above always pointed and
  * where the hazard draft finally allowed it to go. A Mark no longer moves any
- * of the ladder's numbers: it is a statement about WHICH hazards and systems
- * exist (hazards.ts's ladder, meta.ts's INSTALLS) and nothing else. Kept as a
+ * of the numbers that state a bay's DEMAND: it is a statement about WHICH
+ * hazards and systems exist (hazards.ts's ladder, meta.ts's INSTALLS) — plus
+ * ONE content number, the bond ramp (BOND_MARK_STEP below), which is the kind
+ * of knob the measurement said Mark difficulty has to come from: stronger
+ * bonds change what the rig must DO, not how much the bay asks for. Kept as a
  * named seam rather than deleted so the measurement that zeroed it stays
  * attached to the knob it describes — same reason MARK_SPEED_STEP survives.
  */
@@ -577,11 +581,30 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
   return Math.min(streak, tier ? tier.payMult : Infinity);
 }
 
-/** Bay 1's joint stretch tolerance, and the unit the whole ramp is stated in:
- *  bay 10 is exactly twice this. Exported because render.ts sizes its weld
+/** Bay 1's joint stretch tolerance at Mark 1, and the unit the whole ramp is
+ *  stated in: bay 10 is exactly twice this (the Mark then multiplies the whole
+ *  ramp — see BOND_MARK_STEP). Exported because render.ts sizes its weld
  *  seams against the same range, and two copies of a range that moves is how a
  *  visualisation ends up describing a game that no longer exists. */
 export const BASE_BREAK_STRETCH = 2.2;
+
+/** How much stronger a Mark makes every bay's bonds: the ramp above is the
+ *  Mark-1 unit, and a Mark-N bay multiplies it by (1 + BOND_MARK_STEP x
+ *  (N - 1)), so Mark 10 flies the whole ladder at x1.9. This is the one
+ *  ladder number a Mark still moves, and deliberately so — it is a CONTENT
+ *  knob, not a demand knob (see the MARK SCALING note above): stronger bonds
+ *  change what the rig must DO — fewer accidental shatters, more whole
+ *  shipments to place and press — which is exactly the axis the sim/marks.ts
+ *  measurement said Mark difficulty has to come from. */
+export const BOND_MARK_STEP = 0.1;
+
+/** The rung at which the capstone bay's bonds stop scaling and go UNBREAKABLE
+ *  (Infinity — see makeBaseLevel's jointBreakStretch). The same rung as
+ *  hazards.ts's CAPSTONE_MARK, and deliberately NOT imported from there:
+ *  hazards.ts imports this file, so reading the constant back would be a
+ *  level <-> hazards cycle. sim/systems.ts asserts the two stay equal
+ *  instead. */
+export const UNBREAKABLE_MARK = 10;
 
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
@@ -602,19 +625,37 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     compactorMinLineCells: 8,
     compactorWidth: 26,
     compactorHeightFrac: 0.5,
-    // 2.2 -> 4.4 across the ten bays, where it used to be 1.7 -> 2.78. Bonds
-    // came apart too readily at the old numbers: bay 1 opened at a stretch
-    // tolerance a bad landing beat routinely, so a shipment shattering was the
-    // NORM rather than the price of a bad shot, and the ramp's top end was
-    // barely past where the old bay 5 already sat. This opens where the old
-    // bay 5/6 did and doubles from there, so a piece holding together is the
-    // default and breaking one means something.
+    // 2.2 -> 4.4 across the ten bays at Mark 1, where it used to be 1.7 ->
+    // 2.78. Bonds came apart too readily at the old numbers: bay 1 opened at a
+    // stretch tolerance a bad landing beat routinely, so a shipment shattering
+    // was the NORM rather than the price of a bad shot, and the ramp's top end
+    // was barely past where the old bay 5 already sat. This opens where the
+    // old bay 5/6 did and doubles from there, so a piece holding together is
+    // the default and breaking one means something.
     //
     // Written as base x (1 + i/9) rather than base + i x step so the two
     // numbers that were actually decided — where it starts, and that bay 10 is
     // twice bay 1 — are both readable in the expression instead of being
     // recoverable only by arithmetic.
-    jointBreakStretch: BASE_BREAK_STRETCH * (1 + i / 9),
+    //
+    // The Mark then multiplies the whole ramp (BOND_MARK_STEP): bonds
+    // strengthen every tier, so Mark 10 flies at x1.9. Mark 1's factor is
+    // exactly 1, so the bottom of the ladder keeps the tuned numbers above
+    // byte-identically.
+    //
+    // EXCEPT the capstone: at UNBREAKABLE_MARK, bay 10 stops scaling and goes
+    // Infinity — the ultimate format. Nothing shatters on landing, and the
+    // press cannot break a piece either (breakJointsInBand already exempts
+    // Infinity — the rebar rule), so every row is built from whole shipments
+    // and the Bond Breaker charge is the ONLY shatter in the bay. Winnable on
+    // the same fact rebar bays rest on: lineClear has no loose-cube
+    // requirement, so whole pieces landed flat still fill slot-aligned rows —
+    // and the per-run Bond Breaker magazine (no free charges granted here)
+    // makes the capstone exactly the "spend it where it counts most" moment
+    // that stock was rationed for.
+    jointBreakStretch: mark >= UNBREAKABLE_MARK && i === 9
+      ? Infinity
+      : BASE_BREAK_STRETCH * (1 + i / 9) * (1 + BOND_MARK_STEP * marksAbove),
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
     penaltyPerLostPiece: 25 + i * 2,
