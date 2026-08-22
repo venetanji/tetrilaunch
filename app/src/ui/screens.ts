@@ -714,8 +714,9 @@ export function hudHTML(opts: {
     <!-- INFEED TRANSPORT (canvas A5, proposal A "infeed housing"): the feed
          head takes hazard stripes, the tread and its chevrons animate toward
          the cannon, and the queue reads TWO deep — the piece the cannon is
-         HOLDING full-size at the downhill (muzzle) end, the piece coming after
-         it behind at reduced opacity. Real queue data, not a mockup:
+         HOLDING at the downhill (muzzle) end, the piece coming after it
+         uphill, both opaque and both on top of the transport. Real queue data,
+         not a mockup:
          components.ts's beltPieceHTML renders the exact shape/rotation/
          material, and the MATERIAL_SPEC colour makes cryo/slag legible before
          firing. The size tag names the bay's shipment class; compact drops it

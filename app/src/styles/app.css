@@ -1621,13 +1621,33 @@ body.crt-off #app::after { display: none; }
   flex: 0 0 var(--slat);
   display: flex; align-items: center; justify-content: center;
   padding-left: calc(3 / 37 * var(--slat));
+  /* The engraving's bevel — see the note on ::after for why it lives up here
+     on the cell rather than on the shape it outlines. */
+  filter:
+    drop-shadow(0 1px 0 rgba(255,255,255,0.20))
+    drop-shadow(0 -1px 0 rgba(0,0,0,0.6));
 }
+/* ENGRAVED, not painted on. Two stacked gradients do the cut: a black one
+   that fades out downward (the recess's upper wall, turned away from the
+   light) over a cargo one that fades in downward (the lower wall, catching
+   both the light and the bed's cargo glow). The bevel is a pair of
+   drop-shadows — a highlight under the shape, a shadow over it — and they
+   have to sit on the CELL, not here: clip-path is applied after filter on the
+   same element, so a bevel declared here would be clipped away with
+   everything else outside the triangle.
+
+   Neither gradient uses color-mix to fade --belt-c, and neither may: the
+   colour arrives as an opaque hex, and on a WebView without color-mix the
+   whole background declaration would be dropped and the chevron would vanish
+   rather than degrade. Fading to `transparent` costs nothing and works
+   everywhere. */
 .belt__arrows i::after {
   content: "";
-  width: max(4px, calc(7 * var(--fpx)));
-  height: max(6px, calc(11 * var(--fpx)));
-  background: var(--belt-c);
-  opacity: 0.8;
+  width: max(6px, calc(10 * var(--fpx)));
+  height: max(8px, calc(15 * var(--fpx)));
+  background:
+    linear-gradient(180deg, rgba(0,0,0,0.66) 6%, rgba(0,0,0,0.08) 72%),
+    linear-gradient(180deg, transparent 30%, var(--belt-c) 96%);
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 /* Rightward — toward the cannon, with the tread. The old strip ran the other
@@ -1666,13 +1686,16 @@ body.crt-off #app::after { display: none; }
 @keyframes belt-roll { to { transform: rotate(360deg); } }
 .belt__roller--l { left: calc(-8 * var(--fpx)); }
 .belt__roller--r { right: calc(-8 * var(--fpx)); }
-/* The queue reads TWO deep (canvas A5): the piece the cannon is HOLDING
-   rides the downhill (muzzle) end full-size, the piece coming after it sits
-   uphill behind at 65% opacity. There is no caption between them any more —
-   see screens.ts's belt markup for why the two tiles ended up owning that
-   space on phones. */
-.belt-piece { position: absolute; left: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
-.belt-piece--next { opacity: 0.65; }
+/* The queue reads TWO deep (canvas A5): the piece the cannon is HOLDING rides
+   the downhill (muzzle) end, the piece coming after it rides uphill. Both are
+   OPAQUE and both sit on top of the transport — the uphill tile used to be
+   dimmed to 65% to say "this one is behind", but a translucent tile does not
+   read as behind, it reads as unfinished: the field's left wall showed
+   straight through the cubes, exactly where that tile sits. Position and the
+   belt's own colour carry the queue order instead, and there is no caption
+   between them any more — see screens.ts's belt markup for why the two tiles
+   ended up owning that space on phones. */
+.belt-piece { position: absolute; left: calc(10 * var(--fpx)); bottom: calc(100% - 4px); z-index: 2; }
 .belt-piece--loaded { left: auto; right: calc(2 * var(--fpx)); }
 .belt-piece .next__grid { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); }
 .belt-piece .next__bomb-tile { width: max(26px, calc(58 * var(--fpx))); height: max(26px, calc(58 * var(--fpx))); font-size: max(13px, calc(29 * var(--fpx))); }
