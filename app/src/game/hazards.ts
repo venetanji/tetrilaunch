@@ -184,10 +184,14 @@ export function ladderStart(mark: number): number {
 export const COST_NOTCH = COST_LADDER[0];
 export const TIME_NOTCH = TIME_LADDER[0];
 
-/** Crosswind per notch. Sized against makeBaseLevel's old bay ramp (0.06 at
- *  bay 4, +0.04/bay): one notch is roughly a bay and a half of the weather the
- *  ladder used to roll in on its own. */
-export const WIND_NOTCH = 0.06;
+/** Crosswind per notch. Sized against makeBaseLevel's bay ramp (0.03 at
+ *  bay 4, +0.02/bay): one notch is roughly a bay and a half of the weather
+ *  the ladder rolls in on its own. Halved from 0.06 IN STEP with the
+ *  2026-08-22 halving of that ramp — the notch is priced RELATIVE to the
+ *  ladder's own weather, so halving the ladder alone would have silently
+ *  doubled what a Crosswind card costs in relative terms. The card copy
+ *  interpolates this constant, so it stays honest on its own. */
+export const WIND_NOTCH = 0.03;
 
 /** Sweeper: the press runs this much faster per notch and the bay loses one
  *  open cell. Both halves matter — speed alone was measured HARMFUL (it pushes

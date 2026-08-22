@@ -115,7 +115,7 @@ export interface LevelConfig {
   /** Per-step size of the wind's random drunk-walk (px/step^2) — see
    *  makeBaseLevel, which sizes this as windMax * WIND_GUST_FRACTION so the
    *  gust "texture" stays a fixed fraction of the bay's prevailing-wind cap
-   *  (~17.7% stationary std at the tuned WIND_GUST_FRACTION/WIND_TAU_SEC —
+   *  (~10.6% stationary std at the tuned WIND_GUST_FRACTION/WIND_TAU_SEC —
    *  see game.ts's WIND_REVERT comment for the exact formula) instead of a
    *  flat magnitude that would dwarf a low bay's windMax while reading as
    *  flat at a high one. The live wind nudges by up to ±windGust each
@@ -283,9 +283,13 @@ function targetScoreFor(i: number): number {
  *   introduced only AFTER the player has the fundamentals down. The first
  *   three bays (i < 3) are dead calm (windMax 0) so new players learn the
  *   slingshot, economy, and compactor with no lateral force at all. Weather
- *   then rolls in GENTLY from bay 4 (i === 3) at 0.06 and ramps +0.04/bay to
- *   0.30 at bay 10 (i === 9) — a fraction of the old flat-high ladder that
- *   playtesters flagged as unfair.
+ *   then rolls in GENTLY from bay 4 (i === 3) at 0.03 and ramps +0.02/bay to
+ *   0.15 at bay 10 (i === 9) — HALF the 0.06 +0.04/bay ramp this replaced,
+ *   cut on a playtest verdict (2026-08-22) that wind at the old strength
+ *   discouraged aiming: compensating for the weather dominated reading the
+ *   bay, which is backwards. This knob has only ever moved down — the old
+ *   ramp was itself a fraction of the flat-high ladder playtesters first
+ *   flagged as unfair.
  * - The mechanic itself changed shape (see game.ts's stepWind): instead of a
  *   deterministic sine sweeping the full ±windMax every windPeriodSec, each
  *   bay rolls ONE steady average wind in [-windMax, +windMax] from the run
@@ -306,22 +310,31 @@ function targetScoreFor(i: number): number {
  *   WIND_REVERT=0.05 was tuned as if it were a per-second rate but was
  *   actually applied per PHYSICS STEP at 60/sec — an order-of-magnitude
  *   timescale error with the units left implicit. It also made gusts as big
- *   as the whole prevailing wind at low bays (std ≈ ±0.055 vs. bay 4's
- *   windMax of 0.06). With WIND_TAU_SEC=5 and WIND_GUST_FRACTION=0.025, gusts
- *   now sit at a steady ~17.7% of windMax stationary std and the character of
- *   the wind barely changes within one ~2s flight, only drifting over the
- *   course of a bay — matching the "learnable character, small gusts for
- *   texture" intent described above (see game.ts's WIND_REVERT comment for
- *   the full derivation and the std formula).
+ *   as the whole prevailing wind at low bays (std ≈ ±0.055 vs. the 0.06
+ *   windMax bay 4 carried then). With WIND_TAU_SEC=5 and
+ *   WIND_GUST_FRACTION=0.015, gusts now sit at a steady ~10.6% of windMax
+ *   stationary std and the character of the wind barely changes within one
+ *   ~2s flight, only drifting over the course of a bay — matching the
+ *   "learnable character, small gusts for texture" intent described above
+ *   (see game.ts's WIND_REVERT comment for the full derivation and the std
+ *   formula).
  */
 /** Fraction of windMax used to size each bay's windGust (see the field's doc
  *  and the BALANCE KNOBS note above). Kept here, not as a flat windGust
  *  number, so the "texture vs. prevailing wind" ratio is the SAME at every
  *  windy bay instead of a flat magnitude that swamps a low windMax bay while
  *  reading as nothing at a high one. See game.ts's WIND_REVERT comment for
- *  the exact stationary-std formula this feeds (~17.7% of windMax at the
- *  tuned WIND_TAU_SEC=5s). */
-export const WIND_GUST_FRACTION = 0.025;
+ *  the exact stationary-std formula this feeds (~10.6% of windMax at the
+ *  tuned WIND_TAU_SEC=5s).
+ *
+ *  0.015, down from 0.025, cut in the same 2026-08-22 pass that halved the
+ *  windMax ladder — and deliberately cut FURTHER than the ladder. Halving
+ *  windMax alone would have kept the noise-to-signal ratio intact, and the
+ *  noise is what the playtest actually indicted: a prevailing wind punishes a
+ *  lazy shot, but a gust punishes a SOLVED one with a random miss, which
+ *  teaches nothing. With both cuts the absolute jitter lands at ~30% of what
+ *  it was (half the cap x 0.6 of the ratio). */
+export const WIND_GUST_FRACTION = 0.015;
 
 /**
  * SCRAP — the in-run upgrade currency (see run.ts's RunState.scrap and
@@ -572,8 +585,9 @@ export const BASE_BREAK_STRETCH = 2.2;
 
 export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Dead calm for the first three bays; weather rolls in gently from bay 4
-  // (i === 3) at 0.06 and ramps +0.04/bay to 0.30 at bay 10 (i === 9).
-  const windMax = i < 3 ? 0 : 0.06 + (i - 3) * 0.04;
+  // (i === 3) at 0.03 and ramps +0.02/bay to 0.15 at bay 10 (i === 9) —
+  // half the 0.06 +0.04/bay ramp it replaced (see the BALANCE KNOBS note).
+  const windMax = i < 3 ? 0 : 0.03 + (i - 3) * 0.02;
   // Mark 1 is stock, so every existing number and every tuned constant below
   // is preserved exactly at the bottom of the ladder.
   const marksAbove = Math.max(0, Math.floor(mark) - 1);

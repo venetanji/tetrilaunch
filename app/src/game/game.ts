@@ -208,11 +208,12 @@ const WIND_TAU_SEC = 5;
  *  (windCur − windAvg) at steady state is (small-WIND_REVERT approximation
  *  of the exact discrete-OU variance):
  *    std ≈ (windGust / √3) / √(2 · WIND_REVERT · (1 − WIND_REVERT / 2))
- *  With WIND_GUST_FRACTION=0.025 and WIND_TAU_SEC=5 that comes out to std ≈
- *  17.7% of windMax at every windy bay (e.g. bay 4's windMax 0.06 → std ≈
- *  ±0.0106) — gusts read as texture around a legible prevailing average,
+ *  With WIND_GUST_FRACTION=0.015 and WIND_TAU_SEC=5 that comes out to std ≈
+ *  10.6% of windMax at every windy bay (e.g. bay 4's windMax 0.03 → std ≈
+ *  ±0.0032) — gusts read as texture around a legible prevailing average,
  *  not noise the size of the average itself (the old flat windGust=0.03 was
- *  std ≈ ±0.055, i.e. almost the ENTIRE windMax cap at bay 4). */
+ *  std ≈ ±0.055, i.e. almost the ENTIRE 0.06 windMax cap bay 4 carried at
+ *  the time). */
 const WIND_REVERT = 1 - Math.exp(-1 / (WIND_TAU_SEC * STEPS_PER_SEC));
 
 /** How long (physics steps) the SETTLE window may run before the bay is called
@@ -681,10 +682,12 @@ export class Game {
     this.windCur += (this.windAvg - this.windCur) * WIND_REVERT;
     // Safety clamp so a run of same-signed nudges can't push a gust far past
     // the bay's magnitude cap. windGust * 16 is ~2.26 stationary standard
-    // deviations of headroom above windMax (see the std formula in
-    // WIND_REVERT's comment) — at WIND_GUST_FRACTION=0.025 that's exactly
-    // windMax * 1.4, tight enough that a bay never reads as far windier than
-    // its advertised windMax.
+    // deviations of headroom above windMax BY CONSTRUCTION — clamp and std
+    // both scale with windGust, so retuning WIND_GUST_FRACTION never changes
+    // the headroom in stds (see the std formula in WIND_REVERT's comment).
+    // At WIND_GUST_FRACTION=0.015 that's exactly windMax * 1.24, tight
+    // enough that a bay never reads as far windier than its advertised
+    // windMax.
     const cap = windMax + windGust * 16;
     this.windCur = Math.max(-cap, Math.min(cap, this.windCur));
   }
