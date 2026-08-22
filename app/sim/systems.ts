@@ -46,14 +46,15 @@ import {
   advanceRun, buyUpgrade, isRefitBay, levelForRun, newRun, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  dailyContracts, levelForContract, DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
-  SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
+  dailyContracts, dealPatternQueue, levelForContract, DAILY_COUNT, CUBES_PER_LINE,
+  PLANNING_EFFICIENCY, SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
   contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
+import { isBuildable } from "../src/game/buildable";
 import { computeLayout, setSafeAreaInsets, RAIL_MIN } from "../src/game/layout";
 import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
 import { CELL } from "../src/game/engine";
@@ -727,6 +728,87 @@ section("Pattern Contracts (contracts.ts)");
     JSON.stringify([...a].sort()) === JSON.stringify([...c.queue].sort()),
   );
   check("the play order is re-rolled per attempt", JSON.stringify(a) !== JSON.stringify(b));
+
+  // --- The dealt order has to be BUILDABLE, not merely a permutation --------
+  //
+  // The gap this closes: tilesRegion proves the inventory PACKS the goal
+  // rectangle. It says nothing about assembling that packing one shipment at a
+  // time, under gravity, with a row clearing the instant it fills — which is the
+  // only way a player ever gets to build it. The tier-5 board on 2026-08-22 dealt
+  // [I, I, L, L, L, J] for three lines: a set that packs, and whose canonical
+  // order cannot be finished by landing each shipment where it falls. It was
+  // reported, correctly, as impossible.
+  //
+  // Re-checked with isBuildable rather than buildOrder for the same reason the
+  // tiling checks above don't call tilingQueue: a guarantee re-derived by the
+  // code that produced it proves only that the code agrees with itself.
+  let everUnbuildable = 0;
+  let everUnbuildableEvenLoosely = 0;
+  let dealtPatterns = 0;
+  const dealRng = (() => { let z = 0x2f6e2b1; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  for (let tier = 1; tier <= 12; tier++) {
+    for (let seed = 20260101; seed < 20260101 + 25; seed++) {
+      for (const ct of dailyContracts(tier, seed)) {
+        if (ct.kind !== "pattern") continue;
+        const cfg = levelForContract(ct, dealRng);
+        const dealt = cfg.pieceQueue!;
+        dealtPatterns += 1;
+        const cols = cfg.compactorMinLineCells;
+        if (!isBuildable(dealt, cols, ct.pieceSize, "drop")) {
+          everUnbuildable += 1;
+          if (!isBuildable(dealt, cols, ct.pieceSize, "tuck")) everUnbuildableEvenLoosely += 1;
+        }
+      }
+    }
+  }
+  // Not "every deal is a straight-drop build": some inventories (anything
+  // S/Z-heavy) have no such order at all, and refusing to deal them would
+  // silently delete a third of the high-tier board. The promise is the weaker,
+  // honest one — every deal can be finished SOMEHOW — plus the measurement that
+  // the strict case is the overwhelming default.
+  check(
+    `every dealt pattern queue can be finished (${dealtPatterns} deals)`,
+    everUnbuildableEvenLoosely === 0,
+    `${everUnbuildableEvenLoosely} unbuildable under either model`,
+  );
+  check(
+    `almost every deal is buildable landing shipments straight down ` +
+      `(${dealtPatterns - everUnbuildable}/${dealtPatterns})`,
+    everUnbuildable <= dealtPatterns * 0.2,
+    `${everUnbuildable} needed a tuck`,
+  );
+
+  // Evidence that the buildability checker is not answering "yes" to everything
+  // — without it, the two checks above would bless any regression at all.
+  // [I, I, L, L, L, J] is the board that prompted all of this: it packs, and in
+  // this order nothing lands it.
+  check(
+    "buildability checker rejects the [I,I,L,L,L,J] order that shipped",
+    tilesRegion(["I", "I", "L", "L", "L", "J"], 3, 8)
+      && !isBuildable(["I", "I", "L", "L", "L", "J"], 8, "std", "drop"),
+  );
+  // ...and accepts the order the same SET can be finished in, so the rejection
+  // above is about the ORDER rather than a checker that hates L pieces.
+  check(
+    "the same set is buildable in a different order",
+    isBuildable(["L", "I", "L", "J", "L", "I"], 8, "std", "drop"),
+  );
+  check("buildability checker accepts four O shipments", isBuildable(["O", "O", "O", "O"], 8, "std", "drop"));
+  // Four cubes short of two rows: rejected on arithmetic, before any search.
+  check("buildability checker rejects a queue that can't fill the area", !isBuildable(["I", "O", "O"], 8, "std", "drop"));
+  // Tuck is strictly more permissive than drop, or the fallback in
+  // dealPatternQueue is not a fallback at all.
+  check(
+    "tuck admits an order drop refuses",
+    isBuildable(["I", "I", "L", "L", "L", "J"], 8, "std", "tuck"),
+  );
+  // The order dealPatternQueue hands out must be the advertised set, still —
+  // proving an order finishable is worthless if it quietly changes the cargo.
+  const proven = dealPatternQueue(c, 8, dealRng);
+  check(
+    "a proven order is still exactly the advertised multiset",
+    JSON.stringify([...proven].sort()) === JSON.stringify([...c.queue].sort()),
+  );
 
   // --- Tier award ------------------------------------------------------------
   // Salvage moved from per-run/per-contract trickles to a single award on TIER
