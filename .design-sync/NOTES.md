@@ -17,3 +17,11 @@
   `game-over-time.html` offsets `.lose-fx__clock` into the open field
   (mockup-only) — the card's modal is taller than the in-game one and would
   hide the app's centered clock.
+- 2026-08-22: contracts board redesigned (screens.ts `contractsScreen` + a new
+  CONTRACTS BOARD section in app.css). Added `design/screens/contracts.html` —
+  the board had no mockup before this. NOT YET UPLOADED: the sync ran from a
+  Claude Code web session, where DesignSync has no design-system authorization,
+  so the project still has neither the new card nor the refreshed
+  `tokens/app.css`. Next sync from a machine with `/design-login` should upload
+  `design/screens/contracts.html` (group "Screens") and re-copy
+  `app/src/styles/app.css` over `tokens/app.css`.

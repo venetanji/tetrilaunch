@@ -2249,36 +2249,14 @@ body.crt-off #app::after { display: none; }
 .step p { color: var(--text-dim); font-size: var(--fs-sm); min-height: 0; }
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
-/* ---------- Contracts ---------- */
 /* A card that is ALSO a <button> does not inherit page text colour — the UA
    gives every button `color: buttontext`, which is black, and these panels are
-   near-black. The contract card's own children mostly set a colour and so
-   looked fine, but the Contract NAME is a bare <b>: it rendered #000 on #07070f
-   at a contrast ratio of 1.05:1, i.e. invisible. Measured on device, and the
-   only real contrast failure in the app.
-   Set on the element rather than the <b> so nothing added to this card later
-   inherits black by default, and kept off `.panel` itself so the many non-button
-   panels are untouched. */
+   near-black, so any text on such a card that does not set its own colour
+   renders at ~1.05:1, i.e. invisible. Measured on device; it was the only real
+   contrast failure in the app. Kept off `.panel` itself so the many non-button
+   panels are untouched. The Contracts board sets the same guard on its own card
+   (see the CONTRACTS BOARD section), which no longer uses `.panel`. */
 button.panel { color: var(--text); }
-.contract-card { text-align: left; cursor: pointer; min-height: 210px; align-items: flex-start; }
-.contract-card > p { margin: 0; }
-/* Landscape phones: the 210px floor loses. Inside the snap row's ~175px of
-   height it pushed every card's bottom third past the viewport edge, where
-   the row's own overflow-y:hidden CLIPPED it — the reward line and the brief
-   were simply unreadable on every 360dp phone (caught the moment the
-   offscreen check stopped letting an x-scroller launder y-overflow). The row
-   stretches the cards to its height; the copy tightens to fit it. */
-@media (max-height: 460px) {
-  .contract-card { min-height: 0; padding: var(--sp-3); gap: 5px; }
-  .contract-card .step__n { font-size: 13px; }
-  .contract-card > b { font-size: 13px; }
-  .contract-card > p { font-size: 11.5px; line-height: 1.3; }
-  .contract-card__reward { font-size: 10.5px; }
-}
-/* Cleared today. Deliberately quiet — the tick in .step__n is the signal, and a
-   Contract stays replayable after it is cleared, so this must not read as
-   "spent". */
-.contract-card--done { border-color: var(--accent); }
 
 /* ---------- Splash ---------- */
 .splash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); height: 100%; }
@@ -2858,6 +2836,166 @@ button.panel { color: var(--text); }
   .bind-row__label { font-size: 12px; }
 }
 
+/* ============================================================================
+   CONTRACTS BOARD (see screens.ts's contractsScreen) — the daily, retryable
+   half. Three offers meant to be COMPARED, so the card is a spec sheet with
+   fixed slots rather than a paragraph: kind + payout, name, goal, supply,
+   brief, always in that order and always in the same place on all three.
+
+   Its own block, not the How-to deck's `.howto__grid`. That grid is a
+   horizontal SNAP ROW, which is right for nine cards read once in order and
+   wrong for three offers weighed against each other: two of the three sat
+   off-screen behind a sideways scroll, and a board you have to swipe to see is
+   a board you cannot compare. Three cards fit the width every device in the
+   matrix has, so this one neither scrolls nor snaps — in EITHER axis. It adds
+   no [data-scroll] and needs none.
+   ========================================================================== */
+.contracts {
+  /* `margin: auto`, so the board centres in a tall window and starts at the top
+     of a short one — the same trade `.modal` documents. `max-height` rather
+     than `height` keeps it the size of its content while forbidding it to
+     outgrow the screen `.screen`'s overflow:hidden would then clip. */
+  max-width: 980px; margin: auto; width: 100%; min-width: 0;
+  max-height: 100%; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding-block: var(--sp-3);
+}
+.contracts__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+.contracts__title { min-width: 0; }
+.contracts__title h2 { font-size: var(--fs-h1); }
+/* The subtitle used to be two lines restating the mode's rules ("No clock, no
+   launch costs — your supply of shipments is the only budget. Fail as many
+   times as you like; nothing is lost."). Every one of those facts is now shown
+   where it applies: the supply is a labelled slot on each card, and the free
+   retry is the footnote. What is left is the posture the mode is for. */
+.contracts__sub { margin: 0; }
+.contracts__hdr-side { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* auto-fit rather than repeat(3, …): the board drops to two columns and then
+   one if it is ever given less width than three cards want, instead of
+   squeezing three until the contract name breaks mid-word.
+
+   min-width:0 on the items is what keeps the board inside the viewport. A grid
+   item's automatic minimum size is its CONTENT's minimum, so without it one
+   long name or a wide `I×3 O×2 T×1` tally pushes its track — and, because the
+   tracks are equal, all three — past the screen edge, where `.screen`'s
+   overflow:hidden clips it rather than showing it. min() on the track floor
+   covers the other direction: a bare `minmax(168px, 1fr)` still reserves 168px
+   per column on a viewport too narrow to hold one. */
+.contracts__board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr));
+  gap: var(--sp-3);
+  align-content: start;
+  min-width: 0; min-height: 0;
+}
+.contracts__board > * { min-width: 0; }
+
+.contract-card {
+  /* See the `button.panel` note above: a card that is also a <button> starts at
+     `color: buttontext` (black) on a near-black panel. */
+  color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; min-width: 0;
+  background: linear-gradient(180deg, rgba(27,27,46,0.95), rgba(12,12,24,0.97));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-hard-sm);
+  transition: border-color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.contract-card:hover { border-color: var(--accent); }
+.contract-card:active { transform: translate(2px, 2px); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .contract-card { transition: none; }
+  .contract-card:active { transform: none; }
+}
+/* Cleared today. Deliberately quiet — the "✓ Cleared" state chip is the signal,
+   and a Contract stays replayable afterwards, so this must not read as spent. */
+.contract-card--done { border-color: rgba(0, 255, 156, 0.55); }
+
+.contract-card__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* The kind badge is load-bearing, not decoration: it says what the supply slot
+   below means. A Lines contract is handed a launch BUDGET it can waste; a
+   Pattern contract is handed an EXACT set it cannot. Same slot, opposite deal.
+   (The old card left the player to infer that from two differently-shaped
+   sentences, and the slot numbers `01 02 03` it showed instead carried nothing
+   — Contracts are three parallel offers, not a sequence.) */
+.contract-card__kind {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid rgba(0, 240, 255, 0.45); border-radius: var(--r-sm);
+  padding: 3px 5px; flex: none;
+}
+/* What this card is worth right now: the milestone share a first clear banks,
+   `✓ Cleared`, or `Practice` once the tier's Contract quota is full (meta.ts —
+   a tier pays for only its first TIER_CONTRACTS_REQUIRED clears).
+   Mono at 12px, not the 7px pixel font the kind badge uses — the shape the HUD
+   chips give a small numeric value, and the salvage share arrives through
+   salvageHTML (screens.ts's two currencies), a drawn glyph beside a number. */
+.contract-card__state {
+  font-family: var(--font-mono); font-weight: 700; font-size: 12px; line-height: 1;
+  color: var(--text-faint); flex: none; white-space: nowrap;
+}
+.contract-card__state--pays { color: var(--warn); }
+.contract-card__state--done { color: var(--success); }
+
+.contract-card__name {
+  font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
+  line-height: 1.1; overflow-wrap: anywhere;
+}
+
+/* The goal, as the one number on the card meant to be read from across the room
+   — it is what every Contract asks for, in the same unit, so sizing it this way
+   is what lets three cards be compared without being read. */
+.contract-card__ask { display: flex; align-items: baseline; gap: 6px; }
+.contract-card__goal {
+  font-family: var(--font-mono); font-weight: 700; font-size: 30px; line-height: 1;
+  color: var(--accent);
+}
+.contract-card__unit {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.contract-card__supply { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.contract-card__supply-lbl {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-faint); flex: none;
+}
+.contract-card__supply-val { font-size: var(--fs-sm); color: var(--text-dim); min-width: 0; overflow-wrap: anywhere; }
+.contract-card__supply-val b { color: var(--text); }
+
+/* The generator's own note about the bay (crosswind, tight launch budget, the
+   shape count). Pushed to the card's foot by the auto margin so the three cards
+   line their briefs up regardless of how tall the slots above them ran. */
+.contract-card__brief {
+  margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line);
+  font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35;
+}
+
+/* A9's WHY strip and the terms, as one line. All three cards used to carry an
+   identical copy of the terms, where they were the widest run on the card. */
+.contracts__foot { margin: 0; font-size: var(--fs-sm); line-height: 1.4; }
+.contracts__foot .next-badge { margin-right: 4px; vertical-align: 1px; }
+
+/* Short (landscape-phone) viewports — 792x360 is the measured target, 640x360
+   the tightest in the matrix. The card keeps every slot and gives up size,
+   because each slot is a different fact and dropping one would make two cards
+   look alike. */
+@media (max-height: 460px) {
+  .contracts { gap: var(--sp-2); padding-block: var(--sp-2); }
+  .contracts__title h2 { font-size: clamp(16px, 4.2vh, 26px); }
+  .contracts__sub { font-size: var(--fs-sm); }
+  .contracts__board { gap: var(--sp-2); }
+  .contract-card { gap: 4px; padding: 8px 10px; }
+  .contract-card__name { font-size: 13px; }
+  .contract-card__goal { font-size: 22px; }
+  .contract-card__supply-val { font-size: var(--fs-xs); }
+  .contract-card__brief { font-size: 10px; padding-top: 4px; }
+  .contracts__foot { font-size: 11px; }
+}
+
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
 .draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
 .salvage-row {
@@ -3002,12 +3140,6 @@ button.panel { color: var(--text); }
 @media (max-height: 460px) {
   .coach__next { padding: 5px 8px; gap: 3px; }
   .coach__next p { font-size: 10.5px; line-height: 1.3; }
-}
-/* A9: the Contract board's WHY strip. */
-.contracts__why { margin: 0; font-size: var(--fs-sm); }
-.contracts__why .next-badge { margin-right: 4px; vertical-align: 1px; }
-@media (max-height: 460px) {
-  .contracts__why { font-size: 11px; }
 }
 /* A11: the Workshop's one next-step card. */
 .shop-card--next { border-color: var(--warn); }
@@ -3538,9 +3670,6 @@ button.panel { color: var(--text); }
   }
 }
 
-/* ---------- Contract card reward line ---------- */
-.contract-card__reward { font-size: 12px; color: var(--warn); margin: 0; }
-.contract-card__reward--done { color: var(--success); }
 
 /* ---------- Workshop permanence tag ----------
    Workshop and Refit both sell upgrades; this is the one whose purchases
