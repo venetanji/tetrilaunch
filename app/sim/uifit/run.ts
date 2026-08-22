@@ -73,12 +73,17 @@ const ALLOWED_SCROLLERS = [
   // screen. Packed to three columns at compact density so it scrolls as little
   // as possible.
   "#refit-grid",
-  // The tutorial card's body, at the plant panel's tutorial cap only. The cap
-  // (52% of the field height, from clearing the cannon sprite — see app.css's
-  // `.hud[data-coach] .plant`) is a hard ceiling, and when a step's copy wants
-  // more than the cap leaves, the DESIGNED give-way is the card's own body
-  // scrolling its tail — never the readout spilling off the panel's bottom.
-  ".coach__body",
+  // NOT `.coach__body`. It was allowed here on the reasoning that when a
+  // step's copy wants more than the panel's tutorial cap leaves, the card's
+  // body giving up its tail beats the readout spilling off the panel — which
+  // is true, and is why `overflow-y: auto` stays in the stylesheet as the
+  // backstop. What it is not is a licence for the copy to need it: seven of
+  // thirteen devices scrolled the last card, up to 58px on the budget phone,
+  // with the sentence that says how to win sliced through the middle and no
+  // affordance saying there was more. A tutorial card is read once, in one
+  // glance, by someone who does not yet know the panel scrolls. So the copy
+  // is now written to the cap (screens.ts's coachSteps) and this asserts it:
+  // the valve is still there, and needing it is the defect.
   // The Controls screen's binding list (canvas D1): eleven rebindable rows at
   // the 44px tap floor is ~290px of rows in two columns — more than a 360px
   // landscape phone has under the header, tabs and Done. Same category as
@@ -116,7 +121,7 @@ const DECORATIVE = [".belt", ".bayclear__rays", ".lose-fx"];
  * comment cannot be trusted to stay true across a content change; this can.
  */
 const SINGLE_LINE = [
-  ".pl-meta", ".pl-load", ".plant__hdr", ".bay-banner",
+  ".pl-meta", ".pl-load", ".bay-banner",
   // Launches, DURING THE TUTORIAL ONLY — scoped, because the same block is a
   // stacked label-over-value column in the full readout and a wrap is its
   // design there. With Funds and Time hidden it is a full-width row above
@@ -166,6 +171,7 @@ const ASSERTIONS = [
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
+  { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -190,7 +196,7 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -419,10 +425,40 @@ function measure(cfg: {
     }
   }
 
+  // --- rack: the seven system slots must all be reachable at a glance -------
+  // The build row scrolls horizontally, which is right for the HAZARD chips
+  // after it — a deep run banks up to ten distinct axes and no panel holds
+  // them — but wrong for the ship's systems. There are exactly seven, they are
+  // the same seven for the whole run, and they are the readout a player checks
+  // mid-bay to know what their rig can do; one of them parked off the right
+  // edge is not a readout, it is a thing you have to remember to go looking
+  // for. So the slots are sized to the narrowest panel in the matrix rather
+  // than to a comfortable one (app.css's .ship-plate), and this is what holds
+  // that: every plate's right edge inside the row's CLIENT box, measured at
+  // scrollLeft 0, which is where the row sits until a thumb moves it.
+  //
+  // Not derivable from `offscreen` or `clipped`: the row is a legitimate
+  // horizontal scroller, so both of those exempt its overflow by design — a
+  // plate hanging off it is reachable content by their rules, and silent.
+  const modsRow = document.querySelector(".pl-mods");
+  if (modsRow) {
+    const rowBox = modsRow.getBoundingClientRect();
+    // clientWidth excludes the scrollbar; borders are on the panel, not here.
+    const visibleRight = rowBox.left + modsRow.clientWidth;
+    document.querySelectorAll(".pl-mods .ship-plate").forEach((plate, i) => {
+      const r = plate.getBoundingClientRect();
+      const over = r.right - visibleRight;
+      if (over > 1) {
+        const g = plate.querySelector(".ship-plate__g")?.textContent ?? `#${i}`;
+        out.rack.push(`slot ${g} sits ${Math.round(over)}px past the row's visible edge`);
+      }
+    });
+  }
+
   // --- reveal: the tutorial's progressive readout, at its first step --------
   // The plant reveals one block per step, and step 0 is the strictest state:
   // PWR only, because the drag is the whole lesson and a first-timer meeting
-  // nine readouts at once was the playtest complaint that created the reveal.
+  // the whole readout at once was the playtest complaint that created it.
   // It is enforced by `display: none` rules of specificity (0,3,0), which is
   // low enough that ANY later rule naming the same block at the same weight
   // silently un-hides it — a styling change to Launches did exactly that, and
@@ -432,7 +468,7 @@ function measure(cfg: {
   // Restated as a list rather than derived from the stylesheet on purpose:
   // read off the CSS it would agree with any bug the CSS has.
   if (screen === "coach") {
-    [".plant__hdr", ".pl-funds", ".pl-time", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
+    [".pl-funds", ".pl-time", ".pl-notch", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
       .forEach((sel) => {
         const el = document.querySelector(sel);
         if (el && el.getBoundingClientRect().height > 0) {
