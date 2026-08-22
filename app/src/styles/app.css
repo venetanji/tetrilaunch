@@ -1534,14 +1534,26 @@ body.crt-off #app::after { display: none; }
    ========================================================================== */
 .belt {
   position: absolute;
-  top: calc(var(--field-y) + 0.30 * var(--field-h));
-  left: calc(var(--field-x) - 0.0229 * var(--field-w));
+  /* Placed so the DISCHARGE roller's centre lands on the cannon's centre
+     (world 150,288) at every viewport size — the belt hands the shipment into
+     the breech instead of passing under it. These two numbers are only
+     trustworthy because the roller offsets below scale: they used to be a raw
+     -8px, the one pair of belt measurements that did not, which pushed the
+     head further down the 20deg slope the smaller the screen got (+11 world px
+     below the cannon at 1280, +14.4 at 667). */
+  top: calc(var(--field-y) + 0.2844 * var(--field-h));
+  left: calc(var(--field-x) - 0.0187 * var(--field-w));
   width: calc(0.1583 * var(--field-w));
   height: calc(0.0519 * var(--field-h));
   transform: rotate(20deg);
   transform-origin: left top;
   z-index: 5;
   pointer-events: none;
+  /* What the transport is CARRYING, as a colour — seeded by screens.ts's
+     hudHTML and re-set by main.ts on every queue advance. The arrows, the
+     outfeed and the track's inner glow read it; the housing's own cyan does
+     not, so a dead-grey slag run still leaves the machine visibly powered. */
+  --belt-c: var(--accent);
 }
 .belt__track {
   position: absolute; inset: 0;
@@ -1559,12 +1571,44 @@ body.crt-off #app::after { display: none; }
   background-size: 20px 100%;
   animation: belt-tread 900ms linear infinite;
 }
-@keyframes belt-tread { to { background-position-x: 20px; } }
-.belt__arrows {
-  position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-  text-align: center; color: rgba(0,240,255,.35);
-  font: 700 max(8px, calc(16 * var(--fpx))) var(--font-mono); letter-spacing: 6px;
+/* The cargo light: --belt-c pooled along the bed, so the transport reads as
+   lit from inside by whatever it is carrying. Hung off the TREAD rather than
+   the track because the tread is the first child — that puts the wash under
+   the chevrons instead of over them. A flat opacity rather than an alpha
+   channel on the colour itself: --belt-c arrives as an opaque hex from
+   theme.ts's shipmentColor, and the alternatives for fading it in CSS
+   (color-mix, relative colors) are newer than the oldest WebView this ships
+   to. */
+.belt__tread::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 38%, var(--belt-c));
+  opacity: 0.13;
 }
+@keyframes belt-tread { to { background-position-x: 20px; } }
+/* The direction cue, marching at the cannon. The strip is TWICE the track
+   wide and holds eight equal cells, so cell 5 sits exactly one track-width
+   right of cell 1 and scrolling by -50% of the strip's own width loops with
+   the seam landing chevron-on-chevron. Percentages resolve against the
+   element, never against a glyph advance, so this holds at any size on any
+   device — which the "▸ ▸ ▸ ▸" text run it replaces could not (U+25B8 is
+   outside the bundled JetBrains Mono's unicode-range, so it drew from
+   whatever fallback the platform happened to have). */
+.belt__arrows {
+  position: absolute; left: 0; top: 50%;
+  width: 200%;
+  display: flex; align-items: center; justify-content: space-around;
+  transform: translate(0, -50%);
+  animation: belt-arrows 1800ms linear infinite;
+}
+.belt__arrows i {
+  flex: none;
+  width: max(4px, calc(7 * var(--fpx)));
+  height: max(6px, calc(11 * var(--fpx)));
+  background: var(--belt-c);
+  opacity: 0.8;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+@keyframes belt-arrows { to { transform: translate(-50%, -50%); } }
 .belt__roller {
   position: absolute; top: 50%;
   width: calc(0.0519 * var(--field-h)); height: calc(0.0519 * var(--field-h));
@@ -1574,17 +1618,31 @@ body.crt-off #app::after { display: none; }
   transform: translateY(-50%);
   box-shadow: 0 0 0 2px rgba(0,0,0,.45);
 }
-.belt__roller--l { left: -8px; }
-.belt__roller--r { right: -8px; }
-.belt__lbl {
-  position: absolute; left: 34%; top: calc(-16 * var(--fpx) - 2px);
-  font-family: var(--font-pixel); font-size: max(7px, calc(10.7 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted);
-  white-space: nowrap;
+/* Spokes, so the spin is visible at all — a radial gradient on its own is
+   rotationally symmetric and would turn without appearing to. The rotation
+   lives on the inner <i> rather than the roller so it does not fight the
+   roller's own translateY(-50%) centring. */
+.belt__roller i {
+  position: absolute; inset: 14%;
+  border-radius: 50%;
+  /* Four thin spokes under a dark hub. The hub is not decoration: without it
+     the spokes converge at the centre and the roller reads as a sparkle
+     rather than a wheel. */
+  background:
+    radial-gradient(circle, #1a1a2e 0 34%, transparent 36%),
+    repeating-conic-gradient(from 0deg,
+      rgba(255,255,255,.15) 0deg 7deg,
+      transparent 7deg 90deg);
+  animation: belt-roll 1800ms linear infinite;
 }
+@keyframes belt-roll { to { transform: rotate(360deg); } }
+.belt__roller--l { left: calc(-8 * var(--fpx)); }
+.belt__roller--r { right: calc(-8 * var(--fpx)); }
 /* The queue reads TWO deep (canvas A5): the piece the cannon is HOLDING
    rides the downhill (muzzle) end full-size, the piece coming after it sits
-   uphill behind at 65% opacity. The "◂ NEXT" label at left 34% points at the
-   next tile. */
+   uphill behind at 65% opacity. There is no caption between them any more —
+   see screens.ts's belt markup for why the two tiles ended up owning that
+   space on phones. */
 .belt-piece { position: absolute; left: calc(10 * var(--fpx)); bottom: calc(100% - 4px); }
 .belt-piece--next { opacity: 0.65; }
 .belt-piece--loaded { left: auto; right: calc(2 * var(--fpx)); }
@@ -1617,7 +1675,10 @@ body.crt-off #app::after { display: none; }
 .belt__out {
   position: absolute; right: calc(-9 * var(--fpx)); top: 50%;
   transform: translateY(-50%);
-  display: flex; color: rgba(0, 240, 255, 0.55);
+  /* Takes the cargo colour too (the icon paints with currentColor), so the
+     handoff into the cannon is the same colour as the thing being handed
+     over. */
+  display: flex; color: var(--belt-c); opacity: 0.7;
 }
 .belt__tag {
   position: absolute; left: calc(10 * var(--fpx)); top: calc(100% + 1px);
@@ -1636,7 +1697,7 @@ body.crt-off #app::after { display: none; }
    the coach being mounted (data-coach), never off aiming. At 1280 both stay. */
 [data-density="compact"] .hud[data-coach] .belt { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .belt__tread, .belt-piece > * { animation: none; }
+  .belt__tread, .belt-piece > *, .belt__arrows, .belt__roller i { animation: none; }
 }
 
 /* ---------- Modal overlays ---------- */

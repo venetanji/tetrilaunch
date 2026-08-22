@@ -1,5 +1,5 @@
 import {
-  MATERIAL_SPEC, PIECE_COLORS, type Material, type PieceSize, type PieceType,
+  shipmentColor, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
 import { HAZARDS, type HazardId, type Ratchets } from "../game/hazards";
@@ -58,7 +58,7 @@ export function pieceCellsHTML(
   material: Material = "standard",
 ): string {
   const shape = pieceCells(type, size);
-  const color = MATERIAL_SPEC[material].color ?? PIECE_COLORS[type];
+  const color = shipmentColor(type, material);
   const turns = ((quarterTurns % 4) + 4) % 4;
   const rotated = shape.map((cell) => {
     let c = cell;
