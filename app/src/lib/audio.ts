@@ -170,10 +170,33 @@ export function unlockAudio(): void {
     musicFilter.type = "lowpass";
     musicFilter.frequency.value = MUSIC_OPEN_HZ;
     musicFilter.connect(ctx.destination);
+    // The context can be stopped from OUTSIDE suspendAudio: a phone call, a
+    // voice assistant, an alarm, a Bluetooth handoff — the OS ends the audio
+    // session while the page stays visible, so the visibilitychange pair never
+    // runs and `suspended` stays false. Music routes through the graph
+    // (routeMusic), so a context left that way silences every bed while the
+    // unrouted stingers still play — which reads as "the music got quiet", not
+    // "audio died", and it stays that way for the rest of the session. Resume
+    // on any stop we did not ask for; while backgrounded, suspendAudio owns
+    // the state and this stays out of its way.
+    ctx.addEventListener("statechange", () => {
+      resumeStoppedContext();
+    });
     void ctx.resume();
     void loadEffects();
   } catch {
     ctx = null;
+  }
+}
+
+/** Resume a context that stopped without suspendAudio asking it to — see the
+ *  statechange note in unlockAudio. Also nudged from the moments that need the
+ *  graph audible (a bed routing in, a congestion cue), because an OS-side
+ *  interruption does not fire statechange on every engine. A refusal is left
+ *  alone: the session is still held, and the next nudge retries. */
+function resumeStoppedContext(): void {
+  if (ctx && !suspended && ctx.state !== "running") {
+    void ctx.resume().catch(() => { /* still interrupted — retried on the next nudge */ });
   }
 }
 
@@ -396,6 +419,10 @@ export function stopStinger(): void {
  */
 function routeMusic(el: HTMLAudioElement): void {
   if (!ctx || !musicFilter) return;
+  // Once captured, this element is audible only while the context runs — so a
+  // bed starting against a context stopped by an OS interruption must wake it,
+  // or the track plays silently into a dead graph (see resumeStoppedContext).
+  resumeStoppedContext();
   try {
     ctx.createMediaElementSource(el).connect(musicFilter);
   } catch {
@@ -449,6 +476,7 @@ export function setCongestion(level: number): void {
   const rising = next > congestion;
   congestion = next;
   if (!ctx) return;
+  resumeStoppedContext();
   if (next > 0) ensureStatic();
   const now = ctx.currentTime;
   const tau = rising ? CUE_RISE_TAU : CUE_FALL_TAU;
