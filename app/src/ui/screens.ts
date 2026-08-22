@@ -1597,9 +1597,19 @@ export function endModal(opts: {
   /** Scrap earned across the run and the ship it bought — so the build reads as
    *  an investment on the way out, not just a row of chips that vanished. */
   scrapEarned: number;
+  /** Funds demolition charges refunded across the run (run.ts's
+   *  RunState.salvagedFunds). Worded as FUNDS on the way out, never as
+   *  "salvage": that word is the Workshop's permanent currency, and the two
+   *  sitting on the same foot line would read as one number counted twice. */
+  salvagedFunds: number;
   tiers: UpgradeTiers;
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
+  // Demolition recovery, appended to whichever foot line the branch below
+  // renders. Suppressed at zero rather than printed as "$0": a charge is a
+  // draft pick most runs never make, so the line would be dead weight on the
+  // majority of end screens — and the foot is already the densest row here.
+  const demoFoot = opts.salvagedFunds > 0 ? ` · $${opts.salvagedFunds} recovered by demolition` : "";
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
@@ -1675,7 +1685,7 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
-          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship</span>
+          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship${demoFoot}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
@@ -1684,7 +1694,7 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
           <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
-          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
+          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked${demoFoot}</span>
         </div>
         ${
           // Only when this end actually BANKED something. The row is a flex

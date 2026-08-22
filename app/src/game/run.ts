@@ -43,6 +43,14 @@ export interface RunState {
   /** Total scrap earned this run, spent or not — a stat for the end screen, so
    *  a run that banked and never refitted still reads as having earned it. */
   scrapEarned: number;
+  /** Funds demolition charges refunded across the run (Game.salvagedFunds per
+   *  bay, summed here). Purely a READOUT: the money already landed in the bay's
+   *  score the moment the charge blew, so this must never feed `carry` or the
+   *  player would be paid for the same blast twice. It exists because
+   *  detonate()'s refund is the entire reason a bomb has a price worth
+   *  reasoning about, and a total nobody ever prints is a trade the player
+   *  never gets to settle. */
+  salvagedFunds: number;
   /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
    *
    *  It lives here, beside carry and scrap, because it is exactly that kind of
@@ -96,6 +104,8 @@ export function newRun(
     linesTotal: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
+    // No starting-scrap equivalent: nothing has been blown up yet.
+    salvagedFunds: 0,
     // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
@@ -188,6 +198,12 @@ export const CARRY_CAP = 150;
  *  that hands out too much is one a tester reports, where one that quietly
  *  eats a rare consumable is one they never even notice.
  *
+ *  `salvagedFunds` is what demolition charges refunded in the just-played bay
+ *  (Game.salvagedFunds). It defaults to 0, the exact opposite of `bondsLeft`'s
+ *  defensive default, and deliberately so: this one is a stat rather than a
+ *  stock, so a caller that forgets it under-reports a single bay, where
+ *  defaulting to the running total would re-count every bay before it.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -197,6 +213,7 @@ export function advanceRun(
   scrapEarned: number,
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
+  salvagedFunds = 0,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -208,6 +225,7 @@ export function advanceRun(
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
+    salvagedFunds: run.salvagedFunds + salvagedFunds,
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
