@@ -58,17 +58,17 @@ const VARIANTS: Variant[] = [
   { name: "stock", tiers: PILE_TIERS, allowance: 0 },
   // Money only — isolates how much of any effect is the funds multiplier
   // rather than the clock. Against a $25 launch this is +$13/+$25 a shot.
-  { name: "cash-only", tiers: PILE_TIERS.map((t) => ({ ...t, clockSec: 0 })), allowance: 0 },
+  { name: "cash-only", tiers: PILE_TIERS.map((t) => ({ ...t, clockSec: 0, payMult: Infinity })), allowance: 0 },
   // Clock only — the other half. Spam stops costing money and starts costing
   // the one resource a fat bankroll cannot buy back.
-  { name: "clock-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1 })), allowance: 0 },
+  { name: "clock-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, payMult: Infinity })), allowance: 0 },
   // Looser thresholds, same penalties: 6 and 8 lines' worth. If `stock` taxes
   // clean play, this is where the knee should be instead.
   {
     name: "loose",
     tiers: [
-      { cubes: 48, costMult: 1.5, clockSec: 2, reloadMult: 1 },
-      { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 1 },
+      { cubes: 48, costMult: 1.5, clockSec: 2, reloadMult: 1, payMult: Infinity },
+      { cubes: 64, costMult: 2, clockSec: 5, reloadMult: 1, payMult: Infinity },
     ],
     allowance: 0,
   },
@@ -77,8 +77,8 @@ const VARIANTS: Variant[] = [
   {
     name: "harsh",
     tiers: [
-      { cubes: 32, costMult: 2, clockSec: 3, reloadMult: 1 },
-      { cubes: 48, costMult: 4, clockSec: 8, reloadMult: 1 },
+      { cubes: 32, costMult: 2, clockSec: 3, reloadMult: 1, payMult: Infinity },
+      { cubes: 48, costMult: 4, clockSec: 8, reloadMult: 1, payMult: Infinity },
     ],
     allowance: 0,
   },
@@ -90,26 +90,33 @@ const VARIANTS: Variant[] = [
   // bay settle what is in the air. So these keep the clock and drop or soften
   // the multiplier, at the looser thresholds the census argued for.
   { name: "cand-clock", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1 },
-    { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1 },
+    { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   { name: "cand-mild", tiers: [
-    { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1 },
-    { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1 },
+    { cubes: 48, costMult: 1.25, clockSec: 2, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1.5, clockSec: 5, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   // Same thresholds, a harder clock. Brackets the clock axis on its own.
-  // ISOLATORS for the two congestion taxes no variant above separates.
+  // ISOLATORS for the congestion taxes no variant above separates.
   // game.ts kills the combo on ANY upward tier crossing whenever pileTiers is
   // non-empty, so `combo-only` (all other taxes zeroed) measures the streak
   // break alone, and `reload-only` measures reload + combo — subtract the two
   // to get the reload multiplier's own cost. The combo break is the one
   // congestion tax the sim CAN judge (bots build and lose real streaks), and
   // it is multiplicative on income where the rest are additive on cost.
-  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
-  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0 })), allowance: 0 },
+  { name: "combo-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1, payMult: Infinity })), allowance: 0 },
+  { name: "reload-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, payMult: Infinity })), allowance: 0 },
+  // The PAYOUT tax on its own (level.ts's PileTier.payMult) — every other axis
+  // zeroed, so this is the combo break plus the multiplier cap and nothing
+  // else. Unlike the cost and clock axes it is not a drain the bot can go broke
+  // against: it lowers income without ever refusing a shot, so a drop here is a
+  // score drop rather than a bay ending early. Read it next to `combo-only`;
+  // the difference between them is what the cap alone is worth.
+  { name: "pay-only", tiers: PILE_TIERS.map((t) => ({ ...t, costMult: 1, clockSec: 0, reloadMult: 1 })), allowance: 0 },
   { name: "cand-bite", tiers: [
-    { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1 },
-    { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1 },
+    { cubes: 48, costMult: 1, clockSec: 3, reloadMult: 1, payMult: Infinity },
+    { cubes: 64, costMult: 1, clockSec: 8, reloadMult: 1, payMult: Infinity },
   ], allowance: 0 },
   // The upgrade track, at what tier 1/2/3 might each be worth. Same tax, more
   // room before it triggers — this is the "buy back the spam strategy" lever.
