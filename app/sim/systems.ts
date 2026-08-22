@@ -62,6 +62,7 @@ import {
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
+  WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
 import {
@@ -190,6 +191,60 @@ section("Ship upgrades (upgrades.ts)");
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
   check("a full rig now costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+}
+
+// ---------------------------------------------------------------------------
+section("Seam Splitter (upgrades.ts bonds t2-3 / pieces.ts weakBond)");
+// ---------------------------------------------------------------------------
+{
+  // Spawn a piece into an inert engine's world (nothing steps it — same
+  // pattern as the rebar joint checks below) and read back the break
+  // threshold createTetrisPiece stamped onto its constraints. The stamp is
+  // the whole record: updateBreakableJoints only ever reads the constraint,
+  // so asserting the stamp asserts the behaviour.
+  const stamped = (cfg: LevelConfig, type: PieceType, material: Material = "standard"): number => {
+    const w = Matter.Engine.create().world;
+    const p = createTetrisPiece(
+      w, 200, 200, 0, { x: 0, y: 0 }, type, cfg.jointStiffness, "std",
+      cfg.jointBreakStretch, material,
+      { types: cfg.weakBondTypes, mult: cfg.weakBondMult },
+    );
+    return (p.constraints[0] as unknown as { breakStretch: number }).breakStretch;
+  };
+
+  const t1 = makeBaseLevel(0);
+  applyUpgrades(t1, { ...newTiers(), bonds: 1 });
+  check("BONDS t1 ships no weakening — the passive is what t2-3 pay for",
+    t1.weakBondTypes.length === 0 && t1.weakBondMult === 1);
+
+  const t2 = makeBaseLevel(0);
+  applyUpgrades(t2, { ...newTiers(), bonds: 2 });
+  check("BONDS t2 weakens S and Z",
+    t2.weakBondTypes.includes("S") && t2.weakBondTypes.includes("Z"));
+  check("an S stamps a weaker threshold than a T at the same config",
+    stamped(t2, "S") < stamped(t2, "T"),
+    `S ${stamped(t2, "S")} vs T ${stamped(t2, "T")}`);
+  check("the S/T gap is exactly weakBondMult",
+    Math.abs(stamped(t2, "S") - stamped(t2, "T") * t2.weakBondMult) < 1e-9);
+
+  // The fallback base is the whole reason the subsystem composes with an
+  // unbreakable-bonds bay: Infinity x 0.7 is still Infinity, so a weakened
+  // type restates bay-1 fragility instead — finite where nothing else is.
+  const inf: LevelConfig = { ...t2, jointBreakStretch: Infinity };
+  check("on an Infinity-stretch bay a weakened S is finite again",
+    Number.isFinite(stamped(inf, "S")), String(stamped(inf, "S")));
+  check("...computed from bay-1 fragility, not the bay's own Infinity",
+    Math.abs(stamped(inf, "S")
+      - Math.max(1.05, WEAK_BOND_UNBREAKABLE_BASE * inf.weakBondMult)) < 1e-9);
+  check("a T on the same bay keeps its unbreakable bonds",
+    stamped(inf, "T") === Infinity);
+  check("a rebar S stays Infinity — material rigidity outranks the shape",
+    stamped(inf, "S", "rebar") === Infinity && stamped(t2, "S", "rebar") === Infinity);
+
+  const t3 = makeBaseLevel(0);
+  applyUpgrades(t3, { ...newTiers(), bonds: 3 });
+  check("BONDS t3 cuts deeper than t2", t3.weakBondMult < t2.weakBondMult,
+    `${t3.weakBondMult} vs ${t2.weakBondMult}`);
 }
 
 // ---------------------------------------------------------------------------

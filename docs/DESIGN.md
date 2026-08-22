@@ -432,6 +432,19 @@ Two things the build settled that this table could not:
   untouched in Deep Run, where it is a draft choice with a payout attached
   rather than a roll inflicted by the board.
 
+The same vocabulary has a **shape** axis, and one system now answers it. S and Z
+are the delivery-hard tetrominoes — the ones that tip, wedge and strand cubes
+(the pattern-Contract tier ladder above already prices exactly this) — and the
+Bond Emitter's upper tiers host the **Seam Splitter**: tier 2 stamps their bonds
+30% weaker at launch, tier 3 50%, so the shapes that misdeliver shatter into
+loose, compactable cargo instead of wedging whole. Which types are weak is data
+(`level.ts`'s `weakBondTypes`/`weakBondMult`), not an S/Z rule — a future rig or
+hazard can point the same seam anywhere. Two precedences keep it honest: a rigid
+material still wins (a rebar S stays unbreakable — material outranks shape), and
+on a bay whose bonds are unbreakable a weakened type falls back to bay-1
+fragility times the multiplier rather than to nothing, so the misery shapes stay
+breakable in exactly the format where nothing else is.
+
 ## Procedural Contracts
 
 Authored bays were considered and **rejected** — a hand-tuned map is a content
