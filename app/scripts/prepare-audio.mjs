@@ -62,14 +62,16 @@ const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
  * a bay is a line in here and nothing in src/ moves.
  *
  * `menu` is the lounge bed that plays outside a bay. The `bay-N` roles are the
- * Deep Run's arc; WHICH bay each one plays over is game/run.ts's BAY_TRACKS,
- * and this map only decides what it sounds like. Bays 2-4 have no song yet and
- * borrow bay 1's there — add them here as `bay-2`…`bay-4` and point that table
- * at them.
+ * Deep Run's arc, one song per bay; WHICH bay each one plays over is
+ * game/run.ts's BAY_TRACKS, and this map only decides what it sounds like.
+ * `contracts` is a role with no master yet — see contracts.ts's CONTRACT_BED.
  */
 const MUSIC = {
   "lounge-menu-pause.mp3": "menu",
   "chilled beginning.mp3": "bay-1",
+  "2 chill.mp3": "bay-2",
+  "Threes.mp3": "bay-3",
+  "Level Four on the floor.mp3": "bay-4",
   "level 5.mp3": "bay-5",
   "raggae circuit.mp3": "bay-6",
   "Chipdisco.mp3": "bay-7",

@@ -143,14 +143,16 @@ export function baysUntilRefit(levelIndex: number): number | null {
  * plays outside a bay — to make MusicName.
  *
  * The arc lives HERE rather than beside the player because it is run design,
- * not playback. It is very nearly one bed per bay, and the roles are named for
- * the bay rather than for the mood precisely because of that: `bay-7` is a
- * promise about WHERE it plays, and the song that fills it is free to change
- * without a file rename.
+ * not playback. It is one bed per bay, and the roles are named for the bay
+ * rather than for the mood precisely because of that: `bay-7` is a promise
+ * about WHERE it plays, and the song that fills it is free to change without a
+ * file rename.
  *
- * Bays 2-4 are unwritten and borrow bay 1's opening bed. That is a deliberate
- * placeholder, not a fallback: give them their own songs by adding `bay-2`…
- * `bay-4` to the MUSIC map and pointing the table's rows at them.
+ * The table stays even though it currently maps each index to its own bay — the
+ * identity is a FACT about today's ten songs, not a rule, and a bay borrowing
+ * an earlier bay's bed is a legitimate state to be in while one is being
+ * written (bays 2-4 were, until they weren't). Deriving the name from the index
+ * instead would delete the only place that distinction can be expressed.
  */
 export type BayTrack =
   | "bay-1" | "bay-2" | "bay-3" | "bay-4" | "bay-5"
@@ -161,9 +163,9 @@ export type BayTrack =
  *  noticeable here instead of twenty minutes into a run. */
 const BAY_TRACKS: readonly BayTrack[] = [
   "bay-1",  // 1   chilled beginning
-  "bay-1",  // 2   WIP — borrowing bay 1 until its own song exists
-  "bay-1",  // 3   WIP
-  "bay-1",  // 4   WIP
+  "bay-2",  // 2   2 chill
+  "bay-3",  // 3   Threes
+  "bay-4",  // 4   Level Four on the floor
   "bay-5",  // 5   written in 5/4, which is why it is pinned to this bay NUMBER
   "bay-6",  // 6   raggae circuit
   "bay-7",  // 7   chipdisco
