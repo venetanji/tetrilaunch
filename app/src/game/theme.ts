@@ -199,6 +199,18 @@ export const MATERIAL_SPEC: Record<
   magnetic: { name: "Magnetic", color: "#8f9bd6", countsForLines: true, needsStrike: false, aligns: true },
 };
 
+/**
+ * The colour a shipment is DRAWN in: its material's, or its shape's when the
+ * material is standard. Every preview of a shipment has to agree on this —
+ * the belt tile, the transport's own lighting, the muzzle ghost — because the
+ * whole point of showing a material before it fires is that the player can
+ * sequence around it. Pulled out of components.ts's pieceCellsHTML so a second
+ * caller cannot quietly drift from the first.
+ */
+export function shipmentColor(type: PieceType, material: Material = "standard"): string {
+  return MATERIAL_SPEC[material].color ?? PIECE_COLORS[type];
+}
+
 export const COLORS = {
   bg: "#07070f",
   grid: "rgba(122,92,255,0.08)",
