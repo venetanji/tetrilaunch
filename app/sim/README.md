@@ -199,11 +199,27 @@ overriding `env(safe-area-inset-*)` in a stylesheet rule that the app's own
 `.safe-probe` then measures back, so the iOS inset plumbing is exercised
 rather than stubbed.
 
-Eight assertions per device x screen, listed in `run.ts`'s `ASSERTIONS`. The
-load-bearing one is `scrollers`: `ALLOWED_SCROLLERS` is the single place the
-product rule *"no vertical scrolling except the leaderboard rows and the
+One assertion per row of `run.ts`'s `ASSERTIONS`, run on every device x screen.
+The load-bearing one is `scrollers`: `ALLOWED_SCROLLERS` is the single place
+the product rule *"no vertical scrolling except the leaderboard rows and the
 workshop pane"* is written down, and a third entry cannot appear without
 someone editing that list on purpose.
+
+Four of them are about content that is **present, unclipped, inside the
+viewport and still not on screen** — the class of defect the fit/overflow
+assertions are structurally blind to, because nothing about it overflows
+anything:
+
+| assertion  | catches |
+|------------|---------|
+| `clipped`  | a box that fits itself but is sliced by an ancestor's overflow edge — the mods row's ×N badge, cut 2px by the row's own scroll clipping |
+| `overlap`  | two boxes laid out to sit *beside* each other covering each other — the tutorial card spilling over the plant readout |
+| `draghint` | the onboarding gesture animating underneath the plant panel, which is `z-index: 6` while the hint is not |
+| `reveal`   | the tutorial's step-0 progressive reveal, whose `display: none` rules are weak enough that any later rule of equal weight silently un-hides a block |
+
+When adding one, reintroduce the defect it guards and confirm the assertion
+**fails** before trusting it — every one of the four above was proven that way,
+and the numbers quoted in their comments are what the failing run reported.
 
 **The baseline.** `uifit/baseline.json` records the violations that exist
 today, keyed `device|screen|assertion`. A run fails on violations NOT in it,
