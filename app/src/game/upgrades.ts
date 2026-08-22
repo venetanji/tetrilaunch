@@ -184,8 +184,16 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Bond Emitter",
     glyph: "BND",
     blurb: "Ships ONE Bond Breaker charge for the whole run — shatter the field flat, once, where it counts most.",
-    tiers: ["+1 charge per run", "+2 charges per run", "+3 charges per run"],
-    current: (t) => (t === 0 ? "no charges" : `${t} charge${t === 1 ? "" : "s"} for the run`),
+    tiers: [
+      "+1 charge per run",
+      "+2 charges per run · S/Z bonds 30% weaker",
+      "+3 charges per run · S/Z bonds 50% weaker",
+    ],
+    current: (t) => {
+      if (t === 0) return "no charges";
+      const charges = `${t} charge${t === 1 ? "" : "s"} for the run`;
+      return t >= 2 ? `${charges} · S/Z ${t >= 3 ? 50 : 30}% weaker` : charges;
+    },
     step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
@@ -201,6 +209,20 @@ export const UPGRADES: UpgradeDef[] = [
       // a tier into charges lives once, in run.ts's bondChargesFor, and this
       // line is the same rule at the config layer: one charge per tier.
       cfg.bondBreakerCharges += tier;
+      // SEAM SPLITTER — tiers 2 and 3 also stamp WEAKER bonds onto S and Z at
+      // launch (level.ts's weakBondTypes/weakBondMult; pieces.ts's
+      // createTetrisPiece does the stamping). S and Z are the shapes that tip,
+      // wedge and strand cubes, so weakening exactly their seams turns the
+      // worst deliveries into loose, compactable cargo without touching the
+      // shapes that already land well. Hosted HERE, at tiers 2-3, so it is a
+      // refit decision on the track whose whole identity is bond control —
+      // with the charges now a rare per-run magazine, this passive is what
+      // the higher tiers newly pay for. 0.7 then 0.5: tier 2 makes a bad S/Z
+      // landing shed its worst seam, tier 3 makes shattering their norm.
+      if (tier >= 2) {
+        cfg.weakBondTypes = ["S", "Z"];
+        cfg.weakBondMult = tier >= 3 ? 0.5 : 0.7;
+      }
     },
   },
   {

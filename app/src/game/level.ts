@@ -207,6 +207,19 @@ export interface LevelConfig {
    *  into a fuller bay, which is the whole point of gating spam behind a
    *  threshold rather than banning it outright. */
   pileAllowance: number;
+  /** Piece TYPES whose bonds are stamped WEAKER at launch — the SEAM SPLITTER
+   *  seam (pieces.ts's createTetrisPiece does the stamping; upgrades.ts's
+   *  Bond Emitter track is its only writer today, tuned to S and Z). A
+   *  generic per-type knob rather than an S/Z rule, deliberately: which
+   *  shapes are weak is DATA, so a future rig or hazard can point the same
+   *  seam at any type. Empty = every shipment gets the bay's stock
+   *  fragility. */
+  weakBondTypes: PieceType[];
+  /** Multiplier on a listed type's break threshold (0.7 = 30% weaker;
+   *  1 = inert). Only read for types in weakBondTypes, and a material
+   *  property still outranks it — a rigid material (rebar) stays unbreakable
+   *  whatever the shape. See createTetrisPiece for the full precedence. */
+  weakBondMult: number;
 }
 
 // Economy balance note: each bay is its OWN economy — targetScore, launchCost,
@@ -715,6 +728,13 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     pileAllowance: 0,
     launchBudget: 0,
     objectiveLines: 0,
+    // Inert until a system writes them — the Seam Splitter (upgrades.ts's
+    // Bond Emitter, tiers 2-3) is the only writer today. An empty list and a
+    // x1 multiplier stamp every shipment at exactly the bay's stock
+    // jointBreakStretch, the same inert-by-default stance windMax 0 and
+    // autoLaunchMs 0 take.
+    weakBondTypes: [],
+    weakBondMult: 1,
   };
 }
 

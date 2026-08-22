@@ -936,6 +936,11 @@ export class Game {
         this.level.pieceSize,
         this.level.jointBreakStretch,
         this.cannon.currentMaterial,
+        // The Seam Splitter's per-type weakening (upgrades.ts's Bond Emitter
+        // writes it onto the level). Passed unconditionally rather than only
+        // when a type is listed: an empty weakBondTypes stamps exactly the
+        // stock thresholds, and one shape of call is one shape to read.
+        { types: this.level.weakBondTypes, mult: this.level.weakBondMult },
       );
       this.cubes.push(...piece.cubes);
       this.constraints.push(...piece.constraints);

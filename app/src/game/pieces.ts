@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { CELL } from "./engine";
+import { BASE_BREAK_STRETCH } from "./level";
 import {
   PIECE_SHAPES,
   PENTA_SHAPES,
@@ -113,6 +114,16 @@ export function pieceOffsets(
   });
 }
 
+/** What a Seam-Splitter-weakened type's threshold is computed FROM when the
+ *  bay's own break stretch is not finite (an unbreakable-bonds config — the
+ *  same Infinity rebar's joints carry). A multiplier on Infinity is still
+ *  Infinity, so on such a bay the weakening has to restate a finite base, and
+ *  bay 1's fragility (level.ts's BASE_BREAK_STRETCH) is the honest one: the
+ *  weakened shape handles like it did at the bottom of the ladder, before the
+ *  ramp hardened anything. Aliased rather than re-typed so the ladder's first
+ *  rung and this fallback can never drift apart. */
+export const WEAK_BOND_UNBREAKABLE_BASE = BASE_BREAK_STRETCH;
+
 /** Joint damping — resistance to the cubes' relative velocity along each
  *  joint. jointStiffness stays < 1 (0.9-0.98, see level.ts), so the joints
  *  are real springs and CAN ring; at 0.1 a hard landing kept a piece
@@ -132,7 +143,9 @@ export const JOINT_DAMPING = 0.3;
  *  updateBreakableJoints can enforce a per-piece fragility without needing to
  *  know which size spawned it. That matters because pieces of different sizes
  *  coexist on the field: a Micro-Shipments run that later drafts Bulk still
- *  has the old dominoes lying around, and they must keep their own fragility. */
+ *  has the old dominoes lying around, and they must keep their own fragility.
+ *  The Seam Splitter's per-type weakening (`weakBond`) folds in the same way
+ *  and for the same reason — the stamp is the whole record. */
 export function createTetrisPiece(
   world: Matter.World,
   x: number,
@@ -147,6 +160,12 @@ export function createTetrisPiece(
    *  every existing caller — the sim harnesses especially — keeps launching
    *  ordinary shipments without being touched. */
   material: Material = "standard",
+  /** SEAM SPLITTER (upgrades.ts's Bond Emitter, tiers 2-3): piece types whose
+   *  stamped break threshold is weakened, and by how much (level.ts's
+   *  weakBondTypes / weakBondMult, handed through by game.ts). Optional and
+   *  trailing for the same reason material is — a caller that doesn't pass it
+   *  launches shipments at exactly the stock thresholds. */
+  weakBond?: { types: PieceType[]; mult: number },
 ): Piece {
   const mat = MATERIAL_SPEC[material];
   // A material that changes what a cube is WORTH overrides the shipment's type
@@ -183,16 +202,31 @@ export function createTetrisPiece(
 
   // Connect every pair → a rigid-but-shatterable cluster.
   const stiffness = Math.max(0.5, Math.min(0.995, jointStiffness + spec.stiffnessDelta));
+  // SEAM SPLITTER: a type listed in weakBond gets the same composed threshold
+  // (level ramp x size class) x weakBond.mult — except on a bay whose own
+  // stretch is not finite, where a multiplier alone is a no-op (Infinity x 0.7
+  // is still Infinity). There the weakened type restates bay-1 fragility
+  // (WEAK_BOND_UNBREAKABLE_BASE) before the multiplier, so the one thing the
+  // subsystem is FOR — keeping the misdelivering shapes breakable — survives
+  // the very format that makes everything else unbreakable.
+  const base = breakStretch * spec.breakMult;
+  const splitMult = weakBond && weakBond.types.includes(type) ? weakBond.mult : null;
   // REBAR never comes apart on impact, at any stretch. Slag denies a slot;
   // rebar denies a SHAPE — what lands is what you keep, so a bad landing cannot
   // be squeezed or shoved into a better one and the row is built around it.
   // Infinity rather than a very large number so the intent survives a future
   // reader: updateBreakableJoints compares `cur > rest * limit`, and no finite
   // stretch beats it. A Bond Breaker still splits these (see game.ts's
-  // useBondBreaker), which is deliberately the only thing that does.
+  // useBondBreaker), which is deliberately the only thing that does. Checked
+  // BEFORE the Seam Splitter, deliberately: rigidity is a property of the
+  // material and outranks a piece-shape one, so a rebar S stays Infinity
+  // whatever weakBond lists. (Tar welds are stamped elsewhere — the `welded`
+  // flag — and are untouched by all of this.)
   const pieceBreakStretch = mat.rigid
     ? Infinity
-    : Math.max(1.05, breakStretch * spec.breakMult);
+    : splitMult === null
+      ? Math.max(1.05, base)
+      : Math.max(1.05, (Number.isFinite(base) ? base : WEAK_BOND_UNBREAKABLE_BASE) * splitMult);
   const constraints: Matter.Constraint[] = [];
   for (let i = 0; i < cubes.length; i++) {
     for (let j = i + 1; j < cubes.length; j++) {
