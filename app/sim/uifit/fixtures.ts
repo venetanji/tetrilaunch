@@ -80,6 +80,32 @@ function midMeta(): MetaState {
   return m;
 }
 
+/**
+ * A PROGRESSED save, which midMeta above is not: it is `newMeta()` with three
+ * numbers written on it, so the ✓ Installed and ✓ Owned strips — the only part
+ * of the Workshop that GROWS with the save — were empty in the one fixture
+ * measuring that screen, and never measured at all. Adding this immediately
+ * caught them overflowing the fixed aside they used to live in, on nine of the
+ * thirteen devices; they render in the scroller now.
+ *
+ * Five systems installed at mixed tiers (the long strip), one option owned, two
+ * systems still on the shelf. Mark 3 beaten, so nothing is gated by tier and
+ * the remaining cards render their price rather than their "Needs Tier N" line
+ * — the gated case is midMeta's, at Mark 0. Loadout costs 135 of Mark 4's 308
+ * budget, i.e. a legal one (upgrades.ts's loadoutLegal), because an
+ * over-budget readout is a bug report rather than a layout case.
+ */
+function ownedMeta(): MetaState {
+  const m = newMeta();
+  m.salvage = 240;
+  m.runs = 52;
+  m.bestBay = 10;
+  m.mark = 3;
+  m.unlocks = ["survey"];
+  m.loadout = { ...m.loadout, reactor: 2, launcher: 1, magazine: 1, bay: 1, hydraulics: 1 };
+  return m;
+}
+
 /** Four digits of funds against a four-digit target — the readout width that
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
 const HUD_BASE = {
@@ -220,9 +246,14 @@ export const SCREENS: Record<string, () => string> = {
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
 
-  // One fixture, because there is one shelf: the Systems/Options tabs are gone
-  // and both card kinds render together now.
+  // TWO fixtures, because the screen has two shapes and only one of them was
+  // ever measured. `workshop` is the early save: nothing owned, so there are no
+  // strips and most of the shelf wears a "Needs Tier N" gate. `workshop-owned`
+  // is a Mark-3 save, where the shelf is down to its last cards and carries
+  // both ownership strips at its foot. One shelf in both — the Systems/Options
+  // tabs are gone and both card kinds render together.
   workshop: () => S.workshopScreen(midMeta()),
+  "workshop-owned": () => S.workshopScreen(ownedMeta()),
 
   contracts: () =>
     S.contractsScreen({

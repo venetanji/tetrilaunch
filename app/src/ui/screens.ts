@@ -39,6 +39,29 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   return `<span class="tier-plate tier-plate--${size}" aria-label="Tier ${tier}"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">${tier}</span></span>`;
 }
 
+/* ---------------------------------------------------------------------------
+ * THE TWO CURRENCIES. Both used to print as the ♻ character — the same emoji
+ * for scrap and for salvage, side by side on the refit chip and the workshop
+ * chip and on both shops' price buttons. That is not a styling slip: the whole
+ * point of the pair is that one dies with the run and the other never does, and
+ * a shared glyph says the opposite. Every amount now goes through one of these
+ * two, so a number cannot reach the screen without saying which pocket it comes
+ * out of, and the glyph is drawn (icons.ts) rather than typed — the ♻ emoji
+ * could not take the warm colour these readouts wear, and its metrics moved per
+ * platform.
+ *
+ * inline-flex (see .currency) so the same call works in a chip, on a button
+ * and mid sentence, and so the glyph can never wrap away from its number.
+ * ------------------------------------------------------------------------ */
+/** Salvage: banked at tier milestones, spent in the Workshop, kept forever. */
+export function salvageHTML(amount: string | number = "", size = 12): string {
+  return `<span class="currency">${icon("salvage", size)}${amount}</span>`;
+}
+/** Scrap: 2/line and 10/bay, spent at the refit yard, gone when the run ends. */
+export function scrapHTML(amount: string | number = "", size = 12): string {
+  return `<span class="currency">${icon("scrap", size)}${amount}</span>`;
+}
+
 /** The NEXT STEP badge (canvas A3): ONE surface ever carries it, computed by
  *  meta.ts's nextStep — this is just the chip. */
 export function nextBadgeHTML(label = "Next step"): string {
@@ -133,7 +156,7 @@ export function menuScreen(
           </div>
           <div class="chip menu__stat">
             <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">♻ ${salvage}</div>
+            <div class="chip__value" style="color:var(--warn)">${salvageHTML(salvage, 16)}</div>
           </div>
           ${store?.unlimited ? unlimitedBadgeHTML() : ""}
           ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
@@ -153,16 +176,16 @@ export function menuScreen(
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
           progress
-            ? `${DAILY_COUNT} today · ♻ ${progress.milestone} each · no clock, no launch cost`
+            ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
             : "Short challenges · retry freely"
         }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           guide
             ? guide.install
               ? salvage >= guide.install.cost
-                ? `♻ ${salvage} — ${guide.install.name} costs ♻ ${guide.install.cost}`
-                : `♻ ${salvage} — Contracts pay salvage`
-              : `♻ ${salvage} banked`
+                ? `${salvageHTML(salvage, 10)} — ${guide.install.name} costs ${salvageHTML(guide.install.cost, 10)}`
+                : `${salvageHTML(salvage, 10)} — Contracts pay salvage`
+              : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
         ${
@@ -221,7 +244,7 @@ export function howtoScreen(): string {
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
-    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (♻)</b> is earned per line and spent on your ship at refit stops. <b>Salvage</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
+    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (${scrapHTML()})</b> is earned per line and spent on your ship at refit stops. <b>Salvage (${salvageHTML()})</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
     ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
     ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
@@ -939,7 +962,7 @@ export function coachSteps(level: {
     },
     {
       title: "Funds & Target",
-      body: `Launches cost <b>$${level.launchCost}</b>; rows pay <b>$${level.scorePerLine}</b> plus <b>♻ scrap</b>; lost cubes fine <b>$${level.penaltyPerLostPiece}</b>. Reach <b>$${level.targetScore}</b> before Funds or time runs out.`,
+      body: `Launches cost <b>$${level.launchCost}</b>; rows pay <b>$${level.scorePerLine}</b> plus <b>${scrapHTML("scrap")}</b>; lost cubes fine <b>$${level.penaltyPerLostPiece}</b>. Reach <b>$${level.targetScore}</b> before Funds or time runs out.`,
     },
   ];
 }
@@ -1049,7 +1072,7 @@ export function coachFailHTML(
   const reactor = installById("reactor")!;
   const nextBlock = `<div class="coach__next">
           ${nextBadgeHTML()}
-          <p>Contracts have no clock and no launch cost, and each first clear banks <b>♻ ${milestone}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (♻ ${reactor.cost}), a bigger float for this exact bay.</p>
+          <p>Contracts have no clock and no launch cost, and each first clear banks <b>${salvageHTML(milestone)}</b> — enough for <b>${upgradeById("reactor")!.name}</b> (${salvageHTML(reactor.cost)}), a bigger float for this exact bay.</p>
         </div>`;
   return `<div class="modal-scrim" id="scrim">
     <div class="coach coach--fail">
@@ -1101,7 +1124,7 @@ export function bayClearScreen(opts: {
       <div class="bayclear__stats">
         <div class="stat"><b style="color:var(--accent)">$${opts.funds}</b><span>banked / ${opts.target}</span></div>
         <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
-        <div class="stat"><b style="color:var(--warn)">♻ ${opts.scrap}</b><span>scrap</span></div>
+        <div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>
       </div>
       <p class="muted bayclear__hint">tap to continue</p>
     </div>
@@ -1130,7 +1153,9 @@ export function refitScreen(opts: {
 }): string {
   // A14: ROWS on the leaderboard's scroll pattern, not cards. The grammar per
   // row: glyph · name over its state line · tier pips · the price button (in
-  // B6's "T2 · ♻ 35" words). An uninstalled track says where it IS bought —
+  // B6's "T2 · <scrap> 35" words — the yard spends SCRAP, so the glyph on the
+  // button is the cut plate, never the Workshop's salvage arcs). An
+  // uninstalled track says where it IS bought —
   // the Workshop — instead of wearing a live-looking price, and the full
   // ladder survives in `title` for where hover exists.
   const tracks = refitTracks(opts.mark);
@@ -1154,7 +1179,7 @@ export function refitScreen(opts: {
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
             <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
-            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</span>
+            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
           </button>`;
     const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
     return `<div class="refit-row${tier > 0 ? " refit-row--owned" : ""}" title="${u.name} — ${ladder}">
@@ -1178,7 +1203,7 @@ export function refitScreen(opts: {
         </div>
         <div class="chip chip--inline refit__scrap">
           <div class="chip__label">Scrap</div>
-          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">♻ ${opts.scrap}</div>
+          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">${scrapHTML(opts.scrap, 16)}</div>
         </div>
       </div>
       <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
@@ -1214,11 +1239,14 @@ export function refitScreen(opts: {
  * scrolling on a landscape phone. Collapsing owned entries makes the Workshop
  * get SHORTER the further in you are, and puts the decision you actually came
  * here to make at the top.
+ *
+ * ONE COLUMN OF ROWS, whole copy, and the pane scrolls. The shelf used to run
+ * as many columns as the width allowed, which meant every card's description
+ * was clamped to one line and ellipsised — 90 of them across the device matrix,
+ * i.e. every card on every device. The columns were bought to avoid scrolling,
+ * and this pane is one of the three places allowed to scroll; trading the
+ * sentence for a scrollbar it already had was the wrong way round.
  */
-/** Which half of the shop is showing. Systems and Options are two lists of the
- *  same kind of decision, and at 792x360 both at once is 689px of cards in a
- *  189px window — see the spec's measurement table. */
-
 export function workshopScreen(meta: MetaState): string {
   // Marks BEATEN. `meta.mark` verbatim, and deliberately not markUnlocked() -
   // main.ts's onBuyUnlock enforces the gate against this same field, so any
@@ -1281,9 +1309,10 @@ export function workshopScreen(meta: MetaState): string {
       const available = installAvailable(meta, i);
       const affordable = meta.salvage >= i.cost;
       const gates = installGates(meta, i);
-      // B6: one price grammar — "T1 · ♻ 15". An install is tier 1 of a track
-      // by definition, and the button says so in the same words the refit
-      // yard's buy buttons use for tiers 2 and 3.
+      // B6: one price grammar — "T1 · <salvage> 15". An install is tier 1 of a
+      // track by definition, and the button says so in the same words the refit
+      // yard's buy buttons use for tiers 2 and 3 — with the one difference that
+      // matters, the currency glyph: this purchase is salvage, that one scrap.
       const foot = available
         ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
@@ -1317,22 +1346,34 @@ export function workshopScreen(meta: MetaState): string {
   const shelf = installCards + cards;
   const shelfEmpty = !shelf;
 
-  // The FIXED column. Everything here is state rather than merchandise — what
-  // you have, and what the Mark will let you spend — so it must not scroll
-  // away from the cards it constrains. The build budget in particular is the
-  // usual reason a card is greyed out, and it used to ride on the tab bar,
-  // which is exactly the element being deleted.
+  // What you already have, at the FOOT of the shelf. Both strips used to ride
+  // in the fixed aside beside it, and that was a fit bug waiting for a save
+  // that owned anything: the aside cannot scroll (sim/uifit asserts it, and it
+  // is not on the allowlist), so on a landscape phone a Mark-3 loadout ran its
+  // five installed names straight down past the pane and level with Start Run.
+  // The new `workshop-owned` fixture is what caught it — the old one was
+  // `newMeta()` with three numbers on it, and owned nothing.
+  //
+  // Reference belongs where reference can scroll, and BELOW the merchandise:
+  // the shop leads with what you can buy, exactly as the owned-collapse note
+  // above argues, and the answer to "what do I already have" is one flick away
+  // rather than in the way.
+  const haveStrips =
+    (installedStrip
+      ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
+      : "") + ownedStrip;
+
+  // The FIXED column, and now ONLY the budget. What stays pinned is what
+  // CONSTRAINS a purchase — the cap the Mark sets is the usual reason a card is
+  // greyed out, and scrolling it away from the cards it explains is the one
+  // thing this pane must not do. Everything else in here was reference, and
+  // reference does not need to be pinned; it needs to be readable, which is
+  // what moving it into the scroller buys.
   const aside = `<aside class="workshop__aside">
         <div class="workshop__budget-box">
           <span class="workshop__aside-label">build budget</span>
           <span class="workshop__budget">${tiersCost(meta.loadout)}<span class="price__sep">/</span>${markBudget(meta)}</span>
         </div>
-        ${
-          installedStrip
-            ? `<div class="workshop__owned"><span class="workshop__owned-label">✓ Installed</span>${installedStrip}</div>`
-            : ""
-        }
-        ${ownedStrip}
       </aside>`;
 
   return `<div class="screen neon-backdrop">
@@ -1346,7 +1387,7 @@ export function workshopScreen(meta: MetaState): string {
         <div style="display:flex;gap:10px;align-items:center">
           <div class="chip chip--inline">
             <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">♻ ${meta.salvage}</div>
+            <div class="chip__value" style="color:var(--warn)">${salvageHTML(meta.salvage, 16)}</div>
           </div>
           <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
         </div>
@@ -1365,7 +1406,7 @@ export function workshopScreen(meta: MetaState): string {
           shelfEmpty
             ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
             : `<div class="workshop__grid">${shelf}</div>`
-        }</div>
+        }${haveStrips}</div>
       </div>
       <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
     </div>
@@ -1536,7 +1577,7 @@ export function draftScreen(opts: {
                 ? " — refit next bay"
                 : ` — refit in ${opts.baysToRefit} bays`
           }</div>
-          <div class="chip__value" style="color:var(--warn)">♻ ${opts.scrap}</div>
+          <div class="chip__value" style="color:var(--warn)">${scrapHTML(opts.scrap, 16)}</div>
         </div>
       </div>
       <div class="draft__body">
@@ -1707,7 +1748,7 @@ export function endModal(opts: {
       ${
         opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">♻ +${opts.tierSalvage}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
@@ -1716,10 +1757,10 @@ export function endModal(opts: {
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
           : `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? `♻ +${opts.tierSalvage}` : `T${opts.progress.tier}`}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? salvageHTML(`+${opts.tierSalvage}`, 16) : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>♻ +${opts.tierSalvage} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>${salvageHTML(`+${opts.tierSalvage}`)} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked</span>
         </div>
         ${
@@ -1827,14 +1868,15 @@ export function contractsScreen(opts: {
   // The tier status is its OWN line in the body font, not part of the pixel
   // eyebrow: with the progress suffix inline, the eyebrow ran to ~90 letter-
   // spaced glyphs, wrapped on a landscape phone, and dropped an orphaned
-  // "♻ 60" straight into the Contracts heading (seen on device, 2026-08-09).
+  // salvage figure straight into the Contracts heading (seen on device,
+  // 2026-08-09).
   // Copy states the MILESTONE economy — each first clear banks its share now
   // (meta.ts's tierMilestoneSalvage); completion is what opens the next tier.
   const status = opts.progress
     ? `<p class="muted" style="margin:0">
         <b style="color:var(--accent)">Contracts ${opts.progress.contracts}/${opts.progress.needed}${opts.progress.contracts >= opts.progress.needed ? " ✓" : ""}</b>
         · <b>Deep Run ${opts.progress.runDone ? "✓" : "○"}</b>
-        — each first clear banks <b style="color:var(--warn)">♻ ${opts.progress.milestone}</b>; finish both halves to open Tier ${opts.progress.tier + 1}.
+        — each first clear banks <b style="color:var(--warn)">${salvageHTML(opts.progress.milestone)}</b>; finish both halves to open Tier ${opts.progress.tier + 1}.
       </p>`
     : "";
   return `<div class="screen neon-backdrop">
@@ -1856,11 +1898,11 @@ export function contractsScreen(opts: {
         // A9: the WHY strip — the board's bottom line closes the loop the
         // cards open, in the tier's own numbers.
         opts.progress
-          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ♻ ${
-              opts.progress.milestone * opts.progress.needed
+          ? `<p class="muted contracts__why">${nextBadgeHTML("Why")} ${opts.progress.needed} first clears bank ${
+              salvageHTML(opts.progress.milestone * opts.progress.needed)
             }${
               opts.nextInstall
-                ? ` — ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop, before your next run`
+                ? ` — ${opts.nextInstall.name} costs ${salvageHTML(opts.nextInstall.cost)} in the Workshop, before your next run`
                 : " toward the Workshop"
             }.</p>`
           : ""
@@ -1992,7 +2034,7 @@ export function contractEndModal(opts: {
   // A10's "state the target": salvage in hand is only meaningful against the
   // next thing it buys, so the row names it whenever the caller knows one.
   const target = opts.nextInstall
-    ? ` ${opts.nextInstall.name} costs ♻ ${opts.nextInstall.cost} in the Workshop.`
+    ? ` ${opts.nextInstall.name} costs ${salvageHTML(opts.nextInstall.cost)} in the Workshop.`
     : "";
   // Three outcomes, one salvage row: the clear COMPLETED the tier (the
   // celebration), the clear ticked tier progress (say what's still missing),
@@ -2000,7 +2042,7 @@ export function contractEndModal(opts: {
   const salvageRow =
     opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">
-        <div class="salvage-row__amt">♻ +${opts.award.salvage}</div>
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.award.completedTier} complete!</b>
           <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
@@ -2009,17 +2051,17 @@ export function contractEndModal(opts: {
       </div>`
       : opts.award?.firstClear
         ? `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? `♻ +${opts.award.salvage}` : `T${p.tier}`}</div>
+        <div class="salvage-row__amt salvage-row__amt--tier">${opts.award.salvage > 0 ? salvageHTML(`+${opts.award.salvage}`, 16) : `T${p.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${p.tier} · Contracts ${p.contracts}/${p.needed}</b>
           <span class="muted">${
             opts.award.salvage > 0
-              ? `<b>♻ +${opts.award.salvage} banked</b> — ${opts.salvageTotal} salvage total.`
+              ? `<b>${salvageHTML(`+${opts.award.salvage}`)} banked</b> — ${opts.salvageTotal} salvage total.`
               : ""
           } ${
             p.contracts >= p.needed
-              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (♻ ${p.award} total per tier).`
-              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (♻ ${p.award} total per tier).`
+              ? `Contracts done — ${p.runDone ? "" : "beat the Deep Run to "}complete the tier (${salvageHTML(p.award)} total per tier).`
+              : `${p.needed - p.contracts} more Contract${p.needed - p.contracts === 1 ? "" : "s"}${p.runDone ? "" : " and the Deep Run"} to complete the tier (${salvageHTML(p.award)} total per tier).`
           }${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
