@@ -698,9 +698,15 @@ export function hudHTML(opts: {
       </div>
       <div class="plant__body">
         <div class="plant__hdr">
-          <div class="plant__title"><b>◊</b> Recycling Plant <span class="plant__bay">· ${
-            contract ? contract.name : `Bay ${bayNum}/${RUN_LEVELS}`
-          }</span></div>
+          <!-- The panel's name, and nothing else. The bay position ("· Bay
+               7/10") and, in Contract mode, the contract's name used to trail
+               this title, and both are already the HEADLINE of the bay banner
+               at the top of the field. The banner exists precisely because
+               that position did not read as small muted text — see its comment
+               above — so keeping the muted copy here is the losing half of two
+               tellings of one fact, and it is the half that was being
+               ellipsised away on a narrow panel anyway. -->
+          <div class="plant__title"><b>◊</b> Recycling Plant</div>
           <div class="plant__rivets"><i></i><i></i><i></i></div>
         </div>
         <div class="pl-read">

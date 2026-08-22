@@ -115,7 +115,40 @@ const DECORATIVE = [".belt", ".bayclear__rays", ".lose-fx"];
  * contract HUD, where screens.ts drops the "Launch $N" span). A number in a
  * comment cannot be trusted to stay true across a content change; this can.
  */
-const SINGLE_LINE = [".pl-meta", ".pl-load", ".plant__hdr", ".bay-banner"];
+const SINGLE_LINE = [
+  ".pl-meta", ".pl-load", ".plant__hdr", ".bay-banner",
+  // Launches, DURING THE TUTORIAL ONLY — scoped, because the same block is a
+  // stacked label-over-value column in the full readout and a wrap is its
+  // design there. With Funds and Time hidden it is a full-width row above
+  // RELOAD instead, and the stack read as the number being pushed onto a line
+  // of its own. `.pl-read`'s `flex-wrap` means nothing else would notice.
+  ".hud[data-coach] .pl-launches",
+];
+
+/**
+ * Pairs of boxes that are laid out to sit BESIDE each other and must therefore
+ * never cover each other.
+ *
+ * One entry, because one place in the app stacks two independently-sized boxes
+ * in a height-capped column: the tutorial. The coach card was deliberately made
+ * a SIBLING of the plant readout rather than a layer over it (see app.css's
+ * `.coach` placement note) so that "the two can never overlap, so no revealed
+ * figure is ever half-clipped". Sibling is necessary but not sufficient — a
+ * block child that outgrows its flex-shrunk parent spills straight through the
+ * box below it, which is exactly what the card did over Launches and Reload.
+ *
+ * Nothing else in the harness could see it: the panel measured EXACTLY at its
+ * cap (`plant` green), the card stayed inside the viewport (`offscreen` green),
+ * and no text was cut by its own box (`textclip` green). The overlap is the
+ * defect and only an overlap test names it.
+ */
+const NO_OVERLAP: [string, string][] = [
+  // Scoped past `.coach--fail`: the tutorial-failure card is deliberately a
+  // MODAL over a dead bay's HUD (screens.ts's coachFailHTML puts it in a
+  // scrim), so covering the readout is what it is for. It is the teaching
+  // steps, which sit in the panel's own column, that must not.
+  [".coach:not(.coach--fail) .coach__card", ".plant__body"],
+];
 
 /** `id` is what the baseline keys off, so these are stable API — renaming one
  *  silently invalidates its baseline entries. */
@@ -125,6 +158,10 @@ const ASSERTIONS = [
   { id: "offscreen", desc: "no text or control is clipped off-viewport" },
   { id: "tap", desc: "every control is at least 44x44" },
   { id: "textclip", desc: "no text is hard-clipped by its box" },
+  { id: "clipped", desc: "no content is cut off by an ancestor's overflow edge" },
+  { id: "overlap", desc: "boxes laid out side by side do not cover each other" },
+  { id: "draghint", desc: "the drag hint's gesture plays clear of the plant panel" },
+  { id: "reveal", desc: "the tutorial's first step reveals only what it teaches" },
   { id: "plant", desc: "the HUD plant panel stays inside its design box" },
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
@@ -138,12 +175,21 @@ type Findings = Record<AssertionId, string[]> & { warn: string[] };
  * Runs INSIDE the page. Returns raw findings; all judgement happens back in
  * node so the rules read in one place and the browser side stays mechanical.
  */
-function measure(cfg: { allowedScrollers: string[]; decorative: string[]; singleLine: string[] }): Findings {
-  const { allowedScrollers, decorative, singleLine } = cfg;
+function measure(cfg: {
+  allowedScrollers: string[];
+  decorative: string[];
+  singleLine: string[];
+  noOverlap: [string, string][];
+  /** The fixture being measured — a couple of assertions are about one
+   *  screen's own design contract rather than a rule that holds everywhere. */
+  screen: string;
+}): Findings {
+  const { allowedScrollers, decorative, singleLine, noOverlap, screen } = cfg;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
+    clipped: [], overlap: [], draghint: [], reveal: [],
     plant: [], rail: [], twocol: [], oneline: [], warn: [],
   };
   const label = (el: Element): string => {
@@ -241,8 +287,9 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[]; single
     });
 
   // --- textclip: text cut off by its own box --------------------------------
-  // An ELLIPSIS is a deliberate design decision (.plant__title truncates the bay
-  // name on purpose), so it warns rather than fails. A hard clip never is.
+  // An ELLIPSIS is a deliberate design decision (the workshop cards clamp their
+  // descriptions on purpose), so it warns rather than fails. A hard clip never
+  // is.
   document.querySelectorAll("#overlay *").forEach((el) => {
     if (el.childElementCount !== 0) return;
     if (!(el.textContent ?? "").trim()) return;
@@ -267,6 +314,88 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[]; single
     else out.textclip.push(where);
   });
 
+  // --- clipped: content cut off by an ANCESTOR's overflow edge --------------
+  // `textclip` owns "text too big for its OWN box". This owns the other half: a
+  // box that fits itself perfectly and is then sliced by something above it.
+  //
+  // The case it exists for is a SCROLL ROW. `overflow-x: auto` forces the block
+  // axis to stop being `visible`, so anything a chip deliberately hangs outside
+  // itself — the mods row's ×N badge at `top: -7px`, the ability chips' key tag
+  // at `bottom: -8px` — is clipped by the row unless the row reserves padding
+  // for it. Nothing else here can see that: the badge is inside the viewport
+  // (`offscreen` green), inside its own box (`textclip` green), and the row
+  // reports no vertical overflow at all, because block-START overflow never
+  // contributes to scrollHeight.
+  //
+  // Only the axis the ancestor CANNOT scroll counts. Content parked outside a
+  // scrollable axis is reachable by scrolling, which is the entire point of the
+  // mods row's tail — flagging it would be flagging the design.
+  document.querySelectorAll("#overlay *").forEach((el) => {
+    const isControl = el.matches("button, .btn, .icon-btn, .toggle, input");
+    const isTextLeaf = el.childElementCount === 0 && (el.textContent ?? "").trim().length > 0;
+    if (!isControl && !isTextLeaf) return;
+    if (el.closest(decorative.join(","))) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 2 || r.height <= 2) return;
+    const own = getComputedStyle(el);
+    if (own.visibility === "hidden") return;
+    // Where clipping STARTS. An out-of-flow box is only clipped by its
+    // containing block and that block's ancestors — never by the boxes in
+    // between, which do not lay it out. `offsetParent` is that containing
+    // block for `position: absolute`; a fixed box has none in this app.
+    let start: Element | null = el.parentElement;
+    if (own.position === "fixed") return;
+    if (own.position === "absolute") {
+      start = (el as HTMLElement).offsetParent;
+      if (!start) return;
+    }
+    // Once an ancestor CAN scroll an axis, everything further out is off the
+    // hook for it: the content is reachable there, and the outer boxes only
+    // ever clip what that scroller was already hiding. Without this the
+    // leaderboard's off-screen rows read as 24 findings against `.panel` and
+    // `.screen` — the list working exactly as designed.
+    let reachableY = false;
+    let reachableX = false;
+    for (let p = start; p && p !== document.body; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      const scrollsY = p.scrollHeight - p.clientHeight > 1;
+      const scrollsX = p.scrollWidth - p.clientWidth > 1;
+      const clipsY = cs.overflowY !== "visible" && !reachableY && !scrollsY;
+      const clipsX = cs.overflowX !== "visible" && !reachableX && !scrollsX;
+      if (clipsY || clipsX) {
+        // The overflow clip edge is the PADDING box, not the border box.
+        const box = p.getBoundingClientRect();
+        const top = box.top + p.clientTop;
+        const left = box.left + p.clientLeft;
+        const cutY = clipsY ? Math.max(top - r.top, r.bottom - (top + p.clientHeight)) : 0;
+        const cutX = clipsX ? Math.max(left - r.left, r.right - (left + p.clientWidth)) : 0;
+        const cut = Math.max(cutY, cutX);
+        if (cut > 1) {
+          out.clipped.push(
+            `${label(el)} "${(el.textContent ?? "").trim().slice(0, 12)}" cut ${Math.round(cut)}px by ${label(p)}`,
+          );
+        }
+      }
+      if (scrollsY) reachableY = true;
+      if (scrollsX) reachableX = true;
+    }
+  });
+
+  // --- overlap: side-by-side boxes must not cover each other ----------------
+  noOverlap.forEach(([aSel, bSel]) => {
+    const a = document.querySelector(aSel);
+    const b = document.querySelector(bSel);
+    if (!a || !b) return;
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    if (ra.width <= 0 || rb.width <= 0) return;
+    const ox = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+    const oy = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+    if (ox > 1 && oy > 1) {
+      out.overlap.push(`${aSel} covers ${bSel} by ${Math.round(ox)}x${Math.round(oy)}px`);
+    }
+  });
+
   const rootStyle = getComputedStyle(document.documentElement);
   const cssPx = (name: string): number => parseFloat(rootStyle.getPropertyValue(name));
 
@@ -288,6 +417,46 @@ function measure(cfg: { allowedScrollers: string[]; decorative: string[]; single
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
     }
+  }
+
+  // --- reveal: the tutorial's progressive readout, at its first step --------
+  // The plant reveals one block per step, and step 0 is the strictest state:
+  // PWR only, because the drag is the whole lesson and a first-timer meeting
+  // nine readouts at once was the playtest complaint that created the reveal.
+  // It is enforced by `display: none` rules of specificity (0,3,0), which is
+  // low enough that ANY later rule naming the same block at the same weight
+  // silently un-hides it — a styling change to Launches did exactly that, and
+  // put it on the aim-and-fire card a full step before the shot that is meant
+  // to introduce it. Nothing else here would notice: the block is inside the
+  // viewport, inside its box, and does not overlap a thing.
+  // Restated as a list rather than derived from the stylesheet on purpose:
+  // read off the CSS it would agree with any bug the CSS has.
+  if (screen === "coach") {
+    [".plant__hdr", ".pl-funds", ".pl-time", ".pl-meta", ".pl-mods", ".pl-load", ".pl-launches"]
+      .forEach((sel) => {
+        const el = document.querySelector(sel);
+        if (el && el.getBoundingClientRect().height > 0) {
+          out.reveal.push(`${sel} is on screen at coach step 0`);
+        }
+      });
+  }
+
+  // --- draghint: the onboarding gesture must play clear of the panel --------
+  // The hint is an ANIMATION, so its dot cannot simply be measured: the harness
+  // drives every animation to its end state, where the dot is back at the start
+  // with opacity 0. What it can measure is the invariant the CSS is written to
+  // hold — the dot's furthest reach below the hint box, published by the
+  // stylesheet as `--hint-reach` precisely so this does not have to restate it,
+  // must land above the plant panel's top edge. The panel is z-index 6 and the
+  // hint is not, so anything below that line is not "overlapping", it is gone.
+  const hint = document.querySelector(".drag-hint");
+  const plantEl = document.querySelector(".plant");
+  if (hint && plantEl) {
+    const reach = parseFloat(getComputedStyle(hint).getPropertyValue("--hint-reach"));
+    const hb = hint.getBoundingClientRect();
+    const pb = plantEl.getBoundingClientRect();
+    const dips = hb.top + reach - pb.top;
+    if (dips > 1) out.draghint.push(`gesture reaches ${Math.round(dips)}px under .plant`);
   }
 
   // --- rail: the control rail must never sit over the play field ------------
@@ -470,6 +639,8 @@ for (const device of devices) {
       allowedScrollers: ALLOWED_SCROLLERS,
       decorative: DECORATIVE,
       singleLine: SINGLE_LINE,
+      noOverlap: NO_OVERLAP,
+      screen,
     });
     for (const { id } of ASSERTIONS) {
       if (res[id]?.length) found[`${device.name}|${screen}|${id}`] = res[id];

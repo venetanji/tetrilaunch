@@ -815,15 +815,49 @@ body.crt-off #app::after { display: none; }
    spells the gesture out in the .kbd-hint strip above. */
 .drag-hint {
   position: absolute;
-  /* Anchored to the field, just above the plant's top edge (54% of the
-     field's height) so the looping gesture never plays half-hidden under
-     the panel. */
+  /* HOW FAR THE GESTURE REACHES below this box's own top edge: the dot starts
+     at `top: 64px`, the hint-dot keyframes translate it 56px down at the pull's
+     furthest point, and it is 26px tall — 146px. Stated once, because the
+     anchor below is derived from it and the ui-fit harness asserts the
+     clearance against it. Keep it in step with those keyframes. */
+  --hint-reach: 146px;
+  /* Clearance wanted between the gesture and the panel: the reach, plus a
+     little daylight so the dot does not kiss the panel's top border. */
+  --hint-clear: calc(var(--hint-reach) - 80px + 8px);
+  /* Anchored to the PLANT'S TOP EDGE, derived from the panel's own geometry
+     rather than from a fraction of the field. The panel is bottom-anchored at
+     0.9703 of the field height and stands 0.4296 of it tall, so the difference
+     is where its top edge lands; this box is 160px centred on `top` (the
+     -80px margin below), so subtracting the clearance above puts the dot's
+     furthest reach just clear of the panel.
+
+     This was a flat 0.40 of the field height under a comment claiming it
+     cleared the panel. It never did, and the reason is worth keeping: the
+     fraction positions the box's CENTRE, while the 146px the dot travels below
+     that centre is a FIXED pixel distance and the panel's top edge is a
+     fraction — so the shorter the viewport, the deeper the gesture reached
+     into the panel. Measured on a 740x360 phone: 15px under the panel in
+     normal play, and 48px under it during the tutorial, where the panel is at
+     its tallest because it is carrying the coach card. `.plant` is z-index 6
+     and this is z-index auto, so "under" means invisible — the loop vanished
+     mid-pull, at exactly the moment it was demonstrating the pull-back. Raising
+     the hint's z-index instead would have drawn a neon dot across the tutorial
+     card's copy, which is why this moves rather than restacks. */
   left: calc(var(--field-x) + 0.25 * var(--field-w));
-  top: calc(var(--field-y) + 0.40 * var(--field-h));
+  top: calc(var(--field-y) + (0.9703 - 0.4296) * var(--field-h) - var(--hint-clear));
   width: 160px; height: 160px; margin: -80px 0 0 -80px;
   pointer-events: none;
   opacity: 1;
   transition: opacity var(--hint-show-dur) var(--ease);
+}
+/* The tutorial's panel is taller — it is carrying the coach card, capped at
+   0.52 of the field height (see `.hud[data-coach] .plant`) — so the hint
+   clears THAT top edge instead. Same arithmetic, the panel's tutorial height
+   budget substituted for its normal one. This is the state the hint is
+   actually shown in most often: the drag hint's whole reason to exist is a
+   player's first-ever bay, which is the tutorial's first step. */
+.hud[data-coach] .drag-hint {
+  top: calc(var(--field-y) + (0.9703 - 0.52) * var(--field-h) - var(--hint-clear));
 }
 .drag-hint--hidden { opacity: 0; }
 .drag-hint--hidden .drag-hint__dot,
@@ -956,7 +990,6 @@ body.crt-off #app::after { display: none; }
   display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .plant__title b { color: var(--accent); }
-.plant__bay { color: var(--text-faint); }
 .plant__rivets { display: flex; gap: 5px; flex: none; }
 .plant__rivets i { width: max(4px, calc(6.7 * var(--fpx))); height: max(4px, calc(6.7 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 
@@ -1141,7 +1174,23 @@ body.crt-off #app::after { display: none; }
    out), so a max-height would cap the BOX while the content spilled anyway —
    the harness's `plant` assertion would go green over a bug that was still on
    screen. Leaving height:auto keeps the measurement honest. */
-[data-density="compact"] .pl-mods { padding-top: 3px; padding-bottom: 4px; }
+/* The badge headroom has to be RESTATED for this density, not inherited: the
+   base rule's 8px covers the ×N badge, and 3px does not. The badge sits at
+   `top: -7px` inside a chip carrying a 2px top border, so it rises exactly 5px
+   above the chip's top edge, and this row clips at its padding box — the
+   `overflow-x: auto` above forces the block axis to stop being `visible`, and
+   block-START overflow is not reachable by scrolling. 3px against a 5px rise
+   sliced 2px off the top of every ×N badge, flat-topping it and cutting into
+   the glyphs, on all ten phones in the device matrix; the three tablets are
+   not compact and kept the base rule's 8px, which is why this only ever showed
+   up on a phone.
+   The 2px comes out of the BOTTOM so the row stays exactly 32px tall and the
+   height budget argued above is untouched. Bottom padding is there for the
+   ability chips' B/X key tag at `bottom: -8px`, and those two chips are
+   `display: none` at this density (the rule immediately below) — so nothing at
+   compact hangs below a chip except its own `--shadow-hard-sm`, which is a 2px
+   offset and is exactly what is left. */
+[data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; }
 [data-density="compact"] .mod--bb,
 [data-density="compact"] .mod--demo { display: none; }
 [data-density="compact"] .pl-mods .mod,
@@ -3111,7 +3160,24 @@ button.panel { color: var(--text); }
    instead — Launches and Reload spilled below the panel's bottom edge, off the
    bottom of a 360px viewport, on exactly the step that had just revealed them
    (caught by the coach-final fixture on five of twelve devices). */
-.hud[data-coach] .coach { flex: 0 1 auto; }
+.hud[data-coach] .coach {
+  flex: 0 1 auto;
+  /* ...and a flex COLUMN, which is the link that chain was still missing.
+     `.coach` did shrink — 101px against the 165px it wanted at 640x360 — but
+     the scrollable body belongs to the CARD inside it, and a block child of a
+     block box takes its own content height and spills out of a parent that
+     shrank underneath it. So the cap stopped the box while the card walked
+     straight through the readout below: 249x53px of overlap on the budget
+     phone, 314x15 on a Pixel 5, 267x39 on an iPhone 13 mini — 7 of the 13
+     devices — with Launches and Reload sitting UNDER the card's dots and its
+     GOT IT button, on the step that had just revealed them. That is what the
+     sibling placement was chosen to make impossible.
+     A flex container makes `.coach__card` a flex ITEM, which is the only thing
+     that lets the `min-height: 0` below reach it and hand the give-way to
+     `.coach__body` the way the cap above always assumed it did. */
+  display: flex;
+  flex-direction: column;
+}
 .hud[data-coach] .coach,
 .hud[data-coach] .coach__card { min-height: 0; }
 .hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -3180,6 +3246,37 @@ button.panel { color: var(--text); }
    rule below selects it. */
 .hud[data-coach="0"] :is(.pl-load, .pl-launches) { display: none; }
 .hud[data-coach] :is(.plant__hdr, .pl-funds, .pl-time, .pl-meta, .pl-mods) { display: none; }
+
+/* One consequence of that hide list, which has to be styled rather than left
+   to fall out: with Funds and Time gone, Launches is the only thing left in
+   the readout, and `.pl-stat` is built for neither of the jobs it now has.
+   It is a narrow RIGHT-hand column beside the funds block — `text-align:
+   right` plus a left gutter, label STACKED over value, because vertical is
+   the only way a column that narrow fits its own heading. Alone it inherited
+   all of that: the label sat 6px in from the panel's content edge, the number
+   was right-aligned under the label's last glyph, and the two sat on separate
+   lines. Directly above RELOAD, which is a label with its content beside it,
+   that reads as a figure pushed onto a line of its own and left hanging.
+   So during the tutorial it becomes what it actually is here — one full-width
+   ROW: same flex, same gap and same left edge as `.pl-load` below it, label
+   and number sharing a baseline. The stacked column is right in the full
+   readout and returns with it the moment the coach is gone. */
+.hud[data-coach] .pl-launches { text-align: left; padding-left: 0; }
+/* The row is made by turning the two CHILDREN inline, deliberately, rather
+   than by making `.pl-launches` a flex container. `display: flex` here would
+   be a display value on a block the reveal above HIDES at step 0 — same
+   specificity as that rule (0,3,0) and later in the file, so it won wins and
+   Launches appeared on the aim-and-fire card, one step before the shot that
+   is supposed to introduce it. That is the exact trap the "HIDE rules only,
+   never display reveals" note above is warning about, and it costs a step of
+   the tutorial's pacing to fall into.
+   Inline children have no such reach: while `.pl-launches` is `display: none`
+   nothing inside it lays out at all, whatever display it is given. They also
+   share a baseline for free, and an inline box ignores the stacked layout's
+   `margin-top: 3px` without needing it reset. */
+.hud[data-coach] .pl-launches .lbl,
+.hud[data-coach] .pl-launches .v { display: inline; }
+.hud[data-coach] .pl-launches .v { margin-left: max(2px, calc(6 * var(--fpx))); }
 
 /* ---------- Game-over "why" ----------
    The plain-language cause + one concrete adjustment, between the headline
