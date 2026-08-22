@@ -348,14 +348,74 @@ raising it would be a monetization change wearing a content change's clothes.
 
 Three things this surfaced that are worth keeping written down.
 
-**The exactness needs no tiling proof, and that is specific to this game.** A
-tetromino puzzle would normally have to generate from a known-tiling template or
-risk emitting sets that are arithmetically exact and geometrically impossible.
-Here pieces don't keep their shape: the compactor shatters whatever it presses
-and rows fill slot-by-slot from *loose* cubes. So any multiset summing to
-`goal * CUBES_PER_LINE` is achievable, and what piece type actually changes is
-how hard the **delivery** is — I and O settle flat, S/Z/T tip and strand. That is
-what the tier ladder scales.
+**The exactness needs two proofs, and the first two attempts each shipped
+Contracts nobody could win.** Both failures are worth keeping written down,
+because they are the same mistake at different depths: assuming that a weaker
+guarantee implies the one the player actually needs.
+
+*Attempt one — counting.* The original argument was that this game needs no
+tiling proof at all. Pieces don't keep their shape here: the compactor shatters
+whatever it presses (`pieces.ts`'s `breakJointsInBand`) and rows fill slot by
+slot from *loose* cubes, so any multiset summing to `goal * CUBES_PER_LINE`
+looked achievable. It isn't. Shattering lets a piece's cubes separate; it never
+moves a cube sideways under an overhang and it certainly doesn't conjure one to
+fill a hole. Zero waste means every launched cube ends inside a completed row,
+which makes the goal a `goal` x 8 **rectangle** — and a set that tiles no such
+rectangle is unwinnable however it shatters. The generator emitted `[I, O, J, J]`
+for two lines and `[I, I, I, T, S, Z]` for three. Fixed by building the inventory
+*from* a tiling (`tiling.ts`), with an independent solver re-checking every
+generated queue in `sim/systems.ts`.
+
+*Attempt two — packing.* A tiling proof says the pieces FIT. It says nothing
+about whether they can be ASSEMBLED, because the player does not place them: the
+belt does. Shipments arrive one at a time, in a shuffled order, into a bay with
+gravity and a compactor that clears a row the instant it fills. A packing can
+demand a cube sit under an overhang that the piece filling it arrives too late to
+reach. The tier-5 board on 2026-08-22 dealt `[I, I, L, L, L, J]` for three lines:
+it packs, and 18 of its 60 arrival orders — including the canonical one the card
+advertises — cannot be finished by landing each shipment where it falls. It was
+reported as impossible, correctly. Fixed by `buildable.ts`, which models queue
+order, gravity, clear-on-fill and an empty field as the terminal condition, and
+by `contracts.ts`'s `dealPatternQueue`, which now hands out an order it has
+PROVEN finishable rather than a blind shuffle.
+
+The order is still re-rolled per attempt, and must be: seeding it would make one
+unlucky permutation permanently unwinnable for everyone who drew that Contract,
+and free retries would hand back the identical bad order forever. Proving the
+roll doesn't fix the roll being random — it fixes it being able to be impossible.
+
+What piece TYPE changes, once both proofs hold, is how hard the delivery is — I
+and O settle flat, S/Z/T tip and strand — and that is what the tier ladder
+scales. `sim/patterns.ts` measures it: for every inventory the generator can
+emit, the share of arrival orders finishable landing each shipment straight down.
+The headline numbers, over the 333 distinct inventories reachable across 1500
+seeds and all nine tiers:
+
+| tier | mean share of arrival orders that can be finished |
+|---|---|
+| 1–3 | 100% |
+| 4 | 98.6% |
+| 5 | 91.9% |
+| 6 | 58.0% |
+| 7–9 | 50.8% |
+
+294 of the 333 have at least one order nobody can finish; 142 have more bad
+orders than good ones; the worst have **none** at all — `[I, I, T, T, Z, Z]` at
+tier 6 could not be finished from any of 60 random shuffles. All of them can be
+finished from an order that was searched for rather than rolled, which is what
+`dealPatternQueue` now hands out: 333 of 333 deal a straight-drop-buildable
+order, worst search 730ms.
+
+Two more facts from that sweep are worth carrying:
+
+- **T shipments always come in pairs.** No packing of an 8-wide rectangle has an
+  odd number of T pieces, at any goal — the checkerboard argument forces it. L
+  and J pair up only at *two* lines, where no packing has an odd `L + J`; from
+  three lines on, a single L is perfectly legal (`[I, I, I, T, T, L]` tiles).
+- **The pairing intuition is really a difficulty signal, not a possibility one.**
+  Among the `{I, O, L, J}` inventories the generator emits at three lines, the
+  ones with both L and J odd are the least forgiving — `[I, I, L, L, L, J]` is
+  exactly that shape, which is why it read as impossible before it was one.
 
 **Exactness constrains piece size, arithmetically.** A queue is exact only if
 `goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only

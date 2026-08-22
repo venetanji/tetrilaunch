@@ -25,12 +25,13 @@
  *           fits. The generous reading — an upper bound on what the arc, the
  *           tumbling and the press's sideways shove can buy.
  */
-import { buildOrder, isBuildable, type BuildModel } from "../src/game/buildable";
+import { isBuildable, type BuildModel } from "../src/game/buildable";
 import {
-  DAILY_COUNT, generateContract, levelForContract, type Contract,
+  DAILY_COUNT, dealPatternQueue, generateContract, levelForContract, type Contract,
 } from "../src/game/contracts";
 import { SIZE_SPEC } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
+import type { PieceType } from "../src/game/theme";
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -48,23 +49,41 @@ function arg(name: string, fallback: string): string {
 }
 
 const SEEDS = Number(arg("seeds", "1500"));
-const ORDERS = Number(arg("orders", "120"));
+const ORDERS = Number(arg("orders", "60"));
 const TIERS = arg("tiers", "1,2,3,4,5,6,7,8,9").split(",").map(Number);
+/** tuck% is off by default. A tuck solve explores every pocket on the board
+ *  rather than one landing per column, and at sixteen dominoes that is 77
+ *  seconds for a single order — enough to turn this sweep from minutes into
+ *  hours for a column that only ever refines "how bad is bad". */
+const WANT_TUCK = process.argv.includes("--tuck");
 
-/** Share of random arrival orders that can be finished under `model`. Sampled
- *  rather than exhaustive: the bay shuffles at random, so a random sample is
- *  the question the player actually faces, and the exhaustive walk costs hours
- *  at eight shipments to sharpen an answer nothing depends on. */
+/**
+ * Share of random arrival orders that can be finished under `model`.
+ *
+ * Sampled rather than exhaustive: the bay shuffles at random, so a random sample
+ * is the question the player actually faces, and the exhaustive walk costs hours
+ * at eight shipments to sharpen an answer nothing depends on.
+ *
+ * Distinct orders are solved once and weighted. Not a micro-optimisation — a
+ * domino Contract has ONE distinct order however many shipments it holds
+ * (pieceCells returns the same domino for every type), so without this the
+ * cheapest inventory on the board is also the most expensive to measure.
+ */
 function orderRate(c: Contract, cols: number, model: BuildModel, n: number): number {
   const rng = mulberry32(0x5eed ^ (c.queue.length * 131) ^ c.goal);
-  let ok = 0;
+  const drawn = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     const order = [...c.queue];
     for (let j = order.length - 1; j > 0; j--) {
       const k = Math.floor(rng() * (j + 1));
       [order[j], order[k]] = [order[k], order[j]];
     }
-    if (isBuildable(order, cols, c.pieceSize, model)) ok += 1;
+    const key = order.join("");
+    drawn.set(key, (drawn.get(key) ?? 0) + 1);
+  }
+  let ok = 0;
+  for (const [key, weight] of drawn) {
+    if (isBuildable([...key] as PieceType[], cols, c.pieceSize, model)) ok += weight;
   }
   return ok / n;
 }
@@ -113,18 +132,25 @@ for (const row of rows.values()) {
   const drop = orderRate(c, row.cols, "drop", ORDERS);
   // A queue every order of which survives the strict reading needs no generous
   // one — tuck admits every drop landing and then some. Where it IS needed it
-  // gets a coarser sample: a tuck solve explores every pocket on the board
-  // rather than one landing per column, so it costs orders of magnitude more,
-  // for a number used only to say which side of "mostly fine" a queue falls on.
-  const tuck = drop === 1 ? 1 : orderRate(c, row.cols, "tuck", Math.max(8, ORDERS >> 3));
+  // gets a much coarser sample, and only when asked for; see WANT_TUCK.
+  const tuck = drop === 1 ? 1 : WANT_TUCK ? orderRate(c, row.cols, "tuck", 8) : NaN;
+  // The real production path, not a re-implementation of it: what matters is
+  // whether the queue a player is actually handed can be finished, and that is
+  // dealPatternQueue's answer to give.
   const rng = mulberry32(0xdea1 ^ row.seen);
   const t0 = Date.now();
-  const order = buildOrder(c.queue, row.cols, rng, c.pieceSize, "drop")
-    ?? buildOrder(c.queue, row.cols, rng, c.pieceSize, "tuck");
-  measured.push({ ...row, packs, drop, tuck, dealMs: Date.now() - t0, dealt: order !== null });
+  const order = dealPatternQueue(c, row.cols, rng);
+  const dealMs = Date.now() - t0;
+  const dealt = isBuildable(order, row.cols, c.pieceSize, "drop")
+    || isBuildable(order, row.cols, c.pieceSize, "tuck");
+  measured.push({ ...row, packs, drop, tuck, dealMs, dealt });
+  // Progress on stderr, so the markdown on stdout stays pipeable and a sweep
+  // that takes minutes doesn't read as a hang.
+  process.stderr.write(`\r  measured ${measured.length}/${rows.size}   `);
 }
+process.stderr.write("\n");
 
-const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+const pct = (v: number) => (Number.isNaN(v) ? "—" : `${(v * 100).toFixed(1)}%`);
 
 console.log("## By tier\n");
 console.log("| tier | inventories | all pack | min drop% | mean drop% | mean tuck% | dealable |");
@@ -132,11 +158,15 @@ console.log("|---|---|---|---|---|---|---|");
 for (const tier of TIERS) {
   const mine = measured.filter((m) => m.tiers.has(tier));
   if (mine.length === 0) continue;
-  const mean = (f: (m: Measured) => number) => mine.reduce((a, m) => a + f(m), 0) / mine.length;
+  const mean = (f: (m: Measured) => number) => {
+    const vs = mine.map(f).filter((v) => !Number.isNaN(v));
+    return vs.length ? vs.reduce((a, v) => a + v, 0) / vs.length : NaN;
+  };
   console.log(
     `| ${tier} | ${mine.length} | ${mine.every((m) => m.packs) ? "yes" : "NO"} ` +
     `| ${pct(Math.min(...mine.map((m) => m.drop)))} | ${pct(mean((m) => m.drop))} ` +
-    `| ${pct(mean((m) => m.tuck))} | ${mine.filter((m) => m.dealt).length}/${mine.length} |`,
+    `| ${WANT_TUCK ? pct(mean((m) => m.tuck)) : "—"} ` +
+    `| ${mine.filter((m) => m.dealt).length}/${mine.length} |`,
   );
 }
 
@@ -154,9 +184,9 @@ for (const m of [...measured].sort((a, b) => a.drop - b.drop || a.tuck - b.tuck)
 const cubes = (m: Measured) => m.contract.queue.length * SIZE_SPEC[m.contract.pieceSize].cubes;
 console.log("\n## Totals\n");
 console.log(`- inventories that do not pack at all: **${measured.filter((m) => !m.packs).length}** (tiling.ts's guarantee)`);
-console.log(`- inventories with NO provable arrival order: **${measured.filter((m) => !m.dealt).length}**`);
+console.log(`- deals that could not be proven finishable: **${measured.filter((m) => !m.dealt).length}**`);
 console.log(`- inventories where SOME arrival order is unfinishable: **${measured.filter((m) => m.drop < 1).length}** of ${measured.length}`);
 console.log(`- inventories where MOST arrival orders are unfinishable: **${measured.filter((m) => m.drop < 0.5).length}**`);
 console.log(`- worst deal search: **${Math.max(...measured.map((m) => m.dealMs))}ms** at ${Math.max(...measured.map(cubes))} cubes`);
 for (const m of measured.filter((x) => !x.packs)) console.log(`  - DOES NOT PACK: ${m.key}`);
-for (const m of measured.filter((x) => !x.dealt)) console.log(`  - NO PROVABLE ORDER: ${m.key}`);
+for (const m of measured.filter((x) => !x.dealt)) console.log(`  - UNPROVEN DEAL: ${m.key}`);

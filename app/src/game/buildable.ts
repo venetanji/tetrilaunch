@@ -161,6 +161,26 @@ function hasCoveredHole(f: Field, cols: number): boolean {
   return false;
 }
 
+/**
+ * How ragged a board's surface is: its height plus the total step between
+ * neighbouring columns. Pure move-ordering heuristic — it never rejects a
+ * landing, only decides which to try first — so a bad score costs search time
+ * and nothing else.
+ */
+function roughness(f: Field, cols: number): number {
+  const h: number[] = [];
+  for (let x = 0; x < cols; x++) {
+    let top = 0;
+    for (let y = f.length - 1; y >= 0; y--) {
+      if ((f[y] >> x) & 1) { top = y + 1; break; }
+    }
+    h.push(top);
+  }
+  let bumps = 0;
+  for (let x = 1; x < cols; x++) bumps += Math.abs(h[x] - h[x - 1]);
+  return f.length * cols + bumps;
+}
+
 /** Cubes currently on the field. */
 function cubeCount(f: Field, cols: number): number {
   let n = 0;
@@ -224,11 +244,30 @@ export function isBuildable(
   return boards.has("");
 }
 
-/** Search ceiling, in expanded boards. Generous — a solvable order is normally
- *  found in a few hundred — and it exists only so a pathological queue can't
- *  stall the launch. Exhausting it reports "no order found", which is the safe
- *  direction: the caller falls back rather than dealing an unproven queue. */
-const ORDER_BUDGET = 40_000;
+/**
+ * Search ceiling per attempt, in expanded boards, and how many independent
+ * attempts to make — per model, because a tuck node costs about 25x a drop one.
+ *
+ * Split into repeated short walks rather than spent as one long one, because
+ * the failures are not "no order exists" — they are one unlucky opening
+ * explored to exhaustion. Measured on the seven eight-shipment inventories a
+ * single 40,000-board walk could not solve: all seven fall to a re-run with
+ * fresh randomization. A budget that big buys one sample of a distribution
+ * where roughly every other sample succeeds, which is the worst possible way to
+ * spend it.
+ *
+ * Tuck gets a much smaller one. It enumerates every pocket on the board rather
+ * than one landing per column, so the same node count costs 25x the wall clock
+ * — and since the move ordering landed, the drop search has not failed once
+ * across all 624 inventories this generator can emit. Tuck is the safety net
+ * under a path nothing currently takes, and a safety net is not worth three
+ * seconds of a bay start.
+ *
+ * Exhausting every attempt reports "no order found", which is the safe
+ * direction: the caller falls back rather than dealing an unproven queue.
+ */
+const ORDER_BUDGET: Record<BuildModel, number> = { drop: 8_000, tuck: 600 };
+const ORDER_ATTEMPTS: Record<BuildModel, number> = { drop: 6, tuck: 3 };
 
 function shuffle<T>(xs: readonly T[], rng: () => number): T[] {
   const out = [...xs];
@@ -261,14 +300,13 @@ export function buildOrder(
   const cubes = SIZE_SPEC[size].cubes;
   if ((queue.length * cubes) % cols !== 0) return null;
 
-  const counts = new Map<PieceType, number>();
-  for (const t of queue) counts.set(t, (counts.get(t) ?? 0) + 1);
-
   const height = Math.ceil((queue.length * cubes) / cols) + cubes;
-  const dead = new Set<string>();
-  let budget = ORDER_BUDGET;
 
+  const counts = new Map<PieceType, number>();
+  let dead = new Set<string>();
+  let budget = 0;
   const order: PieceType[] = [];
+
   function walk(f: Field, left: number): boolean {
     if (left === 0) return f.length === 0;
     if (budget-- <= 0) return false;
@@ -281,13 +319,28 @@ export function buildOrder(
       if (n <= 0) continue;
       counts.set(type, n - 1);
       order.push(type);
-      for (const cells of shuffle(orientations(type, size), rng)) {
-        for (const [ox, oy] of shuffle(restingSpots(f, cols, height, cells, model), rng)) {
+      const moves: Array<{ next: number[]; score: number }> = [];
+      for (const cells of orientations(type, size)) {
+        for (const [ox, oy] of restingSpots(f, cols, height, cells, model)) {
           const next = settle(f, cols, cells, ox, oy);
           if (model === "drop" && hasCoveredHole(next, cols)) continue;
           if (next.length > (cubeCount(next, cols) + remainingCubes) / cols) continue;
-          if (walk(next, left - 1)) return true;
+          moves.push({ next, score: roughness(next, cols) });
         }
+      }
+      // Flattest board first. Zero waste has exactly one shape of solution —
+      // rows filling from the floor up with nothing stranded — so a landing that
+      // leaves the surface ragged is nearly always the wrong one, and trying
+      // those last is the difference between an order found in milliseconds and
+      // one the budget never reaches. Measured on the eight-shipment queues that
+      // used to exhaust six full walks: worst case 3558ms to 121ms.
+      //
+      // Shuffled BEFORE the sort, and sorted stably, so equally flat landings
+      // stay randomly ordered — the ordering is a heuristic about which branch
+      // to try first, and it must not quietly collapse the variety the caller
+      // re-rolls the deal to get.
+      for (const move of shuffle(moves, rng).sort((a, b) => a.score - b.score)) {
+        if (walk(move.next, left - 1)) return true;
       }
       order.pop();
       counts.set(type, n);
@@ -296,5 +349,17 @@ export function buildOrder(
     return false;
   }
 
-  return walk([], queue.length) ? order : null;
+  for (let attempt = 0; attempt < ORDER_ATTEMPTS[model]; attempt++) {
+    counts.clear();
+    for (const t of queue) counts.set(t, (counts.get(t) ?? 0) + 1);
+    // A fresh memo per attempt, not a shared one. The point of retrying is a
+    // different random walk; carrying the previous walk's dead boards forward
+    // would prune the new walk down the old one's path and make the attempts
+    // correlated, which is the one thing they must not be.
+    dead = new Set<string>();
+    budget = ORDER_BUDGET[model];
+    order.length = 0;
+    if (walk([], queue.length)) return order;
+  }
+  return null;
 }
