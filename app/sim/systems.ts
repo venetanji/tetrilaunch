@@ -58,7 +58,7 @@ import {
   dailyContracts, levelForContract, contractBed, CONTRACT_RARE_CHANCE,
   DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
   SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
-  contractEfficiency, contractMaterialTier, CONTRACT_MATERIAL_CAP,
+  contractEfficiency, contractMaterialTier, launchesFor, CONTRACT_MATERIAL_CAP,
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
@@ -588,12 +588,35 @@ section("Contracts (contracts.ts)");
   }
   check("every contract can supply the cubes its goal needs", !everImpossible);
   // Not merely >= 1: a Contract is the forgiving half of the game, so even the
-  // tightest generated one must leave room for an imperfect attempt.
-  check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.05);
+  // tightest generated one must leave room for an imperfect attempt. The floor
+  // is SLACK_TIGHT (1.02 since the 2026-08 balance pass tightened it from
+  // 1.05) — ceil rounding can only add headroom above it, never take it away.
+  check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.02);
   check("no contract ships bulk pentominoes", !everBulk);
   check("contract materials are always countable and priced", !everSlagOrUnpriced);
   check("no material appears before its hazard rung", !everEarlyMaterial);
   check("material contracts ship std payloads", !everMaterialOffStd);
+
+  // The 2026-08 balance pass tightened SLACK 1.25 -> 1.15 (~8% fewer launches
+  // on every lines Contract). Two seams have to hold through that. The
+  // Math.max(3, ...) floor in launchesFor must still be what a beginner meets:
+  // no tier-1 lines Contract may budget below 3 launches, however small the
+  // goal roll. And launchesFor must budget strictly fewer launches at the new
+  // slack than the old for a representative goal — if it ever stops, either
+  // the formula changed or someone quietly walked the constant back up, and
+  // both should be a loud test failure rather than a balance drift.
+  let tierOneFloorHolds = true;
+  for (let seed = 20260101; seed < 20260101 + 40; seed++) {
+    for (const c of dailyContracts(1, seed)) {
+      if (c.kind === "lines" && c.launches < 3) tierOneFloorHolds = false;
+    }
+  }
+  check("a tier-1 lines Contract still grants at least 3 launches", tierOneFloorHolds);
+  check(
+    "the tightened slack actually buys fewer launches than the old 1.25",
+    launchesFor(6, 4, 1.15) < launchesFor(6, 4, 1.25),
+    `${launchesFor(6, 4, 1.15)} vs ${launchesFor(6, 4, 1.25)}`,
+  );
 
   // CUBES_PER_LINE is a constant in contracts.ts but a consequence of the
   // compactor's geometry. If the min-line stop ever moves, every budget the

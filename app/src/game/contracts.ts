@@ -219,10 +219,22 @@ export const CUBES_PER_LINE = 8;
 /** Share of launched cubes that reach a completed line. Conservative; see above. */
 export const PLANNING_EFFICIENCY = 0.6;
 
-/** Headroom over the bare feasibility floor. A Contract is meant to be
- *  winnable on a decent attempt, not a perfect one. */
-const SLACK = 1.25;
-const SLACK_TIGHT = 1.05;
+/** Headroom over the bare feasibility floor. The asymmetry argument on
+ *  PLANNING_EFFICIENCY still decides which way to lean — a Contract is meant
+ *  to be winnable on a decent attempt, not a perfect one — but the 2026-08
+ *  balance playtest measured the old 1.25 as too forgiving on device: lines
+ *  Contracts cleared with the budget never once in doubt, which is dull, not
+ *  easy. 1.15 trims roughly 8% of launches off every "lines" Contract while
+ *  staying above 1.0, so the feasibility guarantee is untouched in kind, only
+ *  in generosity. Pay was deliberately NOT the knob: staging's salvage economy
+ *  is flat per tier and the 15-salvage milestone is the on-ramp install
+ *  (2026-08-09 deadlock), so difficulty moves here, where it is provable. */
+const SLACK = 1.15;
+/** The "tight launch budget" complication's headroom. At the old 1.05, ceil
+ *  rounding often made it indistinguishable from the standard budget — a
+ *  complication the player pays difficulty points for has to be feelable.
+ *  1.02 is meaningfully tight while still clearing the feasibility floor. */
+const SLACK_TIGHT = 1.02;
 
 /* -------------------------------------------------------------------------
  * CONTRACT MATERIALS — the budget model that finally lets a material into a
@@ -554,7 +566,11 @@ export function generateContract(seed: number, tier: number, slot = 0): Contract
   const rng = mulberry32(seed + slot * 7919);
   let budget = budgetForTier(tier);
 
-  const goal = 3 + Math.floor(rng() * 3) + Math.min(3, Math.floor(tier / 2));
+  // 3-5 base lines, deepened by tier. The tier bonus used to cap at 3 (topping
+  // out at tier 6); the same playtest that trimmed SLACK found the top tiers
+  // coasting on goals they had outgrown, so tiers 8+ now ask up to one line
+  // deeper. Low tiers are untouched — below the cap the ramp is identical.
+  const goal = 3 + Math.floor(rng() * 3) + Math.min(4, Math.floor(tier / 2));
 
   let pieceSize: PieceSize = "std";
   let windMax = 0;
