@@ -1143,6 +1143,29 @@ body.crt-off #app::after { display: none; }
 .pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
 .pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
+
+/* ---------- The two rows that put a MONO value beside a PIXEL label --------
+   `align-items: baseline` lines these rows up on an edge Press Start 2P does
+   not draw on. The face reserves the bottom row of its pixel grid for
+   descenders, so its capitals stop 0.13em short of the baseline while the
+   mono tally's sit on it — and the tally rendered an eighth of its type size
+   BELOW the label it belongs to, which on the notch line read as the axes
+   having slipped off the row. See tokens.css's --pixel-cap-drop for the
+   measurement.
+
+   Lift the mono run back onto the label's optical line rather than dropping
+   the label onto the mono's: every other row in this panel is pixel type, so
+   the pixel line IS the panel's line, and moving the label would have put
+   NOTCHES and COMBO on two different ones.
+
+   `position: relative` and not a margin: the correction is optical, and the
+   panel's height budget is measured to the row box. Nothing may move.
+
+   Held by sim/uifit's `inkline` assertion, which compares where the two
+   typefaces actually put ink rather than where their baselines are — no other
+   assertion can see this, since the row does not overflow, wrap, clip or
+   scroll while it is wrong. */
+.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-cap-drop)); }
 /* Contract mode's panel is a grid so the manifest row costs no extra height
    where width is abundant: meta and the tally SHARE a row at regular/roomy
    density (the old inline placement's height, without its wrapping), and the
@@ -1224,13 +1247,70 @@ body.crt-off #app::after { display: none; }
    `display: none` at this density (the rule immediately below) — so nothing at
    compact hangs below a chip except its own `--shadow-hard-sm`, which is a 2px
    offset and is exactly what is left. */
-[data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; }
+/* The GAP's floor drops with it, 5px to 4px. It is not the binding number
+   anywhere else — 10.7·--fpx clears 5px above --fpx 0.467, which is every
+   device in the matrix bar the three tightest phones — so this changes those
+   three alone, and it is what buys the iPhone 13 mini's rack the width the
+   slot floor below spends. 1px between two plates that each carry a 1px
+   border and a hard shadow is not a separation the eye is using; 1px x 6
+   gaps against a 209px row is. */
+[data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; gap: max(4px, calc(10.7 * var(--fpx))); }
 [data-density="compact"] .mod--bb,
 [data-density="compact"] .mod--demo { display: none; }
 [data-density="compact"] .pl-mods .mod,
 [data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod .nm { display: none; }
+/* SLOT WIDTH AT COMPACT — where the plate's two floors stopped agreeing.
+   The base rule draws the plate at 40·--fpx around a glyph set at 9·--fpx, so
+   a slot is 4.44 glyph-ems wide and the 3-character glyph inside it is 3.06 —
+   0.69em of air per side, which is the plate as designed. But the two have
+   DIFFERENT floors: the glyph's is 6px, its legibility floor, while the
+   slot's was 25px — and 4.44 x 6px is 26.7. At the floor the box was 1.7px
+   narrower than its own proportion, and since 40·--fpx does not clear 25px
+   until --fpx 0.625, every one of the ten phones in the matrix sat on both
+   floors at once. That is the reported "text doesn't fit": 0.39em of side
+   air instead of 0.69em, on every phone, all the time.
+
+   A clamp, and each of its three numbers is a budget:
+
+   - FLOOR 26px, which is what the tightest rack in the matrix can pay for.
+     7 slots + 6 gaps against the iPhone 13 mini's 209px row is 182 + 24.2 =
+     206.2px. 27px would need 213.2 and does not fit at any gap the row can
+     offer, so the 13 mini lands at 0.47em of side air and is the ONLY device
+     left under the plate's own proportion. It is also the only device with
+     nothing to spend: every other phone has between 36px and 113px of unused
+     row, because the compact row hides the BUILD tag and both ability chips
+     and leaves the seven slots to themselves.
+   - GROWTH 65·--fpx, which is what actually reaches that unused row. The base
+     40 could not: 40 x the widest phone's --fpx is 23px, still under the old
+     floor, so all ten phones rendered the same 25px slot no matter how much
+     panel they had. 65 is the largest that keeps every compact device inside
+     its row even uncapped — the binding one is the budget 640x360, with
+     30.4px available per slot against 28.2 asked — so the cap below is a
+     shape decision and never a fit one.
+   - CAP 30px, because the slot is 25px TALL at this density — the row's
+     height budget halves it, see the rule above — and a badge that keeps
+     growing sideways against a fixed height stops reading as the plate the
+     tablet draws at 0.58:1 and starts reading as a strip. 30px is 1.2x the
+     height and 0.80em of side air, just past the 0.69em the design asks for;
+     uncapped, a 16 Pro Max slot goes to 37.8px and 1.4em, which is more air
+     than any plate in the app has ever had.
+
+   Where each device lands: 26px on the 13 mini, 28.2 on the budget 640x360,
+   29.6 on an SE 3, 30 on everything from a Galaxy S8+ up, and the tightest
+   rack still clears its row by 2.9px. Side air 0.39em before, 0.47-0.80em
+   after.
+
+   NOT applied to the base rule, which regular and roomy density keep: there
+   the row also carries the vertical BUILD tag and two 79px ability chips, and
+   an iPad mini can only afford 34.9px a slot — 43·--fpx — so a coefficient
+   big enough to matter on a phone would push the seventh slot off a tablet.
+   Different rows, different budgets.
+
+   sim/uifit's `rack` assertion holds the fit; its `badge` assertion holds the
+   air inside the box, which is the half that was silent. */
+[data-density="compact"] .pl-mods .ship-plate { width: clamp(26px, calc(65 * var(--fpx)), 30px); }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -1407,10 +1487,16 @@ body.crt-off #app::after { display: none; }
    THE WIDTH FLOOR IS A FIT BUDGET, not a taste. Seven fixed slots have to
    clear the narrowest panel in the matrix — an iPhone 13 mini, where the
    field is 482x271 and the plant's content box is 209px — so the floor is
-   `7w + 6·gap <= 209`. At the compact gap (below) that puts w at 25px, which
-   is what this floor is; the `--fpx` term takes over above it and the plates
-   grow with the field, to 54px on a tablet. Raising either number without
-   re-running sim/uifit puts the last slot behind a scroll. */
+   `7w + 6·gap <= 209`. Raising either number without re-running sim/uifit
+   puts the last slot behind a scroll.
+
+   This rule now sizes the REGULAR and ROOMY rows only. Compact overrides both
+   the floor and the `--fpx` coefficient a few hundred lines up, because the
+   compact row hides the BUILD tag and both ability chips and so has a
+   completely different budget to spend — read that block for the arithmetic.
+   The 40:9 ratio between this width and the glyph's font-size below is the
+   plate's design proportion and the thing the override is written to keep:
+   4.44 glyph-ems of box around 3.06 of text. */
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;

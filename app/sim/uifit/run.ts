@@ -172,6 +172,8 @@ const ASSERTIONS = [
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
+  { id: "badge", desc: "a badge leaves air around the glyph it frames" },
+  { id: "inkline", desc: "a label and the value beside it share one optical line" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -196,7 +198,7 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], rack: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -451,6 +453,105 @@ function measure(cfg: {
       if (over > 1) {
         const g = plate.querySelector(".ship-plate__g")?.textContent ?? `#${i}`;
         out.rack.push(`slot ${g} sits ${Math.round(over)}px past the row's visible edge`);
+      }
+    });
+  }
+
+  // --- badge: a framed glyph must not be crowded by its own frame ----------
+  // `rack` above holds the row: seven slots, all visible. This holds the SLOT:
+  // that the box is wide enough for the glyph it exists to carry.
+  //
+  // Nothing else here can see it. The plate is `overflow: visible`, so
+  // `textclip` hands it straight to `offscreen` ("spills; `offscreen` owns
+  // it"), and `offscreen` only ever asks whether content left the VIEWPORT —
+  // a glyph pressed against, or through, the border of a 25px box in the
+  // middle of the panel is inside the viewport, inside its own box, and
+  // overlaps nothing. The rack was shipping at 0.39em of side air on all ten
+  // phones and every assertion was green.
+  //
+  // The floor is 0.4em of the glyph's OWN font size per side, which makes it
+  // one number at every density instead of a px budget per device. It is read
+  // off the shape the plate was drawn at: at regular and roomy density, where
+  // the width has never been floored and nobody has reported anything, the
+  // plates give their glyph 0.53-0.59em a side. 0.4em is where a three-letter
+  // glyph starts to read as touching its frame rather than sitting in it.
+  document.querySelectorAll(".ship-plate").forEach((plate, i) => {
+    const g = plate.querySelector(".ship-plate__g") as HTMLElement | null;
+    if (!g) return;
+    const pr = plate.getBoundingClientRect();
+    if (pr.width <= 2) return;
+    const gr = g.getBoundingClientRect();
+    const em = parseFloat(getComputedStyle(g).fontSize);
+    // clientWidth is the padding box: the border is frame, not air.
+    const air = ((plate as HTMLElement).clientWidth - gr.width) / 2;
+    if (air < 0.4 * em - 0.01) {
+      out.badge.push(
+        `${g.textContent ?? `#${i}`} has ${(air / em).toFixed(2)}em of side air ` +
+          `(${air.toFixed(1)}px in a ${Math.round(pr.width)}px slot, floor 0.4em)`,
+      );
+    }
+  });
+
+  // --- inkline: a label and its value must share one OPTICAL line ----------
+  // Two typefaces baseline-aligned are not thereby eye-aligned. Press Start 2P
+  // keeps the bottom row of its pixel grid for descenders, so its capitals
+  // stop 0.13em above the alphabetic baseline; JetBrains Mono's sit on it. Any
+  // row that puts one beside the other renders the mono run an eighth of its
+  // type size low unless something pays that back — which is what tokens.css's
+  // --pixel-cap-drop is for.
+  //
+  // Invisible to every other assertion by construction: the row does not
+  // overflow, wrap, clip, scroll or overlap while it is wrong. It just looks
+  // wrong, which is how it reached a player before it reached CI.
+  //
+  // Measured where the INK is, not where the box is. A box tells you nothing
+  // here — both runs' boxes start at the same y and the defect is entirely
+  // inside them. Baseline comes from an empty inline-block, whose bottom
+  // margin edge sits on the line box's baseline by definition; how far the
+  // typeface's capitals stop short of that baseline comes from canvas
+  // actualBoundingBoxDescent. Sum is where a capital's bottom edge lands.
+  //
+  // A CAPITAL H, not the element's own text. The row's real content carries
+  // descenders that are meant to descend — the notch line opens with "$L×2"
+  // and JetBrains Mono's dollar sign drops 0.19em below the baseline — and
+  // measuring those would report a 2px defect on a row that is correct.
+  // What has to agree is where the two faces put a plain cap, which is a
+  // property of the faces and not of the tally. H has no round overshoot in
+  // either of them.
+  const capBottom = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
+    if (!(el.textContent ?? "").trim()) return null;
+    const probe = document.createElement("span");
+    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+    el.appendChild(probe);
+    const baseline = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    const cs = getComputedStyle(el);
+    cvs.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    return baseline + cvs.measureText("H").actualBoundingBoxDescent;
+  };
+  const cvs = document.createElement("canvas").getContext("2d");
+  if (cvs) {
+    // [row, label, value] — the panel's two mixed-typeface rows. Listed rather
+    // than discovered: a rule that hunted for font-family changes would also
+    // find the deliberate ones (the funds figure UNDER its label, the PWR cap's
+    // centre-aligned readout) and have to carry exceptions for them.
+    ([
+      [".pl-notch", ".lbl", ".pl-notch__ax"],
+      [".pl-queue", ".lbl", "b"],
+    ] as [string, string, string][]).forEach(([rowSel, lblSel, valSel]) => {
+      const row = document.querySelector(rowSel);
+      if (!row) return;
+      const lbl = row.querySelector(lblSel);
+      const val = row.querySelector(valSel);
+      if (!lbl || !val) return;
+      const a = capBottom(lbl, cvs);
+      const b = capBottom(val, cvs);
+      if (a === null || b === null) return;
+      // Half a pixel: below that the difference is rasterisation, not layout.
+      if (Math.abs(b - a) > 0.5) {
+        out.inkline.push(
+          `${rowSel} value sits ${(b - a).toFixed(2)}px ${b > a ? "below" : "above"} its label`,
+        );
       }
     });
   }
