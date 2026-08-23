@@ -1626,7 +1626,14 @@ export class Game {
       const bounty = slagBountyFor(razed, this.level.slagBounty);
       if (bounty > 0) {
         this.score += bounty;
-        this.salvagedFunds += bounty;
+        // NOT salvagedFunds. That field is the demolition charge's trade and
+        // nothing else — its doc here, RunState's, and the end screen's all
+        // say so, and screens.ts prints it as "$N recovered by demolition".
+        // A volatile detonation is not a charge, and a run that never drafted
+        // one would otherwise settle up crediting money to a rack the player
+        // does not own. The payout still lands (score, above) and still reads
+        // at the moment it happens (the toast below); what it must not do is
+        // claim to be something else on the way out.
         this.effects.push({
           kind: "salvage", x: cx / n, y: cy / n - 24, amount: bounty, t0: now,
         });
