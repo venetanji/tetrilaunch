@@ -131,18 +131,36 @@ const MUSIC_GAIN = 0.75;
  * Tuned as a limiter, not a compressor. Hard knee and ratio 20 mean nothing
  * happens at all until the ceiling is actually threatened, which keeps the
  * music — the foreground, per the mix note — untouched in the ordinary case.
- * At threshold -2 the worst case above lands at -2 + 5.4/20 = -1.7 dBFS (0.82
- * linear), leaving real margin: DynamicsCompressorNode has no lookahead, so a
- * sharp transient can overshoot for a few ms before the gain reduction bites,
- * and that margin is what absorbs it. The 3ms attack is fast enough for those
- * transients without the low-frequency distortion a sub-millisecond attack
- * causes; the 250ms release is long enough not to pump on burst fire.
+ * The 3ms attack is fast enough for those transients without the low-frequency
+ * distortion a sub-millisecond attack causes; the 250ms release is long enough
+ * not to pump on burst fire.
+ *
+ * THRESHOLD IS -4, NOT -2, AND THE REASON IS MEASURED RATHER THAN ARITHMETIC.
+ * The steady-state sum says -2 is plenty: ratio 20 puts even a 5.4 dB overage
+ * at -1.7 dBFS. But DynamicsCompressorNode has NO LOOKAHEAD, so a sharp
+ * transient runs open for the length of the attack before the gain reduction
+ * bites, and the peak that escapes in those 3ms is not what the ratio predicts.
+ * Rendered through the real graph and the real mp3s on an Android WebView
+ * (Chrome 150, OnePlus CPH2573), peak at the destination, worst of three beds
+ * against impact/explosion stacked 3 and 5 deep:
+ *
+ *   threshold -2, attack 3ms -> 1.011   STILL CLIPS
+ *   threshold -3, attack 3ms -> 0.980
+ *   threshold -4, attack 3ms -> 0.951
+ *
+ * -4 also comes back LOUDER, not quieter: Blink's compressor applies an
+ * internal makeup gain that grows as the threshold drops, so the quietest bed
+ * measured 0.626 at -4 against 0.549 at -2. Lowering MUSIC_GAIN does NOT
+ * substitute for this — swept 0.75 down to 0.45, the 4-effect peak only moved
+ * 1.030 -> 1.010, because once the limiter is engaged the output sits at its
+ * ceiling and the residual overage is the transient escaping the attack, which
+ * the bed level does not control.
  *
  * This bounds the SUMMED graph, which is not a licence to raise the parts. If
  * the limiter is audibly working during normal play, the mix underneath it is
  * too hot and the durable fix is still the one prepare-audio.mjs owns.
  */
-const LIMITER_THRESHOLD_DB = -2;
+const LIMITER_THRESHOLD_DB = -4;
 const LIMITER_KNEE_DB = 0;
 const LIMITER_RATIO = 20;
 const LIMITER_ATTACK_S = 0.003;
