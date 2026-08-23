@@ -1771,9 +1771,6 @@ class App {
     } else {
       set("#hud-score", "$" + g.score);
     }
-    set("#hud-combo", "×" + g.combo);
-    set("#hud-scrap", String(g.scrapEarned));
-
     // LAUNCHES LEFT — tier 2 of the plant readout (see screens.ts's hudHTML).
     // It turns danger-red and pulses at LOW_LAUNCH_WARN or fewer, because that
     // is the exact point where the right play changes from "keep feeding the
@@ -1785,6 +1782,11 @@ class App {
     // shots than the same bankroll bought a minute ago, and the number falling
     // as the pile grows is the clearest statement of the rule the HUD can make.
     if (!this.contract) {
+      // The meta line's three economy numbers, patched in the same Deep-Run-only
+      // branch that owns the readout above them: a Contract renders no meta line
+      // at all, so writing them there would be writing into nothing.
+      set("#hud-combo", "×" + g.combo);
+      set("#hud-scrap", String(g.scrapEarned));
       const launches = Math.floor(g.score / Math.max(1, g.launchCostNow));
       set("#hud-launches", String(launches));
       // The QUOTED price, live. Congestion moves launchCostNow while the bay

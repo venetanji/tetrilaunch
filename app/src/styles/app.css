@@ -522,6 +522,71 @@ body.crt-off #app::after { display: none; }
    and the how-to-play piece gallery. */
 .next__grid { width: 28px; height: 28px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
 .next__cell { border-radius: 1px; }
+
+/* ---------- MATERIAL TELEGRAPH ------------------------------------------
+   A non-standard shipment's preview breathes a glow in its own colour (see
+   components.ts's pieceCellsHTML, and theme.ts's shipmentAura for why the glow
+   is not literally the cube colour). The point is MOTION: a material has been
+   identifiable by colour since it shipped, and colour is what the eye skips
+   when it is busy watching the field.
+
+   `filter: drop-shadow`, not a pseudo-element and not box-shadow. Box-shadow
+   would halo the grid's 4x4 BOX, which is mostly empty cells, so an L and an O
+   would telegraph as the same square. drop-shadow follows the rendered alpha,
+   which is the piece's actual silhouette. And a ::before/::after would be a new
+   BOX inside the belt tile, which sim/uifit's `clipped` and `offscreen`
+   assertions would measure and (correctly) object to; a filter has no box.
+
+   Two stacked shadows at the peak rather than one bigger one: stacking
+   multiplies the alpha at the silhouette's edge, which reads as intensity,
+   where a single wider blur just reads as fog.
+
+   Radii scale with the field (--fpx) and floor in px, same as the tile they
+   ring — a fixed radius is a halo on a phone and a hairline on a tablet. */
+@keyframes mat-aura {
+  0%, 100% { filter: drop-shadow(0 0 var(--mat-r0) var(--mat-c)); }
+  50% {
+    filter: drop-shadow(0 0 var(--mat-r1) var(--mat-c))
+            drop-shadow(0 0 var(--mat-r1) var(--mat-c));
+  }
+}
+.next__grid[data-material] {
+  --mat-r0: max(1px, calc(3 * var(--fpx)));
+  --mat-r1: max(4px, calc(9 * var(--fpx)));
+  animation: mat-aura 1.15s var(--ease) infinite;
+}
+/* On the BELT the tile already owns an animation — the 180ms arrival slide
+   (`.belt-piece > *`, further down) — and `animation` is one property, so a
+   second rule naming it does not add to the first, it replaces it. Both are
+   wanted: the slide says a shipment just moved up the queue, the pulse says
+   what that shipment is made of. A comma list is the only way to have both,
+   which is why the belt scope restates the arrival slide here rather than the
+   telegraph being declared where the slide is.
+   The --still variant is the same pair minus the slide: main.ts sets that
+   class when the tile RE-RENDERED without the queue advancing (a rotate tap),
+   where replaying an arrival would be a lie. The telegraph is a property of
+   the cargo, so it keeps running through one. */
+.belt-piece > .next__grid[data-material] {
+  animation: belt-load 180ms var(--ease), mat-aura 1.15s var(--ease) infinite;
+}
+.belt-piece--still > .next__grid[data-material] {
+  animation: mat-aura 1.15s var(--ease) infinite;
+}
+/* Reduced motion keeps the TELEGRAPH and drops only the pulse: this glow is
+   information — which shipment is not ordinary — and a player who has asked
+   for less movement has not asked to be told less. Frozen at the animation's
+   peak, so what they see is the state the pulse spends its time reaching.
+   All three selectors, because the belt-scoped pair above outranks the bare
+   one and a media query adds no specificity of its own. */
+@media (prefers-reduced-motion: reduce) {
+  .next__grid[data-material],
+  .belt-piece > .next__grid[data-material],
+  .belt-piece--still > .next__grid[data-material] {
+    animation: none;
+    filter: drop-shadow(0 0 var(--mat-r1) var(--mat-c))
+            drop-shadow(0 0 var(--mat-r1) var(--mat-c));
+  }
+}
 /* Bomb telegraph (see components.ts's beltBombHTML) — same footprint as
    next__grid, a static glyph tile instead of a rotated piece grid. */
 .next__bomb-tile {
@@ -1171,12 +1236,10 @@ body.crt-off #app::after { display: none; }
 
 /* ---------- The two rows that put a MONO value beside a PIXEL label --------
    `align-items: baseline` lines these rows up on an edge Press Start 2P does
-   not draw on. The face reserves the bottom row of its pixel grid for
-   descenders, so its capitals stop 0.13em short of the baseline while the
-   mono tally's sit on it — and the tally rendered an eighth of its type size
-   BELOW the label it belongs to, which on the notch line read as the axes
-   having slipped off the row. See tokens.css's --pixel-cap-drop for the
-   measurement.
+   not draw on, and even correcting for that is not enough: the two faces draw
+   caps of different heights, so meeting on a shared FOOT still leaves the
+   shorter run's mass sitting low. tokens.css's --pixel-optical-drop carries
+   both halves of the correction and the measurement behind them.
 
    Lift the mono run back onto the label's optical line rather than dropping
    the label onto the mono's: every other row in this panel is pixel type, so
@@ -1190,26 +1253,49 @@ body.crt-off #app::after { display: none; }
    typefaces actually put ink rather than where their baselines are — no other
    assertion can see this, since the row does not overflow, wrap, clip or
    scroll while it is wrong. */
-.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-cap-drop)); }
-/* Contract mode's panel is a grid so the manifest row costs no extra height
-   where width is abundant: meta and the tally SHARE a row at regular/roomy
-   density (the old inline placement's height, without its wrapping), and the
-   compact override further down re-stacks them for the narrow panel. */
-.hud--contract .plant__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-areas:
-    "read read"
-    "load load"
-    "meta queue"
-    "mods mods";
-  align-content: space-between;
-}
-.hud--contract .pl-read { grid-area: read; }
-.hud--contract .pl-load { grid-area: load; }
-.hud--contract .pl-meta { grid-area: meta; }
-.hud--contract .pl-queue { grid-area: queue; margin-top: 0; align-self: center; justify-self: end; }
-.hud--contract .pl-mods { grid-area: mods; }
+.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+/* NOTHING here re-templates the panel for a Contract at regular/roomy density
+   any more, and the compact override below is a one-liner for the same reason.
+   Contract mode used to run its own two-column grid whose only job was letting
+   the meta line and the manifest tally SHARE a row; the meta line is Deep Run
+   furniture now (screens.ts's hudHTML — a Contract has no bankroll, no salvage
+   and no combo), and with it gone every row a Contract renders is full-width
+   and in DOM order. That is exactly `.plant__body`'s own flex column.
+   Deleting the grid takes a trap with it: the template named a `queue` area
+   unconditionally, and a LINES contract renders no `.pl-queue`, so it paid
+   that row's share of the gap for nothing — the same defect the retired title
+   row left behind, in the same two templates.
+
+   What IS here is the other half of that: a Contract's panel is SHORTER, not
+   emptier. `.plant`'s min-height is the mockup's footprint and `.plant__body`
+   spreads its rows across whatever it gets (`justify-content: space-between`) — which is right for a Deep Run's
+   five rows and wrong for a Contract's three or four, where it pushed the
+   manifest to the floor of the panel and left a hand's width of nothing above
+   it. Releasing the floor lets the panel hug what it actually has to say.
+   `height: auto` and the BOTTOM anchor were already there for the opposite
+   case (a readout that outgrows the box), so shrinking costs no new geometry:
+   the panel keeps its bottom-left corner and gives the difference back to the
+   field. The `plant` assertion is an upper bound, so a shorter panel passes
+   it.
+
+   The gap has to be stated once the floor is gone, because `space-between` was
+   what put air between the rows and a hugging panel has none to distribute.
+   18 --fpx is chosen against what the Deep Run panel actually spreads to,
+   which is not one number and cannot be matched by one: it is leftover space,
+   so it lands anywhere from 4.3px (iPhone 13 mini, where the readout nearly
+   fills the box) to 16.8px (iPhone 16 Pro Max) at the SAME density. 18 --fpx
+   gives 9px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
+   inside that range on every device in the matrix, and even, which the
+   distributed gap is not. The per-row margins go with it: they were nudges on
+   top of a distributed gap, and on an explicit one they only make the rhythm
+   uneven again. */
+.hud--contract .plant { min-height: 0; }
+/* `.hud.hud--contract` for the WEIGHT, not the meaning — both classes are on
+   the same element. The compact section further down sets this same gap at
+   (0,2,0) and, being later, would win the tie against a plain
+   `.hud--contract .plant__body`. */
+.hud.hud--contract .plant__body { gap: max(8px, calc(18 * var(--fpx))); }
+.hud--contract :is(.pl-load, .pl-queue) { margin-top: 0; }
 
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
@@ -1383,33 +1469,25 @@ body.crt-off #app::after { display: none; }
    spare, and every other row in this panel starts at the same left edge. */
 [data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-start; align-items: center; }
 [data-density="compact"] .pl-mods { grid-area: mods; }
-/* Contract mode adds the manifest row (.pl-queue), so ONLY there does the
-   grid gain its row — declared on the .hud--contract scope rather than the
-   base template, because a named row exists (and costs its share of the row
-   gap) even when nothing renders into it. */
-/* Contract mode keeps load and meta SHARING a row, on the old 0.8/1.2 split.
-   That split is sound here and only here: screens.ts drops the "Launch $N"
-   span for a contract, which takes the meta line from 238.5px to ~138px — well
-   inside the 165px the 1.2fr share provides. It has to stay shared, too: this
-   scope also carries the manifest row, and giving meta its own row as well put
-   the panel 3px over its design box on an iPhone 13 mini. The `oneline`
-   assertion is what keeps this honest — if a contract ever grows the meta line
-   back, CI says so instead of it silently wrapping. */
-[data-density="compact"] .hud--contract .plant__body {
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  grid-template-areas:
-    "read  read"
-    "load  meta"
-    "queue queue"
-    "mods  mods";
-}
-[data-density="compact"] .hud--contract .pl-meta { justify-content: flex-end; }
-[data-density="compact"] .hud--contract .pl-queue {
-  grid-area: queue;
-  margin-top: 0;
-  align-self: auto;
-  justify-self: stretch;
-}
+/* Contract mode opts OUT of the grid entirely, at every density, and keeps the
+   compact gap. The grid above exists to give Deep Run's five rows an explicit
+   template; a Contract renders three or four, all full-width, all in DOM
+   order, and a template for that is just a list of the rows flex would lay out
+   anyway — one that has to be kept in step with which of them render.
+   It could not be, either: `notch` and `meta` are named in the base template
+   and neither exists in a Contract, so a Contract inheriting it would pay two
+   rows' worth of gap for nothing. (This scope used to carry a 0.8/1.2 column
+   split, justified by a measurement of the meta line WITHOUT its "Launch $N"
+   span. There is no meta line here at all now.) */
+[data-density="compact"] .hud--contract .plant__body { display: flex; }
+/* And at compact a Contract has no build row at all. The ability chips are
+   hidden at this density (the rail is the touch control surface and carries
+   the same two triggers, counts included), the BUILD tag is hidden with them,
+   and the ship rack — the only other thing in the row — is Deep Run's. What is
+   left is 7px of padding around nothing, which is the empty-named-row trap
+   again wearing different clothes. Deep Run keeps its row here: the rack is
+   still in it. */
+[data-density="compact"] .hud--contract .pl-mods { display: none; }
 /* The last few px, taken from DECORATION rather than from type: the goal bar's
    thickness and the air above it are not legibility floors the way a 7px pixel
    label is. Vertical panel padding shrinks with them; the horizontal padding

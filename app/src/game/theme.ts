@@ -211,6 +211,49 @@ export function shipmentColor(type: PieceType, material: Material = "standard"):
   return MATERIAL_SPEC[material].color ?? PIECE_COLORS[type];
 }
 
+/** How bright the brightest channel of a telegraph colour has to be, as a
+ *  fraction of full. Below this a glow on the near-black backdrop (COLORS.bg
+ *  is #07070f) is a shape you can only find once you already know it is
+ *  there. */
+const AURA_FLOOR = 0.72;
+
+/**
+ * The colour a NON-STANDARD shipment's preview TELEGRAPH glows in.
+ *
+ * The telegraph exists because knowing a material's colour and noticing it are
+ * different things. Two of the six materials are deliberately dim — slag is the
+ * only unsaturated thing on the field and tar is near-black, both by design,
+ * because that is what "inert" and "an absence" look like. Those are exactly
+ * the two a player skims past on the belt, and an aura drawn in a colour that
+ * cannot be seen against the backdrop telegraphs nothing.
+ *
+ * So the aura keeps the material's HUE and lifts its VALUE: scale every channel
+ * until the brightest one reaches AURA_FLOOR. A colour already that bright
+ * (cryo, rebar, volatile, magnetic, and every piece colour) comes back
+ * untouched, so the common case is exactly `shipmentColor`. Tar's aura is a
+ * visible violet and slag's a pale mauve — still theirs, and still nobody
+ * else's.
+ *
+ * Deliberately arithmetic rather than a seventh column in MATERIAL_SPEC: a
+ * hand-picked aura per material is one more pair of values that can drift
+ * apart, and the rule "the glow is the cube's own colour, made visible" is one
+ * a reader can check against any hex in the table.
+ *
+ * Not applied to standard shipments — nothing calls this for them. An aura on
+ * every shipment distinguishes none of them.
+ */
+export function shipmentAura(type: PieceType, material: Material = "standard"): string {
+  const hex = shipmentColor(type, material);
+  const n = parseInt(hex.slice(1), 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const peak = Math.max(...rgb) / 255;
+  if (peak >= AURA_FLOOR || peak === 0) return hex;
+  const lift = AURA_FLOOR / peak;
+  return `#${rgb
+    .map((c) => Math.round(Math.min(255, c * lift)).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
 export const COLORS = {
   bg: "#07070f",
   grid: "rgba(122,92,255,0.08)",

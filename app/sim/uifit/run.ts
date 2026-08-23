@@ -493,12 +493,14 @@ function measure(cfg: {
   });
 
   // --- inkline: a label and its value must share one OPTICAL line ----------
-  // Two typefaces baseline-aligned are not thereby eye-aligned. Press Start 2P
-  // keeps the bottom row of its pixel grid for descenders, so its capitals
-  // stop 0.13em above the alphabetic baseline; JetBrains Mono's sit on it. Any
-  // row that puts one beside the other renders the mono run an eighth of its
-  // type size low unless something pays that back — which is what tokens.css's
-  // --pixel-cap-drop is for.
+  // Two typefaces baseline-aligned are not thereby eye-aligned, and — the part
+  // this assertion originally got wrong — neither are two typefaces whose caps
+  // meet on a shared FOOT. Press Start 2P's capitals stop 0.125em above the
+  // alphabetic baseline where JetBrains Mono's sit on it, AND they are 19%
+  // taller (0.875em of cap against 0.734em). Correct only the foot and the
+  // shorter run's mass still lands (0.875 - 0.734) / 2 = 0.0703em low. What has
+  // to agree is the cap CENTRE; tokens.css's --pixel-optical-drop pays both
+  // halves.
   //
   // Invisible to every other assertion by construction: the row does not
   // overflow, wrap, clip, scroll or overlap while it is wrong. It just looks
@@ -507,18 +509,26 @@ function measure(cfg: {
   // Measured where the INK is, not where the box is. A box tells you nothing
   // here — both runs' boxes start at the same y and the defect is entirely
   // inside them. Baseline comes from an empty inline-block, whose bottom
-  // margin edge sits on the line box's baseline by definition; how far the
-  // typeface's capitals stop short of that baseline comes from canvas
-  // actualBoundingBoxDescent. Sum is where a capital's bottom edge lands.
+  // margin edge sits on the line box's baseline by definition.
+  //
+  // The cap geometry comes from a 1000px PROBE of the same face, scaled down to
+  // the element's real size — never from measuring at the element's own size.
+  // Chrome quantizes actualBoundingBoxAscent/Descent to whole device pixels, so
+  // at this row's 6px type floor every reading is rounded to +/-0.5px: the same
+  // magnitude as the drift being policed. Measuring in situ, this assertion
+  // reported 0.22px on a row that was really 0.43px out, and would have gone on
+  // reporting something under tolerance whatever the row did. A per-em ratio
+  // read once at 1000px has no such floor.
   //
   // A CAPITAL H, not the element's own text. The row's real content carries
   // descenders that are meant to descend — the notch line opens with "$L×2"
-  // and JetBrains Mono's dollar sign drops 0.19em below the baseline — and
+  // and JetBrains Mono's dollar sign drops 0.14em below the baseline — and
   // measuring those would report a 2px defect on a row that is correct.
   // What has to agree is where the two faces put a plain cap, which is a
   // property of the faces and not of the tally. H has no round overshoot in
   // either of them.
-  const capBottom = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
+  const PROBE_PX = 1000;
+  const capMid = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
     if (!(el.textContent ?? "").trim()) return null;
     const probe = document.createElement("span");
     probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
@@ -526,8 +536,14 @@ function measure(cfg: {
     const baseline = probe.getBoundingClientRect().bottom;
     probe.remove();
     const cs = getComputedStyle(el);
-    cvs.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    return baseline + cvs.measureText("H").actualBoundingBoxDescent;
+    const size = parseFloat(cs.fontSize);
+    if (!(size > 0)) return null;
+    cvs.font = `${cs.fontStyle} ${cs.fontWeight} ${PROBE_PX}px ${cs.fontFamily}`;
+    const m = cvs.measureText("H");
+    // Both offsets are measured DOWN from the baseline, so a cap that stops
+    // above it has a negative descent. Their mean is the cap box's centre.
+    const midEm = (m.actualBoundingBoxDescent - m.actualBoundingBoxAscent) / 2 / PROBE_PX;
+    return baseline + midEm * size;
   };
   const cvs = document.createElement("canvas").getContext("2d");
   if (cvs) {
@@ -544,8 +560,8 @@ function measure(cfg: {
       const lbl = row.querySelector(lblSel);
       const val = row.querySelector(valSel);
       if (!lbl || !val) return;
-      const a = capBottom(lbl, cvs);
-      const b = capBottom(val, cvs);
+      const a = capMid(lbl, cvs);
+      const b = capMid(val, cvs);
       if (a === null || b === null) return;
       // Half a pixel: below that the difference is rasterisation, not layout.
       if (Math.abs(b - a) > 0.5) {
