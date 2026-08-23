@@ -872,9 +872,15 @@ section("Pattern Contracts (contracts.ts)");
         patterns += 1;
         // The forced-variant loop above only ever sees a tier-9 std queue with
         // a surviving salvage wall, so it never exercises patternConditions's
-        // tiny → "dominoes" branch or its salvage → plain degrade branch. This
-        // sweep already walks every tier and 40 seeds per tier for exactness,
-        // so it is where those branches actually get checked.
+        // tiny → "dominoes" branch. This sweep already walks every tier and 40
+        // seeds per tier for exactness, so it is where that branch actually
+        // gets checked. A degraded salvage needs no check of its own:
+        // generatePatternContract (not patternConditions) falls back to
+        // variantSpec("plain") when the wall doesn't survive, so conditions
+        // takes the same `default` case "plain" already hits 185 times over
+        // this same range — and the degrade is too rare for this range to see
+        // regardless (0 of 50 salvage attempts here; ~0.4%, 2 of 492, at 400
+        // seeds/tier).
         if (c.conditions.includes("shipments")) everConditionsNamedShipments = true;
         // Exactness is measured against the CONTRACT's own region, not the
         // ladder's: a "short" variant is sized to 6-cell lines, and a "salvage"
