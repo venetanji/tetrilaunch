@@ -84,7 +84,7 @@ export const ORIENTATIONS: Record<PieceSize, Record<PieceType, Cell[][]>> = (() 
  * which is the safe direction: the generator falls back rather than shipping an
  * unproven queue.
  */
-const NODE_BUDGET = 200_000;
+export const NODE_BUDGET = 200_000;
 
 /** Where the solver draws pieces from. The two callers differ only here: the
  *  checker has a finite multiset to spend, the generator an unlimited pool. */
@@ -243,7 +243,7 @@ export function tilesRegion(
  *  before settling for one that came in under. Small on purpose: the cap is a
  *  difficulty dial, and one shipment type fewer than intended is a slightly
  *  easier Contract, not a broken one. */
-const EXACT_ATTEMPTS = 6;
+export const EXACT_ATTEMPTS = 6;
 
 /**
  * An inventory that provably tiles a `rows` x `cols` rectangle, drawn from

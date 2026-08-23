@@ -703,8 +703,9 @@ function patternInventory(
   // on a function main.ts calls on every render of the Contracts screen.
   //
   // So walls are PROBED, cheaply, and a failing one is replaced rather than
-  // argued with. A tenth of the budget is plenty to find a tiling that exists,
-  // and the whole point is to stop paying for disproof.
+  // argued with. A hundredth of the budget is plenty to find a tiling that
+  // EXISTS — the whole point is to stop paying for disproof, and paying more
+  // per probe buys only a slower way to give up (see SALVAGE_PROBE_NODES).
   for (let attempt = 0; spec.salvage && attempt < SALVAGE_WALL_ATTEMPTS; attempt++) {
     const wall = salvageProfile(goal, lineCells, cubes, rng);
     const walled = tilingQueue(
@@ -728,12 +729,32 @@ function patternInventory(
   return { queue: canonical(plain ?? [], rng), standing: [] };
 }
 
-/** How many candidate walls a salvage Contract may try before giving up on
- *  having one at all, and the node ceiling each probe gets. Small on both
- *  counts: a wall that tiles is found almost immediately, and the cost being
- *  bounded is the entire point — see the note in patternInventory. */
-const SALVAGE_WALL_ATTEMPTS = 6;
-const SALVAGE_PROBE_NODES = 20_000;
+/**
+ * How many candidate walls a salvage Contract may try, and the node ceiling
+ * each probe gets. The two do NOT trade off against each other the way the
+ * first cut of this assumed, and the difference is worth writing down.
+ *
+ * A probe's budget is spent on DISPROOF. A wall that tiles is found almost
+ * immediately — half of all salvage Contracts generate in about a millisecond —
+ * so raising the ceiling buys nothing except a longer wait before an untileable
+ * profile is abandoned. Measured over 1000 Contracts across tiers 6-9, dropping
+ * the ceiling from 20,000 nodes to 2,000 and spending the difference on more
+ * candidate walls made wall retention BETTER (2.9% lost -> 1.8%) and the worst
+ * generation 9x cheaper (1101ms -> 124ms). More nodes was strictly worse on
+ * both counts: a fixed number of attempts sat longer on a bad profile instead
+ * of drawing another one.
+ *
+ * These are also the numbers that keep the whole probe loop cheaper than a
+ * single unbounded solve, which is the promise patternInventory's note makes
+ * and sim/systems.ts now enforces — see the budget check there. Note the real cost
+ * is ATTEMPTS x EXACT_ATTEMPTS x PROBE_NODES: tilingQueue re-runs its own
+ * search up to EXACT_ATTEMPTS times chasing a shipment-type count, and each of
+ * those runs gets the full ceiling. Six walls at 20,000 was 720,000 nodes
+ * against the 1,200,000 of the unbounded call it replaced — a third off, where
+ * the note claimed an order of magnitude.
+ */
+export const SALVAGE_WALL_ATTEMPTS = 10;
+export const SALVAGE_PROBE_NODES = 2_000;
 
 /**
  * The inventory as the CARD states it: any spares, then sorted.

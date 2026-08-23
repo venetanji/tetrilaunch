@@ -61,13 +61,14 @@ import {
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
-  CONTRACT_MATERIAL_CAP, type ContractVariant,
+  CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
+  type ContractVariant,
 } from "../src/game/contracts";
 import {
   pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
-import { tilesRegion } from "../src/game/tiling";
+import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
   computeLayout,
@@ -1253,6 +1254,41 @@ section("Pattern variants (contracts.ts VARIANTS)");
     );
     // Generation sits on the render path (main.ts calls dailyContracts on every
     // paint of the Contracts screen), so an unbounded search here is a freeze.
+    //
+    // The BOUND is asserted in nodes, not milliseconds, and that is the whole
+    // lesson of this check. Its first cut asserted `worstMs < 1500` alone —
+    // which passed at 980ms on one machine and failed at 2135ms on another,
+    // running byte-identical code over the same fixed seeds. The workload is
+    // deterministic; only the clock is not. A ms bound on it does not measure
+    // the thing it claims to measure, it measures the runner, so it goes red on
+    // a slow box and green on a fast one whatever the code does.
+    //
+    // What is worth pinning is the design promise itself, stated literally:
+    // probing every candidate wall must cost LESS THAN PROVING ONE. The moment
+    // the loop can outspend a single unbounded solve, "probe cheaply instead of
+    // proving expensively" stops describing the code, and the fallback it was
+    // built to avoid becomes the cheaper path.
+    //
+    // Note the EXACT_ATTEMPTS factor, which is the part that is easy to miss and
+    // is exactly what went wrong: tilingQueue re-runs its own search that many
+    // times chasing a shipment-type count, and each of those runs gets the full
+    // per-probe ceiling. The cost is the product of all THREE numbers, not the
+    // two that appear at the call site. The first cut of this fix cut the
+    // per-probe ceiling tenfold and raised the wall count sixfold, which reads
+    // like a large saving and was 720,000 nodes against a solve's 200,000 —
+    // over budget in the direction it believed it had fixed.
+    const probeNodes = SALVAGE_WALL_ATTEMPTS * EXACT_ATTEMPTS * SALVAGE_PROBE_NODES;
+    check(
+      `probing every wall costs less than proving one ` +
+      `(${probeNodes} nodes vs a solve's ${NODE_BUDGET})`,
+      probeNodes < NODE_BUDGET,
+      `${SALVAGE_WALL_ATTEMPTS} walls x ${EXACT_ATTEMPTS} attempts x ${SALVAGE_PROBE_NODES} nodes`,
+    );
+    // And a smoke bound on top, kept deliberately loose. It is here to catch an
+    // order-of-magnitude regression that the node arithmetic cannot see (a new
+    // caller, a pathological profile generator), NOT to police tens of ms — so
+    // it sits ~12x over what this workload measures rather than 1.5x, which is
+    // the margin that made the first cut machine-dependent.
     check(`generating a salvage Contract stays bounded (worst ${worstMs}ms)`, worstMs < 1500);
   }
 
