@@ -40,7 +40,10 @@ export type FxName =
   | "reloadReady"
   | "explosion"
   | "uiClick"
-  | "bombArm";
+  | "bombArm"
+  | "congestionLoop"
+  | "congestionLoop2"
+  | "congestionLoop3";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -58,6 +61,7 @@ const FX_NAMES: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
   "explosion", "uiClick", "bombArm",
+  "congestionLoop", "congestionLoop2", "congestionLoop3",
 ];
 
 /**
@@ -118,9 +122,16 @@ const FADE_MS = 450;
  * muffled, so a bay filling up sounds like a signal degrading rather than
  * sounding like nothing at all.
  *
- * The static is GENERATED, not shipped. It is white noise through a bandpass,
- * which is what static IS, and an mp3 would have cost ~2.5 MB in a precache
- * already carrying 29 MB of music to say what Math.random says for free.
+ * The cue prefers a SHIPPED texture and synthesizes its old self as the
+ * fallback: congestionLoop.mp3 — a designed loop, ~150 KB mono, whatever the
+ * sound design wants congestion to BE (interference, clanking cargo strain) —
+ * plays when its buffer has arrived, and white noise through a bandpass still
+ * covers a missing file, a failed decode, or a bay that congests before the
+ * effects finish loading. Whatever the texture is, it must stay CONTINUOUS:
+ * discrete events with silence between them would read as more of the real
+ * impact one-shots this plays under, not as a state. The noise-only form was
+ * defended here as "an mp3 would have cost ~2.5 MB"; a short mono loop costs a
+ * twentieth of that, which buys character Math.random cannot say.
  *
  * Muffling means a lowpass, which means the music has to reach the audio graph
  * — so playMusic now routes its element through createMediaElementSource. That
@@ -146,6 +157,29 @@ const MUSIC_MUFFLED_HZ = 900;
  * only cue that is supposed to cut through.
  */
 const STATIC_GAIN = 0.21;
+/** The shipped loop at the same job. Separate from STATIC_GAIN because the two
+ *  sources arrive at very different levels: raw ±1.0 noise loses most of its
+ *  energy in the bandpass, while the sample is peak-normalised to -3dBFS and
+ *  bypasses the filter.
+ *
+ *  Tuned BY EAR to 1.0, and the number is hot for a reason the peak math
+ *  hides: the pipeline levels these takes by PEAK like every one-shot, but a
+ *  sparse clank texture carries its body ~17dB under its peaks (measured:
+ *  -21dB RMS against a -3.8dBFS peak), where a loudness-normalised bed keeps
+ *  its body AT its level. 0.12 and then 0.5 both read as nothing under music
+ *  for exactly that reason. At 1.0 the loop's sustained level still sits
+ *  several dB under the bed's; what makes it land is that congestion is also
+ *  closing the lowpass over the music, clearing out the very midrange the
+ *  clanks live in.
+ *
+ *  Headroom: a clank peak reaches 0.71 x 1.0 x 0.6 = 0.43 at the destination,
+ *  against a bed at 0.63 — a hard coincidence brushes the same ~1.05 the
+ *  bus-gain note above already accepts, and only at full congestion, where
+ *  the filter has already pulled the bed well off that figure. If this
+ *  number keeps fighting the mix, the durable fix is in prepare-audio.mjs:
+ *  level the loop takes by LOUDNESS like the beds (its own doctrine for
+ *  continuous audio) and bring this back to a sane fraction. */
+const STATIC_SAMPLE_GAIN = 1.0;
 /** Static rises fast and falls slow. That is the right dramatic shape, and it
  *  is also free hysteresis: a cube count sitting on a threshold crosses the
  *  tier several times a second, and a symmetric ramp would stutter audibly. */
@@ -512,37 +546,81 @@ function routeMusic(el: HTMLAudioElement): void {
   }
 }
 
-/** The noise source, built on the first congested bay and then left running at
- *  zero gain for good. A BufferSource cannot be restarted, and a looping
- *  2-second buffer through one filter is not worth the bookkeeping of tearing
- *  down and rebuilding every time a bay gets tidied. */
+/** The static source, built on the first congested bay and then left running
+ *  at zero gain for good. A BufferSource cannot be restarted, and one looping
+ *  buffer is not worth the bookkeeping of tearing down and rebuilding every
+ *  time a bay gets tidied.
+ *
+ *  Which source it is gets decided HERE, once: one of the shipped loop takes
+ *  at random if any buffer has arrived (loadEffects), synthesized noise
+ *  otherwise. Per SESSION rather than per bay on purpose — re-rolling each bay
+ *  would mean tearing the source down and rebuilding it, which is exactly the
+ *  bookkeeping this builder exists to avoid, and the random start offset below
+ *  already keeps one session's cue from opening on the same clank twice. A bay
+ *  that congests before the decodes land keeps the noise for the session —
+ *  acceptable, because the fallback is the cue this shipped with for months,
+ *  and swapping sources mid-cue would be audible as a glitch nobody asked
+ *  for. */
+let staticSrc: AudioBufferSourceNode | null = null;
+/** Peak level for setCongestion to scale — depends on which source won. */
+let staticPeak = STATIC_GAIN;
+const LOOP_TAKES: FxName[] = ["congestionLoop", "congestionLoop2", "congestionLoop3"];
 function ensureStatic(): void {
   if (!ctx || !fxBus || staticGain) return;
   try {
-    // Two seconds is long enough that the loop point is inaudible in noise.
-    const frames = Math.floor(ctx.sampleRate * 2);
-    const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.loop = true;
-    // Flat white noise is a hiss. A wide bandpass through the presence range is
-    // what makes it read as a signal breaking up rather than a blown speaker.
-    const band = ctx.createBiquadFilter();
-    band.type = "bandpass";
-    band.frequency.value = 2000;
-    band.Q.value = 0.6;
     const gain = ctx.createGain();
     gain.gain.value = 0;
+    const src = ctx.createBufferSource();
+    // Whichever takes have decoded by now are the pool — a partial drop (one
+    // variant shipped, two pending) rotates over what exists.
+    const takes = LOOP_TAKES.map((n) => buffers.get(n))
+      .filter((b): b is AudioBuffer => b !== undefined);
+    const sample = takes.length
+      ? takes[Math.floor(Math.random() * takes.length)]
+      : undefined;
+    if (sample) {
+      src.buffer = sample;
+      src.loop = true;
+      // Loop an INTERIOR region: mp3 carries encoder padding at both ends and
+      // the pipeline's 30ms fade-out sits inside the last 60ms, so looping
+      // edge-to-edge would put a dip and a click on every cycle. 60ms in from
+      // each end the seam is texture against texture.
+      const pad = Math.min(0.06, sample.duration / 8);
+      src.loopStart = pad;
+      src.loopEnd = sample.duration - pad;
+      staticPeak = STATIC_SAMPLE_GAIN;
+      // No bandpass: the sample IS the designed spectrum. Straight to gain.
+      src.connect(gain).connect(fxBus);
+    } else {
+      // Two seconds is long enough that the loop point is inaudible in noise.
+      const frames = Math.floor(ctx.sampleRate * 2);
+      const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+      src.buffer = buf;
+      src.loop = true;
+      // Flat white noise is a hiss. A wide bandpass through the presence range
+      // is what makes it read as a signal breaking up, not a blown speaker.
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 2000;
+      band.Q.value = 0.6;
+      staticPeak = STATIC_GAIN;
+      src.connect(band).connect(gain).connect(fxBus);
+    }
     // Through the EFFECTS bus rather than straight to the output: the static is
     // a game cue, so the Sound toggle should govern it and it should sit at the
     // effects level. Routing it here means both come for free.
-    src.connect(band).connect(gain).connect(fxBus);
-    src.start();
+    //
+    // Started at a random offset into the loop region, so the cue does not
+    // open on the same clank every session. On the noise fallback loopStart
+    // and loopEnd are both 0, so the offset is 0 and nothing changes.
+    src.start(0, src.loopStart + Math.random() * Math.max(0, src.loopEnd - src.loopStart));
+    staticSrc = src;
     staticGain = gain;
   } catch {
     staticGain = null;
+    staticSrc = null;
   }
 }
 
@@ -562,7 +640,12 @@ export function setCongestion(level: number): void {
   if (next > 0) ensureStatic();
   const now = ctx.currentTime;
   const tau = rising ? CUE_RISE_TAU : CUE_FALL_TAU;
-  staticGain?.gain.setTargetAtTime(STATIC_GAIN * next, now, tau);
+  staticGain?.gain.setTargetAtTime(staticPeak * next, now, tau);
+  // A congesting bay also drags the texture's pitch up a shade, so the cue
+  // reads as getting WORSE, not merely louder. Small on purpose: ±12% is a
+  // timbre shift, not a note — the loop stays atonal against every bed. On the
+  // noise fallback resampling is near-inaudible, which is fine.
+  staticSrc?.playbackRate.setTargetAtTime(1 + 0.12 * next, now, tau);
   // GEOMETRIC between the two corners, because pitch is. Interpolating hertz
   // linearly would spend the first half of the travel between 20kHz and 10kHz,
   // where a lowpass does nothing anyone can hear, and then dump the entire

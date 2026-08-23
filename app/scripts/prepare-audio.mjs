@@ -59,11 +59,14 @@ const OUT = join(appDir, "public", "audio");
 const FX = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
-  // Mapped ahead of their masters on purpose: the run FAILS (mapped but not
-  // present) until explosion/uiClick/bombArm land in audio/fx/, which is the
-  // loud TODO this script's design asks for. In the app a missing effect is
-  // silence, so the wiring ships safely ahead of the sound.
   "explosion", "uiClick", "bombArm",
+  // A name may be mapped ahead of its master: the run FAILS (mapped but not
+  // present) until the file lands in audio/fx/, which is the loud TODO this
+  // script's design asks for. In the app a missing effect degrades safely —
+  // silence for one-shots; for the congestion loops, the synthesized-noise
+  // fallback in lib/audio.ts's ensureStatic, which rotates over whichever of
+  // the three takes have arrived.
+  "congestionLoop", "congestionLoop2", "congestionLoop3",
 ];
 
 /**
@@ -89,7 +92,12 @@ const STINGERS = ["bayClear", "gameOver", "gameOver2", "refit"];
 const MUSIC = {
   "lounge-menu-pause.mp3": "menu",
   "Whale Circuit.mp3": "contract-rare",
-  "chilled beginning.mp3": "bay-1",
+  // The remaster replaces "chilled beginning.mp3" as bay-1's master. Measured
+  // before the swap: above 500Hz the two are IDENTICAL (-22.5 LUFS phone-band
+  // both), the remaster just carries 0.6 LU less sub and peaks past full scale
+  // (+0.3dBTP) — so bay-1's MASTER_EQ entry stays; the shelf and limiter are
+  // still what make this bed audible on a phone, not the new render.
+  "chill beginning (Remastered).mp3": "bay-1",
   "2 chill.mp3": "bay-2",
   "Threes.mp3": "bay-3",
   "Level Four on the floor.mp3": "bay-4",
@@ -230,7 +238,30 @@ const MASTER_EQ = {
  * Reach for this when the printed window for a file looks wrong. The auto
  * detection stays the default so a new drop needs no config at all.
  */
-const OVERRIDES = {};
+const OVERRIDES = {
+  // This take is a 2.5s riser with no front transient — its RMS CLIMBS to a
+  // climax at 1.5–2.25s and releases into silence at ~2.55s, so the auto
+  // window (first sound to first real gap) ships nearly all of it. The pinned
+  // window is the climax and release only: the arm cue is "charged + locked",
+  // not the whole wind-up. If a future take is a proper short latch clack,
+  // delete this entry and let the auto trim have it.
+  "bombArm.mp3": { start: 1.55, dur: 0.9 },
+  // The take is four ticks in 240ms with the gaps between them never reaching
+  // the silence floor, so the auto trim merged all four into "one sound" and
+  // shipped a flutter — which plays as a mushy, delayed press. One UI click is
+  // ONE tick: the first, which starts at zero for zero perceived latency.
+  "uiClick.mp3": { start: 0, dur: 0.055 },
+  // LOOPS, not one-shots: audio.ts loops an interior region of each under
+  // congested bays, so the transient trim — which would cut a continuous
+  // texture down to its first flutter — must not run. Windows are pinned to
+  // each take's uniform interior, because a taper inside the shipped file
+  // would put a dip in every loop cycle: take 1 fades in over its first
+  // half-second and out over its last second, take 3 over its first ~0.4s and
+  // last ~0.9s, and take 2 is uniform to both edges.
+  "congestionLoop.mp3": { start: 0.5, dur: 18.5 },
+  "congestionLoop2.mp3": { full: true },
+  "congestionLoop3.mp3": { start: 0.4, dur: 10.9 },
+};
 
 async function ffprobeDuration(file) {
   const { stdout } = await run("ffprobe", [
