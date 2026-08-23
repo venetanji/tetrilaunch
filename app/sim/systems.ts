@@ -4531,6 +4531,27 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     }
     check("every clause moves at least one projected number", unseen.length === 0, unseen.join(", "));
 
+    // …and at least one of those rows has to read as a COST.
+    //
+    // Moving a number is not enough, and a review round proved it: the Bonds
+    // row carried higherIsWorse: false, so Cold Weld — one half of a mandatory
+    // pair — projected its unbreakable bay entirely in the "better" tone and
+    // read as the free choice in a fork that is supposed to have none. The
+    // clause was correct, the number was correct, and the screen still told the
+    // player the opposite of the truth.
+    //
+    // Some rows going GREEN is fine and deliberate: Short Measure genuinely
+    // makes a launch cheaper, and Dead Weight genuinely buys a bigger payload.
+    // What no clause may do is project a bay that costs nothing anywhere.
+    const painless: string[] = [];
+    for (const clause of FINALS) {
+      const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
+      const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+      if (!rows.some((r) => r.tone === "worse")) painless.push(clause.id);
+    }
+    check("every clause projects at least one row as a cost",
+      painless.length === 0, painless.join(", "));
+
     // …and it must still move one on a DEEP arrival, not just a clean bay.
     //
     // Found in review, and the clean-bay check above is exactly what missed it:
