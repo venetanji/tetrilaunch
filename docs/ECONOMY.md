@@ -326,24 +326,47 @@ a clock, a press stroke, a payable line and cargo to build rows out of.
 
 ### What the measurement could and could not settle
 
-Two instruments, neither of which sees the whole bay: `contracts.ts`'s own
-launch-budget model (exact for money, cargo size, line width and materials;
-blind to physics) and the `aim` bot (the only thing that prices the press, the
-weather and the bay's shape; blind to every ability). The full table lives in
-`finals.ts`'s header. Three things stayed open, and are named there rather than
-smoothed over:
+Two instruments: `contracts.ts`'s own launch-budget model (exact for money,
+cargo size, line width and materials; blind to physics) and the `aim` bot at 20
+seeds a cell. The full table lives in `finals.ts`'s header.
 
-- **The material Tiers cannot be judged by the bot at all.** One notch of slag
-  or cryo at the ladder's own gentlest rate — 0.07, a rate the shipped game
-  deals routinely — takes the bot from 100% to 0%, because it cannot strike a
-  cryo cube on purpose and cannot fire the charge that is slag's only exit.
-  Every material rate is therefore set against the *ladder's* scale instead:
-  none exceeds what `materialRate` reaches at six notches.
-- **Tier 10's pair splits between the instruments**, and the split is the
-  design: pentominoes are cheap per cube and brutal to place on an unbreakable
-  field, dominoes the exact reverse. Watch this pair first.
+**Six of the twenty clauses measured at or above the bay they are meant to make
+harder.** That looks like six broken cards. It is not — sorted by what each
+clause takes away, all twenty fall into three groups with no exceptions:
+
+| What the clause takes away | Clauses | Bot |
+|---|---|---|
+| **Cubes that can reach a line** | every material clause, plus Cold Weld and Dead Weight | −15 to −70 |
+| **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, Short Measure | free or better |
+
+The third group is the finding. The bot does not plan a row — it solves an angle
+and fires on every cooldown — so a clause that shrinks the space of *good*
+placements costs it nothing, while one that shrinks the space of *legal* ones
+sometimes helps. `Tight Gauge` is the proof: a narrower bay took its conversion
+from 4.30 shots per line to 2.87, because a nearer open stop packs the pile
+tighter, which is the metric the bot is implicitly optimising.
+
+So the table is **a measurement of the harness, not of those six clauses**: this
+bot prices cubes-into-lines and money, and is blind to placement quality by
+construction. It is equally not evidence that they *are* costs — nothing here,
+and nothing else in the repo, measures how hard a bay is to plan. That gap is
+what a device playtest fills, and it is where those six clauses live.
+
+Two consequences are already in the numbers:
+
+- **Material rates are set against the ladder, not the bot.** One notch of slag
+  or cryo at `materialRate(1) = 0.07` — a rate the shipped game deals routinely
+  — takes the bot from 100% to 0%. A 0% row says nothing about the number, so
+  no rate exceeds what `materialRate` reaches at six notches.
 - **The bot's cadence is not a human's** — the same limit `PILE_TIERS` learned
   the hard way. `Fouled Bay` is priced in exactly that currency.
+
+One correction fell out of the pricing and is worth stating on its own:
+`applyFinal` runs *after* `applyRatchets`, which is where `MIX_TOTAL_CAP` is
+enforced — so a material clause landing on an already-full belt pushed it to
+0.78 against a cap of 0.55. It now re-caps, holding the clause's own material at
+the rate its card quotes and taking the reduction from the ratcheted ones.
 
 One correction fell out of the pricing and is worth stating on its own:
 `penaltyPerLostPiece` is charged **per cube**, not per piece

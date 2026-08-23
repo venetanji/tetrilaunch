@@ -49,65 +49,72 @@ import { MARK_COUNT } from "./upgrades";
  *    run's last bay, where a dead bay costs the entire run rather than a notch.
  *
  * ---------------------------------------------------------------------------
- * WHERE THE NUMBERS CAME FROM, and what is still open.
+ * WHERE THE NUMBERS CAME FROM — and what the instruments can and cannot say.
  *
- * Two instruments, because neither sees the whole bay. Both were run from
- * throwaway probes (deleted; re-derivable from this note) that built bay 10 at
- * each clause's OWN Tier against that Tier's full build budget — which matters:
- * at Tier 10 level.ts sends the bay's joints to Infinity, so a clause priced on
- * a Mark-1 bay is priced on a bay that does not exist.
+ * Two of them, and the second one turned out to measure one thing only. Both
+ * were run from throwaway probes (deleted; re-derivable from this note) that
+ * built bay 10 at each clause's OWN Tier against that Tier's full build budget
+ * — which matters: at Tier 10 level.ts sends the bay's joints to Infinity, so a
+ * clause priced on a Mark-1 bay is priced on a bay that does not exist.
  *
  *  1. THE LINE MODEL — contracts.ts's own launch budget (CUBES_PER_LINE over
  *     cubes a launch delivers times PLANNING_EFFICIENCY, discounted by
  *     MATERIAL_WASTE), converted to "extra lines the bay demands". Exact for
  *     money, cargo size, line width and the material mix. Blind to physics.
- *  2. THE aim BOT — 8 seeds a cell. The only thing that prices the press, the
- *     weather and the bay's shape. Blind to every ABILITY: sim/README.md says
- *     the bots never fire a Bond Breaker or a demolition charge.
+ *  2. THE aim BOT — 20 seeds a cell, against that Tier's own no-clause
+ *     baseline. See below for what it actually prices.
  *
- *              modelled (extra lines)      aim bot (win% / lines)
- *   T1  Rush Order    +7.6   Rate Cut +7.7      75 / 15.3    75 / 12.9
- *   T2  Head Gale       —    Tail Gale   —      75 / 13.5    75 /  7.9
- *   T3  Double Shift    —    Tight Gauge —     100 /  9.1   100 / 11.9
- *   T4  Cold Chain    +1.1   Ice Wall  +0.8      0 /  3.3     0 /  6.1
- *   T5  Rebar Run     +1.2   Cold Weld   —      75 / 10.3    88 / 15.5
- *   T6  Slag Run      +1.5   Slag Wall +0.6      0 /  0.8     0 /  1.1
- *   T7  Powder Run    +3.2   Hair Trig +1.2     63 /  8.9    88 / 12.0
- *   T8  Tar Run       +0.8   Fouled Bay+0.5     25 /  5.4     0 /  8.9
- *   T9  Bled Hyd        —    Haulage   +2.6     50 / 10.3    25 / 13.3
- *   T10 Dead Weight   +1.3   Short Meas+1.2      0 /  2.4    88 / 10.5
+ * WHAT THE BOT MEASURED (20 seeds, win-rate delta against the Tier's baseline):
  *
- * Read the two columns together and most pairs sit within a seed of each other
- * on whichever instrument can see them. THREE THINGS ARE STILL OPEN, and they
- * are named here rather than smoothed over:
+ *   T1  Rush Order   -5   Rate Cut     -5      T6  Slag Run   -65  Slag Wall -65
+ *   T2  Head Gale    -5   Tail Gale   +15      T7  Powder Run   0  Hair Trig +20
+ *   T3  Double Shift -5   Tight Gauge +20      T8  Tar Run    -50  Fouled    -55
+ *   T4  Cold Chain  -70   Ice Wall    -65      T9  Bled Hyd    -5  Haulage   -10
+ *   T5  Rebar Run   +10   Cold Weld   -15      T10 Dead Weight -45  Short Ms +30
  *
- *  - **The material Tiers cannot be judged by the bot, at all.** Measured
- *    directly: ONE notch of slag or cryo at the ratchet ladder's own gentlest
- *    rate (hazards.ts's materialRate(1) = 0.07 — a rate the shipped game deals
- *    routinely) takes the aim bot from 100% to 0%. The bot cannot strike a cryo
- *    cube on purpose and cannot fire the charge that is slag's only exit, so a
- *    0% on those rows is a fact about the harness. Every material rate below is
- *    therefore set against the LADDER's scale instead — none exceeds what
- *    materialRate reaches at six notches, and the two heaviest (slag, volatile)
- *    sit well under it. These are the rows a device playtest has to settle.
- *  - **Tier 10's pair splits between the instruments**, and the split is the
- *    design rather than a fault: pentominoes are cheap per cube and brutal to
- *    place on an unbreakable field, dominoes the exact reverse. The model has
- *    them level (+1.3 / +1.2) and the bot has them 88 points apart, because a
- *    badly-landed pentomino at this Tier is answered by a Bond Breaker and the
- *    bot never fires one. Measured control: the bot places pentominoes fine at
- *    Tier 1 and Tier 9 (83%, against 100% for standard) and only collapses at
- *    Tier 10, which is exactly where the Infinity bonds are. Watch this pair
- *    first.
- *  - **The bot's cadence is not a human's.** level.ts's congestion note records
- *    the same limit being learned the hard way: a census bot holds roughly twice
- *    the standing pile a human's slower, aimed cadence does, and deterrence
- *    questions are the sim's documented blind spot. Fouled Bay is priced in
+ * Six clauses read at or ABOVE the bay they are supposed to make harder. That
+ * looks like six broken cards, and it is not: sorted by what each clause takes
+ * away, all twenty fall into three groups with no exceptions.
+ *
+ *  - **Take away CUBES THAT CAN REACH A LINE** — every material clause, plus
+ *    Cold Weld (no loose cubes to fill gaps) and Dead Weight (a rigid pentomino
+ *    on an unbreakable bay cannot be worked into a row). The bot collapses:
+ *    -15 to -70.
+ *  - **Take away MONEY** — Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics.
+ *    A small, consistent -5 to -10: the bot stops firing when it is broke, so
+ *    it feels this directly and proportionately.
+ *  - **Take away GOOD PLACEMENTS** — Tight Gauge, Tail Gale, Rebar Run, Hair
+ *    Trigger, Powder Run, Short Measure. Free, or better than free.
+ *
+ * The third group is the finding. The bot does not plan a row: it solves an
+ * angle and fires on every cooldown, so a clause that shrinks the space of GOOD
+ * placements costs it nothing, while a clause that shrinks the space of legal
+ * ones sometimes helps. Tight Gauge is the proof — a narrower bay moved its
+ * conversion from 4.30 shots per line to 2.87, because a nearer open stop packs
+ * the pile tighter, which is the metric the bot is implicitly optimising.
+ *
+ * So the 20-seed table is NOT evidence that those six clauses are free. It is a
+ * measurement of the harness: this bot prices cubes-into-lines and money, and
+ * is blind to placement quality by construction. It is also not evidence that
+ * they are costs — nothing here, and nothing in the repo, measures how hard a
+ * bay is to PLAN. That is the gap a device playtest fills, and it is the gap
+ * these six clauses live in.
+ *
+ * Two consequences are already written into the numbers below:
+ *
+ *  - **Material rates are set against the LADDER, not the bot.** One notch of
+ *    slag or cryo at hazards.ts's own gentlest rate (materialRate(1) = 0.07, a
+ *    rate the shipped game deals routinely) takes the bot from 100% to 0%. A
+ *    0% row says nothing about the number. So no rate below exceeds what
+ *    materialRate reaches at six notches, and the two with the heaviest waste
+ *    weights sit well under it.
+ *  - **The bot's cadence is not a human's**, the same limit level.ts's
+ *    congestion note records learning the hard way. Fouled Bay is priced in
  *    exactly that currency.
  *
- * So: first-pass numbers, in the same sense hazards.ts means it of its own
- * notch sizes, with the derivation attached so a play pass can move them
- * knowingly rather than by feel.
+ * First-pass numbers, then, in the same sense hazards.ts means it of its own
+ * notch sizes — with the derivation attached, and with the instrument's blind
+ * spot named rather than mistaken for a result.
  */
 
 export type FinalId =
@@ -358,20 +365,26 @@ export const FINALS: FinalDef[] = [
     system: "launcher",
     apply: (cfg) => {
       cfg.windLock = 1;
-      // Three times the gust, and this is what makes the pair EQUAL rather than
-      // merely opposite. Measured, the raw tailwind is the milder half: the aim
-      // bot re-solves its angle against the live reading every shot and took an
-      // 80% win rate against the headwind's 60%, because a following wind
-      // pushes toward the wall the player is already aiming at. What a tailwind
-      // actually costs is the NEAR half of the bay — a minimum-power placement
-      // lands 226px deeper than aimed — and the gust is what stops that being
-      // trimmable: the bias you can hold for, the noise you cannot.
+      // Three times the gust, and it is a DESIGN judgement rather than a
+      // measured equaliser — the distinction matters, because this comment
+      // used to claim the second thing on the strength of an 8-seed reading
+      // that a 20-seed one does not support (the pair went 75/75 at eight
+      // seeds and 70/90 at twenty). The bot cannot arbitrate this clause at
+      // all: a tailwind's cost is that nothing can be set down SHORT, and a
+      // bot that always aims deep never wanted to. See the header's third
+      // group.
       //
-      // 3x takes the stationary spread from ~10.6% of windMax to ~32%, i.e.
-      // roughly a cell of scatter per shot at bay 10's cap. The stabilizer is
-      // the only thing that answers it (game.ts's windNow applies windAssist to
-      // the LIVE wind, gust included), which is the half of the Launcher track
-      // the headwind clause does not ask about.
+      // What stands on its own is the mechanism. A bias is trimmable — hold
+      // for it once and every shot after lands where you aimed — so a pinned
+      // tailwind alone mostly relocates the bay rather than shrinking it. The
+      // gust is what makes it a cost: measured, a minimum-power placement
+      // already lands 226px deeper than aimed, and 3x takes the stationary
+      // spread from ~10.6% of windMax to ~32%, about a cell of scatter a shot
+      // at bay 10's cap. The bias you can hold for; the noise you cannot.
+      //
+      // The stabilizer is the only thing that answers it (game.ts's windNow
+      // applies windAssist to the LIVE wind, gust included), which is the half
+      // of the Launcher track the headwind clause does not ask about.
       cfg.windGust = cfg.windMax * WIND_GUST_FRACTION * 3;
     },
   },
