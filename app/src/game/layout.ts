@@ -103,6 +103,10 @@ export function railSlotsFor(l: RailLoadout): number {
  *  back as --rail-gap (published by main.ts's onResize), so the solver's fit
  *  prediction and the rendered stack cannot disagree. */
 export const RAIL_GAP = 6;
+/** Total slack the column budget keeps outside the buttons. The rail is
+ *  TOP-ANCHORED in CSS (app.css's .side-rail), so 8px of this is the stack's
+ *  distance from the top edge and the remainder falls below the last button —
+ *  which is exactly where a run's undrafted ability slots sit. */
 const RAIL_EDGE = 16;
 
 /** Module-level slot budget, same pattern as the safe-area cache below:

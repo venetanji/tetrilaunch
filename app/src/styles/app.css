@@ -557,8 +557,8 @@ body.crt-off #app::after { display: none; }
    --gutter-r / --gutter-b / --rail-btn custom properties:
 
      [data-layout="wide"]  a natural side gutter is wide enough -> vertical
-                           column centered in the right gutter. (Ultrawide and
-                           most landscape handsets.)
+                           column in the right gutter, top-anchored. (Ultrawide
+                           and most landscape handsets.)
      [data-layout="snug"]  no usable natural gutter (near-16:9) -> the solver
                            RESERVED a right band and shrank the field to make
                            room, so the same vertical column now has real space
@@ -587,14 +587,27 @@ body.crt-off #app::after { display: none; }
   );
   width: var(--rail-btn);
   z-index: 6;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center;
+  /* TOP-ANCHORED, not centered. The column's LENGTH changes during a run — a
+     drafted ability adds a slot (bond / demo / auto), and a run that spends an
+     ability's last charge drops one again — and a centered column answers a
+     changed length by moving EVERY button half a slot. That put the rotate
+     pair, the controls a player's thumb is actually on, somewhere new after
+     each draft (playtest: "the rotation buttons change position and it's
+     annoying"). Anchored to the top, the slots the run always has are
+     positionally fixed — fullscreen, pause/✕, then ⟲ and ⟳ third and fourth —
+     and the abilities grow downward into the slack instead of shoving them.
+     The solver already budgets the column from this end: railColumnCap leaves
+     RAIL_EDGE (16px) of total slack, matching the 8px `top` above. */
+  justify-content: flex-start;
   /* Published by main.ts from layout.ts's RAIL_GAP — the same number the
      solver uses to decide whether this column FITS, so the prediction and the
      rendered stack cannot drift apart. */
   gap: var(--rail-gap, 6px);
-  /* The rail spans the full viewport height so the column can center in
-     it — only the buttons themselves may take pointer events, or the
-     column would eat drag-to-aim gestures started in the gutter. */
+  /* The rail spans the full viewport height so the column has the whole
+     column budget to stack into — only the buttons themselves may take
+     pointer events, or the column would eat drag-to-aim gestures started in
+     the gutter. */
   pointer-events: none;
 }
 .side-rail .icon-btn {
@@ -616,6 +629,10 @@ body.crt-off #app::after { display: none; }
    --gutter-b is its height, so this rule doesn't need to know which. */
 :root[data-layout="tall"] .side-rail {
   flex-direction: row;
+  /* Re-centered: the top-anchoring above is a COLUMN argument. This strip runs
+     across the full viewport width, so `flex-start` would park the buttons in
+     the bottom-left corner rather than hold them still. */
+  justify-content: center;
   top: auto;
   right: auto;
   left: 0;
@@ -656,12 +673,13 @@ body.crt-off #app::after { display: none; }
    live (main.ts's syncHud toggles .hud--aiming on the HUD root from
    game.aiming). It does NOT own a slot: while aiming it swaps into the PAUSE
    button's slot — pause hides, the ✕ appears at the same visual index (the
-   `order` pair below; the ✕ is last in the DOM but renders second) — so the
-   centered column keeps the same button count and NOTHING reflows under a
-   thumb mid-aim. That swap is also what lets layout.ts budget the column for
-   only the buttons the run actually has (railSlotsFor) instead of reserving
-   a permanent ninth slot. Tapping it with a second finger aborts the launch
-   (input.ts's cancelAim) so releasing the aim finger fires nothing.
+   `order` pair below; the ✕ is last in the DOM but renders second) — so
+   NOTHING below it reflows under a thumb mid-aim. (A swap, not an append,
+   because a ninth button would still push the abilities down even in a
+   top-anchored column.) That swap is also what lets layout.ts budget the
+   column for only the buttons the run actually has (railSlotsFor) instead of
+   reserving a permanent ninth slot. Tapping it with a second finger aborts
+   the launch (input.ts's cancelAim) so releasing the aim finger fires nothing.
    Touch-only — a mouse mid-drag can't click a second control, so
    fine-pointer devices drop it entirely (see the media rule below). */
 .side-rail #fullscreen-btn { order: -2; }
@@ -782,12 +800,10 @@ body.crt-off #app::after { display: none; }
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
 
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain,
-     back at their conventional top-right anchor. Scoped away from the "tall"
-     layout: there the rail is a horizontal ROW, where `flex-start` would jam
-     the two buttons into the bottom-left corner instead of anchoring them at
-     the top of a column. */
-  :root:not([data-layout="tall"]) .side-rail { justify-content: flex-start; }
+  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain.
+     They sit at their conventional top-right anchor for free — the rail is
+     top-anchored for everyone now (see .side-rail), which this rule used to
+     ask for on its own. */
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
