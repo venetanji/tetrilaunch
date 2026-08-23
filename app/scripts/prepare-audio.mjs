@@ -59,6 +59,11 @@ const OUT = join(appDir, "public", "audio");
 const FX = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
+  // Mapped ahead of their masters on purpose: the run FAILS (mapped but not
+  // present) until explosion/uiClick/bombArm land in audio/fx/, which is the
+  // loud TODO this script's design asks for. In the app a missing effect is
+  // silence, so the wiring ships safely ahead of the sound.
+  "explosion", "uiClick", "bombArm",
 ];
 
 /**

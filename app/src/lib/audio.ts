@@ -37,7 +37,10 @@ export type FxName =
   | "cryoShatter"
   | "bondBreak"
   | "bondBreak2"
-  | "reloadReady";
+  | "reloadReady"
+  | "explosion"
+  | "uiClick"
+  | "bombArm";
 
 /**
  * The menu lounge, the Deep Run's per-bay ladder, and the Contract bed — which
@@ -54,6 +57,7 @@ export type StingerName = "bayClear" | "gameOver" | "gameOver2" | "refit";
 const FX_NAMES: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
+  "explosion", "uiClick", "bombArm",
 ];
 
 /**
@@ -335,6 +339,25 @@ let bondFlip = false;
 export function playBondBreak(): void {
   bondFlip = !bondFlip;
   playFx(bondFlip ? "bondBreak" : "bondBreak2", { rate: 0.95 + Math.random() * 0.1 });
+}
+
+/** One blast file, two blasts. A demolition charge is the player's tool going
+ *  off at full size; a volatile shipment cooking off is a hazard at well under
+ *  half the radius (VOLATILE_BLAST_CELLS against BOMB_BLAST_R) — so it plays
+ *  smaller, pitched up and pulled back, rather than shipping a second file to
+ *  say a smaller version of the same thing. */
+export function playExplosion(kind: "bomb" | "volatile"): void {
+  playFx("explosion", kind === "bomb"
+    ? { rate: 0.96 + Math.random() * 0.08 }
+    : { rate: 1.18 + Math.random() * 0.08, gain: 0.7 });
+}
+
+/** Menu taps. Quiet on purpose — a click is confirmation, not an event — and
+ *  detuned a little per press so walking a menu is not one key bouncing.
+ *  `rate` shifts the whole press: toggles pitch up when they switch on and
+ *  down when they switch off, which reads without looking at the pill. */
+export function playUiClick(rate = 1): void {
+  playFx("uiClick", { rate: rate * (0.97 + Math.random() * 0.06), gain: 0.5 });
 }
 
 /* ------------------------------------------------------- music & stingers */

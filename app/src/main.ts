@@ -84,6 +84,7 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
+  playExplosion, playUiClick,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio,
 } from "./lib/audio";
 
@@ -1004,6 +1005,8 @@ class App {
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
+      onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
+      onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (s) => this.onGameStatus(s),
     }, this.run.seed);
@@ -1221,6 +1224,8 @@ class App {
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
+      onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
+      onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
       onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
       onStatus: (s) => this.onGameStatus(s),
     }, c.seed);
@@ -1986,6 +1991,7 @@ class App {
     const action = el.getAttribute("data-action");
     if (!action) return;
     void tapHaptic();
+    playUiClick();
     switch (action) {
       case "play": this.startGame(); break;
       case "howto": this.setState("howto"); break;
@@ -2284,6 +2290,10 @@ class App {
     // live by the gamepad poller and needs nothing here.
     if (key === "leftHandRail") this.applyRailSide();
     void tapHaptic();
+    // After syncAudioSettings on purpose: switching Sound OFF clicks into
+    // silence (playFx already gates on the new state) and switching it ON
+    // clicks audibly — the click doubles as proof the toggle took effect.
+    playUiClick(next ? 1.08 : 0.92);
   }
 
   /** The paywall itself is native UI configured in the RevenueCat dashboard —
