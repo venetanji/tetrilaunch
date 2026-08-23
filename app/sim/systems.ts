@@ -57,16 +57,18 @@ import {
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  dailyContracts, levelForContract, contractBed, CONTRACT_RARE_CHANCE,
-  DAILY_COUNT, CUBES_PER_LINE, PLANNING_EFFICIENCY,
-  SPARE_SHIPMENTS, TINY_PATTERN_MIN_TIER,
-  contractEfficiency, contractMaterialTier, launchesFor, CONTRACT_MATERIAL_CAP,
+  dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
+  variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
+  PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
+  TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
+  CONTRACT_MATERIAL_CAP, type ContractVariant,
 } from "../src/game/contracts";
 import {
-  pieceCells, SIZE_SPEC, createTetrisPiece, updateBreakableJoints, breakJointsInBand,
-  WEAK_BOND_UNBREAKABLE_BASE,
+  pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
+  updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
+import { isBuildable } from "../src/game/buildable";
 import {
   computeLayout,
   getRailSlots,
@@ -828,8 +830,14 @@ section("Pattern Contracts (contracts.ts)");
       for (const c of dailyContracts(tier, seed)) {
         if (c.kind !== "pattern") continue;
         patterns += 1;
+        // Exactness is measured against the CONTRACT's own region, not the
+        // ladder's: a "short" variant is sized to 6-cell lines, and a "salvage"
+        // one is short by exactly the wall the bay opens with. Both would read
+        // as inexact against a hardcoded 8-wide empty rectangle, and the whole
+        // point of the check is that they are not.
         const cubes = c.queue.length * SIZE_SPEC[c.pieceSize].cubes;
-        if (cubes !== c.goal * CUBES_PER_LINE + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
+        const wall = c.standing.reduce((a, h) => a + h, 0);
+        if (cubes + wall !== c.goal * c.lineCells + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
           everInexact = true;
         }
         // The cube COUNT above is necessary but nowhere near sufficient: the
@@ -837,16 +845,18 @@ section("Pattern Contracts (contracts.ts)");
         // and tiles nothing. Re-solved here with an independent search rather
         // than trusting the one that built it — a guarantee re-derived by the
         // same route it was produced by proves only that the code is itself.
-        const lineCells = makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
-        if (!tilesRegion(c.queue, c.goal, lineCells, c.pieceSize)) everUntileable = true;
+        if (!tilesRegion(c.queue, c.goal, c.lineCells, c.pieceSize, c.standing)) everUntileable = true;
         varietyByTier.set(tier, Math.max(varietyByTier.get(tier) ?? 0, new Set(c.queue).size));
         sizesSeen.add(c.pieceSize);
         if (c.pieceSize === "tiny") {
           (tinyByTier.get(tier) ?? tinyByTier.set(tier, []).get(tier)!).push(c.goal);
           // A domino ignores its type (pieces.ts's pieceCells), so a tiny
           // Contract that reported several "shapes" would be describing a
-          // distinction the player cannot see on the field.
-          if (new Set(c.queue).size > 1 && !c.brief.includes("dominoes")) tinyEverMultiShape = true;
+          // distinction the player cannot see on the field. Only briefs that
+          // name their CARGO can get this wrong — a variant brief names its
+          // RULE instead ("6-cell lines", "nothing shatters") and never claims
+          // a shape count at all, which is the same promise kept differently.
+          if (new Set(c.queue).size > 1 && /\bshapes?\b/.test(c.brief)) tinyEverMultiShape = true;
           if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = true;
         } else {
           (stdByTier.get(tier) ?? stdByTier.set(tier, []).get(tier)!).push(c.goal);
@@ -947,6 +957,273 @@ section("Pattern Contracts (contracts.ts)");
     JSON.stringify([...a].sort()) === JSON.stringify([...c.queue].sort()),
   );
   check("the play order is re-rolled per attempt", JSON.stringify(a) !== JSON.stringify(b));
+
+  // --- The dealt order has to be BUILDABLE, not merely a permutation --------
+  //
+  // The gap this closes: tilesRegion proves the inventory PACKS the goal
+  // rectangle. It says nothing about assembling that packing one shipment at a
+  // time, under gravity, with a row clearing the instant it fills — which is the
+  // only way a player ever gets to build it. The tier-5 board on 2026-08-22 dealt
+  // [I, I, L, L, L, J] for three lines: a set that packs, and whose canonical
+  // order cannot be finished by landing each shipment where it falls. It was
+  // reported, correctly, as impossible.
+  //
+  // Re-checked with isBuildable rather than buildOrder for the same reason the
+  // tiling checks above don't call tilingQueue: a guarantee re-derived by the
+  // code that produced it proves only that the code agrees with itself.
+  let everUnbuildable = 0;
+  let everUnbuildableEvenLoosely = 0;
+  let dealtPatterns = 0;
+  const dealRng = (() => { let z = 0x2f6e2b1; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  for (let tier = 1; tier <= 12; tier++) {
+    for (let seed = 20260101; seed < 20260101 + 25; seed++) {
+      for (const ct of dailyContracts(tier, seed)) {
+        if (ct.kind !== "pattern") continue;
+        const cfg = levelForContract(ct, dealRng);
+        const dealt = cfg.pieceQueue!;
+        dealtPatterns += 1;
+        const cols = cfg.compactorMinLineCells;
+        if (!isBuildable(dealt, cols, ct.pieceSize, "drop", ct.standing)) {
+          everUnbuildable += 1;
+          if (!isBuildable(dealt, cols, ct.pieceSize, "tuck", ct.standing)) {
+            everUnbuildableEvenLoosely += 1;
+          }
+        }
+      }
+    }
+  }
+  // The hard invariant is the weaker of the two, deliberately: the deal search
+  // is randomized, and an assertion that every single roll finds the STRICT
+  // kind of order would be a flake waiting for a slow day. What must never
+  // happen is a deal nobody can finish at all.
+  check(
+    `every dealt pattern queue can be finished (${dealtPatterns} deals)`,
+    everUnbuildableEvenLoosely === 0,
+    `${everUnbuildableEvenLoosely} unbuildable under either model`,
+  );
+  // And the measurement beside it: since buildable.ts's move ordering landed,
+  // the straight-drop search has not failed once across all 624 inventories
+  // this generator can emit, so the tuck fallback is a safety net under a path
+  // nothing currently takes. If this starts tripping, that has changed.
+  check(
+    `deals are buildable landing shipments straight down ` +
+      `(${dealtPatterns - everUnbuildable}/${dealtPatterns})`,
+    everUnbuildable <= dealtPatterns * 0.05,
+    `${everUnbuildable} needed a tuck`,
+  );
+
+  // Evidence that the buildability checker is not answering "yes" to everything
+  // — without it, the two checks above would bless any regression at all.
+  // [I, I, L, L, L, J] is the board that prompted all of this: it packs, and in
+  // this order nothing lands it.
+  check(
+    "buildability checker rejects the [I,I,L,L,L,J] order that shipped",
+    tilesRegion(["I", "I", "L", "L", "L", "J"], 3, 8)
+      && !isBuildable(["I", "I", "L", "L", "L", "J"], 8, "std", "drop"),
+  );
+  // ...and accepts the order the same SET can be finished in, so the rejection
+  // above is about the ORDER rather than a checker that hates L pieces.
+  check(
+    "the same set is buildable in a different order",
+    isBuildable(["L", "I", "L", "J", "L", "I"], 8, "std", "drop"),
+  );
+  check("buildability checker accepts four O shipments", isBuildable(["O", "O", "O", "O"], 8, "std", "drop"));
+  // Four cubes short of two rows: rejected on arithmetic, before any search.
+  check("buildability checker rejects a queue that can't fill the area", !isBuildable(["I", "O", "O"], 8, "std", "drop"));
+  // Tuck is strictly more permissive than drop, or the fallback in
+  // dealPatternQueue is not a fallback at all.
+  check(
+    "tuck admits an order drop refuses",
+    isBuildable(["I", "I", "L", "L", "L", "J"], 8, "std", "tuck"),
+  );
+  // --- The memo must name the whole subproblem ------------------------------
+  //
+  // buildOrder picks the ORDER as well as the placements, so two branches reach
+  // the same board having spent different pieces to get there. A memo keyed on
+  // the board plus a COUNT of what is left calls those the same node, and one
+  // dead branch poisons a live one — the search then reports "no order" for an
+  // inventory that has one, dealPatternQueue drops to its plain-shuffle
+  // fallback, and the bay is handed exactly the unwinnable deal this module
+  // exists to prevent.
+  //
+  // `() => 0` rather than a realistic rng on purpose: it is a legal generator
+  // and it pins the search to one deterministic walk, which is what makes this
+  // a regression test rather than a coin flip. Under Math.random the bug hid —
+  // a 624-inventory sweep never tripped it — which is exactly why it needs a
+  // check that does not depend on luck.
+  {
+    const zero = () => 0;
+    const narrow = generateContract(1002, 6, PATTERN_SLOT, "short");
+    const dealt = dealPatternQueue(narrow, narrow.lineCells, zero);
+    check(
+      `a deterministic deal is still buildable (${narrow.queue.join("")} -> ${dealt.join("")})`,
+      isBuildable(dealt, narrow.lineCells, narrow.pieceSize, "drop", narrow.standing),
+    );
+    // And the checker is not simply agreeing with everything: the order the
+    // broken memo used to produce is genuinely unbuildable.
+    check(
+      "the order the broken memo dealt is genuinely unbuildable",
+      !isBuildable(["I", "T", "T", "J", "J", "I"], narrow.lineCells, "std", "drop"),
+    );
+  }
+
+  // The order dealPatternQueue hands out must be the advertised set, still —
+  // proving an order finishable is worthless if it quietly changes the cargo.
+  const proven = dealPatternQueue(c, 8, dealRng);
+  check(
+    "a proven order is still exactly the advertised multiset",
+    JSON.stringify([...proven].sort()) === JSON.stringify([...c.queue].sort()),
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("Pattern variants (contracts.ts VARIANTS)");
+// ---------------------------------------------------------------------------
+{
+  // Every variant changes a RULE, and every rule it changes has to survive the
+  // two proofs a pattern Contract rests on. Swept per variant and forced rather
+  // than taken from the daily board: the board rolls one variant per seed, so a
+  // check that took what it was given would need thousands of seeds to see the
+  // rare ones once and would still not guarantee it had.
+  let inexact = 0, unpackable = 0, unbuildable = 0, rowAlreadyFull = 0;
+  let wallFloating = 0, offLadder = 0, wrongWidth = 0, sampled = 0;
+  const goalsByVariant = new Map<string, Set<number>>();
+  const shapesByVariant = new Map<string, Set<string>>();
+  const wallRng = (() => { let z = 0x51ed270; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+
+  for (const v of VARIANTS) {
+    for (let tier = 1; tier <= 10; tier++) {
+      // A variant must never be generated below its rung, and forcing one is
+      // the sandbox's job, not the board's — so the ladder is checked here
+      // against what variantsFor offers rather than against a forced roll.
+      if (v.tier > tier) {
+        if (variantsFor(tier).some((x) => x.id === v.id)) offLadder += 1;
+        continue;
+      }
+      if (!variantsFor(tier).some((x) => x.id === v.id)) offLadder += 1;
+
+      for (let seed = 20260101; seed < 20260101 + 12; seed++) {
+        const ct = generateContract(seed, tier, PATTERN_SLOT, v.id);
+        sampled += 1;
+        const cubes = ct.queue.length * SIZE_SPEC[ct.pieceSize].cubes;
+        const wall = ct.standing.reduce((a, h) => a + h, 0);
+        if (cubes + wall !== ct.goal * ct.lineCells) inexact += 1;
+        if (!tilesRegion(ct.queue, ct.goal, ct.lineCells, ct.pieceSize, ct.standing)) unpackable += 1;
+
+        const cfg = levelForContract(ct, wallRng);
+        // The bay must be built to the width the inventory was sized to. If
+        // these ever part company every Contract of that variant is short by a
+        // cube a line — the same defect class the tiling bug was.
+        if (cfg.compactorMinLineCells !== ct.lineCells) wrongWidth += 1;
+        if (cfg.compactorOpenCells <= cfg.compactorMinLineCells) wrongWidth += 1;
+
+        const dealt = cfg.pieceQueue!;
+        if (!isBuildable(dealt, ct.lineCells, ct.pieceSize, "drop", ct.standing)
+          && !isBuildable(dealt, ct.lineCells, ct.pieceSize, "tuck", ct.standing)) {
+          unbuildable += 1;
+        }
+
+        // A standing wall has two invariants of its own, and both are silent
+        // failures rather than crashes. A wall with no gap completes a row on
+        // frame one — the bay hands back a line nobody earned and the exact
+        // inventory is now one line long. A wall that is not a column profile
+        // could ask the player to build under a floating slab.
+        if (ct.standing.length > 0) {
+          if (ct.standing.length !== ct.lineCells) wallFloating += 1;
+          if (Math.min(...ct.standing) > 0) rowAlreadyFull += 1;
+          if (ct.standing.some((h) => h < 0 || h >= ct.goal)) wallFloating += 1;
+        }
+        // A variant that does NOT open on a wall must never carry one.
+        if (!variantSpec(v.id).salvage && ct.standing.length > 0) wallFloating += 1;
+
+        (goalsByVariant.get(v.id) ?? goalsByVariant.set(v.id, new Set()).get(v.id)!).add(ct.goal);
+        (shapesByVariant.get(v.id) ?? shapesByVariant.set(v.id, new Set()).get(v.id)!)
+          .add([...new Set(ct.queue)].sort().join(""));
+      }
+    }
+  }
+
+  check(`every variant generates (${sampled} sampled across ${VARIANTS.length} variants)`, sampled > 0);
+  check("every variant's inventory is exact for its own region", inexact === 0, `${inexact} inexact`);
+  check("every variant's inventory packs its own region", unpackable === 0, `${unpackable} unpackable`);
+  check("every variant deals a finishable order", unbuildable === 0, `${unbuildable} unbuildable`);
+  check("every variant's bay is built to the width its inventory assumes", wrongWidth === 0, `${wrongWidth} mismatched`);
+  check("a variant never appears below its rung", offLadder === 0, `${offLadder} off-ladder`);
+  check("only the salvage variant opens on a wall, and it is a column profile", wallFloating === 0);
+  check("a salvage wall never already completes a row", rowAlreadyFull === 0);
+
+  // The rules each variant claims on its card must actually be true of the bay.
+  const at = (id: ContractVariant, tier: number) =>
+    levelForContract(generateContract(20260101, tier, PATTERN_SLOT, id), wallRng);
+  check("Narrow Gauge really narrows the line", at("short", 4).compactorMinLineCells === 6);
+  check("Full Rebar really ships rebar, on every shipment", at("rebar", 5).materialMix.rebar === 1);
+  check("Guided really ships magnetic", at("guided", 9).materialMix.magnetic === 1);
+  check("Blackout really hides the preview", at("blind", 7).hideNextPreview);
+  check("Part Load really opens on a wall", at("salvage", 6).standingWall.some((h) => h > 0));
+  check(
+    "Single Stock really ships one shape",
+    new Set(generateContract(20260101, 5, PATTERN_SLOT, "single").queue).size === 1,
+  );
+  // ...and the ones that don't claim a rule must not quietly carry one.
+  const plain = at("plain", 9);
+  check(
+    "Standard changes nothing",
+    plain.compactorMinLineCells === CUBES_PER_LINE && !plain.hideNextPreview
+      && plain.standingWall.length === 0
+      && Object.values(plain.materialMix).every((r) => r === 0),
+  );
+
+  // Variety, per variant. A variant whose generator always found the same
+  // answer would pass every check above while being one Contract wearing nine
+  // tiers — the exact failure the variant axis exists to fix.
+  let stuck = "";
+  for (const v of VARIANTS) {
+    const shapes = shapesByVariant.get(v.id)?.size ?? 0;
+    // Single Stock is the one that legitimately has few: it is one shape by
+    // definition, and only some single shapes tile a rectangle at all.
+    if (shapes < (v.oneShape ? 2 : 4)) stuck += `${v.id}:${shapes} `;
+  }
+  check("every variant produces a range of inventories", stuck === "", stuck);
+
+  // The salvage wall has to land on the SLOT GRID the line check reads, or the
+  // bay opens with cubes that look settled and can never fill a slot.
+  {
+    const profile = [1, 0, 2, 1, 0, 2, 1, 1];
+    const cubes = createStandingWall(Matter.Engine.create().world, profile);
+    const onGrid = cubes.every((cu) => {
+      const k = (WALL_INNER - CELL / 2 - cu.body.position.x) / CELL;
+      const row = (WORLD.height - CELL / 2 - cu.body.position.y) / CELL;
+      return Number.isInteger(k) && Number.isInteger(row) && k >= 0 && k < profile.length;
+    });
+    check(
+      `a standing wall is exactly its profile (${cubes.length} cubes)`,
+      cubes.length === profile.reduce((a, h) => a + h, 0),
+    );
+    check("every standing cube lands on the slot grid", onGrid);
+    check("standing cubes are countable, settled and loose",
+      cubes.every((cu) => cu.material === "standard" && cu.struck && cu.blinkStart === null));
+  }
+
+  // End to end: the bay's own zero-waste arithmetic has to COUNT the wall, or
+  // objectiveUnreachable calls a perfectly winnable Part Load dead on frame one.
+  {
+    const ct = generateContract(20260101, 6, PATTERN_SLOT, "salvage");
+    const g = new Game(levelForContract(ct, wallRng), {}, ct.seed);
+    const wall = ct.standing.reduce((a, h) => a + h, 0);
+    check("a salvage bay opens with its wall on the field", g.cubes.length === wall, `${g.cubes.length} vs ${wall}`);
+    check(
+      "a salvage bay is not born unwinnable",
+      !g.objectiveUnreachable && g.cubesAvailable === g.cubesRequired,
+      `${g.cubesAvailable} available vs ${g.cubesRequired} required`,
+    );
+    // A wall placed off-grid or overlapping would slump the moment physics ran.
+    const before = g.cubes.map((cu) => ({ x: cu.body.position.x, y: cu.body.position.y }));
+    for (let i = 0; i < 240; i++) g.update(i * 16.6667);
+    const moved = g.cubes.filter((cu, i) =>
+      before[i] && Math.hypot(cu.body.position.x - before[i].x, cu.body.position.y - before[i].y) > 1);
+    check("the wall is already settled — 4s of physics does not move it", moved.length === 0,
+      `${moved.length} cubes slumped`);
+  }
 
   // --- Tier award ------------------------------------------------------------
   // Salvage moved from per-run/per-contract trickles to a single award on TIER
@@ -2034,8 +2311,8 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // copy and stay.
   {
     const hud = hudHTML({
-      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
-      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, material: "standard" },
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
       tier: 2,
       target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
       timeLeftMs: 150_000, pieceSize: "std",
@@ -3073,12 +3350,21 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- A Contract's belt carries exactly what it priced -------------------
   //
-  // Contracts now ship materials (the pentomino complication's replacement),
-  // but only the ones their budget model can price: slag can never count
-  // toward a line, so it must never appear, and a pattern Contract's exact
-  // tiling admits no material at all. The belt must match the Contract's own
-  // material/rate fields byte-for-byte — those fields are what launchesFor
-  // priced, and a mix that drifts from them is a budget lying about its bay.
+  // Contracts ship materials (the pentomino complication's replacement), but
+  // only the ones their model can account for. Slag can never count toward a
+  // line, so it must never appear anywhere. The belt must otherwise match the
+  // Contract's own material/rate fields byte-for-byte — on a lines Contract
+  // those fields are what launchesFor priced, and a mix that drifts from them
+  // is a budget lying about its bay.
+  //
+  // A PATTERN Contract's belt is no longer required to be clean, and that is a
+  // narrowing rather than a loosening. Its exact tiling admits only materials
+  // that leave a landed cube COUNTING, IN THE CELL THE TILING PUT IT IN: rebar
+  // refuses to come apart, magnetic squares itself onto its slot. Cryo (dead
+  // until struck), volatile (takes its neighbours) and tar (welds where it
+  // fell) all change what a landed cube is, so an exact inventory stops being
+  // exact — they stay forbidden, and this is where that is enforced.
+  const PATTERN_SAFE_MATERIALS = new Set(["rebar", "magnetic"]);
   let contractMixes = 0;
   let dirtyContracts = 0;
   let materialContracts = 0;
@@ -3092,7 +3378,13 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         const priced = c.material === m ? c.materialRate : 0;
         if (rate !== priced) dirtyContracts++;
       }
-      if (c.kind === "pattern" && c.material !== null) dirtyContracts++;
+      if (c.kind === "pattern" && c.material !== null) {
+        if (!PATTERN_SAFE_MATERIALS.has(c.material)) dirtyContracts++;
+        // A variant that ships a material ships it on EVERY shipment. A
+        // per-shipment roll would make "nothing shatters" true of most of the
+        // bay, which is a different and much worse promise than the card's.
+        if (c.materialRate !== 1) dirtyContracts++;
+      }
     }
   }
   check(

@@ -177,6 +177,33 @@ function search(
 }
 
 /**
+ * A goal region with a SALVAGE WALL already standing in it.
+ *
+ * `standing[x]` is how many cells of column x are already occupied, counted up
+ * from the floor — the shape of a pile the bay opens with rather than earns. A
+ * column profile rather than an arbitrary cell set, and that is a feasibility
+ * decision, not a convenience: a pile described by heights is bottom-anchored,
+ * so every cube in it rests on the floor or another cube, and no arrangement of
+ * one can ask the player to build under a slab that is floating.
+ *
+ * The caller is responsible for the other half — that no row of the profile is
+ * already complete, or the bay would clear it on the first frame and hand back
+ * a line nobody earned. contracts.ts's salvageProfile enforces it by leaving
+ * one column at zero.
+ *
+ * Row 0 is the TOP here, matching the rest of this module: column x fills rows
+ * `rows - standing[x]` through `rows - 1`.
+ */
+function prefilled(rows: number, cols: number, standing: readonly number[]): Uint8Array {
+  const grid = new Uint8Array(rows * cols);
+  for (let x = 0; x < cols; x++) {
+    const h = Math.max(0, Math.min(rows, standing[x] ?? 0));
+    for (let y = rows - h; y < rows; y++) grid[y * cols + x] = 1;
+  }
+  return grid;
+}
+
+/**
  * True when this exact multiset of shipments tiles a `rows` x `cols` rectangle
  * with no gaps and nothing left over.
  *
@@ -193,8 +220,12 @@ export function tilesRegion(
   rows: number,
   cols: number,
   size: PieceSize = "std",
+  standing: readonly number[] = [],
 ): boolean {
-  if (queue.length * SIZE_SPEC[size].cubes !== rows * cols) return false;
+  const grid = prefilled(rows, cols, standing);
+  let empty = 0;
+  for (const cell of grid) if (cell === 0) empty += 1;
+  if (queue.length * SIZE_SPEC[size].cubes !== empty) return false;
 
   const counts = new Map<PieceType, number>();
   for (const type of queue) counts.set(type, (counts.get(type) ?? 0) + 1);
@@ -205,16 +236,7 @@ export function tilesRegion(
     give: (t) => counts.set(t, counts.get(t)! + 1),
   };
 
-  return search(
-    new Uint8Array(rows * cols),
-    rows,
-    cols,
-    rows * cols,
-    supply,
-    [],
-    { nodes: 0 },
-    size,
-  );
+  return search(grid, rows, cols, empty, supply, [], { nodes: 0 }, size);
 }
 
 /** Attempts to spend chasing a tiling that uses EXACTLY `maxDistinct` types
@@ -255,8 +277,17 @@ export function tilingQueue(
   rng: () => number,
   maxDistinct = pool.length,
   size: PieceSize = "std",
+  standing: readonly number[] = [],
 ): PieceType[] | null {
   const cap = Math.max(1, Math.min(maxDistinct, pool.length));
+  const start = prefilled(rows, cols, standing);
+  let empty = 0;
+  for (const cell of start) if (cell === 0) empty += 1;
+  // No set of `cubes`-cell pieces fills an area that isn't a multiple of it.
+  // Checked before the search rather than left to it, because "no tiling" and
+  // "the arithmetic never allowed one" are different answers and only the
+  // second one is the caller's bug.
+  if (empty % SIZE_SPEC[size].cubes !== 0) return null;
 
   // A tiling under the cap, preferring one that actually spends it. The cap is
   // a ceiling, not a quota — the solver reaches a full region by whatever route
@@ -284,10 +315,10 @@ export function tilingQueue(
 
     const placed: PieceType[] = [];
     const ok = search(
-      new Uint8Array(rows * cols),
+      Uint8Array.from(start),
       rows,
       cols,
-      rows * cols,
+      empty,
       supply,
       placed,
       { nodes: 0 },

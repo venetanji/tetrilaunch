@@ -107,10 +107,30 @@ any mapped role has no master, rather than reporting a cheerful 0.00 MB.
 cd app && npm run audio:prepare
 ```
 
-Trims each effect to its first sound, levels everything to −3 dBFS, folds
-effects to mono, strips cover art, and writes `app/public/audio/`. It needs
-`ffmpeg` on PATH, and prints the trim window it chose for every effect — check
-that column, because the trim is a heuristic over generated audio and will
-eventually pick wrong. `OVERRIDES` in the script is the escape hatch.
+Trims each effect to its first sound, folds effects to mono, strips cover art,
+and writes `app/public/audio/`. It needs `ffmpeg` **and `ffprobe`** on PATH.
+
+Levelling is two jobs, not one:
+
+- **Effects** are peak-normalised to −3 dBFS. A 200 ms transient *is* its peak,
+  and integrated loudness is not even defined below the 400 ms gate.
+- **Music and stingers** are loudness-normalised to −15 LUFS (two-pass EBU
+  R128, `linear=true`, −1.5 dBTP ceiling). Peak-normalising a three-minute
+  track measures nothing you can hear: the ten bay beds all hit −3 dBFS exactly
+  as asked and still came out 2.3 LU apart.
+
+Both folders get the same LUFS target on purpose. A stinger is not *baked*
+louder than a bed, it is *played* louder, and by how much is `STINGER_GAIN` in
+`app/src/lib/audio.ts` — one number, tunable by ear, no re-encoding.
+
+Every run prints the trim window it chose for each effect — check that column,
+because the trim is a heuristic over generated audio and will eventually pick
+wrong. `OVERRIDES` in the script is the escape hatch.
+
+It also measures every **finished** file back and fails the run if one missed
+its target. That is not belt-and-braces: a wrong level is the one defect that
+leaves no other trace — the encode succeeds, the asset is the right length, it
+plays, it is merely wrong in the mix. `impact.mp3` shipped 2.7 dB under target
+that way and was diagnosed as a bad sample.
 
 Commit the resulting `app/public/audio/` changes; that is the half that ships.

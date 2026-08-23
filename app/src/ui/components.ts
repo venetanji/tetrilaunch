@@ -100,6 +100,16 @@ export function beltBombHTML(): string {
   return `<div class="next__bomb-tile" aria-label="Next: bomb">💣</div>`;
 }
 
+/** A SEALED shipment — the belt on a "Blackout" pattern Contract
+ *  (level.ts's hideNextPreview). Deliberately a crate rather than an empty
+ *  belt: empty is already the honest render for a finite queue that has run
+ *  out (see hudHTML), and a player who could not tell "nothing is coming" from
+ *  "something is coming and you may not see it" would read the variant as a
+ *  bug. The whole SET is still on the card; only the order is hidden. */
+export function beltSealedHTML(): string {
+  return `<div class="next__bomb-tile next__bomb-tile--sealed" aria-label="Next: sealed">?</div>`;
+}
+
 /** Stable 2-letter glyph + tiny pixel-font name per ratcheted AXIS, shown as a
  *  chip in the recycling-plant HUD panel (see screens.ts's hudHTML and
  *  game/hazards.ts's HAZARDS). Kept as an explicit table rather than derived

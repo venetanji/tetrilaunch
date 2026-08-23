@@ -1,11 +1,32 @@
 name: Android debug APK
 
 # Builds an installable debug APK so the native path stays provably working
-# rather than documented-and-rotting. Runs on changes under app/ and on manual
-# dispatch. Nothing is signed or published — release signing needs secrets that
-# don't belong in the repo (see docs/NATIVE.md).
+# rather than documented-and-rotting. Nothing is signed or published — release
+# signing needs secrets that don't belong in the repo (see docs/NATIVE.md).
+#
+# THE GRADLE BUILD IS RATIONED, and the cheap gates are not.
+#
+# Every Gradle run resolves the whole AGP dependency tree from Maven Central
+# afresh, and Central answers a busy repo with 429 Too Many Requests — which
+# fails a build for reasons that have nothing to do with the code in it. This
+# workflow was provoking that on its own: with an unfiltered `push` plus
+# `pull_request`, one push to a PR branch fired the job TWICE, and a stack of
+# open PRs meant a dozen Gradle runs an hour. #60 went red on a 429 while the
+# identical commit passed on a retry, which is the shape of the whole problem —
+# a red check nobody can act on teaches people to ignore red checks.
+#
+# So the expensive half now runs only where an actual APK is wanted: `main`, a
+# published release, or a hand-triggered dispatch. Staging pushes and pull
+# requests still run every cheap gate — typecheck, the systems smoke test, the
+# store-bundle check — because those need no network beyond npm and catch
+# nearly everything the APK step would. `push` is also branch-filtered so a PR
+# stops being built twice.
+#
+# If you want an APK for a branch, dispatch it by hand; that is what the button
+# is for.
 on:
   push:
+    branches: [main, staging]
     paths:
       - "app/**"
       - ".github/workflows/android.yml"
@@ -13,11 +34,19 @@ on:
     paths:
       - "app/**"
       - ".github/workflows/android.yml"
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      # Whether this run goes all the way to an APK, or stops after the cheap
+      # gates. Computed once here so the steps below read as a single decision
+      # rather than five copies of the same condition drifting apart. See the
+      # rationing note at the top of the file.
+      BUILD_APK: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || github.ref == 'refs/heads/main' }}
     defaults:
       run:
         working-directory: app
@@ -59,6 +88,7 @@ jobs:
         run: npm run verify:store
 
       - uses: actions/setup-java@v4
+        if: env.BUILD_APK == 'true'
         with:
           distribution: temurin
           # 21, not 17: Capacitor 8's Android platform builds with AGP 8.13 and
@@ -66,15 +96,18 @@ jobs:
           java-version: "21"
 
       - uses: android-actions/setup-android@v3
+        if: env.BUILD_APK == 'true'
 
       # app/android/ is gitignored (it's a derived artifact — see
       # docs/NATIVE.md), so CI generates it from capacitor.config.ts and the
       # installed plugins on every run. That also means this job is a real test
       # of `cap add` working from a clean checkout, not just of Gradle.
       - name: Add Android platform
+        if: env.BUILD_APK == 'true'
         run: npx cap add android
 
       - name: Sync web assets into the native project
+        if: env.BUILD_APK == 'true'
         run: npx cap sync android
 
       # Re-applies the native edits `cap add` doesn't own (sticky immersive
@@ -86,13 +119,16 @@ jobs:
       # instead of silently shipping an APK with the system bars back over the
       # play field, or one whose backup restores stale code.
       - name: Apply native Android patches
+        if: env.BUILD_APK == 'true'
         run: npm run patch:android
 
       - name: Build debug APK
+        if: env.BUILD_APK == 'true'
         run: ./gradlew assembleDebug --no-daemon
         working-directory: app/android
 
       - uses: actions/upload-artifact@v4
+        if: env.BUILD_APK == 'true'
         with:
           name: tetrilaunch-debug-apk
           path: app/android/app/build/outputs/apk/debug/app-debug.apk

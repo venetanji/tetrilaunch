@@ -3,6 +3,7 @@ import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld 
 import { Cannon, predictTrajectory } from "./cannon";
 import { Compactor } from "./compactor";
 import {
+  createStandingWall,
   createTetrisPiece,
   updateBreakableJoints,
   breakJointsInBand,
@@ -128,6 +129,12 @@ export interface BeltPreview {
    *  queue is at the muzzle. The belt draws an empty track rather than a piece
    *  that is never coming. Always false on a cycling bag. */
   empty: boolean;
+  /** True when the shipment exists but the bay refuses to show it — the
+   *  "Blackout" pattern variant (level.ts's hideNextPreview). Distinct from
+   *  `empty` on purpose: "nothing is coming" and "something is coming and you
+   *  may not see it" are different facts, and a belt that drew them the same
+   *  way would read as a bug rather than a rule. */
+  hidden: boolean;
   /** What the previewed shipment is made of (theme.ts's Material) — the belt
    *  colors the tile by it, so slag and cryo are visible one shot before they
    *  reach the muzzle. That lead time is what makes them planning problems
@@ -546,6 +553,11 @@ export class Game {
       30_000 / DT,
     );
     resetLineClear();
+    // The salvage wall, if this bay opens on one. Before updateTrajectory so
+    // the aim line is drawn against the pile that is actually there, and before
+    // the collision handler is registered because these cubes are placed rather
+    // than launched — nothing about them is an impact.
+    this.cubes.push(...createStandingWall(this.phys.world, level.standingWall));
     this.updateTrajectory();
 
     this.onCollisionStart = (e) => {
@@ -626,6 +638,7 @@ export class Game {
         type: this.cannon.currentType,
         quarterTurns: this.cannon.quarterTurns,
         empty: false,
+        hidden: false,
         material: this.cannon.currentMaterial,
       };
     }
@@ -634,6 +647,12 @@ export class Game {
       type: this.cannon.nextType,
       quarterTurns: 0,
       empty: !this.cannon.hasNext,
+      // Blacked out, not emptied: the belt still shows a crate coming (see
+      // components.ts's beltSealedHTML). What is hidden is only the ORDER —
+      // the whole set is on the Contract card, and the LOADED shipment stays
+      // visible, because a bay that hides what is in the muzzle is not asking
+      // the player to manage risk, it is asking them to guess.
+      hidden: this.level.hideNextPreview && this.cannon.hasNext,
       material: this.cannon.nextMaterial,
     };
   }
