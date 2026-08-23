@@ -56,11 +56,33 @@ const FX_NAMES: FxName[] = [
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
 ];
 
-/** Effects sit under the music, and a launch fires several times a second —
- *  full-scale one-shots over a bed turn into a wall. */
-const FX_BUS_GAIN = 0.75;
-const MUSIC_GAIN = 0.45;
-const STINGER_GAIN = 0.7;
+/**
+ * THE MIX — and it is deliberately the inverse of what these numbers used to
+ * say.
+ *
+ * Effects sat 4.4dB OVER the bed (0.75 against 0.45), which made the
+ * soundtrack the thing playing behind the game instead of the thing the game
+ * is played to. Music is the foreground now; everything else is placed against
+ * it. A launch still fires several times a second, so one-shots over a bed
+ * still turn into a wall — they are just doing it from underneath.
+ *
+ * Headroom is the constraint on how far this can go, because these all sum at
+ * the destination and Web Audio hard-clips at 1.0. A bed reaches 0.84 before
+ * its gain (loudness-normalised with a -1.5 dBTP ceiling) and an effect 0.71
+ * (peak-normalised to -3dBFS), so at 0.75 and 0.6 a typical coincidence lands
+ * near 0.98 and the worst imaginable one at 1.05. That is why bringing music
+ * up meant taking effects down rather than leaving them where they were.
+ *
+ * Stingers sit at EXACTLY the bed level. They already play into silence —
+ * playStinger stops the music outright rather than ducking it (see below) — so
+ * level with the bed is as prominent as they need to be, and they are not the
+ * part of this soundtrack anyone is here for. Tying the constant to
+ * MUSIC_GAIN rather than restating its value keeps that true through the next
+ * time somebody tunes the bed.
+ */
+const FX_BUS_GAIN = 0.6;
+const MUSIC_GAIN = 0.75;
+const STINGER_GAIN = MUSIC_GAIN;
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
  *  by the next screen. Long enough not to click, short enough not to muddy. */
 const FADE_MS = 450;
@@ -89,10 +111,19 @@ const FADE_MS = 450;
  *  and where it lands at full congestion. */
 const MUSIC_OPEN_HZ = 20000;
 const MUSIC_MUFFLED_HZ = 900;
-/** Peak static, before the effects bus applies its own 0.75. Broadband noise
- *  reads far louder than its amplitude suggests, and this cue is meant to nag
- *  from under the music rather than take the mix over. */
-const STATIC_GAIN = 0.1;
+/**
+ * Peak static, before the effects bus applies its own gain. Broadband noise
+ * reads far louder than its amplitude suggests, and this cue is meant to nag
+ * from under the music rather than take the mix over.
+ *
+ * Congestion is the one thing allowed to interfere with the bed, so this is
+ * pinned to the bed's level rather than left to drift against it. The cue was
+ * tuned at 0.1 through a 0.75 effects bus against a 0.45 bed; 0.21 through 0.6
+ * against a 0.75 bed is the same ratio, arrived at the same way. Raising the
+ * music without bringing the static with it would have quietly retired the
+ * only cue that is supposed to cut through.
+ */
+const STATIC_GAIN = 0.21;
 /** Static rises fast and falls slow. That is the right dramatic shape, and it
  *  is also free hysteresis: a cube count sitting on a threshold crosses the
  *  tier several times a second, and a symmetric ramp would stutter audibly. */
@@ -246,13 +277,23 @@ export function playFx(name: FxName, opts: { rate?: number; gain?: number } = {}
  * overlapping into mush; the small random detune keeps repeats from sounding
  * like one looped sample.
  *
- * The gain floor is 0.55, not 0.35, and the curve rides on top of it rather
- * than running from zero. Measured over a real bay (24 shots, 18 impacts): the
- * median relative speed is 8.3, which the strength mapping turns into 0.43, and
- * HALF of all impacts sat on the old floor. Through the 0.75 effects bus that
- * put a landing at ~0.32 of full scale on a sample already normalised to
- * -3dBFS — around 13dB under everything else, which is why it read as
- * "not very audible" rather than "quiet". The sample was never the problem.
+ * The curve rides on a floor rather than running from zero. Measured over a
+ * real bay (24 shots, 18 impacts) the median relative speed is 8.3, which the
+ * strength mapping turns into 0.43 — HALF of all impacts sit at the bottom of
+ * the range, and a landing that maps to near-silence is a landing the player
+ * does not feel.
+ *
+ * That floor was 0.55 and is now 0.40, which is the SAME sound coming out. It
+ * was raised to 0.55 to chase an impact that read as "not very audible",
+ * against a note that the sample was never the problem. The sample was the
+ * problem: impact.mp3 shipped at -5.7dBFS against the pipeline's -3 target,
+ * alone among the nine effects, because its gain was computed from a source
+ * peak that the trim had already cut away — see maxVolumeDb in
+ * scripts/prepare-audio.mjs, which now measures the window it actually ships
+ * and verifies the finished file. The sample arrives 2.7dB hotter, so 0.40
+ * against it is 0.55 against the old one, to within a rounding error.
+ *
+ * Re-tune by ear if it wants it. Just not because something moved underneath.
  */
 let lastImpactAt = 0;
 export function playImpact(strength = 1): void {
@@ -262,7 +303,7 @@ export function playImpact(strength = 1): void {
   const s = Math.max(0, Math.min(1, strength));
   playFx("impact", {
     rate: 0.92 + Math.random() * 0.16,
-    gain: 0.55 + 0.45 * s,
+    gain: 0.40 + 0.33 * s,
   });
 }
 
