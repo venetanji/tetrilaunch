@@ -332,11 +332,20 @@ export function unlockAudio(): void {
     // path cannot be the cause. What they do not share is this buffer: the
     // platform media pipeline gives them hundreds of ms of it.
     //
-    // Measured on the device, baseLatency by hint: interactive 4ms (192
-    // frames), balanced 20ms (960), playback 21.3ms (1024). "playback" buys
-    // 5.3x the headroom for 17ms — one frame at 60fps, and next to nothing
-    // against the 288ms of output latency Bluetooth already imposes.
-    ctx = new Ctor({ latencyHint: "playback" });
+    // "balanced", NOT "playback". baseLatency alone is a trap here: it reads
+    // 21.3ms for "playback" against 20ms for "balanced", a difference of
+    // nothing. But on Android "playback" asks for a DEEP BUFFER output track,
+    // which changes the whole path behind the mixer, and the number that
+    // reaches the player is outputLatency. Measured in-app over A2DP:
+    //
+    //   interactive   base  4ms   output 288ms   192 frames
+    //   balanced      base 20ms   output 320ms   960 frames   <- here
+    //   playback      base 21ms   output 696ms  1024 frames
+    //
+    // "playback" cost 408ms and was immediately audible as lag on the launch
+    // and impact cues. "balanced" buys 5x the buffer for 32ms, which against
+    // the 288ms Bluetooth already imposes is nothing.
+    ctx = new Ctor({ latencyHint: "balanced" });
     // Built before the buses so both can be pointed at it. A context too old
     // to have a compressor still gets the pre-limiter graph rather than no
     // audio: `out` is simply the destination in that case.
