@@ -98,7 +98,7 @@ if (hasSandbox && !allowSandbox) {
   console.error(
     `✗ store bundle check: the DEVELOPER SANDBOX is in dist/.\n` +
       `  It can set any Mark, grant salvage, max the rig and wipe the save, and it\n` +
-      `  is reachable by six taps on the menu wordmark. This bundle must not ship.\n` +
+      `  puts a Sandbox button on the main menu. This bundle must not ship.\n` +
       `  Build with \`npm run build:native\` for anything shippable. If this IS a\n` +
       `  deliberate sandbox build, run the check with --allow-sandbox.`,
   );
