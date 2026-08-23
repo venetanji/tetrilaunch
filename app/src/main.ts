@@ -84,7 +84,7 @@ import {
 } from "./lib/purchases";
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
-  playExplosion, playUiClick,
+  playExplosion, playUiClick, playUiConfirm,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio,
 } from "./lib/audio";
 
@@ -1990,8 +1990,14 @@ class App {
 
     const action = el.getAttribute("data-action");
     if (!action) return;
-    void tapHaptic();
-    playUiClick();
+    // Pointer presses already got their haptic and sound at pointerdown
+    // (pressFeedback); only a keyboard activation — a click with no pointer
+    // behind it, the same test as the data-game branch above — sounds here.
+    // Primary buttons blip, everything else ticks: the committing action
+    // (play, buy, undock, confirm) says so to the ear as well as the eye, and
+    // the variant class is the rule, so a new screen gets the right sound by
+    // styling its buttons honestly.
+    if (e.detail === 0 && !(e as PointerEvent).pointerType) this.actionFeedback(el);
     switch (action) {
       case "play": this.startGame(); break;
       case "howto": this.setState("howto"); break;
@@ -2218,9 +2224,36 @@ class App {
    *  produces a click at all. Firing on press also feels snappier for
    *  game controls. onClick keeps keyboard activation working (a
    *  keyboard "click" has detail 0 and no preceding pointerdown). */
+  /** Haptic + tick (or the confirm blip on a primary button) for one screen
+   *  button, shared by the press path and the keyboard path below. */
+  private actionFeedback(el: HTMLElement): void {
+    void tapHaptic();
+    if (el.classList.contains("btn--primary")) playUiConfirm();
+    else playUiClick();
+  }
+
+  /** Press-time feedback for screen buttons. The ACTION still runs on click —
+   *  browsers dispatch click on RELEASE, and feedback played there trails the
+   *  finger by the whole duration of the press, which is exactly what read as
+   *  "the sound lags the button". The sound belongs to the press; the
+   *  semantics stay on the click, so a press that slides off a button costs a
+   *  tick and nothing else. Toggles are deliberately not here: onToggle
+   *  orders its sound after the settings sync so that switching Sound off
+   *  clicks into silence, and that property needs the flipped state. */
+  private pressFeedback(e: PointerEvent): void {
+    if (e.button !== 0) return; // a right/middle press produces no click
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
+    if (!el || (el as HTMLButtonElement).disabled) return;
+    this.actionFeedback(el);
+  }
+
   private onGamePointerDown = (e: PointerEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
-    if (!el || (el as HTMLButtonElement).disabled) return;
+    if (!el) {
+      this.pressFeedback(e);
+      return;
+    }
+    if ((el as HTMLButtonElement).disabled) return;
     // No focus steal / compatibility mouse events for game controls; the
     // primary pointer's synthesized click is skipped via onClick's
     // detail check, so pressing can't double-fire.

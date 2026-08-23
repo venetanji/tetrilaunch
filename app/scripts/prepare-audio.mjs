@@ -59,7 +59,7 @@ const OUT = join(appDir, "public", "audio");
 const FX = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
-  "explosion", "uiClick", "bombArm",
+  "explosion", "uiClick", "bombArm", "uiConfirm",
   // A name may be mapped ahead of its master: the run FAILS (mapped but not
   // present) until the file lands in audio/fx/, which is the loud TODO this
   // script's design asks for. In the app a missing effect degrades safely —
@@ -250,7 +250,14 @@ const OVERRIDES = {
   // the silence floor, so the auto trim merged all four into "one sound" and
   // shipped a flutter — which plays as a mushy, delayed press. One UI click is
   // ONE tick: the first, which starts at zero for zero perceived latency.
-  "uiClick.mp3": { start: 0, dur: 0.055 },
+  // uiConfirm is the SAME master under a second name (the script maps one
+  // source file to one effect, so the file is duplicated in audio/fx/), cut to
+  // the other side of that split: the remaining three-tick flutter, which
+  // plays on primary buttons as the confirmation blip.
+  // start at 10ms, not 0: the tick's transient lands at 12ms after a quiet
+  // ramp, and for a press cue every leading millisecond is felt as lag.
+  "uiClick.mp3": { start: 0.010, dur: 0.05 },
+  "uiConfirm.mp3": { start: 0.06, dur: 0.21 },
   // LOOPS, not one-shots: audio.ts loops an interior region of each under
   // congested bays, so the transient trim — which would cut a continuous
   // texture down to its first flutter — must not run. Windows are pinned to
