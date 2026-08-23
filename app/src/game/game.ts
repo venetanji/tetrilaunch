@@ -116,6 +116,17 @@ export interface GameEvents {
    *  state is a staircase and not a rate: what a cue needs to know is that it
    *  MOVED, and everything between crossings is the same bay. */
   onCongestion?: (tier: number, tiers: number) => void;
+  /** Fired when a blast destroys cubes: a demolition charge detonating
+   *  (detonate) or a volatile shipment going off (resolveVolatile). The
+   *  visuals already ride the FxEvent queue; this is the same moment offered
+   *  to the ear. One call per blast, not per cube — a volatile chain in one
+   *  step aggregates into a single event exactly like its explosion visual. */
+  onExplosion?: (kind: "bomb" | "volatile") => void;
+  /** Fired when armBomb actually changes the armed state — never on a refused
+   *  call — with the new state. Every input path converges on armBomb (HUD
+   *  button, keyboard, gamepad), so a cue wired here covers all three without
+   *  each call site remembering to play it. */
+  onBombArmed?: (armed: boolean) => void;
 }
 
 /** What the belt "NEXT" preview shows (see Game.beltPreview). `type` and
@@ -669,10 +680,12 @@ export class Game {
     if (this.status !== "playing" || this.paused || this.settling) return false;
     if (this.bombArmed) {
       this.bombArmed = false;
+      this.events.onBombArmed?.(false);
       return true;
     }
     if (this.bombCharges <= 0) return false;
     this.bombArmed = true;
+    this.events.onBombArmed?.(true);
     return true;
   }
 
@@ -1531,6 +1544,7 @@ export class Game {
         kind: "explosion", x: cx / n, y: cy / n,
         r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: performance.now(),
       });
+      this.events.onExplosion?.("volatile");
     }
   }
 
@@ -1611,6 +1625,7 @@ export class Game {
 
     Matter.Composite.remove(this.phys.world, bombBody);
     this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
+    this.events.onExplosion?.("bomb");
 
     if (vaporized > 0) {
       const refund = vaporized * this.level.salvagePerCube;
