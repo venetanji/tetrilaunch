@@ -1806,7 +1806,7 @@ export function finalScreen(opts: {
         <div class="draft__preview" id="draft-preview" aria-live="polite">
           <div class="draft__preview-hd">
             <span>${opts.nextBayName} — projected</span>
-            <span class="draft__preview-note">${ready ? "with the clause you took" : "as it stands"}</span>
+            <span class="draft__preview-note">${ready ? "with the clause" : "as it stands"}</span>
           </div>
           <div class="preview-grid">${stats}</div>
         </div>

@@ -2208,7 +2208,17 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-dim);
 }
-.draft__preview-note { color: var(--text-muted); }
+/* min-width:0 because the compact tier pins this row to `white-space: nowrap`
+   (see .modal--draft .draft__preview-hd below), and a nowrap flex item takes
+   its minimum from the whole unbroken string — so without a floor the note
+   cannot shrink and pushes itself straight out of the header instead of
+   ellipsizing inside it. The Final Inspection's note is the longest copy this
+   row carries, which is what made the missing floor visible; the draft's own
+   note never reached it. */
+.draft__preview-note {
+  color: var(--text-muted);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
 .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
 .preview-stat {
   display: flex; flex-direction: column; gap: 2px; min-width: 0;
