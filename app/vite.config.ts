@@ -13,11 +13,19 @@ import { VitePWA } from "vite-plugin-pwa";
 // revalidate sw.js against, so the update check never wins. In testing this
 // shipped the previous build twice in a row; in release it would mean an update
 // silently runs old code until something evicts the cache.
-// Modes that produce a bundle for the Capacitor shell rather than the web. Both
-// must skip the service worker for the reason above; `teststore` is `native`
-// plus RevenueCat's Test Store key (see src/lib/purchases.ts) and is never used
-// by a release path.
-const NATIVE_MODES = new Set(["native", "teststore"]);
+// Modes that produce a bundle for the Capacitor shell rather than the web. All
+// must skip the service worker for the reason above.
+//
+//   native    the shippable one.
+//   teststore native plus RevenueCat's Test Store key (src/lib/purchases.ts).
+//   sandbox   native plus the developer sandbox (src/lib/sandbox.ts) — a build
+//             for putting an arbitrary tier, variant or bay on a real phone
+//             without playing the ladder up to it.
+//
+// Neither of the last two is ever used by a release path, and
+// scripts/verify-store-bundle.mjs fails the build if either one's fingerprint
+// reaches a bundle that did not ask for it.
+const NATIVE_MODES = new Set(["native", "teststore", "sandbox"]);
 
 export default defineConfig(({ mode }) => ({
   base: "./",

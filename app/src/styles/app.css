@@ -3857,3 +3857,49 @@ button.panel { color: var(--text); }
 
 /* The refit yard's column policy is the base .refit__grid rule now (A14's
    two-column row list at every width); density adds nothing on top. */
+
+/* ---------- Developer sandbox (ui/sandbox-screen.ts) ----------
+   Only ever rendered in a build that compiled lib/sandbox.ts's gate to true, so
+   these rules are dead weight in a store bundle — a few hundred bytes of CSS,
+   against a JS gate that has to fold for the screen to be reachable at all.
+   Kept here rather than inlined so the screen reads like every other one.
+
+   Deliberately plain. This is a tool: rows of chips, one line each, wrapping on
+   a phone, with the tap targets big enough to hit while holding the device in
+   one hand. Nothing here should compete with the game for attention. */
+.sbx {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: var(--hud-pad); height: 100%; overflow-y: auto;
+}
+.sbx__hdr { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.sbx-row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.sbx-row__lbl {
+  flex: 0 0 5.5rem; color: var(--text-dim);
+  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.08em;
+}
+.sbx-row__opts { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 12rem; }
+.sbx-chip {
+  min-height: 34px; padding: 4px 10px;
+  background: rgba(255,255,255,0.04); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.sbx-chip--on { background: rgba(0,240,255,0.16); border-color: var(--accent); color: var(--accent); }
+.sbx-chip--warn { border-color: rgba(255,45,85,0.5); color: #ff2d55; }
+.sbx-chip:disabled { opacity: 0.35; cursor: default; }
+.sbx-preview {
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 10px; display: flex; flex-direction: column; gap: 4px;
+  background: rgba(255,255,255,0.03);
+}
+.sbx-preview__ttl { color: var(--accent); font-size: var(--fs-h3); }
+.sbx-preview__brief { color: var(--text); font-size: var(--fs-sm); }
+/* Monospace on the facts row: it is a queue and a column profile, and the whole
+   reason to read it is to compare it against the last one. */
+.sbx-preview__facts,
+.sbx-preview__id {
+  color: var(--text-dim); font-size: var(--fs-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.sbx__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: auto; padding-top: 8px; }

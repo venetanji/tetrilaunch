@@ -109,6 +109,17 @@ export function menuScreen(
     install: { name: string; cost: number } | null;
     firstLaunch: boolean;
   },
+  /** True only in a build that compiled the developer sandbox in (see
+   *  lib/sandbox.ts). Adds a plainly visible entry button.
+   *
+   *  Plainly visible, and that is on purpose. A hidden gesture would be
+   *  protecting against something the build gate already prevents — the whole
+   *  screen is absent from every shippable bundle, and
+   *  scripts/verify-store-bundle.mjs fails the build if it is not. What a
+   *  secret entry WOULD reliably do is make the tool hard to find on a phone,
+   *  fight the menu's own decoration (the wordmark is pointer-events: none by
+   *  design), and be untestable. So: a button. */
+  sandbox = false,
 ): string {
   // The tier chip answers "where am I on the ladder and what's left" from the
   // homepage (playtest call, 2026-08-08): the tier being flown, and the two
@@ -201,6 +212,7 @@ export function menuScreen(
             : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
         }
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
+        ${sandbox ? `<button class="btn btn--ghost btn--block" data-action="sandbox">⚙ Sandbox</button>` : ""}
         <!-- The Unlimited upsell is NOT a seventh button here. This column gets
              325px on a landscape phone and six buttons need 290 — a seventh
              needs 330 and overflowed the viewport, but only for players who

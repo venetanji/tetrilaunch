@@ -79,4 +79,42 @@ if (leaked) {
   process.exit(1);
 }
 
+// The DEVELOPER SANDBOX (src/lib/sandbox.ts) is gated on an inlined build mode,
+// so in any other mode its constant folds to false and the minifier drops the
+// screen. That is the mechanism, and a mechanism is not a promise: a refactor
+// that reads the flag through a function, or a bundler setting that stops
+// folding, would ship a cheat menu that can rewrite the player's save. So the
+// sandbox carries a marker that exists only on its own code path, and a bundle
+// carrying it is not shippable — whatever the tree-shake was supposed to do.
+//
+//   node scripts/verify-store-bundle.mjs --allow-sandbox
+//
+// is the deliberate opt-out, used only by the sandbox scripts.
+const SANDBOX_MARKER = "TETRILAUNCH_SANDBOX_BUILD";
+const allowSandbox = process.argv.includes("--allow-sandbox");
+const hasSandbox = bundle.includes(SANDBOX_MARKER);
+
+if (hasSandbox && !allowSandbox) {
+  console.error(
+    `✗ store bundle check: the DEVELOPER SANDBOX is in dist/.\n` +
+      `  It can set any Mark, grant salvage, max the rig and wipe the save, and it\n` +
+      `  is reachable by six taps on the menu wordmark. This bundle must not ship.\n` +
+      `  Build with \`npm run build:native\` for anything shippable. If this IS a\n` +
+      `  deliberate sandbox build, run the check with --allow-sandbox.`,
+  );
+  process.exit(1);
+}
+
+if (hasSandbox) {
+  console.log(`✓ store bundle check: sandbox present, allowed explicitly — NOT SHIPPABLE`);
+} else if (allowSandbox) {
+  console.error(
+    `✗ store bundle check: --allow-sandbox was passed but dist/ has no sandbox.\n` +
+      `  A sandbox build with no sandbox in it is a normal build wearing the wrong\n` +
+      `  name — the six-tap gesture would do nothing on the device. Check the build\n` +
+      `  ran with \`--mode sandbox\`.`,
+  );
+  process.exit(1);
+}
+
 console.log(`✓ store bundle check: RevenueCat SDK present across ${files.length} chunks`);

@@ -29,17 +29,21 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, nextTierCost, refitTracks, upgradeById, type UpgradeId, type UpgradeTiers,
+  MAX_TIER, newTiers, nextTierCost, refitTracks, upgradeById,
+  type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, buyInstall, installAvailable, markUnlocked, nextStep, recordContractClear,
-  recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable, unlockById,
-  type MetaState, type TierResult,
+  INSTALLS, UNLOCKS, buyInstall, installAvailable, markUnlocked, newMeta, nextStep,
+  recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
+  unlockById, type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, levelForContract, contractBed, variantSpec,
-  type Contract, type ContractBed,
+  dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
+  PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
+import { SANDBOX } from "./lib/sandbox";
+import { maxedTiers, newSandbox, type SandboxState } from "./game/sandbox";
+import { sandboxScreen } from "./ui/sandbox-screen";
 import { render } from "./game/render";
 import { shipmentColor } from "./game/theme";
 import { AttractDemo } from "./game/attract";
@@ -86,7 +90,11 @@ import {
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end" | "coach-fail";
+  | "contracts" | "contract-end" | "coach-fail"
+  // Developer sandbox. Present in the union unconditionally — a state name is
+  // free, and a conditional type would mean every switch below needed a second
+  // shape. Reaching it is what is gated (see SANDBOX).
+  | "sandbox";
 
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
@@ -108,6 +116,9 @@ class App {
   private guard: HTMLElement;
 
   private state: AppState = "splash";
+  /** Developer sandbox settings. Constructed unconditionally (it is a plain
+   *  object) but only ever READ behind SANDBOX — see lib/sandbox.ts. */
+  private sandbox: SandboxState = newSandbox();
   private game: Game | null = null;
   /** The self-playing demo on the main menu (game/attract.ts). Owns its own
    *  Game, canvas and rAF loop, and only exists while the menu is up — see
@@ -635,9 +646,18 @@ class App {
             install: this.nextInstall(),
             firstLaunch: !this.settings.seenTutorial,
           },
+          SANDBOX,
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
+      // Guarded even here. Nothing can reach this state in a shippable build
+      // (see onClick's sandbox cases), but a render path that would draw the
+      // screen anyway is the kind of thing a later refactor turns back on by
+      // accident, and the whole point of the gate is that it holds without
+      // anyone having to remember it.
+      case "sandbox":
+        this.overlay.innerHTML = SANDBOX ? sandboxScreen(this.sandbox, this.meta) : "";
+        break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
@@ -1920,6 +1940,9 @@ class App {
       if (this.state === "playing") this.pause();
       else if (this.state === "paused") this.resume();
     }
+    // Keyboard shortcut into the sandbox from anywhere, for iterating on it
+    // under `vite dev` without walking back to the menu each time.
+    if (SANDBOX && e.key === "~") this.setState("sandbox");
   };
 
   private onKeydown = (e: KeyboardEvent): void => {
@@ -2045,8 +2068,136 @@ class App {
       case "refit-done": if (this.state === "refit") this.setState("draft"); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
+      // Only reachable in a build that rendered the button (see menuScreen),
+      // and guarded again here so the state is unreachable even if some other
+      // path ever emits this action.
+      case "sandbox": if (SANDBOX) this.setState("sandbox"); break;
+      default:
+        // Every sandbox action funnels through one guarded call rather than a
+        // case each, so there is exactly ONE place a shippable build has to
+        // fold away — and if the fold ever stops happening, this returns before
+        // touching anything rather than half-executing a cheat.
+        if (SANDBOX && action.startsWith("sbx-")) this.onSandboxAction(action, el);
+        break;
     }
   };
+
+  /**
+   * The sandbox's whole control surface. Only reached behind SANDBOX.
+   *
+   * Every branch either edits `this.sandbox` and re-renders, or edits the SAVE
+   * and re-renders. The save-editing ones are deliberately blunt and
+   * deliberately explicit — a developer who taps "Mark := tier" has said what
+   * they want to happen to their own save, and a sandbox that tried to be
+   * careful about it would just be a slower way to reach the same state.
+   */
+  private onSandboxAction(action: string, el: HTMLElement): void {
+    switch (action) {
+      case "sbx-tier": {
+        this.sandbox.tier = Number(el.getAttribute("data-tier") ?? "1");
+        // Selecting a tier below the current variant's rung would leave the
+        // panel pointing at something it cannot generate. Fall back to the
+        // variant every tier has rather than silently generating a different
+        // one than the highlighted button claims.
+        const t = this.sandbox.target;
+        if (t.kind === "pattern" && variantSpec(t.variant).tier > this.sandbox.tier) {
+          this.sandbox.target = { kind: "pattern", variant: "plain" };
+        }
+        break;
+      }
+      case "sbx-variant":
+        this.sandbox.target = {
+          kind: "pattern",
+          variant: (el.getAttribute("data-variant") ?? "plain") as ContractVariant,
+        };
+        break;
+      case "sbx-target": {
+        const v = el.getAttribute("data-target") ?? "lines";
+        this.sandbox.target = v.startsWith("bay")
+          ? { kind: "bay", bay: Number(v.slice(3)) }
+          : { kind: "lines" };
+        break;
+      }
+      case "sbx-rig": {
+        // Cycles 0 -> 1 -> ... -> MAX_TIER -> 0. One button per track beats a
+        // stepper pair on a phone, and wrapping means no track can get stuck at
+        // a tier the thumb can't walk back from.
+        const id = (el.getAttribute("data-track") ?? "") as UpgradeId;
+        if (id in this.sandbox.tiers) {
+          this.sandbox.tiers[id] = ((this.sandbox.tiers[id] ?? 0) + 1) % (MAX_TIER + 1);
+        }
+        break;
+      }
+      case "sbx-rig-max": this.sandbox.tiers = maxedTiers(); break;
+      case "sbx-rig-none": this.sandbox.tiers = newTiers(); break;
+      case "sbx-reseed":
+        // Walks the space of what one variant produces at one tier, which is
+        // the thing a device session is actually for. Wrapped well inside 2^31
+        // so the seeded generators keep their uint32 arithmetic.
+        this.sandbox.seed = (this.sandbox.seed + 1) % 1_000_000_007;
+        break;
+      case "sbx-grant-mark":
+        this.meta = { ...this.meta, mark: Math.max(0, this.sandbox.tier - 1) };
+        saveMeta(this.meta);
+        break;
+      case "sbx-grant-salvage":
+        this.meta = { ...this.meta, salvage: this.meta.salvage + 1000 };
+        saveMeta(this.meta);
+        break;
+      case "sbx-unlock-all":
+        this.meta = {
+          ...this.meta,
+          unlocks: UNLOCKS.map((u) => u.id),
+          loadout: maxedTiers(),
+        };
+        saveMeta(this.meta);
+        break;
+      case "sbx-wipe":
+        this.meta = newMeta();
+        saveMeta(this.meta);
+        break;
+      case "sbx-launch":
+        this.launchSandbox();
+        return; // startContract/startLevel render for us
+      default:
+        return;
+    }
+    this.renderOverlay();
+  }
+
+  /**
+   * Launch whatever the sandbox is set to.
+   *
+   * Both paths go through the SHIPPING entry points — startContract and the run
+   * machinery — with the inputs changed and nothing else. A sandbox that built
+   * its own Game would be testing a bay the real game never constructs, which is
+   * the one thing a device-testing tool must not do.
+   */
+  private launchSandbox(): void {
+    const t = this.sandbox.target;
+    if (t.kind === "bay") {
+      // A real run, fast-forwarded to the chosen bay. levelIndex is the only
+      // thing moved: hazards stay un-ratcheted because the draft did not
+      // happen, and carry stays 0 because no earlier bay was played. Both are
+      // the honest state for "bay 7, cold" — which is the bay worth testing.
+      this.game?.destroy();
+      this.contract = null;
+      this.submitted = false;
+      this.lastTier = null;
+      this.run = {
+        ...newRun(Date.now() >>> 0, this.meta.unlocks, 0, this.sandbox.tiers, this.sandbox.tier),
+        levelIndex: Math.max(0, Math.min(RUN_LEVELS - 1, t.bay - 1)),
+      };
+      telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
+      this.startLevel();
+      return;
+    }
+    this.startContract(
+      t.kind === "pattern"
+        ? generateContract(this.sandbox.seed, this.sandbox.tier, PATTERN_SLOT, t.variant)
+        : generateContract(this.sandbox.seed, this.sandbox.tier, 0),
+    );
+  }
 
   /** In-game [data-game] buttons act on pointerdown, not click: browsers
    *  only synthesize click for the PRIMARY pointer, so while a finger
