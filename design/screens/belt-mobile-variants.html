@@ -158,6 +158,9 @@ td .ok{color:var(--success)}
         This block is app.css verbatim again -- the frame below is the belt
         that is now in the build, not a picture of it. --------------------- */
 .frame--b{--belt-c:var(--piece-s);--slat:calc(37 * var(--fpx))}
+/* Insets only: the hard 2px black drop read as a border along the belt's
+   underside, and on a rotated element it hangs off the low edge. */
+.frame--b .belt__track{box-shadow:inset 0 2px 4px rgba(255,255,255,.05),inset 0 -4px 8px rgba(0,0,0,.5)}
 .frame--b .belt__tread{background-size:var(--slat) 100%;
   animation:belt-tread 900ms linear infinite}
 @keyframes belt-tread{to{background-position-x:var(--slat)}}
@@ -175,14 +178,14 @@ td .ok{color:var(--success)}
   padding-left:calc(3 / 37 * var(--slat));
   /* the bevel goes on the CELL: clip-path is applied after filter on the same
      element, so declared on the shape it would be clipped away with it */
-  filter:drop-shadow(0 1px 0 rgba(255,255,255,.20)) drop-shadow(0 -1px 0 rgba(0,0,0,.6))}
+  filter:drop-shadow(0 1px 0 rgba(255,255,255,.13)) drop-shadow(0 -1px 0 rgba(0,0,0,.5))}
 /* Engraved: black fading out downward over cargo fading in downward -- the
    recess's shaded upper wall and its lit lower one. */
 .frame--b .belt__arrows i::after{content:"";
   width:max(6px,calc(10 * var(--fpx)));height:max(8px,calc(15 * var(--fpx)));
   background:linear-gradient(180deg,rgba(0,0,0,.66) 6%,rgba(0,0,0,.08) 72%),
              linear-gradient(180deg,transparent 30%,var(--belt-c) 96%);
-  clip-path:polygon(0 0,100% 50%,0 100%)}
+  opacity:.55;clip-path:polygon(0 0,100% 50%,0 100%)}
 /* Both tiles opaque, both on top of the transport. */
 .frame--b .belt-piece{z-index:2}
 .frame--b .belt-piece--next{opacity:1}
@@ -403,7 +406,7 @@ td .ok{color:var(--success)}
 </div></div>
       </div>
     </div>
-    <ul class="note"><li>B moved the caption into the tread, where no tile could reach it. What shipped goes one step further and drops the words altogether, keeping only the <b>small arrows</b> &mdash; a caption that has to be squeezed to survive is a caption the layout has outgrown. The transport carries the meaning now: chevrons marching at the cannon, in the colour of the shipment on the belt.</li><li><b>The chevrons are cut into the plates, not painted on them.</b> Two stacked gradients make the recess &mdash; black fading out downward for the shaded upper wall, cargo colour fading in downward for the lit lower one &mdash; over a bevel of two drop-shadows. Both tiles are opaque now and sit on top of the transport: dimming the uphill one to 65% was meant to say &ldquo;this one is behind&rdquo;, but a translucent tile reads as unfinished rather than as behind &mdash; the field&rsquo;s left wall showed straight through its cubes, exactly where that tile sits.</li><li><b>Colour is the readout.</b> <code>--belt-c</code> is set from the same source as the tile&rsquo;s own cubes (<code>theme.ts</code>&rsquo;s <code>shipmentColor</code>), so cryo reads cold and slag reads dead on the machine as well as the cargo, and &ldquo;what&rsquo;s coming&rdquo; is legible from the belt in peripheral vision. The housing keeps its own cyan, so even a dead-grey run still looks powered.</li><li><b>Motion is the direction</b>, and the chevrons <em>ride the plates</em> rather than sliding over them. The transport is built on one unit &mdash; <code>--slat</code>, the pitch of a belt plate: the tread tiles at it, there is one chevron per slat, and both scroll right by exactly one slat per 900ms cycle. Measured subpixel, a chevron sits <b>0.01px</b> off its plate&rsquo;s centre and stays there for the whole cycle, at every viewport size.</li><li>The slat is world-space (37 world px), so the plates scale with the belt they belong to &mdash; the tread&rsquo;s old fixed <code>20px</code> tile meant 5 fat plates on a phone and 11 thin ones at 1440. The rollers turn once per <b>2850ms</b>, which is not a taste call but the time a roller of that circumference takes at the speed the belt is actually running. Everything stops under <code>prefers-reduced-motion</code>.</li></ul>
+    <ul class="note"><li>B moved the caption into the tread, where no tile could reach it. What shipped goes one step further and drops the words altogether, keeping only the <b>small arrows</b> &mdash; a caption that has to be squeezed to survive is a caption the layout has outgrown. The transport carries the meaning now: chevrons marching at the cannon, in the colour of the shipment on the belt.</li><li><b>The chevrons are cut into the plates, not painted on them.</b> Two stacked gradients make the recess &mdash; black fading out downward for the shaded upper wall, cargo colour fading in downward for the lit lower one &mdash; over a bevel of two drop-shadows, sunk to 55% so the lit wall reads as a cut rather than a lamp. The housing loses the hard black drop the rest of the chrome wears: on a rotated element it hung off the low edge as a black border under the belt. Both tiles are opaque now and sit on top of the transport: dimming the uphill one to 65% was meant to say &ldquo;this one is behind&rdquo;, but a translucent tile reads as unfinished rather than as behind &mdash; the field&rsquo;s left wall showed straight through its cubes, exactly where that tile sits.</li><li><b>Colour is the readout.</b> <code>--belt-c</code> is set from the same source as the tile&rsquo;s own cubes (<code>theme.ts</code>&rsquo;s <code>shipmentColor</code>), so cryo reads cold and slag reads dead on the machine as well as the cargo, and &ldquo;what&rsquo;s coming&rdquo; is legible from the belt in peripheral vision. The housing keeps its own cyan, so even a dead-grey run still looks powered.</li><li><b>Motion is the direction</b>, and the chevrons <em>ride the plates</em> rather than sliding over them. The transport is built on one unit &mdash; <code>--slat</code>, the pitch of a belt plate: the tread tiles at it, there is one chevron per slat, and both scroll right by exactly one slat per 900ms cycle. Measured subpixel, a chevron sits <b>0.01px</b> off its plate&rsquo;s centre and stays there for the whole cycle, at every viewport size.</li><li>The slat is world-space (37 world px), so the plates scale with the belt they belong to &mdash; the tread&rsquo;s old fixed <code>20px</code> tile meant 5 fat plates on a phone and 11 thin ones at 1440. The rollers turn once per <b>2850ms</b>, which is not a taste call but the time a roller of that circumference takes at the speed the belt is actually running. Everything stops under <code>prefers-reduced-motion</code>.</li></ul>
     <pre><s>-  .belt__roller--l { left: -8px; }</s>
 <s>-  .belt__roller--r { right: -8px; }</s>
 <b>+  .belt__roller--l { left:  calc(-8 * var(--fpx)); }</b>

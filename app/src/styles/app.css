@@ -1569,7 +1569,13 @@ body.crt-off #app::after { display: none; }
   background: linear-gradient(180deg, #26263f, #12121c);
   border: var(--bw) solid var(--line-strong);
   border-radius: var(--r-md);
-  box-shadow: inset 0 2px 4px rgba(255,255,255,.05), inset 0 -4px 8px rgba(0,0,0,.5), var(--shadow-hard-sm);
+  /* Insets only — no --shadow-hard-sm. The hard 2px black drop the rest of the
+     chrome wears read as a black border along the belt's underside here, and
+     on a rotated element it hangs off the low edge rather than tucking under a
+     square one. It also made the transport look like it sat lower than it
+     does, which cost twice on the one piece of chrome whose whole job is to
+     line up with the cannon. */
+  box-shadow: inset 0 2px 4px rgba(255,255,255,.05), inset 0 -4px 8px rgba(0,0,0,.5);
   overflow: hidden;
 }
 .belt__tread {
@@ -1624,8 +1630,8 @@ body.crt-off #app::after { display: none; }
   /* The engraving's bevel — see the note on ::after for why it lives up here
      on the cell rather than on the shape it outlines. */
   filter:
-    drop-shadow(0 1px 0 rgba(255,255,255,0.20))
-    drop-shadow(0 -1px 0 rgba(0,0,0,0.6));
+    drop-shadow(0 1px 0 rgba(255,255,255,0.13))
+    drop-shadow(0 -1px 0 rgba(0,0,0,0.5));
 }
 /* ENGRAVED, not painted on. Two stacked gradients do the cut: a black one
    that fades out downward (the recess's upper wall, turned away from the
@@ -1648,6 +1654,9 @@ body.crt-off #app::after { display: none; }
   background:
     linear-gradient(180deg, rgba(0,0,0,0.66) 6%, rgba(0,0,0,0.08) 72%),
     linear-gradient(180deg, transparent 30%, var(--belt-c) 96%);
+  /* Sunk further into the plate: at full strength the lit lower wall read as a
+     lamp on the belt rather than a cut in it. */
+  opacity: 0.55;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 /* Rightward — toward the cannon, with the tread. The old strip ran the other
