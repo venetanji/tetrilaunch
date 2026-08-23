@@ -342,8 +342,11 @@ export const HAZARDS: HazardDef[] = [
   // ratchets it with an empty bomb rack is quietly unwinnable. Cryo thaws and
   // rebar merely refuses to split; both are survivable bare-handed, so they
   // are the introduction and slag waits two rungs for the player's rack to be
-  // real. It is also always DODGEABLE (one content card per hand, hands never
-  // thinner than two number axes), which is the second half of the answer.
+  // real. It is also always DODGEABLE, which is the second half of the answer:
+  // one content card per ordinary hand, hands never thinner than two axes — and
+  // on the MATERIAL_DRAFT_BAYS, where the hand is materials only and the dodge
+  // is deliberately gone, slag may fill a seat but never the last one, so a
+  // forced pick is never forced to be the material with no passive counter.
   contentAxis("cryo", "Cryo Contract", "Frozen shipments arrive; press one cold and it shatters.", 4, "cryo"),
   contentAxis("rebar", "Rebar Contract", "Rebar shipments never come apart — what lands is what you keep.", 5, "rebar"),
   contentAxis("slag", "Slag Contract", "Dead cubes ride the belt — they fill a slot and never count.", 6, "slag"),
@@ -436,14 +439,89 @@ export function hazardsForMark(mark: number): HazardDef[] {
  * the bottom of the ladder the ratchet IS the whole table, and hiding one of
  * the few open axes would only make the choice arbitrary.
  */
+/**
+ * Bays after which the draft deals MATERIALS ONLY — a hand with no number axis
+ * in it, so the pick has to be a material.
+ *
+ * Named by the bay the player just CLEARED, 1-based, the way a player counts
+ * them. The rest of the ladder is deliberately dodgeable: one content card per
+ * hand, never two, so a run can reach bay 10 having taken no material at all.
+ * That is a fine promise for a first run and a bad one for a fifth — it lets
+ * the half of the content the materials ARE go permanently unseen, and it makes
+ * every ship system that answers a material a purchase with nothing to answer.
+ *
+ * These three bays take the dodge away, and they sit ONE BAY BEFORE EACH SHOP.
+ * Refits land after bays 3, 6 and 9 (run.ts's isRefitBay), so a material forced
+ * here is carried for exactly one bay and then the counter is on sale: the
+ * player meets the problem, plays a bay against it, and walks straight into the
+ * shop that answers it. That is the whole reason the schedule is what it is.
+ *
+ * The uniformity is the point, and it is easy to lose. Moving the middle one to
+ * bay 6 — the shop bay itself — makes its material carry for THREE bays before
+ * a refit opens, which is a different and much harder ask than the other two
+ * wearing the same clothes. `sim/systems.ts` pins the property rather than the
+ * numbers: every forced bay is followed by a refit within one bay.
+ */
+export const MATERIAL_DRAFT_BAYS: readonly number[] = [2, 5, 8];
+
+/** True when the draft dealt after clearing `levelIndex` (0-based) is one of
+ *  the materials-only hands. */
+export function isMaterialDraft(levelIndex: number): boolean {
+  return MATERIAL_DRAFT_BAYS.includes(levelIndex + 1);
+}
+
+/**
+ * The axis this run has leaned on hardest — the partner a materials-only hand
+ * uses when the Mark has only ONE material to offer.
+ *
+ * A hand of one card is not a draft, so the single material needs a companion,
+ * and the companion has to be something the player already chose to live with:
+ * offering a fresh axis beside a forced material would be two new problems at
+ * once. Ties break toward the LATER rung, which is the harder one — the point
+ * is to name the thing the run is already committed to, and at equal notches
+ * the later axis is the bigger commitment.
+ *
+ * Falls back to the hardest non-content axis on offer when the run has ratcheted
+ * nothing yet (reachable only if this fires on bay 1, which MATERIAL_DRAFT_BAYS
+ * does not do — kept because a null hand would be a crash and a dull hand is
+ * not).
+ */
+function hardestActive(pool: HazardDef[], ratchets: Ratchets): HazardDef | null {
+  const numbers = pool.filter((h) => h.kind !== "content");
+  if (numbers.length === 0) return null;
+  let best: HazardDef | null = null;
+  let bestCount = 0;
+  for (const h of numbers) {
+    const n = ratchets[h.id] ?? 0;
+    if (n > 0 && n >= bestCount) {
+      best = h;
+      bestCount = n;
+    }
+  }
+  return best ?? numbers[numbers.length - 1];
+}
+
 export function hazardOffers(
   seed: number,
   levelIndex: number,
   mark: number,
   count = 2,
+  /** The run's ratchets so far. Only read on a materials-only hand, and only to
+   *  pick the partner when there is a single material — see hardestActive. The
+   *  offer is otherwise deliberately NOT a function of the run's state. */
+  ratchets: Ratchets = {},
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
   const want = Math.max(count, picksPerBay(mark));
+
+  if (isMaterialDraft(levelIndex)) {
+    const forced = materialHand(pool, want, seed, levelIndex, ratchets);
+    // Marks 1-3 have no material to force. Falling through to the ordinary
+    // draft is the only honest answer there: a hand cannot be materials-only
+    // when there are no materials, and an empty offer reads as a bug.
+    if (forced) return forced;
+  }
+
   if (pool.length <= want) return pool;
 
   const rng = mulberry32((seed ^ ((levelIndex + 1) * 0x85ebca6b)) >>> 0);
@@ -473,6 +551,54 @@ export function hazardOffers(
     }
   }
   return picked.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
+}
+
+/**
+ * A materials-only hand, or null when this Mark has no material yet.
+ *
+ * Two materials where the Mark has two or more, so the pick is a choice between
+ * them rather than a single card the player taps to get past. One material plus
+ * the run's hardest active axis where it has only one (see hardestActive).
+ *
+ * SLAG IS NEVER BOTH CARDS. It is the one material with no passive counter — a
+ * dead cube leaves the field by Demolition or not at all — which is why the
+ * ladder puts it two rungs after cryo and rebar and why the ordinary draft
+ * guarantees it is dodgeable. Forcing a material is the point here; forcing
+ * THAT material, on a rack that may be empty, is a bay that cannot be won by
+ * playing well. So slag may fill one seat and never the last one.
+ */
+function materialHand(
+  pool: HazardDef[],
+  want: number,
+  seed: number,
+  levelIndex: number,
+  ratchets: Ratchets,
+): HazardDef[] | null {
+  const materials = pool.filter((h) => h.kind === "content");
+  if (materials.length === 0) return null;
+
+  if (materials.length === 1) {
+    const partner = hardestActive(pool, ratchets);
+    const hand = partner ? [materials[0], partner] : [materials[0]];
+    return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
+  }
+
+  // Same seeded stream shape as the ordinary draft, so a bay's hand stays a
+  // function of (run seed, bay, Mark) and a restarted run deals it again.
+  const rng = mulberry32((seed ^ ((levelIndex + 1) * 0x9e3779b9)) >>> 0);
+  const shuffled = [...materials];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const hand = shuffled.slice(0, want);
+  // If the roll filled every seat with slag's company and slag is the only
+  // thing left standing, swap it out for a material that was cut.
+  if (hand.every((h) => h.id === "slag")) {
+    const alt = shuffled.find((h) => h.id !== "slag");
+    if (alt) hand[hand.length - 1] = alt;
+  }
+  return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
 }
 
 /**
