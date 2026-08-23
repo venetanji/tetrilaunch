@@ -1,6 +1,6 @@
 import type { LevelConfig } from "./level";
 import { WIND_GUST_FRACTION } from "./level";
-import { MIX_TOTAL_CAP } from "./hazards";
+import { MIX_TOTAL_CAP, MATERIAL_NOTCH } from "./hazards";
 import type { UpgradeId } from "./upgrades";
 import { MARK_COUNT } from "./upgrades";
 
@@ -259,6 +259,11 @@ export const RATE_CUT = 0.2;
  *  the two stops are the same X and the press has zero travel. */
 export const DOUBLE_SHIFT_SPEED = 2;
 export const TIGHT_GAUGE_CELLS = 2;
+/** What one cell the sweeper floor refuses is worth in congestion headroom
+ *  instead — one Bay Extension tier's grant (upgrades.ts adds +4 a tier), so a
+ *  clause the floor blocks outright undoes a whole tier of the track it
+ *  names rather than fizzling. */
+const TIGHT_GAUGE_ALLOWANCE_PER_CELL = 4;
 
 /* ---------------------------------------------------------------------------
  * TIERS 4-9 — THE MATERIALS, and the one rule that shapes all six pairs.
@@ -316,6 +321,59 @@ const SALVAGE_PROFILE: readonly number[] = [2, 2, 2, 0, 2, 2, 1, 0];
  *  because congestion is the one pressure a player can otherwise only discover
  *  by paying it. */
 const FOULED_ALLOWANCE = 12;
+
+/**
+ * Schedule `rate` of `material` on the belt — as a FLOOR, never as an
+ * assignment.
+ *
+ * Found in review. Every one of these clauses used to write its rate straight
+ * in, and a run that had ratcheted the SAME material deeper than the clause
+ * asks for then had its ratchet partly refunded by the card that was supposed
+ * to cost it something. Reproduced on arrivals a run can actually reach: at
+ * six cryo notches a Tier-4 bay enters the inspection at 0.32, and Cold Chain
+ * — whose apply does nothing else — took it to 0.22. The mandatory final cost
+ * made the bay strictly easier. Slag Run 0.32 -> 0.17, Tar Run 0.32 -> 0.18
+ * and Hair Trigger 0.32 -> 0.20 all did the same.
+ *
+ * A floor is the right shape rather than a sum: the clause states the belt a
+ * bay of this Tier is flown with, and a run that already chose worse keeps
+ * what it chose. Adding instead would double-charge the axis the player
+ * ratcheted, which is the opposite error and a harder one to see coming.
+ *
+ * A floor ALONE is not enough, though, and the harness found the other half:
+ * materialRate saturates at MATERIAL_CAP (0.32) by the sixth notch, so a run
+ * that ratcheted its way there met a clause that simply did nothing — the
+ * refund became a no-op, which is the same failure wearing a different coat.
+ * A mandatory cost that can be pre-paid by the player's own earlier choices is
+ * not a cost.
+ *
+ * So the rule is BOTH: at least the rate on the card, and always at least one
+ * ratchet notch worse than the bay arrived. MATERIAL_CAP is a rail on the
+ * RATCHET — "however many notches are stacked on it" — and a clause is not a
+ * notch, so passing it here is in keeping rather than a loophole; FINAL_CAP
+ * keeps the single material sane, and applyFinal's re-cap still holds the belt
+ * as a whole to MIX_TOTAL_CAP.
+ *
+ * The card copy stays as written — it quotes the rate the clause SCHEDULES,
+ * which is what it promises to put on the belt. Where a ratchet has already
+ * beaten it the bay is worse than the card says, and the draft's own material
+ * row prints the resulting rate, so the number the player decides against is
+ * the true one either way.
+ */
+/** The most of one material a clause may leave on the belt, ratchet included.
+ *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and well
+ *  under MIX_TOTAL_CAP so the belt still carries a majority of standard cargo
+ *  even at maximum ratchet. */
+export const FINAL_MATERIAL_CAP = 0.4;
+function schedule(
+  cfg: LevelConfig,
+  material: keyof LevelConfig["materialMix"],
+  rate: number,
+): void {
+  const had = cfg.materialMix[material] ?? 0;
+  const bumped = Math.min(FINAL_MATERIAL_CAP, had + MATERIAL_NOTCH);
+  cfg.materialMix = { ...cfg.materialMix, [material]: Math.max(rate, bumped) };
+}
 
 export const FINALS: FinalDef[] = [
   // -- Tier 1 · Reactor Output -------------------------------------------
@@ -405,10 +463,32 @@ export const FINALS: FinalDef[] = [
     tier: 3,
     system: "bay",
     apply: (cfg) => {
-      cfg.compactorOpenCells = Math.max(
-        cfg.compactorMinLineCells + 1,
-        cfg.compactorOpenCells - TIGHT_GAUGE_CELLS,
-      );
+      // The floor is compactor.ts's, not a choice: at openCells ==
+      // minLineCells the press has zero travel and never moves again, so a
+      // cell of stroke has to survive (hazards.ts's Sweeper note measured
+      // exactly that — 0px of travel, 300 strokes in 600 steps).
+      //
+      // What the floor must NOT do is silently eat the clause. Found in
+      // review: a run that has taken three Sweeper notches arrives at the
+      // floor already, and Tight Gauge — a MANDATORY cost the player picked
+      // over Double Shift — then changed nothing at all. Reproduced at
+      // sweeper x3 and deeper on Tier 3, and Sweeper is offered often enough
+      // to get there (seed 0 deals it at five of the first eight drafts).
+      //
+      // So whatever the floor refuses is taken out of the Bay track's OTHER
+      // half instead. Bay Extension sells room and congestion headroom as one
+      // purchase (upgrades.ts: "the same purchase read a second way"), which
+      // is what makes the substitution honest rather than a consolation
+      // prize — the clause still costs exactly the system it names. Sized at
+      // one Bay tier's worth of allowance per cell the floor kept back, so a
+      // fully blocked clause is a whole tier of the track undone.
+      const floor = cfg.compactorMinLineCells + 1;
+      const took = Math.max(0, Math.min(TIGHT_GAUGE_CELLS, cfg.compactorOpenCells - floor));
+      cfg.compactorOpenCells -= took;
+      // Negative is meaningful and intended: game.ts reads
+      // `n > tier.cubes + pileAllowance`, so below zero the tax simply bites
+      // earlier than stock, the same direction Fouled Bay pushes it.
+      cfg.pileAllowance -= TIGHT_GAUGE_ALLOWANCE_PER_CELL * (TIGHT_GAUGE_CELLS - took);
     },
   },
 
@@ -427,7 +507,7 @@ export const FINALS: FinalDef[] = [
     desc: "22% of the belt arrives frozen. Every frozen cube owes you a strike before it counts for anything.",
     tier: 4,
     system: "bay",
-    apply: (cfg) => { cfg.materialMix = { ...cfg.materialMix, cryo: 0.22 }; },
+    apply: (cfg) => { schedule(cfg, "cryo", 0.22); },
   },
   {
     id: "ice-wall",
@@ -442,7 +522,7 @@ export const FINALS: FinalDef[] = [
       // something the card cannot state.
       cfg.standingWall = [...SALVAGE_PROFILE];
       cfg.standingWallMaterial = "cryo";
-      cfg.materialMix = { ...cfg.materialMix, cryo: 0.16 };
+      schedule(cfg, "cryo", 0.16);
     },
   },
 
@@ -459,7 +539,7 @@ export const FINALS: FinalDef[] = [
     desc: "32% of the belt is rebar. What lands is what you keep — nothing but a Bond Breaker will split it.",
     tier: 5,
     system: "bonds",
-    apply: (cfg) => { cfg.materialMix = { ...cfg.materialMix, rebar: 0.32 }; },
+    apply: (cfg) => { schedule(cfg, "rebar", 0.32); },
   },
   {
     id: "cold-weld",
@@ -510,7 +590,7 @@ export const FINALS: FinalDef[] = [
     desc: "17% of the belt is dead metal. It fills a slot, it never counts, and only a charge moves it.",
     tier: 6,
     system: "demolition",
-    apply: (cfg) => { cfg.materialMix = { ...cfg.materialMix, slag: 0.17 }; },
+    apply: (cfg) => { schedule(cfg, "slag", 0.17); },
   },
   {
     id: "slag-wall",
@@ -521,7 +601,7 @@ export const FINALS: FinalDef[] = [
     apply: (cfg) => {
       cfg.standingWall = [...SALVAGE_PROFILE];
       cfg.standingWallMaterial = "slag";
-      cfg.materialMix = { ...cfg.materialMix, slag: 0.08 };
+      schedule(cfg, "slag", 0.08);
     },
   },
 
@@ -540,7 +620,7 @@ export const FINALS: FinalDef[] = [
     desc: "27% of the belt is volatile. Land one hard and it takes its neighbours with it.",
     tier: 7,
     system: "bay",
-    apply: (cfg) => { cfg.materialMix = { ...cfg.materialMix, volatile: 0.27 }; },
+    apply: (cfg) => { schedule(cfg, "volatile", 0.27); },
   },
   {
     id: "hair-trigger",
@@ -549,7 +629,7 @@ export const FINALS: FinalDef[] = [
     tier: 7,
     system: "bay",
     apply: (cfg) => {
-      cfg.materialMix = { ...cfg.materialMix, volatile: 0.2 };
+      schedule(cfg, "volatile", 0.2);
       // 0.85 of the stock 22 is 18.7, just above the 17.3 floor of every
       // launch the cannon can produce — so a minimum-power lob still survives
       // and everything above it does not. Below ~0.79 the floor is crossed and
@@ -572,7 +652,7 @@ export const FINALS: FinalDef[] = [
     desc: "18% of the belt is tar. It welds to whatever it touches and a Bond Breaker will not split it.",
     tier: 8,
     system: "demolition",
-    apply: (cfg) => { cfg.materialMix = { ...cfg.materialMix, tar: 0.18 }; },
+    apply: (cfg) => { schedule(cfg, "tar", 0.18); },
   },
   {
     id: "fouled-bay",
@@ -581,7 +661,7 @@ export const FINALS: FinalDef[] = [
     tier: 8,
     system: "demolition",
     apply: (cfg) => {
-      cfg.materialMix = { ...cfg.materialMix, tar: 0.12 };
+      schedule(cfg, "tar", 0.12);
       // NEGATIVE allowance — the same seam Bay Extension buys in the other
       // direction (game.ts reads `n > tier.cubes + pileAllowance`, so a
       // negative number pulls every knee toward the player). Tar is the reason

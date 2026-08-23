@@ -175,6 +175,31 @@ const FIELDS: Field[] = [
     read: (c) => c.compactorMinLineCells, fmt: (v) => `${Math.round(v)} cells`, higherIsWorse: true,
   },
   {
+    // CONGESTION HEADROOM — how much loose cargo the bay tolerates before the
+    // launch tax bites (game.ts reads `n > tier.cubes + pileAllowance`, so this
+    // slides every threshold together).
+    //
+    // Added because two clauses moved it with nothing on this screen to show
+    // for it: Fouled Bay buys half its cost in congestion, and Tight Gauge
+    // falls back to it when the sweeper floor refuses the cells. A projection
+    // is the one screen built to price the clause, so an effect it cannot show
+    // is an effect the player signs blind — and the harness's own "every clause
+    // moves a projected number" check reads these rows, so an unshown field is
+    // also an unpinned one.
+    //
+    // Printed as the tax's own first threshold rather than as the raw offset,
+    // because the offset is meaningless without the number it moves: PILE_TIERS
+    // is what the player meets, and "42 cubes" is the sentence the bay speaks.
+    // Guarded on the tiers existing at all — the mechanic ships enabled, but the
+    // field is designed to be switchable and a row reading "NaN cubes" on a bay
+    // with no tiers would be worse than no row.
+    id: "congestion", label: "Congestion at", short: "Clutter",
+    read: (c) => (c.pileTiers.length ? c.pileTiers[0].cubes + c.pileAllowance : NaN),
+    fmt: (v) => (Number.isNaN(v) ? "off" : `${Math.round(v)} cubes`),
+    higherIsWorse: false,
+    showWhen: (v) => !Number.isNaN(v),
+  },
+  {
     id: "assist", label: "Press assist", short: "Assist",
     read: (c) => c.settleAssist, fmt: (v) => `×${v.toFixed(2)}`, higherIsWorse: false,
   },

@@ -4530,6 +4530,71 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       if (!rows.some((r) => r.changed)) unseen.push(clause.id);
     }
     check("every clause moves at least one projected number", unseen.length === 0, unseen.join(", "));
+
+    // …and it must still move one on a DEEP arrival, not just a clean bay.
+    //
+    // Found in review, and the clean-bay check above is exactly what missed it:
+    // Tight Gauge clamps at compactor.ts's stroke floor, and three Sweeper
+    // notches reach that floor before the inspection is dealt, so a MANDATORY
+    // cost the player picked over Double Shift changed nothing at all. Every
+    // clause is re-checked here against the deepest ratchet its own Tier can
+    // deal on each axis in turn — a clause that can be silently eaten by a
+    // ratchet the player already took is not a cost, and nothing about the
+    // clean bay reveals it.
+    const eaten: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+        if (!rows.some((r) => r.changed)) eaten.push(`${clause.id} under ${axis.id}x${notches}`);
+      }
+    }
+    check("no ratchet can silently eat a clause", eaten.length === 0, eaten.join(", "));
+
+    // A clause may never REFUND a material the run already ratcheted deeper
+    // than the clause asks for. Also found in review: every material clause
+    // used to assign its rate outright, so at six cryo notches a Tier-4 bay
+    // entered the inspection at 0.32 and Cold Chain — whose apply does nothing
+    // else — took it to 0.22, making the mandatory final cost strictly easier.
+    // finals.ts's schedule() is the floor that fixes it.
+    //
+    // Read per material against the arrival, not off the total: the re-cap
+    // legitimately scales OTHER materials down to make room for the clause's
+    // own (rebar-run on a cryo-ratcheted bay moves 0.32 cryo to 0.23 while the
+    // belt goes 0.32 -> 0.55 overall), so the total is allowed to rise and a
+    // non-clause material is allowed to fall. What is never allowed is the
+    // clause's own material coming out lower than it went in.
+    const refunded: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        if (axis.kind !== "content") continue;
+        const mat = axis.material!;
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const before = levelForRun(run);
+        const after = levelForRun({ ...run, final: clause.id });
+        // Only the material this clause SCHEDULES is held; the rest may be
+        // scaled by the re-cap, which is the cap doing its job.
+        const clean = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+        });
+        if (clean.materialMix[mat] <= 0) continue;
+        if (after.materialMix[mat] < before.materialMix[mat] - 1e-9) {
+          refunded.push(`${clause.id} cut ${mat} ${before.materialMix[mat].toFixed(2)}->${after.materialMix[mat].toFixed(2)}`);
+        }
+      }
+    }
+    check("no clause refunds a material the run ratcheted deeper",
+      refunded.length === 0, refunded.join(", "));
   }
 
   // advanceRun must carry the clause. It is banked at the last draft and read
