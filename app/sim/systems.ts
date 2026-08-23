@@ -806,6 +806,36 @@ section("Contracts (contracts.ts)");
   check("Deep Run bays draw from an endless bag", deep.pieceQueue === null);
 }
 
+// `conditions` is what the PLANT panel shows and `brief` is what the CARD
+// shows. They are the same string on a lines Contract and differ by the
+// shipment-count prefix on a pattern one, which the panel already states as
+// its Shipments column and its manifest row. Pinned in both directions: the
+// card must not change, and the panel must not repeat itself.
+{
+  const lines = generateContract(20260824, 6, 0);
+  check("a lines Contract's conditions are its brief",
+    lines.kind === "lines" && lines.conditions === lines.brief,
+    `${lines.kind}: ${lines.conditions} / ${lines.brief}`);
+  check("a lines Contract states conditions, never empty",
+    lines.conditions.length > 0, lines.conditions);
+
+  const pattern = generateContract(20260824, 6, PATTERN_SLOT);
+  check("a pattern Contract's brief is its shipment count plus its conditions",
+    pattern.brief === `${pattern.queue.length} shipments · ${pattern.conditions}`,
+    `${pattern.brief} !== ${pattern.queue.length} shipments · ${pattern.conditions}`);
+  check("a pattern Contract's conditions do not repeat the shipment count",
+    !pattern.conditions.includes("shipments"), pattern.conditions);
+
+  // Every variant, not just the one today's seed rolled: the tail is a switch
+  // and a case that forgot to drop the prefix would pass on one draw.
+  for (const v of VARIANTS) {
+    const c = generateContract(20260824, 9, PATTERN_SLOT, v.id);
+    check(`variant ${v.id} splits brief into count + conditions`,
+      c.brief === `${c.queue.length} shipments · ${c.conditions}`,
+      `${c.brief} / ${c.conditions}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 section("Pattern Contracts (contracts.ts)");
 // ---------------------------------------------------------------------------
