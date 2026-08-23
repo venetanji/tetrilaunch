@@ -1466,10 +1466,15 @@ body.crt-off #app::after { display: none; }
      unwrapping the meta line gives back the 12px the second line cost. The
      panel measures 154.7px tall either way. */
   grid-template-columns: minmax(0, 1fr);
-  /* `notch` is named here and NOT in either contract template: the notch line
-     renders only in Deep Run (screens.ts's hudHTML), and a named row costs its
-     share of the row gap even when nothing renders into it — the same trap the
-     retired title row left behind in exactly these templates. */
+  /* `notch` is named here for Deep Run's Notches row (screens.ts's hudHTML) to
+     land in — a named row costs its share of the row gap even when nothing
+     renders into it, the same trap the retired title row left behind in
+     exactly these templates. Not named in a contract template because there
+     is no such template: a Contract's own `.pl-notch` row (the Bay
+     conditions line) shares the class and would inherit this exact grid-area
+     if it ever sat inside this grid, but it never does — Contract opts out
+     via `display: flex` below at compact, and nothing re-templates it at
+     regular/roomy either. */
   grid-template-areas:
     "read"
     "load"
@@ -1491,11 +1496,13 @@ body.crt-off #app::after { display: none; }
    template; a Contract renders three or four, all full-width, all in DOM
    order, and a template for that is just a list of the rows flex would lay out
    anyway — one that has to be kept in step with which of them render.
-   It could not be, either: `notch` and `meta` are named in the base template
-   and neither exists in a Contract, so a Contract inheriting it would pay two
-   rows' worth of gap for nothing. (This scope used to carry a 0.8/1.2 column
-   split, justified by a measurement of the meta line WITHOUT its "Launch $N"
-   span. There is no meta line here at all now.) */
+   It could not be, either: `meta` is named in the base template and does not
+   exist in a Contract, so a Contract inheriting it would still pay that row's
+   share of gap for nothing — one row now, not two. `notch` no longer joins
+   it: a Contract's own `.pl-notch` row (the Bay conditions line) would fill
+   that same grid-area, same class, just different content. (This scope used
+   to carry a 0.8/1.2 column split, justified by a measurement of the meta
+   line WITHOUT its "Launch $N" span. There is no meta line here at all now.) */
 [data-density="compact"] .hud--contract .plant__body { display: flex; }
 /* And at compact a Contract has no build row at all. The ability chips are
    hidden at this density (the rail is the touch control surface and carries
