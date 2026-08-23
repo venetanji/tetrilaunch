@@ -1219,6 +1219,66 @@ section("Pattern variants (contracts.ts VARIANTS)");
   }
   check("every variant produces a range of inventories", stuck === "", stuck);
 
+  // ---- A card may not advertise a wall the bay does not have ---------------
+  //
+  // salvageProfile guarantees ARITHMETIC (the empty area divides by the payload)
+  // and not geometry, so a profile can leave a region nothing tiles. The
+  // generator used to keep the salvage variant and its brief anyway when that
+  // happened, shipping an ordinary empty bay whose card read "0 cubes already
+  // down" — measured at 19.5% of Part Load Contracts. A variant that silently
+  // becomes another variant, while still charging a rung of the ladder for
+  // itself, is worse than one that is merely rare.
+  {
+    let salvaged = 0, wallless = 0, lying = 0, worstMs = 0;
+    for (let tier = 6; tier <= 9; tier++) {
+      for (let seed = 20260101; seed < 20260101 + 60; seed++) {
+        const t0 = Date.now();
+        const ct = generateContract(seed, tier, PATTERN_SLOT, "salvage");
+        worstMs = Math.max(worstMs, Date.now() - t0);
+        salvaged += 1;
+        const wall = ct.standing.reduce((a, h) => a + h, 0);
+        if (wall === 0) wallless += 1;
+        // Two ways the card could lie, both checked: the brief claiming cubes
+        // that are not there, and the variant naming itself Part Load with an
+        // empty bay behind it.
+        if (wall === 0 && /cubes already down/.test(ct.brief)) lying += 1;
+        if (wall === 0 && ct.variant === "salvage") lying += 1;
+      }
+    }
+    check(`no Contract advertises a wall it does not have (${salvaged} sampled)`, lying === 0);
+    check(
+      `a salvage Contract usually gets its wall (${salvaged - wallless}/${salvaged})`,
+      wallless <= salvaged * 0.1,
+      `${wallless} fell back to plain`,
+    );
+    // Generation sits on the render path (main.ts calls dailyContracts on every
+    // paint of the Contracts screen), so an unbounded search here is a freeze.
+    check(`generating a salvage Contract stays bounded (worst ${worstMs}ms)`, worstMs < 1500);
+  }
+
+  // ---- The day's board is memoised -----------------------------------------
+  //
+  // Pure, and therefore assumed free — it is not: a board carrying a salvage
+  // variant probes candidate walls against the tiling solver. Recomputing it per
+  // render spent that on every repaint of a screen whose content cannot change.
+  {
+    const cold0 = Date.now();
+    const first = dailyContracts(6, 20260102);
+    const coldMs = Date.now() - cold0;
+    const warm0 = Date.now();
+    const again = dailyContracts(6, 20260102);
+    const warmMs = Date.now() - warm0;
+    check(`a repeat board render is free (cold ${coldMs}ms -> warm ${warmMs}ms)`, warmMs <= 2);
+    check("the memoised board is the same board",
+      JSON.stringify(first) === JSON.stringify(again));
+    // Keyed on the inputs, so a rollover or a different Mark cannot be served a
+    // stale table — the shared-daily promise depends on this.
+    check("a different seed is a different board",
+      JSON.stringify(dailyContracts(6, 20260103)) !== JSON.stringify(first));
+    check("a different tier is a different board",
+      JSON.stringify(dailyContracts(7, 20260102)) !== JSON.stringify(first));
+  }
+
   // The salvage wall has to land on the SLOT GRID the line check reads, or the
   // bay opens with cubes that look settled and can never fill a slot.
   {
@@ -2947,6 +3007,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     let forcedEverywhere = true;
     let pairedWhenSingle = true;
     let slagEverAlone = false;
+    let slagOffered = false;
     let offBaysUnchanged = true;
     let capstoneShort = false;
     const ratchets: Ratchets = { cost: 2, time: 1, wind: 3 };
@@ -2969,6 +3030,7 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
           // material with no passive counter, so a hand of nothing but slag is
           // a bay that cannot be won by playing well.
           if (offer.every((h) => h.id === "slag")) slagEverAlone = true;
+          if (offer.some((h) => h.id === "slag")) slagOffered = true;
         } else if (materials.length === 1) {
           // One material: paired with the axis the run has leaned on hardest,
           // so the hand is still a draft rather than a single card to tap past.
@@ -2987,19 +3049,57 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && !isMaterialDraft(0) && !isMaterialDraft(2));
     check("with two or more materials, every card in the hand is a material", forcedEverywhere);
     check("with one material, it is paired with the run's hardest active axis", pairedWhenSingle);
+    // Kept, but no longer the whole story: with two DISTINCT materials in the
+    // hand this cannot fire, and saying so is more honest than implying a guard
+    // is holding it back. The property that actually needs pinning is the one
+    // below — slag IS dealt on forced bays, and at the capstone the player has
+    // no room to refuse it.
     check("slag is never the only thing on offer", !slagEverAlone);
+    check("slag is genuinely dealt on forced bays (not quietly excluded)", slagOffered);
+    {
+      // At the capstone, picksPerBay equals the hand size, so a forced hand is
+      // taken WHOLE — there is no choosing. If slag is in it, the player eats
+      // slag. That is an edge of this feature, not a defect, and it is pinned
+      // here so it cannot change without someone deciding to change it.
+      const capstoneForced = hazardOffers(4242, MATERIAL_DRAFT_BAYS[0] - 1, CAPSTONE_MARK);
+      check(
+        `a capstone forced hand is taken whole (${capstoneForced.length} cards, ${picksPerBay(CAPSTONE_MARK)} picks)`,
+        capstoneForced.length === picksPerBay(CAPSTONE_MARK)
+          && capstoneForced.every((h) => h.kind === "content"),
+        capstoneForced.map((h) => h.id).join(","),
+      );
+    }
     check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
     check("a forced hand still deals at least as many cards as picks", !capstoneShort);
 
     // The offer must stay a function of (seed, bay, Mark) — a restarted run has
     // to deal the same table, and the ratchets must not smuggle in variation
     // beyond the single-material partner they are read for.
-    const a = hazardOffers(99, 5, 6, undefined, ratchets).map((h) => h.id).join(",");
-    const b = hazardOffers(99, 5, 6, undefined, ratchets).map((h) => h.id).join(",");
+    // levelIndex 4, not 5. MATERIAL_DRAFT_BAYS names bays 1-based, so the forced
+    // levelIndexes are 1, 4 and 7 — these two checks used to pass 5, which is
+    // bay SIX, an ordinary bay. They asserted determinism of a hand that was
+    // never forced and would have passed with the whole feature deleted.
+    const forcedIndex = MATERIAL_DRAFT_BAYS[1] - 1;
+    check(`the determinism checks use a forced bay (levelIndex ${forcedIndex})`,
+      isMaterialDraft(forcedIndex));
+    const a = hazardOffers(99, forcedIndex, 6, undefined, ratchets).map((h) => h.id).join(",");
+    const b = hazardOffers(99, forcedIndex, 6, undefined, ratchets).map((h) => h.id).join(",");
     check("a forced hand is deterministic in the seed", a === b);
-    check("a forced hand is reproducible without a ratchet history",
-      hazardOffers(99, 5, 6).map((h) => h.id).join(",")
-        === hazardOffers(99, 5, 6, undefined, {}).map((h) => h.id).join(","));
+
+    // What this replaces asserted that a hand is the same with and without a
+    // ratchet history — by comparing hazardOffers(...) against
+    // hazardOffers(..., {}), which is the SAME CALL, since the parameter
+    // defaults to {}. It was tautological, and the property it meant to assert
+    // is false by design: on a single-material bay the ratchets pick the
+    // partner. So assert the true thing, in both directions.
+    const oneMat = MATERIAL_DRAFT_BAYS[0] - 1;
+    const withTime = hazardOffers(11, oneMat, 4, undefined, { time: 3 }).map((h) => h.id).join(",");
+    const withSweep = hazardOffers(11, oneMat, 4, undefined, { sweeper: 2 }).map((h) => h.id).join(",");
+    check("a single-material hand takes its partner from the run's ratchets",
+      withTime !== withSweep && withTime.includes("time") && withSweep.includes("sweeper"),
+      `${withTime} vs ${withSweep}`);
+    check("...and is still stable for one ratchet history",
+      hazardOffers(11, oneMat, 4, undefined, { time: 3 }).map((h) => h.id).join(",") === withTime);
 
     // A run must be able to reach a shop after every forced material: that is
     // why these bays sit where they do, and a schedule that broke it would be

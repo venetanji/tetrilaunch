@@ -278,6 +278,18 @@ export function tilingQueue(
   maxDistinct = pool.length,
   size: PieceSize = "std",
   standing: readonly number[] = [],
+  /**
+   * Node ceiling per attempt. Defaults to NODE_BUDGET, which is sized so a
+   * region that CAN be tiled always is.
+   *
+   * A caller that is PROBING — asking whether some candidate region works, and
+   * able to try another if it does not — should pass something far smaller.
+   * The expensive case is not success, it is DISPROOF: an untileable region has
+   * to exhaust the whole budget before the search can say no, and at
+   * EXACT_ATTEMPTS x 200,000 nodes that is seconds of main thread. Probing
+   * cheaply and moving on beats proving expensively and giving up.
+   */
+  nodeBudget = NODE_BUDGET,
 ): PieceType[] | null {
   const cap = Math.max(1, Math.min(maxDistinct, pool.length));
   const start = prefilled(rows, cols, standing);
@@ -321,7 +333,7 @@ export function tilingQueue(
       empty,
       supply,
       placed,
-      { nodes: 0 },
+      { nodes: NODE_BUDGET - nodeBudget },
       size,
       rng,
     );

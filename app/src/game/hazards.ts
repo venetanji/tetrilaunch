@@ -416,32 +416,15 @@ export function hazardsForMark(mark: number): HazardDef[] {
 }
 
 /**
- * The axes offered before bay `levelIndex` of a run.
- *
- * Deterministic in the run seed, so a bay replayed from the same save deals the
- * same table — the ratchet is a choice under pressure, not a reroll to fish in.
- *
- * The hand is deliberately SMALL — two cards. A three-card hand invited a
- * "pick the least-bad" shrug; two cards is a real fork, and with the purse now
- * tight enough that every notch hurts, the fork is the decision the bay-clear
- * moment is about.
- *
- * Two rules shape the hand rather than dealing straight from the pool:
- *
- *  - **At most one content axis per offer.** The material axes all read alike
- *    ("a new substance on the belt") and three of them at once is not a choice
- *    between different kinds of pressure, it is a pile-on with a coat of paint.
- *  - **The offer is never smaller than the number of picks.** At Mark 10 that
- *    means at least two cards, or the capstone would silently hand the player
- *    the same axis twice.
- *
- * Returns every eligible axis when the pool is small, which is intentional: at
- * the bottom of the ladder the ratchet IS the whole table, and hiding one of
- * the few open axes would only make the choice arbitrary.
- */
-/**
  * Bays after which the draft deals MATERIALS ONLY — a hand with no number axis
  * in it, so the pick has to be a material.
+ *
+ * "Materials only" is exact where the Mark has TWO OR MORE materials: every card
+ * is a material and the pick cannot avoid one. Where it has exactly one — Mark 4,
+ * cryo alone — the hand is that material plus the run's hardest active axis, so
+ * the player CAN still take the number and dodge. That is the design (a hand of
+ * one card is not a draft), not an oversight, and it means these bays force a
+ * material from Mark 5 onward and merely offer one at Mark 4.
  *
  * Named by the bay the player just CLEARED, 1-based, the way a player counts
  * them. The rest of the ladder is deliberately dodgeable: one content card per
@@ -501,6 +484,32 @@ function hardestActive(pool: HazardDef[], ratchets: Ratchets): HazardDef | null 
   return best ?? numbers[numbers.length - 1];
 }
 
+/**
+ * The axes offered before bay `levelIndex` of a run.
+ *
+ * Deterministic in the run seed, so a bay replayed from the same save deals the
+ * same table — the ratchet is a choice under pressure, not a reroll to fish in.
+ *
+ * The hand is deliberately SMALL — two cards. A three-card hand invited a
+ * "pick the least-bad" shrug; two cards is a real fork, and with the purse now
+ * tight enough that every notch hurts, the fork is the decision the bay-clear
+ * moment is about.
+ *
+ * Two rules shape the hand rather than dealing straight from the pool:
+ *
+ *  - **At most one content axis per offer** — on an ORDINARY bay. The material
+ *    axes all read alike ("a new substance on the belt") and three at once is
+ *    not a choice between kinds of pressure, it is a pile-on with a coat of
+ *    paint. MATERIAL_DRAFT_BAYS suspends this rule on three bays, deliberately,
+ *    and is the only thing that may.
+ *  - **The offer is never smaller than the number of picks.** At Mark 10 that
+ *    means at least two cards, or the capstone would silently hand the player
+ *    the same axis twice.
+ *
+ * Returns every eligible axis when the pool is small, which is intentional: at
+ * the bottom of the ladder the ratchet IS the whole table, and hiding one of
+ * the few open axes would only make the choice arbitrary.
+ */
 export function hazardOffers(
   seed: number,
   levelIndex: number,
@@ -591,14 +600,17 @@ function materialHand(
     const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  const hand = shuffled.slice(0, want);
-  // If the roll filled every seat with slag's company and slag is the only
-  // thing left standing, swap it out for a material that was cut.
-  if (hand.every((h) => h.id === "slag")) {
-    const alt = shuffled.find((h) => h.id !== "slag");
-    if (alt) hand[hand.length - 1] = alt;
-  }
-  return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
+  // `shuffled` holds DISTINCT axes, so a hand of two can never be slag twice —
+  // there used to be a guard here swapping slag out of an all-slag hand, and it
+  // could not fire: 120,000 generated forced hands produced none. It is gone
+  // rather than kept as reassurance, because an unreachable guard reads as a
+  // protection that is being relied on.
+  //
+  // What IS true, and is not a guard: slag can be one of the two cards, and at
+  // the capstone Mark picksPerBay is 2 against a hand of 2, so a capstone player
+  // takes both — slag included. That is a real edge of this feature rather than
+  // a bug in it, and sim/systems.ts pins it so it cannot change unnoticed.
+  return shuffled.slice(0, want).sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
 }
 
 /**
