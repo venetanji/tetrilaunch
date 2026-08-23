@@ -84,7 +84,7 @@ export const ORIENTATIONS: Record<PieceSize, Record<PieceType, Cell[][]>> = (() 
  * which is the safe direction: the generator falls back rather than shipping an
  * unproven queue.
  */
-const NODE_BUDGET = 200_000;
+export const NODE_BUDGET = 200_000;
 
 /** Where the solver draws pieces from. The two callers differ only here: the
  *  checker has a finite multiset to spend, the generator an unlimited pool. */
@@ -243,7 +243,7 @@ export function tilesRegion(
  *  before settling for one that came in under. Small on purpose: the cap is a
  *  difficulty dial, and one shipment type fewer than intended is a slightly
  *  easier Contract, not a broken one. */
-const EXACT_ATTEMPTS = 6;
+export const EXACT_ATTEMPTS = 6;
 
 /**
  * An inventory that provably tiles a `rows` x `cols` rectangle, drawn from
@@ -278,6 +278,18 @@ export function tilingQueue(
   maxDistinct = pool.length,
   size: PieceSize = "std",
   standing: readonly number[] = [],
+  /**
+   * Node ceiling per attempt. Defaults to NODE_BUDGET, which is sized so a
+   * region that CAN be tiled always is.
+   *
+   * A caller that is PROBING — asking whether some candidate region works, and
+   * able to try another if it does not — should pass something far smaller.
+   * The expensive case is not success, it is DISPROOF: an untileable region has
+   * to exhaust the whole budget before the search can say no, and at
+   * EXACT_ATTEMPTS x 200,000 nodes that is seconds of main thread. Probing
+   * cheaply and moving on beats proving expensively and giving up.
+   */
+  nodeBudget = NODE_BUDGET,
 ): PieceType[] | null {
   const cap = Math.max(1, Math.min(maxDistinct, pool.length));
   const start = prefilled(rows, cols, standing);
@@ -321,7 +333,7 @@ export function tilingQueue(
       empty,
       supply,
       placed,
-      { nodes: 0 },
+      { nodes: NODE_BUDGET - nodeBudget },
       size,
       rng,
     );

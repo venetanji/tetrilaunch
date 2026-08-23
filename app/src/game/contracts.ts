@@ -693,11 +693,31 @@ function patternInventory(
   rng: () => number, size: PieceSize,
 ): { queue: PieceType[]; standing: number[] } {
   const cubes = SIZE_SPEC[size].cubes;
-  const standing = spec.salvage ? salvageProfile(goal, lineCells, cubes, rng) : [];
   // One shape means one shape, whatever the tier's variety dial says.
   const variety = spec.oneShape ? 1 : patternVariety(tier);
-  const tiled = tilingQueue(goal, lineCells, patternPool(tier), rng, variety, size, standing);
-  if (tiled) return { queue: canonical(tiled, rng), standing };
+
+  // A salvage wall is arithmetic, not geometry: salvageProfile guarantees the
+  // empty area divides by the payload, and nothing more. About one profile in
+  // five leaves a region no set of tetrominoes tiles, and proving that takes
+  // the full search — measured at 1.8 SECONDS for one dailyContracts() call,
+  // on a function main.ts calls on every render of the Contracts screen.
+  //
+  // So walls are PROBED, cheaply, and a failing one is replaced rather than
+  // argued with. A hundredth of the budget is plenty to find a tiling that
+  // EXISTS — the whole point is to stop paying for disproof, and paying more
+  // per probe buys only a slower way to give up (see SALVAGE_PROBE_NODES).
+  for (let attempt = 0; spec.salvage && attempt < SALVAGE_WALL_ATTEMPTS; attempt++) {
+    const wall = salvageProfile(goal, lineCells, cubes, rng);
+    const walled = tilingQueue(
+      goal, lineCells, patternPool(tier), rng, variety, size, wall, SALVAGE_PROBE_NODES,
+    );
+    if (walled) return { queue: canonical(walled, rng), standing: wall };
+  }
+
+  if (!spec.salvage) {
+    const tiled = tilingQueue(goal, lineCells, patternPool(tier), rng, variety, size);
+    if (tiled) return { queue: canonical(tiled, rng), standing: [] };
+  }
 
   // The fallback, and it is deliberately a RETREAT TO PLAIN rather than a pile
   // of I pieces. The old all-I fallback was safe only because it assumed an
@@ -708,6 +728,33 @@ function patternInventory(
   const plain = tilingQueue(goal, lineCells, patternPool(tier), rng, variety, size);
   return { queue: canonical(plain ?? [], rng), standing: [] };
 }
+
+/**
+ * How many candidate walls a salvage Contract may try, and the node ceiling
+ * each probe gets. The two do NOT trade off against each other the way the
+ * first cut of this assumed, and the difference is worth writing down.
+ *
+ * A probe's budget is spent on DISPROOF. A wall that tiles is found almost
+ * immediately — half of all salvage Contracts generate in about a millisecond —
+ * so raising the ceiling buys nothing except a longer wait before an untileable
+ * profile is abandoned. Measured over 1000 Contracts across tiers 6-9, dropping
+ * the ceiling from 20,000 nodes to 2,000 and spending the difference on more
+ * candidate walls made wall retention BETTER (2.9% lost -> 1.8%) and the worst
+ * generation 9x cheaper (1101ms -> 124ms). More nodes was strictly worse on
+ * both counts: a fixed number of attempts sat longer on a bad profile instead
+ * of drawing another one.
+ *
+ * These are also the numbers that keep the whole probe loop cheaper than a
+ * single unbounded solve, which is the promise patternInventory's note makes
+ * and sim/systems.ts now enforces — see the budget check there. Note the real cost
+ * is ATTEMPTS x EXACT_ATTEMPTS x PROBE_NODES: tilingQueue re-runs its own
+ * search up to EXACT_ATTEMPTS times chasing a shipment-type count, and each of
+ * those runs gets the full ceiling. Six walls at 20,000 was 720,000 nodes
+ * against the 1,200,000 of the unbounded call it replaced — a third off, where
+ * the note claimed an order of magnitude.
+ */
+export const SALVAGE_WALL_ATTEMPTS = 10;
+export const SALVAGE_PROBE_NODES = 2_000;
 
 /**
  * The inventory as the CARD states it: any spares, then sorted.
@@ -728,11 +775,21 @@ function generatePatternContract(
 ): Contract {
   const rng = mulberry32(seed + slot * 7919);
   const pool = variantsFor(tier);
-  const spec = forced ? variantSpec(forced) : pool[Math.floor(rng() * pool.length)];
+  let spec = forced ? variantSpec(forced) : pool[Math.floor(rng() * pool.length)];
   const lineCells = spec.lineCells ?? lineCellsForTier(tier);
   const size = patternSize(tier, rng, spec);
   const goal = patternGoal(tier, lineCells, size, spec.goalBonus);
-  const { queue, standing } = patternInventory(spec, goal, tier, lineCells, rng, size);
+  let { queue, standing } = patternInventory(spec, goal, tier, lineCells, rng, size);
+  // A salvage Contract that could not get a wall is NOT a salvage Contract. It
+  // used to keep the variant and its brief anyway, so the card read "0 cubes
+  // already down" over an ordinary empty bay — a variant that silently became
+  // another variant while still charging the player a rung of the ladder for
+  // it. If the wall did not survive, the Contract presents as what it actually
+  // is.
+  if (spec.salvage && standing.reduce((a, h) => a + h, 0) === 0) {
+    spec = variantSpec("plain");
+    standing = [];
+  }
   const shapes = new Set(queue).size;
   const material = spec.material;
   return {
@@ -969,8 +1026,29 @@ export const DAILY_COUNT = 3;
  */
 export const PATTERN_SLOT = 2;
 
+/**
+ * The day's board, MEMOISED.
+ *
+ * A Contract is a pure function of (seed, tier, slot), which made this look free
+ * to call — and main.ts calls it on every render of the Contracts screen, and
+ * again when a card is tapped. It is not free: a salvage variant probes candidate
+ * walls against the tiling solver, and a board carrying one was measured at 590ms
+ * even after that probing was bounded. Recomputing it per render spends that on
+ * every repaint of a screen whose content cannot have changed.
+ *
+ * Keyed on exactly the inputs, so the cache can never serve the wrong board: a
+ * date rollover changes the seed and therefore the key. The map is bounded
+ * because the key space a session touches is — one tier, a handful of seeds.
+ */
+const DAILY_CACHE = new Map<string, Contract[]>();
+
 export function dailyContracts(tier: number, seed = dailySeed()): Contract[] {
-  return Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
+  const key = `${seed}:${tier}`;
+  const hit = DAILY_CACHE.get(key);
+  if (hit) return hit;
+  const board = Array.from({ length: DAILY_COUNT }, (_, i) => generateContract(seed, tier, i));
+  DAILY_CACHE.set(key, board);
+  return board;
 }
 
 /**
