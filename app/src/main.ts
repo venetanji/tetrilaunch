@@ -605,6 +605,14 @@ class App {
                   ? 0
                   : g.launchesLeft,
             remaining: g.piecesRemaining,
+            // Cubes off the deck. On a lines Contract this is the launch
+            // budget quietly draining — launchesFor priced the bay against
+            // PLANNING_EFFICIENCY, and every cube lost is that margin being
+            // spent. The panel renders it on lines Contracts only; see
+            // screens.ts's hudHTML for why a pattern bay cannot use it.
+            lost: g.lostTotal,
+            conditions: this.contract.conditions,
+            progress: tierProgressFor(this.meta),
           }
         : null,
     };
@@ -1254,6 +1262,8 @@ class App {
       if (s !== "won" && s !== "lost") return;
       telemetry.endBay({
         result: s, reason: g.lossReason, secs: g.elapsedMs / 1000,
+        // `lostPieces` is a misnomer — it counts CUBES (Game.lostTotal), not
+        // tetrominoes — and now doubles as the Contract HUD's "Lost" column.
         lines: g.linesTotal, lostPieces: g.lostTotal, endScore: g.score,
       });
       telemetry.endRun(s === "won", 0);
@@ -1758,6 +1768,11 @@ class App {
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
+      // Only on a lines Contract — the element does not exist on a pattern one
+      // (screens.ts's hudHTML), and `set` no-ops on a missing node anyway. The
+      // other two Contract rows are fixed for the length of a bay and are
+      // rendered once.
+      set("#hud-lost", String(g.lostTotal));
       this.overlay
         .querySelector("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= 2);
