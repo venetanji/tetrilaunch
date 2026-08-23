@@ -438,6 +438,78 @@ rather than satisfying the fix is `SPARE_SHIPMENTS`, a single constant — not a
 loosening of the physics tolerances, which would quietly change every other mode
 too.
 
+### Pattern variants: change the rule, not the size
+
+A pattern Contract had exactly two difficulty dials — how many lines, and how
+many different shapes — and both scale the same activity. The whole mode read as
+one puzzle at seven sizes. A **variant** changes the rule instead, which is the
+difference between more of a thing and another thing.
+
+| Variant | Rung | What changes |
+|---|---|---|
+| **Standard** | 1 | nothing — the original |
+| **Single Stock** | 3 | one shipment type all bay, one line longer |
+| **Narrow Gauge** | 4 | 6-cell lines |
+| **Full Rebar** | 5 | nothing shatters |
+| **Part Load** | 6 | the bay opens with a wall already standing |
+| **Blackout** | 7 | the NEXT preview is dark; the set is still on the card |
+| **Guided** | 9 | a magnetic belt — the cubes square themselves |
+
+Three things this settled that are worth keeping written down.
+
+**Full Rebar is the one that makes the mode honest.** Everywhere else the card
+promises the exact set that tiles the goal, and then the compactor dissolves
+every piece you land (`pieces.ts`'s `breakJointsInBand`), so the promise is a
+metaphor — the thing you are actually handed is a cube count with a suggestion
+attached. Rebar joints never break, so *what lands is what you keep*, and
+`buildable.ts`'s model stops being a conservative proxy for the bay and becomes
+the literal rule of it. That is also why it spends a **negative** goal bonus: a
+line you cannot rescue by shattering is strictly harder than the same line
+anywhere else.
+
+**A variant may only ship a material that leaves a landed cube counting, in the
+cell the tiling put it in.** Rebar refuses to come apart; magnetic squares itself
+onto its slot. Both are safe. Cryo (dead until struck), volatile (takes its
+neighbours) and tar (welds where it fell) all change what a landed cube *is*, so
+an exact inventory stops being exact — they are structurally excluded, enforced
+in `sim/systems.ts` rather than left as a convention. And a variant that ships a
+material ships it on **every** shipment: a per-shipment roll would make "nothing
+shatters" true of most of the bay, which is a different and much worse promise
+than the card's.
+
+**The two material variants sit on their material's own hazard rung, not where
+their difficulty would put them.** That costs something real and is kept anyway.
+Guided is the gentlest thing on the list and would make a lovely tier-2 on-ramp;
+magnetic is Mark 9's hazard, and a Contract spending it at tier 2 has spoiled
+Mark 9's reveal to save a new player four minutes. "Contracts teach what Deep Run
+tests" is either a rule or it is decoration.
+
+`sim/patterns.ts` sweeps every variant at every tier it appears on. Over 14,000
+generated Contracts, capped at 60 measured inventories per variant (the cap is
+reported, not silent — "salvage" keys on its wall, so it produces a near-unique
+inventory per seed):
+
+| Variant | all pack | mean share of arrival orders finishable | dealable | worst deal |
+|---|---|---|---|---|
+| Standard | yes | 75.7% | 60/60 | 29ms |
+| Single Stock | yes | 100% | 12/12 | 7ms |
+| Narrow Gauge | yes | 61.7% | 60/60 | 17ms |
+| Full Rebar | yes | 46.6% | 60/60 | 17ms |
+| Part Load | yes | 50.6% | 60/60 | 11ms |
+| Blackout | yes | 56.7% | 60/60 | 559ms |
+| Guided | yes | 56.7% | 60/60 | 500ms |
+
+Nothing fails to pack, every deal is proven finishable, and the worst search is
+half a second at a bay-load transition. The middle column is the one worth
+staring at: on the majority of high-tier inventories, *most* arrival orders
+cannot be finished at all — which is exactly why the deal is searched for rather
+than shuffled.
+
+The variant axis also broke something that had been safe by accident: the
+inventory builder's fallback was a stack of I pieces, which works only because
+four horizontal I tile a row of 8. At Narrow Gauge's 6 they tile nothing at all,
+so the safety net was itself the bug. It retreats to a plain Contract now.
+
 ## Materials — the content engine
 
 Match-3 games get thousands of levels out of one verb by never adding mechanics

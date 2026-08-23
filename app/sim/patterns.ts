@@ -27,7 +27,8 @@
  */
 import { isBuildable, type BuildModel } from "../src/game/buildable";
 import {
-  DAILY_COUNT, dealPatternQueue, generateContract, levelForContract, type Contract,
+  dealPatternQueue, generateContract, levelForContract, PATTERN_SLOT, VARIANTS,
+  type Contract,
 } from "../src/game/contracts";
 import { SIZE_SPEC } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
@@ -48,7 +49,13 @@ function arg(name: string, fallback: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const SEEDS = Number(arg("seeds", "1500"));
+const SEEDS = Number(arg("seeds", "400"));
+/** Inventories measured per variant. A cap, because "salvage" keys on its wall
+ *  and so produces a near-unique inventory per seed — without one that single
+ *  variant is most of the sweep and the run takes hours. What it drops is
+ *  REPORTED rather than silently truncated: a table that reads as "covered
+ *  everything" when it did not is worse than a slower table. */
+const PER_VARIANT = Number(arg("per-variant", "60"));
 const ORDERS = Number(arg("orders", "60"));
 const TIERS = arg("tiers", "1,2,3,4,5,6,7,8,9").split(",").map(Number);
 /** tuck% is off by default. A tuck solve explores every pocket on the board
@@ -83,20 +90,28 @@ function orderRate(c: Contract, cols: number, model: BuildModel, n: number): num
   }
   let ok = 0;
   for (const [key, weight] of drawn) {
-    if (isBuildable([...key] as PieceType[], cols, c.pieceSize, model)) ok += weight;
+    if (isBuildable([...key] as PieceType[], cols, c.pieceSize, model, c.standing)) ok += weight;
   }
   return ok / n;
 }
 
-interface Row { key: string; tiers: Set<number>; seen: number; contract: Contract; cols: number; }
+interface Row {
+  key: string; tiers: Set<number>; seen: number; contract: Contract; cols: number;
+  variant: string;
+}
 
 const rows = new Map<string, Row>();
 let sampled = 0;
 for (let s = 0; s < SEEDS; s++) {
   const seed = 20260101 + s;
   for (const tier of TIERS) {
-    for (let slot = 0; slot < DAILY_COUNT; slot++) {
-      const c = generateContract(seed, tier, slot);
+    // Every VARIANT the tier can produce, forced — not whatever the board
+    // happened to roll. The daily board picks one variant per seed, so a sweep
+    // that took what it was given would need thousands of seeds to see the rare
+    // ones once, and would still not guarantee it had seen them at all.
+    for (const v of VARIANTS) {
+      if (v.tier > tier) continue;
+      const c = generateContract(seed, tier, PATTERN_SLOT, v.id);
       if (c.kind !== "pattern") continue;
       sampled += 1;
       const cols = levelForContract(c).compactorMinLineCells;
@@ -108,8 +123,10 @@ for (let s = 0; s < SEEDS; s++) {
       const shapes = c.pieceSize === "tiny"
         ? `x${c.queue.length}`
         : [...c.queue].sort().join("");
-      const key = `${c.pieceSize}|${c.goal}|${shapes}`;
-      const row = rows.get(key) ?? { key, tiers: new Set<number>(), seen: 0, contract: c, cols };
+      const key = `${c.variant}|${c.pieceSize}|${c.goal}|${c.lineCells}|${shapes}|${c.standing.join("")}`;
+      const row = rows.get(key) ?? {
+        key, tiers: new Set<number>(), seen: 0, contract: c, cols, variant: v.id,
+      };
       row.tiers.add(tier);
       row.seen += 1;
       rows.set(key, row);
@@ -126,9 +143,24 @@ console.log(
 interface Measured extends Row { packs: boolean; drop: number; tuck: number; dealMs: number; dealt: boolean; }
 const measured: Measured[] = [];
 
-for (const row of rows.values()) {
+// Keep the most-seen inventories per variant, so what survives the cap is what
+// a player is most likely to actually be dealt.
+const kept: Row[] = [];
+const dropped = new Map<string, number>();
+for (const v of VARIANTS) {
+  const mine = [...rows.values()].filter((r) => r.variant === v.id)
+    .sort((a, b) => b.seen - a.seen);
+  kept.push(...mine.slice(0, PER_VARIANT));
+  if (mine.length > PER_VARIANT) dropped.set(v.id, mine.length - PER_VARIANT);
+}
+for (const [id, n] of dropped) {
+  console.log(`> ${id}: ${n} further inventories not measured (--per-variant ${PER_VARIANT}).`);
+}
+if (dropped.size) console.log("");
+
+for (const row of kept) {
   const c = row.contract;
-  const packs = tilesRegion(c.queue, c.goal, row.cols, c.pieceSize);
+  const packs = tilesRegion(c.queue, c.goal, row.cols, c.pieceSize, c.standing);
   const drop = orderRate(c, row.cols, "drop", ORDERS);
   // A queue every order of which survives the strict reading needs no generous
   // one — tuck admits every drop landing and then some. Where it IS needed it
@@ -141,12 +173,12 @@ for (const row of rows.values()) {
   const t0 = Date.now();
   const order = dealPatternQueue(c, row.cols, rng);
   const dealMs = Date.now() - t0;
-  const dealt = isBuildable(order, row.cols, c.pieceSize, "drop")
-    || isBuildable(order, row.cols, c.pieceSize, "tuck");
+  const dealt = isBuildable(order, row.cols, c.pieceSize, "drop", c.standing)
+    || isBuildable(order, row.cols, c.pieceSize, "tuck", c.standing);
   measured.push({ ...row, packs, drop, tuck, dealMs, dealt });
   // Progress on stderr, so the markdown on stdout stays pipeable and a sweep
   // that takes minutes doesn't read as a hang.
-  process.stderr.write(`\r  measured ${measured.length}/${rows.size}   `);
+  process.stderr.write(`\r  measured ${measured.length}/${kept.length}   `);
 }
 process.stderr.write("\n");
 
@@ -170,12 +202,28 @@ for (const tier of TIERS) {
   );
 }
 
-console.log("\n## Worst inventories, by share of arrival orders that can be finished\n");
-console.log("| goal | size | inventory | tiers | packs | drop% | tuck% | dealable |");
-console.log("|---|---|---|---|---|---|---|---|");
-for (const m of [...measured].sort((a, b) => a.drop - b.drop || a.tuck - b.tuck).slice(0, 30)) {
+console.log("\n## By variant\n");
+console.log("| variant | inventories | all pack | min drop% | mean drop% | dealable | worst deal |");
+console.log("|---|---|---|---|---|---|---|");
+for (const v of VARIANTS) {
+  const mine = measured.filter((m) => m.variant === v.id);
+  if (mine.length === 0) continue;
+  const mean = mine.reduce((a, m) => a + m.drop, 0) / mine.length;
   console.log(
-    `| ${m.contract.goal} | ${m.contract.pieceSize} | ${m.contract.queue.join("")} ` +
+    `| ${v.name} | ${mine.length} | ${mine.every((m) => m.packs) ? "yes" : "NO"} ` +
+    `| ${pct(Math.min(...mine.map((m) => m.drop)))} | ${pct(mean)} ` +
+    `| ${mine.filter((m) => m.dealt).length}/${mine.length} ` +
+    `| ${Math.max(...mine.map((m) => m.dealMs))}ms |`,
+  );
+}
+
+console.log("\n## Worst inventories, by share of arrival orders that can be finished\n");
+console.log("| variant | goal | size | inventory | wall | tiers | packs | drop% | tuck% | dealable |");
+console.log("|---|---|---|---|---|---|---|---|---|---|");
+for (const m of [...measured].sort((a, b) => a.drop - b.drop).slice(0, 30)) {
+  console.log(
+    `| ${m.variant} | ${m.contract.goal} | ${m.contract.pieceSize} | ${m.contract.queue.join("")} ` +
+    `| ${m.contract.standing.join("") || "—"} ` +
     `| ${[...m.tiers].sort((a, b) => a - b).join(",")} | ${m.packs ? "yes" : "NO"} ` +
     `| ${pct(m.drop)} | ${pct(m.tuck)} | ${m.dealt ? "yes" : "NO"} |`,
   );
