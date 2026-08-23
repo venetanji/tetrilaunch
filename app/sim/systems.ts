@@ -833,6 +833,12 @@ section("Contracts (contracts.ts)");
     check(`variant ${v.id} splits brief into count + conditions`,
       c.brief === `${c.queue.length} shipments · ${c.conditions}`,
       `${c.brief} / ${c.conditions}`);
+    // brief is built FROM conditions (one local, one interpolation), so the
+    // check above is a syntactic identity — it would still pass if a case
+    // re-added the prefix into conditions itself, doubling it on the card.
+    // This is the check that actually catches that.
+    check(`variant ${v.id} states no shipment count`,
+      !c.conditions.includes("shipments"), c.conditions);
   }
 }
 
@@ -858,11 +864,18 @@ section("Pattern Contracts (contracts.ts)");
   const stdShipments = new Map<number, number[]>();
   let tinyEverMultiShape = false;
   let tinyBelowMinTier = false;
+  let everConditionsNamedShipments = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
         if (c.kind !== "pattern") continue;
         patterns += 1;
+        // The forced-variant loop above only ever sees a tier-9 std queue with
+        // a surviving salvage wall, so it never exercises patternConditions's
+        // tiny → "dominoes" branch or its salvage → plain degrade branch. This
+        // sweep already walks every tier and 40 seeds per tier for exactness,
+        // so it is where those branches actually get checked.
+        if (c.conditions.includes("shipments")) everConditionsNamedShipments = true;
         // Exactness is measured against the CONTRACT's own region, not the
         // ladder's: a "short" variant is sized to 6-cell lines, and a "salvage"
         // one is short by exactly the wall the bay opens with. Both would read
@@ -922,6 +935,11 @@ section("Pattern Contracts (contracts.ts)");
   check("pattern Contracts are always calm", !everWindy);
   check("pattern Contracts carry no launch budget", !everBudgeted);
   check("low tiers draw only the flat-settling shapes", !everOffPool);
+  // conditions is what the plant panel renders verbatim; the panel already
+  // states the shipment count as its own readout column and its own manifest
+  // row, so no pattern Contract's conditions may say it a third time.
+  check("no pattern Contract's conditions names the shipment count",
+    !everConditionsNamedShipments);
 
   // Difficulty is the number of DIFFERENT shapes in one Contract, so the ladder
   // has to actually climb — a generator that always found a single-shape tiling

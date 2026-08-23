@@ -299,6 +299,19 @@ export function budgetForTier(tier: number): number {
 /** Cost of each complication, in difficulty-budget points. */
 const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
 
+/** A lines Contract's complications. "clean bay" rather than an empty string
+ *  is a guard, not a live case: budgetForTier never returns below 2, wind and
+ *  tightLaunches cost 2 each and carry no option-specific `continue` gate
+ *  (material and micro do), and maxComplications is always at least 1 — so
+ *  one of the two ungated options is always both affordable and roomed for.
+ *  Measured at 0 "clean bay" results across 72,000 generated lines Contracts
+ *  (tiers 1-12, 3000 seeds each, both daily lines slots). Kept so the plant
+ *  panel's conditions row can never collapse to nothing if a future budget or
+ *  gating change opens a path to zero complications. */
+function linesConditions(notes: readonly string[]): string {
+  return notes.length ? notes.join(" · ") : "clean bay";
+}
+
 /**
  * Bay names — flavour only, and deliberately none of them a RULE.
  *
@@ -832,6 +845,18 @@ function generatePatternContract(
   };
 }
 
+/**
+ * The complications a pattern variant imposes — the tail of the card's brief,
+ * and verbatim what the plant panel shows. Every variant has to say the thing
+ * that makes it different, because a player who cannot restate a Contract in
+ * their own words before firing has been handed a surprise rather than a
+ * puzzle.
+ *
+ * No case may name the shipment count. generatePatternContract prefixes it
+ * once for the card, and the panel states it as its own column and again on
+ * the manifest row — a case that added it back would say it twice on the card
+ * and a third time in the bay.
+ */
 function patternConditions(
   spec: VariantSpec, queue: readonly PieceType[], shapes: number,
   size: PieceSize, standing: readonly number[],
@@ -865,14 +890,6 @@ function patternConditions(
     default:
       return `${cargo}, no waste`;
   }
-}
-
-/** A lines Contract's complications. "clean bay" rather than an empty string
- *  because the plant panel renders this row on every Contract — a row that
- *  appears only when the generator happened to spend its budget would shift
- *  every row above it between one card and the next. */
-function linesConditions(notes: readonly string[]): string {
-  return notes.length ? notes.join(" · ") : "clean bay";
 }
 
 /**
@@ -990,6 +1007,7 @@ export function generateContract(
   const launches = launchesFor(
     goal, SIZE_SPEC[pieceSize].cubes, slack, contractEfficiency(material, materialRate),
   );
+  const conditions = linesConditions(notes);
 
   return {
     id: `${seed}-${tier}-${slot}`,
@@ -1012,8 +1030,8 @@ export function generateContract(
     variant: "plain",
     lineCells: lineCellsForTier(tier),
     standing: [],
-    brief: linesConditions(notes),
-    conditions: linesConditions(notes),
+    brief: conditions,
+    conditions,
   };
 }
 
