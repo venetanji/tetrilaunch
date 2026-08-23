@@ -4477,6 +4477,54 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       advanceRun(run, 100, 100, 0, 0).final === "rate-cut");
   }
 
+  // COLD WELD MEANS IT, on a rig that bought the Seam Splitter.
+  //
+  // Found by review, not by the checks above: pieces.ts restates a FINITE base
+  // for a weakened type when the bay's own stretch is not finite (Infinity x
+  // 0.7 is still Infinity, so the passive would otherwise be a no-op on an
+  // unbreakable bay). That fallback is right for the capstone format, which the
+  // ladder imposes — and wrong here, where the player signed a card that says
+  // nothing comes apart. Left alone, a Bond Emitter t2/t3 rig flew Cold Weld
+  // with S and Z splitting at 1.54, the most fragile thing in the bay, under a
+  // card and a projection tile that both said "unbreakable".
+  //
+  // Asserted through createTetrisPiece rather than off the config, because the
+  // stamp on the constraint is what updateBreakableJoints actually reads — a
+  // config check would have passed while the bay still shattered.
+  {
+    const stampOf = (cfg: LevelConfig, type: PieceType): number => {
+      const w = Matter.Engine.create().world;
+      const p = createTetrisPiece(
+        w, 200, 200, 0, { x: 0, y: 0 }, type, cfg.jointStiffness, cfg.pieceSize,
+        cfg.jointBreakStretch, "standard",
+        { types: cfg.weakBondTypes, mult: cfg.weakBondMult },
+      );
+      return (p.constraints[0] as unknown as { breakStretch: number }).breakStretch;
+    };
+    const run = {
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, 5),
+      levelIndex: RUN_LEVELS - 1,
+      final: "cold-weld" as FinalId,
+    };
+    const cfg = levelForRun(run);
+    check("Cold Weld stands the Seam Splitter down",
+      cfg.weakBondTypes.length === 0 && cfg.weakBondMult === 1,
+      `${cfg.weakBondTypes.join(",")} x${cfg.weakBondMult}`);
+    check("...so every shape it ships really is unbreakable",
+      PIECE_TYPES.every((t) => stampOf(cfg, t) === Infinity),
+      PIECE_TYPES.filter((t) => stampOf(cfg, t) !== Infinity).join(", "));
+    // The fallback is untouched where it belongs: the CAPSTONE bay is
+    // unbreakable because the ladder made it so, and the passive the player
+    // paid for still survives that.
+    const capstone = levelForRun({
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, UNBREAKABLE_MARK),
+      levelIndex: RUN_LEVELS - 1,
+    });
+    check("the capstone's own unbreakable bay still honours the Seam Splitter",
+      Number.isFinite(stampOf(capstone, "S")) && stampOf(capstone, "T") === Infinity,
+      `S ${stampOf(capstone, "S")} / T ${stampOf(capstone, "T")}`);
+  }
+
   // Every clause names a real ship system, and the copy on the card resolves.
   {
     const orphans = FINALS.filter((f) => !UPGRADES.some((u) => u.id === f.system));

@@ -459,7 +459,29 @@ export const FINALS: FinalDef[] = [
     // A Bond Breaker still splits it (game.ts's useBondBreaker breaks every
     // joint that is not a tar weld, whatever its stretch), which is exactly
     // what makes this the Bond Emitter's exam rather than a wall.
-    apply: (cfg) => { cfg.jointBreakStretch = Infinity; },
+    apply: (cfg) => {
+      cfg.jointBreakStretch = Infinity;
+      // …and the Seam Splitter has to be stood down for the bay, or the clause
+      // is a lie on a rig that bought it. pieces.ts deliberately restates a
+      // FINITE base (WEAK_BOND_UNBREAKABLE_BASE) for a weakened type when the
+      // bay's own stretch is not finite — Infinity x 0.7 is still Infinity, so
+      // without that fallback the passive would do nothing on an unbreakable
+      // bay. That fallback is right where the unbreakable format is something
+      // the LADDER imposed (level.ts's UNBREAKABLE_MARK): the player never
+      // chose it, and the passive they paid for should survive it.
+      //
+      // Here it is backwards. This bay is unbreakable because the player read a
+      // card that says "nothing comes apart on its own" and signed it, and the
+      // projection prints "unbreakable" on the strength of that. Leaving the
+      // stamp up would ship an S and a Z that split on landing at a threshold
+      // of 1.54 — more fragile than anything else in the bay — while the card
+      // and the tile both claim otherwise. A passive that sleeps for one
+      // accepted bay is a smaller cost than a card that does not mean what it
+      // says, and the Bond Emitter still answers this clause the way the Tier
+      // is about: with a charge.
+      cfg.weakBondTypes = [];
+      cfg.weakBondMult = 1;
+    },
   },
 
   // -- Tier 6 · Demolition Rack (where the dead metal is) ----------------
