@@ -292,9 +292,23 @@ export function budgetForTier(tier: number): number {
 /** Cost of each complication, in difficulty-budget points. */
 const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
 
+/**
+ * Bay names — flavour only, and deliberately none of them a RULE.
+ *
+ * "Salvage Lot", "Night Shift" and "Short Haul" are gone. Each named a thing a
+ * variant now actually does, so a card could read "Salvage Lot · Blackout" and
+ * promise a wall the bay does not open with. A name that reads as a mechanic is
+ * worse than a dull one: the player checks the card to learn the rules, and this
+ * line is the one part of it that means nothing.
+ *
+ * So the test for anything added here is that it names a PLACE or a JOB and
+ * could not be mistaken for a rule — no material words (rebar, cryo, magnetic,
+ * slag, tar, volatile), nothing about width, preview, waste or what is already
+ * standing in the bay.
+ */
 const NAMES = [
-  "Backlog Clearance", "Night Shift", "Overflow Dock", "Salvage Lot",
-  "Quota Run", "Short Haul", "Scrap Line", "Holding Bay",
+  "Backlog Clearance", "Overflow Dock", "Quota Run", "Scrap Line",
+  "Holding Bay", "Transfer Yard", "Freight Ramp", "Sorting Floor",
 ] as const;
 
 /* -------------------------------------------------------------------------
