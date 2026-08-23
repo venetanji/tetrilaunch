@@ -93,7 +93,11 @@ before the compactor. It is the quiet drain on a launch budget: `launchesFor`
 prices the bay against `PLANNING_EFFICIENCY`, and every cube off the side is the
 player spending that margin. Nothing on screen says so today.
 
-Costs no rows — it is a column in a row that already renders.
+Costs no rows — it is a column in a row that already renders. It is not free,
+though, and the panel should not pretend it is: with no clock, `.pl-funds`
+(`flex: 1 1 auto`) currently absorbs the clock's width and spends it on a longer
+goal bar. The column buys back roughly 29px of that at the compact floor,
+leaving the bar still longer than a Deep Run's.
 
 No `.pl-stat--danger` treatment. That class means "you are about to run out of
 the thing that lets you keep playing", and it fires on a threshold — three
@@ -106,14 +110,28 @@ It is a plain column.
 `cubesAvailable - cubesRequired` is already computed, already monotone, and
 looks like the obvious candidate. It is not, because `SPARE_SHIPMENTS = 0` is
 the design: a pattern queue is exactly the cubes the goal needs. The margin is
-therefore 0 on the first frame of every pattern bay and the first cube lost
-takes it negative, at which point `objectiveUnreachable` ends the bay. A readout
-that shows 0 for the whole attempt and then the attempt is over is not a gauge.
+therefore 0 on the first frame of every pattern bay, and one stranded cube takes
+it negative, at which point `objectiveUnreachable` ends the bay. A readout that
+shows 0 for the whole attempt and then the attempt is over is not a gauge.
 
-`Lost` has the same defect on a pattern Contract for the same reason — it reads
-0 until it reads 1, and at 1 the bay is already over. So pattern Contracts keep
-two columns. They are the kind that renders `.pl-queue`, so each kind carries
-one row the other does not, and both land in the same box.
+`Lost` is no better there, and the timings say why it is worse than it looks: it
+never even reaches 1. `cubesAvailable` stops counting a cube the moment it
+starts BLINKING, not when it is removed, so `objectiveUnreachable` fires on the
+mark. `lostTotal` increments `BLINK_MS` = 1400ms later, and the bay is called
+after `UNREACHABLE_GRACE_STEPS` ≈ 1000ms — about 400ms before the count would
+tick. So pattern Contracts keep two columns. They are the kind that renders
+`.pl-queue`, so each kind carries one row the other does not, and both land in
+the same box.
+
+On a LINES Contract the same number is genuinely live: `pieceQueue` is null, so
+`piecesLeft` is Infinity, `cubesAvailable` is Infinity and `objectiveUnreachable`
+can never fire. The bay runs to its launch budget and accumulates losses the
+whole way — a two-digit count is routine against a ~20-launch budget at the
+modelled waste rate.
+
+And it is the only acknowledgement a lost cube gets in Contract mode at all:
+`levelForContract` sets `penaltyPerLostPiece = 0`, and the "−$" toast is skipped
+when nothing was deducted, so today a cube goes off the deck in silence.
 
 ### 3. `Bay` — the Contract's conditions, one dense line
 

@@ -247,8 +247,10 @@ Add after that block's closing `}`:
 ```ts
 // The Contract plant panel's three additions. A Contract has no clock, so the
 // third readout column renders empty — on a LINES Contract it carries cubes
-// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the count reads
-// 0 until it reads 1 and at 1 objectiveUnreachable has already ended the bay.
+// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the margin is 0
+// on frame one and one stranded cube ends the attempt — and the count never
+// even reaches 1, because cubesAvailable stops counting a cube when it starts
+// blinking, so objectiveUnreachable fires 1.4s before lostTotal increments.
 {
   const base = {
     beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
@@ -302,10 +304,17 @@ In `screens.ts`, extend the `contract` option (currently ending
 ```ts
     remaining: PieceType[];
     /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
-     *  as the third readout column on a LINES Contract, where the empty clock
-     *  slot is otherwise dead space and the count is the real drain on a launch
-     *  budget. Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so it
-     *  reads 0 until it reads 1, and at 1 the bay is already over. */
+     *  as the third readout column on a LINES Contract, where it is the real
+     *  drain on a launch budget and the only acknowledgement a lost cube gets
+     *  at all (levelForContract zeroes penaltyPerLostPiece, so the "-$" toast
+     *  is skipped). The column a Deep Run gives its clock currently falls to
+     *  the Lines/Goal block, which spends it on a longer goal bar; this buys
+     *  back ~29px of that, leaving the bar still longer than a Deep Run's.
+     *  Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so the margin
+     *  is 0 on frame one and one stranded cube ends the attempt — and the count
+     *  never reaches 1, because cubesAvailable stops counting a cube when it
+     *  starts blinking, so objectiveUnreachable fires 1.4s before lostTotal
+     *  increments and the bay is called 0.4s before that. */
     lost: number;
     /** The bay's complications, one line (Contract.conditions). The board card
      *  states these and the bay used to forget them. */
@@ -526,6 +535,14 @@ Add after it:
             progress: tierProgressFor(this.meta),
 ```
 
+Task 2's review flagged one thing in this file to fold in here: telemetry calls
+this same number `lostPieces` (`main.ts:1257, 1292`) while it counts CUBES. That
+naming is pre-existing and a persisted field is not worth renaming, but Task 2
+makes the number player-visible for the first time, so anyone reconciling
+telemetry against the HUD will be comparing `lostPieces` to a cube count. Add a
+one-line comment at the telemetry call site saying so. Verify the field really
+is persisted before deciding not to rename it.
+
 `tierProgressFor` is already imported in `main.ts` — confirm:
 
 ```bash
@@ -631,6 +648,29 @@ grep -n "min-height: 0" src/styles/app.css | grep -i contract
 
 Expected: no output.
 
+- [ ] **Step 3b: Two `.pl-stat` corrections Task 2's review deferred here**
+
+Task 2 added a THIRD `.pl-stat` column (`Lost`, lines Contracts only). Two
+things in this file were written for two and are now wrong or newly relevant.
+Both were deliberately left for this task, which already opens the stylesheet.
+
+The comment at `app.css:1118-1122` says "Tier-2 stat columns (launches, time)"
+and "The **two** tier-2 columns need to read as SEPARATE numbers". Correct it to
+name the third and say when it appears.
+
+`Lost` is also the first stat column on this panel whose width is set by its
+VALUE rather than its label. The rule the layout depends on (see the note near
+`app.css:3941`) is that each stat column is as wide as its 8-glyph label, not
+its 2-digit value. "LOST" is 4 glyphs — roughly 14.4px at the compact floor,
+against ~18px for two mono digits — so the column flips to value-dominated at
+10, and crossing 9 → 10 shifts the Launches number left and shortens the goal
+bar by ~4-5px. Phones only; non-compact stays label-pinned, and three digits is
+unreachable in practice. Decide deliberately rather than by default: either
+accept the one small jump per bay, or pin it with a `min-width` on `.pl-lost`
+sized for two digits. If you pin it, say the measured numbers in the comment.
+
+Re-derive those figures from the stylesheet before acting on them.
+
 - [ ] **Step 4: Commit**
 
 ```bash
@@ -714,7 +754,18 @@ Expected: both clean.
 npm run test:uifit
 ```
 
-Expected: green. If `plant` fails on a device, the panel has grown PAST
+Expected: green.
+
+Task 2's review did the arithmetic on where a failure would come from, which is
+worth knowing before you start bisecting: at the compact floor a Deep Run's
+`timeCol` is `max(4·0.45·8, 4·0.6·15) + 6 + 5` = 47px, and a lines Contract's
+`lostCol` is `max(14.4, 18) + 6 + 5` = 29px, same gap count. So a lines
+Contract's `.pl-read` is ~18px ROOMIER than the Deep Run row the width budget
+already proves fits `$24680 / 2150`. A `plant` or `twocol` violation on
+`hud-contract-lines` therefore almost certainly comes from the Task 3 rows, not
+from the Lost column. Re-derive before relying on it.
+
+If `plant` fails on a device, the panel has grown PAST
 `0.4296 * --field-h` — that means the new rows do not fit on that device, which
 is a real finding: report the device and the measured height rather than
 baselining it. If `oneline` or `twocol` fails on the conditions row, the string
@@ -841,3 +892,27 @@ actually built:
   without its doc comment, so following the plan literally deleted four lines of
   design rationale. A plan that pastes a function must paste its doc comment
   too, or say explicitly that it is being replaced.
+- **After Task 2's code review.** Two comments in the plan's Task 2 blocks
+  asserted mechanisms the code does not have, and both came from the spec, so
+  they would have propagated through the remaining tasks. Corrected in both
+  documents: `Lost` never reads 1 on a pattern Contract (`cubesAvailable` stops
+  counting a cube when it starts blinking, so `objectiveUnreachable` fires 1.4s
+  before `lostTotal` increments and the bay is called 0.4s before that); and the
+  clock's column is not "dead space" — `.pl-funds` already absorbs it and spends
+  it on a longer goal bar, which the Lost column buys ~29px back from. The spec
+  also gained the better argument for the column that the review turned up: a
+  Contract zeroes `penaltyPerLostPiece`, so today a lost cube is acknowledged
+  nowhere at all.
+- **Three findings deferred into the tasks that own the files**, rather than
+  widening Task 2's scope: the `.pl-stat` "two columns" comment and the
+  value-dominated width of `.pl-lost` went to Task 5 Step 3b; the telemetry
+  `lostPieces`-counts-cubes note went to Task 4; and Task 6 gained the
+  arithmetic saying a `plant` failure there would come from the Task 3 rows, not
+  from the Lost column.
+- **Branch state, recorded once.** Requiring the three new `contract` fields
+  leaves `typecheck` red from Task 2 until Task 4 (`main.ts`) and Task 6
+  (`fixtures.ts`) supply them. That is the plan's design and CI only gates on
+  `pull_request`, but bisect is broken across those commits. The reason for
+  landing all three fields in Task 2 is that `screens.ts` is touched once
+  instead of twice — not, as an earlier dispatch claimed, that it keeps every
+  intermediate commit green. It does not.
