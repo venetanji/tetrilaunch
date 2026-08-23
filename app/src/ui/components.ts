@@ -3,6 +3,7 @@ import {
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
 import { HAZARDS, type HazardId, type Ratchets } from "../game/hazards";
+import { finalById, type FinalId } from "../game/finals";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 
 /**
@@ -176,22 +177,37 @@ const AXIS_GLYPHS: Record<HazardId, { g: string; nm: string }> = {
  * glance separates "the belt is dirtier" from "the numbers are worse" — they
  * are answered by completely different systems.
  */
-export function runNotchTallyHTML(ratchets: Ratchets): string {
+export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = null): string {
   const taken = HAZARDS.filter((h) => (ratchets[h.id] ?? 0) > 0);
+  const parts = taken.map((h) => {
+    const n = ratchets[h.id] ?? 0;
+    const glyph = AXIS_GLYPHS[h.id] ?? { g: h.id.slice(0, 2).toUpperCase(), nm: "" };
+    const kind = h.kind === "content" ? "bane" : "tradeoff";
+    const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
+    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph.g}${stack}</span>`;
+  });
+  // The Final Inspection's clause (game/finals.ts) rides the same line, in its
+  // own colour, on the one bay it applies to. It belongs here rather than on a
+  // row of its own for the reason the tally exists at all: this line answers
+  // "what is this bay doing to me", and on the last bay the clause is the
+  // loudest thing on that list. Named in full on the title, because two
+  // letters cannot carry a clause the way they carry an axis.
+  const def = final ? finalById(final) : undefined;
+  if (def) {
+    parts.push(
+      `<span class="pl-notch__ax k-final" title="Final Inspection — ${def.name}: ${def.desc}">${def.name
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()}</span>`,
+    );
+  }
   // An em-dash rather than an empty row: the line is rendered on every Deep
   // Run bay including the first, where no notch has been taken yet, and a row
   // that appears halfway through a run shifts every row above it. Same idiom
   // the pattern manifest uses for an empty queue.
-  if (!taken.length) return `<span class="pl-notch__none">—</span>`;
-  return taken
-    .map((h) => {
-      const n = ratchets[h.id] ?? 0;
-      const glyph = AXIS_GLYPHS[h.id] ?? { g: h.id.slice(0, 2).toUpperCase(), nm: "" };
-      const kind = h.kind === "content" ? "bane" : "tradeoff";
-      const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
-      return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph.g}${stack}</span>`;
-    })
-    .join(`<span class="pl-notch__sep" aria-hidden="true">·</span>`);
+  if (!parts.length) return `<span class="pl-notch__none">—</span>`;
+  return parts.join(`<span class="pl-notch__sep" aria-hidden="true">·</span>`);
 }
 
 /** Format a countdown in ms as "m:ss", ceiling-rounded so the displayed
