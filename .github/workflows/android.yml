@@ -1,3 +1,18 @@
+# ============================================================================
+# BRANCH-LOCAL EDIT — integration/device-test ONLY. DO NOT MERGE.
+#
+# This branch exists to hand one installable APK to a device tester with three
+# open PRs in it (#58 contracts + sandbox, #60 material notches, #61 rail), and
+# the point of the build is the SANDBOX: without it a fresh save flies tier 1
+# and offers none of the Contract variants, so the thing under test is
+# unreachable. So the apk job below builds `--mode sandbox` instead of
+# `--mode native` and passes --allow-sandbox to the bundle verifier.
+#
+# The resulting APK is NOT SHIPPABLE: it carries a menu screen that can set any
+# Mark, grant salvage, max the rig and wipe the save. That is exactly why
+# verify-store-bundle.mjs refuses it without the explicit flag, and why this
+# edit must never reach staging.
+# ============================================================================
 name: Android debug APK
 
 # Builds an installable debug APK so the native path stays provably working
@@ -46,7 +61,7 @@ jobs:
       # run the plain web build, which put exactly that stale-code hazard into
       # the APK it hands out.
       - name: Typecheck + build web bundle
-        run: npm run build:native
+        run: npm run build:sandbox   # BRANCH-LOCAL: was build:native
 
       - name: Systems smoke test
         run: npm run test
@@ -56,7 +71,9 @@ jobs:
       # on an env-derived constant. CI has no keys, so this is exactly the
       # configuration that would hide the bug.
       - name: Verify the store bundle
-        run: npm run verify:store
+        # BRANCH-LOCAL: the sandbox marker is deliberately present here, so the
+        # verifier has to be told this bundle is not shippable.
+        run: node scripts/verify-store-bundle.mjs --allow-sandbox
 
       - uses: actions/setup-java@v4
         with:
@@ -94,7 +111,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tetrilaunch-debug-apk
+          name: tetrilaunch-SANDBOX-debug-apk-NOT-SHIPPABLE
           path: app/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
