@@ -522,8 +522,11 @@ export const LOW_LAUNCH_WARN = 3;
  *  the seam lands chevron-on-chevron at any size on any device, which a text
  *  run's advance width cannot promise. (That run was drawing from a platform
  *  fallback anyway — U+25B8 is outside the bundled JetBrains Mono's
- *  unicode-range.) */
-const BELT_ARROWS = "<i></i>".repeat(8);
+ *  unicode-range.)
+ *
+ *  `--i` is the cell's index, which app.css turns into a staggered start for
+ *  the pulse that runs up the strip toward the cannon. */
+const BELT_ARROWS = Array.from({ length: 8 }, (_, i) => `<i style="--i:${i}"></i>`).join("");
 
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's

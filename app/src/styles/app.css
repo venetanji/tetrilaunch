@@ -1632,6 +1632,22 @@ body.crt-off #app::after { display: none; }
   filter:
     drop-shadow(0 1px 0 rgba(255,255,255,0.13))
     drop-shadow(0 -1px 0 rgba(0,0,0,0.5));
+  /* A pulse of light runs up the strip toward the cannon: each chevron
+     brightens 100ms after the one behind it. The period is NOT the tread's
+     900ms — it is 800ms, and that number is forced. Cell k rides screen slot
+     (k-1) to k over one scroll and then jumps back a slat, at which instant
+     cell k+1 inherits the slot cell k just left; the chase only looks
+     continuous if cell k+1 starts on the phase cell k ended on, which needs
+     `scroll / pulse = 1 + 1/8`. 900 / 1.125 = 800, and the eight cells then
+     land on eight even eighths of it. Any rounder-looking number stutters once
+     per scroll. Negative delays so every cell is already mid-pulse on the
+     first frame rather than waiting its turn once. */
+  animation: belt-arrow-pulse 800ms ease-in-out infinite;
+  animation-delay: calc((var(--i) - 8) * 100ms);
+}
+@keyframes belt-arrow-pulse {
+  0%, 100% { opacity: 0.62; }
+  18% { opacity: 1; }
 }
 /* ENGRAVED, not painted on. Two stacked gradients do the cut: a black one
    that fades out downward (the recess's upper wall, turned away from the
@@ -1649,15 +1665,20 @@ body.crt-off #app::after { display: none; }
    everywhere. */
 .belt__arrows i::after {
   content: "";
-  width: max(6px, calc(10 * var(--fpx)));
-  height: max(8px, calc(15 * var(--fpx)));
+  width: max(5px, calc(8.5 * var(--fpx)));
+  height: max(7px, calc(13 * var(--fpx)));
   background:
     linear-gradient(180deg, rgba(0,0,0,0.66) 6%, rgba(0,0,0,0.08) 72%),
     linear-gradient(180deg, transparent 30%, var(--belt-c) 96%);
-  /* Sunk further into the plate: at full strength the lit lower wall read as a
-     lamp on the belt rather than a cut in it. */
-  opacity: 0.55;
+  /* Sunk into the plate: at full strength the lit lower wall read as a lamp on
+     the belt rather than a cut in it. The pulse on the cell above multiplies
+     this, so the chevron breathes between roughly 0.38 and 0.60. */
+  opacity: 0.6;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
+  /* Off-centre on purpose, a tenth of a slat back toward the intake — 2px at
+     the 844x390 reference. Dead-centre, a chevron reads as running slightly
+     ahead of the plate carrying it. */
+  transform: translateX(calc(-0.1 * var(--slat)));
 }
 /* Rightward — toward the cannon, with the tread. The old strip ran the other
    way, against the plates it was sitting on. */
@@ -1749,7 +1770,8 @@ body.crt-off #app::after { display: none; }
    the coach being mounted (data-coach), never off aiming. At 1280 both stay. */
 [data-density="compact"] .hud[data-coach] .belt { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .belt__tread, .belt-piece > *, .belt__arrows, .belt__roller i { animation: none; }
+  .belt__tread, .belt-piece > *, .belt__arrows, .belt__roller i,
+  .belt__arrows i { animation: none; }
 }
 
 /* ---------- Modal overlays ---------- */
