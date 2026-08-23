@@ -100,6 +100,8 @@ npm run android:open     # …then open in Android Studio
 npm run android:run      # …then run on a connected device/emulator
 npm run android:apk      # …then assembleDebug -> an installable APK
 
+npm run android:apk:sandbox  # ...with the developer sandbox in it (see below)
+
 npm run ios:sync         # build + verify + copy into app/ios/
 npm run ios:open         # open App.xcodeproj (no build — sync first)
 npm run ios:run          # build + verify + sync + run on a simulator/device
@@ -280,6 +282,52 @@ test procedure, the decision table and the options if it fails are in
 [docs/superpowers/specs/2026-08-09-progress-persistence-design.md](superpowers/specs/2026-08-09-progress-persistence-design.md).
 
 ---
+
+## Testing an arbitrary tier, variant or bay on a device
+
+Reaching a tier-7 Contract variant or a Mark 9 bay the honest way is ten bays a
+run, three Contracts a tier, nine tiers — hours of correct play to get at one
+bay worth ninety seconds of looking at, on a phone. The **developer sandbox** is
+one screen that skips it: pick a tier, pick a Contract variant or a Deep Run
+bay, pick a rig, launch.
+
+```bash
+cd app
+npm run android:apk:sandbox   # builds --mode sandbox, then assembleDebug
+npm run android:run:sandbox   # ...and installs it on a connected device
+```
+
+The entry is a **Sandbox** button on the main menu — visible, because the build
+gate is what protects this and a hidden gesture would be guarding a door that is
+not in the wall. RESEED re-rolls the Contract at the current tier and variant,
+which is the dial a device session is actually for: a generated Contract is a
+function of `(seed, tier, slot, variant)`, so that button walks the whole space
+one variant can produce.
+
+**The sandbox can rewrite the save** — set the Mark, grant salvage, max the rig,
+unlock everything, wipe it. Install a sandbox APK over a build you care about
+and the same localStorage is underneath it.
+
+### Why this is gated on a build mode rather than on DEV
+
+Same argument as the Test Store gate below, one step further. `import.meta.env.DEV`
+is true only under the vite dev server, and a browser on a laptop is exactly what
+this does not need to test — touch aim, device physics timing and the real screen
+are the whole point. So the gate has to survive a real `vite build`, which means
+it has to be a build mode.
+
+`--mode sandbox` is inlined at build time, so in any other mode `SANDBOX` folds
+to `false`, every `if (SANDBOX)` is dead code and the screen tree-shakes out
+(measured: the native bundle is 4kB smaller and carries none of it).
+
+That is the mechanism, and a mechanism is not a promise. A refactor that read the
+flag through a function would silently ship a menu that rewrites the player's
+save. So `src/lib/sandbox.ts` also exports a marker string that only exists on
+the sandbox's own code path, and `verify-store-bundle.mjs` **fails any bundle
+carrying it** unless `--allow-sandbox` is passed. The tree-shake is the
+optimisation; the grep is the promise. Both directions are checked — a
+`--mode sandbox` build with no marker in it fails too, because that is a normal
+build wearing the wrong name and the button would do nothing on the device.
 
 ## Testing purchases without Play products
 

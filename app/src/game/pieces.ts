@@ -1,5 +1,5 @@
 import Matter from "matter-js";
-import { CELL } from "./engine";
+import { CELL, WALL_INNER, WORLD } from "./engine";
 import { BASE_BREAK_STRETCH } from "./level";
 import {
   PIECE_SHAPES,
@@ -131,6 +131,60 @@ export const WEAK_BOND_UNBREAKABLE_BASE = BASE_BREAK_STRETCH;
  *  frames without making the piece read as gooey in flight. Exported so
  *  sim/perf.ts's clique builder stays physics-identical to real pieces. */
 export const JOINT_DAMPING = 0.3;
+
+/**
+ * Cubes for a bay's SALVAGE WALL — the pile a Contract variant opens with
+ * (level.ts's standingWall), already settled on the slot grid.
+ *
+ * Loose cubes, deliberately: no joints, no piece type, no material. A standing
+ * wall is scrap that was pressed flat long before the player arrived, so
+ * shattering it means nothing and no shipment ever "delivered" it. That also
+ * makes it exactly what lineClear.ts wants — one settled, aligned, countable
+ * cube per slot — with no press stroke needed to square it first.
+ *
+ * `standing[k]` is how many cells of slot column k are filled, counted up from
+ * the floor, with k measured from the wall outward: the same index
+ * lineClear.ts's nearest-slot arithmetic uses, so a wall built here lands on
+ * the grid the line check reads rather than near it.
+ */
+export function createStandingWall(
+  world: Matter.World,
+  standing: readonly number[],
+): Cube[] {
+  const cubes: Cube[] = [];
+  standing.forEach((height, k) => {
+    for (let row = 0; row < Math.max(0, Math.floor(height)); row++) {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL,
+        WORLD.height - CELL / 2 - row * CELL,
+        CELL,
+        CELL,
+        {
+          friction: 0.5,
+          frictionAir: 0.012,
+          restitution: 0.05,
+          density: CUBE_DENSITY,
+          label: "cube",
+          chamfer: { radius: 3 },
+        },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(world, body);
+      cubes.push({
+        body,
+        // "O" is arbitrary but not meaningless: it is the one type whose own
+        // shape is a square, so a wall cube rendered from its type reads as the
+        // single block it is rather than a fragment of something larger.
+        type: "O",
+        color: PIECE_COLORS.O,
+        blinkStart: null,
+        material: "standard",
+        struck: true,
+      });
+    }
+  });
+  return cubes;
+}
 
 /** Build a shipment (domino / tetromino / pentomino — see pieceCells) from
  *  cubes rigidly joined by breakable distance joints. `jointStiffness`,

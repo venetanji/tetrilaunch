@@ -64,6 +64,22 @@ export interface LevelConfig {
    *  ladderStart(N) rungs up (hazards.ts — one rung per two Marks), so the
    *  same choice costs more the further you have got. */
   mark: number;
+  /** A SALVAGE WALL the bay opens with: cells already occupied in slot column
+   *  x, counted up from the floor, indexed from the wall outward — the same
+   *  index lineClear.ts's nearest-slot `k` uses. Empty on every bay that opens
+   *  clean, which is every Deep Run bay and every Contract but one variant.
+   *
+   *  A column PROFILE rather than an arbitrary cell set, and that is load
+   *  bearing: bottom-anchored means nothing in the opening pile is floating, so
+   *  the bay cannot start by dropping a slab the physics never settled. See
+   *  contracts.ts's salvageProfile for the other invariant (no row of it may
+   *  already be complete, or the bay clears a line on frame one). */
+  standingWall: number[];
+  /** Hide the NEXT-shipment preview. A pattern Contract variant knob: the whole
+   *  SET is still on the card, so this removes lookahead without removing
+   *  information the player was promised. Never true in a Deep Run — a random
+   *  bag with no preview is a slot machine. */
+  hideNextPreview: boolean;
   /** Fire cooldown in ms. */
   cooldownMs: number;
   /** Countdown for the level, in seconds; 0 = no limit. A roguelite-run knob:
@@ -689,6 +705,8 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     pieceSequence: null,
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
+    standingWall: [],
+    hideNextPreview: false,
     // 1350, up from 900. The old cooldown was short enough that the reload bar
     // was almost never the thing you were waiting on — you fired, and by the
     // time you had read the bay and picked a target it had already refilled,

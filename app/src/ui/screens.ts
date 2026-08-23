@@ -3,7 +3,8 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runNotchTallyHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
+  runNotchTallyHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -108,6 +109,17 @@ export function menuScreen(
     install: { name: string; cost: number } | null;
     firstLaunch: boolean;
   },
+  /** True only in a build that compiled the developer sandbox in (see
+   *  lib/sandbox.ts). Adds a plainly visible entry button.
+   *
+   *  Plainly visible, and that is on purpose. A hidden gesture would be
+   *  protecting against something the build gate already prevents — the whole
+   *  screen is absent from every shippable bundle, and
+   *  scripts/verify-store-bundle.mjs fails the build if it is not. What a
+   *  secret entry WOULD reliably do is make the tool hard to find on a phone,
+   *  fight the menu's own decoration (the wordmark is pointer-events: none by
+   *  design), and be untestable. So: a button. */
+  sandbox = false,
 ): string {
   // The tier chip answers "where am I on the ladder and what's left" from the
   // homepage (playtest call, 2026-08-08): the tier being flown, and the two
@@ -160,6 +172,7 @@ export function menuScreen(
           </div>
           ${store?.unlimited ? unlimitedBadgeHTML() : ""}
           ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
+          ${sandbox ? sandboxChipHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
@@ -200,13 +213,15 @@ export function menuScreen(
             : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
         }
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        <!-- The Unlimited upsell is NOT a seventh button here. This column gets
-             325px on a landscape phone and six buttons need 290 — a seventh
-             needs 330 and overflowed the viewport, but only for players who
-             hadn't bought, which is exactly who the menu has to look right for.
-             It lives in the brand column's chip row instead (unlockChipHTML),
-             the same slot the ★ UNLIMITED badge takes once owned, so this
-             column is six buttons at every entitlement state. -->
+        <!-- Nothing is a seventh button here — not the Unlimited upsell, and not
+             the developer sandbox. This column gets 325px on a landscape phone
+             and six buttons need 290; a seventh needs 330 and overflows the
+             viewport, which costs the LAST row rather than its own — the
+             sandbox build put Settings off the bottom of a 360dp phone exactly
+             this way. Both extra entries live in the brand column's chip row
+             instead (unlockChipHTML / sandboxChipHTML), which wraps, so this
+             column is six buttons in every build and at every entitlement
+             state. -->
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
@@ -234,6 +249,13 @@ function unlimitedBadgeHTML(): string {
  *  it isn't one. */
 function unlockChipHTML(): string {
   return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
+}
+
+/** The developer sandbox's entry, in the chip row rather than the action column
+ *  — see the note there on why that column is six buttons and no more. Only
+ *  rendered by a build that compiled the sandbox in (lib/sandbox.ts). */
+function sandboxChipHTML(): string {
+  return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
 }
 
 export function howtoScreen(): string {
@@ -602,16 +624,23 @@ export function hudHTML(opts: {
     ? beltBombHTML()
     : beltPreview.empty
       ? ""
-      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
+      : beltPreview.hidden
+        ? beltSealedHTML()
+        : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
   // The transport LIGHTS UP in the colour of what it is carrying (see
   // app.css's --belt-c): the marching arrows, the outfeed and the track's
   // inner glow all read it, so "what is coming" is legible from the belt
   // itself at a glance — which is the job the "NEXT" caption used to do
   // before the tiles grew into it on phones. Seeded here so the first paint
   // is already right; main.ts re-sets it whenever the queue advances.
+  //
+  // A SEALED shipment takes the neutral wash instead (see beltSealedHTML).
+  // Every piece type has its own colour, so a belt glowing orange for a sealed
+  // crate would name the L inside it, and the Blackout variant would be a lid
+  // on a box with the answer painted down the side of it.
   const beltAccent = beltPreview.bomb
     ? "var(--danger)"
-    : beltPreview.empty
+    : beltPreview.empty || beltPreview.hidden
       ? "var(--text-faint)"
       : shipmentColor(beltPreview.type, beltPreview.material);
   const beltLoadedHTML = !loaded

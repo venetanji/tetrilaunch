@@ -109,10 +109,10 @@ function ownedMeta(): MetaState {
 /** Four digits of funds against a four-digit target — the readout width that
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
 const HUD_BASE = {
-  beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, material: "cryo" as const },
+  beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
   // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
   // wide piece so the muzzle-end tile is measured at its fattest.
-  loaded: { bomb: false, type: "I" as PieceType, quarterTurns: 1, empty: false, material: "slag" as const },
+  loaded: { bomb: false, type: "I" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "slag" as const },
   tier: 6,
   target: 1_700,
   score: 1_259,
@@ -150,8 +150,8 @@ const GUIDE = {
  *  fresh player's Deep Run, so measuring it over HUD_BASE would price a rail
  *  and a mods row the first session cannot have. */
 const HUD_TUTORIAL = {
-  beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 0, empty: false, material: "standard" as const },
-  loaded: { bomb: false, type: "L" as PieceType, quarterTurns: 0, empty: false, material: "standard" as const },
+  beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+  loaded: { bomb: false, type: "L" as PieceType, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
   tier: 1,
   target: LEVEL_1.targetScore,
   score: LEVEL_1.startingFunds,

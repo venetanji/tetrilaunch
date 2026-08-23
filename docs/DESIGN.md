@@ -348,14 +348,74 @@ raising it would be a monetization change wearing a content change's clothes.
 
 Three things this surfaced that are worth keeping written down.
 
-**The exactness needs no tiling proof, and that is specific to this game.** A
-tetromino puzzle would normally have to generate from a known-tiling template or
-risk emitting sets that are arithmetically exact and geometrically impossible.
-Here pieces don't keep their shape: the compactor shatters whatever it presses
-and rows fill slot-by-slot from *loose* cubes. So any multiset summing to
-`goal * CUBES_PER_LINE` is achievable, and what piece type actually changes is
-how hard the **delivery** is — I and O settle flat, S/Z/T tip and strand. That is
-what the tier ladder scales.
+**The exactness needs two proofs, and the first two attempts each shipped
+Contracts nobody could win.** Both failures are worth keeping written down,
+because they are the same mistake at different depths: assuming that a weaker
+guarantee implies the one the player actually needs.
+
+*Attempt one — counting.* The original argument was that this game needs no
+tiling proof at all. Pieces don't keep their shape here: the compactor shatters
+whatever it presses (`pieces.ts`'s `breakJointsInBand`) and rows fill slot by
+slot from *loose* cubes, so any multiset summing to `goal * CUBES_PER_LINE`
+looked achievable. It isn't. Shattering lets a piece's cubes separate; it never
+moves a cube sideways under an overhang and it certainly doesn't conjure one to
+fill a hole. Zero waste means every launched cube ends inside a completed row,
+which makes the goal a `goal` x 8 **rectangle** — and a set that tiles no such
+rectangle is unwinnable however it shatters. The generator emitted `[I, O, J, J]`
+for two lines and `[I, I, I, T, S, Z]` for three. Fixed by building the inventory
+*from* a tiling (`tiling.ts`), with an independent solver re-checking every
+generated queue in `sim/systems.ts`.
+
+*Attempt two — packing.* A tiling proof says the pieces FIT. It says nothing
+about whether they can be ASSEMBLED, because the player does not place them: the
+belt does. Shipments arrive one at a time, in a shuffled order, into a bay with
+gravity and a compactor that clears a row the instant it fills. A packing can
+demand a cube sit under an overhang that the piece filling it arrives too late to
+reach. The tier-5 board on 2026-08-22 dealt `[I, I, L, L, L, J]` for three lines:
+it packs, and 18 of its 60 arrival orders — including the canonical one the card
+advertises — cannot be finished by landing each shipment where it falls. It was
+reported as impossible, correctly. Fixed by `buildable.ts`, which models queue
+order, gravity, clear-on-fill and an empty field as the terminal condition, and
+by `contracts.ts`'s `dealPatternQueue`, which now hands out an order it has
+PROVEN finishable rather than a blind shuffle.
+
+The order is still re-rolled per attempt, and must be: seeding it would make one
+unlucky permutation permanently unwinnable for everyone who drew that Contract,
+and free retries would hand back the identical bad order forever. Proving the
+roll doesn't fix the roll being random — it fixes it being able to be impossible.
+
+What piece TYPE changes, once both proofs hold, is how hard the delivery is — I
+and O settle flat, S/Z/T tip and strand — and that is what the tier ladder
+scales. `sim/patterns.ts` measures it: for every inventory the generator can
+emit, the share of arrival orders finishable landing each shipment straight down.
+The headline numbers, over the 333 distinct inventories reachable across 1500
+seeds and all nine tiers:
+
+| tier | mean share of arrival orders that can be finished |
+|---|---|
+| 1–3 | 100% |
+| 4 | 98.6% |
+| 5 | 91.9% |
+| 6 | 58.0% |
+| 7–9 | 50.8% |
+
+294 of the 333 have at least one order nobody can finish; 142 have more bad
+orders than good ones; the worst have **none** at all — `[I, I, T, T, Z, Z]` at
+tier 6 could not be finished from any of 60 random shuffles. All of them can be
+finished from an order that was searched for rather than rolled, which is what
+`dealPatternQueue` now hands out: 333 of 333 deal a straight-drop-buildable
+order, worst search 730ms.
+
+Two more facts from that sweep are worth carrying:
+
+- **T shipments always come in pairs.** No packing of an 8-wide rectangle has an
+  odd number of T pieces, at any goal — the checkerboard argument forces it. L
+  and J pair up only at *two* lines, where no packing has an odd `L + J`; from
+  three lines on, a single L is perfectly legal (`[I, I, I, T, T, L]` tiles).
+- **The pairing intuition is really a difficulty signal, not a possibility one.**
+  Among the `{I, O, L, J}` inventories the generator emits at three lines, the
+  ones with both L and J odd are the least forgiving — `[I, I, L, L, L, J]` is
+  exactly that shape, which is why it read as impossible before it was one.
 
 **Exactness constrains piece size, arithmetically.** A queue is exact only if
 `goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only
@@ -377,6 +437,78 @@ with the number on the table, because retries cost nothing. If it proves tedious
 rather than satisfying the fix is `SPARE_SHIPMENTS`, a single constant — not a
 loosening of the physics tolerances, which would quietly change every other mode
 too.
+
+### Pattern variants: change the rule, not the size
+
+A pattern Contract had exactly two difficulty dials — how many lines, and how
+many different shapes — and both scale the same activity. The whole mode read as
+one puzzle at seven sizes. A **variant** changes the rule instead, which is the
+difference between more of a thing and another thing.
+
+| Variant | Rung | What changes |
+|---|---|---|
+| **Standard** | 1 | nothing — the original |
+| **Single Stock** | 3 | one shipment type all bay, one line longer |
+| **Narrow Gauge** | 4 | 6-cell lines |
+| **Full Rebar** | 5 | nothing shatters |
+| **Part Load** | 6 | the bay opens with a wall already standing |
+| **Blackout** | 7 | the NEXT preview is dark; the set is still on the card |
+| **Guided** | 9 | a magnetic belt — the cubes square themselves |
+
+Three things this settled that are worth keeping written down.
+
+**Full Rebar is the one that makes the mode honest.** Everywhere else the card
+promises the exact set that tiles the goal, and then the compactor dissolves
+every piece you land (`pieces.ts`'s `breakJointsInBand`), so the promise is a
+metaphor — the thing you are actually handed is a cube count with a suggestion
+attached. Rebar joints never break, so *what lands is what you keep*, and
+`buildable.ts`'s model stops being a conservative proxy for the bay and becomes
+the literal rule of it. That is also why it spends a **negative** goal bonus: a
+line you cannot rescue by shattering is strictly harder than the same line
+anywhere else.
+
+**A variant may only ship a material that leaves a landed cube counting, in the
+cell the tiling put it in.** Rebar refuses to come apart; magnetic squares itself
+onto its slot. Both are safe. Cryo (dead until struck), volatile (takes its
+neighbours) and tar (welds where it fell) all change what a landed cube *is*, so
+an exact inventory stops being exact — they are structurally excluded, enforced
+in `sim/systems.ts` rather than left as a convention. And a variant that ships a
+material ships it on **every** shipment: a per-shipment roll would make "nothing
+shatters" true of most of the bay, which is a different and much worse promise
+than the card's.
+
+**The two material variants sit on their material's own hazard rung, not where
+their difficulty would put them.** That costs something real and is kept anyway.
+Guided is the gentlest thing on the list and would make a lovely tier-2 on-ramp;
+magnetic is Mark 9's hazard, and a Contract spending it at tier 2 has spoiled
+Mark 9's reveal to save a new player four minutes. "Contracts teach what Deep Run
+tests" is either a rule or it is decoration.
+
+`sim/patterns.ts` sweeps every variant at every tier it appears on. Over 14,000
+generated Contracts, capped at 60 measured inventories per variant (the cap is
+reported, not silent — "salvage" keys on its wall, so it produces a near-unique
+inventory per seed):
+
+| Variant | all pack | mean share of arrival orders finishable | dealable | worst deal |
+|---|---|---|---|---|
+| Standard | yes | 75.7% | 60/60 | 29ms |
+| Single Stock | yes | 100% | 12/12 | 7ms |
+| Narrow Gauge | yes | 61.7% | 60/60 | 17ms |
+| Full Rebar | yes | 46.6% | 60/60 | 17ms |
+| Part Load | yes | 50.6% | 60/60 | 11ms |
+| Blackout | yes | 56.7% | 60/60 | 559ms |
+| Guided | yes | 56.7% | 60/60 | 500ms |
+
+Nothing fails to pack, every deal is proven finishable, and the worst search is
+half a second at a bay-load transition. The middle column is the one worth
+staring at: on the majority of high-tier inventories, *most* arrival orders
+cannot be finished at all — which is exactly why the deal is searched for rather
+than shuffled.
+
+The variant axis also broke something that had been safe by accident: the
+inventory builder's fallback was a stack of I pieces, which works only because
+four horizontal I tile a row of 8. At Narrow Gauge's 6 they tile nothing at all,
+so the safety net was itself the bug. It retreats to a plain Contract now.
 
 ## Materials — the content engine
 
