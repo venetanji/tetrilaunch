@@ -27,7 +27,24 @@ export type FxEvent =
   /** Bay cleared: a full-field sweep + burst, spawned once when the settle
    *  window resolves into a win (see game.ts's resolveWin). The DOM banner in
    *  ui/screens.ts plays over the top of it. */
-  | { kind: "bayclear"; x: number; y: number; t0: number };
+  | { kind: "bayclear"; x: number; y: number; t0: number }
+  /** ONE joint letting go, at the seam's midpoint — a stress snap on a hard
+   *  landing, a joint the compactor crushed apart, or one seam of a Bond
+   *  Breaker discharge (see pieces.ts's updateBreakableJoints /
+   *  breakJointsInBand and game.ts's useBondBreaker, which all report what
+   *  they tore). A deliberately tiny `shatter`: the pile losing rigidity is a
+   *  rule the player has to learn from the field, and before this it was
+   *  reported by nothing at all — the only evidence was that the stack behaved
+   *  differently a second later. Small and short because a busy pile snaps
+   *  many seams at once and this must read as texture, not as an event. */
+  | { kind: "snap"; x: number; y: number; color: string; t0: number }
+  /** One destroyed cube's wreckage, in that cube's own color (see game.ts's
+   *  detonate and resolveVolatile). The blast ring says something went off;
+   *  this says WHAT it took, which matters most for a volatile pop, where the
+   *  answer is cargo the player had already landed. Bigger and fewer than
+   *  `shatter`'s shards: a cube that came apart in chunks, not one that
+   *  vaporized. */
+  | { kind: "chunk"; x: number; y: number; color: string; t0: number };
 
 /** How long (ms) each event kind stays alive before Game prunes it. */
 export const FX_TTL: Record<FxEvent["kind"], number> = {
@@ -38,4 +55,6 @@ export const FX_TTL: Record<FxEvent["kind"], number> = {
   salvage: 1100,
   penalty: 1100,
   bayclear: 1400,
+  snap: 500,
+  chunk: 800,
 };

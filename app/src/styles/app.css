@@ -1653,10 +1653,16 @@ body.crt-off #app::after { display: none; }
   display: flex; align-items: center; justify-content: center;
   padding-left: calc(3 / 37 * var(--slat));
   /* The engraving's bevel — see the note on ::after for why it lives up here
-     on the cell rather than on the shape it outlines. */
+     on the cell rather than on the shape it outlines.
+
+     Half a pixel, not a whole one. The chevron is ~9px tall, so a 1px black
+     shadow hugging its top edge was eating better than a tenth of the shape,
+     stacked on top of a fill that is already at its darkest right there (see
+     the gradient stops below). Together they cost the arrow its point, which
+     is the one part of it that says which way the belt runs. */
   filter:
-    drop-shadow(0 1px 0 rgba(255,255,255,0.13))
-    drop-shadow(0 -1px 0 rgba(0,0,0,0.5));
+    drop-shadow(0 0.5px 0 rgba(255,255,255,0.13))
+    drop-shadow(0 -0.5px 0 rgba(0,0,0,0.5));
   /* A pulse of light runs up the strip toward the cannon: each chevron
      brightens 100ms after the one behind it. The period is NOT the tread's
      900ms — it is 800ms, and that number is forced. Cell k rides screen slot
@@ -1692,9 +1698,19 @@ body.crt-off #app::after { display: none; }
   content: "";
   width: max(5px, calc(8.5 * var(--fpx)));
   height: max(7px, calc(13 * var(--fpx)));
+  /* The stops are pulled well up from where they started (0.66 -> 0.08 @ 72%
+     over transparent -> --belt-c from 30%). At those numbers the top THIRD of
+     the chevron carried no cargo colour at all and wore a 0.66 black wash on
+     top of nothing, so on a ~9px shape the upper ~3px was painted dark-on-dark
+     before the bevel above ever applied. What drew was a bright lower-left
+     wedge with no tip — a shape that no longer reads as an arrow, on the one
+     piece of chrome whose entire job is to say which way the belt runs.
+
+     The recess still has an unlit upper wall; it just starts near the very top
+     edge instead of a third of the way down. */
   background:
-    linear-gradient(180deg, rgba(0,0,0,0.66) 6%, rgba(0,0,0,0.08) 72%),
-    linear-gradient(180deg, transparent 30%, var(--belt-c) 96%);
+    linear-gradient(180deg, rgba(0,0,0,0.5) 4%, rgba(0,0,0,0.06) 60%),
+    linear-gradient(180deg, transparent 8%, var(--belt-c) 88%);
   /* Sunk into the plate: at full strength the lit lower wall read as a lamp on
      the belt rather than a cut in it. The pulse on the cell above multiplies
      this, so the chevron breathes between roughly 0.38 and 0.60. */

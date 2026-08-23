@@ -37,6 +37,54 @@ export interface Piece {
   constraints: Matter.Constraint[];
 }
 
+/**
+ * What this module stamps onto a Matter constraint beyond what Matter itself
+ * models. Matter's Constraint type has no room for any of it, hence the cast at
+ * every site — collected here so the shape is written down once instead of
+ * being re-declared inline at each reader.
+ *
+ * `restLength` and `breakStretch` are the fragility pair (see
+ * updateBreakableJoints); `welded` marks a tar joint that nothing may break
+ * (see game.ts's resolveTarWelds); `color` is carried purely so a broken joint
+ * can say what color it was without a lookup.
+ */
+export interface JointMeta {
+  restLength: number;
+  breakStretch?: number;
+  welded?: boolean;
+  color?: string;
+}
+
+/** A joint that just came apart, reported back to the caller so it can put an
+ *  FX event on the seam. Midpoint of the two bodies at the moment of the break
+ *  — the seam's own position, not either cube's. */
+export interface JointBreak {
+  x: number;
+  y: number;
+  color: string;
+}
+
+/** The color a break reports when the joint never got a stamp — the standing
+ *  wall's cubes and any future constraint built outside createTetrisPiece. Only
+ *  ever reached by joints that predate or bypass the stamp, so it is a fallback
+ *  rather than a palette choice. */
+const JOINT_FALLBACK_COLOR = "#9fb4c7";
+
+/** Where a joint sits: the midpoint of the two bodies it holds together.
+ *  Exported so game.ts's useBondBreaker — which tears every joint at once
+ *  rather than going through either break function — reports its seams on
+ *  exactly the same terms as the other two paths. Callers must have checked
+ *  that both bodies are present. */
+export function jointBreakAt(c: Matter.Constraint): JointBreak {
+  const a = c.bodyA!.position;
+  const b = c.bodyB!.position;
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    color: (c as unknown as JointMeta).color ?? JOINT_FALLBACK_COLOR,
+  };
+}
+
 function dist(a: Matter.Vector, b: Matter.Vector): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -295,9 +343,13 @@ export function createTetrisPiece(
         damping: JOINT_DAMPING,
         render: { visible: false },
       });
-      const meta = c as unknown as { restLength: number; breakStretch: number };
+      const meta = c as unknown as JointMeta;
       meta.restLength = rest;
       meta.breakStretch = pieceBreakStretch;
+      // Stamped here rather than looked up when the joint breaks, because the
+      // alternative is a linear scan of the field's cubes per break and the
+      // compactor tears many seams in a single step (see breakJointsInBand).
+      meta.color = color;
       constraints.push(c);
       Matter.Composite.add(world, c);
     }
@@ -311,6 +363,10 @@ export function createTetrisPiece(
  * shatter into loose cubes as the compactor sweeps into them — without deleting
  * the cubes (only full lines get cleared). Only affects cubes down at the bar's
  * level (y past `topY`), so pieces flying over the bar aren't broken mid-air.
+ *
+ * Returns the seams it tore so the caller can spark them (see game.ts). A
+ * return value rather than a callback keeps this module render-agnostic, and
+ * every caller that does not want them can simply ignore it.
  */
 export function breakJointsInBand(
   world: Matter.World,
@@ -318,7 +374,8 @@ export function breakJointsInBand(
   x: number,
   topY: number,
   halfBand: number,
-): void {
+): JointBreak[] {
+  const broken: JointBreak[] = [];
   const inBand = (b: Matter.Body) =>
     Math.abs(b.position.x - x) < halfBand && b.position.y > topY;
   for (let i = constraints.length - 1; i >= 0; i--) {
@@ -329,14 +386,16 @@ export function breakJointsInBand(
     // a rebar piece it swept came apart and a tar weld it swept dissolved, which
     // is exactly the property each material is sold on. A Bond Breaker is meant
     // to be the only answer to either.
-    const meta = c as unknown as { breakStretch?: number; welded?: boolean };
+    const meta = c as unknown as JointMeta;
     if (meta.welded) continue;
     if (meta.breakStretch === Infinity) continue;
     if (inBand(c.bodyA) || inBand(c.bodyB)) {
+      broken.push(jointBreakAt(c));
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);
     }
   }
+  return broken;
 }
 
 /**
@@ -372,24 +431,30 @@ export function removeConstraintsFor(
  * fallback for joints created without one. Per-constraint rather than one
  * global number because pieces of different size classes coexist on the field
  * and must keep the fragility they were launched with.
+ *
+ * Returns the seams it tore, on the same terms as breakJointsInBand: the
+ * caller decides whether a break is worth showing, this only reports it.
  */
 export function updateBreakableJoints(
   world: Matter.World,
   constraints: Matter.Constraint[],
   breakStretch: number,
-): void {
+): JointBreak[] {
+  const broken: JointBreak[] = [];
   for (let i = constraints.length - 1; i >= 0; i--) {
     const c = constraints[i];
     if (!c.bodyA || !c.bodyB) continue;
-    const meta = c as unknown as { restLength: number; breakStretch?: number; welded?: boolean };
+    const meta = c as unknown as JointMeta;
     // A tar weld is permanent (game.ts's resolveTarWelds) — no stretch breaks it.
     if (meta.welded) continue;
     const rest = meta.restLength || c.length;
     const limit = meta.breakStretch ?? breakStretch;
     const cur = dist(c.bodyA.position, c.bodyB.position);
     if (cur > rest * limit) {
+      broken.push(jointBreakAt(c));
       Matter.Composite.remove(world, c);
       constraints.splice(i, 1);
     }
   }
+  return broken;
 }

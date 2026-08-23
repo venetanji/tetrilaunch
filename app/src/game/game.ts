@@ -7,9 +7,12 @@ import {
   createTetrisPiece,
   updateBreakableJoints,
   breakJointsInBand,
+  jointBreakAt,
   removeConstraintsFor,
   SIZE_SPEC,
   type Cube,
+  type JointBreak,
+  type JointMeta,
 } from "./pieces";
 import {
   updateLineClear,
@@ -725,6 +728,41 @@ export class Game {
   }
 
   /**
+   * Put a spark on every seam that just came apart.
+   *
+   * All three break paths funnel through here — the stress snap and the
+   * compactor's crush (both in update), and the Bond Breaker's discharge — so
+   * a bond letting go looks the same whatever tore it. That sameness is the
+   * point: the player is learning ONE rule (joints are what keep a shipment a
+   * shape, and they can fail), and three different-looking cues for it would
+   * teach three rules.
+   */
+  private sparkJoints(broken: JointBreak[], now: number): void {
+    for (const b of broken) {
+      this.effects.push({ kind: "snap", x: b.x, y: b.y, color: b.color, t0: now });
+    }
+  }
+
+  /**
+   * Blow one cube apart into coloured wreckage, at the position it occupied.
+   *
+   * Call this immediately BEFORE removing the cube, from anywhere a blast
+   * deletes cargo (detonate, resolveVolatile) — the blast ring already says
+   * something went off, and this is what says WHAT it took. That distinction
+   * carries most of its weight on a volatile pop, where the answer is cargo the
+   * player had already landed and banked on: cubes that simply ceased read as
+   * the field tidying itself, which is the opposite of a hazard firing.
+   *
+   * Per cube rather than one burst at the blast centre, because debris that
+   * starts where its cube stood is the whole read — you watch the shape of what
+   * you destroyed come apart.
+   */
+  private throwChunks(cube: Cube, now: number): void {
+    const p = cube.body.position;
+    this.effects.push({ kind: "chunk", x: p.x, y: p.y, color: cube.color, t0: now });
+  }
+
+  /**
    * Bond Breaker special ability (charged by the Bond Emitter track — see
    * run.ts's bondChargesFor for the run-scoped magazine): shatter EVERY joint on
    * the field at once, turning all pieces into loose cubes. With nothing
@@ -739,24 +777,29 @@ export class Game {
     // Count only what a Bond Breaker could actually break: a field held
     // together entirely by tar welds must not silently eat a charge.
     const breakable = this.constraints.filter(
-      (c) => !(c as unknown as { welded?: boolean }).welded,
+      (c) => !(c as unknown as JointMeta).welded,
     ).length;
     if (this.bondCharges <= 0 || breakable === 0) return false;
 
-    // Remember which cubes were still joined so the shatter FX only sparks on
-    // pieces that actually came apart, then tear down every joint (world +
-    // array) in one sweep — same removal both places as removeConstraintsFor.
-    const joined = new Set<Matter.Body>();
-    for (const c of this.constraints) {
-      if (c.bodyA) joined.add(c.bodyA);
-      if (c.bodyB) joined.add(c.bodyB);
-    }
+    // Tear down every joint (world + array) in one sweep — same removal both
+    // places as removeConstraintsFor — reporting each seam as it goes, exactly
+    // like the other two break paths.
+    //
     // Welds survive. Tar is the one joint a Bond Breaker cannot split, and
     // that exemption is the whole reason tar is a different problem from rebar
     // rather than a re-skin of it.
     const survivors: Matter.Constraint[] = [];
+    const broken: JointBreak[] = [];
+    let sx = 0;
+    let sy = 0;
     for (const c of this.constraints) {
-      if ((c as unknown as { welded?: boolean }).welded) { survivors.push(c); continue; }
+      if ((c as unknown as JointMeta).welded) { survivors.push(c); continue; }
+      if (c.bodyA && c.bodyB) {
+        const seam = jointBreakAt(c);
+        broken.push(seam);
+        sx += seam.x;
+        sy += seam.y;
+      }
       Matter.Composite.remove(this.phys.world, c);
     }
     this.constraints.length = 0;
@@ -767,19 +810,16 @@ export class Game {
     // otherwise stay frozen in the air. Field-wide action, field-wide wake.
     for (const cube of this.cubes) Matter.Sleeping.set(cube.body, false);
 
-    let sx = 0;
-    let sy = 0;
-    let n = 0;
-    for (const cube of this.cubes) {
-      if (!joined.has(cube.body)) continue;
-      const p = cube.body.position;
-      this.effects.push({ kind: "shatter", x: p.x, y: p.y, color: cube.color, t0: now });
-      sx += p.x;
-      sy += p.y;
-      n += 1;
-    }
-    // A central shockwave ring so the field-wide break reads as one deliberate
-    // action, not just scattered sparks.
+    // One spark per SEAM, not a full brick-shatter per cube. The old cue said
+    // "every cube exploded" when what actually happened is "every seam let go",
+    // and at field scale a hundred-odd full-size shatters buried the field
+    // under its own debris. The same puff a single stress snap makes, many
+    // times over, is both the honest read and the cheaper one.
+    this.sparkJoints(broken, now);
+    // A central shockwave ring so the field-wide break still reads as one
+    // deliberate action, not just scattered sparks. Centred on the seams that
+    // broke — the discharge's own footprint — rather than on the whole pile.
+    const n = broken.length;
     this.effects.push({
       kind: "explosion",
       x: n ? sx / n : WORLD.width / 2,
@@ -1173,7 +1213,10 @@ export class Game {
     this.wakeCompactorBand();
     this.resolveVolatile();
     this.resolveTarWelds();
-    updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch);
+    this.sparkJoints(
+      updateBreakableJoints(this.phys.world, this.constraints, this.level.jointBreakStretch),
+      now,
+    );
     // MAGNETIC settles itself square. Run after the joints update so a cube
     // that just came loose is snapped on the same step it stopped moving,
     // rather than sitting crooked for one frame.
@@ -1183,12 +1226,15 @@ export class Game {
     alignMagnetic(this.cubes, WORLD.height - CELL / 2);
 
     // The compactor shatters pieces it crushes into loose cubes (no deletion).
-    breakJointsInBand(
-      this.phys.world,
-      this.constraints,
-      this.compactor.x,
-      this.compactor.top - CELL * 0.3,
-      this.compactor.width / 2 + CELL,
+    this.sparkJoints(
+      breakJointsInBand(
+        this.phys.world,
+        this.constraints,
+        this.compactor.x,
+        this.compactor.top - CELL * 0.3,
+        this.compactor.width / 2 + CELL,
+      ),
+      now,
     );
 
     // While pressing, physically settle near-resting cubes onto the slot grid
@@ -1520,17 +1566,20 @@ export class Game {
    */
   private resolveVolatile(): void {
     if (!this.pendingBlast.size) return;
+    const now = performance.now();
     let cx = 0;
     let cy = 0;
     let n = 0;
     const gone: { x: number; y: number }[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
-      const b = this.cubes[i].body;
+      const cube = this.cubes[i];
+      const b = cube.body;
       if (!this.pendingBlast.has(b)) continue;
       cx += b.position.x;
       cy += b.position.y;
       n += 1;
       gone.push({ x: b.position.x, y: b.position.y });
+      this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
       Matter.Composite.remove(this.phys.world, b);
       this.cubes.splice(i, 1);
@@ -1542,7 +1591,7 @@ export class Game {
     if (n) {
       this.effects.push({
         kind: "explosion", x: cx / n, y: cy / n,
-        r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: performance.now(),
+        r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
       });
       this.events.onExplosion?.("volatile");
     }
@@ -1596,12 +1645,14 @@ export class Game {
     let vaporized = 0;
     const gone: { x: number; y: number }[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
-      const b = this.cubes[i].body;
+      const cube = this.cubes[i];
+      const b = cube.body;
       const dx = b.position.x - cx;
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
       if (d <= BOMB_BLAST_R) {
         gone.push({ x: b.position.x, y: b.position.y });
+        this.throwChunks(cube, now);
         removeConstraintsFor(this.phys.world, this.constraints, b);
         Matter.Composite.remove(this.phys.world, b);
         this.cubes.splice(i, 1);
