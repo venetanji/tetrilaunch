@@ -190,7 +190,10 @@ async function maxVolumeDb(file, { start, dur, chain = [] } = {}) {
     "-af", [...chain, "volumedetect"].join(","), "-f", "null", "-",
   ]);
   const m = /max_volume:\s*(-?[\d.]+) dB/.exec(out);
-  return m ? parseFloat(m[1]) : 0;
+  // NaN, not 0. A reading this code could not take is not a reading of full
+  // scale, and 0 is a plausible-looking number that silently levels the file
+  // against something ffmpeg never said. Callers check.
+  return m ? parseFloat(m[1]) : NaN;
 }
 
 /** Integrated loudness and true peak of a FINISHED file. Every encode is
@@ -286,7 +289,14 @@ async function encodeFx(srcFile, name, override) {
       ? { start: override.start ?? 0, dur: override.dur }
       : await firstSoundWindow(srcFile, duration);
   const chain = fxChain(dur);
-  const gain = PEAK_DBFS - (await maxVolumeDb(srcFile, { start, dur, chain }));
+  const srcPeak = await maxVolumeDb(srcFile, { start, dur, chain });
+  // Unmeasurable input, so there is no gain to compute. Stopping is right:
+  // carrying NaN forward puts `volume=NaNdB` in the filter graph, and ffmpeg
+  // is under no obligation to reject that in a way anyone would notice.
+  if (!Number.isFinite(srcPeak)) {
+    throw new Error(`no max_volume in ffmpeg's output for ${srcFile}`);
+  }
+  const gain = PEAK_DBFS - srcPeak;
   const dst = join(OUT, "fx", `${name}.mp3`);
 
   await run("ffmpeg", [
@@ -384,6 +394,16 @@ async function main() {
    *  as well as how far each one is from the target. */
   const longLevels = [];
   const checkLevel = (label, r) => {
+    // Reject a missing reading before it is recorded, because NaN passes every
+    // check below by being false in all of them: `Math.abs(NaN) > tol` is
+    // false, and a single NaN turns the spread into NaN, which is also false
+    // against its limit. A broken ebur128 would otherwise print a clean run
+    // that verified nothing whatsoever — which is precisely the silent,
+    // plays-fine-but-wrong failure this verification exists to catch.
+    if (!Number.isFinite(r.lufs) || !Number.isFinite(r.tp)) {
+      offTarget.push(`${label} could not be measured — no usable ebur128 reading`);
+      return;
+    }
     longLevels.push({ label, lufs: r.lufs });
     if (Math.abs(r.off) > LONG_TOLERANCE_LU) {
       offTarget.push(
@@ -404,7 +424,9 @@ async function main() {
     const r = await encodeFx(join(SRC, "fx", file), name, OVERRIDES[file]);
     const size = (await stat(r.dst)).size;
     total += size;
-    if (Math.abs(r.off) > FX_TOLERANCE_DB) {
+    if (!Number.isFinite(r.peak)) {
+      offTarget.push(`fx/${file} could not be measured — no usable peak reading`);
+    } else if (Math.abs(r.off) > FX_TOLERANCE_DB) {
       offTarget.push(
         `fx/${file} at ${r.peak.toFixed(1)}dBFS — ` +
         `${r.off >= 0 ? "+" : ""}${r.off.toFixed(1)}dB off ${PEAK_DBFS}`,
