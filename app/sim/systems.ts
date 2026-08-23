@@ -20,6 +20,7 @@ import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   PILE_TIERS, TARGET_PER_BAY, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
@@ -37,7 +38,7 @@ import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  markLostPieces,
+  markLostPieces, slagBountyFor,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -2084,6 +2085,25 @@ section("Demolition charges + settle window (game.ts)");
   const g2 = new Game(makeBaseLevel(0), {}, 1);
   check("arming with no charges is refused", !g2.armBomb() && !g2.bombArmed);
 
+  // The resupply line's CONFIG path, end to end: a maxed Demolition Rack has to
+  // reach the bay the player is actually flying, and the bay has to open owing
+  // nothing. The grant itself is level.ts's bombResupply (proved there against
+  // its own mutants) — driving a real line clear would need a settled row, and
+  // this harness leaves physics to sim/sweep.ts's bots.
+  {
+    const maxed = makeBaseLevel(0);
+    const tiers = newTiers();
+    tiers.demolition = MAX_TIER;
+    applyUpgrades(maxed, tiers);
+    const g4 = new Game(maxed, {}, 7);
+    check("a maxed rack carries its resupply interval into the bay",
+      g4.level.bombResupplyLines === DEMO_RESUPPLY_LINES);
+    check("a bay opens owing no resupply", g4.bombsResupplied === 0);
+    // A stock bay must not quietly resupply — 0 is what disables it.
+    check("a stock bay carries no resupply line",
+      new Game(makeBaseLevel(0), {}, 8).level.bombResupplyLines === 0);
+  }
+
   // Settle window: crossing the target must NOT win instantly.
   let settleStarts = 0;
   let statuses: string[] = [];
@@ -3310,6 +3330,87 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         { body: inertA, material: "standard", struck: true } as Cube,
         { body: inertB, material: "slag", struck: true } as Cube,
       ], inertA, inertB).length === 0);
+  }
+
+  // THE SLAG BOUNTY. A volatile detonation pays for the SLAG it destroys and
+  // for nothing else. The distinction is the entire licence for this payout:
+  // game.ts's resolveVolatile refuses to pay for a detonation as such, because
+  // "paying for it would make ratcheting the volatile axis an income strategy,
+  // which is the exact inversion of a hazard". A bounty on slag is not that —
+  // it pays only where the player ratcheted a SECOND axis, and it pays for
+  // removing cargo that was already worth nothing. If a future edit ever makes
+  // a standard cube pay here, that argument is broken and check 2 is the one
+  // that says so.
+  {
+    const at = (x: number, material: Material): Cube => ({
+      body: Matter.Bodies.rectangle(x, 100, CELL, CELL),
+      material, struck: true,
+    } as Cube);
+    const slag3 = [at(0, "slag"), at(CELL, "slag"), at(CELL * 2, "slag")];
+    check("a volatile blast pays the bounty for every slag cube it destroys",
+      slagBountyFor(slag3, SLAG_BOUNTY) === 3 * SLAG_BOUNTY,
+      `${slagBountyFor(slag3, SLAG_BOUNTY)} vs ${3 * SLAG_BOUNTY}`);
+    // The anti-inversion rule, pinned. Live cargo obliterated by a hazard is a
+    // LOSS and must stay one.
+    const cargo = [at(0, "standard"), at(CELL, "cryo"), at(CELL * 2, "volatile")];
+    check("a volatile blast pays nothing for the live cargo it destroys",
+      slagBountyFor(cargo, SLAG_BOUNTY) === 0);
+    check("a mixed blast pays for the slag half only",
+      slagBountyFor([...slag3, ...cargo], SLAG_BOUNTY) === 3 * SLAG_BOUNTY);
+    // The premium is what makes disposal worth a launch; equal to salvagePerCube
+    // it would just be the bomb's refund with extra steps.
+    const stock = makeBaseLevel(0);
+    check("slag is worth strictly more than a standard cube's salvage",
+      SLAG_BOUNTY > stock.salvagePerCube,
+      `bounty ${SLAG_BOUNTY} vs salvage ${stock.salvagePerCube}`);
+    // ...and strictly less than a line, or disposal becomes the game.
+    check("a blast full of slag still pays less than one line",
+      3 * SLAG_BOUNTY < stock.scorePerLine * 2,
+      `${3 * SLAG_BOUNTY} vs ${stock.scorePerLine * 2}`);
+  }
+
+  // THE RESUPPLY LINE. A bay is long enough to out-last six charges — PR #70's
+  // Slag Wall opens one on 11 cubes of it — so the capstone returns charges as
+  // lines are cleared. Metered on LINES cumulatively rather than on a per-clear
+  // delta: a 4-line clear arrives as one event, and an equality test against
+  // the interval would silently skip the grant.
+  {
+    const N = DEMO_RESUPPLY_LINES;
+    check("no charge is owed before the first interval is reached",
+      bombResupply(N - 1, 0, N) === 0);
+    check("one charge is owed at the interval",
+      bombResupply(N, 0, N) === 1);
+    check("a charge already granted is never granted twice",
+      bombResupply(N, 1, N) === 0);
+    // The delta-vs-cumulative trap: four lines at once must still pay.
+    check("a single multi-line clear that spans an interval still pays",
+      bombResupply(N * 2, 1, N) === 1);
+    check("a clear spanning two intervals pays both",
+      bombResupply(N * 2, 0, N) === 2);
+    // 0 disables — every tier below the capstone, and every bay of a run that
+    // never bought the track.
+    check("an interval of 0 never returns a charge",
+      bombResupply(999, 0, 0) === 0);
+  }
+
+  // Only the MAXED Demolition Rack resupplies. The lower tiers stay a flat
+  // count, so the capstone is a change in kind rather than another +2.
+  {
+    const tiersAt = (t: number) => {
+      const tiers = newTiers();
+      tiers.demolition = t;
+      const cfg = makeBaseLevel(0);
+      applyUpgrades(cfg, tiers);
+      return cfg;
+    };
+    check("demolition tiers 0-2 grant no resupply",
+      [0, 1, 2].every((t) => tiersAt(t).bombResupplyLines === 0));
+    check("demolition tier 3 opens the resupply line",
+      tiersAt(MAX_TIER).bombResupplyLines === DEMO_RESUPPLY_LINES,
+      `${tiersAt(MAX_TIER).bombResupplyLines}`);
+    // The charge count itself is untouched by this change.
+    check("the capstone still grants its six charges",
+      tiersAt(MAX_TIER).bombCharges === 6);
   }
 
   // Tar welds to what it settles against, and the weld is the joint nothing
