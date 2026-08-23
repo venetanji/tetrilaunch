@@ -316,7 +316,27 @@ export function unlockAudio(): void {
   try {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;
-    ctx = new Ctor();
+    // "playback", NOT the default "interactive". The default asks for the
+    // smallest buffer the device will give, which on the OnePlus test phone is
+    // a HAL frame count of 192 — 4ms. That is the buffer the whole Web Audio
+    // graph renders into, and it is what has to absorb every hiccup between
+    // here and the speaker. On Bluetooth there are a lot of them: the same
+    // device reports an A2DP write latency averaging 321ms with timestamp
+    // jitter peaking over 1000ms, and 4ms of buffer cannot ride that out. The
+    // result is an underrun — the bed audibly breaking up — which is NOT
+    // clipping and is why lowering the gains never fixed it.
+    //
+    // The tell is that STINGERS stayed clean throughout. They are unrouted
+    // <audio> elements (see below) that cross the same Bluetooth link, the
+    // same AAC encode and the same vendor post-processing, so the wireless
+    // path cannot be the cause. What they do not share is this buffer: the
+    // platform media pipeline gives them hundreds of ms of it.
+    //
+    // Measured on the device, baseLatency by hint: interactive 4ms (192
+    // frames), balanced 20ms (960), playback 21.3ms (1024). "playback" buys
+    // 5.3x the headroom for 17ms — one frame at 60fps, and next to nothing
+    // against the 288ms of output latency Bluetooth already imposes.
+    ctx = new Ctor({ latencyHint: "playback" });
     // Built before the buses so both can be pointed at it. A context too old
     // to have a compressor still gets the pre-limiter graph rather than no
     // audio: `out` is simply the destination in that case.
