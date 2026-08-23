@@ -617,7 +617,8 @@ through the end of the comment) with:
    What IS here is the other half of that: a Contract's rows hug the TOP of the
    panel instead of being spread down it. `.plant__body` uses
    `justify-content: space-between`, which is right for a Deep Run's five rows
-   and wrong for a Contract's four or five — it pushed the last row to the floor
+   and wrong for a Contract's four (lines) or five (pattern) — it pushed the
+   last row to the floor
    of the panel and left a hand's width of nothing above it. Top-aligning them
    fixes that WITHOUT giving up the footprint, which is what releasing
    `min-height` did and should not have: the panel is BOTTOM-anchored, so a
@@ -642,10 +643,17 @@ through the end of the comment) with:
    `justify-content` reaches this panel at every density. Deep Run's
    `.plant__body` becomes a named-area grid at compact, where it would be inert
    — but a Contract already opts out of that grid further down, because the
-   template names `notch` and `meta` rows a Contract does not render. It is a
+   template names `meta` and `mods` rows a Contract does not render. It is a
    flex column at every density, which is why one rule suffices. Do not
    re-template it as a grid to fit the rows above.
 ```
+
+Note the pair is `meta` and `mods`, NOT `notch` and `meta`. Task 3 reused
+`.pl-notch` for the Contract's Bay row, so `notch` is now a row a Contract DOES
+render; `mods` took its place as the second empty-if-inherited area (a Contract
+emits no `.pl-mods` at all — `plates || bondChip || demoChip` is always false).
+The count is still two. Verify against the actual `grid-template-areas` block
+before writing it — the same sentence has been wrong twice on this branch.
 
 - [ ] **Step 3: Verify nothing else claims the old behaviour**
 
@@ -788,9 +796,30 @@ from the Lost column. Re-derive before relying on it.
 If `plant` fails on a device, the panel has grown PAST
 `0.4296 * --field-h` — that means the new rows do not fit on that device, which
 is a real finding: report the device and the measured height rather than
-baselining it. If `oneline` or `twocol` fails on the conditions row, the string
-is wrapping — that is what the row's horizontal scroll is for, so check
-`.pl-notch b`'s `overflow-x: auto` is inherited by the new markup.
+baselining it.
+
+Do NOT expect `oneline` to fire on either new row — an earlier draft of this
+plan said it would, and it cannot. `SINGLE_LINE` in `run.ts` is
+`[".pl-meta", ".pl-load", ".bay-banner", ".hud[data-coach] .pl-launches"]`; no
+plant tally row is in it. The Bay row IS `.pl-notch`, so its `overflow-x: auto`
+applies directly with nothing to inherit.
+
+What actually guards these two rows is `inkline`, and Task 3 added the entries
+for them to `run.ts` — `.pl-tier`, plus scoping the existing `.pl-notch` entry
+so it stops silently no-opping on a Contract screen (the Bay row has no
+`.pl-notch__ax` child, so the probe bailed). Confirm those entries are present
+and actually producing measurements rather than returning early; an inkline
+entry that no-ops looks identical to one that passes.
+
+- [ ] **Step 6b: Report the measured height even when green**
+
+Both new rows are FLOOR-dominated at compact — a 6px font floor, 4px and 8px gap
+floors, and a hard 9px salvage glyph that ignores `--fpx` — so they cost
+proportionally more of the box on a small phone than the spec's 792x360
+arithmetic predicts. Report the measured `.plant` height on the three tightest
+devices in the matrix even when the run passes. That is the number Task 5 needs
+in order to know its `min-height` restoration is safe rather than merely
+un-flagged, and it is worth carrying back into the spec.
 
 - [ ] **Step 7: Commit**
 
