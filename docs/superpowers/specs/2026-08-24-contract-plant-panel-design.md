@@ -96,8 +96,15 @@ player spending that margin. Nothing on screen says so today.
 Costs no rows — it is a column in a row that already renders. It is not free,
 though, and the panel should not pretend it is: with no clock, `.pl-funds`
 (`flex: 1 1 auto`) currently absorbs the clock's width and spends it on a longer
-goal bar. The column buys back roughly 29px of that at the compact floor,
-leaving the bar still longer than a Deep Run's.
+goal bar.
+
+Two figures, because they are easy to confuse. The bar's real loss is about
+**36px** at the tightest phone in the matrix — the column itself (~30px) plus
+`.pl-read`'s own gap, which three items pay twice where two paid once. What is
+left over is about **18px**: the margin by which the Contract's bar still beats
+a Deep Run's, and the gap cancels out of that comparison because both sides are
+three-item rows. `LOST` is narrower than `TIME` — same 4-glyph label, half the
+value width.
 
 No `.pl-stat--danger` treatment. That class means "you are about to run out of
 the thing that lets you keep playing", and it fires on a threshold — three
