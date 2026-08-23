@@ -83,17 +83,23 @@ const FX_NAMES: FxName[] = [
  * music outright rather than ducking it (see below) — is what makes that
  * difference land as a shout rather than a transition.
  *
- * So the jingle is placed by ear, under the bed, and 3dB is where "the same or
- * lower" actually sounded like the same or lower. Note that the masters
- * already said this: bayClear is 0.8 LU quieter than bay-1 as generated, and
- * normalising both to one target is what threw that away. This constant buys
- * it back. Keeping it a ratio OF MUSIC_GAIN rather than a bare number is the
- * part that matters — the whole point of a level target is that the bed moves
- * and the jingle keeps its distance.
+ * So the jingle is placed by ear, under the bed. 3dB was not enough and this
+ * is 6: the gap it has to cover is bigger than the LRA story alone, because
+ * bayClear also carries far more of its energy where a phone speaker actually
+ * works. Against the beds it interrupts it measured 5.6 dB hotter above 500Hz
+ * while every file read -15.4 LUFS — see PHONE_SPREAD_DB in
+ * scripts/prepare-audio.mjs, which now fails a run that lets that gap open
+ * again. Half of it is fixed there, in bay-1's master; this is the other half.
+ *
+ * Note the masters already said as much: bayClear is 0.8 LU quieter than bay-1
+ * as generated, and normalising both to one target is what threw that away.
+ * Keeping this a ratio OF MUSIC_GAIN rather than a bare number is the part that
+ * matters — the point of a level target is that the bed can move and the jingle
+ * keeps its distance.
  */
 const FX_BUS_GAIN = 0.6;
 const MUSIC_GAIN = 0.75;
-const STINGER_UNDER_DB = -3;
+const STINGER_UNDER_DB = -6;
 const STINGER_GAIN = MUSIC_GAIN * 10 ** (STINGER_UNDER_DB / 20);
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
  *  by the next screen. Long enough not to click, short enough not to muddy. */

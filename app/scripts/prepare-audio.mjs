@@ -143,6 +143,80 @@ const LONG_TOLERANCE_LU = 1.0;
 const LONG_SPREAD_LU = 1.0;
 
 /**
+ * THE SPREAD THAT MATTERS ON THE DEVICE THIS SHIPS TO.
+ *
+ * LONG_SPREAD_LU above measures the full band, and the full band is not what a
+ * phone plays. A phone speaker produces essentially nothing under a few hundred
+ * hertz, while K-weighting still counts that energy — so two files can measure
+ * identically and be far apart out loud. Measured on the set that passed every
+ * check above, at -15.4 LUFS each:
+ *
+ *      bay-1     -24.6      72% of its energy is below 200Hz
+ *      bay-9     -19.6      56%
+ *      bayClear  -19.0      38%
+ *
+ * 5.6 dB between the quietest bed and the jingle that interrupts it, invisible
+ * to a meter reading -15.4 for both. That is not a subtlety, it is the whole
+ * complaint: the bed is inaudible and the jingle shouts.
+ *
+ * So the same spread check runs again through a high pass, and this one is
+ * allowed to be looser — a dark track is a legitimate choice and matching every
+ * bed's midrange exactly would flatten the record. 3 dB is "different, not
+ * absent". A track that cannot get inside it by level alone needs MASTER_EQ.
+ *
+ * BEDS ONLY. Stingers are measured and printed but cannot fail this, because
+ * how loud a jingle is against a bed is no longer a property of the files —
+ * audio.ts plays them at STINGER_UNDER_DB below the bed on purpose. Failing a
+ * run because bayClear's FILE is hotter than bay-1's would be demanding the
+ * pipeline undo a decision made deliberately downstream of it.
+ */
+const PHONE_HP_HZ = 500;
+const PHONE_HP = `highpass=f=${PHONE_HP_HZ}:poles=2,highpass=f=${PHONE_HP_HZ}:poles=2`;
+const PHONE_SPREAD_DB = 3.0;
+
+/**
+ * Tonal correction applied BEFORE levelling, keyed by role name.
+ *
+ * This is remastering and it is deliberately per-track, not a curve over the
+ * whole set: most of these masters are fine and tilting them all to rescue one
+ * would trade a real problem for eleven invented ones.
+ *
+ * `bay-1` is the first bed anybody hears and it was the least audible thing in
+ * the game. Not quiet — it hit -15.4 LUFS like everything else — but dark, and
+ * a phone cannot play dark. Straight gain could not fix it either: at -2.7 dBTP
+ * it had 1.2 dB of headroom against a 5 dB deficit.
+ *
+ * So the shelf takes out what the phone was never going to reproduce, and
+ * loudnorm gives it back as level the phone CAN reproduce. The bell is small
+ * and sits where a speaker that size is most efficient. On headphones this is
+ * an audibly lighter track than the master, which is the real cost and the
+ * reason it is one entry and not a global setting.
+ *
+ * THE LIMITER IS NOT OPTIONAL HERE, and finding out why is the whole story.
+ * `chilled beginning.mp3` arrives at -0.6 dBTP — already brickwalled — while
+ * 72% of its loudness sits under 200Hz. Cutting 7 dB of that bass moved its
+ * peak by 0.4 dB, because its peaks were never the bass. So every route to
+ * making it louder where a phone can hear it breaches the ceiling, and
+ * loudnorm quietly answers a breach by switching from `linear` to dynamic
+ * compression it chose on its own.
+ *
+ * Given the compression is unavoidable, it is better declared than discovered:
+ * an explicit alimiter at a stated ceiling, in the chain, visible in this map,
+ * doing a bounded amount of work — rather than loudnorm silently deciding how
+ * much to squash a track nobody was watching. `linear` is then a real claim
+ * again, and the run FAILS on anything that still reports dynamic.
+ *
+ * The audible cost is stated plainly: bay-1's LRA goes 3.7 -> 2.7 and it is a
+ * lighter, thinner record on headphones than the master is. That is the trade
+ * for it being audible at all on the device the game ships to, and it is why
+ * this is two entries rather than a curve over the whole set.
+ */
+const MASTER_EQ = {
+  "bay-1": "lowshelf=f=220:g=-9,alimiter=limit=0.55:level=disabled",
+  "menu": "lowshelf=f=220:g=-5,alimiter=limit=0.55:level=disabled",
+};
+
+/**
  * Per-file escape hatches, keyed by source filename.
  *
  *   { full: true }             keep the whole file, just level and re-encode
@@ -209,14 +283,32 @@ async function measureLoudness(file) {
   return { lufs: num(/I:\s*(-?[\d.]+) LUFS/), tp: num(/Peak:\s*(-?[\d.]+) dBFS/) };
 }
 
+/** Integrated loudness of only what a phone speaker can actually move air
+ *  with. Same ebur128, behind PHONE_HP — see PHONE_SPREAD_DB for why a set that
+ *  is perfectly matched full-band can still be 5.6 dB apart out loud. */
+async function measurePhoneBand(file) {
+  const out = await ffmpegAnalyse([
+    "-hide_banner", "-nostats", "-i", file,
+    "-af", `${PHONE_HP},ebur128`, "-f", "null", "-",
+  ]);
+  const tail = out.slice(out.lastIndexOf("Summary:"));
+  const m = /I:\s*(-?[\d.]+) LUFS/.exec(tail);
+  return m ? parseFloat(m[1]) : NaN;
+}
+
 /** loudnorm's first pass: measure the source so the second pass can apply a
  *  single computed gain. One-pass loudnorm is a live dynamic process that
  *  cannot know what is coming and audibly rides the opening bars; two-pass
  *  with `linear=true` is just arithmetic on a constant. */
-async function loudnormMeasure(file) {
+async function loudnormMeasure(file, pre) {
   const out = await ffmpegAnalyse([
     "-hide_banner", "-nostats", "-i", file,
-    "-af", `${LOUDNORM}:print_format=json`, "-f", "null", "-",
+    // The EQ has to be in front of the measurement as well as the encode. It
+    // changes the loudness it is measuring — that is the entire point of it —
+    // so measuring the untouched master would hand pass two a measured_I for
+    // audio that no longer exists, and linear mode would apply a gain computed
+    // for the wrong file.
+    "-af", `${pre ? `${pre},` : ""}${LOUDNORM}:print_format=json`, "-f", "null", "-",
   ]);
   try {
     const open = out.lastIndexOf("{");
@@ -326,12 +418,14 @@ async function encodeFx(srcFile, name, override) {
  */
 async function encodeLong(srcFile, name, folder) {
   const dst = join(OUT, folder, `${name}.mp3`);
-  const m = await loudnormMeasure(srcFile);
-  const af = m
+  const eq = MASTER_EQ[name];
+  const m = await loudnormMeasure(srcFile, eq);
+  const norm = m
     ? `${LOUDNORM}:measured_I=${m.input_i}:measured_TP=${m.input_tp}` +
       `:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}` +
       `:offset=${m.target_offset}:linear=true`
     : LOUDNORM;
+  const af = eq ? `${eq},${norm}` : norm;
   // print_format=summary on the ENCODE, because this is the only run that can
   // say how the file was actually normalised. The measurement pass reports
   // "dynamic" unconditionally — it has no measured_* values to be linear with —
@@ -350,6 +444,8 @@ async function encodeLong(srcFile, name, folder) {
     dur: await ffprobeDuration(srcFile),
     srcLufs: m ? parseFloat(m.input_i) : NaN,
     mode, lufs, tp,
+    phone: await measurePhoneBand(dst),
+    eq: !!eq,
     off: lufs - LONG_LUFS,
   };
 }
@@ -404,7 +500,18 @@ async function main() {
       offTarget.push(`${label} could not be measured — no usable ebur128 reading`);
       return;
     }
-    longLevels.push({ label, lufs: r.lufs });
+    longLevels.push({ label, lufs: r.lufs, phone: r.phone, bed: label.startsWith("music/") });
+    // `linear` is a promise this pipeline makes in its header, and until now
+    // nothing enforced it — loudnorm falls back to dynamic compression on its
+    // own whenever the gain it wants would breach the true-peak ceiling, and
+    // says so only in a column nobody reads. Where compression IS needed the
+    // answer is a declared alimiter in MASTER_EQ, not loudnorm improvising.
+    if (r.mode !== "linear") {
+      offTarget.push(
+        `${label} normalised as "${r.mode}", not linear — loudnorm compressed it ` +
+        `to hold ${LONG_TP_DBFS} dBTP. Give it a declared limiter in MASTER_EQ`,
+      );
+    }
     if (Math.abs(r.off) > LONG_TOLERANCE_LU) {
       offTarget.push(
         `${label} at ${r.lufs.toFixed(1)} LUFS — ` +
@@ -414,7 +521,8 @@ async function main() {
   };
   const levels = (r) =>
     `${r.srcLufs.toFixed(1)} → ${r.lufs.toFixed(1)} LUFS  ` +
-    `TP ${r.tp.toFixed(1)}dB  ${r.mode}`;
+    `TP ${r.tp.toFixed(1)}dB  phone ${r.phone.toFixed(1)}  ${r.mode}` +
+    `${r.eq ? "  [eq]" : ""}`;
 
   console.log(`effects (mono, peak ${PEAK_DBFS}dBFS). CHECK THE WINDOW COLUMN — a wrong`);
   console.log("trim shows up here, and OVERRIDES in this script is the fix:");
@@ -503,6 +611,36 @@ async function main() {
   }
   if (spread > LONG_SPREAD_LU) {
     offTarget.push(`beds and stingers are ${spread.toFixed(1)} LU apart — max ${LONG_SPREAD_LU}`);
+  }
+
+  // And again through the high pass, because the check above passed at 0.2 LU
+  // on a set that was 5.6 dB apart on a phone. See PHONE_SPREAD_DB.
+  if (longLevels.some((l) => !Number.isFinite(l.phone))) {
+    offTarget.push("a long-form asset had no usable phone-band reading");
+  }
+  const beds = longLevels.filter((l) => l.bed && Number.isFinite(l.phone));
+  if (beds.length) {
+    const lo = beds.reduce((a, b) => (a.phone <= b.phone ? a : b));
+    const hi = beds.reduce((a, b) => (a.phone >= b.phone ? a : b));
+    const pSpread = hi.phone - lo.phone;
+    const sting = longLevels
+      .filter((l) => !l.bed && Number.isFinite(l.phone))
+      .map((l) => l.phone);
+    console.log(
+      `phone-band spread: ${pSpread.toFixed(1)} dB above ${PHONE_HP_HZ}Hz across the beds ` +
+      `(${lo.label} ${lo.phone.toFixed(1)} → ${hi.label} ${hi.phone.toFixed(1)})` +
+      (sting.length
+        ? `; stingers ${Math.min(...sting).toFixed(1)} to ${Math.max(...sting).toFixed(1)} ` +
+          `— placed by STINGER_UNDER_DB, not checked here`
+        : ""),
+    );
+    if (pSpread > PHONE_SPREAD_DB) {
+      offTarget.push(
+        `${lo.label} is ${pSpread.toFixed(1)} dB under ${hi.label} above ` +
+        `${PHONE_HP_HZ}Hz — max ${PHONE_SPREAD_DB}. Both hit the LUFS target; ` +
+        `the quiet one is DARK, not quiet, and MASTER_EQ is the fix`,
+      );
+    }
   }
 
   if (offTarget.length) {
