@@ -409,8 +409,13 @@ two blocks immediately after it, before the Build row:
           // scroll its tail. The board card states these and the bay used to
           // forget them the moment it started.
           //
-          // Rendered on EVERY Contract, "clean bay" included, so the row is at
-          // the same height on every card. NOT `.pl-mods`: that row is
+          // Rendered on EVERY Contract, so the row is at the same height on
+          // every card. It cannot be empty: budgetForTier never returns below
+          // 2, wind costs 2 and is the one complication with no gate, so the
+          // notes list always gets an entry (0 empties in 72,000 generated
+          // Contracts). contracts.ts's "clean bay" fallback is a guard against
+          // a future budget change, not a state this row renders.
+          // NOT `.pl-mods`: that row is
           // display:none at compact density and never renders in a Contract at
           // all (levelForContract zeroes the ability charges and hudOpts hands
           // `tiers: {}`), so conditions placed there would be invisible on
@@ -676,8 +681,9 @@ generator can produce, so the row that scrolls is measured scrolling:
         // column is sized off its label at phone scale.
         lost: 14,
         // Three complications is the cap (contracts.ts's maxComplications at
-        // tier 9+), and this is the longest set of notes the generator emits.
-        conditions: "crosswind · cryo shipments · tight launch budget",
+        // tier 9+), and this is the longest set of notes the generator emits —
+        // 52 chars, measured across 400 seeds x tiers 1-12.
+        conditions: "volatile shipments · tight launch budget · crosswind",
         progress: PROGRESS,
 ```
 
@@ -772,12 +778,19 @@ All three states must report the same `h` (154.6 at 792x360) and the same `top`
 (194.7). A difference of more than 1px between any two is a failure — say which
 states differ and by how much rather than accepting it.
 
-- [ ] **Step 4: Confirm a clean bay holds the row**
+- [ ] **Step 4: Confirm the Bay row is height-stable across complication counts**
 
-Find a Contract whose brief is `clean bay` (a tier-1 lines Contract usually is)
-and confirm its `Bay` row renders at the same height as one carrying three
-complications. If no clean Contract is on today's board, force one via the dev
-sandbox rather than skipping the check.
+Play a Contract carrying ONE complication and one carrying THREE, and confirm
+the `Bay` row is the same height in both — the row's job is to not move between
+cards. Today's board has three Contracts at the player's tier; if all three
+carry the same count, raise the tier via the dev sandbox to get a spread.
+
+Do NOT look for a `clean bay` Contract. The generator cannot produce one:
+`budgetForTier` never returns below 2, `wind` costs 2 and is the only
+complication in the loop with no `continue` gate, and `maxComplications` is
+always at least 1 — measured at 0 empties in 72,000 generated lines Contracts.
+The `clean bay` string in `contracts.ts` is a guard against a future budget
+change, not a state to test through the UI.
 
 - [ ] **Step 5: Commit nothing, report the numbers**
 
@@ -811,3 +824,20 @@ Spec coverage, section by section:
 Names used consistently across tasks: `Contract.conditions`, `linesConditions`,
 `patternConditions`, `hud-lost`, `hud-conditions`, `.pl-lost`, `.pl-tier`,
 `contract.progress`.
+
+## Amendments during execution
+
+Corrections made after a task's review, recorded so the plan matches what was
+actually built:
+
+- **After Task 1's code review.** Three plan defects, all fixed above rather
+  than left for the implementer to trip on again: Task 6's "longest notes"
+  fixture string was 48 chars and the real longest is 52
+  (`volatile shipments · tight launch budget · crosswind`); Task 7 Step 4 asked
+  for a `clean bay` Contract the generator cannot produce; and Task 3's comment
+  claimed the Bay row renders `clean bay`, which it never can. The spec's §3 and
+  its verification list carry the same correction.
+- **Plan process note.** Task 1's Step 5 code block pasted a function body
+  without its doc comment, so following the plan literally deleted four lines of
+  design rationale. A plan that pastes a function must paste its doc comment
+  too, or say explicitly that it is being replaced.

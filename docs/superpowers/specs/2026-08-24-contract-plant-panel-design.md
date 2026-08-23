@@ -146,9 +146,17 @@ is already that row: label plus a dense mono tally, ~8px at compact, rendered on
 every Deep Run bay including the first, where it reads "—" rather than appearing
 mid-run and shifting every row above it.
 
-Contract mode renders the same row shape with the label `Bay` and the brief as
-its value. A clean bay reads `clean`, so the row is present at the same height
-on every Contract.
+Contract mode renders the same row shape with the label `Bay` and the
+conditions as its value.
+
+The row is never empty, so it is never a different height between one card and
+the next — but not because of the `clean bay` fallback, which is unreachable.
+`budgetForTier` never returns below 2, `wind` costs 2 and is the one
+complication in the loop with no `continue` gate, and `maxComplications` is
+always at least 1, so `notes` always receives an entry. Measured at 0
+occurrences in 72,000 generated lines Contracts. The fallback stays as a guard
+against a future budget or gating change; the row's constant height rests on
+the generator, not on it. The Bay row cannot render the word "clean" today.
 
 **Not the Build row.** `.pl-mods` is the wrong home for this twice over: it is
 `display: none` at compact density, and in a Contract it never renders at all —
@@ -206,8 +214,9 @@ a pattern Contract and a lines Contract.
   panel rather than a short one.
 - Both Contract kinds and a Deep Run bay driven in the real app, confirming the
   panel's top edge lands at the same y in all three.
-- A `clean bay` Contract confirmed to render the `Bay` row at the same height as
-  one carrying three complications.
+- A one-complication Contract confirmed to render the `Bay` row at the same
+  height as one carrying three. (Not a `clean bay` Contract — the generator
+  cannot produce one; see §3.)
 
 ## Out of scope
 
