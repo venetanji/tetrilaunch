@@ -446,8 +446,15 @@ two blocks immediately after it, before the Build row:
 
 `icon("salvage", …)` is a real inline-SVG name (verified in `src/ui/icons.ts`,
 which gave scrap and salvage a glyph each rather than sharing the `♻`
-character). Do not substitute the character — B5 in `sim/systems.ts` fails a
-dingbat in a control, and this row sits inside the panel that check scans.
+character). Use it rather than the character — that is the panel's convention,
+and the two currencies were deliberately given a glyph each.
+
+Note B5 in `sim/systems.ts` does NOT guard this row, contrary to what an earlier
+draft of this plan said. B5 builds its HUD with `contract: null`, so neither new
+row is in the string it scans, and its slice runs `side-rail` → `bay-banner`,
+stopping before `.plant` entirely. Nothing enforces the no-dingbat rule here —
+which is a reason to follow the convention deliberately, not a licence to skip
+it.
 
 - [ ] **Step 4: Style `.pl-tier`**
 
@@ -750,6 +757,19 @@ Expected: both clean.
 
 - [ ] **Step 6: Run the pixel harness**
 
+This step is not optional and cannot be satisfied by a green typecheck. From
+Task 3 onward `npm run test:uifit` does not merely mistype — it THROWS
+(`TypeError: Cannot read properties of undefined (reading 'tier')` at
+`screens.ts`, because the fixtures carry no `progress`). So until Step 5 lands,
+NEITHER new row has been measured on any device, and the crash is what is hiding
+that. Two things this is the only gate on:
+
+- `.pl-tier b` has `white-space: nowrap` and, unlike `.pl-notch b`, no
+  `overflow-x: auto`. That is deliberate — the tier value is short and
+  fixed-format — but it means a wide value overflows visibly instead of
+  scrolling, and only real pixels can say whether it ever does.
+- The Bay row's conditions string is the widest thing either new row carries.
+
 ```bash
 npm run test:uifit
 ```
@@ -909,6 +929,13 @@ actually built:
   `lostPieces`-counts-cubes note went to Task 4; and Task 6 gained the
   arithmetic saying a `plant` failure there would come from the Task 3 rows, not
   from the Lost column.
+- **After Task 3's spec review.** Two plan claims were wrong and are corrected
+  above. B5 in `sim/systems.ts` does not guard the Tier row — it builds its HUD
+  with `contract: null` and its slice stops before `.plant` — so the `icon()`
+  requirement rests on convention, not on a check. And the plan's given comment
+  said `levelForContract` "zeroes the ability charges"; it does not call
+  `applyUpgrades` at all, the charges simply stay at `makeBaseLevel`'s baked-in
+  zero. The implementer caught that one and a scope overclaim unprompted.
 - **Branch state, recorded once.** Requiring the three new `contract` fields
   leaves `typecheck` red from Task 2 until Task 4 (`main.ts`) and Task 6
   (`fixtures.ts`) supply them. That is the plan's design and CI only gates on
