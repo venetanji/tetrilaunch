@@ -172,6 +172,7 @@ export function menuScreen(
           </div>
           ${store?.unlimited ? unlimitedBadgeHTML() : ""}
           ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
+          ${sandbox ? sandboxChipHTML() : ""}
         </div>
       </div>
       <div class="menu__actions">
@@ -212,14 +213,15 @@ export function menuScreen(
             : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
         }
         <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        ${sandbox ? `<button class="btn btn--ghost btn--block" data-action="sandbox">⚙ Sandbox</button>` : ""}
-        <!-- The Unlimited upsell is NOT a seventh button here. This column gets
-             325px on a landscape phone and six buttons need 290 — a seventh
-             needs 330 and overflowed the viewport, but only for players who
-             hadn't bought, which is exactly who the menu has to look right for.
-             It lives in the brand column's chip row instead (unlockChipHTML),
-             the same slot the ★ UNLIMITED badge takes once owned, so this
-             column is six buttons at every entitlement state. -->
+        <!-- Nothing is a seventh button here — not the Unlimited upsell, and not
+             the developer sandbox. This column gets 325px on a landscape phone
+             and six buttons need 290; a seventh needs 330 and overflows the
+             viewport, which costs the LAST row rather than its own — the
+             sandbox build put Settings off the bottom of a 360dp phone exactly
+             this way. Both extra entries live in the brand column's chip row
+             instead (unlockChipHTML / sandboxChipHTML), which wraps, so this
+             column is six buttons in every build and at every entitlement
+             state. -->
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
@@ -247,6 +249,13 @@ function unlimitedBadgeHTML(): string {
  *  it isn't one. */
 function unlockChipHTML(): string {
   return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
+}
+
+/** The developer sandbox's entry, in the chip row rather than the action column
+ *  — see the note there on why that column is six buttons and no more. Only
+ *  rendered by a build that compiled the sandbox in (lib/sandbox.ts). */
+function sandboxChipHTML(): string {
+  return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
 }
 
 export function howtoScreen(): string {
