@@ -25,7 +25,7 @@ import {
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
-  materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
+  materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
   type HazardId, type Ratchets,
 } from "../src/game/hazards";
@@ -4397,16 +4397,49 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
   // alone and fatal on top of nine notches is still fatal.
   {
     const broken: string[] = [];
-    for (const clause of FINALS) {
-      const ratchets: Ratchets = {};
-      const axes = hazardsForMark(clause.tier);
-      // (RUN_LEVELS - 1) drafts, at the capstone's two picks a bay — the
-      // deepest ratchet a run of this Tier can arrive with.
+    // TWO arrivals per clause, because the obvious one is not the worst one.
+    //
+    // Round-robin over every axis the Tier deals is the arrival that looks
+    // adversarial, and for the material clauses it is the GENEROUS one: it
+    // ratchets the clause's own material too, which the clause then overwrites
+    // rather than stacks on. The real worst case pours every notch into the
+    // materials the clause does NOT write, so applyRatchets caps a full belt
+    // and the clause lands on top of it. Measured before applyFinal re-capped:
+    // that arrival took Powder Run to 0.78 of the belt while this check, run
+    // on the round-robin alone, passed at 0.55. A worst-case assertion that
+    // does not construct the worst case is not an assertion.
+    const arrivals = (clause: (typeof FINALS)[number]): Ratchets[] => {
       const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
-      for (let n = 0; n < notches; n++) {
-        const axis = axes[n % axes.length];
-        ratchets[axis.id] = (ratchets[axis.id] ?? 0) + 1;
-      }
+      const pour = (axes: typeof HAZARDS): Ratchets => {
+        const r: Ratchets = {};
+        if (!axes.length) return r;
+        for (let n = 0; n < notches; n++) {
+          const a = axes[n % axes.length];
+          r[a.id] = (r[a.id] ?? 0) + 1;
+        }
+        return r;
+      };
+      const pool = hazardsForMark(clause.tier);
+      // Which material the clause writes, read off a clean bay rather than
+      // declared: a clause that grows a second material later is covered
+      // without anyone remembering to update a list here.
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      // The second pour is CONTENT AXES ONLY, minus the clause's own material.
+      // Including the number axes would spread the notches so thin that the
+      // belt never fills, which is exactly how the first version of this check
+      // passed while Powder Run was reaching 0.78 — the pour has to be able to
+      // reach the cap before the clause is asked to push past it.
+      return [
+        pour(pool),
+        pour(pool.filter((h) => h.kind === "content" && !own.includes(h.material!))),
+      ];
+    };
+    for (const clause of FINALS) {
+     for (const ratchets of arrivals(clause)) {
       const run = {
         ...newRun(7, [], 0, newTiers(), clause.tier),
         levelIndex: RUN_LEVELS - 1,
@@ -4425,13 +4458,44 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       if (!(cfg.compactorSpeed > 0)) why.push("press stopped");
       if (!Number.isFinite(cfg.windLock ?? 0) || Math.abs(cfg.windLock ?? 0) > 1) why.push("wind lock out of range");
       // Every shipment a hazard, at any ratchet depth, is not a hard bay — it
-      // is one with no cargo to build rows out of (hazards.ts's MIX_TOTAL_CAP
-      // argues this for the ratchet mix; a clause must not route around it).
+      // is one with no cargo to build rows out of. Asserted against hazards.ts's
+      // OWN cap rather than a looser number of this file's invention: the
+      // ratchet mix is held to 0.55 and a clause may not route around it (see
+      // applyFinal's re-cap). A tolerance, not equality, because the scaling is
+      // floating point.
       const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
-      if (mix > 0.75) why.push(`materials sum ${mix.toFixed(2)}`);
+      if (mix > MIX_TOTAL_CAP + 1e-9) why.push(`materials sum ${mix.toFixed(3)}`);
       if (why.length) broken.push(`${clause.id}: ${why.join(", ")}`);
+     }
     }
     check("no clause can build an unplayable final bay", broken.length === 0, broken.join(" · "));
+
+    // …and the re-cap takes its reduction from the RATCHETED materials, never
+    // from the clause's own. FinalDef.desc prints that rate as a promise the
+    // player accepted one screen ago; scaling it would make the card lie about
+    // the bay it just sold them.
+    const lied: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] < clean.materialMix[k] - 1e-9) {
+            lied.push(`${clause.id}:${k} ${clean.materialMix[k].toFixed(2)}->${full.materialMix[k].toFixed(2)}`);
+          }
+        }
+      }
+    }
+    check("the re-cap never scales the rate a clause's card quotes",
+      lied.length === 0, lied.join(", "));
   }
 
   // The wind pair's seam. A locked bay must actually blow the way its card

@@ -1,5 +1,6 @@
 import type { LevelConfig } from "./level";
 import { WIND_GUST_FRACTION } from "./level";
+import { MIX_TOTAL_CAP } from "./hazards";
 import type { UpgradeId } from "./upgrades";
 import { MARK_COUNT } from "./upgrades";
 
@@ -709,8 +710,45 @@ export function finalById(id: string): FinalDef | undefined {
  *
  *  Unknown and null ids are no-ops, for the same forward-compatibility reason
  *  applyRatchets ignores unknown axes: a run in flight when a clause is renamed
- *  must still resolve to a playable bay rather than throwing on the last one. */
+ *  must still resolve to a playable bay rather than throwing on the last one.
+ *
+ *  Then the belt is RE-CAPPED, and that is not housekeeping — it closes a hole
+ *  this module opened. hazards.ts enforces MIX_TOTAL_CAP inside applyRatchets
+ *  and returns; run.ts's levelForRun calls this AFTERWARDS, so a material
+ *  clause lands on a belt that is already at the cap and pushes straight
+ *  through it. Measured on the worst arrival a run can actually construct —
+ *  every notch poured into the materials the clause does NOT write, so the mix
+ *  is already full when the clause arrives — Powder Run reached 0.78 of the
+ *  belt. hazards.ts says exactly what that is: "every shipment is a hazard is
+ *  not a hard bay, it is an unplayable one".
+ *
+ *  The scaling holds the CLAUSE'S OWN material at the rate its card quotes and
+ *  takes the reduction out of the ratcheted ones. That asymmetry is deliberate
+ *  and it is the whole reason this is not just a second call to the same
+ *  helper: FinalDef.desc prints its rate as a promise the player accepted one
+ *  screen ago, and scaling it would make the card lie about the bay it just
+ *  sold them. A ratcheted material has no such promise attached — the ladder
+ *  already reserves the right to scale it, and does. */
 export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
   if (!id) return;
-  finalById(id)?.apply(cfg);
+  const def = finalById(id);
+  if (!def) return;
+  const before = { ...cfg.materialMix };
+  def.apply(cfg);
+
+  const keys = Object.keys(cfg.materialMix) as Array<keyof typeof cfg.materialMix>;
+  const total = keys.reduce((a, k) => a + cfg.materialMix[k], 0);
+  if (total <= MIX_TOTAL_CAP) return;
+  // What the clause itself raised is held; everything else absorbs the cut.
+  const held = keys.filter((k) => cfg.materialMix[k] > before[k]);
+  const heldSum = held.reduce((a, k) => a + cfg.materialMix[k], 0);
+  const rest = keys.filter((k) => !held.includes(k));
+  const restSum = rest.reduce((a, k) => a + cfg.materialMix[k], 0);
+  // Room left for the ratcheted materials once the clause has taken its share.
+  // Floored at 0 for the degenerate case of a clause that alone exceeds the
+  // cap — no clause below comes close (the largest is 0.32 against 0.55), and
+  // a future one that did would clear the belt rather than go negative.
+  const room = Math.max(0, MIX_TOTAL_CAP - heldSum);
+  const scale = restSum > 0 ? room / restSum : 0;
+  for (const k of rest) cfg.materialMix[k] *= scale;
 }
