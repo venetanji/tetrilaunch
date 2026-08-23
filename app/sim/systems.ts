@@ -2558,6 +2558,45 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   setRailSlots(RAIL_SLOTS_MAX);
 }
 
+// The Contract plant panel's three additions. A Contract has no clock, so the
+// third readout column renders empty — on a LINES Contract it carries cubes
+// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the count reads
+// 0 until it reads 1 and at 1 objectiveUnreachable has already ended the bay.
+{
+  const base = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: { bomb: false, type: "L" as const, quarterTurns: 1, empty: false, hidden: false, material: "standard" as const },
+    tier: null, target: 800, score: 200, launchCost: 0, bayNum: 1,
+    timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  };
+  const progress = { tier: 1, runDone: false, contracts: 0, needed: 3, award: 45, milestone: 15 };
+  const linesHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Foundry Overrun", kind: "lines", goal: 5, lines: 2, launchesLeft: 9,
+      remaining: [], lost: 7, conditions: "crosswind · cryo shipments", progress,
+    },
+  });
+  const patternHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Cold Storage Backlog", kind: "pattern", goal: 4, lines: 1, launchesLeft: 6,
+      remaining: ["I", "O", "T"], lost: 0, conditions: "3 shapes, no waste", progress,
+    },
+  });
+
+  check("a lines Contract fills the empty clock column with cubes lost",
+    linesHud.includes('id="hud-lost"') && linesHud.includes(">7<"));
+  check("a pattern Contract does not — its margin is 0 by construction",
+    !patternHud.includes('id="hud-lost"'));
+  check("neither Contract renders a clock",
+    !linesHud.includes('id="hud-time"') && !patternHud.includes('id="hud-time"'));
+  check("cubes lost takes no danger treatment — there is no threshold",
+    !/pl-lost[^>]*pl-stat--danger/.test(linesHud));
+}
+
 // ---------------------------------------------------------------------------
 section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
 // ---------------------------------------------------------------------------

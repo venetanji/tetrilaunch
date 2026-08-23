@@ -616,6 +616,17 @@ export function hudHTML(opts: {
     lines: number;
     launchesLeft: number;
     remaining: PieceType[];
+    /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
+     *  as the third readout column on a LINES Contract, where the empty clock
+     *  slot is otherwise dead space and the count is the real drain on a launch
+     *  budget. Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so it
+     *  reads 0 until it reads 1, and at 1 the bay is already over. */
+    lost: number;
+    /** The bay's complications, one line (Contract.conditions). The board card
+     *  states these and the bay used to forget them. */
+    conditions: string;
+    /** Tier standing, for the row that says why this clear is worth having. */
+    progress: TierProgress;
   } | null;
 }): string {
   const {
@@ -815,7 +826,12 @@ export function hudHTML(opts: {
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">${contract.kind === "pattern" ? "Shipments" : "Launches"}</div>
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
-          </div>`
+          </div>
+          ${
+            contract.kind === "lines"
+              ? `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
+              : ""
+          }`
               : `<div class="pl-funds">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
