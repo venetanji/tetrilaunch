@@ -1035,6 +1035,37 @@ section("Pattern Contracts (contracts.ts)");
     "tuck admits an order drop refuses",
     isBuildable(["I", "I", "L", "L", "L", "J"], 8, "std", "tuck"),
   );
+  // --- The memo must name the whole subproblem ------------------------------
+  //
+  // buildOrder picks the ORDER as well as the placements, so two branches reach
+  // the same board having spent different pieces to get there. A memo keyed on
+  // the board plus a COUNT of what is left calls those the same node, and one
+  // dead branch poisons a live one — the search then reports "no order" for an
+  // inventory that has one, dealPatternQueue drops to its plain-shuffle
+  // fallback, and the bay is handed exactly the unwinnable deal this module
+  // exists to prevent.
+  //
+  // `() => 0` rather than a realistic rng on purpose: it is a legal generator
+  // and it pins the search to one deterministic walk, which is what makes this
+  // a regression test rather than a coin flip. Under Math.random the bug hid —
+  // a 624-inventory sweep never tripped it — which is exactly why it needs a
+  // check that does not depend on luck.
+  {
+    const zero = () => 0;
+    const narrow = generateContract(1002, 6, PATTERN_SLOT, "short");
+    const dealt = dealPatternQueue(narrow, narrow.lineCells, zero);
+    check(
+      `a deterministic deal is still buildable (${narrow.queue.join("")} -> ${dealt.join("")})`,
+      isBuildable(dealt, narrow.lineCells, narrow.pieceSize, "drop", narrow.standing),
+    );
+    // And the checker is not simply agreeing with everything: the order the
+    // broken memo used to produce is genuinely unbuildable.
+    check(
+      "the order the broken memo dealt is genuinely unbuildable",
+      !isBuildable(["I", "T", "T", "J", "J", "I"], narrow.lineCells, "std", "drop"),
+    );
+  }
+
   // The order dealPatternQueue hands out must be the advertised set, still —
   // proving an order finishable is worthless if it quietly changes the cargo.
   const proven = dealPatternQueue(c, 8, dealRng);

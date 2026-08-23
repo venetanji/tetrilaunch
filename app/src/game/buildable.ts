@@ -49,7 +49,7 @@
  */
 import { SIZE_SPEC } from "./pieces";
 import { ORIENTATIONS } from "./tiling";
-import type { PieceSize, PieceType } from "./theme";
+import { PIECE_TYPES, type PieceSize, type PieceType } from "./theme";
 
 /** How a landed shipment is allowed to come to rest — see the header. */
 export type BuildModel = "drop" | "tuck";
@@ -337,7 +337,22 @@ export function buildOrder(
   function walk(f: Field, left: number): boolean {
     if (left === 0) return f.length === 0;
     if (budget-- <= 0) return false;
-    const key = `${left}|${f.join(",")}`;
+    // The key has to name the whole SUBPROBLEM, which is the board plus what is
+    // left to place on it — not the board plus a COUNT of what is left.
+    //
+    // This search picks the order as well as the placements, so two branches
+    // reach the same board having spent different pieces to get there. Keyed on
+    // `left` alone they look like the same node, and a dead one poisons a live
+    // one: `IITTJJ` over four 6-cell rows (the Narrow Gauge Contract from seed
+    // 1002) has `TJTIJI` as a perfectly good answer, and a memo that forgot
+    // WHICH pieces remained pruned the branch leading to it, returned null from
+    // both searches, and dropped dealPatternQueue to the plain-shuffle fallback
+    // — which dealt `ITTJJI`, unbuildable. Precisely the unwinnable deal this
+    // module exists to prevent, reintroduced by its own cache.
+    //
+    // Canonical order and comma-separated, because a count can reach double
+    // digits (sixteen dominoes) and "1,6" must not collide with "16".
+    const key = PIECE_TYPES.map((t) => counts.get(t) ?? 0).join(",") + "|" + f.join(",");
     if (dead.has(key)) return false;
 
     const remainingCubes = (left - 1) * cubes;
