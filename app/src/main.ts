@@ -1266,8 +1266,15 @@ class App {
         // The offer is a function of the run seed, the bay and the Mark — NOT of
         // what the player owns. A hazard draft asks what you are prepared for,
         // so the table has to be the same whatever you brought to it.
+        //
+        // The ratchets are the one exception and a narrow one: they are read
+        // only on a materials-only bay, and only to name the axis the run has
+        // already committed to when there is a single material to pair with it
+        // (hazards.ts's hardestActive). That is still not "what you own" — it
+        // is what you have already chosen to suffer, which is exactly what the
+        // rule above is protecting.
         this.pendingOffers = hazardOffers(
-          this.run.seed, this.run.levelIndex, this.run.mark,
+          this.run.seed, this.run.levelIndex, this.run.mark, undefined, this.run.ratchets,
         );
         this.pendingPicks = [];
         this.setState("bayclear");
