@@ -41,6 +41,7 @@ export type FxName =
   | "explosion"
   | "uiClick"
   | "bombArm"
+  | "uiConfirm"
   | "congestionLoop"
   | "congestionLoop2"
   | "congestionLoop3";
@@ -60,7 +61,7 @@ export type StingerName = "bayClear" | "gameOver" | "gameOver2" | "refit";
 const FX_NAMES: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
-  "explosion", "uiClick", "bombArm",
+  "explosion", "uiClick", "bombArm", "uiConfirm",
   "congestionLoop", "congestionLoop2", "congestionLoop3",
 ];
 
@@ -392,6 +393,15 @@ export function playExplosion(kind: "bomb" | "volatile"): void {
  *  down when they switch off, which reads without looking at the pill. */
 export function playUiClick(rate = 1): void {
   playFx("uiClick", { rate: rate * (0.97 + Math.random() * 0.06), gain: 0.5 });
+}
+
+/** The COMMITTING press — play, buy, undock, confirm. Same master as uiClick,
+ *  different cut: the take was one tick followed by a three-tick flutter, the
+ *  tick ships as the click and the flutter as this blip, so the two are
+ *  tonally one family and temporally two words. Navigation says "tk",
+ *  commitment says "bl-blip". */
+export function playUiConfirm(): void {
+  playFx("uiConfirm", { rate: 0.97 + Math.random() * 0.06, gain: 0.5 });
 }
 
 /* ------------------------------------------------------- music & stingers */
