@@ -35,9 +35,17 @@ by a preset table.
 
 | preset | count | size | fling | TTL | extras |
 | --- | --- | --- | --- | --- | --- |
-| `shatter` — line clear, unchanged | 7 | 5px | 34px | 700ms | white core flash |
-| `snap` — a bond breaking | 4 | 2.2px | 12px | 320ms | none |
+| `shatter` — line clear, unchanged | 7 | 5px | 34px | 700ms | white core flash, r10 |
+| `snap` — a bond breaking | 4 | 4.2px | 22px | 500ms | pinpoint core, r4.5 |
 | `chunk` — blast debris | 3 | 10px | 46px | 800ms | tumble + gravity sag |
+
+`snap` was first tuned the obvious way — 2.2px shards, 12px reach, 320ms, no
+core — and on a real pile it was **invisible**. A seam sits BETWEEN two cubes,
+so the burst always draws over the brightest thing in the frame: 40px cubes
+carrying their own glow. The shard had to come most of the way back up to the
+shatter's, and the "tinier" is carried instead by count (4 vs 7), reach and
+life. The core came back too, as a pinpoint rather than the shatter's wide
+flash, so a Bond Breaker tearing two dozen seams crackles instead of strobing.
 
 **The sprites stay baked.** Each preset stamps one pre-rendered
 `shadowBlur`-glowed square per colour, scaled and rotated at draw time. This is

@@ -1392,69 +1392,147 @@ function seedAngle(x: number, y: number): number {
   return (((seed % 360) + 360) % 360) * (Math.PI / 180);
 }
 
-/** Shatter (700ms): 7 shards flung outward from the cube's last position,
- *  plus a bright core flash for the first 120ms. */
-const SHATTER_SHARD_COUNT = 7;
-const SHATTER_FLING_DIST = 34;
-const SHATTER_SHARD_SIZE = 5;
-const SHATTER_SHARD_GLOW = 10;
-const SHATTER_SPIN = Math.PI / 2;
-const SHATTER_CORE_MS = 120;
-const SHATTER_CORE_R = 10;
+/**
+ * The shape of a burst of glowing debris flung out of one point.
+ *
+ * Three effects want this and differ only in numbers: a brick shattering on a
+ * line clear, a bond letting go, and a cube blown apart. One spec table rather
+ * than three near-identical drawers, because the numbers ARE the design — the
+ * difference between "a seam popped" and "a cube exploded" is entirely how big
+ * the pieces are and how far they go, and those want to be readable side by
+ * side.
+ */
+interface ShardBurst {
+  /** Sprite cache key prefix. Distinct per preset because the baked sprite is
+   *  sized for that preset's shard, not just colored for it. */
+  key: string;
+  count: number;
+  /** Shard edge (px) at t=0; shrinks to nothing across the burst. */
+  size: number;
+  /** How far a shard travels over the burst's life, eased out. */
+  fling: number;
+  /** shadowBlur baked into the sprite. */
+  glow: number;
+  /** Radians of tumble across the burst's life. */
+  spin: number;
+  /** White core flash duration (ms), or 0 for none. */
+  coreMs: number;
+  coreR: number;
+  /** Downward sag (px) at t=1, applied as t² so the arc reads as a throw that
+   *  is now falling rather than as a starburst diagram. 0 for pure radial. */
+  sag: number;
+}
 
-function drawShatterFx(
+/** Line clear (700ms): 7 shards off the cube's last position + a core flash. */
+const BURST_SHATTER: ShardBurst = {
+  key: "shard", count: 7, size: 5, fling: 34, glow: 10,
+  spin: Math.PI / 2, coreMs: 120, coreR: 10, sag: 0,
+};
+/**
+ * One joint letting go (500ms): a four-shard puff at the seam, with a brief
+ * pinpoint core.
+ *
+ * Smaller than a shatter in every dimension — four shards to seven, two thirds
+ * the reach, five sevenths the life — but not much smaller in the shard itself,
+ * and that floor is forced. A seam sits BETWEEN two cubes, so this burst always
+ * draws over the brightest part of the frame: 40px cubes carrying their own
+ * glow. Tuned the obvious way (2.2px shards, no core) it was invisible against
+ * a real pile, which fails the only thing it is for. Most of the "tinier" here
+ * is carried by count and reach instead.
+ *
+ * The core is a pinpoint rather than the shatter's wide flash, so a Bond
+ * Breaker tearing two dozen seams at once crackles instead of strobing.
+ */
+const BURST_SNAP: ShardBurst = {
+  key: "snapshard", count: 4, size: 4.2, fling: 22, glow: 12,
+  spin: Math.PI * 0.9, coreMs: 90, coreR: 4.5, sag: 0,
+};
+/** One destroyed cube's wreckage (800ms): three big tumbling chunks that fall
+ *  as they fly. Fewer and larger than a shatter's shards, because a cube that
+ *  came apart in pieces reads differently from one that vaporized. */
+const BURST_CHUNK: ShardBurst = {
+  key: "chunk", count: 3, size: 10, fling: 46, glow: 14,
+  spin: Math.PI * 1.6, coreMs: 0, coreR: 0, sag: 26,
+};
+
+/**
+ * Draw one burst at (x, y) in `color`, `t` its 0..1 progress.
+ *
+ * `elapsed` is passed alongside `t` only for the core flash, which runs on its
+ * own fixed millisecond clock rather than on a fraction of a TTL — a flash is a
+ * transient, so it must not stretch when a preset's TTL changes.
+ */
+function drawShardBurst(
   ctx: CanvasRenderingContext2D,
-  e: Extract<FxEvent, { kind: "shatter" }>,
-  now: number,
+  x: number,
+  y: number,
+  color: string,
+  t: number,
+  elapsed: number,
+  spec: ShardBurst,
 ): void {
-  const elapsed = now - e.t0;
-  const t = clamp01(elapsed / FX_TTL.shatter);
-  if (t >= 1) return;
-
-  const base = seedAngle(e.x, e.y);
-  const dist = easeOutCubic(t) * SHATTER_FLING_DIST;
-  const size = SHATTER_SHARD_SIZE * (1 - t);
+  const base = seedAngle(x, y);
+  const dist = easeOutCubic(t) * spec.fling;
+  const size = spec.size * (1 - t);
 
   ctx.save();
-  ctx.translate(e.x, e.y);
+  ctx.translate(x, y);
   ctx.globalAlpha = 1 - t;
   if (size > 0) {
-    // One baked glowing shard per color, stamped scaled+rotated. A multi-row
-    // clear spawns dozens of shatter events at once — 7 live glow fills each
+    // One baked glowing shard per (preset, color), stamped scaled+rotated. A
+    // multi-row clear spawns dozens of bursts at once — 7 live glow fills each
     // was a couple hundred Gaussian passes in the exact frame the payout
     // logic is also busiest, i.e. the frame most likely to tip a full bay
     // into catch-up (see main.ts's MAX_CATCHUP_STEPS note).
-    const pad = SHATTER_SHARD_SIZE * 2.4; // covers the 10px glow at bake scale
-    const side = SHATTER_SHARD_SIZE + pad * 2;
-    const sprite = getSprite(`shard|${e.color}`, side, side, (c) => {
-      c.shadowColor = e.color;
-      c.shadowBlur = SHATTER_SHARD_GLOW;
-      c.fillStyle = e.color;
-      c.fillRect(pad, pad, SHATTER_SHARD_SIZE, SHATTER_SHARD_SIZE);
+    // Margin baked around the shard so its glow isn't clipped at the sprite's
+    // edge. 2.4x the shard covers it for a preset whose glow is proportional to
+    // its shard; `snap` is not (its shard had to shrink but its glow could not
+    // — see BURST_SNAP), so the glow itself is the floor.
+    const pad = Math.max(spec.size * 2.4, spec.glow);
+    const side = spec.size + pad * 2;
+    const sprite = getSprite(`${spec.key}|${color}`, side, side, (c) => {
+      c.shadowColor = color;
+      c.shadowBlur = spec.glow;
+      c.fillStyle = color;
+      c.fillRect(pad, pad, spec.size, spec.size);
     });
-    const drawSide = side * (size / SHATTER_SHARD_SIZE);
-    for (let i = 0; i < SHATTER_SHARD_COUNT; i++) {
-      const angle = base + i * ((Math.PI * 2) / SHATTER_SHARD_COUNT);
+    const drawSide = side * (size / spec.size);
+    const sag = spec.sag * t * t;
+    for (let i = 0; i < spec.count; i++) {
+      const angle = base + i * ((Math.PI * 2) / spec.count);
       ctx.save();
-      ctx.translate(Math.cos(angle) * dist, Math.sin(angle) * dist);
-      ctx.rotate(angle + t * SHATTER_SPIN);
+      ctx.translate(Math.cos(angle) * dist, Math.sin(angle) * dist + sag);
+      ctx.rotate(angle + t * spec.spin);
       ctx.drawImage(sprite, -drawSide / 2, -drawSide / 2, drawSide, drawSide);
       ctx.restore();
     }
   }
 
-  if (elapsed >= 0 && elapsed < SHATTER_CORE_MS) {
-    const coreT = elapsed / SHATTER_CORE_MS;
+  if (spec.coreMs > 0 && elapsed >= 0 && elapsed < spec.coreMs) {
+    const coreT = elapsed / spec.coreMs;
     ctx.save();
     ctx.globalAlpha = 1 - coreT;
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.arc(0, 0, SHATTER_CORE_R * (1 - coreT), 0, Math.PI * 2);
+    ctx.arc(0, 0, spec.coreR * (1 - coreT), 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
   ctx.restore();
+}
+
+/** Every burst-shaped event: same drawer, different numbers and TTL. */
+function drawBurstFx(
+  ctx: CanvasRenderingContext2D,
+  e: Extract<FxEvent, { kind: "shatter" | "snap" | "chunk" }>,
+  now: number,
+  spec: ShardBurst,
+): void {
+  const elapsed = now - e.t0;
+  const t = clamp01(elapsed / FX_TTL[e.kind]);
+  if (t >= 1) return;
+  drawShardBurst(ctx, e.x, e.y, e.color, t, elapsed, spec);
 }
 
 /** Payout (1100ms): "+$amount" rising and fading over the cluster. */
@@ -1724,7 +1802,13 @@ function drawEffects(ctx: CanvasRenderingContext2D, effects: FxEvent[], now: num
   for (const e of effects) {
     switch (e.kind) {
       case "shatter":
-        drawShatterFx(ctx, e, now);
+        drawBurstFx(ctx, e, now, BURST_SHATTER);
+        break;
+      case "snap":
+        drawBurstFx(ctx, e, now, BURST_SNAP);
+        break;
+      case "chunk":
+        drawBurstFx(ctx, e, now, BURST_CHUNK);
         break;
       case "payout":
         drawPayoutFx(ctx, e, now);
