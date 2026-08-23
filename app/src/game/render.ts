@@ -1272,9 +1272,18 @@ function drawLoadedPiece(
       roundRect(c, GHOST_AURA_PAD, GHOST_AURA_PAD, cell, cell, 4);
       c.fill();
     });
-    // 0..1..0 over one breath, sine-eased so neither end snaps.
+    // 0..1..0 over one breath, sine-eased so neither end snaps — and held at
+    // the peak instead for a player who asked for less movement. Same policy
+    // as the belt tiles' `mat-aura` (app.css): reduced motion drops the PULSE
+    // and keeps the TELEGRAPH, because the glow is information — which
+    // shipment is not ordinary — and asking for less movement is not asking to
+    // be told less. Frozen at what the pulse spends its time reaching, so the
+    // two previews of the same shipment still agree.
     const t = (now % GHOST_AURA_MS) / GHOST_AURA_MS;
-    ctx.globalAlpha = GHOST_AURA_ALPHA * (0.5 - 0.5 * Math.cos(t * Math.PI * 2));
+    const breath = prefersReducedMotion()
+      ? 1
+      : 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
+    ctx.globalAlpha = GHOST_AURA_ALPHA * breath;
     stamp(glow, GHOST_AURA_PAD);
   }
 
