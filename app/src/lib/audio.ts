@@ -283,6 +283,9 @@ let unlocked = false;
  *  the next screen. */
 export function setAudioEnabled(next: { sound: boolean; music: boolean }): void {
   soundOn = next.sound;
+  // Held so the resume below can tell an actual OFF -> ON toggle from the many
+  // calls that just restate the settings. See the branch for why that matters.
+  const wasMusicOn = musicOn;
   musicOn = next.music;
   if (fxBus && ctx) fxBus.gain.setTargetAtTime(soundOn ? FX_BUS_GAIN : 0, ctx.currentTime, 0.01);
   if (!musicOn) {
@@ -291,8 +294,16 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     fadeOutAndStop(stinger);
     stinger = null;
     stingerName = null;
-  } else if (musicName) {
-    // Turned back on: resume whatever the current screen wants.
+  } else if (!wasMusicOn && musicName) {
+    // Turned back ON — and only then. playMusic() cannot resume an element, it
+    // builds a new one from zero, so running this on a bed that was already
+    // playing RESTARTS it. This function is called on load and again from the
+    // first pointerdown (main.ts's syncAudioSettings), both of which restate
+    // music: true over a menu bed that started at first render, so without the
+    // wasMusicOn guard the bed audibly restarted twice every launch — once a
+    // few seconds in as settings loaded, once on the first touch. Measured on
+    // the device: menu.mp3 played at 60ms and again from zero at 3640ms, two
+    // elements overlapping for 450ms before the first was faded out.
     const want = musicName;
     musicName = null;
     playMusic(want);
