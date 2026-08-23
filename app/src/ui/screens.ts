@@ -684,20 +684,23 @@ export function hudHTML(opts: {
     <!-- button rail: ONE same-width column of four base buttons — fullscreen,
          pause, rotate CCW/CW — plus a slot per drafted ability (Bond Breaker,
          Demolition, Autoloader). Where it SITS is decided by the layout solver
-         (game/layout.ts): centered in the right letterbox gutter when one is
-         wide enough, in a reserved right band on near-16:9 viewports where
-         there is no natural gutter, or as a horizontal strip in the bottom
-         band when the column genuinely cannot fit (see app.css's [data-layout]
-         rules). The solver budgets the column for the buttons ACTUALLY here
-         (main.ts's hudOpts feeds railSlotsFor), which is what keeps the
-         vertical rail on 360dp landscape phones. There's no keyboard on
-         mobile, so this rail IS the touch control surface. The aim-state
+         (game/layout.ts): in the right letterbox gutter when one is wide
+         enough, in a reserved right band on near-16:9 viewports where there is
+         no natural gutter, or as a horizontal strip in the bottom band when the
+         column genuinely cannot fit (see app.css's [data-layout] rules). The
+         solver budgets the column for the buttons ACTUALLY here (main.ts's
+         hudOpts feeds railSlotsFor), which is what keeps the vertical rail on
+         360dp landscape phones. The column is TOP-ANCHORED, so the base four
+         keep the same screen positions whether or not a run has drafted any
+         abilities — ⟲/⟳ are the third and fourth button, always, and drafting
+         Bond Breaker mid-run grows the rail downward instead of sliding the
+         rotate pair out from under a thumb. There's no keyboard on mobile, so
+         this rail IS the touch control surface. The aim-state
          cancel ✕ is only visible mid-drag (main.ts's syncHud toggles
          .hud--aiming) and does NOT own a slot: it swaps into the pause
          button's slot (a CSS order pair — it is last in the DOM but renders
-         second), so the column's count and every other button's position hold
-         steady under a hovering thumb; a second finger taps it to abort the
-         queued launch. Rotate taps mid-drag do NOT cancel (see input.ts).
+         second), so nothing below it moves under a hovering thumb; a second
+         finger taps it to abort the queued launch. Rotate taps mid-drag do NOT cancel (see input.ts).
          Desktop hides the game buttons and uses Q/E + B/X instead (see the
          @media (pointer: fine) rule in app.css), per the kbd-hint strip down
          in .hud__bottom. -->
