@@ -118,10 +118,27 @@ one row the other does not, and both land in the same box.
 ### 3. `Bay` — the Contract's conditions, one dense line
 
 A Contract's complications are generated, priced against a difficulty budget,
-and written to `contract.brief` as a `·`-joined list: `crosswind`,
-`cryo shipments`, `micro dominoes`, `tight launch budget`, or `clean bay` when
-the budget bought nothing. The board card shows them. The moment the bay starts
-they are gone.
+and written to `contract.brief`: `crosswind · cryo shipments`,
+`tight launch budget`, `micro dominoes`, or `clean bay` when the budget bought
+nothing. The board card shows them. The moment the bay starts they are gone.
+
+**Not `brief` verbatim.** A pattern Contract's brief is
+`` `${queue.length} shipments · ${tail}` `` — and the shipment count is already
+the `Shipments` column, with the exact set already on the manifest row. Putting
+the brief in the panel would say it a third time.
+
+So the conditions are extracted into their own `Contract.conditions` field and
+`brief` is redefined in terms of it:
+
+- lines: `conditions` is the notes join (or `clean bay`); `brief` is identical,
+  so nothing on the card changes.
+- pattern: `conditions` is the variant tail alone — `all I, no waste`,
+  `rebar, nothing shatters, no waste`, `8-cell lines, no waste` — and
+  `brief` becomes `` `${n} · ${conditions}` ``, byte-identical to what
+  `patternBrief` returns today for every variant.
+
+One source of truth, no string surgery at the call site, and the card is
+unchanged by construction. `sim/systems.ts` pins the equivalence.
 
 These are the exact analogue of a Deep Run's notches — the axes this bay is
 running on, which the player did not choose and has to play around. `.pl-notch`
@@ -171,9 +188,11 @@ a pattern Contract and a lines Contract.
 
 - `app/src/styles/app.css` — the two height rules; `.pl-tier` styled off
   `.pl-notch`, sharing its `--pixel-optical-drop` correction.
+- `app/src/game/contracts.ts` — `Contract.conditions`, and `brief` redefined in
+  terms of it.
 - `app/src/ui/screens.ts` — `hudHTML`: the third `.pl-read` column on the lines
   branch, the `Bay` row, the `Tier` row. `hudHTML`'s `contract` option gains
-  `lost`, `brief` and `tier` fields.
+  `lost`, `conditions` and `progress` fields.
 - `app/src/main.ts` — `hudOpts` supplies the three new values; `syncHud` writes
   `#hud-lost` live. `Bay` and `Tier` are fixed for a bay and need no sync.
 - `app/sim/uifit/fixtures.ts` — `hud-contract` and `hud-contract-lines` gain the
