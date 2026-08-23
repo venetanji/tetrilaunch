@@ -108,6 +108,45 @@ const FX_NAMES: FxName[] = [
  */
 const FX_BUS_GAIN = 0.6;
 const MUSIC_GAIN = 0.75;
+/**
+ * THE MASTER LIMITER — the safety net the headroom note above assumed it did
+ * not need.
+ *
+ * That note budgets for ONE effect over the bed: 0.84 x 0.75 = 0.63 for the
+ * music, 0.71 x 0.6 = 0.43 for the effect, and it calls the resulting 1.05
+ * "the worst imaginable" coincidence. It is not. Twelve lines earlier the same
+ * block says a launch "fires several times a second", and playFx applies no
+ * voice cap at all — every call spawns a fresh BufferSource straight into the
+ * bus. Two coincident effects over the bed is 0.63 + 0.43 + 0.43 = 1.48, about
+ * 3.4 dB past the 1.0 where Web Audio hard-clips, and impacts arrive in bursts
+ * by design (see the 60ms floor in playImpact). Nothing sat between the sum
+ * and the destination, so that overage went out as distortion.
+ *
+ * Reported from an Android playtest as the LEVEL MUSIC breaking up while the
+ * stingers stayed clean, which is exactly the signature this predicts: the bed
+ * is the only thing effects stack on top of, and stingers are unrouted <audio>
+ * (see unlockAudio) that never reach this node at all. The bed is the victim
+ * of the sum, not the source of it — so the fix belongs at the sum.
+ *
+ * Tuned as a limiter, not a compressor. Hard knee and ratio 20 mean nothing
+ * happens at all until the ceiling is actually threatened, which keeps the
+ * music — the foreground, per the mix note — untouched in the ordinary case.
+ * At threshold -2 the worst case above lands at -2 + 5.4/20 = -1.7 dBFS (0.82
+ * linear), leaving real margin: DynamicsCompressorNode has no lookahead, so a
+ * sharp transient can overshoot for a few ms before the gain reduction bites,
+ * and that margin is what absorbs it. The 3ms attack is fast enough for those
+ * transients without the low-frequency distortion a sub-millisecond attack
+ * causes; the 250ms release is long enough not to pump on burst fire.
+ *
+ * This bounds the SUMMED graph, which is not a licence to raise the parts. If
+ * the limiter is audibly working during normal play, the mix underneath it is
+ * too hot and the durable fix is still the one prepare-audio.mjs owns.
+ */
+const LIMITER_THRESHOLD_DB = -2;
+const LIMITER_KNEE_DB = 0;
+const LIMITER_RATIO = 20;
+const LIMITER_ATTACK_S = 0.003;
+const LIMITER_RELEASE_S = 0.25;
 const STINGER_UNDER_DB = -6;
 const STINGER_GAIN = MUSIC_GAIN * 10 ** (STINGER_UNDER_DB / 20);
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
@@ -191,6 +230,10 @@ let ctx: AudioContext | null = null;
 let fxBus: GainNode | null = null;
 /** Music's last stop before the output, so congestion can close it down. */
 let musicFilter: BiquadFilterNode | null = null;
+/** The one node every routed source passes through on its way out. Null only
+ *  if the context could not build one, in which case the buses fall back to
+ *  connecting straight at the destination exactly as they used to. */
+let master: DynamicsCompressorNode | null = null;
 /** The static's level. Null until the first congested bay — a player who never
  *  fills one never pays for the noise source at all. */
 let staticGain: GainNode | null = null;
@@ -251,13 +294,28 @@ export function unlockAudio(): void {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;
     ctx = new Ctor();
+    // Built before the buses so both can be pointed at it. A context too old
+    // to have a compressor still gets the pre-limiter graph rather than no
+    // audio: `out` is simply the destination in that case.
+    try {
+      master = ctx.createDynamicsCompressor();
+      master.threshold.value = LIMITER_THRESHOLD_DB;
+      master.knee.value = LIMITER_KNEE_DB;
+      master.ratio.value = LIMITER_RATIO;
+      master.attack.value = LIMITER_ATTACK_S;
+      master.release.value = LIMITER_RELEASE_S;
+      master.connect(ctx.destination);
+    } catch {
+      master = null;
+    }
+    const out: AudioNode = master ?? ctx.destination;
     fxBus = ctx.createGain();
     fxBus.gain.value = soundOn ? FX_BUS_GAIN : 0;
-    fxBus.connect(ctx.destination);
+    fxBus.connect(out);
     musicFilter = ctx.createBiquadFilter();
     musicFilter.type = "lowpass";
     musicFilter.frequency.value = MUSIC_OPEN_HZ;
-    musicFilter.connect(ctx.destination);
+    musicFilter.connect(out);
     // The context can be stopped from OUTSIDE suspendAudio: a phone call, a
     // voice assistant, an alarm, a Bluetooth handoff — the OS ends the audio
     // session while the page stays visible, so the visibilitychange pair never
