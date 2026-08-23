@@ -23,7 +23,8 @@ import {
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
-  HAZARDS, hazardById, hazardOffers, hazardsForMark, picksPerBay, applyRatchets, togglePick,
+  HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
+  picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
   type HazardId, type Ratchets,
@@ -2882,16 +2883,107 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       hazardOffers(7, 2, m + 1).every((h) => h.mark <= m + 1)).every(Boolean));
   // At most one material per hand: the content axes all read alike, and three
   // at once is a pile-on rather than a choice between kinds of pressure.
+  //
+  // Scoped to the ORDINARY bays, because MATERIAL_DRAFT_BAYS suspends exactly
+  // this rule on purpose — see the materials-only block below. The structural
+  // half (enough cards, no duplicates) still has to hold everywhere.
   let oneContentMax = true;
+  let handWellFormed = true;
   for (let m = 1; m <= MARK_COUNT; m++) {
     for (let bay = 0; bay < 10; bay++) {
       const offer = hazardOffers(1234 + bay, bay, m);
-      if (offer.filter((h) => h.kind === "content").length > 1) oneContentMax = false;
-      if (offer.length < picksPerBay(m)) oneContentMax = false;
-      if (new Set(offer.map((h) => h.id)).size !== offer.length) oneContentMax = false;
+      if (!isMaterialDraft(bay) && offer.filter((h) => h.kind === "content").length > 1) {
+        oneContentMax = false;
+      }
+      if (offer.length < picksPerBay(m)) handWellFormed = false;
+      if (new Set(offer.map((h) => h.id)).size !== offer.length) handWellFormed = false;
+      if (offer.some((h) => h.mark > m)) handWellFormed = false;
     }
   }
-  check("every hand holds at most one material, enough cards, and no duplicates", oneContentMax);
+  check("an ordinary hand holds at most one material", oneContentMax);
+  check("every hand has enough cards, no duplicates, nothing above the Mark", handWellFormed);
+
+  // ---- Materials-only bays -------------------------------------------------
+  //
+  // The ladder is otherwise dodgeable — one content card per hand means a run
+  // can reach bay 10 having taken no material at all, which leaves half the
+  // content unseen and every ship system that answers a material a purchase
+  // with nothing to answer. These bays take the dodge away.
+  {
+    let forcedEverywhere = true;
+    let pairedWhenSingle = true;
+    let slagEverAlone = false;
+    let offBaysUnchanged = true;
+    let capstoneShort = false;
+    const ratchets: Ratchets = { cost: 2, time: 1, wind: 3 };
+
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const materials = hazardsForMark(m).filter((h) => h.kind === "content");
+      for (let bay = 0; bay < 10; bay++) {
+        const offer = hazardOffers(4242 + bay, bay, m, undefined, ratchets);
+        const inHand = offer.filter((h) => h.kind === "content");
+        if (!isMaterialDraft(bay)) {
+          // A non-material bay must be untouched by any of this.
+          if (inHand.length > 1) offBaysUnchanged = false;
+          continue;
+        }
+        if (materials.length >= 2) {
+          // TWO materials on offer and one pick: the choice is which material,
+          // never whether. This is the whole feature.
+          if (inHand.length !== offer.length) forcedEverywhere = false;
+          // ...and slag may fill a seat but never the last one — it is the one
+          // material with no passive counter, so a hand of nothing but slag is
+          // a bay that cannot be won by playing well.
+          if (offer.every((h) => h.id === "slag")) slagEverAlone = true;
+        } else if (materials.length === 1) {
+          // One material: paired with the axis the run has leaned on hardest,
+          // so the hand is still a draft rather than a single card to tap past.
+          if (inHand.length !== 1) pairedWhenSingle = false;
+          if (offer.length !== 2) pairedWhenSingle = false;
+          if (!offer.some((h) => h.id === "wind")) pairedWhenSingle = false;
+        } else {
+          // Marks 1-3 have no material to force; the ordinary draft stands.
+          if (inHand.length !== 0) forcedEverywhere = false;
+        }
+        if (offer.length < picksPerBay(m)) capstoneShort = true;
+      }
+    }
+    check(`materials-only bays are ${MATERIAL_DRAFT_BAYS.join(", ")}`,
+      MATERIAL_DRAFT_BAYS.every((b) => isMaterialDraft(b - 1))
+        && !isMaterialDraft(0) && !isMaterialDraft(2));
+    check("with two or more materials, every card in the hand is a material", forcedEverywhere);
+    check("with one material, it is paired with the run's hardest active axis", pairedWhenSingle);
+    check("slag is never the only thing on offer", !slagEverAlone);
+    check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
+    check("a forced hand still deals at least as many cards as picks", !capstoneShort);
+
+    // The offer must stay a function of (seed, bay, Mark) — a restarted run has
+    // to deal the same table, and the ratchets must not smuggle in variation
+    // beyond the single-material partner they are read for.
+    const a = hazardOffers(99, 5, 6, undefined, ratchets).map((h) => h.id).join(",");
+    const b = hazardOffers(99, 5, 6, undefined, ratchets).map((h) => h.id).join(",");
+    check("a forced hand is deterministic in the seed", a === b);
+    check("a forced hand is reproducible without a ratchet history",
+      hazardOffers(99, 5, 6).map((h) => h.id).join(",")
+        === hazardOffers(99, 5, 6, undefined, {}).map((h) => h.id).join(","));
+
+    // A run must be able to reach a shop after every forced material: that is
+    // why these bays sit where they do, and a schedule that broke it would be
+    // handing the player a problem with nothing left to buy the answer with.
+    // The schedule's whole justification: a forced material is carried for ONE
+    // bay and then its counter is on sale. "A refit happens eventually" is not
+    // the same promise — at bay 6 the next shop is three bays away, which is a
+    // far harder ask wearing the same clothes.
+    const carriedBays = MATERIAL_DRAFT_BAYS.map((b) => {
+      for (let i = b; i < RUN_LEVELS - 1; i++) if (isRefitBay(i)) return i + 1 - b;
+      return Infinity;
+    });
+    check(
+      `every forced material reaches a shop after one bay (${carriedBays.join(", ")})`,
+      carriedBays.every((n) => n === 1),
+      `bays ${MATERIAL_DRAFT_BAYS.join(",")} carry ${carriedBays.join(",")}`,
+    );
+  }
   check("totalNotches counts every axis",
     totalNotches({ target: 2, slag: 1, wind: 3 }) === 6 && totalNotches({}) === 0);
   check("hazardById resolves every id and rejects junk",
