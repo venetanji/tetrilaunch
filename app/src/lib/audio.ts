@@ -107,7 +107,12 @@ const FX_NAMES: FxName[] = [
  * keeps its distance.
  */
 const FX_BUS_GAIN = 0.6;
-const MUSIC_GAIN = 0.75;
+/** Set by ear on the test phone, not by meter. The master limiter below
+ *  passes the bed through untouched (0.0001 dB of reduction over 20s of
+ *  music) but Blink's makeup gain still lifts the routed path, so 0.75 read
+ *  hotter out of the speaker than the constant suggests. STINGER_GAIN is a
+ *  ratio of this, so the bay-clear jingle keeps its 6 dB gap for free. */
+const MUSIC_GAIN = 0.65;
 /**
  * THE MASTER LIMITER — the safety net the headroom note above assumed it did
  * not need.
