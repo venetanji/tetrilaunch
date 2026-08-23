@@ -2558,10 +2558,14 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   setRailSlots(RAIL_SLOTS_MAX);
 }
 
+section("Contract plant panel (screens.ts hudHTML)");
 // The Contract plant panel's three additions. A Contract has no clock, so the
 // third readout column renders empty — on a LINES Contract it carries cubes
-// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the count reads
-// 0 until it reads 1 and at 1 objectiveUnreachable has already ended the bay.
+// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the margin is 0
+// on frame one and one stranded cube ends the attempt — it never even reaches
+// 1, because cubesAvailable stops counting a cube the moment it starts
+// blinking (lineClear.ts's markLostPieces), so objectiveUnreachable fires
+// 1.4s before lostTotal increments, and the bay is called 0.4s before that.
 {
   const base = {
     beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
@@ -2579,6 +2583,19 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       remaining: [], lost: 7, conditions: "crosswind · cryo shipments", progress,
     },
   });
+  // A clean stretch — nothing stranded yet — is the common opening reading for
+  // every lines Contract, and this panel already has a rule against permanent
+  // zeroes (the COMBO/LAUNCH COST/SCRAP row above dropped out of Contracts for
+  // exactly that). Lost is not permanent: it moves the moment a shipment
+  // strands. Pinned so a future "blank until the first loss" change has to be
+  // deliberate, not a silent side effect of some unrelated edit.
+  const linesZeroHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Cargo Bay Reroute", kind: "lines", goal: 6, lines: 0, launchesLeft: 11,
+      remaining: [], lost: 0, conditions: "no complications", progress,
+    },
+  });
   const patternHud = hudHTML({
     ...base,
     contract: {
@@ -2587,14 +2604,25 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
     },
   });
 
+  // Anchored to the element it proves rather than a bare ">7<" — 7 happens to
+  // be unique across this fixture's other numbers, but that's a fact about the
+  // fixture, not the markup, and a regression coupling to it should not read
+  // as "ok" for the wrong reason.
   check("a lines Contract fills the empty clock column with cubes lost",
-    linesHud.includes('id="hud-lost"') && linesHud.includes(">7<"));
+    linesHud.includes('id="hud-lost">7<'));
+  check("...and still renders it at zero — Lost moves, unlike Combo/Scrap",
+    linesZeroHud.includes('id="hud-lost">0<'));
   check("a pattern Contract does not — its margin is 0 by construction",
     !patternHud.includes('id="hud-lost"'));
   check("neither Contract renders a clock",
     !linesHud.includes('id="hud-time"') && !patternHud.includes('id="hud-time"'));
+  check("Lost reads after Launches, not before",
+    linesHud.indexOf("pl-launches") < linesHud.indexOf("pl-lost"));
+  // Order-independent: a regression that writes class="pl-stat pl-stat--danger
+  // pl-lost" (danger before the marker class) is exactly as wrong as one that
+  // writes it after, and the check has to catch both.
   check("cubes lost takes no danger treatment — there is no threshold",
-    !/pl-lost[^>]*pl-stat--danger/.test(linesHud));
+    !/<div class="(?=[^"]*\bpl-lost\b)(?=[^"]*\bpl-stat--danger\b)[^"]*">/.test(linesHud));
 }
 
 // ---------------------------------------------------------------------------
@@ -2855,6 +2883,41 @@ section("HUD readout widths (the $1000+ wrap regression)");
         `needs ${b.needed.toFixed(0)}px, has ${b.available.toFixed(0)}px (short ${(-b.slack).toFixed(0)}px)`,
       );
     }
+  }
+
+  // fundsBudget only ever models the DEEP RUN column set (Funds/Target +
+  // Launches + Time) — it knows nothing about a lines Contract's row (Lines/
+  // Goal + Launches + Lost). The two extra columns are not the risk: goal
+  // never leaves single digits (contracts.ts's lines-goal formula tops out at
+  // 3 + 2 + 4 = 9) where a Deep Run target runs to 4 figures, and a Contract's
+  // launch budget tops out at 69 (launchesFor at goal 9, tiny pieces, no
+  // material — the branch that beats std+material's worse efficiency), well
+  // inside the 3-digit launchesCol the loop above already proves fits. LOST is
+  // the one column nothing has priced: same label length as TIME ("LOST" /
+  // "TIME", 4 glyphs) but built from `col`'s own max(), so its width can never
+  // exceed TIME's as long as its value string is no longer than "0:00" — and a
+  // lines Contract cannot lose more cubes than it ever ships (launches ×
+  // cubes/piece), which is at most 200 at this same worst case. "999" is a
+  // deliberately generous stand-in for that, not the real ceiling.
+  const col = (label: string, value: string, lblAdv: number, statLbl: number, statVal: number, statPad: number) =>
+    Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
+  for (const [name, w, h] of VIEWPORTS) {
+    const l = computeLayout(w, h);
+    const fpx = l.fw / 1280;
+    const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
+    const compact = l.density === "compact";
+    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
+    const statLbl = compact ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX) : mx(STAT_LBL_MIN, STAT_LBL_FPX);
+    const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
+    const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
+    const margin = mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+    const timeCol = col("TIME", "0:00", lblAdv, statLbl, statVal, statPad) + margin;
+    const lostCol = col("LOST", "999", lblAdv, statLbl, statVal, statPad) + margin;
+    check(
+      `${name}: a lines Contract's Lost column fits inside the room Time already proved`,
+      lostCol <= timeCol,
+      `lostCol ${lostCol.toFixed(1)}px vs timeCol ${timeCol.toFixed(1)}px`,
+    );
   }
 }
 

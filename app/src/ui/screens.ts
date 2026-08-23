@@ -617,10 +617,21 @@ export function hudHTML(opts: {
     launchesLeft: number;
     remaining: PieceType[];
     /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
-     *  as the third readout column on a LINES Contract, where the empty clock
-     *  slot is otherwise dead space and the count is the real drain on a launch
-     *  budget. Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so it
-     *  reads 0 until it reads 1, and at 1 the bay is already over. */
+     *  as the third readout column on a LINES Contract. The space isn't empty
+     *  before this: with no third .pl-stat, .pl-funds (flex: 1 1 auto) simply
+     *  grows to fill it, so a Contract currently spends that width on a longer
+     *  Lines/Goal bar (app.css's .pl-funds/.pl-goal). Lost buys back roughly
+     *  18px of it at the tightest phone the ui-fit harness models — the bar
+     *  still ends up wider than a Deep Run's Funds/Target bar at the same
+     *  viewport, because LOST's column is narrower than TIME's (sim/systems.ts
+     *  proves this: same label length, a shorter value).
+     *
+     *  Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so the margin
+     *  is 0 on frame one and one stranded cube ends the attempt. It never even
+     *  reaches 1 — cubesAvailable stops counting a cube the moment it starts
+     *  blinking (lineClear.ts's markLostPieces), so objectiveUnreachable fires
+     *  1.4s before lostTotal increments, and the bay is called 0.4s before
+     *  that. A column that reads 0 for a whole attempt is not a readout. */
     lost: number;
     /** The bay's complications, one line (Contract.conditions). The board card
      *  states these and the bay used to forget them. */
