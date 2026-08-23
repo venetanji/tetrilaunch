@@ -31,7 +31,8 @@ import {
 } from "../src/game/hazards";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
-import { Cannon } from "../src/game/cannon";
+import { Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag } from "../src/game/cannon";
+import { CHUTE, CHUTE_THROAT_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -4020,9 +4021,18 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
 
   // A std shipment is 4 cubes, so two launches put 8 on the field — past both
   // thresholds. Stepping only a few frames between them keeps everything alive.
+  //
+  // AIMED, deliberately. The cannon's rest pose is 20 degrees at minimum power,
+  // which drops the shipment about 490px out — inside the recycling plant's
+  // intake (chute.ts), where it is now shredded within ~20 steps. These checks
+  // are about what a POPULATED field costs, so they have to put cargo somewhere
+  // the bay actually keeps it; before the chute existed the fumbled default
+  // happened to work, which is the whole reason the chute exists.
   const fireTwice = (game: Game) => {
     for (let i = 0; i < 2; i++) {
       const t = 10_000 + i * 10_000;
+      game.cannon.angle = Math.PI / 6;
+      game.cannon.power = game.cannon.speedMax;
       game.shoot(t);
       for (let s = 0; s < 5; s++) game.update(t + s);
     }
@@ -4389,6 +4399,218 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
 }
 
+
+// ---------------------------------------------------------------------------
+// GESTURE MISFIRE PREVENTION — the firing floor, the strand warning, the chute.
+// ---------------------------------------------------------------------------
+section("Misfire prevention");
+{
+  const DT = 1000 / 60;
+
+  // --- The firing floor -----------------------------------------------------
+  // The threshold in world px, re-derived from the constants rather than
+  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
+  // bounds are module-private in cannon.ts (nothing outside it has any business
+  // knowing the mapping), so this brackets the crossing through the public
+  // function instead of asserting a number.
+  let floorPx = 0;
+  for (let len = 0; len <= 260; len += 0.5) {
+    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  }
+  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+  check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
+  check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
+  check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
+  // gesture asked for, not what the cannon happens to be holding — a tap
+  // returning the previous drag's ratio is precisely how a graze used to fire a
+  // full-power shot at an aim nobody chose.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const pulled = c.aimFromDrag(-120, 90);
+    check("a real drag reports its own ratio", pulled >= MIN_FIRE_RATIO, String(pulled));
+    check("a tap after a hard pull reports 0, not the pull", c.aimFromDrag(0, 0) === 0);
+    // The cannon KEEPS the pull — a tap must not stomp an aim the player set,
+    // which is also why the gate cannot read powerRatio back off it.
+    check("...and leaves the cannon's power untouched", Math.abs(c.powerRatio - pulled) < 1e-9,
+      `${c.powerRatio} vs ${pulled}`);
+  }
+
+  // --- The chute ------------------------------------------------------------
+  // The maw is authored in world px and the panel it models is authored in CSS
+  // fractions of the field, in a different file, in a different language. That
+  // is a seam two people can move independently, and if they ever disagree the
+  // game draws a hazard somewhere other than where it enforces one. So read the
+  // stylesheet and compare. (String-matched, necessarily — this harness has no
+  // browser and cannot measure a rendered box. It catches the numbers drifting
+  // apart, which is the failure that matters here; the RENDERED fit is
+  // sim/uifit's job.)
+  {
+    const cssPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css",
+    );
+    const css = fs.readFileSync(cssPath, "utf8");
+    const plant = css.slice(css.indexOf("\n.plant {"), css.indexOf("\n.pl-pwr {"));
+    const frac = (re: RegExp): number | null => {
+      const m = plant.match(re);
+      return m ? Number(m[1]) : null;
+    };
+    const left = frac(/left:\s*calc\(var\(--field-x\)\s*\+\s*([\d.]+)\s*\*\s*var\(--field-w\)\)/);
+    const width = frac(/width:\s*calc\(([\d.]+)\s*\*\s*var\(--field-w\)\)/);
+    const bottom = frac(/bottom:\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)/);
+    const height = frac(/min-height:\s*calc\(([\d.]+)\s*\*\s*var\(--field-h\)\)/);
+    check("the plant panel's frame fractions are still readable from app.css",
+      left !== null && width !== null && bottom !== null && height !== null,
+      `${left} ${width} ${bottom} ${height}`);
+    if (left !== null && width !== null && bottom !== null && height !== null) {
+      check("the chute's mouth ends where the plant panel does",
+        CHUTE.x1 === Math.round((left + width) * WORLD.width),
+        `${CHUTE.x1} vs ${Math.round((left + width) * WORLD.width)}`);
+      check("the chute's lip sits at the plant panel's top edge",
+        CHUTE.y0 === Math.round((bottom - height) * WORLD.height),
+        `${CHUTE.y0} vs ${Math.round((bottom - height) * WORLD.height)}`);
+    }
+  }
+  check("the chute reaches the floor", CHUTE.y1 === WORLD.height);
+  check("the chute reaches the left wall", CHUTE.x0 === 0);
+  check("the cannon is not standing in its own chute", !inChute(CANNON.x, CANNON.y));
+
+  // THE HOPPER. The grinder must sit below every arc that is on its way
+  // somewhere useful and above everything that comes to rest behind the panel.
+  // Both bounds measured off the live trajectory across the whole aim cone; see
+  // CHUTE_THROAT_Y. Restated here as a RANGE rather than the value, so the
+  // check fails when the throat is moved into either population instead of
+  // merely when it changes.
+  check("the grinder clears the deepest useful arc", CHUTE_THROAT_Y > 543 + 40,
+    String(CHUTE_THROAT_Y));
+  check("the grinder is above anything that lands behind the panel", CHUTE_THROAT_Y < 698 - 40,
+    String(CHUTE_THROAT_Y));
+  check("the mouth is drawn well above the grinder", CHUTE.y0 < CHUTE_THROAT_Y - 100);
+
+  // Bay Extension T3 walks the press's open stop LEFT of the panel's edge. The
+  // maw has to give that ground back, or the upgrade silently buys two cells of
+  // shredder.
+  {
+    const wide = makeBaseLevel(0);
+    applyUpgrades(wide, { ...newTiers(), bay: MAX_TIER });
+    const w = new Game(wide, {}, 5);
+    check("a T3 bay's press reaches inside the panel's footprint",
+      w.strandCutoffX < CHUTE.x1, `${w.strandCutoffX} vs ${CHUTE.x1}`);
+    check("...so the maw gives that ground back",
+      chuteRightEdge(w.strandCutoffX) === w.strandCutoffX,
+      String(chuteRightEdge(w.strandCutoffX)));
+    check("...while a stock bay keeps the panel's own edge",
+      chuteRightEdge(new Game(makeBaseLevel(0), {}, 5).strandCutoffX) === CHUTE.x1);
+  }
+
+  {
+    const cfg = makeBaseLevel(0);
+    const g = new Game(cfg, {}, 11);
+    // Aim into the mouth and fire: steeply down at minimum power is the shape
+    // of every fumbled shot, and it is the shape the old game silently ate.
+    g.cannon.angle = -Math.PI / 3;
+    g.cannon.power = g.cannon.speedMin;
+    // A combo the misfire has to cost. Set rather than earned: this asserts the
+    // shred runs the same accounting the blink path does, and `combo === 0` on
+    // a bay that never cleared a line would be true whatever happened.
+    g.combo = 3;
+    const before = g.score;
+    check("the launch is accepted", g.shoot(0));
+    const paid = before - g.score;
+    // A FIXED, short window rather than "step until the field empties". The old
+    // behaviour also ends with an empty field — it just takes a settle plus a
+    // 1.4s blink to get there (112 steps, measured with the shred disabled), so
+    // a check that waits for the field to clear passes with the chute switched
+    // off entirely. Half a second is the claim: gone while the player is still
+    // looking at where it went.
+    for (let i = 1; i <= 30; i++) g.update(i * DT);
+    check("cargo fired into the chute is gone within half a second",
+      g.cubes.length === 0, `${g.cubes.length} still on the field`);
+    check("...and it cost the launch plus the lost-piece penalty, no more",
+      before - g.score === paid + SIZE_SPEC[cfg.pieceSize].cubes * cfg.penaltyPerLostPiece,
+      `${before - g.score}`);
+    check("...and broke the combo", g.combo === 0, String(g.combo));
+  }
+
+  {
+    // The other half of the claim: a shot the player MEANT must cross the maw
+    // untouched. Full power up the middle is the ordinary delivery.
+    const g = new Game(makeBaseLevel(0), {}, 12);
+    g.cannon.angle = Math.PI / 4;
+    g.cannon.power = g.cannon.speedMax;
+    g.shoot(0);
+    let anyInMaw = false;
+    for (let i = 1; i < 300; i++) {
+      g.update(i * DT);
+      if (g.cubes.some((c) => inChute(c.body.position.x, c.body.position.y))) anyInMaw = true;
+    }
+    check("a good shot never enters the chute", !anyInMaw);
+    check("...and is still on the field", g.cubes.length > 0);
+  }
+
+  {
+    // THE FLY-THROUGH — the invariant the hopper exists for, and the one a
+    // full-depth maw would break. A shallow downward shot at full power crosses
+    // the machine's airspace low (the arc passes ~(519, 398), inside the panel's
+    // box) on its way out over the bay. The chute must not take it there: it may
+    // only ever collect cargo that has come to REST somewhere unreachable, never
+    // intercept something still in flight. Whether that particular shot is any
+    // GOOD is a separate question and not this check's business — what is
+    // asserted is that the shot gets to finish and be judged on its landing.
+    const g = new Game(makeBaseLevel(0), {}, 14);
+    g.cannon.angle = -Math.PI / 18;
+    g.cannon.power = g.cannon.speedMax;
+    g.updateTrajectory();
+    check("a flat delivery over the plant is not warned against", !g.trajectoryStrands);
+    g.shoot(0);
+    const launched = g.cubes.length;
+    let cleared = false;
+    let aliveAtClear = 0;
+    for (let i = 1; i < 240 && !cleared; i++) {
+      g.update(i * DT);
+      // The moment the whole shipment is past the maw's footprint, still in the
+      // air. Everything after that is ordinary bay physics.
+      if (g.cubes.length && g.cubes.every((c) => c.body.position.x > CHUTE.x1)) {
+        cleared = true;
+        aliveAtClear = g.cubes.length;
+      }
+    }
+    check("...it clears the plant's footprint in flight", cleared);
+    check("...with the whole shipment intact", aliveAtClear === launched,
+      `${aliveAtClear} of ${launched}`);
+  }
+
+  // --- The strand warning ---------------------------------------------------
+  {
+    const g = new Game(makeBaseLevel(0), {}, 13);
+    g.cannon.angle = -Math.PI / 4;
+    g.cannon.power = g.cannon.speedMin;
+    g.updateTrajectory();
+    check("a steep weak aim is flagged as stranding", g.trajectoryStrands);
+
+    g.cannon.angle = Math.PI / 5;
+    g.cannon.power = g.cannon.speedMax;
+    g.updateTrajectory();
+    check("a strong lofted aim is not flagged", !g.trajectoryStrands);
+
+    // The cutoff the warning uses and the one markLostPieces punishes on have to
+    // be the SAME number, or the arc goes red where nothing is charged (or
+    // worse, stays green where something is).
+    check(
+      "the warning reads the compactor's own strand cutoff",
+      g.strandCutoffX === g.compactor.leftX + g.compactor.width / 2 - CELL / 2,
+    );
+  }
+
+  // A truncated arc is not a landing. predictTrajectory stops at 140 steps
+  // whether or not the shot has come down, and treating that cut-off point as
+  // where the piece lands would flag every high lob in the game.
+  check(
+    "an arc still climbing at the step limit is not called short",
+    !pathStrands([{ x: 200, y: 300 }, { x: 400, y: 100 }], 780),
+  );
+}
 
 console.log(
   failures === 0

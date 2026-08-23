@@ -86,6 +86,12 @@ function publishLayout(): void {
   rs.setProperty("--field-y", `${l.oy}px`);
   rs.setProperty("--field-w", `${l.fw}px`);
   rs.setProperty("--field-h", `${l.fh}px`);
+  // Unitless twin of --fpx, for the rules that need the field scale as a
+  // multiplier (app.css's drag-hint pull). Published here as well as in main.ts
+  // because a fixture that falls back to the default measures one fixed scale
+  // on all 13 devices — which is exactly the per-device drift this harness is
+  // supposed to be looking for.
+  rs.setProperty("--fscale", String(l.scale));
   rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
   rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
   rs.setProperty("--rail-btn", `${l.railSize}px`);

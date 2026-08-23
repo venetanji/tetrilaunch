@@ -58,6 +58,7 @@ import {
 } from "./game/layout";
 
 import { InputController } from "./game/input";
+import { MIN_FIRE_RATIO } from "./game/cannon";
 import {
   actionForKey, resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
   type BindableAction, type InputProfile,
@@ -109,6 +110,19 @@ const STEP = 1000 / 60;
  *  little sooner, but its frames stay short enough to recover next vsync,
  *  which reads as smooth-but-briefly-slow instead of stuttering. */
 const MAX_CATCHUP_STEPS = 2;
+
+/** How long the misfire guide stays up. One pass of the corrective animation
+ *  (app.css's --hint-correct-dur) plus a beat to read the end pose. The
+ *  onboarding loop runs 3400ms and repeats forever, which is right for an
+ *  invitation and wrong for an answer to something the player just did. */
+const MISFIRE_GUIDE_MS = 1750;
+/** Matches --hint-show-dur (tokens.css's --dur-slow), the hint's own fade. */
+const MISFIRE_GUIDE_FADE_MS = 260;
+/** Quiet window between guides. A player fumbling repeatedly is fighting their
+ *  grip, not failing to understand the gesture; replaying the lesson on every
+ *  one of those turns an explanation into nagging. The sound still fires each
+ *  time — that is the part that says "nothing was launched". */
+const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -196,6 +210,13 @@ class App {
    *  once-per-session idle timer, armed at each bay start. */
   private dragHintTimer: number | null = null;
   private dragHintShownThisSession = false;
+  /** Timer clearing the misfire guide after its single play (see
+   *  showMisfireGuide). Separate from dragHintTimer, which ARMS the onboarding
+   *  loop — one schedules a start, the other an end, and sharing a handle would
+   *  let a misfire cancel a pending onboarding hint. */
+  private misfireGuideTimer: number | null = null;
+  /** performance.now() of the last misfire guide, for its rate limit. */
+  private lastMisfireGuide = -Infinity;
 
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
@@ -244,7 +265,7 @@ class App {
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
 
-    this.input = new InputController(this.canvas, () => this.game);
+    this.input = new InputController(this.canvas, () => this.game, this.onMisfire);
 
     this.overlay.addEventListener("click", this.onClick);
     this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
@@ -911,6 +932,12 @@ class App {
     rs.setProperty("--field-y", `${l.oy}px`);
     rs.setProperty("--field-w", `${l.fw}px`);
     rs.setProperty("--field-h", `${l.fh}px`);
+    // The same world->CSS scale as --fpx, UNITLESS, for the rules that need it
+    // as a multiplier rather than as a length. --fpx is px-valued (it is one
+    // world pixel), and CSS has no way to divide a length back down to a bare
+    // number — so a `transform: scale()` that has to track the field, like the
+    // drag hint's pull-back arc, cannot be written from --fpx alone.
+    rs.setProperty("--fscale", String(l.scale));
     // Gutters actually available OUTSIDE the field on each axis — what the rail
     // positions against. In "snug" this is the reserved band, in "wide"/"tall"
     // the natural letterbox gutter; either way the rail reads one number and
@@ -1044,6 +1071,10 @@ class App {
    *  bay's start with no shot fired. */
   private armDragHint(): void {
     if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    // Back to the onboarding anchor. The misfire guide borrows this element and
+    // leaves it pinned to wherever the last fumble was, which is nowhere in
+    // particular by the time a new bay opens.
+    this.overlay.querySelector("#drag-hint")?.classList.remove("drag-hint--at");
     // D3: past the first three bays the hint retires for good — the gesture
     // is learned, the rail is the control surface, and a looping finger over
     // a veteran's bay is chrome pretending to teach. (The counter is bumped
@@ -1059,9 +1090,141 @@ class App {
     }
   }
 
+  /**
+   * A release that never pulled hard enough to count (cannon.ts's
+   * MIN_FIRE_RATIO). Nothing was fired and nothing was spent — this is purely
+   * the telling.
+   *
+   * Two layers, because they answer different questions and a player needs both
+   * at different moments. The SOUND always plays: it answers "did anything
+   * happen", which is the question a fumbled tap raises every single time, and
+   * it costs nothing to answer. pieceLost pitched up and quiet, so the ear
+   * files it under "cargo didn't make it" rather than under a new alarm.
+   *
+   * The GUIDE answers "what should I have done", and that one goes stale fast —
+   * a player fumbling three times in four seconds is not failing to understand
+   * the gesture, they are fighting their grip, and re-teaching them mid-fumble
+   * is nagging. Hence the rate limit, and hence it stands down entirely while
+   * the onboarding hint is already on screen showing the same thing.
+   */
+  private onMisfire = (clientX: number, clientY: number): void => {
+    playFx("pieceLost", { rate: 1.5, gain: 0.42 });
+    this.showMisfireGuide(clientX, clientY);
+  };
+
+  /**
+   * Replay the finger-drag hint AT THE THUMB, as a correction rather than an
+   * invitation.
+   *
+   * The same element and the same keyframes as the onboarding loop — its dot
+   * already travels down and left, which is the gesture — repositioned and run
+   * once. `drag-hint--at` is what switches its anchor from the fixed
+   * field-relative one to the release point; the CLAMPING lives in the
+   * stylesheet with the rest of that arithmetic, because the reason it exists
+   * (the gesture reaches below its anchor and the plant panel is down there) is
+   * already written down at --hint-clear, and splitting the two would let one
+   * drift without the other.
+   */
+  private showMisfireGuide(clientX: number, clientY: number): void {
+    const hint = this.overlay.querySelector<HTMLElement>("#drag-hint");
+    if (!hint) return;
+    // The onboarding loop is already demonstrating this. Two copies of one
+    // lesson, one of them jumping to the thumb, reads as a glitch.
+    if (!hint.classList.contains("drag-hint--hidden")) return;
+    const now = performance.now();
+    if (now - this.lastMisfireGuide < MISFIRE_GUIDE_MIN_GAP_MS) return;
+    this.lastMisfireGuide = now;
+
+    if (this.misfireGuideTimer !== null) window.clearTimeout(this.misfireGuideTimer);
+    const at = this.fitGuideToField(hint, clientX, clientY);
+    hint.style.setProperty("--hint-ax", `${at.x}px`);
+    hint.style.setProperty("--hint-ay", `${at.y}px`);
+    hint.classList.add("drag-hint--at");
+    hint.classList.remove("drag-hint--hidden");
+    this.misfireGuideTimer = window.setTimeout(() => {
+      this.misfireGuideTimer = null;
+      hint.classList.add("drag-hint--hidden");
+      // Held until the fade finishes: dropping --at at the same moment would
+      // teleport the box back to its onboarding anchor mid-fade, so the last
+      // thing the player sees is the guide sliding across the bay.
+      window.setTimeout(() => hint.classList.remove("drag-hint--at"), MISFIRE_GUIDE_FADE_MS);
+    }, MISFIRE_GUIDE_MS);
+  }
+
+  /**
+   * Nudge the guide's anchor until the whole gesture is somewhere the player
+   * can actually watch it.
+   *
+   * Two obstacles, and only one of them is unconditional. HORIZONTALLY the
+   * field's edges always bound it — the pull travels left, so a thumb near the
+   * left wall would drag the dot off the world. VERTICALLY only the plant panel
+   * blocks, and only where the panel IS: it is opaque and sits above the canvas
+   * (z-index 6), so a gesture drawn beneath it is a gesture nobody sees — but
+   * the panel covers the bottom-LEFT, and a fumble out over the bay has clear
+   * air under it. An earlier version clamped vertically without checking, and
+   * hauled every right-hand fumble a couple of hundred px up the screen to
+   * dodge a panel it was never over.
+   *
+   * The panel is MEASURED, not derived from its frame fractions, which is what
+   * makes the tutorial's taller panel (and a Contract's shorter one) need no
+   * special case at all — each is simply a different rect.
+   *
+   * The gesture's own dimensions come back out of the stylesheet (--hint-reach,
+   * --hint-pull-x), so this and the animation cannot disagree about how far the
+   * finger travels. Both are registered as <length> in app.css precisely so
+   * they read back as numbers.
+   */
+  private fitGuideToField(hint: HTMLElement, clientX: number, clientY: number): { x: number; y: number } {
+    const cs = getComputedStyle(hint);
+    const num = (prop: string, fallback: number): number => {
+      const v = parseFloat(cs.getPropertyValue(prop));
+      return Number.isFinite(v) ? v : fallback;
+    };
+    // The box is 160px square and centred on its anchor (app.css's negative
+    // margins), so the anchor sits HALF in from each edge of it.
+    const HALF = 80;
+    const reach = num("--hint-reach", 146);
+    const pullX = num("--hint-pull-x", -35); // negative — the pull goes left
+    const root = getComputedStyle(document.documentElement);
+    const fx = parseFloat(root.getPropertyValue("--field-x")) || 0;
+    const fy = parseFloat(root.getPropertyValue("--field-y")) || 0;
+    const fw = parseFloat(root.getPropertyValue("--field-w")) || window.innerWidth;
+
+    // Horizontal: the dot starts a little right of the anchor and travels
+    // pullX left of that. Keep both ends on the field, with a little air.
+    const PAD = 20;
+    const minX = fx + PAD - pullX;
+    const maxX = fx + fw - PAD;
+    const x = Math.max(minX, Math.min(maxX, clientX));
+
+    let y = Math.max(fy + 8, clientY);
+    const plant = this.overlay.querySelector(".plant")?.getBoundingClientRect();
+    if (plant && plant.height > 0) {
+      // Does the gesture pass over the panel at all? Its span runs from the
+      // dot's furthest reach left to a little right of the anchor.
+      const gestureLeft = x + pullX - PAD;
+      const gestureRight = x + PAD;
+      if (gestureRight > plant.left && gestureLeft < plant.right) {
+        // Same bound the onboarding anchor takes: the dot's deepest point
+        // (box top + reach) must land above the panel, plus a little daylight.
+        y = Math.min(y, plant.top - reach + HALF - 8);
+      }
+    }
+    return { x, y: Math.max(fy + 8, y) };
+  }
+
   /** Hides the drag hint for good once a real shot fires, and marks it seen. */
   private dismissDragHint(): void {
     if (this.dragHintTimer !== null) { window.clearTimeout(this.dragHintTimer); this.dragHintTimer = null; }
+    // A real shot retires the misfire guide too. The --at anchor is NOT cleared
+    // here: the element is mid-fade, and moving it back to the onboarding
+    // anchor in the same frame would send the guide sliding across the bay on
+    // its way out. armDragHint clears it instead, which is the moment the
+    // anchor next has to be right.
+    if (this.misfireGuideTimer !== null) {
+      window.clearTimeout(this.misfireGuideTimer);
+      this.misfireGuideTimer = null;
+    }
     this.overlay.querySelector("#drag-hint")?.classList.add("drag-hint--hidden");
     if (!this.settings.seenDragHint) {
       this.settings.seenDragHint = true;
@@ -1732,6 +1895,7 @@ class App {
         windAverage: this.meta.unlocks.includes("survey") ? g.windAverage : null,
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
+        strandWarning: g.trajectoryStrands,
       });
     } else if (!g) {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1822,10 +1986,26 @@ class App {
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
     this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
-    const powerPct = Math.round(g.cannon.powerRatio * 100);
+    // The LIVE gesture's ratio while a drag is in progress, the cannon's only
+    // when there isn't one. They differ in exactly the case that matters: a tap
+    // (or a sub-4px wobble) never reaches aimFromDrag, so the cannon still
+    // holds the PREVIOUS shot's power — the meter would sit at 80% advertising
+    // a launch the release is not going to make. Reading the gesture makes the
+    // readout agree with the gate, and drops it to 0 the instant a finger lands.
+    const liveRatio = this.input.liveDragRatio;
+    const ratio = liveRatio ?? g.cannon.powerRatio;
+    const powerPct = Math.round(ratio * 100);
     const power = this.overlay.querySelector<HTMLElement>("#hud-power");
     if (power) power.style.width = powerPct + "%";
     set("#hud-power-val", powerPct + "%");
+    // Below the floor, mid-drag: the pull as it stands would be discarded as an
+    // accidental touch. Shown WHILE the finger is down, which is the only time
+    // it can still be acted on — the post-release cue is a consolation prize by
+    // comparison. Scoped to a live drag so a freshly loaded cannon sitting at
+    // its minimum doesn't wear a warning about a gesture nobody is making.
+    this.overlay.querySelector("#hud-pwr")?.classList.toggle(
+      "pl-pwr--weak", liveRatio !== null && liveRatio < MIN_FIRE_RATIO,
+    );
 
     // RELOAD bar — same value the canvas draws as a ring around the muzzle
     // (render.ts's drawReloadRing). Two views of one number on purpose: the

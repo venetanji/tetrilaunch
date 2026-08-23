@@ -903,14 +903,66 @@ body.crt-off #app::after { display: none; }
    good the moment a shot fires). Pure CSS: transform/opacity keyframes
    driven by the --hint-* tokens in tokens.css. Touch-only — desktop already
    spells the gesture out in the .kbd-hint strip above. */
+/* REGISTERED, so it computes to a length instead of substituting as a token
+   stream. sim/uifit's `draghint` assertion reads this property back with
+   parseFloat(getComputedStyle(...).getPropertyValue(...)) — the stylesheet
+   publishes the reach precisely so the harness does not have to restate it —
+   and an unregistered custom property hands back its literal text. That was
+   fine while this was `146px`; the moment it became a calc() the harness got
+   the string "calc(64px + ...)", parseFloat returned NaN, every comparison
+   against NaN came out false, and the whole assertion went quietly green.
+   Registering it is what keeps a derived value readable by a measuring tool. */
+@property --hint-reach {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 146px;
+}
+/* Registered for the same reason, one reader further on: main.ts's
+   showMisfireGuide reads the pull back to work out how far left the gesture
+   travels before deciding whether the plant panel is in its way. */
+@property --hint-pull-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: -35px;
+}
+@property --hint-pull-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 56px;
+}
+
 .drag-hint {
   position: absolute;
+  /* THE PULL THE HINT DEMONSTRATES, as a WORLD distance rather than a CSS one.
+     It has to be, because the thing it teaches is one: cannon.ts's
+     MIN_FIRE_RATIO rejects a release under 85.6 world px as an accidental
+     touch, and 85.6 world px is a different number of CSS px on every device.
+
+     The travel used to be a flat 35/56 CSS px, i.e. 66px on the diagonal.
+     Against the floor that buys 1.5x the required pull on an 800x360 phone and
+     0.97x on a 1024x768 tablet — the guide demonstrating a gesture the game
+     would REJECT, which is the misfire it exists to prevent. It was already
+     telling different stories per device before the floor existed: the same
+     animation taught 132 world px of pull on that phone and 82 on that tablet.
+
+     Scaled to 150 world px on the authored down-left diagonal (150 / 66.04 =
+     2.271), so the demonstrated pull is ~0.63 power at every field scale — a
+     healthy shot, not one scraping the threshold. On a phone that resolves to
+     39/63 CSS px, within a few px of what shipped.
+
+     --fscale, not --fpx: this is also the scale factor on the SVG pull-back
+     arc, which has to grow with the dot or the trail ends short of the finger,
+     and `transform: scale()` needs a bare number. --fpx is px-valued. */
+  --hint-pull-scale: calc(2.271 * var(--fscale, 0.5));
+  --hint-pull-x: calc(-35px * var(--hint-pull-scale));
+  --hint-pull-y: calc(56px * var(--hint-pull-scale));
   /* HOW FAR THE GESTURE REACHES below this box's own top edge: the dot starts
-     at `top: 64px`, the hint-dot keyframes translate it 56px down at the pull's
-     furthest point, and it is 26px tall — 146px. Stated once, because the
-     anchor below is derived from it and the ui-fit harness asserts the
-     clearance against it. Keep it in step with those keyframes. */
-  --hint-reach: 146px;
+     at `top: 64px`, the keyframes translate it --hint-pull-y down at the pull's
+     furthest point, and it is 26px tall. Derived rather than restated, because
+     the anchor below is derived from it and the ui-fit harness asserts the
+     clearance against it — a literal would go stale the first time the pull
+     changed, silently. */
+  --hint-reach: calc(64px + var(--hint-pull-y) + 26px);
   /* Clearance wanted between the gesture and the panel: the reach, plus a
      little daylight so the dot does not kiss the panel's top border. */
   --hint-clear: calc(var(--hint-reach) - 80px + 8px);
@@ -946,7 +998,14 @@ body.crt-off #app::after { display: none; }
    budget substituted for its normal one. This is the state the hint is
    actually shown in most often: the drag hint's whole reason to exist is a
    player's first-ever bay, which is the tutorial's first step. */
-.hud[data-coach] .drag-hint {
+/* :not(--at) because this rule and the misfire guide's anchor both set `top`,
+   and `.hud[data-coach] .drag-hint` outranks a lone `.drag-hint--at` on
+   specificity — so during the tutorial the guide silently ignored the thumb and
+   snapped back to the onboarding anchor. Excluding the state is better than
+   escalating the other selector: this rule is about where the ONBOARDING hint
+   sits, and it has no opinion about a guide whose position JS has already
+   solved against the panel's measured box. */
+.hud[data-coach] .drag-hint:not(.drag-hint--at) {
   top: calc(var(--field-y) + (0.9703 - 0.52) * var(--field-h) - var(--hint-clear));
 }
 .drag-hint--hidden { opacity: 0; }
@@ -957,6 +1016,14 @@ body.crt-off #app::after { display: none; }
   fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
   stroke-dasharray: 5 11; stroke-dashoffset: 60; opacity: 0;
   filter: drop-shadow(0 0 6px rgba(0,240,255,0.65));
+  /* Grown from the dot's START point (the path is authored from M89,77, which
+     is the dot's own centre at rest) by the same factor the dot's travel takes,
+     so the trail always ends under the finger. The SVG is 160x160 over a
+     0 0 160 160 viewBox, so user units are CSS px here and the origin can be
+     stated in px. `overflow: visible` above already lets the grown arc spill
+     past the box, which it does on anything bigger than a phone. */
+  transform-origin: 89px 77px;
+  transform: scale(var(--hint-pull-scale));
   animation: hint-arc var(--hint-loop-dur) var(--hint-ease) infinite;
 }
 .drag-hint__dot {
@@ -971,9 +1038,9 @@ body.crt-off #app::after { display: none; }
   0%, 100% { opacity: 0; transform: translate(0, 0) scale(1); }
   6% { opacity: 1; transform: translate(0, 0) scale(1); }
   12% { opacity: 1; transform: translate(0, 0) scale(0.85); }
-  55% { opacity: 1; transform: translate(-35px, 56px) scale(0.85); }
-  65% { opacity: 1; transform: translate(-35px, 56px) scale(0.85); }
-  74% { opacity: 0; transform: translate(-35px, 56px) scale(1.2); }
+  55% { opacity: 1; transform: translate(var(--hint-pull-x), var(--hint-pull-y)) scale(0.85); }
+  65% { opacity: 1; transform: translate(var(--hint-pull-x), var(--hint-pull-y)) scale(0.85); }
+  74% { opacity: 0; transform: translate(var(--hint-pull-x), var(--hint-pull-y)) scale(1.2); }
 }
 @keyframes hint-arc {
   0%, 11% { opacity: 0; stroke-dashoffset: 60; }
@@ -983,10 +1050,63 @@ body.crt-off #app::after { display: none; }
   74% { opacity: 0; stroke-dashoffset: 0; }
   100% { opacity: 0; stroke-dashoffset: 60; }
 }
+/* ---------- The misfire correction ----------
+   Same element, same keyframes, three differences: it is anchored AT THE THUMB
+   (main.ts's showMisfireGuide publishes --hint-ax/--hint-ay from the release
+   point), it runs ONCE, and it runs faster. The onboarding loop is an
+   invitation and repeats forever; this is an answer to something the player did
+   half a second ago, and an answer that keeps repeating is nagging.
+
+   The anchor arrives ALREADY CLAMPED. main.ts's showMisfireGuide does that
+   arithmetic rather than this rule, and the reason is that the useful clamp is
+   conditional: the gesture reaches --hint-reach below its anchor and travels
+   left, so the plant panel blocks it — but only where the panel actually IS.
+   A thumb landing on the right half of the field has clear air beneath it, and
+   a CSS clamp, which cannot ask where the anchor is horizontally, hauled those
+   fumbles a couple of hundred px up the screen to dodge a panel they were never
+   over. JS can measure the panel's real box, which also means the tutorial's
+   taller panel needs no special case — it is simply a different rect. */
+.drag-hint--at {
+  left: var(--hint-ax, 50%);
+  top: var(--hint-ay, 50%);
+}
+.drag-hint--at .drag-hint__dot,
+.drag-hint--at .drag-hint__arc path {
+  animation-duration: var(--hint-correct-dur);
+  animation-iteration-count: 1;
+  /* forwards, so the last keyframe (the dot released, arc faded) holds for the
+     rest of the element's life instead of snapping back to the pressed pose
+     while main.ts's timer runs out. */
+  animation-fill-mode: forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .drag-hint__dot, .drag-hint__arc path { animation: none; opacity: 0; }
+  /* The onboarding loop is pure invitation, so suppressing it entirely is the
+     right answer. The misfire guide is NOT: it is the explanation for something
+     that just happened, and `opacity: 0` would leave a player who asked for
+     less motion with no explanation at all — strictly worse off than everyone
+     else for having set the preference.
+
+     So the correction becomes a STILL DIAGRAM instead: the full trail drawn,
+     the dot parked at the end of the pull. Every bit of the information, none
+     of the movement, which is what the preference actually asks for. */
+  .drag-hint--at .drag-hint__arc path {
+    animation: none;
+    opacity: 0.9;
+    stroke-dashoffset: 0;
+  }
+  .drag-hint--at .drag-hint__dot {
+    animation: none;
+    opacity: 1;
+    transform: translate(var(--hint-pull-x), var(--hint-pull-y));
+  }
 }
 @media (pointer: fine) {
+  /* Hidden on a mouse, both roles. The onboarding hint teaches a touch gesture
+     the .kbd-hint strip already spells out in keys; the correction answers a
+     misfire that input.ts does not gate on a mouse in the first place (see its
+     pointerType note), so there is nothing there to explain. */
   .drag-hint { display: none; }
 }
 
@@ -1065,6 +1185,27 @@ body.crt-off #app::after { display: none; }
 .pl-pwr__fill { display: block; height: 100%; width: 0%; border-radius: var(--r-pill);
   background: linear-gradient(90deg, var(--success), var(--warn) 62%, var(--danger));
   box-shadow: 0 0 8px rgba(255,176,32,.55); transition: width 80ms linear; }
+/* THE FIRING FLOOR — a notch on the track at cannon.ts's MIN_FIRE_RATIO (0.3).
+   Left of it a release is discarded as an accidental touch, so the meter owes
+   the player a mark for where "this will actually launch" begins; without one,
+   the rule is only ever learned by tripping it. Drawn on the track rather than
+   the fill so it stays put while the fill moves under it. */
+.pl-pwr__track::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 30%;
+  width: max(1px, calc(2 * var(--fpx)));
+  background: rgba(255,255,255,0.42);
+}
+.pl-pwr__track { position: relative; }
+/* Below the floor, WHILE A FINGER IS DOWN (main.ts's syncHud scopes it to a
+   live drag). Red, and the notch brightens: this is the one moment the player
+   can still fix it by pulling further, which is worth more than any amount of
+   explaining after the fact. */
+.pl-pwr--weak .pl-pwr__fill {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(255,45,85,.6);
+}
+.pl-pwr--weak .pl-pwr__val { color: var(--danger); }
+.pl-pwr--weak .pl-pwr__track::after { background: rgba(255,255,255,0.8); }
 .pl-pwr__val { font-family: var(--font-mono); font-weight: 700; font-size: max(9px, calc(13.3 * var(--fpx))); color: var(--warn); flex: none; }
 
 .plant__body {

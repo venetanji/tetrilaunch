@@ -1,6 +1,7 @@
 import { Game } from "./game";
 import { screenToWorld } from "./render";
 import { actionForKey, keyFor } from "./bindings";
+import { MIN_FIRE_RATIO } from "./cannon";
 
 /**
  * Angry-Birds-style drag aiming on the canvas + keyboard fallback (web).
@@ -9,19 +10,42 @@ import { actionForKey, keyFor } from "./bindings";
  * the pointer that started it, so on touch a SECOND finger can tap the
  * side-rail buttons mid-aim (rotate keeps the drag alive; the ✕ cancels it
  * via cancelAim) without its release firing the shot.
+ *
+ * A release only counts as a shot once the pull reached MIN_FIRE_RATIO of the
+ * ship's power (see cannon.ts) — everything under that is treated as an
+ * accidental touch and cancelled. `onMisfire` reports those so the HUD can say
+ * so; it takes CLIENT coordinates because what it drives is DOM chrome (the
+ * drag-hint guide, placed at the thumb), and the game has no business knowing
+ * about CSS pixels.
  */
 export class InputController {
   private canvas: HTMLCanvasElement;
   private game: () => Game | null;
+  private onMisfire?: (clientX: number, clientY: number) => void;
   private keys = new Set<string>();
   private dragging = false;
   private dragStart: { x: number; y: number } | null = null;
   private dragPointerId: number | null = null;
+  /** Power ratio the CURRENT gesture has asked for, 0 until a move applies one.
+   *  Zeroed on every pointerdown, so a tap — which never reaches applyAim —
+   *  reads 0 and is cancelled rather than firing the last drag's shot. */
+  private dragRatio = 0;
+  /** The aim as it stood when the current gesture STARTED, restored if that
+   *  gesture turns out to be a misfire. Without it a graze that travels far
+   *  enough to move the cannon but not far enough to fire still costs the
+   *  player the shot they had lined up — the accident would be free of ammo
+   *  and expensive in setup, which is only half a fix. */
+  private aimBefore: { angle: number; power: number } | null = null;
   private raf = 0;
 
-  constructor(canvas: HTMLCanvasElement, game: () => Game | null) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    game: () => Game | null,
+    onMisfire?: (clientX: number, clientY: number) => void,
+  ) {
     this.canvas = canvas;
     this.game = game;
+    this.onMisfire = onMisfire;
 
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
@@ -52,8 +76,23 @@ export class InputController {
     this.dragging = false;
     this.dragStart = null;
     this.dragPointerId = null;
+    this.dragRatio = 0;
+    // The ✕ deliberately does NOT restore the pre-drag aim, unlike a misfire.
+    // The player pulled, watched the arc, and chose to stand down — the aim
+    // they are looking at is the one they built, and snapping it back to
+    // whatever preceded it would undo work they meant to do.
+    this.aimBefore = null;
     const g = this.game();
     if (g) g.aiming = false;
+  }
+
+  /** The power ratio the live gesture is currently asking for, or null when no
+   *  drag is in progress. The PWR meter reads THIS rather than cannon.powerRatio
+   *  while aiming: the cannon holds the last APPLIED power, so during a tap or a
+   *  sub-4px wobble the meter would advertise a shot the release is not going to
+   *  fire — the readout siding with the bug it exists to expose. */
+  get liveDragRatio(): number | null {
+    return this.dragging ? this.dragRatio : null;
   }
 
   private worldPoint(e: PointerEvent) {
@@ -67,7 +106,7 @@ export class InputController {
     const p = this.worldPoint(e);
     // Slingshot: aim from the drag delta (works anywhere on screen), and the
     // cannon reverses it 180° so pulling back fires forward.
-    g.cannon.aimFromDrag(p.x - this.dragStart.x, p.y - this.dragStart.y);
+    this.dragRatio = g.cannon.aimFromDrag(p.x - this.dragStart.x, p.y - this.dragStart.y);
     g.updateTrajectory();
   }
 
@@ -80,6 +119,8 @@ export class InputController {
     this.dragging = true;
     this.dragPointerId = e.pointerId;
     this.dragStart = this.worldPoint(e);
+    this.dragRatio = 0;
+    this.aimBefore = { angle: g.cannon.angle, power: g.cannon.power };
     g.aiming = true;
     this.canvas.setPointerCapture?.(e.pointerId);
   };
@@ -93,14 +134,45 @@ export class InputController {
     // Only the finger that started the drag fires it — any other pointer's
     // release (a rotate/✕ tap mid-aim) leaves the drag alive.
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
+    // MISFIRE GATE. Read the gesture, never the cannon: cannon.power holds the
+    // last APPLIED pull, so a tap would read the previous shot's setting back
+    // and fire it. dragRatio is this gesture's own answer, and it is 0 for a tap.
+    //
+    // Read at RELEASE, not at the furthest point reached, and that is the
+    // intended reading of "did they mean it": pulling the slingshot back and
+    // walking the finger home before lifting is how a player takes it back.
+    //
+    // NOT APPLIED TO A MOUSE. The accident this prevents is a thumb grazing the
+    // glass — a hand resting on the bezel, a finger reaching for the rail and
+    // missing — and a mouse has no equivalent: a click is a deliberate act at a
+    // pixel the player chose. Gating it would break click-to-fire for a desktop
+    // player aiming on the keyboard, which is a working control scheme, to
+    // solve a problem that device does not have. Same line the drag hint draws
+    // (app.css hides it under `pointer: fine`). Pen and unknown pointer types
+    // stay gated: both land on touch hardware.
+    const misfired = e.pointerType !== "mouse" && this.dragRatio < MIN_FIRE_RATIO;
+    const restore = this.aimBefore;
     this.dragging = false;
     this.dragStart = null;
     this.dragPointerId = null;
+    this.dragRatio = 0;
+    this.aimBefore = null;
     const g = this.game();
-    if (g) {
-      g.aiming = false;
-      g.shoot(performance.now());
+    if (g) g.aiming = false;
+    if (misfired) {
+      // Nothing fired, nothing spent, and the cannon goes back to the aim it
+      // had before the finger landed — a graze that travelled 20px still moved
+      // the barrel, so leaving it where it stopped would make the accident cost
+      // the shot the player had lined up. "Nothing happened" has to mean it.
+      if (g && restore) {
+        g.cannon.angle = restore.angle;
+        g.cannon.power = restore.power;
+        g.updateTrajectory();
+      }
+      this.onMisfire?.(e.clientX, e.clientY);
+      return;
     }
+    if (g) g.shoot(performance.now());
   };
 
   private onPointerCancel = (e: PointerEvent): void => {

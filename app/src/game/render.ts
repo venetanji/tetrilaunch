@@ -1,5 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
+import { CHUTE, chuteRightEdge } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
 import {
@@ -96,6 +97,16 @@ export interface Scene {
   /** True while the bay's settle window is running (game.ts's Game.settling):
    *  the cannon is locked out, so it dims instead of promising a shot. */
   settling: boolean;
+  /** game.ts's trajectoryStrands — the current aim ends somewhere the bay can
+   *  never use (down the intake chute, or short of the compactor's reach).
+   *  Turns the arc red, lights the chute's mouth, and rings the muzzle.
+   *
+   *  Every one of those is on the CANVAS, which is the requirement rather than
+   *  an implementation detail: the warning is about a shot heading for the
+   *  bottom-left, and the bottom-left is exactly where the opaque plant panel
+   *  sits over the field. A DOM cue would be hidden by the thing it is warning
+   *  about. */
+  strandWarning: boolean;
 }
 
 /**
@@ -293,6 +304,9 @@ export function render(
   ctx.clip();
 
   drawCongestionRows(ctx, scene);
+  // The plant's intake, under everything: cargo falling in has to draw OVER
+  // the mouth it is falling into, and the arc has to draw over both.
+  drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor);
   drawPistons(ctx, scene.compactor);
@@ -301,11 +315,12 @@ export function render(
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb);
-  drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now);
+  drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now, scene.strandWarning);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
   drawCannon(ctx, scene.cannon, scene.aiming, scene.settling);
   drawReloadRing(ctx, scene.cannon, scene.reload);
+  drawStrandRing(ctx, scene.cannon, scene.strandWarning && scene.aiming, scene.now);
   if (!scene.settling) {
     drawLoadedPiece(ctx, scene.cannon, scene.level.pieceSize, scene.nextIsBomb, scene.now);
   }
@@ -353,7 +368,10 @@ const cubeSprites = new Map<string, HTMLCanvasElement>();
  *  frame of every bay (the compactor bar alone was a 26px blur over a
  *  ~40x290 rect, plus two piston rigs and the cannon, at 60Hz, forever). */
 const miscSprites = new Map<string, HTMLCanvasElement>();
-let dotSprite: HTMLCanvasElement | null = null;
+/** Trajectory dot discs, keyed by colour — the arc bakes a green one for a
+ *  usable shot and a red one for a shot that strands (see drawTrajectory), and
+ *  both are re-baked together when the scale drifts. */
+const dotSprites = new Map<string, HTMLCanvasElement>();
 
 /** Adopt the frame's world→device scale, flushing the sprite caches when it
  *  has drifted >10% from what they were baked at — tighter would re-bake on
@@ -365,7 +383,7 @@ function syncSpriteScale(pxScale: number): void {
   spritePxScale = target;
   cubeSprites.clear();
   miscSprites.clear();
-  dotSprite = null;
+  dotSprites.clear();
 }
 
 /** An offscreen canvas covering worldW×worldH world px at the current bake
@@ -471,18 +489,19 @@ function getCubeSprite(
 const DOT_R = 4;
 const DOT_PAD = 12;
 
-function getDotSprite(): HTMLCanvasElement {
-  if (dotSprite) return dotSprite;
+function getDotSprite(color: string): HTMLCanvasElement {
+  const hit = dotSprites.get(color);
+  if (hit) return hit;
   const ctx = makeSpriteCanvas((DOT_R + DOT_PAD) * 2);
   ctx.translate(DOT_R + DOT_PAD, DOT_R + DOT_PAD);
-  ctx.shadowColor = COLORS.trajectory;
+  ctx.shadowColor = color;
   ctx.shadowBlur = 10;
-  ctx.fillStyle = COLORS.trajectory;
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.arc(0, 0, DOT_R, 0, Math.PI * 2);
   ctx.fill();
-  dotSprite = ctx.canvas;
-  return dotSprite;
+  dotSprites.set(color, ctx.canvas);
+  return ctx.canvas;
 }
 
 let bgLayer: HTMLCanvasElement | null = null;
@@ -758,6 +777,95 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
 }
 
 /**
+ * THE INTAKE CHUTE (chute.ts's CHUTE) — the recycling plant's open maw, drawn
+ * as part of the room.
+ *
+ * On the CANVAS rather than as DOM chrome, and that is the whole point. The
+ * plant panel is not one size — a Contract's is shorter, the tutorial's is
+ * taller, the attract demo has none — while the physics rect is a single
+ * authored constant, because seed determinism requires it. Letting the panel
+ * BE the chute would draw a different hazard than the one the sim enforces on
+ * three quarters of the screens the game runs on. So the room owns the maw and
+ * the panel is merely bolted into it.
+ *
+ * Nearly all of it sits behind that panel, so the drawing budget goes almost
+ * entirely on the LIP: a machined bar across the mouth with a row of intake
+ * teeth, at the one edge that is visible at every panel height. The recess
+ * below is a flat wash that reads through the panel's translucent aim-through
+ * state and does nothing the rest of the time.
+ */
+const CHUTE_LIP_H = 11;
+const CHUTE_TOOTH_W = 26;
+const CHUTE_TOOTH_H = 13;
+/** How far the strand warning's heat rises ABOVE the lip. Above, deliberately:
+ *  everything below the lip is behind an opaque panel, so a glow drawn into the
+ *  maw is a warning nobody sees. This is the one band of open canvas the cue
+ *  can occupy. */
+const CHUTE_WARN_RISE = 58;
+/** Warning breath, ms — slow enough to read as a machine idling hot rather
+ *  than an alarm strobing. */
+const CHUTE_WARN_MS = 900;
+
+function drawChute(
+  ctx: CanvasRenderingContext2D,
+  strands: boolean,
+  now: number,
+  rightEdge: number,
+): void {
+  const { x0, y0, y1 } = CHUTE;
+  // The MOUTH is what gets drawn, top to floor, at whatever width this bay's
+  // press leaves it (chute.ts's chuteRightEdge — Bay Extension T3 narrows it).
+  // The throat below is internal machinery and behind the panel at every panel
+  // height; drawing it would be painting in a sealed box.
+  const x1 = rightEdge;
+  const w = x1 - x0;
+  ctx.save();
+
+  // The recess. Barely-there on purpose: it is under the panel almost
+  // everywhere, and its job is to stop the mouth reading as open field in the
+  // gaps the panel leaves.
+  ctx.fillStyle = "rgba(4,4,10,0.55)";
+  ctx.fillRect(x0, y0, w, y1 - y0);
+
+  // Heat rising out of the mouth while the current aim feeds it. Drawn BEFORE
+  // the lip so the teeth stay crisp against it, and as a linear gradient rather
+  // than shadowBlur — the value breathes every frame, so it can't be baked, and
+  // a live Gaussian pass at 60Hz is exactly the cost this renderer avoids.
+  if (strands) {
+    const breath = 0.62 + 0.38 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
+    const g = ctx.createLinearGradient(0, y0 - CHUTE_WARN_RISE, 0, y0);
+    g.addColorStop(0, "rgba(255,45,85,0)");
+    g.addColorStop(1, `rgba(255,45,85,${(0.34 * breath).toFixed(3)})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0 - CHUTE_WARN_RISE, w, CHUTE_WARN_RISE);
+  }
+
+  // Intake teeth along the lip, pointing up into the bay. Whole teeth only —
+  // a half tooth clipped at the mouth's right edge would read as a rendering
+  // seam rather than as machinery.
+  const teeth = Math.floor(w / CHUTE_TOOTH_W);
+  const inset = (w - teeth * CHUTE_TOOTH_W) / 2;
+  ctx.fillStyle = strands ? "rgba(255,45,85,0.85)" : "#2e2e4a";
+  ctx.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const tx = x0 + inset + i * CHUTE_TOOTH_W;
+    ctx.moveTo(tx, y0);
+    ctx.lineTo(tx + CHUTE_TOOTH_W / 2, y0 - CHUTE_TOOTH_H);
+    ctx.lineTo(tx + CHUTE_TOOTH_W, y0);
+  }
+  ctx.fill();
+
+  // The lip bar, with the same top highlight the plant panel wears, so the two
+  // read as one machine rather than as chrome sitting on scenery.
+  ctx.fillStyle = strands ? "#5c1225" : "#191926";
+  ctx.fillRect(x0, y0, w, CHUTE_LIP_H);
+  ctx.fillStyle = strands ? "rgba(255,45,85,0.9)" : "rgba(255,255,255,0.07)";
+  ctx.fillRect(x0, y0, w, 2);
+
+  ctx.restore();
+}
+
+/**
  * Two hydraulic pistons (1d "recycling-plant" layout — see
  * design/screens/gameplay-variants.html's `.piston`) visually "driving" the
  * compactor bar toward the right wall: a fixed barrel mounted so it tucks
@@ -776,7 +884,15 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
  * the head inside the barrel; the whole rig now slides left per-level so
  * the barrel tip always clears the bar's leftmost face (see drawPistons).
  */
-const PISTON_BARREL_X = 616; // world-x, preferred mount — tucked under the plant panel's right edge (624); slides left for wide bays (see drawPistons)
+/** World-x, preferred mount — tucked 8px under the plant panel's right edge, so
+ *  the rig reads as bolted onto the machine. Slides left for wide bays (see
+ *  drawPistons).
+ *
+ *  DERIVED from the chute's mouth rather than restating 616. The two are the
+ *  same edge of the same machine: chute.ts owns where the panel ends because
+ *  the physics has to agree with it, and a second copy here would be free to
+ *  drift the moment either moved. */
+const PISTON_BARREL_X = CHUTE.x1 - 8;
 const PISTON_BARREL_LEN = 93;
 const PISTON_BARREL_H = 35;
 const PISTON_ROD_H = 15;
@@ -1127,11 +1243,17 @@ function arcJitter(i: number, step: number, axis: number): number {
   return (h >>> 8) / 8388608 - 1;
 }
 
+/** The arc's colour when the shot it previews ends somewhere the bay can never
+ *  use (game.ts's trajectoryStrands). Same danger red the compactor and the
+ *  low-launch readout wear — the HUD has one colour for "this costs you". */
+const ARC_STRAND_COLOR = "#ff2d55";
+
 function drawTrajectory(
   ctx: CanvasRenderingContext2D,
   pts: Matter.Vector[],
   reload: number,
   now: number,
+  strands: boolean,
 ): void {
   if (pts.length < 2) return;
   // Reduced motion keeps the RAMP and drops the BLINK and the JITTER. The
@@ -1151,7 +1273,7 @@ function drawTrajectory(
 
   const jitter = calm ? 0 : ARC_JITTER * (1 - clarity);
   const step = Math.floor((now * ARC_JITTER_HZ) / 1000);
-  const sprite = getDotSprite();
+  const sprite = getDotSprite(strands ? ARC_STRAND_COLOR : COLORS.trajectory);
   ctx.save();
   for (let i = 0; i < pts.length; i += 3) {
     const t = i / pts.length;
@@ -1432,6 +1554,48 @@ function drawReloadRing(ctx: CanvasRenderingContext2D, cannon: Cannon, reload: n
   ctx.stroke();
   ctx.globalAlpha = 1;
   ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * A danger ring at the muzzle while the live aim would strand the shot.
+ *
+ * A SEPARATE ring rather than a tint on drawReloadRing, which was the obvious
+ * home and is the wrong one: that ring returns early at `reload >= 1`, i.e. it
+ * is gone for the whole of the window in which the player is actually aiming.
+ * A warning that hides itself the moment the cannon is ready is no warning.
+ *
+ * Drawn only while `aiming`, unlike the arc and the maw, which stay lit off the
+ * standing aim. The other two are answering "where does this go"; this one sits
+ * on the cannon itself, where the eye is during a drag, and leaving it burning
+ * between shots would make the launcher look permanently faulted.
+ *
+ * Just outside RELOAD_RING_R so the two never overlap on a shot fired the
+ * instant the reload clears.
+ */
+function drawStrandRing(
+  ctx: CanvasRenderingContext2D,
+  cannon: Cannon,
+  on: boolean,
+  now: number,
+): void {
+  if (!on) return;
+  const breath = 0.6 + 0.4 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
+  ctx.save();
+  ctx.translate(cannon.x, cannon.y);
+  ctx.strokeStyle = ARC_STRAND_COLOR;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, 0, RELOAD_RING_R + 7, 0, Math.PI * 2);
+  // Wide translucent under-stroke standing in for a glow, same trick and same
+  // reason as drawReloadRing's: the value changes every frame, so it cannot be
+  // baked, and shadowBlur here would be a live Gaussian pass at 60Hz.
+  ctx.globalAlpha = 0.26 * breath;
+  ctx.lineWidth = 12;
+  ctx.stroke();
+  ctx.globalAlpha = 0.9 * breath;
+  ctx.lineWidth = 3;
   ctx.stroke();
   ctx.restore();
 }

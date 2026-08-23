@@ -789,7 +789,7 @@ export function hudHTML(opts: {
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
          the run's build (drafted mods, ship plates, abilities). -->
     <div class="plant">
-      <div class="pl-pwr"><span class="lbl">PWR</span>
+      <div class="pl-pwr" id="hud-pwr"><span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
         <span class="pl-pwr__val" id="hud-power-val">0%</span>
       </div>

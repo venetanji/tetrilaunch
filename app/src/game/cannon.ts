@@ -25,6 +25,38 @@ export const SPEED_MAX = 28;
 const DRAG_MIN = 28;
 const DRAG_MAX = 220;
 
+/**
+ * Power ratio a drag has to reach before a release counts as a SHOT rather than
+ * an accidental touch. Below it, input.ts cancels instead of firing.
+ *
+ * The problem it solves: a bare tap on the canvas used to fire. onUp fired
+ * unconditionally, and a touch that never travels 4px never reaches
+ * aimFromDrag at all — so the cannon kept its PREVIOUS aim and power and
+ * launched on that. Reaching for the rail and missing cost a full launch, at an
+ * angle the player had not chosen, and on a phone that is the single most
+ * common way to waste a shot.
+ *
+ * 0.30 rather than a raw pixel distance because the whole point is intent, and
+ * intent is what the pull-back MEANS, not how far a finger moved on a
+ * particular screen. It works out to 85.6 world px (DRAG_MIN + 0.3 * the span),
+ * which scales with the field — about 43 CSS px on an 800x360 phone viewport.
+ * Comfortably past touch jitter, comfortably short of a deliberate slingshot
+ * pull, and normalized against the ship: the LAUNCHER track scales speedMin and
+ * speedMax together, so 30% is 30% of whatever this hull can do.
+ *
+ * Deliberately NOT enforced in Game.shoot. Keyboard and gamepad players sit at
+ * speedMin (ratio 0) and press Fire on purpose; gating the shared path would
+ * break the desktop control scheme to fix a touch problem.
+ */
+export const MIN_FIRE_RATIO = 0.3;
+
+/** Power ratio (0..1) a pull-back of `len` world px produces. Pure, and shared
+ *  with aimFromDrag below rather than re-derived, so the gate that decides
+ *  whether to fire and the mapping that decides how hard cannot disagree. */
+export function powerRatioForDrag(len: number): number {
+  return Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
+}
+
 export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
 
 export class Cannon {
@@ -175,18 +207,29 @@ export class Cannon {
     return (this.power - this.speedMin) / (this.speedMax - this.speedMin);
   }
 
-  /** Set aim + power from a world-space drag vector originating at the cannon.
-   *  Slingshot pull-back: the launch direction is OPPOSITE the drag (drag
-   *  down-left to fire up-right), reversed 180° from the raw drag vector. */
-  aimFromDrag(dx: number, dy: number): void {
+  /**
+   * Set aim + power from a world-space drag vector originating at the cannon.
+   * Slingshot pull-back: the launch direction is OPPOSITE the drag (drag
+   * down-left to fire up-right), reversed 180° from the raw drag vector.
+   *
+   * RETURNS the power ratio it applied, which input.ts's misfire gate reads.
+   * That return is why the gate is honest: on the sub-4px path below, `power`
+   * is deliberately left alone (a jittering finger must not stomp a pull the
+   * player already made), so a caller reading `powerRatio` back off the cannon
+   * afterwards would get the PREVIOUS drag's value — which is exactly the stale
+   * number that made a bare tap fire a full-power shot. This says what THIS
+   * gesture asked for, and 0 means "nothing".
+   */
+  aimFromDrag(dx: number, dy: number): number {
     const len = Math.hypot(dx, dy);
-    if (len < 4) return;
+    if (len < 4) return 0;
     // Reverse the drag vector, then constrain to the upper-right launch cone.
     let ang = Math.atan2(dy, -dx);
     ang = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, ang));
     this.angle = ang;
-    const t = Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
+    const t = powerRatioForDrag(len);
     this.power = this.speedMin + t * (this.speedMax - this.speedMin);
+    return t;
   }
 
   // --- Keyboard fallback (web) ---

@@ -31,14 +31,28 @@ the launch economy. `Game.shoot` is not gated — see "Where the floor lives".
 ## 1. Power floor
 
 `MIN_FIRE_RATIO = 0.30`. A release producing less power ratio than this cancels
-instead of firing: no shot, no cost, aim preserved — the same path as the aim-state
-`✕`.
+instead of firing: no shot, no cost, and the aim **restored to what it was
+before the finger landed**.
+
+Restoring rather than merely not-firing, because a graze that travels 20px still
+moves the barrel. Leaving the cannon where the graze stopped makes the accident
+free of ammo and expensive in setup, which is half a fix. The aim-state `✕` is
+deliberately different: there the player pulled, watched the arc, and chose to
+stand down — that aim is one they built, and snapping it back would undo work
+they meant to do.
 
 ### Where the floor lives
 
 In `InputController.onUp`, **not** `Game.shoot`. Keyboard and gamepad players
 start at `speedMin` (ratio 0) and press Fire deliberately; gating the shared path
 would break the desktop control scheme to solve a touch-specific problem.
+
+**Not applied to a mouse** (`pointerType !== "mouse"`). The accident being
+prevented is a thumb grazing glass; a click is a deliberate act at a chosen
+pixel. Gating it would break click-to-fire for a desktop player aiming on the
+keyboard. Same line app.css already draws by hiding the drag hint under
+`pointer: fine`. Pen and unknown pointer types stay gated — both land on touch
+hardware.
 
 ### Reading the drag, not the cannon
 
@@ -99,14 +113,60 @@ destroyed immediately, with an explosion and a visible `−$`.
 ### Rect
 
 ```
-CHUTE = { x0: 0, x1: 624, y0: 389, y1: WORLD.height }
+CHUTE          = { x0: 0, x1: 624, y0: 389, y1: WORLD.height }   // the MOUTH
+CHUTE_THROAT_Y = 620                                             // the GRINDER
 ```
 
 Derived from `.plant`'s own CSS frame fractions (left 1.67%, width 47.08%,
-bottom 2.97%, height 42.96% of the field). `x1 = 624` corroborates
-independently: `render.ts`'s `PISTON_BARREL_X` is 616, documented as 8px under
-the panel's right edge. Extended to the left wall and the floor so nothing
-survives in the 21px lips the panel leaves.
+bottom 2.97%, height 42.96% of the field). `render.ts`'s `PISTON_BARREL_X` now
+*derives* from `CHUTE.x1 - 8` rather than restating 616, so the two cannot
+drift. Extended to the left wall and the floor so nothing survives in the 21px
+lips the panel leaves.
+
+### A hopper, not a wall
+
+**Claiming the whole footprint from the mouth down was wrong, and the sim caught
+it.** That takes the AIRSPACE over the machine as well as the floor of it, and
+shots cross that airspace on their way somewhere else: a full-power delivery at
+−10° passes (519, 398) and carries on out over the bay. Measured against real
+physics, a full-depth maw destroyed **all four cubes of that shipment in
+flight** — deleting every downward shot in the game to catch fumbles, which is a
+far bigger change than the one being asked for.
+
+So the grinder sits deep inside. Measured on the live arc across the full aim
+cone at four power levels:
+
+| | |
+|---|---|
+| deepest any **useful** shot reaches inside the footprint | 543 (−20°, max power) |
+| shallowest cargo that **comes to rest** behind the panel | 698 (on the floor) |
+
+620 sits between them with ~77px either way. The margin only widens with the
+LAUNCHER track (flatter arcs); nothing narrows it, since bay gravity is a
+constant 1 everywhere.
+
+The invariant this buys: **the chute may only ever collect cargo that has come
+to rest somewhere unreachable, never intercept something still in flight.**
+
+The mouth is still drawn at `CHUTE.y0` and every cue still fires from there.
+That is not a fudge — it is what the machine looks like. Cargo drops in at the
+top, the grinder is deep inside, and the quarter second between the two is the
+piece falling down the throat.
+
+### Narrowed to the press's reach
+
+Bay Extension T3 opens the compactor to 18 cells, walking its open stop to
+x 547 — **left of the panel's edge**. A fixed maw would grind cargo the press
+could still have reached, silently charging the player two cells of the upgrade
+they just bought. `chuteRightEdge(strandCutoffX)` clamps to
+`min(CHUTE.x1, strandCutoffX)`, which makes the chute mean exactly what
+`markLostPieces` already means: *the floor the press can never reach*.
+Level-derived, not device-derived, so seed determinism is untouched.
+
+`strandCutoffX` now lives on `Compactor`. Its three readers — `markLostPieces`
+decays across it, `Game` warns on it, `chute` sizes its maw to it — must agree
+exactly; a warning drawn against one number with a penalty charged against
+another is a game lying about its own rules.
 
 ### Authored constant, never measured from the DOM
 
@@ -172,14 +232,24 @@ gesture being taught. Nothing new is authored; it is relocated.
 fixed field-relative `calc()`s to `--hint-ax` / `--hint-ay`, which `main.ts`
 writes from the release point. The onboarding path is untouched.
 
-**Clamped, because down-left is where the panel is.** `--hint-clear` exists
-because the gesture reaches 146px below its anchor and the plant is down there;
-`app.css` documents the bug where the loop vanished mid-pull at exactly the
-moment it was demonstrating the pull. The same bound applies to a moving origin,
-expressed with `min()`/`max()` in CSS so `main.ts` publishes only a raw release
-point and the arithmetic stays in one place. The guide is drawn next to the
-thumb, sliding up and right only when the thumb sits where the gesture could not
-be drawn.
+**Clamped, because down-left is where the panel is** — but *conditionally*, and
+in JS (`fitGuideToField`). The gesture reaches `--hint-reach` below its anchor
+and travels left, so the panel blocks it; `app.css` documents the bug where the
+loop vanished mid-pull at exactly the moment it was demonstrating the pull.
+
+A pure-CSS clamp was tried first and is wrong: CSS cannot ask where the anchor
+is horizontally, so it hauled every right-hand fumble ~200px up the screen to
+dodge a panel it was never over. JS measures the panel's **real** box, which
+also means the tutorial's taller panel and a Contract's shorter one need no
+special case — each is simply a different rect. Horizontal bounds still always
+apply (the pull travels left, and must not leave the field).
+
+`--hint-reach` and `--hint-pull-x` are read back out of the stylesheet, so the
+clamp and the animation cannot disagree about how far the finger travels.
+
+One specificity trap: `.hud[data-coach] .drag-hint` outranks a lone
+`.drag-hint--at`, so during the tutorial the guide silently ignored the thumb.
+That rule is now scoped `:not(.drag-hint--at)`.
 
 **Plays once, faster.** `--hint-correct-dur: 1600ms`, one iteration. The
 onboarding loop's 3400ms `infinite` is right for an invitation and wrong for a
@@ -219,8 +289,27 @@ shot, not a marginal one), decomposed on the existing direction as
 39/63 CSS px, visually near-identical to today's 35/56.
 
 `--hint-reach` becomes a `calc()` instead of the literal `146px`; `--hint-clear`
-follows automatically. **This is what the ui-fit harness asserts against**, so
-`test:uifit` must be run across all 13 devices rather than assumed to propagate.
+follows automatically.
+
+### The assertion guarding this was dead
+
+`sim/uifit`'s `draghint` check reads the reach back with
+`parseFloat(getComputedStyle(...).getPropertyValue("--hint-reach"))`. An
+unregistered custom property hands back its literal text — fine while it was
+`146px`, `NaN` the moment it became a `calc()`, and every comparison against
+`NaN` is false. The check would have gone quietly green.
+
+It was **already** partly dead on staging for an unrelated reason (the reach
+cancels out of `dips = hb.top + reach − pb.top`, because the anchor derives from
+the same value), which is why a deliberately absurd `900px` reach passes there
+too. That is a pre-existing harness bug and is **not** fixed here.
+
+What is fixed: `--hint-reach`, `--hint-pull-x` and `--hint-pull-y` are registered
+with `@property { syntax: "<length>" }` so they compute to real lengths. The
+assertion is live again — verified by pushing the hint down onto the panel and
+watching it fire — and `main.ts` can read the same values back for the clamp.
+`sim/uifit/harness.ts` also publishes `--fscale`, which it otherwise lacked, so
+fixtures no longer measure one fixed scale on all 13 devices.
 
 ---
 
@@ -228,29 +317,45 @@ follows automatically. **This is what the ui-fit harness asserts against**, so
 
 | file | change |
 |---|---|
-| `game/chute.ts` | new — rect, containment, shred |
-| `game/cannon.ts` | `MIN_FIRE_RATIO`; `aimFromDrag` returns its ratio |
-| `game/input.ts` | `dragRatio` gate; `onMisfire` callback |
+| `game/chute.ts` | new — mouth/throat, containment, shred, `pathStrands` |
+| `game/cannon.ts` | `MIN_FIRE_RATIO`, `powerRatioForDrag`; `aimFromDrag` returns its ratio |
+| `game/compactor.ts` | `strandCutoffX` getter — one home for the three readers |
+| `game/input.ts` | `dragRatio` gate, aim restore, `onMisfire` callback |
 | `game/game.ts` | shred in `update()`; `chargeLostCubes`; `trajectoryStrands` |
-| `game/render.ts` | chute maw, hazard glow, red arc and muzzle; `Scene.strandWarning` |
+| `game/lineClear.ts` | `markLostPieces` reads the compactor's cutoff |
+| `game/render.ts` | chute maw, hazard glow, red arc, strand ring; `Scene.strandWarning` |
 | `lib/audio.ts` | `playExplosion` accepts `"chute"` |
-| `main.ts` | misfire cue, guide placement, PWR meter source |
-| `ui/screens.ts` | PWR floor mark |
-| `styles/app.css` | `drag-hint--at`, correction variant, reduced-motion fallback, `--fpx` travel, `pl-pwr--weak` |
+| `main.ts` | misfire cue, `fitGuideToField`, PWR meter source, `--fscale` |
+| `ui/screens.ts` | `#hud-pwr` handle |
+| `styles/app.css` | `@property` registrations, `drag-hint--at`, correction variant, reduced-motion fallback, `--fscale` travel, `pl-pwr--weak` + floor notch |
+| `sim/uifit/harness.ts` | publishes `--fscale` |
 | `sim/systems.ts` | checks below |
 
 ## Verification
 
 `sim/systems.ts` drives real `Game` instances headlessly, so these are
-falsifiable rather than string matches:
+falsifiable rather than string matches. **Every one was confirmed to fail when
+its subject was broken**, not merely to pass:
 
-- a cube spawned in the chute is gone the next step, `score` down exactly
-  `penaltyPerLostPiece`
-- a max-power 45° shot never enters the chute
-- `powerRatioForDrag` is below the floor at 85 world px and above it at 86
-- a tap (`aimFromDrag(0, 0)`) returns 0, not the previous ratio
-- `trajectoryStrands` is true for a low flat aim, false for a good arc
-- the chute's right edge equals `PISTON_BARREL_X + 8`
+| check | proven by |
+|---|---|
+| cargo in the chute is gone within half a second, costs launch + penalty, breaks combo | disabling `shredChute` → 3 fail |
+| the grinder clears the deepest useful arc; a flat delivery clears the footprint intact | throat back at the mouth → 5 fail (`0 of 4` survive) |
+| a T3 bay's maw gives ground back to the press | removing the clamp → 1 fail |
+| the floor sits inside a thumb's reach; a tap reports 0, not the previous pull | floor → 0.9, and reinstating the stale-power read → fail |
+| a steep weak aim strands; the warning reads the compactor's own cutoff | stubbing `pathStrands`, detaching the cutoff → fail |
+| the chute's mouth and lip match `.plant`'s CSS fractions | perturbing **either side** → fail |
 
-Plus `npm run typecheck`, `npm test`, and `npm run test:uifit` (§5 moves what
-that harness measures).
+The last one parses `app.css` — necessarily a string check, since this harness
+has no browser. It catches the two numbers drifting apart, which is the failure
+that matters; the rendered fit is `sim/uifit`'s job.
+
+Also run: `npm run typecheck`, `npm test`, `npm run build`, and `test:uifit` on
+**both** engines (chromium 0 new, webkit 0 new against its 18 baselined —
+identical to staging).
+
+Behaviour confirmed live in the browser, not just in the harness: tap and 20px
+graze fire nothing and restore the aim, a 120px drag fires, a **mouse** tap still
+fires, the guide anchors exactly at the thumb in clear air and lifts only when
+the panel is genuinely under it, and reduced motion renders the still diagram
+(dot parked at the end of the pull, full trail, no animation).

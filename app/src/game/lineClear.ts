@@ -606,7 +606,7 @@ export function shatterColdCryo(
  * here.
  */
 export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
-  const cutoff = compactor.leftX + compactor.width / 2 - CELL / 2;
+  const cutoff = compactor.strandCutoffX;
   for (const c of cubes) {
     const b = c.body;
     if (c.blinkStart !== null) {
