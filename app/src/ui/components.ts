@@ -1,5 +1,5 @@
 import {
-  shipmentColor, type Material, type PieceSize, type PieceType,
+  shipmentAura, shipmentColor, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
 import { HAZARDS, type HazardId, type Ratchets } from "../game/hazards";
@@ -78,7 +78,24 @@ export function pieceCellsHTML(
       }"></div>`;
     }
   }
-  return `<div class="next__grid" style="gap:${gap}px">${cells}</div>`;
+  // MATERIAL TELEGRAPH. The tile already carries the material as a colour, and
+  // a colour is enough to IDENTIFY a shipment and not enough to make anyone
+  // look at one: slag is dead grey and cryo is a pale wash, and both read as
+  // "a piece" to an eye that is watching the field. The whole value of
+  // previewing a material is that it can be sequenced around BEFORE it fires,
+  // which only pays if the preview is noticed.
+  //
+  // So a non-standard shipment pulses (app.css's mat-aura). Motion is the cue,
+  // not hue — it works for tar's near-black as well as for volatile's hazard
+  // yellow — and the glow itself is drawn in shipmentAura, the cube's own
+  // colour lifted to something visible against the backdrop.
+  //
+  // Standard shipments get nothing, here and on the how-to gallery's tiles,
+  // which pass no material at all: a tile that always pulses says nothing.
+  const attrs = material === "standard"
+    ? ` style="gap:${gap}px"`
+    : ` data-material="${material}" style="gap:${gap}px;--mat-c:${shipmentAura(type, material)}"`;
+  return `<div class="next__grid"${attrs}>${cells}</div>`;
 }
 
 /** Belt-mounted next-piece preview (1d recycling-plant layout — see

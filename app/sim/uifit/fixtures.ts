@@ -19,6 +19,7 @@ import type { PieceType } from "../../src/game/theme";
 import { LEVEL_1 } from "../../src/game/level";
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
+import type { UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { levelForRun, newRun } from "../../src/game/run";
 import { dailyContracts } from "../../src/game/contracts";
@@ -315,6 +316,12 @@ export const SCREENS: Record<string, () => string> = {
     S.hudHTML({
       ...HUD_BASE,
       ratchets: {} as Ratchets,
+      // Same reason the ratchets above are empty: main.ts's hudOpts hands a
+      // Contract `tiers: {}` unconditionally, because ship upgrades are a Deep
+      // Run's to carry. Inheriting HUD_BASE's six bought tracks measured a
+      // state the app cannot produce — and now that the rack does not render in
+      // a Contract at all, it would have measured nothing while claiming to.
+      tiers: {} as UpgradeTiers,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -323,6 +330,31 @@ export const SCREENS: Record<string, () => string> = {
         lines: 1,
         launchesLeft: 6,
         remaining: ["I", "O", "T", "L", "J", "S"] as PieceType[],
+      },
+    }),
+
+  // The OTHER Contract kind, and the SHORTEST state the plant panel has: a
+  // lines Contract renders no manifest row, so the panel is readout, reload and
+  // the ability chips — two rows on a phone, where the chips are the rail's job
+  // and the row goes with them. Worth its own screen because it is the case the
+  // contract grid template used to get wrong. That template named a `queue`
+  // area unconditionally and this kind renders nothing into it, so the panel
+  // paid a row's share of the gap for an empty band; nothing in the harness
+  // could see it, because a gap is not an overflow, a wrap or a clip. There is
+  // no grid here any more, and this is what says so if one comes back.
+  "hud-contract-lines": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      ratchets: {} as Ratchets,
+      tiers: {} as UpgradeTiers,
+      timeLimitSec: 0,
+      contract: {
+        name: "Foundry Overrun",
+        kind: "lines",
+        goal: 5,
+        lines: 2,
+        launchesLeft: 9,
+        remaining: [],
       },
     }),
 
@@ -437,7 +469,8 @@ const HUD_LOADOUT = {
 };
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
-  return id === "hud" || id === "hud-rich" || id === "hud-contract" || id === "hud-notched"
+  return id === "hud" || id === "hud-rich" || id === "hud-contract"
+    || id === "hud-contract-lines" || id === "hud-notched"
     || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;

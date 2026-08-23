@@ -517,8 +517,10 @@ export function leaderboardScreen(rows: string): string {
  *      canvas draws the same value as a ring around the cannon muzzle (see
  *      render.ts's drawReloadRing) — that one is for mid-aim focus, this one is
  *      for peripheral vision.
- *   5. combo / launch cost         demoted to the small meta line.
- *   6. run mods + ship plates      the build, bottom row.
+ *   5. combo / launch cost / scrap demoted to the small meta line — and Deep
+ *      Run only: all three are economy numbers, and a Contract has no economy.
+ *   6. run mods + ship plates      the build, bottom row. A Contract shows its
+ *      ability chips here and no rack (it has no upgrade tiers to show).
  *
  * `bayNum` is the 1-based bay currently playing (out of RUN_LEVELS);
  * `timeLimitSec` gates whether a Time readout renders at all (0 = no limit);
@@ -557,7 +559,9 @@ export function hudHTML(opts: {
   target: number;
   score: number;
   /** Cost per launch this bay — shown in the plant readout together with how
-   *  many launches the current funds afford (#hud-launches, live-synced). */
+   *  many launches the current funds afford (#hud-launches, live-synced).
+   *  Deep Run only: the meta line that quotes it does not render in a
+   *  Contract, which has no bankroll to price a launch against. */
   launchCost: number;
   bayNum: number;
   timeLimitSec: number;
@@ -582,7 +586,9 @@ export function hudHTML(opts: {
    *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
-   *  (components.ts's shipPlatesHTML). */
+   *  (components.ts's shipPlatesHTML). Deep Run only, and not because the
+   *  rack would be ugly in a Contract: main.ts's hudOpts passes `{}` there,
+   *  so every plate would be permanently empty. */
   tiers: UpgradeTiers;
   /** The run's tier, for the bay banner's plate (canvas A4). Null in
    *  Contract mode, whose banner names the Contract instead. */
@@ -688,7 +694,9 @@ export function hudHTML(opts: {
   const autoRailBtn = autoloaderOwned
     ? `<button class="icon-btn auto-btn" data-game="auto" id="auto-btn" aria-label="Autoloader — hold to fire">${icon("launcher", 17)}<span class="auto-btn__key">F</span></button>`
     : "";
-  const plates = shipPlatesHTML(tiers);
+  // The ship rack is a Deep Run readout. See the build row below for why a
+  // Contract does not get one.
+  const plates = contract ? "" : shipPlatesHTML(tiers);
   // BAY BANNER — the run position, top-center of the field. Playtest feedback:
   // "Bay 1/10" as small muted text inside the plant title read as part of the
   // level name, so players didn't know they were 1 bay into a 10-bay run. The
@@ -827,16 +835,26 @@ export function hudHTML(opts: {
           <span class="lbl">Reload</span>
           <div class="pl-load__track"><i id="hud-load" style="width:100%"></i></div>
         </div>
-        <div class="pl-meta">
+        ${
+          // COMBO / LAUNCH COST / SCRAP — the small meta line, and Deep Run
+          // only. Every number on it is an economy number, and a Contract has
+          // no economy: no bankroll to price a launch against, no salvage
+          // payout, and a combo multiplier that multiplies a score nothing
+          // reads. The row used to render here regardless and the removal was
+          // half-done — a PATTERN contract dropped the launch quote and kept
+          // "Combo ×0 · Scrap 0" for the whole bay, a LINES contract kept all
+          // three — which is three permanent zeroes on the one panel the
+          // player checks mid-shot. What a Contract keeps is the reload bar
+          // and its modifiers; the rest is Deep Run furniture.
+          contract
+            ? ""
+            : `<div class="pl-meta">
           <span>Combo <b id="hud-combo">×0</b></span>
-          ${
-            contract?.kind === "pattern"
-              ? ""
-              : `<span class="pl-meta__sep">·</span><span class="pl-meta__launch" id="hud-launch">Launch $${launchCost}</span>`
-          }
+          <span class="pl-meta__sep">·</span><span class="pl-meta__launch" id="hud-launch">Launch $${launchCost}</span>
           <span class="pl-meta__sep">·</span>
           <span>Scrap <b id="hud-scrap">0</b></span>
-        </div>
+        </div>`
+        }
         ${
           // The remaining manifest gets its OWN row rather than riding the
           // meta line: the tally is the widest thing the plant can hold (six
@@ -865,22 +883,41 @@ export function hudHTML(opts: {
             ? ""
             : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets)}</b></div>`
         }
-        <!-- Build row: ABILITY chips first, then the ship rack. The rack is
-             seven fixed slots and all seven fit without scrolling on every
-             device (components.ts's shipPlatesHTML, and the harness's "rack"
-             assertion). The row keeps its horizontal scroll for the ability
-             chips at roomy density, where the vertical BUILD tag and two 88px
-             chips lead the row — but nothing informational hides behind it
-             any more. The ratchet chips that used to trail the rack are the
-             notch line above: they could not fit beside seven slots at any
-             legible size, and a notch behind a scroll is a notch the player
-             does not know they took. -->
-        <div class="pl-mods" id="hud-mods">
+        ${
+          // Build row: ABILITY chips first, then the ship rack. The rack is
+          // seven fixed slots and all seven fit without scrolling on every
+          // device (components.ts's shipPlatesHTML, and the harness's "rack"
+          // assertion). The row keeps its horizontal scroll for the ability
+          // chips at roomy density, where the vertical BUILD tag and two 88px
+          // chips lead the row — but nothing informational hides behind it
+          // any more. The ratchet chips that used to trail the rack are the
+          // notch line above: they could not fit beside seven slots at any
+          // legible size, and a notch behind a scroll is a notch the player
+          // does not know they took.
+          //
+          // In a CONTRACT the rack is gone and the chips are the whole row.
+          // Fixed slots earn their place in a Deep Run, where a refit lights a
+          // plate exactly where the player is already looking — but main.ts's
+          // hudOpts hands a Contract `tiers: {}` every time, so there those
+          // seven boxes are empty by construction and can never do that job.
+          // The abilities can: they come off the Contract's own level config,
+          // and they are the modifiers a Contract actually carries. When it
+          // carries none the row does not render at all rather than leaving a
+          // lone BUILD tag labelling nothing.
+          //
+          // On a PHONE it never renders: the chips are hidden at compact
+          // density (the rail carries the same triggers, counts included), so
+          // app.css drops the whole row there rather than leave its padding
+          // behind. The row is a desktop/tablet readout in a Contract.
+          plates || bondChip || demoChip
+            ? `<div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
           ${bondChip}
           ${demoChip}
           ${plates}
-        </div>
+        </div>`
+            : ""
+        }
       </div>
     </div>
 

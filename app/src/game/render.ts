@@ -2,7 +2,10 @@ import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
 import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
-import { COLORS, PIECE_COLORS, shade, type PieceSize, type PieceType } from "./theme";
+import {
+  COLORS, shade, shipmentAura, shipmentColor,
+  type PieceSize, type PieceType,
+} from "./theme";
 import { pieceOffsets, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
@@ -304,7 +307,7 @@ export function render(
   drawCannon(ctx, scene.cannon, scene.aiming, scene.settling);
   drawReloadRing(ctx, scene.cannon, scene.reload);
   if (!scene.settling) {
-    drawLoadedPiece(ctx, scene.cannon, scene.level.pieceSize, scene.nextIsBomb);
+    drawLoadedPiece(ctx, scene.cannon, scene.level.pieceSize, scene.nextIsBomb, scene.now);
   }
   drawEffects(ctx, scene.effects, scene.now);
 
@@ -1168,6 +1171,24 @@ const GHOST_SCALE = 0.55;
 /** Ghost piece opacity — see-through enough to read as a preview, not a real piece. */
 const GHOST_ALPHA = 0.45;
 
+/** One full breath of the material telegraph, ms. Matches the belt tiles'
+ *  `mat-aura` (app.css) so the two previews of the same shipment pulse
+ *  together — two glows on the same cargo at different rates would read as two
+ *  unrelated warnings. */
+const GHOST_AURA_MS = 1150;
+/** Blur the aura sprite is baked at, world-px — wide enough to read as a halo
+ *  around the cube rather than a fatter cube. The piece's own baked glow stays
+ *  at 12; this rides under it. */
+const GHOST_AURA_BLUR = 30;
+/** World-px margin the aura sprite needs so its own blur is not clipped by the
+ *  sprite's edge. GHOST_CELL_PAD (15) is sized for the 12px cell glow and is
+ *  not enough for this one. */
+const GHOST_AURA_PAD = 34;
+/** Peak opacity of the aura stamp, under the piece. Well below GHOST_ALPHA:
+ *  the ghost has to stay a preview, and a halo that competes with the cargo
+ *  it rings is just a brighter piece. */
+const GHOST_AURA_ALPHA = 0.5;
+
 /**
  * Draw the currently loaded piece, semi-transparent, at the cannon's muzzle in
  * its current orientation — so aiming shows the real world-space rotation the
@@ -1176,12 +1197,22 @@ const GHOST_ALPHA = 0.45;
  * so it reads as a preview rather than a real piece. When the level's bomb
  * cadence means the NEXT shot is a bomb, the piece ghost is swapped for a
  * small ghost bomb — the muzzle preview must promise what actually fires.
+ *
+ * MATERIAL. The ghost used to colour straight from PIECE_COLORS, which made it
+ * the one preview of a shipment that did not say what the shipment was made
+ * of: a cryo L was drawn plain orange at the muzzle while the belt tile a
+ * thumb away showed it pale blue. theme.ts's shipmentColor names this surface
+ * as one of the three that have to agree; now it does. A non-standard
+ * shipment also gets the same breathing aura the belt tiles carry, because the
+ * muzzle is where the player is looking while they aim, and "what am I about
+ * to fire" is the question the ghost exists to answer.
  */
 function drawLoadedPiece(
   ctx: CanvasRenderingContext2D,
   cannon: Cannon,
   size: PieceSize,
   nextIsBomb: boolean,
+  now: number,
 ): void {
   const tip = cannon.tip;
 
@@ -1202,35 +1233,63 @@ function drawLoadedPiece(
     return;
   }
 
-  const color = PIECE_COLORS[cannon.currentType];
+  const material = cannon.currentMaterial;
+  const color = shipmentColor(cannon.currentType, material);
   const offsets = pieceOffsets(cannon.currentType, cannon.pieceRotation, size);
   const cell = CELL * GHOST_SCALE;
   const h = cell / 2;
+  const box = cell + GHOST_CELL_PAD * 2;
+  // One stamp per cube of the piece. `pad` is the sprite's own glow margin, so
+  // the two sprites below can carry different blur radii and still land their
+  // cells on the same centres.
+  const stamp = (sprite: CanvasImageSource, pad: number): void => {
+    const w = cell + pad * 2;
+    for (const { x: ox, y: oy } of offsets) {
+      ctx.drawImage(
+        sprite,
+        tip.x + ox * GHOST_SCALE - h - pad,
+        tip.y + oy * GHOST_SCALE - h - pad,
+        w, w,
+      );
+    }
+  };
+
+  ctx.save();
+
+  // The material telegraph, stamped UNDER the ghost: the same silhouette baked
+  // at a much wider blur, breathing on GHOST_AURA_MS. Two sprites rather than
+  // one re-baked per frame — getSprite caches by key, and a blur radius that
+  // changed with the pulse would miss the cache on every single frame and
+  // re-run five gaussian fills for the privilege. The pulse rides globalAlpha
+  // instead, which costs nothing.
+  if (material !== "standard") {
+    const aura = shipmentAura(cannon.currentType, material);
+    const auraBox = cell + GHOST_AURA_PAD * 2;
+    const glow = getSprite(`ghostAura|${aura}`, auraBox, auraBox, (c) => {
+      c.shadowColor = aura;
+      c.shadowBlur = GHOST_AURA_BLUR;
+      c.fillStyle = aura;
+      roundRect(c, GHOST_AURA_PAD, GHOST_AURA_PAD, cell, cell, 4);
+      c.fill();
+    });
+    // 0..1..0 over one breath, sine-eased so neither end snaps.
+    const t = (now % GHOST_AURA_MS) / GHOST_AURA_MS;
+    ctx.globalAlpha = GHOST_AURA_ALPHA * (0.5 - 0.5 * Math.cos(t * Math.PI * 2));
+    stamp(glow, GHOST_AURA_PAD);
+  }
 
   // One glowing cell per color, baked (the ghost is on screen whenever the
   // cannon is loaded — this was up to five live glow fills every frame).
   // Baked opaque; GHOST_ALPHA fades the stamp, glow included.
-  const sprite = getSprite(`ghost|${color}`, cell + GHOST_CELL_PAD * 2, cell + GHOST_CELL_PAD * 2, (c) => {
+  const sprite = getSprite(`ghost|${color}`, box, box, (c) => {
     c.shadowColor = color;
     c.shadowBlur = 12;
     c.fillStyle = color;
     roundRect(c, GHOST_CELL_PAD, GHOST_CELL_PAD, cell, cell, 4);
     c.fill();
   });
-
-  ctx.save();
   ctx.globalAlpha = GHOST_ALPHA;
-  for (const { x: ox, y: oy } of offsets) {
-    const rx = ox * GHOST_SCALE;
-    const ry = oy * GHOST_SCALE;
-    ctx.drawImage(
-      sprite,
-      tip.x + rx - h - GHOST_CELL_PAD,
-      tip.y + ry - h - GHOST_CELL_PAD,
-      cell + GHOST_CELL_PAD * 2,
-      cell + GHOST_CELL_PAD * 2,
-    );
-  }
+  stamp(sprite, GHOST_CELL_PAD);
   ctx.restore();
 }
 
