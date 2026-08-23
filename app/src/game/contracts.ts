@@ -602,7 +602,23 @@ function patternGoal(
  * divides by 5 only at goal 5 — a 40-cube, 8-shipment monster or nothing. It
  * becomes available the day a wider line does.
  */
-function patternSize(tier: number, rng: () => number): PieceSize {
+function patternSize(tier: number, rng: () => number, spec: VariantSpec): PieceSize {
+  // Two variants are INERT on a domino belt, because pieceCells returns one
+  // fixed domino whatever the type (pieces.ts):
+  //
+  //   Single Stock  promises one shipment type all bay. Every domino bay is
+  //                 already one shipment type, so the promise is free — and the
+  //                 card said "all L" about twelve identical dominoes, naming a
+  //                 distinction the player cannot see anywhere on the field.
+  //   Blackout      hides the NEXT preview. Every domino preview is the same
+  //                 tile, so there is no information in it to hide; the variant
+  //                 costs the player nothing and teaches nothing.
+  //
+  // Both would still be dealt, still be named on the card, and still spend a
+  // rung of the ladder while doing nothing. A variant that can roll into a
+  // no-op is worse than one that does not exist, so these two ship tetrominoes
+  // and the tiny roll belongs to the variants it actually changes.
+  if (spec.oneShape || spec.blind) return "std";
   return rng() < TINY_PATTERN_CHANCE && tier >= TINY_PATTERN_MIN_TIER ? "tiny" : "std";
 }
 
@@ -714,7 +730,7 @@ function generatePatternContract(
   const pool = variantsFor(tier);
   const spec = forced ? variantSpec(forced) : pool[Math.floor(rng() * pool.length)];
   const lineCells = spec.lineCells ?? lineCellsForTier(tier);
-  const size = patternSize(tier, rng);
+  const size = patternSize(tier, rng, spec);
   const goal = patternGoal(tier, lineCells, size, spec.goalBonus);
   const { queue, standing } = patternInventory(spec, goal, tier, lineCells, rng, size);
   const shapes = new Set(queue).size;
@@ -769,7 +785,13 @@ function patternBrief(
     : `${shapes} shape${shapes === 1 ? "" : "s"}`;
   switch (spec.id) {
     case "single":
-      return `${n} · all ${queue[0] ?? "I"}, no waste`;
+      // Never names the TYPE on a domino belt: every domino is the same tile,
+      // so "all L" would describe a distinction that does not exist on the
+      // field. patternSize keeps this variant on tetrominoes, and this is the
+      // second lock on the same door.
+      return size === "tiny"
+        ? `${n} · ${cargo}, no waste`
+        : `${n} · all ${queue[0] ?? "I"}, no waste`;
     case "short":
       return `${n} · ${spec.lineCells}-cell lines, no waste`;
     case "rebar":

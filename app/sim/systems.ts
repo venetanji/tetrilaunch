@@ -823,6 +823,8 @@ section("Pattern Contracts (contracts.ts)");
   const sizesSeen = new Set<string>();
   const tinyByTier = new Map<number, number[]>();
   const stdByTier = new Map<number, number[]>();
+  const tinyShipments = new Map<number, number[]>();
+  const stdShipments = new Map<number, number[]>();
   let tinyEverMultiShape = false;
   let tinyBelowMinTier = false;
   for (let tier = 1; tier <= 12; tier++) {
@@ -850,16 +852,29 @@ section("Pattern Contracts (contracts.ts)");
         sizesSeen.add(c.pieceSize);
         if (c.pieceSize === "tiny") {
           (tinyByTier.get(tier) ?? tinyByTier.set(tier, []).get(tier)!).push(c.goal);
+          (tinyShipments.get(tier) ?? tinyShipments.set(tier, []).get(tier)!).push(c.queue.length);
           // A domino ignores its type (pieces.ts's pieceCells), so a tiny
-          // Contract that reported several "shapes" would be describing a
-          // distinction the player cannot see on the field. Only briefs that
-          // name their CARGO can get this wrong — a variant brief names its
-          // RULE instead ("6-cell lines", "nothing shatters") and never claims
-          // a shape count at all, which is the same promise kept differently.
-          if (new Set(c.queue).size > 1 && /\bshapes?\b/.test(c.brief)) tinyEverMultiShape = true;
+          // Contract's brief may never describe a distinction between its
+          // shipments — there is none to see on the field.
+          //
+          // The earlier version of this check was too weak in two ways at once,
+          // and a Single Stock domino Contract walked through both: it only
+          // looked at queues with MORE than one type (a single-type queue
+          // short-circuits) and it only searched for the word "shape". The card
+          // read "12 shipments · all L, no waste" about twelve identical
+          // dominoes, and this line said nothing.
+          //
+          // So it now asserts the property rather than one phrasing of it: on a
+          // domino belt the brief must not name a piece TYPE at all, whatever
+          // words it uses to do it.
+          if (/\bshapes?\b/.test(c.brief)) tinyEverMultiShape = true;
+          if (PIECE_TYPES.some((t) => new RegExp(`\\ball ${t}\\b`).test(c.brief))) {
+            tinyEverMultiShape = true;
+          }
           if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = true;
         } else {
           (stdByTier.get(tier) ?? stdByTier.set(tier, []).get(tier)!).push(c.goal);
+          (stdShipments.get(tier) ?? stdShipments.set(tier, []).get(tier)!).push(c.queue.length);
         }
 
         if (c.windMax !== 0) everWindy = true;
@@ -898,11 +913,30 @@ section("Pattern Contracts (contracts.ts)");
   );
   // And a domino Contract must be strictly more DELIVERY than a std one: the
   // whole reason it is interesting is that it needs about twice the shipments.
-  const stdMax = (t: number) => Math.max(...(stdByTier.get(t) ?? [0]));
+  //
+  // Measured in SHIPMENTS, not in lines. This compared max goal-per-tier until
+  // variants arrived, and that stopped being a size comparison the moment a
+  // variant could carry a goal bonus AND be std-only: Single Stock is tetromino
+  // only and spends +1 line, so at tier 5 the biggest std goal (4) beat the
+  // biggest tiny one (3) and the check failed while nothing was wrong. It was
+  // comparing two different variants and calling the difference a size effect.
+  //
+  // Shipments is what the sentence above actually claims, and it is robust to
+  // any variant's goal bonus: a domino bay needs twice the shipments per line,
+  // so even a shorter domino goal is more deliveries than a longer std one.
+  const tinyShipMax = (t: number) => Math.max(...(tinyShipments.get(t) ?? [0]));
+  const stdShipMax = (t: number) => Math.max(...(stdShipments.get(t) ?? [0]));
+  let deliveryHolds = true;
+  const deliveryRows: string[] = [];
+  for (let t = TINY_PATTERN_MIN_TIER; t <= 9; t++) {
+    if (!tinyShipments.has(t) || !stdShipments.has(t)) continue;
+    deliveryRows.push(`t${t} ${tinyShipMax(t)}v${stdShipMax(t)}`);
+    if (tinyShipMax(t) <= stdShipMax(t)) deliveryHolds = false;
+  }
   check(
-    "a domino Contract asks for at least as many lines as a tetromino one",
-    tinyMax(5) >= stdMax(5),
-    `tiny ${tinyMax(5)} vs std ${stdMax(5)}`,
+    "a domino Contract asks for more shipments than a tetromino one",
+    deliveryHolds,
+    deliveryRows.join(" "),
   );
 
   check("a low tier can be a single-shape Contract", varietyByTier.get(1) === 1);
