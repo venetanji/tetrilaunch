@@ -73,16 +73,28 @@ const FX_NAMES: FxName[] = [
  * near 0.98 and the worst imaginable one at 1.05. That is why bringing music
  * up meant taking effects down rather than leaving them where they were.
  *
- * Stingers sit at EXACTLY the bed level. They already play into silence —
- * playStinger stops the music outright rather than ducking it (see below) — so
- * level with the bed is as prominent as they need to be, and they are not the
- * part of this soundtrack anyone is here for. Tying the constant to
- * MUSIC_GAIN rather than restating its value keeps that true through the next
- * time somebody tunes the bed.
+ * Stingers sit BELOW the bed, and matching their files to the same -15 LUFS
+ * target is exactly why they have to. Equal integrated loudness is not equal
+ * perceived loudness: bayClear measures LRA 1.3, the flattest thing in the
+ * whole set, against 3.7 for bay-1 and 2.5-6.0 for everything else. A track
+ * with no dynamics sits AT its level for all twenty seconds while a bed only
+ * touches its own on peaks, so the two read a good 1.5 LU apart while the
+ * meter calls them identical. Landing into silence — playStinger stops the
+ * music outright rather than ducking it (see below) — is what makes that
+ * difference land as a shout rather than a transition.
+ *
+ * So the jingle is placed by ear, under the bed, and 3dB is where "the same or
+ * lower" actually sounded like the same or lower. Note that the masters
+ * already said this: bayClear is 0.8 LU quieter than bay-1 as generated, and
+ * normalising both to one target is what threw that away. This constant buys
+ * it back. Keeping it a ratio OF MUSIC_GAIN rather than a bare number is the
+ * part that matters — the whole point of a level target is that the bed moves
+ * and the jingle keeps its distance.
  */
 const FX_BUS_GAIN = 0.6;
 const MUSIC_GAIN = 0.75;
-const STINGER_GAIN = MUSIC_GAIN;
+const STINGER_UNDER_DB = -3;
+const STINGER_GAIN = MUSIC_GAIN * 10 ** (STINGER_UNDER_DB / 20);
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
  *  by the next screen. Long enough not to click, short enough not to muddy. */
 const FADE_MS = 450;
