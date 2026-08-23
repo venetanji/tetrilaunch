@@ -620,11 +620,16 @@ export function hudHTML(opts: {
      *  as the third readout column on a LINES Contract. The space isn't empty
      *  before this: with no third .pl-stat, .pl-funds (flex: 1 1 auto) simply
      *  grows to fill it, so a Contract currently spends that width on a longer
-     *  Lines/Goal bar (app.css's .pl-funds/.pl-goal). Lost buys back roughly
-     *  18px of it at the tightest phone the ui-fit harness models — the bar
-     *  still ends up wider than a Deep Run's Funds/Target bar at the same
-     *  viewport, because LOST's column is narrower than TIME's (sim/systems.ts
-     *  proves this: same label length, a shorter value).
+     *  Lines/Goal bar (app.css's .pl-funds/.pl-goal). Adding Lost costs that
+     *  bar a THIRD flex item, not just a column — .pl-read's own gap (app.css)
+     *  is paid twice for three items where two paid once, so the bar's real
+     *  loss is the column plus that extra gap: about 36px at the tightest
+     *  phone the ui-fit harness models. What's left over still beats a Deep
+     *  Run: the bar ends up roughly 18px longer than a Deep Run's Funds/Target
+     *  bar at the same viewport (both pay the same two-gap cost there, so the
+     *  gap cancels out of THAT comparison), because LOST's column is narrower
+     *  than TIME's (sim/systems.ts proves it: same 4-glyph label, a shorter
+     *  value).
      *
      *  Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so the margin
      *  is 0 on frame one and one stranded cube ends the attempt. It never even
