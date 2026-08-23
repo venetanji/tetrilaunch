@@ -40,6 +40,7 @@ import {
   dailyContracts, levelForContract, contractBed, type Contract, type ContractBed,
 } from "./game/contracts";
 import { render } from "./game/render";
+import { shipmentColor } from "./game/theme";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
 import {
@@ -1836,6 +1837,22 @@ class App {
           : beltPieceHTML(g.cannon.currentType, g.cannon.quarterTurns, g.level.pieceSize, g.cannon.currentMaterial);
         held.classList.toggle("belt-piece--still", !arrived);
       }
+      // The transport LIGHTS UP in the colour of what it is bringing (see
+      // app.css's --belt-c): chevrons, outfeed and the bed's inner wash all
+      // read it. Set here rather than on its own timer so the colour changes
+      // on exactly the frame the tile above it does — a belt glowing for a
+      // shipment that already fired would be worse than no colour at all.
+      // Same source as the tile's own cubes (theme.ts's shipmentColor), so
+      // cryo reads cold and slag reads dead on the machine as well as the
+      // cargo.
+      this.overlay.querySelector<HTMLElement>("#hud-belt")?.style.setProperty(
+        "--belt-c",
+        bp.bomb
+          ? "var(--danger)"
+          : bp.empty
+            ? "var(--text-faint)"
+            : shipmentColor(bp.type, bp.material),
+      );
       this.lastNext = nextKey;
       this.lastNextId = idKey;
     }

@@ -1,4 +1,4 @@
-import { PIECE_COLORS, PIECE_TYPES } from "../game/theme";
+import { PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
@@ -515,6 +515,19 @@ export function leaderboardScreen(rows: string): string {
 /** Launches-left threshold at which the readout turns danger-red and pulses. */
 export const LOW_LAUNCH_WARN = 3;
 
+/** The transport's direction cue: eight CSS-drawn chevrons marching toward the
+ *  cannon (see app.css's .belt__arrows). Eight, and elements rather than the
+ *  "▸ ▸ ▸ ▸" text run this replaces, because the strip is twice the track wide
+ *  and loops by scrolling exactly half its own width: with equal flex cells
+ *  the seam lands chevron-on-chevron at any size on any device, which a text
+ *  run's advance width cannot promise. (That run was drawing from a platform
+ *  fallback anyway — U+25B8 is outside the bundled JetBrains Mono's
+ *  unicode-range.)
+ *
+ *  `--i` is the cell's index, which app.css turns into a staggered start for
+ *  the pulse that runs up the strip toward the cannon. */
+const BELT_ARROWS = Array.from({ length: 8 }, (_, i) => `<i style="--i:${i}"></i>`).join("");
+
 export function hudHTML(opts: {
   /** What rides the belt: the shot AFTER the muzzle's (see game.ts's
    *  Game.beltPreview). */
@@ -590,6 +603,17 @@ export function hudHTML(opts: {
     : beltPreview.empty
       ? ""
       : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
+  // The transport LIGHTS UP in the colour of what it is carrying (see
+  // app.css's --belt-c): the marching arrows, the outfeed and the track's
+  // inner glow all read it, so "what is coming" is legible from the belt
+  // itself at a glance — which is the job the "NEXT" caption used to do
+  // before the tiles grew into it on phones. Seeded here so the first paint
+  // is already right; main.ts re-sets it whenever the queue advances.
+  const beltAccent = beltPreview.bomb
+    ? "var(--danger)"
+    : beltPreview.empty
+      ? "var(--text-faint)"
+      : shipmentColor(beltPreview.type, beltPreview.material);
   const beltLoadedHTML = !loaded
     ? ""
     : loaded.bomb
@@ -691,25 +715,35 @@ export function hudHTML(opts: {
     ${bayBanner}
 
     <!-- INFEED TRANSPORT (canvas A5, proposal A "infeed housing"): the feed
-         head takes hazard stripes, the tread animates toward the cannon, and
-         the queue reads TWO deep — the piece the cannon is HOLDING full-size
-         at the downhill (muzzle) end, the piece coming after it behind at
-         reduced opacity. Real queue data, not a mockup: components.ts's
-         beltPieceHTML renders the exact shape/rotation/material, and the
-         MATERIAL_SPEC colour makes cryo/slag legible before firing. The size
-         tag names the bay's shipment class; compact drops it (A5's phone
-         rule), and the whole transport hides under the coach card at compact
-         (A6 — see app.css). -->
-    <div class="belt" aria-label="Shipment feed">
+         head takes hazard stripes, the tread and its chevrons animate toward
+         the cannon, and the queue reads TWO deep — the piece the cannon is
+         HOLDING at the downhill (muzzle) end, the piece coming after it
+         uphill, both opaque and both on top of the transport. Real queue data,
+         not a mockup:
+         components.ts's beltPieceHTML renders the exact shape/rotation/
+         material, and the MATERIAL_SPEC colour makes cryo/slag legible before
+         firing. The size tag names the bay's shipment class; compact drops it
+         (A5's phone rule), and the whole transport hides under the coach card
+         at compact (A6 — see app.css).
+
+         There is no "◂ NEXT" caption any more. It sat above the track between
+         the two tiles, and on a phone the tiles closed on it: the belt scales
+         with the field but the caption and the tiles bottom out on their
+         max() floors, so the gap between them shrank past what the words
+         needed (70px of gap for 61px of label at 1280; 34px for 43px at 667)
+         and the tiles painted over it. The transport says the same thing
+         without words now — chevrons marching at the cannon, lit in the
+         colour of the shipment they are carrying. -->
+    <div class="belt" aria-label="Shipment feed" id="hud-belt" style="--belt-c:${beltAccent}">
       <span class="belt__feed" aria-hidden="true">Feed</span>
-      <div class="belt__track"><div class="belt__tread"></div><span class="belt__arrows">▸ ▸ ▸ ▸</span></div>
-      <div class="belt__roller belt__roller--l"></div>
-      <div class="belt__roller belt__roller--r"></div>
-      <span class="belt__lbl">◂ NEXT</span>
+      <div class="belt__track"><div class="belt__tread"></div>
+        <span class="belt__arrows" aria-hidden="true">${BELT_ARROWS}</span>
+      </div>
+      <div class="belt__roller belt__roller--l"><i></i></div>
+      <div class="belt__roller belt__roller--r"><i></i></div>
       <div class="belt-piece belt-piece--next" id="hud-next">${beltNextHTML}</div>
       ${loaded ? `<div class="belt-piece belt-piece--loaded" id="hud-loaded">${beltLoadedHTML}</div>` : ""}
       <span class="belt__tag" aria-hidden="true">${sizeTag}</span>
-      <span class="belt__out" aria-hidden="true">${icon("play", 10)}</span>
     </div>
 
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and

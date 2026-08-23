@@ -373,7 +373,18 @@ function makeSpriteCanvas(worldW: number, worldH = worldW): CanvasRenderingConte
   c.width = Math.ceil(worldW * spritePxScale);
   c.height = Math.ceil(worldH * spritePxScale);
   const ctx = c.getContext("2d")!;
-  ctx.scale(spritePxScale, spritePxScale);
+  // Scale by the CEILED backing size, not by spritePxScale. Every caller draws
+  // the whole backing store into a worldW x worldH box, so the two have to
+  // correspond exactly. Baking at spritePxScale did not: the content filled
+  // only worldW * spritePxScale of ceil(worldW * spritePxScale) device px, and
+  // stretching that to the full box pulled everything toward the sprite's
+  // top-left by up to half a world pixel — worst at the sizes where the ceil
+  // rounds furthest. On the cannon base (a 112-world sprite) that was ~0.3
+  // world px: the ring painted high and left of world (150,288), so the DOM
+  // conveyor, which is placed there exactly, looked like it was sitting low
+  // against it. The cost is a sub-percent difference between the baked pixel
+  // scale and spritePxScale, which nothing can see.
+  ctx.scale(c.width / worldW, c.height / worldH);
   return ctx;
 }
 
