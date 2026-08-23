@@ -3,7 +3,8 @@ import type { LossReason } from "../game/game";
 import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
-  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, runNotchTallyHTML, shipPlatesHTML,
+  toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
+  runNotchTallyHTML, shipPlatesHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -602,16 +603,23 @@ export function hudHTML(opts: {
     ? beltBombHTML()
     : beltPreview.empty
       ? ""
-      : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
+      : beltPreview.hidden
+        ? beltSealedHTML()
+        : beltPieceHTML(beltPreview.type, beltPreview.quarterTurns, pieceSize, beltPreview.material);
   // The transport LIGHTS UP in the colour of what it is carrying (see
   // app.css's --belt-c): the marching arrows, the outfeed and the track's
   // inner glow all read it, so "what is coming" is legible from the belt
   // itself at a glance — which is the job the "NEXT" caption used to do
   // before the tiles grew into it on phones. Seeded here so the first paint
   // is already right; main.ts re-sets it whenever the queue advances.
+  //
+  // A SEALED shipment takes the neutral wash instead (see beltSealedHTML).
+  // Every piece type has its own colour, so a belt glowing orange for a sealed
+  // crate would name the L inside it, and the Blackout variant would be a lid
+  // on a box with the answer painted down the side of it.
   const beltAccent = beltPreview.bomb
     ? "var(--danger)"
-    : beltPreview.empty
+    : beltPreview.empty || beltPreview.hidden
       ? "var(--text-faint)"
       : shipmentColor(beltPreview.type, beltPreview.material);
   const beltLoadedHTML = !loaded

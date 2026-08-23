@@ -197,11 +197,11 @@ function cubeCount(f: Field, cols: number): number {
  */
 function advance(
   boards: Map<string, Field>, type: PieceType, cols: number, size: PieceSize,
-  model: BuildModel, piecesLeft: number,
+  model: BuildModel, piecesLeft: number, standingCubes = 0,
 ): Map<string, Field> {
   const cubes = SIZE_SPEC[size].cubes;
   const left = piecesLeft * cubes;
-  const height = Math.ceil((left + cubes) / cols) + SIZE_SPEC[size].cubes;
+  const height = Math.ceil((left + cubes + standingCubes) / cols) + SIZE_SPEC[size].cubes;
   const out = new Map<string, Field>();
   for (const f of boards.values()) {
     for (const cells of orientations(type, size)) {
@@ -214,6 +214,28 @@ function advance(
     }
   }
   return out;
+}
+
+/**
+ * The field a bay OPENS on: a salvage wall already standing in the goal region.
+ *
+ * `standing[x]` is how many cells of column x are occupied, counted up from the
+ * floor — the same profile tiling.ts's `prefilled` takes, in this module's
+ * floor-up row order rather than that one's top-down one.
+ *
+ * Zero waste still means the field ends EMPTY, which is what makes a standing
+ * wall an interesting opening rather than a handicap: those cubes are not spare,
+ * they are cubes the queue is short by, and every one of them has to end up
+ * inside a completed row too.
+ */
+function opening(cols: number, standing: readonly number[]): Field {
+  const rows = Math.max(0, ...standing.map((h) => Math.max(0, h)));
+  const f: number[] = Array.from({ length: rows }, () => 0);
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < Math.max(0, standing[x] ?? 0); y++) f[y] |= 1 << x;
+  }
+  while (f.length > 0 && f[f.length - 1] === 0) f.pop();
+  return f;
 }
 
 /**
@@ -232,13 +254,15 @@ function advance(
  */
 export function isBuildable(
   queue: readonly PieceType[], cols: number, size: PieceSize = "std",
-  model: BuildModel = "drop",
+  model: BuildModel = "drop", standing: readonly number[] = [],
 ): boolean {
-  if (queue.length === 0) return true;
-  if ((queue.length * SIZE_SPEC[size].cubes) % cols !== 0) return false;
-  let boards = new Map<string, Field>([["", []]]);
+  const start = opening(cols, standing);
+  const standingCubes = cubeCount(start, cols);
+  if (queue.length === 0) return standingCubes === 0;
+  if ((queue.length * SIZE_SPEC[size].cubes + standingCubes) % cols !== 0) return false;
+  let boards = new Map<string, Field>([[start.join(","), start]]);
   for (let i = 0; i < queue.length; i++) {
-    boards = advance(boards, queue[i], cols, size, model, queue.length - 1 - i);
+    boards = advance(boards, queue[i], cols, size, model, queue.length - 1 - i, standingCubes);
     if (boards.size === 0) return false;
   }
   return boards.has("");
@@ -295,12 +319,15 @@ function shuffle<T>(xs: readonly T[], rng: () => number): T[] {
 export function buildOrder(
   queue: readonly PieceType[], cols: number, rng: () => number,
   size: PieceSize = "std", model: BuildModel = "drop",
+  standing: readonly number[] = [],
 ): PieceType[] | null {
-  if (queue.length === 0) return [];
+  const start = opening(cols, standing);
+  const standingCubes = cubeCount(start, cols);
+  if (queue.length === 0) return standingCubes === 0 ? [] : null;
   const cubes = SIZE_SPEC[size].cubes;
-  if ((queue.length * cubes) % cols !== 0) return null;
+  if ((queue.length * cubes + standingCubes) % cols !== 0) return null;
 
-  const height = Math.ceil((queue.length * cubes) / cols) + cubes;
+  const height = Math.ceil((queue.length * cubes + standingCubes) / cols) + cubes;
 
   const counts = new Map<PieceType, number>();
   let dead = new Set<string>();
@@ -314,6 +341,9 @@ export function buildOrder(
     if (dead.has(key)) return false;
 
     const remainingCubes = (left - 1) * cubes;
+    // `cubeCount(next) + remainingCubes` below already includes the standing
+    // wall — it is on the board from the first node — so nothing extra is
+    // needed here. Named for the reader who checks.
     for (const type of shuffle([...counts.keys()], rng)) {
       const n = counts.get(type)!;
       if (n <= 0) continue;
@@ -359,7 +389,7 @@ export function buildOrder(
     dead = new Set<string>();
     budget = ORDER_BUDGET[model];
     order.length = 0;
-    if (walk([], queue.length)) return order;
+    if (walk(start, queue.length)) return order;
   }
   return null;
 }

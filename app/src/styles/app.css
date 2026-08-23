@@ -531,6 +531,15 @@ body.crt-off #app::after { display: none; }
   background: rgba(255,45,85,0.14);
   border: 1px solid rgba(255,45,85,0.5);
 }
+/* A SEALED shipment on a "Blackout" Contract's belt (components.ts's
+   beltSealedHTML). Muted and dashed rather than hazard-red: nothing is wrong
+   and nothing is dangerous, the crate is simply closed. */
+.next__bomb-tile--sealed {
+  background: rgba(128,128,172,0.12);
+  border: 1px dashed rgba(128,128,172,0.55);
+  color: var(--text-dim);
+  font-weight: 700;
+}
 
 /* ---------- HUD bottom strip ----------
    Holds only the desktop keyboard-hint strip now — there is no FIRE button:

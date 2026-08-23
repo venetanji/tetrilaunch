@@ -37,7 +37,8 @@ import {
   type MetaState, type TierResult,
 } from "./game/meta";
 import {
-  dailyContracts, levelForContract, contractBed, type Contract, type ContractBed,
+  dailyContracts, levelForContract, contractBed, variantSpec,
+  type Contract, type ContractBed,
 } from "./game/contracts";
 import { render } from "./game/render";
 import { shipmentColor } from "./game/theme";
@@ -59,7 +60,7 @@ import {
 } from "./game/bindings";
 import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
-import { beltPieceHTML, beltBombHTML, formatMMSS } from "./ui/components";
+import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
@@ -538,6 +539,11 @@ class App {
         type: g.cannon.currentType,
         quarterTurns: g.cannon.quarterTurns,
         empty: false,
+        // Never hidden, even on a Blackout Contract. That variant darkens what
+        // is COMING, not what is loaded — a bay that hides the piece in the
+        // muzzle is not asking the player to manage risk, it is asking them to
+        // guess (see game.ts's beltPreview).
+        hidden: false,
         material: g.cannon.currentMaterial,
       },
       tier: this.run?.mark ?? null,
@@ -566,7 +572,14 @@ class App {
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
       contract: this.contract
         ? {
-            name: this.contract.name,
+            // The bay name and, when the Contract is a variant, what makes it
+            // one. On the card the variant is a heading; in the plant readout
+            // there is room for one line, so the two are joined — a player who
+            // paused mid-bay has to be able to see WHICH rules they are under
+            // without leaving the bay to re-read the card.
+            name: this.contract.variant === "plain"
+              ? this.contract.name
+              : `${this.contract.name} · ${variantSpec(this.contract.variant).name}`,
             kind: this.contract.kind,
             goal: this.contract.goal,
             lines: g.linesTotal,
@@ -1816,7 +1829,8 @@ class App {
     const bp = g.beltPreview;
     const idKey = [
       g.cannon.currentType, g.bombArmed ? 1 : 0, g.cannon.currentMaterial,
-      bp.type, bp.bomb ? 1 : 0, bp.empty ? 1 : 0, bp.material, g.level.pieceSize,
+      bp.type, bp.bomb ? 1 : 0, bp.empty ? 1 : 0, bp.hidden ? 1 : 0, bp.material,
+      g.level.pieceSize,
     ].join(":");
     const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
@@ -1827,7 +1841,9 @@ class App {
           ? beltBombHTML()
           : bp.empty
             ? ""
-            : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
+            : bp.hidden
+              ? beltSealedHTML()
+              : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
         next.classList.toggle("belt-piece--still", !arrived);
       }
       const held = this.overlay.querySelector<HTMLElement>("#hud-loaded");
@@ -1845,11 +1861,17 @@ class App {
       // Same source as the tile's own cubes (theme.ts's shipmentColor), so
       // cryo reads cold and slag reads dead on the machine as well as the
       // cargo.
+      //
+      // A SEALED shipment lights the transport in the neutral wash, not its
+      // cargo's colour. Every piece type has its own colour, so a belt glowing
+      // orange for a sealed crate would name the L inside it and the Blackout
+      // variant would be over — the crate would be a lid on a box with the
+      // answer painted down the side of it.
       this.overlay.querySelector<HTMLElement>("#hud-belt")?.style.setProperty(
         "--belt-c",
         bp.bomb
           ? "var(--danger)"
-          : bp.empty
+          : bp.empty || bp.hidden
             ? "var(--text-faint)"
             : shipmentColor(bp.type, bp.material),
       );

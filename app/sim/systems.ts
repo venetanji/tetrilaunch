@@ -828,8 +828,14 @@ section("Pattern Contracts (contracts.ts)");
       for (const c of dailyContracts(tier, seed)) {
         if (c.kind !== "pattern") continue;
         patterns += 1;
+        // Exactness is measured against the CONTRACT's own region, not the
+        // ladder's: a "short" variant is sized to 6-cell lines, and a "salvage"
+        // one is short by exactly the wall the bay opens with. Both would read
+        // as inexact against a hardcoded 8-wide empty rectangle, and the whole
+        // point of the check is that they are not.
         const cubes = c.queue.length * SIZE_SPEC[c.pieceSize].cubes;
-        if (cubes !== c.goal * CUBES_PER_LINE + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
+        const wall = c.standing.reduce((a, h) => a + h, 0);
+        if (cubes + wall !== c.goal * c.lineCells + SPARE_SHIPMENTS * SIZE_SPEC[c.pieceSize].cubes) {
           everInexact = true;
         }
         // The cube COUNT above is necessary but nowhere near sufficient: the
@@ -837,16 +843,18 @@ section("Pattern Contracts (contracts.ts)");
         // and tiles nothing. Re-solved here with an independent search rather
         // than trusting the one that built it — a guarantee re-derived by the
         // same route it was produced by proves only that the code is itself.
-        const lineCells = makeBaseLevel(Math.min(9, tier)).compactorMinLineCells;
-        if (!tilesRegion(c.queue, c.goal, lineCells, c.pieceSize)) everUntileable = true;
+        if (!tilesRegion(c.queue, c.goal, c.lineCells, c.pieceSize, c.standing)) everUntileable = true;
         varietyByTier.set(tier, Math.max(varietyByTier.get(tier) ?? 0, new Set(c.queue).size));
         sizesSeen.add(c.pieceSize);
         if (c.pieceSize === "tiny") {
           (tinyByTier.get(tier) ?? tinyByTier.set(tier, []).get(tier)!).push(c.goal);
           // A domino ignores its type (pieces.ts's pieceCells), so a tiny
           // Contract that reported several "shapes" would be describing a
-          // distinction the player cannot see on the field.
-          if (new Set(c.queue).size > 1 && !c.brief.includes("dominoes")) tinyEverMultiShape = true;
+          // distinction the player cannot see on the field. Only briefs that
+          // name their CARGO can get this wrong — a variant brief names its
+          // RULE instead ("6-cell lines", "nothing shatters") and never claims
+          // a shape count at all, which is the same promise kept differently.
+          if (new Set(c.queue).size > 1 && /\bshapes?\b/.test(c.brief)) tinyEverMultiShape = true;
           if (tier < TINY_PATTERN_MIN_TIER) tinyBelowMinTier = true;
         } else {
           (stdByTier.get(tier) ?? stdByTier.set(tier, []).get(tier)!).push(c.goal);
@@ -973,9 +981,11 @@ section("Pattern Contracts (contracts.ts)");
         const dealt = cfg.pieceQueue!;
         dealtPatterns += 1;
         const cols = cfg.compactorMinLineCells;
-        if (!isBuildable(dealt, cols, ct.pieceSize, "drop")) {
+        if (!isBuildable(dealt, cols, ct.pieceSize, "drop", ct.standing)) {
           everUnbuildable += 1;
-          if (!isBuildable(dealt, cols, ct.pieceSize, "tuck")) everUnbuildableEvenLoosely += 1;
+          if (!isBuildable(dealt, cols, ct.pieceSize, "tuck", ct.standing)) {
+            everUnbuildableEvenLoosely += 1;
+          }
         }
       }
     }
@@ -2118,8 +2128,8 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // copy and stay.
   {
     const hud = hudHTML({
-      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, material: "standard" },
-      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, material: "standard" },
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
       tier: 2,
       target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
       timeLeftMs: 150_000, pieceSize: "std",
@@ -3066,12 +3076,21 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // ---- A Contract's belt carries exactly what it priced -------------------
   //
-  // Contracts now ship materials (the pentomino complication's replacement),
-  // but only the ones their budget model can price: slag can never count
-  // toward a line, so it must never appear, and a pattern Contract's exact
-  // tiling admits no material at all. The belt must match the Contract's own
-  // material/rate fields byte-for-byte — those fields are what launchesFor
-  // priced, and a mix that drifts from them is a budget lying about its bay.
+  // Contracts ship materials (the pentomino complication's replacement), but
+  // only the ones their model can account for. Slag can never count toward a
+  // line, so it must never appear anywhere. The belt must otherwise match the
+  // Contract's own material/rate fields byte-for-byte — on a lines Contract
+  // those fields are what launchesFor priced, and a mix that drifts from them
+  // is a budget lying about its bay.
+  //
+  // A PATTERN Contract's belt is no longer required to be clean, and that is a
+  // narrowing rather than a loosening. Its exact tiling admits only materials
+  // that leave a landed cube COUNTING, IN THE CELL THE TILING PUT IT IN: rebar
+  // refuses to come apart, magnetic squares itself onto its slot. Cryo (dead
+  // until struck), volatile (takes its neighbours) and tar (welds where it
+  // fell) all change what a landed cube is, so an exact inventory stops being
+  // exact — they stay forbidden, and this is where that is enforced.
+  const PATTERN_SAFE_MATERIALS = new Set(["rebar", "magnetic"]);
   let contractMixes = 0;
   let dirtyContracts = 0;
   let materialContracts = 0;
@@ -3085,7 +3104,13 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         const priced = c.material === m ? c.materialRate : 0;
         if (rate !== priced) dirtyContracts++;
       }
-      if (c.kind === "pattern" && c.material !== null) dirtyContracts++;
+      if (c.kind === "pattern" && c.material !== null) {
+        if (!PATTERN_SAFE_MATERIALS.has(c.material)) dirtyContracts++;
+        // A variant that ships a material ships it on EVERY shipment. A
+        // per-shipment roll would make "nothing shatters" true of most of the
+        // bay, which is a different and much worse promise than the card's.
+        if (c.materialRate !== 1) dirtyContracts++;
+      }
     }
   }
   check(
