@@ -2623,6 +2623,19 @@ section("Contract plant panel (screens.ts hudHTML)");
   // writes it after, and the check has to catch both.
   check("cubes lost takes no danger treatment — there is no threshold",
     !/<div class="(?=[^"]*\bpl-lost\b)(?=[^"]*\bpl-stat--danger\b)[^"]*">/.test(linesHud));
+
+  check("a Contract states the bay's conditions in the panel",
+    linesHud.includes('id="hud-conditions"') && linesHud.includes("crosswind · cryo shipments"));
+  check("a pattern Contract states its variant's conditions",
+    patternHud.includes("3 shapes, no waste"));
+  check("a Contract states the tier the clear counts toward",
+    linesHud.includes('class="pl-tier"') && linesHud.includes("Tier 1") && linesHud.includes("0/3"));
+  check("a Deep Run bay renders neither row — it has notches instead",
+    (() => {
+      const run = hudHTML({ ...base, contract: null, timeLimitSec: 150, timeLeftMs: 90_000 });
+      return !run.includes('id="hud-conditions"') && !run.includes('class="pl-tier"')
+        && run.includes('id="hud-notches"');
+    })());
 }
 
 // ---------------------------------------------------------------------------

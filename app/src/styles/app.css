@@ -1234,6 +1234,23 @@ body.crt-off #app::after { display: none; }
 .pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
 
+/* The tier line — the same label-plus-mono-value row as .pl-notch and .pl-queue,
+   so it inherits their optical correction below rather than restating it. Its
+   own class only because its value is a fixed fact for the length of a bay: no
+   scrolling tail to manage, and nothing to colour by axis kind. */
+.pl-tier {
+  margin-top: 2px;
+  display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
+  font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  min-width: 0;
+}
+.pl-tier b {
+  display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 700; color: var(--warn);
+  white-space: nowrap; min-width: 0;
+}
+
 /* ---------- The two rows that put a MONO value beside a PIXEL label --------
    `align-items: baseline` lines these rows up on an edge Press Start 2P does
    not draw on, and even correcting for that is not enough: the two faces draw
@@ -1253,7 +1270,7 @@ body.crt-off #app::after { display: none; }
    typefaces actually put ink rather than where their baselines are — no other
    assertion can see this, since the row does not overflow, wrap, clip or
    scroll while it is wrong. */
-.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+.pl-notch b, .pl-queue b, .pl-tier b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting
@@ -1295,7 +1312,7 @@ body.crt-off #app::after { display: none; }
    (0,2,0) and, being later, would win the tie against a plain
    `.hud--contract .plant__body`. */
 .hud.hud--contract .plant__body { gap: max(8px, calc(18 * var(--fpx))); }
-.hud--contract :is(.pl-load, .pl-queue) { margin-top: 0; }
+.hud--contract :is(.pl-load, .pl-queue, .pl-notch, .pl-tier) { margin-top: 0; }
 
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */

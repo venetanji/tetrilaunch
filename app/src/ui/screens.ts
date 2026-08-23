@@ -916,6 +916,46 @@ export function hudHTML(opts: {
             : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets)}</b></div>`
         }
         ${
+          // The bay's own complications — the Contract analogue of the notch
+          // line above, and the same row shape for the same reason: a list
+          // whose length the panel does not control belongs on a row that can
+          // scroll its tail. The board card states these and the bay used to
+          // forget them the moment it started.
+          //
+          // Rendered on EVERY Contract, so the row is at the same height on
+          // every card, and neither kind can leave it empty. On a LINES
+          // Contract that is budgetForTier (never below 2) plus wind and
+          // tightLaunches — 2 points each, and the two complications with no
+          // option-specific gate, unlike material and micro — so the notes
+          // list always gets at least one entry (0 empties across 72,000
+          // generated Contracts: contracts.ts's own measurement for its
+          // "clean bay" fallback, which guards a future budget or gating
+          // change and is not a state this row renders today). On a PATTERN
+          // Contract, patternConditions is a switch whose every case,
+          // default included, returns a literal string — no branch falls
+          // through empty.
+          //
+          // NOT `.pl-mods`: that row is display:none at compact density and
+          // never renders in a Contract at all. levelForContract never calls
+          // applyUpgrades, so bondBreakerCharges/bombCharges stay at
+          // makeBaseLevel's zero (only levelForRun's applyUpgrades raises
+          // them), which leaves bondChip and demoChip empty too — and
+          // hudOpts hands a Contract `tiers: {}` on top of that. Conditions
+          // placed on that row would be invisible on every phone.
+          contract
+            ? `<div class="pl-notch"><span class="lbl">Bay</span><b id="hud-conditions">${contract.conditions}</b></div>`
+            : ""
+        }
+        ${
+          // Why this bay is worth playing. The board states the deal — tier,
+          // clears needed, salvage a first clear banks — and the bay dropped
+          // it. Static for the length of an attempt, which is why it is a line
+          // and not a readout column.
+          contract
+            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b>${contract.progress.contracts}/${contract.progress.needed} ${icon("salvage", 9)} ${contract.progress.milestone}</b></div>`
+            : ""
+        }
+        ${
           // Build row: ABILITY chips first, then the ship rack. The rack is
           // seven fixed slots and all seven fit without scrolling on every
           // device (components.ts's shipPlatesHTML, and the harness's "rack"
