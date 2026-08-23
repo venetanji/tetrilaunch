@@ -2626,10 +2626,42 @@ section("Contract plant panel (screens.ts hudHTML)");
 
   check("a Contract states the bay's conditions in the panel",
     linesHud.includes('id="hud-conditions"') && linesHud.includes("crosswind · cryo shipments"));
+  // The comment on this row argues at length that conditions can never be
+  // empty (budgetForTier / the two ungated complications / patternConditions
+  // always returning a literal) — argued, but until now never actually
+  // pinned. `conditions: ""` would still satisfy the check above (`includes`
+  // finds the id regardless of what's inside the tag), so this closes the gap
+  // the argument opened: an empty tag reads `id="hud-conditions"></b>`.
+  check("...and the row can never render with an empty value",
+    !linesHud.includes('id="hud-conditions"></b>'));
   check("a pattern Contract states its variant's conditions",
     patternHud.includes("3 shapes, no waste"));
-  check("a Contract states the tier the clear counts toward",
-    linesHud.includes('class="pl-tier"') && linesHud.includes("Tier 1") && linesHud.includes("0/3"));
+  // "Tier 1" is a prefix of "Tier 10" and "0/3" is a bare substring either
+  // could appear as, coincidentally, in unrelated markup — the same objection
+  // the Lost check raises above about a bare `>7<`. Anchored on the label's
+  // own closing tag (rules out the "Tier 10" prefix) and on `id="hud-tier"`
+  // (rules out "0/3" turning up elsewhere).
+  check("a Contract states the tier the clear counts toward, unambiguously",
+    linesHud.includes('class="pl-tier"') && linesHud.includes('<span class="lbl">Tier 1</span>'));
+  // The milestone salvage — the number that actually answers "why is this bay
+  // worth playing" — had no assertion at all: every check above still passes
+  // with `${icon("salvage", 9)} ${contract.progress.milestone}` deleted
+  // outright. Anchored to id="hud-tier" for the same reason as above, and
+  // covers three things at once: the count (0/3), that it is immediately
+  // followed by the salvageHTML currency span (no stray whitespace text node
+  // between them — `.pl-tier b` already has a `gap`), and that the milestone
+  // (15) closes the tag. Not coupled to icon()'s SVG internals: `>15` anchors
+  // on the ">" that ends WHATEVER the icon renders, not its path data.
+  check("...the clear count, the reward glyph and the milestone salvage, in order and with no stray whitespace",
+    linesHud.includes('id="hud-tier">0/3<span class="currency">') && linesHud.includes('>15</span></b>'));
+  // Order was unchecked: swapping the Bay and Tier blocks (or the manifest
+  // row and either of them) left every check above green. This file already
+  // has the idiom two sections up (Lost after Launches) — same idea here.
+  check("the Bay conditions row reads before the Tier row",
+    linesHud.indexOf('id="hud-conditions"') < linesHud.indexOf('id="hud-tier"'));
+  check("on a pattern Contract, the manifest reads before both",
+    patternHud.indexOf('id="hud-queue"') < patternHud.indexOf('id="hud-conditions"') &&
+      patternHud.indexOf('id="hud-conditions"') < patternHud.indexOf('id="hud-tier"'));
   check("a Deep Run bay renders neither row — it has notches instead",
     (() => {
       const run = hudHTML({ ...base, contract: null, timeLimitSec: 150, timeLeftMs: 90_000 });

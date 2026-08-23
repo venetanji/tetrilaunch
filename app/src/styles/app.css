@@ -1177,18 +1177,27 @@ body.crt-off #app::after { display: none; }
   text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
 }
 
-/* The pattern Contract's remaining manifest — its OWN row under the meta
-   line, never inline in it: the tally is the widest thing the panel can hold
-   (six piece types × "I×3"), and inline it wrapped the meta line two or
-   three deep, which is what pushed the panel past its design box on the
-   tightest inset device. A row scrolls its tail; a wrapped line only grows. */
-.pl-queue {
+/* Three rows share one shell — label on the left in pixel type, mono value on
+   the right, `align-items: baseline` lining the row up on an edge (see the
+   optical correction below), one row-gap rhythm. This was the SAME ten
+   declarations three times over, byte-identical on .pl-queue, .pl-notch and
+   .pl-tier (compared below their own rules once each was written). Hoisted
+   here instead: change the row shape once, not in three places that can
+   drift apart. What is left on each class below is only what makes it that
+   particular row — the manifest tally, the notch tally, or the tier line. */
+.pl-queue, .pl-notch, .pl-tier {
   margin-top: 2px;
   display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
   font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
   letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
   min-width: 0;
 }
+
+/* The pattern Contract's remaining manifest — its OWN row under the meta
+   line, never inline in it: the tally is the widest thing the panel can hold
+   (six piece types × "I×3"), and inline it wrapped the meta line two or
+   three deep, which is what pushed the panel past its design box on the
+   tightest inset device. A row scrolls its tail; a wrapped line only grows. */
 .pl-queue b {
   font-family: var(--font-mono); font-weight: 700;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
@@ -1209,13 +1218,6 @@ body.crt-off #app::after { display: none; }
    The line costs ~9px against the 18.6px of free height the panel had inside
    its design box on the tightest device in the matrix, so it is paid for out
    of air the panel was already spreading between its rows, not out of the box. */
-.pl-notch {
-  margin-top: 2px;
-  display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
-  font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
-  min-width: 0;
-}
 .pl-notch b {
   display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700;
@@ -1234,19 +1236,62 @@ body.crt-off #app::after { display: none; }
 .pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
 
-/* The tier line — the same label-plus-mono-value row as .pl-notch and .pl-queue,
-   so it inherits their optical correction below rather than restating it. Its
-   own class only because its value is a fixed fact for the length of a bay: no
-   scrolling tail to manage, and nothing to colour by axis kind. */
-.pl-tier {
-  margin-top: 2px;
-  display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
-  font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
-  min-width: 0;
-}
+/* The tier line — the same label-plus-mono-value shell as .pl-notch and
+   .pl-queue above, so it inherits their optical correction below rather than
+   restating it. Its own class only because its value differs from both in
+   two ways.
+
+   First: it is a fixed fact for the length of a bay, not a list, so no
+   scrolling tail (`.pl-notch b` / `.pl-queue b`'s `overflow-x: auto`) — this
+   is deliberate, not an oversight, because the value cannot overflow. Every
+   part of it is bounded: `progress.tier` never exceeds MARK_COUNT (10 —
+   meta.ts's `markUnlocked` clamps to `Math.min(MARK_COUNT, meta.mark + 1)`);
+   `progress.contracts` never exceeds `progress.needed`, itself the constant
+   TIER_CONTRACTS_REQUIRED (3 — `tierProgressFor` reports
+   `Math.min(meta.tierContracts, TIER_CONTRACTS_REQUIRED)`); and
+   `progress.milestone` is not merely bounded but FLAT at 15 on every tier —
+   `tierMilestoneSalvage(t) = floor(tierSalvage(t) / 4)`,
+   `tierSalvage(t) = TIER_SALVAGE_BASE + (t-1) * TIER_SALVAGE_PER_TIER`, and
+   TIER_SALVAGE_PER_TIER is 0 (meta.ts), so tierSalvage is the flat 60 at
+   every tier and the floor is a flat 15. The widest this row's label+value
+   can ever read is "Tier 10" beside "3/3" + the salvage glyph + "15" —
+   measured at this row's own floor styling with the real self-hosted fonts:
+   82.9px of content against the 209px content-box the narrowest device in
+   the matrix gives the whole panel (app.css's ship-rack comment above,
+   "the narrowest panel's 209px"). 2.5x headroom; `overflow-x: auto` here
+   would be dead code.
+
+   Second: `align-items: center`, not `baseline` like the two rows above —
+   this one is NOT optional. `icon()` (icons.ts) emits a `display:block` SVG
+   (`.ico`, this file), and a block box has no baseline of its own: inside a
+   `baseline`-aligned flex row it sits ON the text baseline and grows the
+   line box by its own height, the same bug `.currency` documents and fixes
+   for itself below (~line 2900 at the time of writing). Measured at this
+   row's compact floor (6px type, 9px icon): a `baseline`-aligned `.pl-tier b`
+   stands 19px against a 16px text-only reference — 3px of overflow in a
+   panel written to a height cap. `align-items: center` alone closes it
+   (16.5px, the remaining half-pixel being the icon's own 9px against an 8px
+   text glyph, not a bug). Routing the number through `salvageHTML`
+   (screens.ts) instead of a bare `icon()` call does NOT fix this by itself —
+   confirmed by measuring both ways under `align-items: baseline` (19px
+   either way): `.currency`'s own `align-items: center` governs only ITS
+   children, and it presents no baseline of its own either, so it inflates an
+   ancestor `baseline` row exactly as a bare SVG does. `salvageHTML` is used
+   here anyway, for the glyph-plus-number idiom every other salvage figure in
+   the app uses — but `align-items: center` on THIS rule is what actually
+   fixes the overflow.
+
+   `color: var(--warn)` on the whole value, not just the salvage glyph and
+   number: warm is the salvage colour everywhere else in the app (screens.ts's
+   salvageHTML/`.currency`), so it is right for those two — but it also
+   colours "3/3", a clear count that is not itself a currency. Deliberate: the
+   row states one idea, progress toward a payout, and splitting the fraction
+   into a differently-coloured half would read as two facts sharing a line
+   rather than one. `.lbl` (the pixel "Tier N" text, from the hoisted shell
+   above) stays `--text-muted`; only the row's payoff half takes the colour
+   that says "this is what you're playing for". */
 .pl-tier b {
-  display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
+  display: flex; align-items: center; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700; color: var(--warn);
   white-space: nowrap; min-width: 0;
 }
@@ -1496,13 +1541,18 @@ body.crt-off #app::after { display: none; }
    template; a Contract renders three or four, all full-width, all in DOM
    order, and a template for that is just a list of the rows flex would lay out
    anyway — one that has to be kept in step with which of them render.
-   It could not be, either: `meta` is named in the base template and does not
-   exist in a Contract, so a Contract inheriting it would still pay that row's
-   share of gap for nothing — one row now, not two. `notch` no longer joins
-   it: a Contract's own `.pl-notch` row (the Bay conditions line) would fill
-   that same grid-area, same class, just different content. (This scope used
-   to carry a 0.8/1.2 column split, justified by a measurement of the meta
-   line WITHOUT its "Launch $N" span. There is no meta line here at all now.) */
+   It could not be, either: two of the five named areas are still empty on a
+   Contract that inherits this template, just not the same two any more.
+   `notch` now fills — a Contract's own `.pl-notch` row (the Bay conditions
+   line) would land there, same class, same grid-area. `mods` takes its old
+   place: `.pl-mods` never renders in a Contract at all (`plates || bondChip
+   || demoChip` are all falsy there — see the Build row's comment, and the Bay
+   row's NOT `.pl-mods` note, in screens.ts), so that area would be empty too.
+   `meta` still is, same as always. A Contract inheriting the base template
+   would still pay two rows' worth of gap for nothing — `meta` and `mods` now,
+   not `notch` and `meta`. (This scope used to carry a 0.8/1.2 column split,
+   justified by a measurement of the meta line WITHOUT its "Launch $N" span.
+   There is no meta line here at all now.) */
 [data-density="compact"] .hud--contract .plant__body { display: flex; }
 /* And at compact a Contract has no build row at all. The ability chips are
    hidden at this density (the rail is the touch control surface and carries

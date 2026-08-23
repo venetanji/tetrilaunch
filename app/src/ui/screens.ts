@@ -951,8 +951,21 @@ export function hudHTML(opts: {
           // clears needed, salvage a first clear banks — and the bay dropped
           // it. Static for the length of an attempt, which is why it is a line
           // and not a readout column.
+          //
+          // `salvageHTML`, not a bare `icon("salvage", 9)` + interpolated
+          // number: every other salvage figure in the app goes through it
+          // (screens.ts:58), and writing this one out by hand also left a
+          // literal space either side of the icon — a stray text-node flex
+          // item next to a `gap` that already spaces the row (app.css's
+          // `.pl-tier b`). See app.css's `.pl-tier` comment for the actual
+          // rendering bug this row had (align-items, not this wrapper) and
+          // why its value can never overflow.
+          //
+          // `id="hud-tier"` exists to anchor tests, not to sync: the value is
+          // static for the length of a bay (above), so nothing in main.ts
+          // ever looks it up.
           contract
-            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b>${contract.progress.contracts}/${contract.progress.needed} ${icon("salvage", 9)} ${contract.progress.milestone}</b></div>`
+            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b id="hud-tier">${contract.progress.contracts}/${contract.progress.needed}${salvageHTML(contract.progress.milestone, 9)}</b></div>`
             : ""
         }
         ${
@@ -967,20 +980,28 @@ export function hudHTML(opts: {
           // legible size, and a notch behind a scroll is a notch the player
           // does not know they took.
           //
-          // In a CONTRACT the rack is gone and the chips are the whole row.
+          // In a CONTRACT this row never renders at all, on any device — not
+          // "the rack is gone and the chips are the whole row", a state that
+          // cannot occur (see the Bay row's NOT `.pl-mods` note above).
+          // Written as `plates || bondChip || demoChip` rather than
+          // `contract ? "" : ...` anyway, because that condition is the real
+          // reason the row disappears, checked directly instead of assumed
+          // from the mode: `plates` is `""` on a Contract by construction
+          // (`contract ? "" : shipPlatesHTML(tiers)`), and `bondChip`/
+          // `demoChip` are always empty there too — main.ts's hudOpts derives
+          // `bondBreakerOwned`/`demoOwned` from `g.bondCharges`/
+          // `g.level.bombCharges`, and `levelForContract` (contracts.ts)
+          // never calls `applyUpgrades`, so both sit at `makeBaseLevel`'s zero
+          // default; only `levelForRun`'s `applyUpgrades` ever raises them.
           // Fixed slots earn their place in a Deep Run, where a refit lights a
-          // plate exactly where the player is already looking — but main.ts's
-          // hudOpts hands a Contract `tiers: {}` every time, so there those
-          // seven boxes are empty by construction and can never do that job.
-          // The abilities can: they come off the Contract's own level config,
-          // and they are the modifiers a Contract actually carries. When it
-          // carries none the row does not render at all rather than leaving a
-          // lone BUILD tag labelling nothing.
+          // plate exactly where the player is already looking; a Contract's
+          // own level config carries no ability that could ever light this
+          // row the same way, today.
           //
-          // On a PHONE it never renders: the chips are hidden at compact
-          // density (the rail carries the same triggers, counts included), so
-          // app.css drops the whole row there rather than leave its padding
-          // behind. The row is a desktop/tablet readout in a Contract.
+          // On a PHONE, Deep Run's build row hides a second, independent way:
+          // the chips are hidden at compact density (the rail carries the
+          // same triggers, counts included), so app.css drops the whole row
+          // there rather than leave its padding behind.
           plates || bondChip || demoChip
             ? `<div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>

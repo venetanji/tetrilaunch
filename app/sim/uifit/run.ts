@@ -547,13 +547,26 @@ function measure(cfg: {
   };
   const cvs = document.createElement("canvas").getContext("2d");
   if (cvs) {
-    // [row, label, value] — the panel's two mixed-typeface rows. Listed rather
+    // [row, label, value] — the panel's mixed-typeface rows. Listed rather
     // than discovered: a rule that hunted for font-family changes would also
     // find the deliberate ones (the funds figure UNDER its label, the PWR cap's
     // centre-aligned readout) and have to carry exceptions for them.
+    //
+    // `.pl-notch` is two different rows depending on the class alone: Deep
+    // Run's Notches tally (value is a `.pl-notch__ax` chip run) and a
+    // Contract's Bay-conditions line (value is a plain `<b>`, no chips at
+    // all — screens.ts's hudHTML). One unscoped `.pl-notch` entry can only
+    // ever match whichever the CURRENT fixture rendered, and on a Contract
+    // fixture that used to mean matching the Bay row while still asking for
+    // `.pl-notch__ax` — `row.querySelector(lblSel)` found the label,
+    // `row.querySelector(valSel)` found nothing, and `if (!lbl || !val)
+    // return;` below silently skipped the row rather than failing loud. Two
+    // scoped entries instead, one per actual shape.
     ([
-      [".pl-notch", ".lbl", ".pl-notch__ax"],
+      [".hud:not(.hud--contract) .pl-notch", ".lbl", ".pl-notch__ax"],
+      [".hud--contract .pl-notch", ".lbl", "b"],
       [".pl-queue", ".lbl", "b"],
+      [".pl-tier", ".lbl", "b"],
     ] as [string, string, string][]).forEach(([rowSel, lblSel, valSel]) => {
       const row = document.querySelector(rowSel);
       if (!row) return;
