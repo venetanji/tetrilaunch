@@ -210,7 +210,15 @@ const FIELDS: Field[] = [
     id: "bonds", label: "Bond strength", short: "Bonds",
     read: (c) => c.jointBreakStretch,
     fmt: (v) => (Number.isFinite(v) ? `×${v.toFixed(1)}` : "unbreakable"),
-    higherIsWorse: false,
+    // STRONGER bonds are worse news, however the word reads. level.ts calls
+    // this ramp "the core difficulty ramp" and BOND_MARK_STEP names it as the
+    // axis Mark difficulty is made of — a shipment that will not come apart
+    // cannot settle into the gap it landed over. The direction the player buys
+    // is the opposite one: the Bond Emitter's Seam Splitter WEAKENS S and Z
+    // (upgrades.ts's weakBondMult, 0.7 then 0.5). Cold Weld is the only clause
+    // that moves this row, and it is one of a mandatory pair of costs, so
+    // false here painted it as the free half of the choice.
+    higherIsWorse: true,
   },
   {
     // Stated in CUBES rather than in the size class's name, because cubes per
