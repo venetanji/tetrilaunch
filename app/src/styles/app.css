@@ -1120,7 +1120,10 @@ body.crt-off #app::after { display: none; }
    Deep Run, lost on a lines Contract (screens.ts's hudHTML). A pattern
    Contract renders launches alone, with no partner column at all. Same size
    and weight in every pairing, so neither column reads as more important
-   than the other; all three escalate the same way. */
+   than the other. Launches and time both carry the danger escalation
+   (`.pl-stat--danger`, main.ts's syncHud); Lost deliberately never does —
+   syncHud only ever sets its text, and sim/systems.ts holds "no danger
+   treatment" for it as its own named invariant. */
 /* Two columns, when a pairing puts two on screen, need to read as SEPARATE
    numbers — at a glance "0" and "2:23" side by side can otherwise scan as
    one figure. A hairline rule and real padding between them does that
