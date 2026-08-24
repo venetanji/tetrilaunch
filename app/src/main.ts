@@ -34,9 +34,9 @@ import {
   type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, UNLOCKS, buyInstall, installAvailable, markUnlocked, newMeta, nextStep,
+  INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
   recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
-  unlockById, type MetaState, type TierResult,
+  unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
@@ -673,7 +673,24 @@ class App {
             // screens.ts's hudHTML for why a pattern bay cannot use it.
             lost: g.lostTotal,
             conditions: this.contract.conditions,
-            progress: tierProgressFor(this.meta),
+            tier: this.contract.tier,
+            // Only while THIS attempt would still bank the milestone the row
+            // quotes — the same three-way gate recordContractClear settles on
+            // (unclaimed, at the current tier, under the cap). The meta this
+            // reads moves underneath the panel: recordContractClear advances
+            // the tier BEFORE contract-end mounts its fresh HUD, so a clear
+            // that completed a tier left the row advertising tier N+1's count
+            // and salvage on a bay that is still tier N, and Play Again
+            // re-rendered that same wrong deal on every replay. Null here
+            // makes the row say Practice instead (screens.ts).
+            progress: (() => {
+              const p = tierProgressFor(this.meta);
+              const banks =
+                !contractClaimed(this.meta, this.contract.id) &&
+                this.contract.tier === p.tier &&
+                p.contracts < TIER_CONTRACTS_REQUIRED;
+              return banks ? p : null;
+            })(),
           }
         : null,
     };

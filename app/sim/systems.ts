@@ -2619,7 +2619,7 @@ section("Contract plant panel (screens.ts hudHTML)");
     ...base,
     contract: {
       name: "Foundry Overrun", kind: "lines", goal: 5, lines: 2, launchesLeft: 9,
-      remaining: [], lost: 7, conditions: "crosswind · cryo shipments", progress,
+      remaining: [], lost: 7, conditions: "crosswind · cryo shipments", tier: 1, progress,
     },
   });
   // A clean stretch — nothing stranded yet — is the common opening reading for
@@ -2632,14 +2632,14 @@ section("Contract plant panel (screens.ts hudHTML)");
     ...base,
     contract: {
       name: "Cargo Bay Reroute", kind: "lines", goal: 6, lines: 0, launchesLeft: 11,
-      remaining: [], lost: 0, conditions: "no complications", progress,
+      remaining: [], lost: 0, conditions: "no complications", tier: 1, progress,
     },
   });
   const patternHud = hudHTML({
     ...base,
     contract: {
       name: "Cold Storage Backlog", kind: "pattern", goal: 4, lines: 1, launchesLeft: 6,
-      remaining: ["I", "O", "T"], lost: 0, conditions: "3 shapes, no waste", progress,
+      remaining: ["I", "O", "T"], lost: 0, conditions: "3 shapes, no waste", tier: 1, progress,
     },
   });
 
@@ -2701,6 +2701,30 @@ section("Contract plant panel (screens.ts hudHTML)");
   check("on a pattern Contract, the manifest reads before both",
     patternHud.indexOf('id="hud-queue"') < patternHud.indexOf('id="hud-conditions"') &&
       patternHud.indexOf('id="hud-conditions"') < patternHud.indexOf('id="hud-tier"'));
+  // The row's OTHER state, and the reason it has one: hudOpts passes `progress`
+  // only while this attempt would still bank the milestone the row quotes
+  // (unclaimed, at the current tier, under the cap — recordContractClear's own
+  // three conditions). Without the null case the panel kept quoting a snapshot
+  // taken after the clear banked, so a replay and the fresh contract-end render
+  // both advertised a count and a salvage figure the bay could never pay — and
+  // once a clear COMPLETED the tier it advertised the NEXT tier's number on a
+  // bay that is still the old tier's. Practice names the bay's own tier for
+  // that reason: a tier-6 board entry stays tier 6 on a tier-7 player's screen.
+  check("a Contract that can bank nothing says so, in the BAY's tier",
+    (() => {
+      const practice = hudHTML({
+        ...base,
+        contract: {
+          name: "Foundry Overrun", kind: "lines", goal: 5, lines: 2, launchesLeft: 9,
+          remaining: [], lost: 7, conditions: "crosswind · cryo shipments",
+          tier: 6, progress: null,
+        },
+      });
+      return practice.includes('class="pl-tier"')
+        && practice.includes('<span class="lbl">Tier 6</span>')
+        && practice.includes('id="hud-tier">Practice</b>')
+        && !practice.includes('class="currency"');
+    })());
   check("a Deep Run bay renders neither row — it has notches instead",
     (() => {
       const run = hudHTML({ ...base, contract: null, timeLimitSec: 150, timeLeftMs: 90_000 });

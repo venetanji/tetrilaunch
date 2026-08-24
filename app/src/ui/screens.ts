@@ -676,8 +676,21 @@ export function hudHTML(opts: {
     /** The bay's complications, one line (Contract.conditions). The board card
      *  states these and the bay used to forget them. */
     conditions: string;
-    /** Tier standing, for the row that says why this clear is worth having. */
-    progress: TierProgress;
+    /** The Contract's OWN tier (Contract.tier) — the bay's tier, which stops
+     *  being the player's the moment they climb past the board entry they are
+     *  replaying. The row names this one, so a tier-6 Contract stays a tier-6
+     *  bay on a tier-7 player's screen. */
+    tier: number;
+    /** Tier standing, for the row that says why this clear is worth having —
+     *  or NULL when this attempt banks nothing, which is a state the row has
+     *  to be able to say. main.ts passes the snapshot only while the same
+     *  three conditions recordContractClear settles on still hold (unclaimed,
+     *  at the current tier, under the milestone cap); a replay, an off-tier
+     *  board entry, or the fresh render after a clear just advanced the tier
+     *  all pass null. Rendering the snapshot regardless is how the panel came
+     *  to advertise tier N+1's count and salvage on a tier-N bay that can
+     *  never pay either. */
+    progress: TierProgress | null;
   } | null;
   /** Whether a fullscreen toggle can do anything here (platform.ts's
    *  fullscreenSupported — false in the native shells, which are already
@@ -1036,7 +1049,18 @@ export function hudHTML(opts: {
           // contract-end's own fresh hudHTML() render, not a live patch, so
           // main.ts still never looks the id up.
           contract
-            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b id="hud-tier">${contract.progress.contracts}/${contract.progress.needed}${salvageHTML(contract.progress.milestone, 9)}</b></div>`
+            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress?.tier ?? contract.tier}</span><b id="hud-tier">${
+                // The deal, or the honest absence of one. With a milestone
+                // still to bank the row quotes the count and the salvage; with
+                // nothing to bank it says PRACTICE, in the CONTRACT's own tier
+                // rather than the player's — naming the player's tier beside
+                // "practice" would just raise the same wrong number the row is
+                // being fixed for. The row stays mounted either way: it is one
+                // line whichever it says.
+                contract.progress
+                  ? `${contract.progress.contracts}/${contract.progress.needed}${salvageHTML(contract.progress.milestone, 9)}`
+                  : "Practice"
+              }</b></div>`
             : ""
         }
         ${
