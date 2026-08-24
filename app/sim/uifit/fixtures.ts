@@ -242,7 +242,11 @@ export const SCREENS: Record<string, () => string> = {
     S.controlsScreen({
       tab: "gamepad",
       settings: SETTINGS,
-      padName: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 02fd)",
+      // The longest id seen in the field, not a representative one: a pad's
+      // `Gamepad.id` is whatever the driver reports, and the DualSense's runs
+      // six characters past the Xbox pad's. This row renders the widest string
+      // the Controls screen ever shows, so the fixture carries the worst case.
+      padName: "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)",
       rebinding: null,
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),

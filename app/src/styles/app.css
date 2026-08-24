@@ -2048,7 +2048,12 @@ body.crt-off #app::after { display: none; }
      row height (a 18px mono line is 25px of the old 47.7px row). Everything
      stays above the 11px the rest of the modal's chrome already uses. */
   .end .lb { gap: 4px; }
-  .end .lb__row { padding: 5px 12px; grid-template-columns: 30px 1fr auto auto; gap: var(--sp-2); }
+  /* 6px of gap, not 8: at 640x360 the four tracks add up to the row's full
+     214px, and the name track landed 0.94px short of "PILOT1" — a six-letter
+     name ellipsised over a sub-pixel. Three gaps at 8px were spending 24px of
+     that row; two of them back is enough to clear the rounding and leave the
+     name room to grow before it has to yield. */
+  .end .lb__row { padding: 5px 12px; grid-template-columns: 30px minmax(0, 1fr) auto auto; gap: 6px; }
   .end .lb__score { font-size: 15px; }
   .end .lb__gap { font-size: 10px; padding: 0; }
 }
@@ -2535,7 +2540,12 @@ button.panel { color: var(--text); }
 #lb-body { min-height: 64px; }
 .lb { display: flex; flex-direction: column; gap: 6px; }
 .lb__row {
-  display: grid; grid-template-columns: 40px 1fr auto auto; gap: var(--sp-3); align-items: center;
+  /* minmax(0, …) on the name, because a `1fr` track still takes its MINIMUM
+     from the item's min-content and a pilot name is one unbroken word. An
+     11-character name sized the track past the row, which pushed the score out
+     of the row's right edge and off the modal — visible on the end screen's own
+     highlighted row on the two shortest devices. */
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: var(--sp-3); align-items: center;
   padding: 10px 14px; border-radius: var(--r-md);
   background: rgba(255,255,255,0.03); border: var(--bw) solid var(--line);
 }
@@ -2547,7 +2557,13 @@ button.panel { color: var(--text); }
   color: var(--text-muted); font-size: 12px; padding: 1px 0;
 }
 .lb__rank { font-family: var(--font-pixel); font-weight: 700; font-size: 13px; color: var(--text-dim); }
-.lb__name { font-family: var(--font-pixel); font-weight: 700; font-size: 11px; letter-spacing: 0.03em; }
+.lb__name {
+  font-family: var(--font-pixel); font-weight: 700; font-size: 11px; letter-spacing: 0.03em;
+  /* The name is the one field that yields: rank, lines and score are all short
+     and all load-bearing, so a name too long for the row ellipsizes rather than
+     shoving a figure out of the box. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .lb__lines { font-size: var(--fs-xs); color: var(--text-muted); }
 .lb__score { font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--accent); }
 
@@ -3064,7 +3080,22 @@ button.panel { color: var(--text); }
   border: var(--bw) solid var(--line);
   border-radius: var(--r-md);
 }
-.bind-row--info { grid-template-columns: minmax(0, 1fr) auto; min-height: var(--tap-min); }
+/* An info row's value is FREE TEXT, not a key cap, so it cannot be sized the
+   way the rebindable rows are. The Detected row renders a raw `Gamepad.id` —
+   "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)"
+   is ~500px of nowrap mono — and with the value in an `auto` track that string WAS
+   the track's min-content, so the track refused to shrink below it and the span
+   painted straight over the next column of the two-column pane. Label first at
+   its own width, value takes what is left and wraps inside it. The right-align
+   keeps the short values ("⟲ / ⟳ on the rail") sitting exactly where the 1fr
+   label used to push them. */
+.bind-row--info { grid-template-columns: auto minmax(0, 1fr); min-height: var(--tap-min); }
+.bind-row--info .bind-row__key {
+  /* `anywhere`, not `break-word`: only `anywhere` shrinks the intrinsic
+     min-content the grid sizes the track from, so a pad id with no spaces
+     inside it still cannot force the cell wider than its track. */
+  white-space: normal; overflow-wrap: anywhere; text-align: right;
+}
 .bind-row--capturing { border-color: var(--warn); }
 .bind-row__label {
   font-size: var(--fs-sm); color: var(--text);
