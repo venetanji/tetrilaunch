@@ -1288,14 +1288,24 @@ body.crt-off #app::after { display: none; }
    away. */
 .plant {
   --crest-heat: 0.45;
-  --crest-cold: #262640;
-  --cell-0: #2b2b47;      /* cold steel */
-  --cell-1: #3d2f3a;      /* cooling    */
-  --cell-2: #6d2f14;      /* dark ember */
-  --cell-3: #b3480d;      /* ember      */
-  --cell-4: #e07a10;      /* molten     */
-  --cell-5: var(--warn);  /* hot amber  */
-  --cell-6: #ffe089;      /* white-hot  */
+  --crest-cold: #1e1c1b;
+  /* A FORGE RAMP, not a cargo one. One hue family walked from cold iron up to
+     hot metal — the blackbody sequence a bar of steel actually goes through —
+     rather than the piece palette the crest first tried. Two things were
+     making that read as decoration instead of machinery: the cold rungs sat
+     blue-violet, so every quiet cell was a colour ACROSS the wheel from every
+     hot one and the ring flickered purple-against-orange; and the top rung
+     ran to a bright primary yellow, which is the loudest thing the HUD can
+     paint and it was on the chrome. Neutral charcoal at the bottom and a
+     muted amber rather than yellow at the top keeps the whole run inside one
+     family, so heat reads as heat instead of as hue. */
+  --cell-0: #232327;      /* cold iron       */
+  --cell-1: #3a3430;      /* warm grey steel */
+  --cell-2: #5e2f1c;      /* first heat      */
+  --cell-3: #8c3512;      /* dull red        */
+  --cell-4: #b9500f;      /* red-orange      */
+  --cell-5: #dd7a17;      /* orange          */
+  --cell-6: #f2b25c;      /* hot metal       */
   /* Unmixed fallback — the palette at full heat. Overridden immediately
      below anywhere color-mix() exists. */
   --ramp-0: var(--cell-0); --ramp-1: var(--cell-1); --ramp-2: var(--cell-2);
@@ -1323,13 +1333,13 @@ body.crt-off #app::after { display: none; }
    which is the whole reason the crest is cells rather than a band. */
 @supports (color: color-mix(in oklab, #000, #fff 50%)) {
   .plant {
-    --ramp-0: color-mix(in oklab, var(--crest-cold), var(--cell-0) calc(30% + var(--crest-heat) * 70%));
-    --ramp-1: color-mix(in oklab, var(--crest-cold), var(--cell-1) calc(30% + var(--crest-heat) * 70%));
-    --ramp-2: color-mix(in oklab, var(--crest-cold), var(--cell-2) calc(30% + var(--crest-heat) * 70%));
-    --ramp-3: color-mix(in oklab, var(--crest-cold), var(--cell-3) calc(30% + var(--crest-heat) * 70%));
-    --ramp-4: color-mix(in oklab, var(--crest-cold), var(--cell-4) calc(30% + var(--crest-heat) * 70%));
-    --ramp-5: color-mix(in oklab, var(--crest-cold), var(--cell-5) calc(30% + var(--crest-heat) * 70%));
-    --ramp-6: color-mix(in oklab, var(--crest-cold), var(--cell-6) calc(30% + var(--crest-heat) * 70%));
+    --ramp-0: color-mix(in oklab, var(--crest-cold), var(--cell-0) calc(58% + var(--crest-heat) * 42%));
+    --ramp-1: color-mix(in oklab, var(--crest-cold), var(--cell-1) calc(58% + var(--crest-heat) * 42%));
+    --ramp-2: color-mix(in oklab, var(--crest-cold), var(--cell-2) calc(58% + var(--crest-heat) * 42%));
+    --ramp-3: color-mix(in oklab, var(--crest-cold), var(--cell-3) calc(58% + var(--crest-heat) * 42%));
+    --ramp-4: color-mix(in oklab, var(--crest-cold), var(--cell-4) calc(58% + var(--crest-heat) * 42%));
+    --ramp-5: color-mix(in oklab, var(--crest-cold), var(--cell-5) calc(58% + var(--crest-heat) * 42%));
+    --ramp-6: color-mix(in oklab, var(--crest-cold), var(--cell-6) calc(58% + var(--crest-heat) * 42%));
   }
 }
 .plant__crest {
@@ -1340,7 +1350,7 @@ body.crt-off #app::after { display: none; }
      envelope (--crest-beat, 0..1, written onto .plant every frame by
      main.ts's syncHud) so the cubes themselves grow and shrink on the beat,
      not just brighten. */
-  --crest-h: max(7px, calc(13 * var(--fpx) * (1 + var(--crest-beat, 0) * 0.9)));
+  --crest-h: max(7px, calc(13 * var(--fpx) * (1 + var(--crest-beat, 0) * 0.22)));
   /* WHERE THE FIELD ACTUALLY ENDS, for the two band strips. Not the field
      rect: render.ts's drawWalls strokes the glowing wall along world inset 2
      at lineWidth 4, so the wall occupies the first FOUR world px of the field
@@ -1365,8 +1375,8 @@ body.crt-off #app::after { display: none; }
   /* Saturation rides the SLOW signal next to brightness's fast one, so a
      loud passage does not just light the metal up, it makes the colour
      itself commit. Below 1 at rest, so a silent ring reads as cooled stock. */
-  filter: brightness(calc(1 + var(--crest-beat, 0) * 0.7))
-          saturate(calc(0.8 + var(--crest-heat) * 0.5));
+  filter: brightness(calc(1 + var(--crest-beat, 0) * 0.22))
+          saturate(calc(0.86 + var(--crest-heat) * 0.2));
 }
 /* The SPARK layer — a few uneven glint bands swept across the strip by the
    congestion states below. It lives INSIDE the element, so the clip-path
@@ -1408,17 +1418,25 @@ body.crt-off #app::after { display: none; }
   background-size: 100% 100%;
   background-repeat: no-repeat;
   opacity: 0;
-  animation: pixel-sparkle 5.2s steps(2, jump-none) infinite;
+  /* --spark-peak is how BRIGHT a pop gets, the duration how OFTEN; the states
+     below own both. Calm sits near the floor on each deliberately: a working
+     intake ticks over, it does not put on a show, and eight strips each
+     popping twice every five seconds read as static rather than as
+     machinery. */
+  --spark-peak: 0.3;
+  animation: pixel-sparkle 14s steps(2, jump-none) infinite;
 }
 @keyframes pixel-sparkle {
   0%, 100% { opacity: 0; }
-  3% { opacity: 1; } 5% { opacity: 0; }
-  54% { opacity: 0.7; } 56% { opacity: 0; }
+  3% { opacity: var(--spark-peak); } 5% { opacity: 0; }
+  54% { opacity: calc(var(--spark-peak) * 0.7); } 56% { opacity: 0; }
 }
-/* The rate IS the readout: a strained machine throws more sparks. */
-.plant--congest-warn .plant__crest::after { animation-duration: 2.4s; }
+/* The rate AND the brightness are the readout: a strained machine throws more
+   sparks, and throws them harder. Which is the whole reason calm sits low —
+   an escalation needs somewhere to escalate from. */
+.plant--congest-warn .plant__crest::after { --spark-peak: 0.72; animation-duration: 3.4s; }
 .plant--congest-danger .plant__crest::after,
-.plant--maw .plant__crest::after { animation-duration: 1.3s; }
+.plant--maw .plant__crest::after { --spark-peak: 1; animation-duration: 1.6s; }
 .plant__crest--brow::after { animation-delay: -0.15s; }
 .plant__crest--cap::after { animation-delay: -0.5s; }
 .plant__crest--step::after { animation-delay: -0.3s; }
@@ -1529,18 +1547,28 @@ body.crt-off #app::after { display: none; }
    two patterns colliding. Ends 2px under the cap, whose opaque body mounts
    over the seam (.pl-pwr is later in the DOM).
 
-   THE CUBES. One contiguous run, no gaps between cells — the crest IS cargo,
-   so it is drawn as the same square cells the belt and the piece preview use
-   (components.ts's pieceCellsHTML) in the same seven piece colours
-   (tokens.css's --piece-*). Every strip carries its OWN cell count, chosen so
-   a cell is about as wide as it is deep at any field scale — a shared count
-   would stretch the cap's cells into bars and squash the step's into slivers.
-   Two motions run at once: each cell's height steps up and down on its own
-   schedule (cube-*, steps() so cubes SNAP between sizes like blocks rather
-   than sliding like liquid), and the colour bands march along the run
-   (flow-*), the same direction cue the belt's chevrons use. Height is scaled
-   on top of that by the live music envelope through --crest-h, so the run
-   also breathes with the soundtrack. */
+   THE CUBES. One contiguous run, no gaps between cells, drawn as the same
+   square cells the belt and the piece preview use (components.ts's
+   pieceCellsHTML) — the machine is built out of the same stock it eats. The
+   COLOUR is not the piece palette though: it is the forge ramp above, so the
+   crest reads as heated metal rather than as a row of cargo. Every strip
+   carries its OWN cell count, chosen so a cell is about as wide as it is deep
+   at any field scale — a shared count would stretch the cap's cells into bars
+   and squash the step's into slivers.
+
+   A CALM RING DOES NOT CHEW. The authored clip-path on each strip below is
+   the silhouette, and in the calm state it holds still: the crest is the
+   panel's border, and a border whose outline is morphing every three seconds
+   is competing with the bay for the eye. What moves in calm is only what the
+   music is doing — the whole run's depth breathing a little through
+   --crest-h, the palette warming and cooling through --crest-heat, and the
+   heat bands crawling one cell at a time as syncHud rotates --h0..--h6.
+
+   The per-cell churn (cube-*, steps() so cubes SNAP between sizes like blocks
+   rather than sliding like liquid) is held back for the congestion tiers,
+   which is where it says something: a machine under strain visibly chews.
+   Escalation needs somewhere to escalate from, and spending the whole
+   vocabulary on the resting state left the tiers with nothing to add. */
 .plant__crest--brow {
   left: calc(-1 * var(--bw));
   width: calc(29.6% + var(--bw) + 2px);
@@ -1548,7 +1576,6 @@ body.crt-off #app::after { display: none; }
   bottom: calc(100% + var(--bw));
   background-image: repeating-linear-gradient(90deg, var(--h6) 0% 7.69%, var(--h0) 7.69% 15.38%, var(--h3) 15.38% 23.08%, var(--h6) 23.08% 30.77%, var(--h2) 30.77% 38.46%, var(--h1) 38.46% 46.15%, var(--h6) 46.15% 53.85%, var(--h4) 53.85% 61.54%, var(--h2) 61.54% 69.23%, var(--h1) 69.23% 76.92%, var(--h0) 76.92% 84.62%, var(--h1) 84.62% 92.31%, var(--h3) 92.31% 100%);
   clip-path: polygon(0% 100%, 0% 40%, 7.69% 40%, 7.69% 28%, 15.38% 28%, 15.38% 12%, 23.08% 12%, 23.08% 3%, 30.77% 3%, 30.77% 48%, 38.46% 48%, 38.46% 21%, 46.15% 21%, 46.15% 36%, 53.85% 36%, 53.85% 42%, 61.54% 42%, 61.54% 5%, 69.23% 5%, 69.23% 50%, 76.92% 50%, 76.92% 13%, 84.62% 13%, 84.62% 54%, 92.31% 54%, 92.31% 22%, 100% 22%, 100% 100%);
-  animation: cube-brow 3.2s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* Over the PWR cap — the notch, closed. Sized against the cap's border box
    so the run spans exactly the raised silhouette. */
@@ -1559,7 +1586,6 @@ body.crt-off #app::after { display: none; }
   bottom: calc(100% + var(--bw));
   background-image: repeating-linear-gradient(90deg, var(--h0) 0% 3.13%, var(--h4) 3.13% 6.25%, var(--h6) 6.25% 9.38%, var(--h0) 9.38% 12.5%, var(--h1) 12.5% 15.63%, var(--h2) 15.63% 18.75%, var(--h6) 18.75% 21.88%, var(--h0) 21.88% 25%, var(--h1) 25% 28.13%, var(--h3) 28.13% 31.25%, var(--h6) 31.25% 34.38%, var(--h5) 34.38% 37.5%, var(--h6) 37.5% 40.63%, var(--h2) 40.63% 43.75%, var(--h1) 43.75% 46.88%, var(--h3) 46.88% 50%, var(--h1) 50% 53.13%, var(--h3) 53.13% 56.25%, var(--h0) 56.25% 59.38%, var(--h4) 59.38% 62.5%, var(--h6) 62.5% 65.63%, var(--h1) 65.63% 68.75%, var(--h6) 68.75% 71.88%, var(--h0) 71.88% 75%, var(--h2) 75% 78.13%, var(--h5) 78.13% 81.25%, var(--h4) 81.25% 84.38%, var(--h2) 84.38% 87.5%, var(--h4) 87.5% 90.63%, var(--h0) 90.63% 93.75%, var(--h4) 93.75% 96.88%, var(--h5) 96.88% 100%);
   clip-path: polygon(0% 100%, 0% 53%, 3.13% 53%, 3.13% 5%, 6.25% 5%, 6.25% 47%, 9.38% 47%, 9.38% 20%, 12.5% 20%, 12.5% 13%, 15.63% 13%, 15.63% 23%, 18.75% 23%, 18.75% 7%, 21.88% 7%, 21.88% 19%, 25% 19%, 25% 29%, 28.13% 29%, 28.13% 48%, 31.25% 48%, 31.25% 27%, 34.38% 27%, 34.38% 47%, 37.5% 47%, 37.5% 49%, 40.63% 49%, 40.63% 1%, 43.75% 1%, 43.75% 4%, 46.88% 4%, 46.88% 17%, 50% 17%, 50% 19%, 53.13% 19%, 53.13% 18%, 56.25% 18%, 56.25% 12%, 59.38% 12%, 59.38% 18%, 62.5% 18%, 62.5% 43%, 65.63% 43%, 65.63% 14%, 68.75% 14%, 68.75% 23%, 71.88% 23%, 71.88% 33%, 75% 33%, 75% 12%, 78.13% 12%, 78.13% 6%, 81.25% 6%, 81.25% 32%, 84.38% 32%, 84.38% 26%, 87.5% 26%, 87.5% 41%, 90.63% 41%, 90.63% 39%, 93.75% 39%, 93.75% 9%, 96.88% 9%, 96.88% 33%, 100% 33%, 100% 100%);
-  animation: cube-cap 3.6s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* The cap's two short sides, so the ring turns the step corners instead of
    skipping them: the left step-up faces the brow, the right shoulder hands
@@ -1570,13 +1596,11 @@ body.crt-off #app::after { display: none; }
   width: var(--crest-h);
   top: calc(-1 * var(--bw));
   bottom: 2px;
-  animation: cube-shoulder 3s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--step {
   right: calc(100% + var(--bw));
   background-image: repeating-linear-gradient(180deg, var(--h6) 0% 50%, var(--h4) 50% 100%);
   clip-path: polygon(100% 0%, 11% 0%, 11% 50%, 38% 50%, 38% 100%, 100% 100%);
-  animation: cube-step 2.8s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--shoulder {
   left: calc(100% + var(--bw));
@@ -1593,7 +1617,6 @@ body.crt-off #app::after { display: none; }
   bottom: calc(-1 * var(--bw));
   background-image: repeating-linear-gradient(180deg, var(--h1) 0% 4.35%, var(--h4) 4.35% 8.7%, var(--h5) 8.7% 13.04%, var(--h4) 13.04% 17.39%, var(--h5) 17.39% 21.74%, var(--h2) 21.74% 26.09%, var(--h4) 26.09% 30.43%, var(--h5) 30.43% 34.78%, var(--h4) 34.78% 39.13%, var(--h1) 39.13% 43.48%, var(--h0) 43.48% 47.83%, var(--h6) 47.83% 52.17%, var(--h0) 52.17% 56.52%, var(--h1) 56.52% 60.87%, var(--h2) 60.87% 65.22%, var(--h6) 65.22% 69.57%, var(--h4) 69.57% 73.91%, var(--h3) 73.91% 78.26%, var(--h2) 78.26% 82.61%, var(--h4) 82.61% 86.96%, var(--h3) 86.96% 91.3%, var(--h5) 91.3% 95.65%, var(--h1) 95.65% 100%);
   clip-path: polygon(0% 0%, 63% 0%, 63% 4.35%, 52% 4.35%, 52% 8.7%, 89% 8.7%, 89% 13.04%, 71% 13.04%, 71% 17.39%, 90% 17.39%, 90% 21.74%, 55% 21.74%, 55% 26.09%, 54% 26.09%, 54% 30.43%, 74% 30.43%, 74% 34.78%, 73% 34.78%, 73% 39.13%, 67% 39.13%, 67% 43.48%, 51% 43.48%, 51% 47.83%, 83% 47.83%, 83% 52.17%, 91% 52.17%, 91% 56.52%, 59% 56.52%, 59% 60.87%, 57% 60.87%, 57% 65.22%, 76% 65.22%, 76% 69.57%, 54% 69.57%, 54% 73.91%, 83% 73.91%, 83% 78.26%, 96% 78.26%, 96% 82.61%, 64% 82.61%, 64% 86.96%, 68% 86.96%, 68% 91.3%, 96% 91.3%, 96% 95.65%, 91% 95.65%, 91% 100%, 0% 100%);
-  animation: cube-flank 3.4s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* THE BANDS. The panel's frame fractions leave two slivers of bare backdrop
    between the machine and the field border — 1.67% of the field's width down
@@ -1614,7 +1637,6 @@ body.crt-off #app::after { display: none; }
   bottom: calc(-1 * var(--bw));
   background-image: repeating-linear-gradient(180deg, var(--h0) 0% 6.67%, var(--h4) 6.67% 13.33%, var(--h6) 13.33% 20%, var(--h5) 20% 26.67%, var(--h2) 26.67% 33.33%, var(--h4) 33.33% 40%, var(--h6) 40% 46.67%, var(--h5) 46.67% 53.33%, var(--h2) 53.33% 60%, var(--h4) 60% 66.67%, var(--h1) 66.67% 73.33%, var(--h6) 73.33% 80%, var(--h4) 80% 86.67%, var(--h1) 86.67% 93.33%, var(--h3) 93.33% 100%);
   clip-path: polygon(100% 0%, 50% 0%, 50% 6.67%, 25% 6.67%, 25% 13.33%, 46% 13.33%, 46% 20%, 53% 20%, 53% 26.67%, 6% 26.67%, 6% 33.33%, 39% 33.33%, 39% 40%, 28% 40%, 28% 46.67%, 37% 46.67%, 37% 53.33%, 30% 53.33%, 30% 60%, 16% 60%, 16% 66.67%, 10% 66.67%, 10% 73.33%, 2% 73.33%, 2% 80%, 5% 80%, 5% 86.67%, 50% 86.67%, 50% 93.33%, 27% 93.33%, 27% 100%, 100% 100%);
-  animation: cube-port 3.8s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--skirt {
   left: calc(-1 * var(--bw));
@@ -1623,7 +1645,6 @@ body.crt-off #app::after { display: none; }
   height: calc(0.0297 * var(--field-h) - var(--crest-wall));
   background-image: repeating-linear-gradient(90deg, var(--h4) 0% 3.57%, var(--h1) 3.57% 7.14%, var(--h4) 7.14% 10.71%, var(--h3) 10.71% 14.29%, var(--h5) 14.29% 17.86%, var(--h0) 17.86% 21.43%, var(--h6) 21.43% 25%, var(--h1) 25% 28.57%, var(--h5) 28.57% 32.14%, var(--h3) 32.14% 35.71%, var(--h6) 35.71% 39.29%, var(--h2) 39.29% 42.86%, var(--h5) 42.86% 46.43%, var(--h4) 46.43% 50%, var(--h2) 50% 53.57%, var(--h6) 53.57% 57.14%, var(--h2) 57.14% 60.71%, var(--h0) 60.71% 64.29%, var(--h4) 64.29% 67.86%, var(--h2) 67.86% 71.43%, var(--h3) 71.43% 75%, var(--h0) 75% 78.57%, var(--h4) 78.57% 82.14%, var(--h0) 82.14% 85.71%, var(--h4) 85.71% 89.29%, var(--h2) 89.29% 92.86%, var(--h3) 92.86% 96.43%, var(--h1) 96.43% 100%);
   clip-path: polygon(0% 0%, 0% 92%, 3.57% 92%, 3.57% 97%, 7.14% 97%, 7.14% 74%, 10.71% 74%, 10.71% 84%, 14.29% 84%, 14.29% 80%, 17.86% 80%, 17.86% 48%, 21.43% 48%, 21.43% 45%, 25% 45%, 25% 99%, 28.57% 99%, 28.57% 98%, 32.14% 98%, 32.14% 72%, 35.71% 72%, 35.71% 52%, 39.29% 52%, 39.29% 100%, 42.86% 100%, 42.86% 83%, 46.43% 83%, 46.43% 92%, 50% 92%, 50% 60%, 53.57% 60%, 53.57% 56%, 57.14% 56%, 57.14% 90%, 60.71% 90%, 60.71% 78%, 64.29% 78%, 64.29% 72%, 67.86% 72%, 67.86% 50%, 71.43% 50%, 71.43% 82%, 75% 82%, 75% 91%, 78.57% 91%, 78.57% 78%, 82.14% 78%, 82.14% 74%, 85.71% 74%, 85.71% 94%, 89.29% 94%, 89.29% 61%, 92.86% 61%, 92.86% 75%, 96.43% 75%, 96.43% 50%, 100% 50%, 100% 0%);
-  animation: cube-skirt 4s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 
 /* ---------- Corner rivets — where two independent tooth runs turn a corner
@@ -1698,9 +1719,9 @@ body.crt-off #app::after { display: none; }
   --spark-b: rgba(255, 128, 128, 0.85);
   animation: crest-spark 1.15s linear infinite;
 }
-/* THE CARGO PALETTE GIVES WAY. A machine under strain must not read as
-   cheerful cargo, so the rungs re-anchor onto the state's metal — the same
-   amber and red the floor rows and the Launch price wear.
+/* THE FORGE RAMP TAKES THE STATE'S COLOUR. Under strain the machine has to
+   say so louder than "hot", so the rungs re-anchor onto the state's metal —
+   the same amber and red the floor rows and the Launch price wear.
 
    Re-anchoring --cell-* rather than painting the flat --crest-hi/--crest-lo
    gradient straight over each run keeps two things a flat override throws
@@ -1710,19 +1731,21 @@ body.crt-off #app::after { display: none; }
    the rotation and both audio signals are untouched, so a congested bay
    beats and marches like any other, in its own colour.
 
-   Nine rungs' worth of hand-picked hex rather than a filter on the cargo
-   set: hue-rotating cyan and green into "amber" lands on mud, and the two
-   tiers have to match --warn and --danger exactly, because the floor rows
-   and the price are saying the same thing at the same moment. */
+   Hand-picked hex per rung rather than a filter over the base ramp: a
+   hue-rotate that lands tier 1 on --warn drags tier 2 somewhere that is not
+   --danger, and both tiers have to match those tokens exactly, because the
+   floor rows and the Launch price are saying the same thing at the same
+   moment. Each tier is still one hue family walked cold to hot, same as the
+   base ramp — the state changes which fire it is, not that it is fire. */
 .plant--congest-warn {
   --crest-cold: #2a2213;
   --cell-0: #33260f; --cell-1: #45320f; --cell-2: #5e4212;
-  --cell-3: #7f5716; --cell-4: #a5711b; --cell-5: #d69a2c; --cell-6: #ffdf9b;
+  --cell-3: #7f5716; --cell-4: #a5711b; --cell-5: #d69a2c; --cell-6: #f0cd85;
 }
 .plant--congest-danger {
   --crest-cold: #2a1018;
   --cell-0: #38101d; --cell-1: #4d1626; --cell-2: #6c1c2e;
-  --cell-3: #94243c; --cell-4: #c62d4a; --cell-5: var(--danger); --cell-6: #ff9fb2;
+  --cell-3: #94243c; --cell-4: #c62d4a; --cell-5: var(--danger); --cell-6: #ffab9a;
 }
 /* `animation` is ONE property, so a state that adds the shudder has to
    restate each strip's own cube churn or the shorthand silently drops it —
@@ -1799,7 +1822,7 @@ body.crt-off #app::after { display: none; }
 .plant--maw {
   --crest-cold: #2c0a14;
   --cell-0: #5c1225; --cell-1: #75162c; --cell-2: #921b35;
-  --cell-3: #b52240; --cell-4: #dc294c; --cell-5: var(--danger); --cell-6: #ffc2cd;
+  --cell-3: #b52240; --cell-4: #dc294c; --cell-5: var(--danger); --cell-6: #ffbdae;
 }
 
 /* Irregular on purpose, like the tooth runs: uneven keyframe stops so the

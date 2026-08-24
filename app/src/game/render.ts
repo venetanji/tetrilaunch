@@ -821,20 +821,34 @@ function drawChute(
   now: number,
   rightEdge: number,
 ): void {
-  const { x0, y0, y1 } = CHUTE;
-  // The MOUTH is what gets drawn, top to floor, at whatever width this bay's
-  // press leaves it (chute.ts's chuteRightEdge — Bay Extension T3 narrows it).
-  // The throat below is internal machinery and behind the panel at every panel
-  // height; drawing it would be painting in a sealed box.
+  const { x0, y0 } = CHUTE;
+  // The MOUTH is what gets drawn, at whatever width this bay's press leaves it
+  // (chute.ts's chuteRightEdge — Bay Extension T3 narrows it). Nothing below
+  // the lip is drawn at all now: the throat is internal machinery, behind the
+  // panel at every panel height, so painting it is painting in a sealed box.
   const x1 = rightEdge;
   const w = x1 - x0;
   ctx.save();
 
-  // The recess. Barely-there on purpose: it is under the panel almost
-  // everywhere, and its job is to stop the mouth reading as open field in the
-  // gaps the panel leaves.
-  ctx.fillStyle = "rgba(4,4,10,0.55)";
-  ctx.fillRect(x0, y0, w, y1 - y0);
+  // NO RECESS WASH. There used to be a flat rgba(4,4,10,0.55) fill across the
+  // whole mouth here, to stop the maw reading as open field in the gaps the
+  // panel leaves. It is gone, because those gaps are not gaps any more: the
+  // panel's frame fractions leave a sliver down the left wall and a strip
+  // along the floor, and the crest's band strips (app.css's
+  // .plant__crest--port / --skirt) now fill both with cubes.
+  //
+  // Left in, it read as a black rectangle bleeding out of the HUD's left and
+  // bottom edges — and it genuinely was one. The wash ran to the chute rect,
+  // world x 0..624 and y 389..floor, while the panel only covers x 21..624
+  // and stops ~21px above the floor. Every pixel of that difference was flat
+  // near-black laid over the field's own grid, framed on two sides by a lit
+  // crest, which is about the most visible place on the screen to put a
+  // rectangle nobody drew on purpose.
+  //
+  // The mouth still reads: the lip bar below is the machined edge, and it is
+  // the part that was doing the work at every panel height anyway. On the
+  // HUD-less attract demo the lip is now the whole cue, which is the correct
+  // amount of maw for a screen with no machine bolted into it.
 
   // Heat rising out of the mouth while the current aim feeds it. Drawn BEFORE
   // the lip so the bar stays crisp against it, and as a linear gradient rather

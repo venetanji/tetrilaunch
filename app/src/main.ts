@@ -2145,16 +2145,21 @@ class App {
           plant.style.setProperty("--crest-heat", String(h));
         }
         // THE MARCH — a phase advanced at a rate set by the live level, so
-        // the colour bands walk the run faster the louder the track gets and
-        // stand still in silence. A phase accumulator rather than onset
+        // the heat bands crawl along the run faster the louder the track gets
+        // and stand still in silence. A phase accumulator rather than onset
         // detection on purpose: nothing to threshold per bed, nothing to get
         // stuck on, and a bed with no transients in it still moves.
+        //
+        // A CRAWL, not a march. 0.014 puts a loud passage at roughly one cell
+        // a second and a quiet one at a cell every several — slow enough that
+        // the border reads as alive rather than as something asking to be
+        // looked at, which is the job it has next to a live bay.
         //
         // What rotates is the MAPPING, not the palette — --h<i> is pointed at
         // a different rung of the ramp, and the rungs themselves stay where
         // app.css put them. That is what lets the congestion tiers swap the
         // whole palette underneath without this code knowing they exist.
-        this.crestFlow = (this.crestFlow + target * 0.06) % 7;
+        this.crestFlow = (this.crestFlow + target * 0.014) % 7;
         const step = Math.floor(this.crestFlow);
         if (step !== this.crestStepShown) {
           this.crestStepShown = step;
