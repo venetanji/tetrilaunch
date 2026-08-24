@@ -121,7 +121,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
-import { BOARD_DEEP_RUN, BOARD_SANDBOX, type ScoreEntry } from "../src/lib/api";
+import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
 
@@ -3505,7 +3505,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
   section("End-modal leaderboard slice");
 
   const entry = (name: string, score: number): ScoreEntry => ({
-    name, score, level: 1, lines: 10, created_at: 0,
+    name, score, mark: 1, level: 1, lines: 10, created_at: 0,
   });
   const board = ["ACE", "NOVA", "RUST", "ZED", "KAI", "ORB", "FLUX", "VOLT", "HEX", "GIO"]
     .map((n, i) => entry(n, 24680 - i * 1900));
@@ -6126,8 +6126,13 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the notch total is the sum", ratchetTotal({ wind: 2, sweeper: 1 }) === 3);
 
   // THE BOARDS. Two ids, and they must not be the same one.
-  check("Tier S has a board of its own", BOARD_SANDBOX !== BOARD_DEEP_RUN);
-  check("the ladder keeps board 1", BOARD_DEEP_RUN === 1);
+  // The collision this key was reshaped to prevent: #90 filed Tier S as board
+  // 2 while #88 filed Tier 2 as board 2, so sandbox scores would have landed on
+  // the Tier 2 leaderboard. A negative id cannot be a rung, which is the same
+  // thing the tower says by drawing Tier S under the base slab.
+  check("Tier S is not a rung of the ladder", !isLadderBoard(BOARD_SANDBOX));
+  check("every real Tier is", [1, 2, 5, 10].every(isLadderBoard));
+  check("Tier S cannot collide with a Tier", ![1,2,3,4,5,6,7,8,9,10].includes(BOARD_SANDBOX));
 
   // THE SCREEN. It ships, so every control it draws has to be one main.ts
   // routes — and the ones that must never ship have to be absent.
@@ -6153,6 +6158,9 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   const sEnd = S.endModal({
     won: false, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
     name: "ACE", rows: "", reason: "broke", bayNum: 3, bayName: "Bay",
+    // Tier S's own board — the check below is #90's, and this is the field
+    // that now makes it true.
+    boardTier: BOARD_SANDBOX,
     runComplete: false, tierCompleted: null, tierSalvage: 0,
     progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 20,
     salvagedFunds: 0, tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
@@ -6197,6 +6205,12 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("one board, no tabs", !S.leaderboardScreen("").includes("lb-tab"));
   check("two boards, two tabs",
     S.leaderboardScreen("", { board: BOARD_SANDBOX, sandbox: true }).includes("lb-tab"));
+  // The ladder tab names a TIER, since "Deep Run" no longer identifies a board
+  // on its own once every Tier keeps one.
+  check("the ladder tab names its Tier",
+    S.leaderboardScreen("", { board: 7, tier: 7, sandbox: true }).includes("Tier 7"));
+}
+
 // ---------------------------------------------------------------------------
 section("The guide + drills (guide.ts / drills.ts)");
 // ---------------------------------------------------------------------------

@@ -98,7 +98,7 @@ import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
 import {
-  BOARD_DEEP_RUN, BOARD_SANDBOX, fetchLeaderboard, submitScore,
+  BOARD_SANDBOX, fetchLeaderboard, isLadderBoard, submitScore,
   type BoardId, type ScoreEntry,
 } from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
@@ -387,9 +387,9 @@ class App {
    *  caches: switching tabs on the leaderboard must not blank the rows the
    *  other tab already had while a fetch is in flight, and the run-end modal
    *  reads whichever board the run it just ended belongs to. */
-  private boards: Record<BoardId, ScoreEntry[]> = { [BOARD_DEEP_RUN]: [], [BOARD_SANDBOX]: [] };
+  private boards: Record<BoardId, ScoreEntry[]> = {};
   /** Which board the standalone Leaderboard screen is showing. */
-  private lbBoard: BoardId = BOARD_DEEP_RUN;
+  private lbBoard: BoardId = 1;
   private submitted = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
@@ -1046,8 +1046,25 @@ class App {
    *  (run.ts's RunState.sandbox), never off the current screen or the setting:
    *  a player who closes Tier S in Settings mid-run must still have that run
    *  filed where it was flown. */
+  /** The LADDER board in play — what the Leaderboard's Deep Run tab offers.
+   *  Same answer as runBoard() except that a Tier S run still has a ladder tab
+   *  to switch back to, so this never returns BOARD_SANDBOX. */
+  private ladderBoard(): number {
+    const run = this.run;
+    return run && !run.sandbox && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
+  }
+
   private runBoard(): BoardId {
-    return this.run?.sandbox ? BOARD_SANDBOX : BOARD_DEEP_RUN;
+    // Tier S first: a sandbox run flies a Mark it never earned, so its `mark`
+    // is not a claim about the ladder and must not be filed as one.
+    if (this.run?.sandbox) return BOARD_SANDBOX;
+    // Otherwise the board IS the Tier the run was flown at. Asking the STATE
+    // rather than just `this.run` matters: the finished run object outlives the
+    // run on screen (returning to the menu clears `contract`, not `run`), so
+    // reading run.mark from the menu would open board N for a player whose
+    // tower, Deep Run button and next run had all moved on to N+1.
+    const run = this.run;
+    return run && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
   }
 
   /** One line naming what a Tier S run was set to — for the end modal, which
@@ -1374,7 +1391,7 @@ class App {
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? [])),
-          { board: this.lbBoard, sandbox: this.settings.devMode },
+          { board: this.lbBoard, tier: this.ladderBoard(), sandbox: this.settings.devMode },
         );
         break;
       case "playing":
@@ -1463,7 +1480,10 @@ class App {
               // it has to be added here, exactly as scrapEarned above.
               salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
               tiers: this.run.tiers,
-              boardTier: this.run.mark,
+              // runBoard(), not run.mark: a Tier S run's board is Tier S, and
+              // labelling it with the Mark it borrowed would say the practice
+              // score is on the ladder.
+              boardTier: this.runBoard(),
             });
         }
         break;
@@ -3377,7 +3397,7 @@ class App {
         this.renderOverlay();
         break;
       case "leaderboard":
-        this.lbBoard = BOARD_DEEP_RUN;
+        this.lbBoard = this.runBoard();
         void this.refreshBoard();
         this.setState("leaderboard");
         break;
@@ -3386,7 +3406,7 @@ class App {
       // and never shows the OTHER board's rows while the fetch is in flight.
       case "lb-board": {
         const board = Number(el.getAttribute("data-board"));
-        if (board === BOARD_DEEP_RUN || board === BOARD_SANDBOX) {
+        if (board === BOARD_SANDBOX || isLadderBoard(board)) {
           this.lbBoard = board;
           this.renderOverlay();
           void this.refreshBoard();
@@ -3868,7 +3888,11 @@ class App {
     // Run board — see lib/api.ts's board note for why that is the one thing
     // this call must not get wrong.
     const board = this.runBoard();
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), board, lines);
+    // `level` is the bay the run actually reached. Every client sent a literal 1
+    // until tier boards landed, which is what made the column look like a free
+    // partition key to three separate branches at once.
+    const bay = (this.run?.levelIndex ?? 0) + 1;
+    const res = await submitScore(name, this.finalScore(g, this.state === "won"), board, bay, lines);
     this.boards[board] = res?.scores ?? (await fetchLeaderboard(board, 10));
     this.renderBoardRows(name);
     void successHaptic();

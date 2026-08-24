@@ -1,5 +1,5 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
-import { BOARD_DEEP_RUN, BOARD_SANDBOX, type BoardId } from "./api";
+import { BOARD_SANDBOX, type BoardId } from "./api";
 import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
 import { newTiers, type UpgradeTiers } from "../game/upgrades";
 
@@ -80,14 +80,23 @@ export function saveName(name: string): void {
  * one figure the menu prints as "Best".
  */
 function bestKey(board: BoardId): string {
+  // TWO keys, not eleven. Every ladder Tier collapses to one "Best" because
+  // that is the one figure the menu prints, and #86's recap prints it beside a
+  // tower the player can park anywhere — a Best that changed as the car moved
+  // would read as the number falling. Tier S keeps its own, because a practice
+  // score is not a personal best in any sense the menu means.
+  //
+  // OPEN: now that BOARDS are per Tier (lib/api.ts), a per-Tier best is a
+  // defensible thing to want. It is a product call, not a merge one, so this
+  // keeps the behaviour both #86 and #90 were built against.
   return board === BOARD_SANDBOX ? `${BEST_KEY}.sandbox` : BEST_KEY;
 }
 
-export function loadBest(board: BoardId = BOARD_DEEP_RUN): number {
+export function loadBest(board: BoardId = 1): number {
   const n = Number(localStorage.getItem(bestKey(board)) || 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
-export function saveBest(score: number, board: BoardId = BOARD_DEEP_RUN): void {
+export function saveBest(score: number, board: BoardId = 1): void {
   if (score > loadBest(board)) {
     try {
       localStorage.setItem(bestKey(board), String(score));

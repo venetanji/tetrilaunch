@@ -5,10 +5,12 @@
   "scripts": {
     "build": "npm --prefix app install && npm --prefix app run build",
     "dev:web": "npm --prefix app run dev",
-    "dev:worker": "wrangler dev",
-    "deploy": "npm run build && wrangler deploy",
-    "db:migrate": "wrangler d1 migrations apply tetrilaunch-leaderboard --remote",
-    "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard --local"
+    "dev:worker": "wrangler dev --env staging",
+    "deploy": "npm run build && wrangler deploy --env=\"\"",
+    "deploy:staging": "npm run build && wrangler deploy --env staging",
+    "db:migrate": "wrangler d1 migrations apply tetrilaunch-leaderboard --remote --env=\"\"",
+    "db:migrate:staging": "wrangler d1 migrations apply tetrilaunch-leaderboard-preview --remote --env staging",
+    "db:migrate:local": "wrangler d1 migrations apply tetrilaunch-leaderboard --local --env=\"\""
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260710.1",

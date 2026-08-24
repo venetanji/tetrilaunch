@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { BOARD_DEEP_RUN, BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
+import { BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
 import { makeBaseLevel } from "../../src/game/level";
@@ -49,6 +49,10 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
   // A long name is the wide case for the row's flexible column.
   name: i === 3 ? "LONGESTNAME" : `PILOT${i + 1}`,
   score: 98_760 - i * 1_137,
+  // One Tier's board, which is what the screen shows: every row on a board is
+  // by definition the same Tier, so varying it here would measure a list the
+  // app cannot produce.
+  mark: 7,
   level: 10 - (i % 10),
   lines: 240 - i * 7,
   created_at: 1_760_000_000 + i,
@@ -460,7 +464,7 @@ export const SCREENS: Record<string, () => string> = {
   // takes a row off the board's own height, so both boards get a fixture.
   "leaderboard-tabs": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
-      { board: BOARD_DEEP_RUN, sandbox: true }),
+      { board: 7, tier: 7, sandbox: true }),
   "leaderboard-sandbox": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: BOARD_SANDBOX, sandbox: true }),

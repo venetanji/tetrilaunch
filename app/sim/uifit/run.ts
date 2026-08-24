@@ -198,6 +198,13 @@ const NO_OVERLAP: [string, string][] = [
   // scrim), so covering the readout is what it is for. It is the teaching
   // steps, which sit in the panel's own column, that must not.
   [".coach:not(.coach--fail) .coach__card", ".plant__body"],
+  // The key-hint strip against the plant panel. The `kbdhint` assertion below
+  // measures the strip's ANCHOR — centred on the field, attached to an edge of
+  // it, inside it, clear of the rail — and every one of those passed while the
+  // strip was being painted underneath a z-index 6 panel, because none of them
+  // is a question about stacking. This pair is: it fails the moment the strip's
+  // box and the panel's box share pixels, whoever wins the paint.
+  [".kbd-hint", ".plant"],
 ];
 
 /** `id` is what the baseline keys off, so these are stable API — renaming one
@@ -220,6 +227,7 @@ const ASSERTIONS = [
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
+  { id: "kbdhint", desc: "the key-hint strip is centred on the field and clear of the chrome" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -244,7 +252,8 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [],
+    kbdhint: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -897,6 +906,64 @@ function measure(cfg: {
     if (dips > 1) out.draghint.push(`gesture reaches ${Math.round(dips)}px under .plant`);
   }
 
+  // --- kbdhint: the key-hint strip belongs to the FIELD ---------------------
+  // The strip replaces the whole touch rail on a fine pointer, so on desktop it
+  // is the only thing on screen that names a control. It is chrome of the
+  // MACHINE, not of the window, and every number below is measured against the
+  // solved field rather than the viewport — which is the entire point. It was
+  // written as `left: 50%` + `bottom: 2px`, and those coincide with the field's
+  // centre and foot only in "wide", where the letterbox gutters are symmetric
+  // and the world reaches the bottom of the screen. In "snug" — every ordinary
+  // 16:9/16:10 laptop window, because the solver reserves an 84px right band
+  // there — the strip sat 42px right of the machine and floated up to 69px
+  // below it, and no row in this matrix could see it because no row had a fine
+  // pointer.
+  //
+  // Skipped unless the strip is actually rendered: it is display:none on a
+  // coarse pointer without a gamepad, which is most of this matrix.
+  const kb = document.querySelector(".kbd-hint");
+  if (kb && getComputedStyle(kb).display !== "none") {
+    const fx = cssPx("--field-x");
+    const fy = cssPx("--field-y");
+    const fw = cssPx("--field-w");
+    const fh = cssPx("--field-h");
+    const k = kb.getBoundingClientRect();
+    // Centred on the field. 1px of tolerance for sub-pixel rounding; anything
+    // beyond that is an anchor pointed at the wrong box, not a rounding error.
+    const dx = (k.left + k.width / 2) - (fx + fw / 2);
+    if (Math.abs(dx) > 1) {
+      out.kbdhint.push(`strip is ${Math.round(dx)}px off the field's centre`);
+    }
+    // Attached to an edge of the field. Which edge depends on the mode — the
+    // "tall" layout lifts the strip above the field because the rail owns the
+    // bottom band there — so assert the DISTANCE to the nearer edge rather than
+    // restating the stylesheet's choice, and let either be correct.
+    const gapBelow = k.top - (fy + fh);
+    const gapAbove = fy - k.bottom;
+    const gap = Math.max(gapBelow, gapAbove);
+    if (gap > 8) {
+      out.kbdhint.push(`strip floats ${Math.round(gap)}px clear of the field`);
+    }
+    // Inside the field horizontally. The reserved band is rail, not strip, and
+    // a strip wider than the window is silently clipped at both ends.
+    if (k.left < fx - 1 || k.right > fx + fw + 1) {
+      out.kbdhint.push(
+        `strip spans ${Math.round(k.left)}..${Math.round(k.right)} outside the field ${Math.round(fx)}..${Math.round(fx + fw)}`,
+      );
+    }
+    // …and not under the rail, which is the one piece of chrome it shares a
+    // lane with once it is bottom-anchored.
+    const railEl = document.querySelector(".side-rail");
+    if (railEl) {
+      const r = railEl.getBoundingClientRect();
+      const ox = Math.min(r.right, k.right) - Math.max(r.left, k.left);
+      const oy = Math.min(r.bottom, k.bottom) - Math.max(r.top, k.top);
+      if (ox > 1 && oy > 1) {
+        out.kbdhint.push(`strip overlaps the rail by ${Math.round(ox)}x${Math.round(oy)}px`);
+      }
+    }
+  }
+
   // --- rail: the control rail must never sit over the play field ------------
   const rail = document.querySelector(".side-rail");
   if (rail) {
@@ -1014,11 +1081,17 @@ let combos = 0;
 if (SHOTS) await mkdir(SHOTS_DIR, { recursive: true });
 
 for (const device of devices) {
+  // A "fine" row is a desktop browser, and both flags have to come off:
+  // `hasTouch` is what Chromium answers `@media (pointer: coarse)` with, and
+  // `isMobile` additionally forces the mobile viewport-meta path. Leave either
+  // on and every `@media (pointer: fine)` rule in app.css stays dark, which
+  // would make a desktop row a differently-sized phone rather than coverage.
+  const fine = device.pointer === "fine";
   const ctx = await browser.newContext({
     viewport: { width: device.w, height: device.h },
     deviceScaleFactor: device.dpr,
-    isMobile: true,
-    hasTouch: true,
+    isMobile: !fine,
+    hasTouch: !fine,
   });
   // tsx compiles this file with esbuild's keepNames on, which wraps every
   // function declaration in a `__name(fn, "fn")` helper call. page.evaluate
@@ -1065,8 +1138,8 @@ for (const device of devices) {
       await page.setViewportSize(vp);
     }
     await page.evaluate(
-      ([id, insets]) => window.__uifit.render(id as string, insets as Insets),
-      [screen, device.insets] as [string, Insets],
+      ([id, insets, fp]) => window.__uifit.render(id as string, insets as Insets, fp as boolean),
+      [screen, device.insets, fine] as [string, Insets, boolean],
     );
     // Two frames: one for layout, one for the meter transitions to settle.
     await page.evaluate(

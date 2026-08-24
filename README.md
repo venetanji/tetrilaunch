@@ -185,34 +185,89 @@ From the repo root:
 ```bash
 npm install                       # wrangler + workers-types
 npm run build                     # builds app/dist
-npm run db:migrate                # apply migrations to the remote D1 database
-npx wrangler dev --local          # run worker + assets + local D1 at :8787
-npm run deploy                    # build + wrangler deploy
+npm run dev:worker                # worker + assets + local D1 at :8787 (staging env)
+npm run db:migrate                # apply migrations to the LIVE D1
+npm run db:migrate:staging        # ...or to the staging one
+npm run deploy                    # build + wrangler deploy --env="" (production)
 ```
 
 The Worker serves the built app and exposes:
 
-- `GET  /api/scores?level=1&limit=10` → top scores
-- `POST /api/scores` `{ name, score, level, lines }` → inserts, returns `{ rank, scores }`
+- `GET  /api/scores?mark=7&limit=10` → that **Tier's** top scores
+- `GET  /api/scores?limit=10` → combined board, every Tier (the pre-tier shape, kept
+  so shipped store builds still see a populated list)
+- `POST /api/scores` `{ name, score, mark, level, lines }` → inserts, returns
+  `{ rank, mark, scores }`. `rank` is within `mark`. A body with no `mark` stores `0`
+  — "untiered", never a real Tier — so an older client cannot 400.
+
+**Boards are per Tier**, because the Tier *is* the build budget
+(`upgrades.ts`'s `budgetForMark`): a Tier 1 score and a Tier 9 score are not
+comparable, and one shared list ranks players by which Tier they attempted before it
+ranks them by how well they flew it. That matters more now the home tower lets a
+player drop back down the ladder at will — on a single board, farming Tier 1 would
+top it. `level` is the bay the run ended on; it is carried for display and is *not*
+the board's key (every client hardcoded it to `1` until tier boards landed).
 
 D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
-`migrations/0001_init.sql`.
+`migrations/` — `0001_init.sql`, then `0002_tier_boards.sql`.
 
 ### Deploy strategy
 
-The app and the leaderboard Worker deploy independently — the Worker code rarely changes,
-so it should not rebuild on every game commit:
+**The Worker is the site.** `wrangler.jsonc` binds `tetrilaunch.com` and
+`www.tetrilaunch.com` to it as custom domains and serves `app/dist` through the `ASSETS`
+binding, with `run_worker_first: ["/api/*"]`. So the app and the Worker do **not** deploy
+independently any more: a game commit changes `app/dist`, and `app/dist` is shipped by
+`wrangler deploy`. Nothing reaches the live site until that command runs.
 
-- **App — Cloudflare Pages (auto, every branch).** The `tetrilaunch` Pages project builds
-  each branch into its own preview URL (and `main` into the Pages production URL).
-  Project settings: **root directory `app`**, build command **`npm run build`**, output
-  **`dist`**. Nothing else is required: on a `*.pages.dev` host the app calls the
-  production Worker API cross-origin (the Worker's `/api` responses are CORS-open), so
-  every preview shares the live leaderboard.
-- **Leaderboard Worker — manual, rare.** Turn **off** auto-deploy (Workers Builds) for the
-  Worker in the Cloudflare dash. Deploy it with `npm run deploy` from the repo root only
-  when `app/worker/`, `wrangler.jsonc`, or `migrations/` change (schema changes:
-  `npm run db:migrate` first).
+(This section used to describe the opposite — Cloudflare Pages building every branch and
+serving production, with the Worker deployed "rarely", only when `app/worker/` changed.
+That was true before the apex moved onto the Worker and false afterwards, and following it
+would deploy a release to a Pages URL nobody visits while `tetrilaunch.com` kept serving
+the previous build. Pages branch previews may still exist and are still useful for looking
+at layout, but they have no Worker behind them: `/api/scores` on a `*.pages.dev` host
+answers the SPA fallback, i.e. `text/html`, not JSON.)
+
+Three environments, and the difference between them is the DATABASE, not the URL:
+
+| | serves | D1 | deployed by |
+|---|---|---|---|
+| **production** | `tetrilaunch.com`, `www.` | `tetrilaunch-leaderboard` | `npm run deploy`, by hand |
+| **staging** | `tetrilaunch-staging.*.workers.dev` | `tetrilaunch-leaderboard-preview` | `.github/workflows/staging.yml`, on every push to `staging` |
+| **local** | `:8787` | local (miniflare) | `npm run dev:worker` |
+
+**Releasing to production** — from the repo root, deliberately, by a person:
+
+```bash
+git checkout main && git merge --ff-only staging
+npm run db:migrate       # applies 0002_tier_boards.sql to the LIVE D1
+npm run deploy           # build + wrangler deploy --env=""
+```
+
+**Clearing the board is a separate, deliberate command** — not part of the migration.
+This release changes the economy across 247 commits, so scores banked under the old
+balance are not comparable to anything set after it, and the decision was to start
+clean rather than rank two different games together:
+
+```bash
+npx wrangler d1 execute tetrilaunch-leaderboard --remote --env="" \
+  --command "DELETE FROM scores"
+```
+
+It lives here rather than in `migrations/0002` on purpose: a migration runner is a
+thing people run without reading, and `DELETE FROM scores` against the live database
+is not a thing to discover by running it. `0002` is purely additive, so applying
+migrations early is safe and this line is the only irreversible step in the release.
+
+`--env=""` is not decoration. With more than one environment defined, a bare
+`wrangler deploy` warns that no target was named and falls back to the top level; naming it
+means the release command cannot start resolving somewhere else after a wrangler upgrade.
+
+**The staging environment needs `CLOUDFLARE_API_TOKEN`** in *Settings → Secrets → Actions*
+(scopes: Workers Scripts:Edit, D1:Edit). Without it `staging.yml` fails at its token guard,
+which is what every run of it has done so far — so there is currently no deployed staging
+Worker, and anything reviewed on a `*.pages.dev` URL was the SPA with no API behind it.
+`staging.yml` deliberately does not run migrations; apply them with
+`npm run db:migrate:staging` when a schema change is what you actually intend.
 
 ### Native (iOS / Android)
 

@@ -54,11 +54,35 @@
   // staging scores meaningless against live ones, which is what makes sharing
   // one table actively wrong rather than merely untidy.
   //
-  // `routes` is deliberately absent. Custom domains are a top-level, non-
-  // inherited key, so staging never claims tetrilaunch.com and instead answers
-  // on its own workers.dev subdomain (the worker is named tetrilaunch-staging).
+  // `routes: []` IS THE SAFETY, and it has to be written down. This block used
+  // to omit the key on the belief that custom domains are top-level and not
+  // inherited. They are inherited. `wrangler deploy --env staging --dry-run`
+  // says so in as many words:
+  //
+  //   The "env.staging" environment inherits the top-level `routes`
+  //   configuration, which includes the custom domain(s): tetrilaunch.com,
+  //   www.tetrilaunch.com. Deploying this environment will reassign these
+  //   custom domains away from the top-level Worker.
+  //
+  // It is a warning, not an error, so the deploy proceeds. The first green run
+  // of .github/workflows/staging.yml would therefore have pointed the LIVE
+  // apex at a staging build bound to the empty preview database — the exact
+  // outcome this whole environment exists to prevent, arrived at through the
+  // environment itself. It has not happened only because CLOUDFLARE_API_TOKEN
+  // was never added, so all 46 runs of that workflow died at its token guard
+  // before reaching wrangler. That is luck, not design, and it expires the
+  // moment someone wires the token up.
+  //
+  // An empty list is not the same as no list: it overrides the inheritance
+  // instead of accepting it, which is what leaves the apex on the top-level
+  // worker. `workers_dev` is then stated rather than inferred, so staging's
+  // address (tetrilaunch-staging.<subdomain>.workers.dev — a named environment
+  // takes the top-level name with the env appended) is a decision in the file
+  // rather than a default that a future wrangler is free to change.
   "env": {
     "staging": {
+      "routes": [],
+      "workers_dev": true,
       "assets": {
         "directory": "app/dist",
         "binding": "ASSETS",
