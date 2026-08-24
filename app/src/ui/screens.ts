@@ -1,6 +1,6 @@
 import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
-import { baseBayFor, makeBaseLevel, tierDemands } from "../game/level";
+import { baseBayFor } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,

@@ -1332,7 +1332,6 @@ class App {
             });
         }
         break;
-      case "howto": this.overlay.innerHTML = S.howtoScreen(markUnlocked(this.meta)); break;
       case "howto":
         this.overlay.innerHTML = S.guideScreen({
           chapter: this.guideChapter,
