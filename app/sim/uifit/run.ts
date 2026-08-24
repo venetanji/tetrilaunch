@@ -565,27 +565,94 @@ function measure(cfg: {
   // Silently returning that centre as "the baseline" is how `.pl-tier`
   // shipped a confidently-wrong -1.98px to -4.49px reading, and how a since-
   // reverted fix then shipped an equally confident wrong number in the other
-  // direction. FAIL instead: a caller that cannot see this row's real ink has
-  // to know that, not be handed a plausible-looking lie.
+  // direction.
+  //
+  // The fix is a FALLBACK, not a wider silence: isolate the value's own text
+  // in a plain wrapper that re-establishes ordinary flow (capMid's own
+  // comment below has the mechanics and the proof it does not disturb the
+  // row), and only give up — loudly, by throwing — when even that cannot
+  // find something to measure. A caller that genuinely cannot see a row's
+  // real ink still has to know that, not be handed a plausible-looking lie;
+  // it just needs a real fallback tried first, or the one row this branch
+  // added and mis-aligned ships with no automated guard at all.
   const PROBE_PX = 1000;
+  // The classic trick, isolated: append an empty inline-block probe and read
+  // where its bottom margin edge lands. Correct whenever `container` lays its
+  // children out in ORDINARY flow — whether that is `el` itself (the common
+  // case) or, via the wrapper fallback below, a stand-in that re-establishes
+  // ordinary flow for content a flex/grid container would otherwise blockify.
+  const baselineOf = (container: Element): number => {
+    const probe = document.createElement("span");
+    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+    container.appendChild(probe);
+    const y = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    return y;
+  };
   const capMid = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
     if (!(el.textContent ?? "").trim()) return null;
     const cs0 = getComputedStyle(el);
-    if (
-      (cs0.display === "flex" || cs0.display === "inline-flex"
-        || cs0.display === "grid" || cs0.display === "inline-grid")
-      && cs0.alignItems !== "baseline"
-    ) {
-      throw new Error(
-        `capMid cannot measure ${label(el)}: ${cs0.display} with align-items:${cs0.alignItems} `
-          + `blockifies the baseline probe into an item and centres it instead of tracking the ink.`,
+    const unsafe = (cs0.display === "flex" || cs0.display === "inline-flex"
+      || cs0.display === "grid" || cs0.display === "inline-grid")
+      && cs0.alignItems !== "baseline";
+    let baseline: number;
+    if (!unsafe) {
+      baseline = baselineOf(el);
+    } else {
+      // FALLBACK for the shape the plain probe cannot read (see the header
+      // comment above): isolate `el`'s own direct text in a plain
+      // `display:inline-block` wrapper. Blockification only touches a
+      // flex/grid container's DIRECT children, so the probe — appended
+      // inside THIS wrapper rather than inside `el` — sees an ordinary
+      // inline formatting context again and reads the real ink.
+      //
+      // Wraps ONLY the text, never the whole element: wrapping the icon
+      // too re-flows it through ordinary inline rules instead of the flex
+      // ones that actually size it, which measurably MOVES the reading
+      // (confirmed against `.pl-tier b`: -0.33px off this method, against
+      // 0.02px wrapping the text alone — a different answer, not a noisier
+      // one) and visibly narrows the box while wrapped, even though it is
+      // restored correctly after. An element with no direct text node has
+      // nothing this fallback can isolate, so it falls through to the throw
+      // below rather than guessing.
+      const textNode = [...el.childNodes].find(
+        (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim(),
       );
+      if (!textNode) {
+        throw new Error(
+          `capMid cannot measure ${label(el)}: ${cs0.display} with align-items:${cs0.alignItems}, `
+            + `and no direct text node to isolate in a wrapper.`,
+        );
+      }
+      const text = textNode.textContent ?? "";
+      const row = el.parentElement;
+      const beforeEl = el.getBoundingClientRect();
+      const beforeRow = row?.getBoundingClientRect();
+      const wrapper = document.createElement("span");
+      wrapper.style.cssText = "display:inline-block";
+      wrapper.textContent = text;
+      el.replaceChild(wrapper, textNode);
+      baseline = baselineOf(wrapper);
+      wrapper.replaceWith(textNode);
+      // Proved, not assumed: the swap-and-restore must leave `el` (and the
+      // row it sits in) exactly where they were, or this reading is
+      // measuring a layout the row never actually has.
+      const afterEl = el.getBoundingClientRect();
+      const afterRow = row?.getBoundingClientRect();
+      const moved = (a: DOMRect, b: DOMRect): boolean =>
+        Math.abs(a.top - b.top) > 0.01 || Math.abs(a.left - b.left) > 0.01
+        || Math.abs(a.width - b.width) > 0.01 || Math.abs(a.height - b.height) > 0.01;
+      if (
+        moved(beforeEl, afterEl)
+        || (beforeRow && afterRow && moved(beforeRow, afterRow))
+      ) {
+        throw new Error(
+          `capMid wrapper fallback left ${label(el)}'s geometry changed: `
+            + `element ${JSON.stringify(beforeEl)} -> ${JSON.stringify(afterEl)}, `
+            + `row ${JSON.stringify(beforeRow)} -> ${JSON.stringify(afterRow)}.`,
+        );
+      }
     }
-    const probe = document.createElement("span");
-    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
-    el.appendChild(probe);
-    const baseline = probe.getBoundingClientRect().bottom;
-    probe.remove();
     const cs = getComputedStyle(el);
     const size = parseFloat(cs.fontSize);
     if (!(size > 0)) return null;
