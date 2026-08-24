@@ -111,13 +111,28 @@ export interface CommissionDef {
  *  records for a bay played badly. */
 export const TIGHT_SHIP_CUBES = 12;
 
-/** Overshoot above the last bay's target that Deep Pockets asks for.
+/**
+ * Overshoot above the last bay's target that Deep Pockets asks for.
  *
- *  Quoted as overshoot, not as ending funds, so the clause costs the same at
- *  every Tier (targets climb TARGET_PER_BAY every bay). $600 is roughly three
- *  clean lines past the line you needed — four times run.ts's CARRY_CAP, which
- *  is the largest surplus the game otherwise lets you keep, so it is decisively
- *  more than "did not quite go broke". */
+ * THE BAY STOPS TAKING LAUNCHES THE MOMENT YOU CROSS, which is what makes this
+ * a clause rather than a threshold. game.ts's settle gate closes the cannon on
+ * `score >= target` and only lets what is already in the air land, so the
+ * overshoot is not something a player accumulates — it is entirely the size of
+ * the ONE crush that crossed the line.
+ *
+ * That turns the clause into a specific play: hold the bay under its target
+ * while building a multi-row stack, then close it in a single stroke. Bay 10
+ * pays scorePerLine $190 at every Tier (level.ts's ramp is per-bay and the
+ * Mark does not scale it), so a four-row crush pays 4 x 190 = $760 at a bare
+ * combo, and three rows clear it on any streak past the first
+ * (3 x 190 x 1.25 = $712 — game.ts's payoutMult). $600 is therefore "a
+ * deliberate multi-line at the buzzer", and $400 would have been "a lucky
+ * double".
+ *
+ * The card has to say that, and says it: a clause whose number is reachable
+ * only by a play the copy does not mention is a clause the player fails
+ * without ever learning what it wanted.
+ */
 export const DEEP_POCKETS_OVERSHOOT = 600;
 
 /** Launches per cleared line Sharpshooter allows, run-wide.
@@ -194,7 +209,7 @@ export const COMMISSIONS: CommissionDef[] = [
   {
     id: "deep-pockets",
     name: "Deep Pockets",
-    desc: `Clear the last bay at least $${DEEP_POCKETS_OVERSHOOT} past its funding target.`,
+    desc: `Close the last bay $${DEEP_POCKETS_OVERSHOOT} past its target in ONE crush — the cannon locks the moment you cross, so the overshoot is whatever that final stroke was worth.`,
     minTier: 1,
     check: (c) => c.funds - c.target >= DEEP_POCKETS_OVERSHOOT,
   },

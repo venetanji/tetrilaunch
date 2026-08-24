@@ -434,6 +434,48 @@ currency with nothing to buy is a worse reward than paying nothing.
 - **Commissions**, at a Tier above the ladder. The hardest clauses want a bay
   ladder harsher than Tier 10 to be interesting, and this is it.
 
+## 3b. Does the progression actually hang together?
+
+Three numbers have to stay in step across ten Tiers, and nothing checked that
+they did until now: **what a Tier pays** (`tierSalvage`), **what a system costs
+to put on the ship** (`INSTALLS`, in salvage), and **how many ladder points a
+Tier grants** (`budgetForMark`).
+
+The failure they can produce is quiet and unfixable in play: **a Tier grants
+more build points than the player's installed systems can absorb.** A track
+holds `MAX_TIER` tiers, so K installed systems absorb K × 110 points and not one
+more. If the budget outruns that, the Mark hands out points that cannot be spent
+on anything and the player has no way to see why.
+
+Walked on the intended path — installs before the optional unlocks, cheapest
+first, `requiresMark` honoured — it holds at every rung, and *exactly* at the
+top:
+
+| Tier | salvage in hand | systems installed | capacity | budget |
+|---|---|---|---|---|
+| 1 | 45 | 2 | 220 | 77 |
+| 3 | 165 | 5 | 550 | 231 |
+| 5 | 285 | 6 | 660 | 385 |
+| 6 | 345 | 7 | 770 | 462 |
+| 10 | 585 | 7 | 770 | **770** |
+
+Tight enough that a re-price of any of the three could break it silently, which
+is the argument for pinning it in `sim/systems.ts` rather than re-deriving it by
+hand. **There is a trap the model permits and the UI does not yet show**: a
+player who spends their first 145 salvage on the two optional unlocks instead of
+on systems arrives at Tier 3 with one system installed — 110 points of capacity
+against a 231-point budget, and 121 points of Mark they cannot spend. That is a
+legitimate consequence of a real choice, but it is currently invisible, and the
+Workshop should say it out loud.
+
+The other end of the same relationship: income across the whole ladder is 600
+against a shelf of 445 — slack enough that a wrong purchase survives, tight
+enough that the choice is a choice, which is what `meta.ts` already commits to.
+**Commissions do not move that number.** They substitute for a Contract
+milestone and never add a fourth, so whatever mix of Contracts and clauses
+completes a Tier, the Tier pays `tierSalvage(tier)` and no more — swept for
+every Tier at every mix of 0–3 clauses.
+
 ## 4. Boards
 
 One table, one new column. `scores` gains `board TEXT NOT NULL DEFAULT 'run'`

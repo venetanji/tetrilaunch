@@ -5925,6 +5925,93 @@ section("Fresh materials in the draft (hazards.ts)");
   }
 }
 
+
+// ---------------------------------------------------------------------------
+section("The ladder hangs together: salvage -> installs -> build budget");
+// ---------------------------------------------------------------------------
+{
+  /* Three numbers have to stay in step across ten Tiers and NOTHING currently
+   * checks that they do:
+   *
+   *   tierSalvage      what a Tier pays   (meta.ts)
+   *   INSTALLS         what a system costs to put ON the ship (salvage)
+   *   budgetForMark    how many ladder points a Tier grants  (upgrades.ts)
+   *
+   * The failure they can produce is quiet and unfixable in play: a Tier grants
+   * more build points than the player's installed systems can absorb. A track
+   * holds MAX_TIER tiers, so K installed systems can absorb K x 110 points and
+   * not one more; if the budget outruns that, the Mark hands out points that
+   * cannot be spent on anything, and the player has no way to see why.
+   *
+   * The walk below is the INTENDED path — installs before the optional
+   * unlocks, cheapest first — and it holds at every rung, exactly at the top
+   * (770 of budget against 770 of capacity at Tier 10). It is tight enough
+   * that a re-price of any of the three could break it silently, which is the
+   * argument for pinning it here rather than re-deriving it by hand.
+   */
+  const trackCapacity = TIER_COSTS.reduce((a, b) => a + b, 0);
+  check("a track absorbs the whole ladder", trackCapacity === 110);
+  check("...and every track maxed is the Mark-10 budget",
+    trackCapacity * UPGRADES.length === budgetForMark(MARK_COUNT));
+
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    // Salvage in hand when the Tier's run is ATTEMPTED: every rung below it
+    // completed, plus this Tier's Contract milestones already banked.
+    const banked =
+      Array.from({ length: tier - 1 }, (_, i) => tierSalvage(i + 1)).reduce((a, b) => a + b, 0) +
+      tierMilestoneSalvage(tier) * TIER_CONTRACTS_REQUIRED;
+    // Cheapest-first, honouring requiresMark against the Marks actually beaten.
+    const beaten = tier - 1;
+    let purse = banked;
+    let installed = 0;
+    for (const def of [...INSTALLS].sort((a, b) => a.cost - b.cost)) {
+      if ((def.requiresMark ?? 0) > beaten) continue;
+      if (purse < def.cost) continue;
+      purse -= def.cost;
+      installed += 1;
+    }
+    const capacity = installed * trackCapacity;
+    check(`Tier ${tier}: the rig can absorb its build budget`,
+      capacity >= budgetForMark(tier),
+      `${installed} systems = ${capacity} points vs a ${budgetForMark(tier)} budget`);
+  }
+
+  // The other end of the same relationship: income across the whole ladder
+  // against the shelf it is meant to buy. Slack enough that a wrong purchase
+  // survives, tight enough that the choice is a choice (meta.ts's INSTALLS
+  // note commits to both).
+  const income = Array.from({ length: MARK_COUNT }, (_, i) => tierSalvage(i + 1))
+    .reduce((a, b) => a + b, 0);
+  const shelf =
+    INSTALLS.reduce((a, d) => a + d.cost, 0) +
+    UNLOCKS.filter((u) => !u.retired).reduce((a, u) => a + u.cost, 0);
+  check("the ladder pays more than the shelf costs", income > shelf, `${income} vs ${shelf}`);
+  check("...but not so much more that salvage stops being a decision",
+    income < shelf * 2, `${income} vs ${shelf}`);
+
+  // COMMISSIONS MUST NOT INFLATE THE INCOME ABOVE. They substitute for a
+  // Contract milestone; they never add a fourth. Whatever mix of Contracts and
+  // clauses completes a Tier, the Tier pays tierSalvage(tier) and no more.
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    for (const clauses of [0, 1, 2, 3]) {
+      let m: MetaState = { ...newMeta(), mark: tier - 1 };
+      let paid = 0;
+      // Contracts first for the milestones the clauses do not take.
+      for (let c = 0; c < TIER_CONTRACTS_REQUIRED - clauses; c++) {
+        const r = recordContractClear(m, { id: `t${tier}-c${c}`, tier });
+        m = r.meta;
+        paid += r.salvage;
+      }
+      const ids = COMMISSIONS.filter((x) => x.minTier <= tier).slice(0, clauses).map((x) => x.id);
+      const run = recordRunEnd(m, tier, true, RUN_LEVELS, ids);
+      paid += run.salvage;
+      check(`Tier ${tier} pays its award with ${clauses} clause(s) in the mix`,
+        paid === tierSalvage(tier), `${paid} vs ${tierSalvage(tier)}`);
+      check(`...and completes`, run.meta.mark === Math.min(MARK_COUNT, tier));
+    }
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."
