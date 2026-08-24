@@ -1122,8 +1122,12 @@ body.crt-off #app::after { display: none; }
    and weight in every pairing, so neither column reads as more important
    than the other. Launches and time both carry the danger escalation
    (`.pl-stat--danger`, main.ts's syncHud); Lost deliberately never does —
-   syncHud only ever sets its text, and sim/systems.ts holds "no danger
-   treatment" for it as its own named invariant. */
+   its total (game.ts's lostTotal) reaches only telemetry and this readout
+   (main.ts:613, 1268, 1303, 1779), never a gameplay branch, because there
+   is nothing for it to gate: a lines Contract's launch budget already
+   prices some waste in (contracts.ts's PLANNING_EFFICIENCY and SLACK, via
+   contractEfficiency/launchesFor), so a lost cube spends that margin
+   rather than crossing a threshold where the correct play changes. */
 /* Two columns, when a pairing puts two on screen, need to read as SEPARATE
    numbers — at a glance "0" and "2:23" side by side can otherwise scan as
    one figure. A hairline rule and real padding between them does that
@@ -1133,19 +1137,21 @@ body.crt-off #app::after { display: none; }
 .pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
 /* LOST does not get a matching min-width, and measuring says it does not
    need one. sim/systems.ts's own budget prices "Lost" against a flat
-   per-glyph average (~14px) and would call a two-digit value the column's
-   new floor — but that average undershoots what Rajdhani actually draws
-   for these four letters: on-device at 792x360 compact, swapping
-   #hud-lost's text finds the column at 25.8px through one digit and
-   26.0px through two, a 0.2px difference. The real label is already as
-   wide as a two-digit value, so there is no jump here for a min-width to
-   fix. Three digits does move it (35px, +9px, one more mono digit) — but
-   that width is already covered: sim/systems.ts's own column-width proof
-   for this row tests exactly that case ("999") and finds it still fits
-   inside TIME's column. */
-/* Urgency, shared by the launches counter (<= LOW_LAUNCH_WARN launches, see
-   main.ts's syncHud) and the clock (last 20s). One class, one look: both mean
-   "you are about to run out of the thing that lets you keep playing". */
+   per-glyph average (4 glyphs at 3.6px each, ~14px total) and would call a
+   two-digit value the column's new floor — but that average undershoots
+   what Rajdhani actually draws for these four letters: on-device at
+   792x360 compact, swapping #hud-lost's text finds the column at 25.8px
+   through one digit and 26.0px through two, a 0.2px difference. The real
+   label is already as wide as a two-digit value, so there is no jump here
+   for a min-width to fix. Three digits does move it (35px, +9px, one more
+   mono digit) — but that width is already covered: sim/systems.ts's own
+   column-width proof for this row tests exactly that case ("999") and
+   finds it still fits inside TIME's column. */
+/* Urgency, shared by the launches counter and the clock (last 20s) — though
+   "the launches counter" is two different thresholds, not the same one read
+   twice: <= LOW_LAUNCH_WARN (3) on a Deep Run, <= 2 on a Contract (main.ts's
+   syncHud). One class, one look: all three mean "you are about to run out of
+   the thing that lets you keep playing". */
 .pl-stat--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
 .pl-stat--danger .lbl { color: var(--danger); }
 /* B7: the funds bar joins the ONE urgency treatment. When the launches
@@ -1350,10 +1356,12 @@ body.crt-off #app::after { display: none; }
 
    What IS here is the other half of that: a Contract's rows hug the TOP of the
    panel instead of being spread down it. `.plant__body` uses
-   `justify-content: space-between`, which is right for a Deep Run's five rows
-   and wrong for a Contract's four (lines) or five (pattern) — it pushed the
-   last row to the floor of the panel and left a hand's width of nothing above
-   it. Top-aligning them fixes that WITHOUT giving up the footprint, which is
+   `justify-content: space-between`, which barely shows on a Deep Run — five
+   rows, one of them `.pl-mods` at 32-57px, leave only 4.3-16.8px to spread —
+   and moves a lot on a Contract: with no `.pl-mods` row, four (lines) or five
+   (pattern) rows leave 54.5px over, and `space-between` splits that across
+   EVERY gap between rows, not into one band above the last. Top-aligning them
+   fixes that WITHOUT giving up the footprint, which is
    what releasing `min-height` did and should not have: the panel is
    BOTTOM-anchored, so a shorter panel does not sit lower in the same box — its
    top edge moves. Measured at 792x360 compact just before this rule landed: a
@@ -1362,6 +1370,13 @@ body.crt-off #app::after { display: none; }
    had to be re-found 17px away between two Contracts on the SAME board, and
    46px away between a Contract and a run. The leftover height is one band of
    air at the bottom now, and the panel starts in the same place in every mode.
+   That reliability closes a latent bug too: the drag-hint's anchor (its `top`
+   property, above) computes the panel's top edge from this same 0.4296 —
+   there is a `[data-coach]` override for the one other case where the
+   panel's height changes, but there was never a `.hud--contract` one, so
+   under the old rule it was over-clearing a shorter Contract panel by
+   30-46px, which the harness's `draghint` assertion (it only catches the
+   gesture dipping UNDER the panel) could not see.
 
    The gap is stated rather than distributed for the same reason it was before:
    `space-between` was what put air between the rows, and flex-start distributes
@@ -1369,7 +1384,7 @@ body.crt-off #app::after { display: none; }
    which is not one number and cannot be matched by one: it is leftover space,
    so it lands anywhere from 4.3px (iPhone 13 mini, where the readout nearly
    fills the box) to 16.8px (iPhone 16 Pro Max) at the SAME density. 18 --fpx
-   gives 9px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
+   gives 8px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
    inside that range on every device in the matrix, and even, which the
    distributed gap is not. The per-row margins go with it: they were nudges on
    top of a distributed gap, and on an explicit one they only make the rhythm
