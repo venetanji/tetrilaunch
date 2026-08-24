@@ -809,6 +809,79 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
+/* ---------- Bond Breaker: HOLD to fire (see main.ts's startBondHold) ----------
+   Both triggers are held, not tapped. The charge is the run's rarest
+   consumable and both buttons sit on glass a thumb is already dragging the
+   slingshot across, so a tap must not be able to spend one — main.ts's
+   BOND_HOLD_MS carries the full reasoning. This is what says so while the
+   press is counting: a charge meter fills the button from the bottom and the
+   rim tightens into a glow as it reaches the top.
+
+   The duration comes from main.ts as `--bond-hold`, never written here, so
+   the meter cannot finish at a different moment than the timer that actually
+   spends the charge (the fallback only covers the class being set without the
+   property). The two triggers wear different accents — amber on the rail,
+   violet on the plant chip — so the meter takes its colour from each button's
+   own `--bond-fill` rather than picking one and clashing with the other. The
+   chip's is a LIGHTER violet than its own `--accent-2` border on purpose: the
+   chip's ground is already a violet wash, and a meter in the same tone was
+   legible on a screenshot and not much more than that. The rail button's amber
+   needs no such lift — it fills over near-black.
+
+   `isolation` + the meter's negative z-index are what put the fill OVER the
+   button's own ground but UNDER its glyph and charge badge: a solid bar
+   painted on top would hide the very icon it is charging. The transition on
+   the base rule is the UNWIND — when main.ts drops the class the animation
+   ends and the meter drains back down, so an abandoned hold reads as
+   "nothing happened" rather than blinking out. */
+.bond-btn { --bond-fill: 255, 210, 63; }
+.mod--bb { --bond-fill: 178, 158, 255; }
+.bond-trigger {
+  isolation: isolate;
+  /* A one-second press must stay a press: no scroll, no long-press callout,
+     no text selection creeping in under the finger. (body already sets
+     touch-action/user-select globally; stated here so the hold does not
+     depend on that staying true for the whole app.) */
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+.bond-trigger::after {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  /* Brightest at the TOP — which, because the whole gradient is squeezed
+     into the scaled band, is always the meter's leading edge. It reads as a
+     wavefront climbing the button rather than a puddle rising in it, and it
+     keeps the strong end off the chip's "BOND BRK" label at the bottom. */
+  background: linear-gradient(0deg, rgba(var(--bond-fill, 255, 210, 63), 0.4), rgba(var(--bond-fill, 255, 210, 63), 0.95));
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+  opacity: 0;
+  transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+  pointer-events: none;
+}
+.bond-trigger--holding::after { animation: bond-charge var(--bond-hold, 1000ms) linear forwards; }
+.bond-trigger--holding { animation: bond-charge-rim var(--bond-hold, 1000ms) linear forwards; }
+/* Starts at a VISIBLE sliver rather than at nothing: a graze that gets
+   nowhere still has to show that it started something and lost it, which is
+   how a player who tapped learns the button wants a hold. */
+@keyframes bond-charge {
+  from { transform: scaleY(0.08); opacity: 0.6; }
+  to { transform: scaleY(1); opacity: 0.95; }
+}
+@keyframes bond-charge-rim {
+  from { border-color: rgba(var(--bond-fill, 255, 210, 63), 0.85); box-shadow: 0 0 6px rgba(var(--bond-fill, 255, 210, 63), 0.3), var(--shadow-hard-sm); }
+  to { border-color: #fff; box-shadow: 0 0 18px 3px rgba(var(--bond-fill, 255, 210, 63), 0.9), var(--shadow-hard-sm); }
+}
+/* The meter STAYS under reduced motion — it is a progress indicator, and the
+   press it reports on cannot be understood without it. What goes is the rim
+   ramp, which is decoration, replaced by the same static outline
+   `.demo-trigger.armed` falls back to. */
+@media (prefers-reduced-motion: reduce) {
+  .bond-trigger--holding { animation: none; outline: 2px solid #fff; }
+}
+
 /* Demolition charges (see screens.ts's hudHTML / game.ts's armBomb) — hazard
    red so it reads as ordnance, not another utility. The .armed state is
    load-bearing: while armed, the next trigger pull fires a BOMB instead of the
