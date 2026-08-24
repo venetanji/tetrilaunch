@@ -2,7 +2,10 @@ import type { LevelConfig } from "./level";
 import { makeBaseLevel } from "./level";
 import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
 import { applyFinal, type FinalId } from "./finals";
-import { applyUpgrades, newTiers, type UpgradeTiers } from "./upgrades";
+import {
+  applyUpgrades, newTiers, nextTierCost, UPGRADES,
+  type RefitOrder, type UpgradeTiers,
+} from "./upgrades";
 
 /** Total levels in a roguelite run (see makeBaseLevel's 0..9 ladder). */
 export const RUN_LEVELS = 10;
@@ -358,6 +361,57 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
       ? run.bondCharges + (bondChargesFor(tier + 1) - bondChargesFor(tier))
       : run.bondCharges,
   };
+}
+
+/**
+ * Install a whole REFIT ORDER at once — the yard's single commit, run when the
+ * player undocks (upgrades.ts's RefitOrder).
+ *
+ * ALL OR NOTHING. An order that outruns the scrap, names a system the ship is
+ * not carrying, or climbs past `maxTier` is refused outright rather than
+ * part-filled: a half-installed order would spend real scrap on a build the
+ * player never saw projected, which is exactly the surprise staging exists to
+ * remove. upgrades.ts's stageTier already forbids all three, so this is not
+ * belt-and-braces — the order round-trips through the DOM as `data-upgrade`
+ * attributes, and the gate has to hold where the state actually changes.
+ *
+ * The rungs themselves go on through buyUpgrade, one at a time, so the Bond
+ * Emitter's magazine delta is issued by exactly the rule that issued it when
+ * every tier was its own purchase. Tracks are walked in UPGRADES order rather
+ * than in the object's key order, which keeps the commit deterministic however
+ * the order was assembled.
+ */
+export function buyUpgrades(
+  run: RunState,
+  order: RefitOrder,
+  maxTier: number,
+): RunState | null {
+  let spend = 0;
+  for (const def of UPGRADES) {
+    const want = Math.max(0, Math.floor(order[def.id] ?? 0));
+    if (want === 0) continue;
+    const tier = run.tiers[def.id] ?? 0;
+    // Tier 0 is not a cheaper first rung, it is a system that is not aboard —
+    // see buyUpgrade for why in-run scrap must never install one.
+    if (tier <= 0 || tier + want > maxTier) return null;
+    for (let t = tier; t < tier + want; t++) spend += nextTierCost(t) ?? 0;
+  }
+  if (spend > run.scrap) return null;
+
+  let next = run;
+  for (const def of UPGRADES) {
+    for (let i = Math.max(0, Math.floor(order[def.id] ?? 0)); i > 0; i--) {
+      const cost = nextTierCost(next.tiers[def.id] ?? 0);
+      if (cost === null) return null;
+      const step = buyUpgrade(next, def.id, cost, maxTier);
+      // Unreachable after the pass above, and still checked: returning a
+      // half-installed run here would be the one way this function could spend
+      // scrap on a build the yard never showed.
+      if (!step) return null;
+      next = step;
+    }
+  }
+  return next;
 }
 
 /** Final-score weights (see finalRunScore). Exported so the end modal can

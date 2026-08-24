@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrade, bayMusic, RUN_LEVELS, type RunState,
+  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -30,8 +30,8 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, newTiers, nextTierCost, refitTracks, upgradeById,
-  type UpgradeId, type UpgradeTiers,
+  MAX_TIER, clearTrack, newTiers, orderSize, refitTracks, stageTier, upgradeById,
+  type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
   INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
@@ -165,6 +165,13 @@ class App {
    *  inspection, so the hand is exactly one at every Tier — including the
    *  capstone, where the ordinary draft asks for two notches. */
   private pendingFinal: FinalId | null = null;
+  /** Tiers STAGED at the refit stop and not yet paid for (upgrades.ts's
+   *  RefitOrder). Nothing here has touched RunState.tiers or spent a point of
+   *  scrap: Undock is the single commit (run.ts's buyUpgrades), which is what
+   *  lets the yard redraw the next bay's projected numbers under a whole build
+   *  before the player buys any of it. Same contract as pendingPicks two
+   *  screens later. Cleared on entering the stop and on committing. */
+  private refitOrder: RefitOrder = {};
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
@@ -843,20 +850,7 @@ class App {
         }
         break;
       case "refit":
-        if (g && this.run) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
-            S.refitScreen({
-              // levelIndex has already been stepped past the cleared bay by
-              // afterBayClear, so it IS the just-cleared bay's 1-based number,
-              // and makeBaseLevel(levelIndex) is the bay about to be played.
-              bayNum: this.run.levelIndex,
-              nextBayName: makeBaseLevel(this.run.levelIndex).name,
-              scrap: this.run.scrap,
-              tiers: this.run.tiers,
-              mark: this.run.mark,
-            });
-        }
+        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.refitHTML();
         break;
       case "draft":
         if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
@@ -1642,6 +1636,10 @@ class App {
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
+    // A fresh yard ticket every stop: an order is tentative by construction, so
+    // one that survived a bay would be scrap queued against a rig and a bankroll
+    // that have both moved since.
+    this.refitOrder = {};
     this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
@@ -1662,56 +1660,151 @@ class App {
     this.setState(won ? "won" : "lost");
   }
 
-  /** Refit stop: buy one tier of a system with the run's scrap. Re-renders the
-   *  refit screen in place so the newly-revealed next-tier price is visible
-   *  immediately. A rejected purchase (maxed, or unaffordable) is a silent
-   *  no-op — the button was already disabled, so this is belt-and-braces. */
-  private onBuyUpgrade(id: string): void {
+  /** The refit stop's markup. Built here rather than inline in renderOverlay
+   *  because refreshRefit renders it a second time, into a detached container,
+   *  to lift the live regions out — two call sites, one set of options. Same
+   *  idiom as draftHTML. */
+  private refitHTML(): string {
+    const run = this.run!;
+    // The order as the yard would actually install it. buyUpgrades is the same
+    // call Undock makes, so the projection is drawn against the run the player
+    // will really be flying rather than against a second model of the purchase
+    // — including the Bond Emitter's magazine delta, which lives in the commit
+    // and not in the tier table. A refused order (impossible from the staging
+    // rules, possible from a hand-edited attribute) projects as no change,
+    // which is exactly what it would buy.
+    const installed = buyUpgrades(run, this.refitOrder, MAX_TIER) ?? run;
+    return S.refitScreen({
+      // levelIndex has already been stepped past the cleared bay by
+      // afterBayClear, so it IS the just-cleared bay's 1-based number, and
+      // makeBaseLevel(levelIndex) is the bay about to be played.
+      bayNum: run.levelIndex,
+      nextBayName: makeBaseLevel(run.levelIndex).name,
+      scrap: run.scrap,
+      tiers: run.tiers,
+      mark: run.mark,
+      order: this.refitOrder,
+      // Both sides come from levelForRun — the real pipeline the bay is built
+      // from. The notch this bay's draft will add is deliberately not modelled:
+      // it has not been offered yet, and folding a guess into both sides would
+      // price the order against a bay nobody has chosen.
+      //
+      // NO BANKED RATCHETS, unlike the draft. Passing them pins every axis the
+      // run carries as ACTIVE, which promotes it to "core" and puts it beyond
+      // the compact grid's reach — and on a landscape phone four unmoved
+      // pressure tiles were a whole row, pushing the rows the ORDER moved off
+      // the bottom of the panel. On the draft that pin is right, because there
+      // the decision IS the pressure (preview.ts's `active`, Codex #1); here
+      // the decision is the ship, and a projection that crowds out its own
+      // answer with context has failed at the job it exists for. Left as
+      // ordinary context rows they still show wherever there is height for
+      // them and drop only at compact density, which is the existing rule
+      // doing exactly what it was written for.
+      preview: previewRows(levelForRun(run), levelForRun(installed)),
+    });
+  }
+
+  /** Refit stop: STAGE one tier of a system into the order. Nothing is bought
+   *  here — the tiers live in `refitOrder` until "refit-done" commits the lot,
+   *  which is what lets the yard redraw the next bay's projected numbers under
+   *  a whole build before a point of scrap is spent.
+   *
+   *  The staging rules themselves live in upgrades.ts's stageTier, next to the
+   *  ladder they price against and where the sim can reach them. A rejected
+   *  stage (not installed, maxed, or more than the order can still afford) is a
+   *  silent no-op — the button was already disabled, so this is the gate rather
+   *  than the feedback. */
+  private onStageUpgrade(id: string): void {
     if (this.state !== "refit" || !this.run) return;
     // Only tracks this Mark's refit actually offers (upgrades.ts's
     // refitTracks) — the screen never renders the others, so this is
     // belt-and-braces against a stale or hand-edited data-upgrade.
     if (!refitTracks(this.run.mark).some((u) => u.id === id)) return;
-    const tier = this.run.tiers[id as UpgradeId] ?? 0;
-    const cost = nextTierCost(tier);
-    if (cost === null) return;
-    const next = buyUpgrade(this.run, id as UpgradeId, cost, MAX_TIER);
+    const next = stageTier(this.run.tiers, this.refitOrder, id as UpgradeId, this.run.scrap);
     if (!next) return;
-    telemetry.refit(this.run.levelIndex + 1, this.run.scrap, id);
-    this.run = next;
+    this.refitOrder = next;
     void successHaptic();
     this.refreshRefit();
   }
 
-  /** Re-render the refit stop's card grid and scrap chip IN PLACE after a
-   *  purchase, rather than calling renderOverlay(). A full re-render recreates
-   *  the `.panel.modal.pop` node, replaying its entrance animation on every
-   *  buy — so a player working through three purchases watches the whole modal
-   *  fly in three times. Same reasoning (and same idiom) as renderBoardRows
-   *  patching #lb-body instead of re-rendering the leaderboard modal. */
+  /** Refit stop: take a track's staged tiers back off the order — the second
+   *  half of the card's one cycling button (upgrades.ts's clearTrack, which is
+   *  where the all-not-one rule and its reasoning live). */
+  private onUnstageUpgrade(id: string): void {
+    if (this.state !== "refit" || !this.run) return;
+    const next = clearTrack(this.refitOrder, id as UpgradeId);
+    if (next === this.refitOrder) return;
+    this.refitOrder = next;
+    this.refreshRefit();
+  }
+
+  /** "refit-done": INSTALL the whole order, then undock into the draft.
+   *
+   *  The one commit of the stop (run.ts's buyUpgrades), and all-or-nothing: an
+   *  order the run cannot actually pay for leaves the scrap banked rather than
+   *  part-installing a build the player never saw projected. An empty order is
+   *  the ordinary case — plenty of stops are worth walking past — so it undocks
+   *  without touching the run at all. */
+  private onRefitDone(): void {
+    if (this.state !== "refit" || !this.run) return;
+    const size = orderSize(this.run.tiers, this.refitOrder);
+    if (size > 0) {
+      const next = buyUpgrades(this.run, this.refitOrder, MAX_TIER);
+      if (next) {
+        // One event per tier installed, with the scrap left AFTER the order —
+        // telemetry.refit's contract is "a tier was bought at this bay", and a
+        // staged yard buys several at once rather than changing what an event
+        // means.
+        for (const [id, tiers] of Object.entries(this.refitOrder)) {
+          for (let i = 0; i < (tiers ?? 0); i++) telemetry.refit(next.levelIndex + 1, next.scrap, id);
+        }
+        this.run = next;
+        void successHaptic();
+      }
+    }
+    this.refitOrder = {};
+    this.setState("draft");
+  }
+
+  /** Re-render the refit stop's live regions IN PLACE after a stage, rather
+   *  than calling renderOverlay(). A full re-render recreates the
+   *  `.panel.modal.pop` node, replaying its entrance animation on every tap —
+   *  so a player assembling a three-tier order watches the whole modal fly in
+   *  three times. Same reasoning (and same idiom) as refreshDraft and
+   *  renderBoardRows patching their own live regions. */
   private refreshRefit(): void {
-    if (!this.run) return;
-    const grid = this.overlay.querySelector("#refit-grid");
-    const scrap = this.overlay.querySelector("#refit-scrap");
-    if (!grid || !scrap) return;
-    // Render the screen to a detached container and lift just the two live
-    // regions out of it — keeps one source of truth for the card markup
-    // (screens.ts's refitScreen) instead of a second copy that could drift.
+    if (!this.run || this.state !== "refit") return;
+    // The innerHTML patch destroys the node keyboard focus is sitting on —
+    // here that is the button the player just tapped, so a keyboard or D-pad
+    // flow lost its place on every staged tier (D4, and the same fix
+    // refreshDraft carries).
+    const active = document.activeElement as HTMLElement | null;
+    const btn = active?.closest("[data-upgrade]") as HTMLElement | null;
+    const focusSel = btn
+      ? `[data-action="${btn.getAttribute("data-action")}"][data-upgrade="${btn.getAttribute("data-upgrade")}"]`
+      : active?.closest('[data-action="refit-done"]')
+        ? '[data-action="refit-done"]'
+        : null;
+    // Render the screen to a detached container and lift the live regions out
+    // — keeps one source of truth for the markup (screens.ts's refitScreen)
+    // instead of a second copy that could drift.
     const tmp = document.createElement("div");
-    tmp.innerHTML = S.refitScreen({
-      bayNum: this.run.levelIndex,
-      nextBayName: makeBaseLevel(this.run.levelIndex).name,
-      scrap: this.run.scrap,
-      tiers: this.run.tiers,
-      mark: this.run.mark,
-    });
-    const freshGrid = tmp.querySelector("#refit-grid");
-    const freshScrap = tmp.querySelector("#refit-scrap");
-    if (freshGrid) grid.innerHTML = freshGrid.innerHTML;
-    // innerHTML, not textContent: the scrap readout is a drawn glyph plus a
-    // number (screens.ts's scrapHTML), and copying its text alone dropped the
-    // glyph and left a bare figure the moment a player bought anything.
-    if (freshScrap) scrap.innerHTML = freshScrap.innerHTML;
+    tmp.innerHTML = this.refitHTML();
+    for (const id of ["#refit-grid", "#refit-order", "#refit-preview", "#refit-foot"]) {
+      const live = this.overlay.querySelector(id);
+      const fresh = tmp.querySelector(id);
+      // innerHTML, not textContent: every one of these regions carries drawn
+      // glyphs (screens.ts's scrapHTML, the tier icons), and copying their text
+      // alone would leave bare figures behind.
+      if (live && fresh) live.innerHTML = fresh.innerHTML;
+    }
+    // The staged button can vanish (a track that just hit MAX loses it), so
+    // fall back to the card's undo before giving up on focus entirely.
+    const back = focusSel
+      ? this.overlay.querySelector<HTMLElement>(focusSel)
+        ?? (btn ? this.overlay.querySelector<HTMLElement>(`[data-upgrade="${btn.getAttribute("data-upgrade")}"]`) : null)
+      : null;
+    back?.focus();
   }
 
   /** Workshop: buy a permanent unlock with salvage. */
@@ -2482,8 +2575,9 @@ class App {
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.
       case "skip-bayclear": this.afterBayClear(); break;
-      case "buy-upgrade": this.onBuyUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
-      case "refit-done": if (this.state === "refit") this.setState("draft"); break;
+      case "stage-upgrade": this.onStageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
+      case "unstage-upgrade": this.onUnstageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
+      case "refit-done": this.onRefitDone(); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
       // Only reachable in a build that rendered the button (see menuScreen),
