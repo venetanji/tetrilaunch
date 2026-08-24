@@ -3696,7 +3696,53 @@ class App {
         break;
       }
     }
+    this.renderSandboxInPlace();
+  }
+
+  /**
+   * Re-render the level select without throwing away where the player was.
+   *
+   * Every chip on this screen changes the STATE the whole screen is derived
+   * from — the briefing in column 3 has to re-derive or it would advertise a
+   * bay the launch will not deliver, which is the one thing this screen may not
+   * do. So a tap genuinely does rebuild the markup, and renderOverlay rewrites
+   * `overlay.innerHTML` wholesale.
+   *
+   * All three columns are `overflow-y: auto` (app.css's .sbx-col), and a fresh
+   * element scrolls to 0. So on a phone — where the columns are tall enough to
+   * scroll and the Axes and Inspection rows are at the BOTTOM of column 2 —
+   * every tap threw the player back to the top of the column they were working
+   * in. Setting three axis notches meant scrolling back down three times.
+   *
+   * Carried by INDEX rather than by matching elements: the columns are three
+   * fixed sections in a fixed order, and index survives the rows inside them
+   * changing shape (switching mode swaps column 1's Bay row for its Variant
+   * row). An offset past the new scrollHeight simply clamps, which is the right
+   * answer when the content genuinely got shorter.
+   *
+   * FOCUS is the same bug wearing different clothes: the chip that was just
+   * activated no longer exists, so focus falls to <body> and a keyboard or
+   * gamepad user loses their place in the screen entirely rather than just
+   * their scroll offset. Restored by the tapped element's own data-attribute
+   * signature, which is what makes each chip unique here.
+   */
+  private renderSandboxInPlace(): void {
+    const cols = this.overlay.querySelectorAll<HTMLElement>(".sbx-col");
+    const offsets = Array.from(cols, (c) => c.scrollTop);
+    const active = document.activeElement;
+    const sig = active instanceof HTMLElement && this.overlay.contains(active)
+      ? Array.from(active.attributes)
+        .filter((a) => a.name.startsWith("data-"))
+        .map((a) => `[${a.name}="${CSS.escape(a.value)}"]`)
+        .join("")
+      : "";
     this.renderOverlay();
+    // Synchronous: the new elements are already in the document, and writing
+    // scrollTop forces the layout it needs to clamp against. No frame to wait
+    // for — nothing on this screen loads asynchronously.
+    this.overlay.querySelectorAll<HTMLElement>(".sbx-col")
+      .forEach((c, i) => { c.scrollTop = offsets[i] ?? 0; });
+    if (sig) this.overlay.querySelector<HTMLElement>(sig)?.focus({ preventScroll: true });
   }
 
   /**
