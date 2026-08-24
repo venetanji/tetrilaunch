@@ -690,7 +690,7 @@ function getBackgroundLayer(
   const h = Math.max(1, Math.floor(cssH * dpr));
   const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|` +
     (rows ? `${rows.lit}:${rows.warnRow}:${rows.dangerRow}` : "-");
-  if (bgLayer && bgLayerKey === key) return bgLayer;
+  if (bgLayer && bgLayerKey === key && !(globalThis as any).__forceBake) return bgLayer; // PERFPROBE
 
   if (!bgLayer) bgLayer = document.createElement("canvas");
   bgLayer.width = w; // also resets the context's transform

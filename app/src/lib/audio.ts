@@ -607,6 +607,9 @@ function fadeOutAndStop(el: HTMLAudioElement | null): void {
     // removeAttribute is the quiet equivalent.
     el.removeAttribute("src");
     el.load();
+    // …and release the element itself, which clearing the stream does not do.
+    // See musicSources.
+    unrouteMusic(el);
   });
 }
 
@@ -704,6 +707,24 @@ export function stopStinger(): void {
  * element goes on playing by itself. Either way the music ends up unmuffled
  * rather than silent, and silent music would be much the worse bug.
  */
+/**
+ * The capture node for each routed element, so it can be let go of again.
+ *
+ * A MediaElementAudioSourceNode holds its element alive and stays in the graph
+ * until it is disconnected — nothing about pausing the element, clearing its
+ * src or dropping every other reference releases either one. playMusic builds
+ * a FRESH element per track (it must: createMediaElementSource may be called
+ * only once for a given element), so without this the graph gained one
+ * permanently-connected source and one pinned element on every bed change:
+ * the menu, ten bays, a contract, each refit — twenty-odd over a session, all
+ * of them silent, all of them still mixed.
+ *
+ * Weak on purpose. This map is bookkeeping about elements, not ownership of
+ * them; once fadeOutAndStop has unrouted an element and the module has dropped
+ * it, nothing here should be the reason it stays.
+ */
+const musicSources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+
 function routeMusic(el: HTMLAudioElement): void {
   if (!ctx || !musicFilter) return;
   // Once captured, this element is audible only while the context runs — so a
@@ -711,10 +732,22 @@ function routeMusic(el: HTMLAudioElement): void {
   // or the track plays silently into a dead graph (see resumeStoppedContext).
   resumeStoppedContext();
   try {
-    ctx.createMediaElementSource(el).connect(musicFilter);
+    const node = ctx.createMediaElementSource(el);
+    node.connect(musicFilter);
+    musicSources.set(el, node);
   } catch {
     /* left playing to the output on its own — see above */
   }
+}
+
+/** Release a routed element back out of the graph. A no-op for anything that
+ *  was never routed — stingers play unrouted by design (see playStinger), and
+ *  a capture that threw stored nothing to release. */
+function unrouteMusic(el: HTMLAudioElement): void {
+  const node = musicSources.get(el);
+  if (!node) return;
+  musicSources.delete(el);
+  try { node.disconnect(); } catch { /* graph already torn down */ }
 }
 
 /** The static source, built on the first congested bay and then left running

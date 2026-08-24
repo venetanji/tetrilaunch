@@ -193,6 +193,7 @@ export function runRenderPerf(opts: RenderPerfOptions): RenderPerfResult {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
 
+  (globalThis as any).__forceBake = true; // PERFPROBE
   const g = buildGame(opts.variant, opts.count);
   let now = performance.now();
 
