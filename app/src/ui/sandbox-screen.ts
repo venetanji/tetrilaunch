@@ -38,8 +38,9 @@
  * The mode is a mode; the cheats are a cheat.
  */
 import {
-  applySandboxMaterials, ratchetTotal, sandboxAxes, sandboxRunFor, SANDBOX_BAYS,
-  SANDBOX_MATERIALS, SANDBOX_RATCHET_MAX, SANDBOX_TIERS, sandboxVariants,
+  applySandboxMaterials, ratchetTotal, sandboxAxes, sandboxFinals, sandboxRunFor,
+  SANDBOX_BAYS, SANDBOX_FINAL_BAY, SANDBOX_MATERIALS, SANDBOX_RATCHET_MAX,
+  SANDBOX_TIERS, sandboxVariants,
   type SandboxState,
 } from "../game/sandbox";
 import { MATERIAL_SPEC } from "../game/theme";
@@ -48,6 +49,7 @@ import {
   generateContract, levelForContract, PATTERN_SLOT, variantSpec,
 } from "../game/contracts";
 import { levelForRun, RUN_LEVELS } from "../game/run";
+import { finalById } from "../game/finals";
 import { MAX_TIER, tiersCost, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 import type { MetaState } from "../game/meta";
 
@@ -128,11 +130,20 @@ function bayBriefing(s: SandboxState, meta: MetaState): string {
   const cfg = applySandboxMaterials(levelForRun(run), s.material);
   const bay = run.levelIndex + 1;
   const notches = ratchetTotal(s.ratchets);
+  // The clause is already IN the numbers above — levelForRun applied it while
+  // building cfg, which is the whole reason the briefing is derived rather than
+  // written. This only names it, so a raised Target has something on the panel
+  // that accounts for it. Read back off the run rather than off `s.final` so it
+  // shows exactly when it BITES: on bay 10 and not on the nine before it.
+  const clause = run.levelIndex === RUN_LEVELS - 1 ? finalById(run.final ?? "") : undefined;
   return `<div class="sbx-brief">
     <div class="sbx-brief__ttl">${cfg.name}</div>
     <div class="sbx-brief__sub">Bay ${bay}/${RUN_LEVELS} · Mark ${run.mark} · ${cfg.pieceSize} shipments${
       notches > 0 ? ` · ${notches} notch${notches === 1 ? "" : "es"}` : ""
-    }</div>
+    }${clause ? ` · ${clause.name}` : ""}</div>
+    ${clause
+      ? `<p class="sbx-brief__clause"><b>${clause.name}</b> ${clause.desc}</p>`
+      : ""}
     <div class="sbx-brief__facts">
       ${factHTML("Target", `$${cfg.targetScore}`, "var(--accent)")}
       ${factHTML("Float", `$${cfg.startingFunds}`, "var(--warn)")}
@@ -198,6 +209,62 @@ function rigHTML(tiers: UpgradeTiers): string {
   return `${chips}
     <button class="sbx-chip sbx-chip--act" type="button" data-action="sbx-rig-max">MAX</button>
     <button class="sbx-chip sbx-chip--act" type="button" data-action="sbx-rig-none">STOCK</button>`;
+}
+
+/**
+ * THE FINAL INSPECTION — column 2's last row, and the one thing on this screen
+ * that could not be reached at all before it existed.
+ *
+ * A clause is dealt by CLEARING BAY 9 (run.ts's isFinalDraft) and applies to
+ * bay 10 and nowhere else. So seeing one meant playing nine bays correctly and
+ * then being offered the half of the pair you were not trying to look at — and
+ * the pair is the Tier's own exam, the most Tier-specific content in the game.
+ * Twenty clauses, each previously behind a complete run of the right rung.
+ *
+ * Two properties this row has to keep honest.
+ *
+ *  - IT ONLY MEANS ANYTHING ON BAY 10, because that is the only bay levelForRun
+ *    applies it to. So picking a clause MOVES the target there (main.ts's
+ *    sbx-final) rather than quietly doing nothing, and the hint says which bay
+ *    you are being sent to. The alternative — letting a clause sit selected over
+ *    bay 3 and silently not apply — is the exact "advertised a bay it did not
+ *    deliver" failure this screen's whole briefing column exists to prevent.
+ *  - THE PAIR BELONGS TO THE MARK. finalsForTier is the game's own table, so
+ *    changing the Mark changes which two are on offer; main.ts drops a selection
+ *    that the new rung does not carry (sandbox.ts's finalFitsTier), because a
+ *    clause in force with no chip lit is worse than no clause at all.
+ *
+ * NONE is a chip rather than an absence, and it is the default: the ladder's
+ * own bay 10 — the one every player actually meets first — is the one with no
+ * clause on it yet, and it has to stay selectable after you have looked at the
+ * other two.
+ */
+function inspectionRow(s: SandboxState, isBay: boolean): string {
+  const pair = sandboxFinals(s.tier);
+  const onBay10 = s.target.kind === "bay" && s.target.bay === SANDBOX_FINAL_BAY;
+  const hint = !isBay
+    ? "Deep Run only"
+    : onBay10
+      ? `bay ${SANDBOX_FINAL_BAY}'s clause`
+      : `sends you to bay ${SANDBOX_FINAL_BAY}`;
+  return chipRow("Inspection", hint, "sbx-final", "final", [
+    {
+      value: "none",
+      text: "None",
+      on: s.final === null,
+      off: !isBay,
+      title: `Bay ${SANDBOX_FINAL_BAY} exactly as the ladder deals it`,
+    },
+    ...pair.map((f) => ({
+      value: f.id,
+      text: f.name,
+      on: s.final === f.id,
+      off: !isBay,
+      // The clause's own text, with its number in it — the same string the
+      // inspection modal shows, so what you read here is what you accepted.
+      title: `${f.desc} — Tier ${f.tier}'s exam, on the ${f.system} half`,
+    })),
+  ], "pack");
 }
 
 export function sandboxScreen(opts: SandboxScreenOpts): string {
@@ -296,6 +363,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
             ? `<button class="sbx-chip sbx-chip--act sbx-axes__clear" type="button"
                 data-action="sbx-axis-clear">Clear axes</button>`
             : ""}
+          ${inspectionRow(s, isBay)}
           ${opts.cheats ?? ""}
         </section>
 

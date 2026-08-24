@@ -518,6 +518,42 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* NOT KNOWN YET — the Tier S panel (screens.ts's unknownBayPanelHTML).
+
+   A static "?" in a readout that normally holds a number reads as a value that
+   failed to load, and this panel is four of them at once, which reads as a
+   broken screen. The jitter is what separates "no answer" from "no data": the
+   glyph is alive, so the panel is working and simply has not been told yet.
+
+   Per-glyph delays, so the six belt marks and the four stats do not tick in
+   unison — a row of ten synchronised question marks is a blinking cursor, and
+   the eye reads it as one element rather than ten withheld values. */
+.bay-stat__q {
+  display: inline-block;
+  color: var(--text-muted);
+  animation: stat-unknown 2.4s steps(3, end) infinite;
+}
+.bay-stat__q:nth-child(2n) { animation-delay: 0.4s; }
+.bay-stat__q:nth-child(3n) { animation-delay: 0.9s; }
+.bay-stat__q:nth-child(5n) { animation-delay: 1.5s; }
+@keyframes stat-unknown {
+  0%, 78% { opacity: 0.75; transform: translateX(0); }
+  84% { opacity: 0.3; transform: translateX(-1px); }
+  90% { opacity: 1; transform: translateX(1px); }
+  96%, 100% { opacity: 0.75; transform: translateX(0); }
+}
+/* Amber, matching the roof floor and the S plate: the whole Tier S face of this
+   screen is one colour, so the panel, the tower and the button read as one
+   state rather than three coincidences. */
+.base-bay--unknown .bay-stat__q { color: var(--warn); }
+.base-bay--unknown .bay-belt__count { font-style: italic; }
+/* The glyph stays, the jitter goes. What it has to communicate is "withheld",
+   and the "?" alone says that — the motion is emphasis, and emphasis is the
+   part reduced-motion is entitled to lose. Held at full opacity rather than at
+   the animation's resting 0.75, so the still version is not also the dim one. */
+@media (prefers-reduced-motion: reduce) {
+  .bay-stat__q { animation: none; opacity: 1; }
+}
 /* The belt: the six material axes in ladder order (hazards.ts's content
    axes), lit as the selected Mark reaches them. A dark glyph is still a
    GLYPH — greyed rather than hidden — because the row's job is to show how
@@ -592,14 +628,37 @@ body.crt-off #app::after { display: none; }
      the shaft. Letting it come out of the shaft would have paid for a floor
      nobody climbs with 2.6px off every floor that is climbed — which is the
      whole 44px argument above, undone by an optional extra. On a viewport
-     where `100%` already wins, the basement does take its space from the
-     shaft, exactly as an eleventh floor's worth of anything would: those are
-     the phones the tower is already baselined short on. */
-  --tower-sub-h: 0px;
-  --tower-sub-gap: 0px;
+     where `100%` already wins, an extra floor takes its space from the shaft,
+     exactly as an eleventh floor's worth of anything would: those are the
+     phones the tower is already baselined short on.
+
+     The cap is now a flat 520px again. It used to be raised by the basement
+     door's own height (--tower-sub-h) when Tier S was open, so the eleven
+     climbed floors would not each pay 2.6px for a floor nobody climbs. Tier S
+     moved to the headhouse, which is drawn in the gap ABOVE the shaft and takes
+     nothing from it, so there is no longer anything to compensate for. */
+  /* How tall the roof's TAP TARGET is (.tower__head--floor). Invisible in both
+     directions — the lamp and its masts are drawn at the bottom of the box and
+     everything above them is transparent padding.
+
+     22px is the compact figure, and it is the band the ladder's own floors
+     occupy on the phones that get it (21-26px) — the roof is not singled out as
+     the small control, it is the same size as the floor under it.
+
+     44px — the tap floor — once the viewport is tall enough that the tower is
+     capped rather than stretched, because only then is there slack above the
+     shaft to draw into. 620px, not 521px: the cap is 520px and `align-self:
+     center` splits the leftover evenly, so the roof needs (520 + 2 x 44) of row
+     before the taller box is drawn inside the tower's own column rather than
+     over whatever is above it. Below that it stays 22px, where the alternative
+     is not a bigger target but a target hanging off the top of the screen. */
+  --tower-roof-h: 22px;
   align-self: center;
-  height: min(100%, calc(520px + var(--tower-sub-h) + var(--tower-sub-gap)));
+  height: min(100%, 520px);
   display: flex; flex-direction: column; align-items: stretch;
+}
+@media (min-height: 620px) {
+  .tower { --tower-roof-h: 44px; }
 }
 .tower__shaft {
   position: relative;
@@ -659,70 +718,72 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ---------------------------------------------------------------------------
-   TIER S — the basement door (screens.ts's sandboxFloorHTML).
+   TIER S — the floor on the roof (screens.ts's towerHeadHTML, open state).
 
-   Under the slab, not in the shaft, and drawn so that is unmistakable: it is
-   the only part of the building with a hazard stripe on it, it has no windows
-   (a floor nobody lives on), and the car's lane does not reach it. See the
-   note on SANDBOX_TIER for why it is outside the shaft rather than a twelfth
-   floor in it — the short version is that the elevator does not serve it and
-   eleven floors is what the tap-target arithmetic was sized for.
+   The basement door this replaces is gone, and with it --tower-sub-h: the door
+   was 44px of tower on a viewport that had none to give, and on a landscape
+   phone every pixel of it came out of the action rail beside the tower, which
+   answered by shrinking six real buttons from 44px to 23px. The roof costs the
+   layout NOTHING — the headhouse box already existed above the shaft, and Tier
+   S is drawn inside it.
+
+   Which means this floor is small, and is allowed to be: it is not on the
+   ladder, it is found by a gesture rather than met by a new player, and the
+   thing that makes it usable is that the whole headhouse — masts, lamp and
+   plate — is one target with 6px of padding above it, sitting in dead space
+   where nothing else can be mis-hit.
    ------------------------------------------------------------------------ */
-/* 44px — the tap floor — wherever the height exists, and it costs the shaft
-   nothing there because the tower's own cap is raised by exactly this amount
-   (see --tower-sub-h above).
+/* NOTHING VISIBLE CHANGES WHEN THE MODE OPENS. No plate, no letter, no border,
+   no tint — the open roof is pixel-for-pixel the lamp on a roof that the closed
+   one is. The mode is a secret and nine taps is the whole design of finding it;
+   a headhouse that grew a badge the moment it unlocked would advertise, to
+   anyone glancing at the screen, that there is something up there.
 
-   On a LANDSCAPE PHONE the height does not exist, and the door has to give it
-   back. `min(100%, cap)` resolves against an indefinite row there, so the
-   tower is sized by its content — which means every pixel the door takes is a
-   pixel added to the menu's centre column, and the action rail beside it
-   answers by shrinking its own buttons from 44px to 23px. That is the whole
-   rail, six real buttons, paying for one basement door. So on short viewports
-   the door drops to the band the ladder's own floors already occupy there
-   (21-26px, baselined in sim/uifit/baseline.json): under the tap floor, in
-   the company of every other control in this tower, and the mode stays
-   reachable at full size from Settings. */
-.tower--sub { --tower-sub-h: 44px; --tower-sub-gap: 3px; }
-@media (max-height: 460px) {
-  .tower--sub { --tower-sub-h: 26px; }
+   All this rule buys is the TARGET. The box grows downward-invisible padding so
+   a thumb aiming at a 5px lamp has something to hit, and every pixel of it is
+   transparent and sits in the dead space above the shaft where there is nothing
+   to mis-hit. */
+.tower__head--floor {
+  top: calc(-1 * var(--tower-roof-h)); height: var(--tower-roof-h);
+  padding: 0 14px 0;
+  align-items: flex-end;
 }
-.tower__sub {
-  flex: none; height: var(--tower-sub-h);
-  margin-top: var(--tower-sub-gap);
-  display: flex; align-items: center; gap: 6px;
-  padding: 0 6px;
-  background: rgba(255, 176, 32, 0.09);
-  border: var(--bw) solid var(--warn);
-  border-radius: 0 0 var(--r-md) var(--r-md);
-  box-shadow: var(--shadow-hard);
-  color: var(--warn);
-  font: inherit; cursor: pointer;
-  transition: background var(--dur) var(--ease);
+/* SELECTED — and this is the one visible difference in the whole component,
+   reachable only by someone who has already found the mode.
+
+   The building goes dark (.tower--off) and the beacon takes over: bigger,
+   brighter, and blinking faster than its idle. The lamp is the only thing on
+   the tower still lit, which is exactly what "the lift is out of service, the
+   roof is live" should look like — and it means the selection is carried by the
+   one element that was always there rather than by a highlight that would give
+   the floor away when it is NOT selected. */
+.tower__head--floor.is-selected b {
+  width: 9px; height: 9px;
+  background: var(--warn);
+  box-shadow: 0 0 14px var(--warn), 0 0 4px #fff;
+  animation: tower-lamp-live 0.9s steps(2, end) infinite;
 }
-.tower__sub:hover, .tower__sub:focus-visible { background: rgba(255, 176, 32, 0.2); }
-.tower__sub-n {
-  font-family: var(--font-pixel); font-size: 10px; line-height: 1;
-  width: 16px; text-align: center; flex: none;
+@keyframes tower-lamp-live {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
 }
-.tower__sub-txt {
-  min-width: 0;
-  font-size: 11px; font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-wide); text-transform: uppercase;
-  /* Ellipsis, not a hard clip. On the narrowest tower (118px on a 640x360
-     phone) the word does not fit beside the plate and the stripe, and a word
-     sliced mid-letter reads as a rendering fault where "SANDB…" reads as a
-     label that ran out of room. The plate carries the identity either way. */
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* THE LIFT IS OUT OF SERVICE. Tier S is not a rung, so the car does not ride to
+   it — it stops where it stands and powers down, and the ladder it serves goes
+   quiet with it. The floors keep their own dim/lit states: they are still a
+   drawing of the ladder, and blanking them would say the tower is gone rather
+   than switched off. */
+.tower--off .tower__car { opacity: 0.3; }
+.tower--off .tower__car span {
+  animation: none;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
 }
-/* The stripe fills whatever the label leaves, so it reads as a hazard band
-   across the door rather than as a fixed decoration that runs out. */
-.tower__sub-hz {
-  /* Shrinks to nothing before the label gives up a character: the stripe is
-     decoration and the word is the label. */
-  flex: 0 1 auto; width: 100%; min-width: 0; height: 8px; margin-left: auto;
-  background: repeating-linear-gradient(
-    -45deg, var(--warn) 0 3px, transparent 3px 6px);
-  opacity: 0.5;
+.tower--off .tower__car span::after { background: var(--line); }
+/* Held still, but NOT dimmed back to the idle 0.5 — under reduced motion the
+   size and the glow are the whole signal, so they have to be at full strength.
+   Same rule the beacon's own streak indicator follows two blocks down. */
+@media (prefers-reduced-motion: reduce) {
+  .tower__head--floor.is-selected b { animation: none; opacity: 1; transform: scale(1.3); }
 }
 /* The guide rail the car runs on. Purely drawing — but it is what makes the
    car read as riding rather than as a highlight sliding down a list. */
@@ -738,8 +799,14 @@ body.crt-off #app::after { display: none; }
   z-index: 2;
   /* Duration is written per trip by main.ts (screens.ts's towerTravelMs) — a
      nine-floor climb has to take longer than a one-floor nudge or the shaft
-     has no length. The fallback is the one-floor figure. */
-  transition: top var(--tower-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1);
+     has no length. The fallback is the one-floor figure.
+
+     Opacity rides with it so the car FADES down rather than snapping dark when
+     the lift is taken out of service (.tower--off) — the building powering off
+     is a state change worth the same 355ms the car's own moves get. */
+  transition:
+    top var(--tower-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1),
+    opacity var(--tower-dur, 355ms) var(--ease);
 }
 .tower__car span {
   width: 100%; height: 80%;
@@ -5454,6 +5521,12 @@ button.panel { color: var(--text); }
    border stays `currentColor` so the plate still belongs to whatever button it
    is sitting on. */
 .tier-plate--god { background: rgba(255, 176, 32, 0.22); }
+/* Tier S wears the same tint for the same reason — it is the other floor that
+   is not a Mark. God and S are told apart by the glyph in the slot (★ and S),
+   not by colour, which is the rule the rest of this screen follows: the palette
+   is full, and a distinction that exists only as a hue is not one everybody
+   can see. */
+.tier-plate--sbx { background: rgba(255, 176, 32, 0.22); }
 .tier-plate--menu { width: 58px; height: 52px; margin-inline: 2px 4px; }
 .tier-plate--menu .tier-plate__n { font-size: 24px; }
 /* The compact variant the canvas never drew: measured at 640x360 the menu
@@ -5500,6 +5573,14 @@ button.panel { color: var(--text); }
 .btn--menu { position: relative; }
 .btn--menu .next-badge { position: absolute; top: -6px; right: -4px; }
 .btn--next { border-color: var(--warn); }
+/* The primary button with Tier S parked. It is still the primary — the floor
+   you are on is what the button does — so it keeps its weight and only changes
+   allegiance: the warn border the God floor's plate already established, over
+   the same surface. Deliberately NOT a secondary style: demoting it would say
+   the sandbox is a lesser action on a screen where it is the only one selected.
+   The border is the change; the label ("Sandbox") is what actually tells you,
+   which is why this rule is one line and not a theme. */
+.btn--sbx { border-color: var(--warn); }
 .btn--next.btn--secondary:hover { border-color: var(--warn); }
 /* A8: the fail card's block — the chain out of the wall the player just hit. */
 .coach__next {
@@ -6280,6 +6361,18 @@ button.panel { color: var(--text); }
 .sbx-brief__sub {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
 }
+/* The Final Inspection clause in force, printed in full. The facts grid above
+   already HAS the clause in it — levelForRun applied it before the briefing was
+   derived — so this row exists to account for a Target that does not match the
+   Mark's ordinary bay 10. Warn-tinted and rule-led, because it is the one line
+   in the column describing a condition rather than reporting a number. */
+.sbx-brief__clause {
+  margin: 0; padding: 5px 7px;
+  border-left: 2px solid var(--warn);
+  background: rgba(255, 176, 32, 0.08);
+  font-size: var(--fs-sm); line-height: 1.35; color: var(--text-muted);
+}
+.sbx-brief__clause b { color: var(--warn); }
 .sbx-brief__brief { margin: 0; font-size: var(--fs-sm); line-height: 1.35; color: var(--text); }
 /* A grid of label-over-value cells. Two things it must not do, both learned
    from the harness: it must not squeeze (a fixed 3-up put "$1240" in a 33px

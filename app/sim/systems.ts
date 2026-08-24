@@ -80,8 +80,9 @@ import {
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
 import {
-  applySandboxMaterials, bumpSandboxRatchet, maxedTiers, newSandbox, ratchetTotal,
-  sandboxAxes, sandboxRunFor, SANDBOX_MATERIALS, SANDBOX_RATCHET_MAX,
+  applySandboxMaterials, bumpSandboxRatchet, finalFitsTier, maxedTiers, newSandbox,
+  ratchetTotal, sandboxAxes, sandboxFinals, sandboxRunFor, SANDBOX_FINAL_BAY,
+  SANDBOX_MATERIALS, SANDBOX_RATCHET_MAX,
   type SandboxState,
 } from "../src/game/sandbox";
 import { sandboxScreen } from "../src/ui/sandbox-screen";
@@ -6109,24 +6110,70 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
 
   check("an early tap says nothing", new TapStreak().press(0).progress === 0);
 
-  // THE TOWER. Tier S is a door, not a floor: the car cannot ride to it, it has
-  // no index in the shaft, and it is absent unless the mode is open.
+  // THE TOWER. Tier S is the floor on the roof: found by the beacon gesture,
+  // and from then on picked, parked and flown exactly like a Mark.
   const shut: S.TowerState = { unlocked: 5, selected: 5, god: false };
   const open: S.TowerState = { ...shut, sandbox: true };
-  check("the elevator is deactivated for Tier S", !S.tierOpen(open, S.SANDBOX_TIER));
+  const parked: S.TowerState = { ...open, selected: S.SANDBOX_TIER };
+  check("the roof is shut until the beacon is found", !S.tierOpen(shut, S.SANDBOX_TIER));
+  check("the elevator serves Tier S once it is open", S.tierOpen(open, S.SANDBOX_TIER));
   check("Tier S is not a Mark", S.SANDBOX_TIER < 1);
   check("the shaft still holds only the ladder", S.TOWER_FLOORS === MARK_COUNT + 1);
   check("no floor shares Tier S's id",
     !Array.from({ length: S.TOWER_FLOORS }, (_, i) => i + 1).includes(S.SANDBOX_TIER));
-  check("the door is absent with the mode shut",
+  // The roof is ABOVE God, which is index 0. Nothing rides there — the index
+  // exists so travel time and the plate roll know S is above Mark 10 rather
+  // than, as its raw id would suggest, below Mark 1.
+  check("the roof sits above the God floor",
+    S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.GOD_TIER));
+  // The lift does not serve it: picking S switches the tower off rather than
+  // moving the car, so the shaft's index must NOT be the roof's.
+  check("the lift goes out of service rather than to the roof",
+    S.tierTowerHTML(parked).includes("tower--off")
+      && !S.tierTowerHTML(parked).includes(`--tower-idx:${S.towerIndexOf(S.SANDBOX_TIER)}`));
+  // The secret survives the unlock: no plate, no letter, nothing the closed
+  // headhouse does not already draw. The only difference is the lamp's state.
+  check("the open roof looks like the closed one",
+    !S.tierTowerHTML(open).includes("tower__head-n"));
+  check("no Mark shares the roof's index",
+    !Array.from({ length: MARK_COUNT }, (_, i) => S.towerIndexOf(i + 1))
+      .includes(S.towerIndexOf(S.SANDBOX_TIER)));
+  check("the floor is absent with the mode shut",
     !S.tierTowerHTML(shut).includes(`data-tier="${S.SANDBOX_TIER}"`));
-  check("the door is drawn with the mode open",
+  check("the floor is drawn with the mode open",
     S.tierTowerHTML(open).includes(`data-tier="${S.SANDBOX_TIER}"`));
-  check("the beacon is tappable", S.tierTowerHTML(shut).includes('data-action="tower-beacon"'));
+  // ONE control, two jobs, never both: while the mode is shut the beacon counts
+  // taps, and once it is open the same element is the floor. A build where both
+  // are live would let taps ten through eighteen tear the floor out from under
+  // the car (see main.ts's onBeaconTap).
+  check("the beacon is the gesture while shut",
+    S.tierTowerHTML(shut).includes('data-action="tower-beacon"'));
+  check("the beacon stops counting once it is a floor",
+    !S.tierTowerHTML(open).includes('data-action="tower-beacon"'));
+  // The basement plate is gone — it was the second way into one screen, and the
+  // reason the shaft's cap had to be raised on the phones with least height.
+  check("no basement plate survives", !S.tierTowerHTML(open).includes("tower__sub"));
+  check("the roof shows it is parked on", S.tierTowerHTML(parked).includes("is-selected"));
   // The gates the ladder already had must be untouched by the new floor: an
   // unearned Mark stays shut whether or not the sandbox is open.
   check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
   check("the God floor still needs the ladder beaten", !S.tierOpen(open, S.GOD_TIER));
+
+  // THE MENU'S PRIMARY BUTTON follows the parked floor: the same button flies a
+  // Mark and opens the level select, because the floor decides what it does.
+  const menuAt = (t: S.TowerState): string =>
+    S.menuScreen(0, 0, undefined, undefined, undefined, t);
+  check("the primary button flies the ladder from a Mark",
+    menuAt(open).includes("Deep Run") && !menuAt(open).includes(">Sandbox<"));
+  check("the primary button becomes Sandbox on the roof",
+    menuAt(parked).includes(">Sandbox<"));
+  // Four withheld readouts, not four wrong ones: nothing is chosen yet, and the
+  // panel quoting Mark 5's bay under an S plate would be the screen promising a
+  // bay the launch will not deliver.
+  check("the recap withholds its numbers on the roof",
+    menuAt(parked).includes("base-bay--unknown"));
+  check("the recap still quotes a real bay on a Mark",
+    !menuAt(open).includes("base-bay--unknown"));
 
   // THE RUN. This is the gate that makes the mode safe to ship, so it is
   // checked at the model rather than only in main.ts's finishRun.
@@ -6154,6 +6201,43 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     levelForRun(sandboxRunFor({ ...sbx, ratchets: {} })).timeLimitSec
       !== levelForRun(sandboxRunFor({ ...sbx, ratchets: { time: 2 } })).timeLimitSec);
 
+  // THE FINAL INSPECTION, reachable at last. Twenty clauses that previously
+  // each needed a complete run of the right rung to see once.
+  const pair9 = sandboxFinals(9);
+  check("a rung offers exactly two clauses", pair9.length === 2);
+  check("the pair belongs to the rung", pair9.every((f) => f.tier === 9));
+  check("every rung carries a pair",
+    Array.from({ length: MARK_COUNT }, (_, i) => sandboxFinals(i + 1))
+      .every((p) => p.length === 2));
+  const lastBay: SandboxState = {
+    ...sbx, target: { kind: "bay", bay: SANDBOX_FINAL_BAY }, final: pair9[0].id,
+  };
+  check("the clause reaches the run", sandboxRunFor(lastBay).final === pair9[0].id);
+  // The point of the whole row: the clause has to actually move the bay, or the
+  // screen is offering a control that reports itself and changes nothing.
+  check("the clause actually changes the final bay",
+    JSON.stringify(levelForRun(sandboxRunFor(lastBay)))
+      !== JSON.stringify(levelForRun(sandboxRunFor({ ...lastBay, final: null }))));
+  check("the two clauses of a pair differ",
+    JSON.stringify(levelForRun(sandboxRunFor({ ...lastBay, final: pair9[0].id })))
+      !== JSON.stringify(levelForRun(sandboxRunFor({ ...lastBay, final: pair9[1].id }))));
+  // levelForRun guards on the BAY, not on the field, so a clause left selected
+  // while the target walks back is inert rather than leaking onto an early bay.
+  check("a clause cannot leak backwards off bay 10",
+    JSON.stringify(levelForRun(sandboxRunFor({
+      ...lastBay, target: { kind: "bay", bay: 3 },
+    })))
+      === JSON.stringify(levelForRun(sandboxRunFor({
+        ...lastBay, target: { kind: "bay", bay: 3 }, final: null,
+      }))));
+  // A selection from another rung must not survive the Mark moving — it would
+  // be in force with no chip lit to say so (main.ts's sbx-tier clears it).
+  check("a clause fits only its own rung", finalFitsTier(pair9[0].id, 9));
+  check("a clause from another rung is rejected", !finalFitsTier(pair9[0].id, 1));
+  check("no clause is always an option",
+    finalFitsTier(null, 1) && finalFitsTier(null, MARK_COUNT));
+  check("the sandbox opens with the ladder's own last bay", newSandbox().final === null);
+
   // AXES. Only what the Mark's own ladder deals, wrapping at the cap.
   check("axes are the Mark's own ladder", sandboxAxes(1).every((h) => h.mark <= 1));
   check("a higher Mark opens more", sandboxAxes(9).length > sandboxAxes(1).length);
@@ -6180,6 +6264,24 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the screen offers every axis the Mark deals",
     sandboxAxes(9).every((h) => sScreen.includes(`data-axis="${h.id}"`)));
   check("the screen can launch", sScreen.includes('data-action="sbx-launch"'));
+  // THE INSPECTION ROW — the reason the boss bay was untestable. Both of the
+  // rung's clauses have to be on the screen, and so does the way back to the
+  // ladder's own bay 10, or the row is a one-way door.
+  check("the screen offers both of the rung's clauses",
+    sandboxFinals(9).every((f) => sScreen.includes(`data-final="${f.id}"`)));
+  check("the screen offers no clause at all", sScreen.includes('data-final="none"'));
+  check("it offers no OTHER rung's clauses",
+    sandboxFinals(1).every((f) => !sScreen.includes(`data-final="${f.id}"`)));
+  // The briefing names the clause in force, so a Target the Mark's ordinary bay
+  // 10 would not produce has something on the panel accounting for it.
+  const sInspect = sandboxScreen({
+    s: { ...sbx, target: { kind: "bay", bay: SANDBOX_FINAL_BAY }, final: sandboxFinals(9)[0].id },
+    meta: newMeta(), best: 0,
+  });
+  check("the briefing names the clause in force",
+    sInspect.includes(sandboxFinals(9)[0].name));
+  check("the briefing stays quiet with no clause",
+    !sScreen.includes("sbx-brief__clause"));
   check("the shipping screen carries no save-editing controls",
     !sScreen.includes("sbx-wipe") && !sScreen.includes("sbx-grant-mark"));
   check("the developer render does",
