@@ -49,6 +49,12 @@ clears them away.
   Premium Contracts, Ballast Load, Rapid Loader) so a first run isn't an empty
   one. Mods **stack for the rest of the run**, and compound on top of whatever
   ship you refitted.
+- **How to Play is a catalogue, not a briefing.** Every material, axis, ship
+  system, currency and mode has its own entry (`src/game/guide.ts`), and most of
+  them have a **drill** attached — a mock bay with no clock and no bankroll that
+  puts that one thing on the belt and nothing else. A drill banks nothing, costs
+  nothing and can be retried forever; material drills unlock at the tier whose
+  draft can actually deal that material.
 - **Drag to aim** — direction sets the launch angle, distance sets the power. A
   dotted **parabola** previews the flight; release to fire. Keyboard on desktop:
   `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate, `B` bond breaker, `X` arm a
@@ -96,6 +102,10 @@ app/                      Capacitor + Vite + TypeScript web app
     mods        drafted modifier pool
     run         one run's state: carry, scrap, tiers, mods
     meta        salvage + permanent unlocks (persists across runs)
+    guide       the knowledge catalogue behind How to Play — one row per rule,
+                the tier it opens at, and the drill that teaches it
+    drills      mock bays, one per lesson: no clock, no bankroll, one material
+                on the belt, and nothing banked either way
   src/ui/                 screens + components (menu, HUD, bay-clear, refit,
                           draft, workshop, pause, end, settings, leaderboard)
   src/lib/                api (leaderboard), store (settings/name/meta),

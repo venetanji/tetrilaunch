@@ -236,7 +236,7 @@ body.crt-off #app::after { display: none; }
    modal pair and the draft body scroll vertically as a last resort; the mods
    row and the how-to snap row scroll horizontally by design. */
 .modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
-.pl-mods, .howto__grid { overscroll-behavior-x: contain; }
+.pl-mods, .guide__tabs { overscroll-behavior-x: contain; }
 
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
@@ -3586,51 +3586,181 @@ body.crt-off #app::after { display: none; }
 .setting[aria-checked="true"] .toggle { background: linear-gradient(90deg, var(--accent), #38d6ff); border-color: var(--accent-ink); }
 .setting[aria-checked="true"] .toggle::after { left: 31px; background: var(--accent-ink); }
 
-/* ---------- How to play ----------
-   Nine dense briefing cards. Stacked in a 3-column grid this needed 1500px of
-   height and overflowed EVERY device in the matrix — 485px on an iPad Pro,
-   1269px on a 640x360 phone. No amount of column-count or type-scale tuning
-   fixes that: it is more content than a landscape phone has height for, full
-   stop.
+/* ---------- How to Play / the guide ----------
+   The screen that teaches the game, rebuilt as an index and a pane. See
+   ui/screens.ts's guideScreen for the full reasoning; the short version is
+   that the nine-card horizontal snap row it replaces CLIPPED ITS OWN COPY on
+   every device in the matrix, mid-sentence, because each card carried
+   `overflow: hidden` against a fixed-height row and nothing in CI could see it.
 
-   So it turns the axis. The cards become a horizontal snap row — the app runs
-   in landscape, width is the axis these devices have to spare, and the cards
-   are a sequence the player reads once, in order, which is exactly what
-   scroll-snap is for. The header, the piece gallery and the two buttons stay
-   pinned; only the row moves, and it moves sideways.
+   The layout is the one the Workshop and Controls already use, for the reason
+   this app keeps rediscovering: a landscape phone has width and no height, so
+   a list runs DOWN A COLUMN and the screen holds the columns side by side.
 
-   Cards are sized so the next one always PEEKS: without that the row reads as a
-   single card and nobody swipes. */
-.howto {
-  max-width: 900px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
+   The vertical budget, measured on the 640x360 budget phone — the worst case
+   and the one that decides every number here:
+
+     28px  .screen padding (--hud-pad at 640w, x2)
+     16px  .guide padding-block at compact (--sp-2 x2)
+     34px  header row
+     44px  tab row (the tap floor — a tab is the only route to a chapter)
+     16px  two 8px gaps
+     ----
+    222px  left for .guide__cols
+
+   Everything below is sized against that 222px. It is why the pane's copy is
+   12px at compact, why the drill card is one row rather than two, and why the
+   art strip is optional per topic rather than decoration on every one. */
+.guide {
+  max-width: 980px; margin: 0 auto; width: 100%; height: 100%; min-height: 0;
   display: flex; flex-direction: column; gap: var(--sp-3); padding-block: var(--sp-3);
 }
-.howto__grid {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
+.guide__hdr { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
+.guide__title { flex: 1 1 auto; min-width: 0; }
+.guide__title .display { font-size: var(--fs-h2); }
+/* The one action that is not a topic. It rides in the header rather than in a
+   footer band because a footer band is 44px of the 222px above, spent on a
+   button the menu one tap away already carries. */
+.guide__play { flex: none; }
+
+.guide__tabs { flex: none; overflow-x: auto; scrollbar-width: none; }
+.guide__tabs::-webkit-scrollbar { display: none; }
+.guide__tabs .workshop__tab { flex: none; gap: 4px; }
+
+/* The two columns. `minmax(0, …)` on both tracks because each holds unbroken
+   words (a topic name, a mono tier badge) and a `1fr` track still takes its
+   minimum from min-content — the same trap the leaderboard row documents. */
+.guide__cols {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 1fr);
   gap: var(--sp-3);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  /* The hard shadow on each card is outside its border box. */
-  padding: 2px 2px 6px;
 }
-.howto__grid::-webkit-scrollbar { display: none; }
-.step {
-  flex: 0 0 clamp(210px, 46%, 290px);
-  scroll-snap-align: start;
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  padding: var(--sp-4);
-  /* The card is a fixed slot in a fixed-height row; its own copy has to fit it.
-     `min-height: 0` lets the paragraph shrink instead of forcing the row taller
-     than the screen. */
-  min-height: 0;
-  overflow: hidden;
+
+/* THE INDEX. The only scroller on the screen, and allowlisted in sim/uifit on
+   the same grounds as the Workshop's shelf: 41 topics today and one more with
+   every material shipped, so it is unbounded by construction. */
+.guide__list {
+  display: flex; flex-direction: column; gap: 4px;
+  min-height: 0; padding-right: 2px;
 }
-.step__n { font-family: var(--font-pixel); font-weight: 700; color: var(--accent); font-size: 16px; flex: none; }
-.step p { color: var(--text-dim); font-size: var(--fs-sm); min-height: 0; }
+.guide__row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  /* The 44px floor. The index is the only route to two thirds of this screen's
+     content; a row under the floor would make the guide's own navigation the
+     hardest thing on it to hit. */
+  min-height: var(--tap-min);
+  padding: 6px 10px; text-align: left; cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--bw) solid var(--line); border-radius: var(--r-md);
+  color: var(--text-dim); font-family: var(--font-ui); font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+.guide__row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.guide__row--on {
+  color: var(--text); border-color: var(--accent);
+  background: rgba(0, 240, 255, 0.08); box-shadow: var(--shadow-hard-sm);
+}
+.guide__row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.guide__mark { flex: none; font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; }
+.guide__mark--drill { color: var(--accent); font-family: var(--font-ui); font-size: 13px; }
+.guide__mark--locked { color: var(--text-faint); }
+
+/* THE PANE. Never scrolls — see .guide__body. */
+.guide__pane {
+  display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0;
+  padding: var(--sp-3); border: var(--bw) solid var(--line); border-radius: var(--r-md);
+  background: var(--surface); box-shadow: var(--shadow-hard-sm);
+}
+.guide__pane-hdr { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); flex: none; }
+.guide__topic { font-family: var(--font-pixel); font-size: 11px; letter-spacing: 0.06em; color: var(--text); margin: 0; }
+.guide__tier {
+  flex: none; font-family: var(--font-pixel); font-size: 8px; color: var(--warn);
+  border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 3px 5px;
+}
+/* `overflow-y: auto` is a BACKSTOP, not a licence. It is deliberately absent
+   from sim/uifit's scroller allowlist, so a topic whose copy outgrows the pane
+   fails CI instead of shipping with its tail hidden — the exact stance
+   `.coach__body` takes, and the exact failure the old `.step` cards shipped
+   with for months. Copy is written to this box (see game/guide.ts). */
+.guide__body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.5;
+}
+.guide__body b { color: var(--text); font-weight: var(--fw-bold); }
+
+/* The optional art strip, for the topics a picture answers faster than a
+   sentence: the six materials, the three size classes, the seven shapes. */
+.guide__art { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2); }
+/* Sized BY its content, not to a number. The tile used to be a fixed 40px
+   (34px at compact) around a `.next__grid` that is itself a fixed 28px, so the
+   compact tile's 22px interior had a 28px SVG in it — sim/uifit's `spill`
+   assertion caught it on ten of thirteen devices. A padding box around the
+   glyph cannot get that wrong, and `min-width` is only there so the three tile
+   KINDS (a 28px shape grid, a 24px material mark, a labelled size tile) line up
+   as a row instead of stepping. */
+.guide__tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-width: 40px; padding: 4px;
+  border: var(--bw) solid var(--line); border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+.guide__tile-lbl { font-family: var(--font-pixel); font-size: 6px; color: var(--text-muted); letter-spacing: 0.04em; }
+
+/* THE DRILL CARD — one row, because two would cost the pane a line of copy.
+   The whole card is the button: a mock bay is the offer, and an offer with a
+   separate small "go" control is a smaller tap target for no gain. */
+.guide__drill {
+  flex: none; display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--tap-min); width: 100%; text-align: left; cursor: pointer;
+  padding: 6px 10px; border-radius: var(--r-md);
+  border: var(--bw) solid var(--accent); background: rgba(0, 240, 255, 0.08);
+  box-shadow: var(--shadow-hard-sm); color: var(--text);
+}
+.guide__drill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.guide__drill--locked {
+  border-color: var(--line); background: rgba(255, 255, 255, 0.02);
+  box-shadow: none; cursor: default; color: var(--text-muted);
+}
+.guide__drill-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.guide__drill-kind { font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em; color: var(--accent); }
+.guide__drill--locked .guide__drill-kind { color: var(--text-faint); }
+.guide__drill-brief {
+  font-size: var(--fs-xs); color: var(--text-dim); line-height: 1.35;
+  /* Two lines, then ellipsis. The brief is a restatement of a pass condition
+     the pane above has already explained in full — clamping it costs the
+     player nothing and keeps the card to one row of the height budget. */
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.guide__drill-go {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; color: var(--accent);
+}
+.guide__drill--locked .guide__drill-go { color: var(--text-faint); }
+
+/* Landscape phones. Everything here buys back height for the pane's copy, and
+   nothing here shrinks a tap target: the two 44px floors (a row, the drill
+   card) are the one thing the compact tier may not touch. */
+[data-density="compact"] .guide { gap: var(--sp-2); padding-block: var(--sp-2); }
+[data-density="compact"] .guide__title .display { font-size: 20px; }
+[data-density="compact"] .guide__title .eyebrow { font-size: 7px; }
+[data-density="compact"] .guide__cols { gap: var(--sp-2); grid-template-columns: minmax(0, 170px) minmax(0, 1fr); }
+[data-density="compact"] .guide__pane { padding: 6px; gap: 4px; }
+[data-density="compact"] .guide__topic { font-size: 10px; }
+[data-density="compact"] .guide__body { font-size: var(--fs-xs); line-height: 1.45; }
+[data-density="compact"] .guide__row { font-size: var(--fs-xs); padding: 4px 8px; }
+/* The strip is the one thing in the pane competing with the copy for height,
+   and the six MATERIAL topics — art strip, drill card and a tier badge in the
+   same pane — are the tightest panes the screen can produce. Measured on the
+   640x360 budget phone (sim/uifit's probe run): they had ZERO free pixels under
+   the strip's first sizing, i.e. any copy edit would have pushed them into the
+   backstop scroll. Everything on these four lines is bought back from the
+   strip's own chrome rather than from the copy, which is the half that
+   actually teaches. */
+[data-density="compact"] .guide__art { margin-top: 2px; gap: 4px; }
+[data-density="compact"] .guide__tile { min-width: 30px; padding: 2px 4px; gap: 0; }
+[data-density="compact"] .guide__tile .next__grid,
+[data-density="compact"] .guide__tile .mat-icon { width: 20px; height: 20px; }
+
 .kbd { font-family: var(--font-mono); font-size: 12px; background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-sm); padding: 2px 7px; color: var(--text); }
 
 /* A card that is ALSO a <button> does not inherit page text colour — the UA
@@ -4369,13 +4499,14 @@ button.panel { color: var(--text); }
    fixed slots rather than a paragraph: kind + payout, name, goal, supply,
    brief, always in that order and always in the same place on all three.
 
-   Its own block, not the How-to deck's `.howto__grid`. That grid is a
-   horizontal SNAP ROW, which is right for nine cards read once in order and
-   wrong for three offers weighed against each other: two of the three sat
-   off-screen behind a sideways scroll, and a board you have to swipe to see is
-   a board you cannot compare. Three cards fit the width every device in the
-   matrix has, so this one neither scrolls nor snaps — in EITHER axis. It adds
-   no [data-scroll] and needs none.
+   Its own block, and not the guide's index/pane split either. That layout is
+   right for a catalogue read one topic at a time and wrong for three offers
+   weighed against each other: an index would put two of the three behind a tap.
+   Three cards fit the width every device in the matrix has, so this one neither
+   scrolls nor snaps — in EITHER axis. It adds no [data-scroll] and needs none.
+   (It replaced a borrowed `.howto__grid` horizontal snap row, which put two of
+   the three off-screen behind a sideways scroll — the same defect that row
+   eventually cost the How to Play screen.)
    ========================================================================== */
 .contracts {
   /* `margin: auto`, so the board centres in a tall window and starts at the top
