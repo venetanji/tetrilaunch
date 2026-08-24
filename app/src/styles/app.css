@@ -1512,6 +1512,17 @@ body.crt-off #app::after { display: none; }
    ~180px it did not need. Inline inside, so the chips and their connecting
    text lay out as the sentence they are. */
 .kbd-hint__part { white-space: nowrap; }
+/* The strip has to FIT THE LANE it claims. The plant panel stops at 97% of the
+   field's height, so the clear lane at the foot of the field is 3% of it — 20px
+   on a 1280x720 window. A 12px chip with 2px padding and a 2px border on each
+   side is 24px, which is 4px taller than the lane, and the harness measured
+   exactly that: `.kbd-hint covers .plant by 2..6px` on 26 device/screen pairs.
+   Tightening the line box and the chip's own padding inside this strip (and
+   only inside it — .kbd is used in prose on the guide screen, where it should
+   keep its air) brings it to 18px and the claim becomes true. */
+.kbd-hint { line-height: 1; }
+.kbd-hint .kbd { padding: 1px 6px; }
+
 /* The chips have vertical padding, and vertical padding on an INLINE box does
    not grow the line it sits on — it just draws outside it. Inline is what the
    chips became the moment each hint got its own wrapper (before that they were
