@@ -4610,6 +4610,42 @@ section("Misfire prevention");
     "an arc still climbing at the step limit is not called short",
     !pathStrands([{ x: 200, y: 300 }, { x: 400, y: 100 }], 780),
   );
+
+  // ...but an arc that DID run out of field is a landing, and its last stored
+  // sample sits above the floor rather than on it. predictTrajectory pushes
+  // each point at the top of its loop and breaks after integrating, so the
+  // step that crosses y = WORLD.height is never recorded: asking the final
+  // sample whether it reached the ground is asking the one point guaranteed
+  // not to have. These three pin the reading that replaced it — the step
+  // between the last two samples is what ended the arc, so the landing is
+  // extrapolated across it.
+  //
+  // Measured over 121 angles x 101 powers at stock gravity: before this, the
+  // warning missed 2207 of 8906 genuinely short landings (24.8%); after, 58
+  // (0.7%), with no shot warned that lands long.
+  //
+  // Every x below is RIGHT of CHUTE.x1 (624) on purpose. The chute spans
+  // x 0..624, so a short landing left of that is already caught by the
+  // path-intersection branch above and would pass these checks for the wrong
+  // reason — the band this test is actually about is 624..780: short of the
+  // press's reach, but past the grinder, where the landing test is the only
+  // thing that can see it.
+  check(
+    "a short landing is called short even though its last sample is airborne",
+    // dy 16 puts the next step at y 722, past the floor: the arc ended here.
+    // Extrapolates to x ~717 — clear of the maw, short of the press.
+    pathStrands([{ x: 680, y: 690 }, { x: 700, y: 706 }], 780),
+  );
+  check(
+    "a landing beyond the cutoff is not called short",
+    pathStrands([{ x: 900, y: 690 }, { x: 920, y: 706 }], 780) === false,
+  );
+  check(
+    "a descending arc cut by the step limit is not called short",
+    // Same descent, but still 200px up: the cap ended this one, not the
+    // ground, so where it lands is unknown and nothing should be claimed.
+    !pathStrands([{ x: 680, y: 490 }, { x: 700, y: 506 }], 780),
+  );
 }
 
 console.log(

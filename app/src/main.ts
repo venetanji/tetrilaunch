@@ -1141,6 +1141,27 @@ class App {
     hint.style.setProperty("--hint-ay", `${at.y}px`);
     hint.classList.add("drag-hint--at");
     hint.classList.remove("drag-hint--hidden");
+    // RESTART the keyframes, or this guide plays exactly once per page load.
+    // `drag-hint--at` overrides duration/iteration-count/fill-mode but NOT
+    // animation-name, so it re-parameterises the same hint-dot/hint-arc
+    // animations rather than starting new ones. At iteration-count 1 with
+    // fill-mode forwards, the first misfire runs them to their finished state
+    // and they STAY there — re-adding the class on the second misfire changes
+    // nothing, and the player gets an anchored, invisible box holding the last
+    // keyframe (dot released, arc faded). Toggling the class cannot fix it for
+    // the same reason: the animation is the same one throughout.
+    //
+    // cancel() then play() is the restart that works on a CSS animation whose
+    // name never changed. Ordered after the class flip so the animations are
+    // already carrying the --at timing, and after --hidden is dropped so they
+    // are not still play-state: paused. Guarded because the reduced-motion
+    // rule sets `animation: none`, where this correctly finds nothing to run.
+    if (typeof hint.getAnimations === "function") {
+      for (const anim of hint.getAnimations({ subtree: true })) {
+        anim.cancel();
+        anim.play();
+      }
+    }
     this.misfireGuideTimer = window.setTimeout(() => {
       this.misfireGuideTimer = null;
       hint.classList.add("drag-hint--hidden");

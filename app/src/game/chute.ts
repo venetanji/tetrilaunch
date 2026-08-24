@@ -189,11 +189,32 @@ export function pathStrands(pts: Matter.Vector[], strandCutoffX: number): boolea
   for (const p of pts) {
     if (inChute(p.x, p.y, rightEdge)) return true;
   }
-  // The terminal point is only a LANDING if the arc actually ran out of field.
-  // predictTrajectory stops at 140 steps whether or not the shot has come down,
-  // and a still-climbing arc truncated mid-flight says nothing about where it
-  // ends — treating that as a landing would flag every lofted shot in the game.
+  // WHERE THE ARC ENDS IS NOT THE LAST SAMPLE. predictTrajectory pushes each
+  // point at the TOP of its loop and breaks AFTER integrating, so the step that
+  // leaves the field is never stored — the final sample is always the last one
+  // still inside it, and at 15-25px of descent per step that sits well above
+  // the floor. The old test asked `last.y >= WORLD.height - 1`, which is true
+  // only when the final sample happens to land within a pixel of the ground:
+  // about one aim in twenty. The "lands short" half of this warning — the half
+  // the doc above argues for — was therefore inert for almost every shot it was
+  // written to catch.
+  //
+  // The last two samples carry the step that was ABOUT to be taken, which is
+  // the one that ended the arc, so read the ending off that instead.
   const last = pts[pts.length - 1];
-  if (last.y < WORLD.height - 1) return false;
-  return last.x < strandCutoffX;
+  const prev = pts[pts.length - 2];
+  const dx = last.x - prev.x;
+  const dy = last.y - prev.y;
+  // Still climbing (or dead level) says nothing about where the shot comes
+  // down: this is the truncated-lob case the step cap produces.
+  if (dy <= 0) return false;
+  // Out through the side wall is not short of the press — it is past it.
+  if (last.x + dx > WORLD.width) return false;
+  // Descending but not yet at the floor: the arc was cut by the 140-step cap
+  // rather than by the ground, so its landing is still unknown.
+  if (last.y + dy <= WORLD.height) return false;
+  // Linear across that final step. The test above bounds t to one step, so the
+  // extrapolation never reaches further than the two samples it is drawn from.
+  const t = (WORLD.height - last.y) / dy;
+  return last.x + dx * t < strandCutoffX;
 }
