@@ -5,6 +5,13 @@
  * Game.update the step the event spawned, so a renderer can animate progress
  * as `now - t0` without Game needing to know anything about how it's drawn.
  */
+/** How far a "−$" penalty toast SINKS from where it spawned, over its life
+ *  (render.ts's drawPenaltyFx). It lives here rather than in render.ts because
+ *  a spawner has to be able to clear an obstacle for the toast's whole travel,
+ *  not just for the pixel it starts on — see game.ts's chute penalty, which
+ *  spawns above the plant panel's lip and would otherwise sink behind it. */
+export const PENALTY_SINK_PX = 34;
+
 export type FxEvent =
   | { kind: "shatter"; x: number; y: number; color: string; t0: number }
   | { kind: "payout"; x: number; y: number; amount: number; t0: number }

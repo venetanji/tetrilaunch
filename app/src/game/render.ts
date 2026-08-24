@@ -12,7 +12,7 @@ import type { Compactor } from "./compactor";
 import { Cannon, CANNON } from "./cannon";
 import { blinkVisible } from "./lineClear";
 import type { LevelConfig } from "./level";
-import { FX_TTL, type FxEvent } from "./fx";
+import { FX_TTL, type FxEvent, PENALTY_SINK_PX } from "./fx";
 
 export interface Viewport {
   scale: number;
@@ -832,7 +832,14 @@ function drawChute(
   // than shadowBlur — the value breathes every frame, so it can't be baked, and
   // a live Gaussian pass at 60Hz is exactly the cost this renderer avoids.
   if (strands) {
-    const breath = 0.62 + 0.38 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
+    // Frozen under reduced motion at what the pulse spends its time reaching,
+    // the same way the ghost aura's telegraph is: the heat is INFORMATION —
+    // this aim feeds the grinder — and asking for less movement is not asking
+    // to be told less. A ~58px band of the field oscillating red is exactly
+    // what that setting is for.
+    const breath = prefersReducedMotion()
+      ? 1
+      : 0.62 + 0.38 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
     const g = ctx.createLinearGradient(0, y0 - CHUTE_WARN_RISE, 0, y0);
     g.addColorStop(0, "rgba(255,45,85,0)");
     g.addColorStop(1, `rgba(255,45,85,${(0.34 * breath).toFixed(3)})`);
@@ -1581,7 +1588,12 @@ function drawStrandRing(
   now: number,
 ): void {
   if (!on) return;
-  const breath = 0.6 + 0.4 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
+  // Same rule as the maw's heat: the ring says the shot strands, and that is
+  // information. Held at full rather than pulsing on the muzzle the player is
+  // dragging from.
+  const breath = prefersReducedMotion()
+    ? 1
+    : 0.6 + 0.4 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
   ctx.save();
   ctx.translate(cannon.x, cannon.y);
   ctx.strokeStyle = ARC_STRAND_COLOR;
@@ -1845,8 +1857,8 @@ function drawSalvageFx(
  *  blinked out, in the compactor's own red. The deliberate mirror of a payout:
  *  income rises green, an expense sinks red, so the two money verbs are
  *  distinguishable before the number is even read. Same fade envelope as the
- *  payout so the pair read as one family. */
-const PENALTY_SINK_PX = 34;
+ *  payout so the pair read as one family. The distance itself lives in fx.ts,
+ *  because spawners need it to clear obstacles for the toast's whole travel. */
 
 function drawPenaltyFx(
   ctx: CanvasRenderingContext2D,

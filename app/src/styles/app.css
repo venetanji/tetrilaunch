@@ -1103,11 +1103,17 @@ body.crt-off #app::after { display: none; }
   }
 }
 @media (pointer: fine) {
-  /* Hidden on a mouse, both roles. The onboarding hint teaches a touch gesture
-     the .kbd-hint strip already spells out in keys; the correction answers a
-     misfire that input.ts does not gate on a mouse in the first place (see its
-     pointerType note), so there is nothing there to explain. */
-  .drag-hint { display: none; }
+  /* The ONBOARDING role is hidden on a mouse: it teaches a touch gesture the
+     .kbd-hint strip already spells out in keys.
+     The CORRECTION role is not, and the difference matters. `pointer: fine`
+     describes the device's PRIMARY pointer, while input.ts gates per EVENT on
+     `e.pointerType !== "mouse"` — so on a touchscreen laptop, a Surface, or a
+     tablet with a paired mouse, a finger drag really is cancelled and really
+     does need explaining, on a machine this query matches. Hiding both roles
+     let showMisfireGuide do its whole job against a display:none element.
+     `--at` is only ever set in response to a gated release, so it cannot leak
+     onto a mouse-only desktop. */
+  .drag-hint:not(.drag-hint--at) { display: none; }
 }
 
 /* ============================================================================

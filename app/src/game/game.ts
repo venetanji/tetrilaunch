@@ -36,7 +36,7 @@ import {
 import { payoutMult } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
-import { FX_TTL, type FxEvent } from "./fx";
+import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
 import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
@@ -843,7 +843,14 @@ export class Game {
 
     const deducted = this.chargeLostCubes(shredded.length, now);
     if (deducted > 0) {
-      this.effects.push({ kind: "penalty", x: cx, y: CHUTE_LIP_Y - 20, amount: deducted, t0: now });
+      // Spawned a full SINK above the lip, not 20px above it. The toast
+      // travels PENALTY_SINK_PX down over its life, and the plant panel's top
+      // edge is CHUTE_LIP_Y — so the old anchor put the number in clear air
+      // for its first third and behind an opaque panel for the rest, which is
+      // the exact failure the lip constant was introduced to avoid.
+      this.effects.push({
+        kind: "penalty", x: cx, y: CHUTE_LIP_Y - 20 - PENALTY_SINK_PX, amount: deducted, t0: now,
+      });
     }
   }
 

@@ -30,6 +30,10 @@ export class InputController {
    *  Zeroed on every pointerdown, so a tap — which never reaches applyAim —
    *  reads 0 and is cancelled rather than firing the last drag's shot. */
   private dragRatio = 0;
+  /** Whether the gesture in progress is one the firing floor applies to, i.e.
+   *  not a mouse. Recorded at pointerdown because the PWR readout has to mirror
+   *  the GATE, and the gate is per-event — see liveDragRatio. */
+  private dragGated = false;
   /** The aim as it stood when the current gesture STARTED, restored if that
    *  gesture turns out to be a misfire. Without it a graze that travels far
    *  enough to move the cannon but not far enough to fire still costs the
@@ -92,7 +96,12 @@ export class InputController {
    *  sub-4px wobble the meter would advertise a shot the release is not going to
    *  fire — the readout siding with the bug it exists to expose. */
   get liveDragRatio(): number | null {
-    return this.dragging ? this.dragRatio : null;
+    // Null for a MOUSE gesture, so the meter falls back to cannon.powerRatio.
+    // The floor does not apply to a mouse (see onUp's pointerType note), and a
+    // readout that turns red and reads 0% for a release that is going to fire
+    // normally is the same class of lie in the other direction — the meter
+    // siding against the gate instead of with it.
+    return this.dragging && this.dragGated ? this.dragRatio : null;
   }
 
   private worldPoint(e: PointerEvent) {
@@ -117,6 +126,7 @@ export class InputController {
     // and missing a button) must not re-anchor the drag in progress.
     if (this.dragging) return;
     this.dragging = true;
+    this.dragGated = e.pointerType !== "mouse";
     this.dragPointerId = e.pointerId;
     this.dragStart = this.worldPoint(e);
     this.dragRatio = 0;
@@ -169,7 +179,14 @@ export class InputController {
         g.cannon.power = restore.power;
         g.updateTrajectory();
       }
-      this.onMisfire?.(e.clientX, e.clientY);
+      // The cue only where the player is still looking at the bay. A gesture
+      // can outlive the run — the clock expires or the bay is lost between
+      // pointerdown and pointerup, and onDown's own status gate has already
+      // been passed by then — and a guide box anchored at the thumb over the
+      // end screen is explaining a shot that was never going to happen. The
+      // teardown and the aim restore above stay unconditional; only the
+      // teaching is situational.
+      if (g && g.status === "playing" && !g.paused) this.onMisfire?.(e.clientX, e.clientY);
       return;
     }
     if (g) g.shoot(performance.now());
