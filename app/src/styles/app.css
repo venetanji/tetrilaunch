@@ -1770,49 +1770,49 @@ body.crt-off #app::after { display: none; }
    and the churn is per strip now (different cell counts, different keyframes),
    which is why this is a rule per strip rather than one on .plant__crest. */
 .plant--congest-warn .plant__crest--brow {
-  animation: cube-brow 3.2s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-brow 3.2s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--cap {
-  animation: cube-cap 3.6s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-cap 3.6s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--step {
-  animation: cube-step 2.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-step 2.8s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--shoulder {
-  animation: cube-shoulder 3s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-shoulder 3s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--flank {
-  animation: cube-flank 3.4s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-flank 3.4s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--port {
-  animation: cube-port 3.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-port 3.8s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--skirt {
-  animation: cube-skirt 4s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+  animation: cube-skirt 4s steps(1, jump-end) infinite, crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest--rivet {
   animation: crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-danger .plant__crest--brow {
-  animation: cube-brow 2.1s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-brow 2.1s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--cap {
-  animation: cube-cap 2.3s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-cap 2.3s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--step {
-  animation: cube-step 1.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-step 1.8s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--shoulder {
-  animation: cube-shoulder 2.0s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-shoulder 2.0s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--flank {
-  animation: cube-flank 2.2s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-flank 2.2s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--port {
-  animation: cube-port 2.5s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-port 2.5s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--skirt {
-  animation: cube-skirt 2.6s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+  animation: cube-skirt 2.6s steps(1, jump-end) infinite, crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest--rivet {
   animation: crest-rattle 0.62s linear infinite;

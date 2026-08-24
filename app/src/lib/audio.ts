@@ -852,6 +852,30 @@ export function setCongestion(level: number): void {
  * Free of side effects and safe everywhere: before the first gesture, with
  * Web Audio missing, or with music off it reports 0.
  */
+/**
+ * Whether the beat tap currently has a soundtrack to read.
+ *
+ * musicLevel() reports 0 for two different worlds, and the crest treats them as
+ * opposites. A quiet PASSAGE is a thing to cool down for — that is the whole
+ * point of the heat drive. But "no bed at all" is not a reading of the
+ * soundtrack in the first place, and the ring has to rest at its warm default
+ * rather than decay to dead cold. This is the predicate that separates them:
+ * a tap to listen with (Web Audio present, first gesture done), music enabled,
+ * and a bed or stinger actually mounted.
+ *
+ * The congestion static is deliberately NOT consulted. It joins the tap to keep
+ * the crest alive when the lowpass has pulled the bed down to a murmur, so it
+ * matters to the LEVEL — but its source node is never cleared once started, so
+ * it says nothing about liveness, and every case where it is audible has a bed
+ * mounted anyway.
+ *
+ * Only a consumer that distinguishes the two worlds needs this; the beat and
+ * the band crawl want 0 either way.
+ */
+export function musicTapLive(): boolean {
+  return !!pulseTap && !!pulseData && musicOn && (!!music || !!stinger);
+}
+
 export function musicLevel(): number {
   if (!pulseTap || !pulseData) return 0;
   pulseTap.getByteTimeDomainData(pulseData);

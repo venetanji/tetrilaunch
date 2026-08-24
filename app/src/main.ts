@@ -88,6 +88,7 @@ import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm,
   playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
+  musicTapLive,
 } from "./lib/audio";
 
 type AppState =
@@ -124,6 +125,12 @@ const MISFIRE_GUIDE_FADE_MS = 260;
  *  one of those turns an explanation into nagging. The sound still fires each
  *  time — that is the part that says "nothing was launched". */
 const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
+/** Where the crest's heat ramp rests when there is no soundtrack to read —
+ *  before the first gesture, with Web Audio missing, with music off, and under
+ *  prefers-reduced-motion. MUST match app.css's own --crest-heat default: this
+ *  is the value the follower converges on when the tap is dead, and if the two
+ *  disagree the ring lurches the moment the first frame writes the property. */
+const CREST_HEAT_REST = 0.45;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -206,7 +213,7 @@ class App {
    *  the run. Both keep a "last written" so a steady passage costs nothing,
    *  and crestHeat starts at the same 0.45 app.css rests at so the first
    *  frames of a bay do not lurch up from dead cold. */
-  private crestHeat = 0.45;
+  private crestHeat = CREST_HEAT_REST;
   private crestHeatShown = -1;
   private crestFlow = 0;
   private crestStepShown = -1;
@@ -731,6 +738,17 @@ class App {
 
   private renderOverlay(): void {
     const g = this.game;
+    // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
+    // screen is about to be replaced by a fresh one carrying none of the crest
+    // variables syncHud wrote inline. Those writes are guarded by a "last value
+    // shown" cache, so without this the next value landing in the same
+    // quantised bin would skip the write and leave the new element on the
+    // stylesheet defaults — indefinitely, if the music holds steady. Cheaper to
+    // drop the cache here than to make three guards each track the element they
+    // were applied to.
+    this.crestBeatShown = -1;
+    this.crestHeatShown = -1;
+    this.crestStepShown = -1;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
@@ -2121,6 +2139,10 @@ class App {
       // under reduced motion; the var stays 0 and the CSS line is inert.
       if (!this.motionMQ?.matches) {
         const raw = musicLevel();
+        // A dead tap and a silent one both read 0 (see audio.ts's musicTapLive).
+        // The beat and the march want 0 from either — no music means no pulse
+        // and a still border. The HEAT does not: see below.
+        const tapLive = musicTapLive();
         this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
         const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
         this.crestBeat += (target - this.crestBeat) * (target > this.crestBeat ? 0.5 : 0.12);
@@ -2138,7 +2160,16 @@ class App {
         // full molten colour. Quantised at 1/20, coarser than the beat: a
         // colour mix that moved every frame would repaint seven strips for a
         // difference nobody can see.
-        this.crestHeat += (target - this.crestHeat) * 0.02;
+        //
+        // With no tap at all there is no passage to be quiet, so the follower
+        // converges on the ramp's resting mix instead of on 0 — otherwise a bay
+        // played with music off cooled to dead stock over ~2.4s and stayed
+        // there, which is the opposite of what that default is for. Converging
+        // rather than skipping the write matters too: music switched off while
+        // the ring was hot has to come back DOWN to the resting mix, not freeze
+        // at whatever the last bar happened to be.
+        const heatTarget = tapLive ? target : CREST_HEAT_REST;
+        this.crestHeat += (heatTarget - this.crestHeat) * 0.02;
         const h = Math.round(this.crestHeat * 20) / 20;
         if (h !== this.crestHeatShown) {
           this.crestHeatShown = h;
