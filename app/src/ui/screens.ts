@@ -808,7 +808,6 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
     .join("")}</div>`;
 }
 
-<<<<<<< HEAD
 /**
  * The standalone Leaderboard.
  *
@@ -842,19 +841,13 @@ export function leaderboardScreen(rows: string, opts?: {
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div style="text-align:left"><div class="eyebrow">${
-          sandbox ? "Tier S · Sandbox" : "Launch Bay"
+          // #88: under the tier ladder "Deep Run" does not name a board on its
+          // own — a Tier 10 run banks more lines against a heavier target than
+          // a Tier 1 run can, so each tier keeps its own list and the heading
+          // has to say which one is on screen. Tier S is the one board with a
+          // name instead of a number, because it is not a rung.
+          sandbox ? "Tier S · Sandbox" : `Tier ${board} · Deep Run`
         }</div>
-=======
-/** `tier` is the board being shown. Every tier keeps its OWN board (main.ts
- *  submits under the run's Mark): the tier ladder means a Tier 10 run banks
- *  more lines against a heavier target than a Tier 1 run ever can, so a single
- *  shared list would rank the ladder rather than the play. */
-export function leaderboardScreen(rows: string, tier = 1): string {
-  return `<div class="screen neon-backdrop center">
-    <div class="panel modal pop" style="width:min(560px,94vw)">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div style="text-align:left"><div class="eyebrow">Tier ${tier} · Deep Run</div>
->>>>>>> origin/claude/tier-progression-expansion-tco5qr
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
