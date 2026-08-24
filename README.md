@@ -53,7 +53,10 @@ clears them away.
   dotted **parabola** previews the flight; release to fire. Keyboard on desktop:
   `W/S` aim, `A/D` power, `Space` fire, `Q/E` rotate, `B` bond breaker, `X` arm a
   demolition charge, `F` **hold** the Autoloader trigger. The **ceiling is open** —
-  max-power lobs arc above the screen and fall back in.
+  max-power lobs arc above the screen and fall back in. On screen, the **Bond
+  Breaker trigger is held for a second** (a charge meter fills it) rather than
+  tapped: a charge is a run-long consumable, and a thumb grazing the rail
+  mid-drag must not be able to spend one. `B` stays a single press.
 - **Shipments come in three sizes**, and size changes weight and rigidity as well
   as shape. **Micro** dominoes are cheap, precise and brittle — but too light for
   their own weight to square up the pile below them. **Bulk** pentominoes are

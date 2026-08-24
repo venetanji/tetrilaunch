@@ -754,13 +754,19 @@ export function hudHTML(opts: {
   // control: there's no keyboard on a touchscreen). Both share per-ability
   // classes that main.ts's syncHud updates together, so neither can drift out
   // of sync with the live charge count.
+  //
+  // Bond Breaker's two are HELD, not tapped: a press starts a charge meter on
+  // the button and the charge is only spent if it fills (main.ts's
+  // BOND_HOLD_MS says why, app.css's .bond-trigger--holding draws it). The key
+  // binding stays a single press, so the hint strip's "B break bonds" is still
+  // the whole truth for a keyboard.
   const bondChip = bondBreakerOwned
-    ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
+    ? `<button class="mod mod--bb bond-trigger" data-game="bond" id="bond-chip" aria-label="Bond Breaker — hold to shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>
         <span class="g">${icon("bond", 15)}</span><span class="nm">BOND BRK</span><span class="stk">×<span class="bond-trigger__count">${bondCharges}</span></span><span class="key">B</span>
       </button>`
     : "";
   const bondRailBtn = bondBreakerOwned
-    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
+    ? `<button class="icon-btn bond-btn bond-trigger" data-game="bond" id="bond-btn" aria-label="Bond Breaker — hold to shatter all joints"${bondCharges <= 0 ? " disabled" : ""}>${icon("bond", 20)}<span class="bond-btn__count bond-trigger__count">${bondCharges}</span></button>`
     : "";
   const demoChip = demoOwned
     ? `<button class="mod mod--demo demo-trigger" data-game="demo" id="demo-chip" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>

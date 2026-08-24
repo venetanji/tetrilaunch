@@ -145,6 +145,29 @@ const MISFIRE_GUIDE_FADE_MS = 260;
  *  time — that is the part that says "nothing was launched". */
 const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
 
+/** How long a pointer must stay pressed on a Bond Breaker trigger before the
+ *  charge is actually spent (see startBondHold).
+ *
+ *  A Bond Breaker is the run's rarest consumable — one stock granted once for
+ *  the whole ten-bay run, not a per-bay refill (run.ts's bondChargesFor) — and
+ *  both of its triggers sit on the same glass a thumb is already dragging the
+ *  slingshot across. A tap was enough to spend one, so a graze was too: a
+ *  finger reaching for ⟲ and missing, or a hand resting on the bezel, could
+ *  burn the charge the player was saving for bay 9. This is the same accident
+ *  input.ts's MIN_FIRE_RATIO gate exists for, answered the same way — the
+ *  press has to say it meant it.
+ *
+ *  1000ms is long enough that no graze survives it and short enough that a
+ *  deliberate press does not feel like a wait. Published to CSS as
+ *  `--bond-hold` when the hold starts, so the charge meter on the button and
+ *  the timer that spends the charge are the same number and cannot drift. */
+const BOND_HOLD_MS = 1000;
+/** How far a held thumb may wander outside its trigger before the hold is read
+ *  as "moved off it" and cancelled. A press on a rail button is made with the
+ *  fat part of a thumb and wobbles by a few px while it sits there; sliding
+ *  deliberately away is the escape hatch, and 24px (~4mm) separates the two. */
+const BOND_HOLD_SLOP = 24;
+
 class App {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -289,6 +312,16 @@ class App {
    *  still has to stop the burst, so the listener is on window, not the
    *  button. */
   private autoPointerId: number | null = null;
+
+  /** The Bond Breaker press currently being held down, or null (see
+   *  BOND_HOLD_MS / startBondHold). `el` is the trigger being held — either of
+   *  the ability's two — so only the button under the finger animates; `rect`
+   *  is that button's box captured at press time, which is what the drift
+   *  check measures against (nothing in the HUD moves mid-press, so measuring
+   *  once is enough and keeps the move handler off getBoundingClientRect). */
+  private bondHold:
+    | { pointerId: number; el: HTMLElement; rect: DOMRect; timer: number }
+    | null = null;
 
   /** The active input family (canvas D2), set by the LAST INPUT SEEN — a
    *  touch, a keypress, or gamepad activity. Every hint surface renders from
@@ -442,6 +475,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     this.attract.stop();
+    this.clearBondHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
@@ -455,6 +489,10 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // Same reasoning for a Bond Breaker mid-hold: the trigger is about to be
+    // replaced, so nothing would ever cancel the countdown, and it would spend
+    // the charge into a paused bay a second after the player left it.
+    this.clearBondHold();
     // The congestion cue belongs to the bay being PLAYED. Muted for every other
     // screen and restored on the way back in, so it cannot leak into a pause
     // modal, a draft or the menu — and cannot go missing after one.
@@ -2797,16 +2835,100 @@ class App {
       void tapHaptic();
       return;
     }
+    // The one HELD-TO-CONFIRM control: a press starts a charge meter and the
+    // charge is only spent if it fills (see BOND_HOLD_MS / startBondHold).
+    // Every pointer type, mouse included — the meter filling under the cursor
+    // is the affordance, and a mouse that fired instantly would flash it for
+    // nothing. Desktop's fast path is the B key, which stays a single press.
+    if (act === "bond") {
+      this.startBondHold(el, e.pointerId);
+      return;
+    }
     this.onGameAction(act);
   };
 
-  /** Ends an Autoloader burst on release, on the window rather than the button
-   *  so a thumb that drifts off mid-hold cannot leave the trigger stuck down. */
+  /** Ends an Autoloader burst — and cancels an unfinished Bond Breaker hold —
+   *  on release, on the window rather than the button so a thumb that drifts
+   *  off mid-hold cannot leave either trigger stuck down. Bound to
+   *  pointercancel too: a gesture the browser takes over (a system edge swipe)
+   *  must not leave a charge counting down behind a UI the player left. */
   private onGlobalPointerUp = (e: PointerEvent): void => {
+    if (this.bondHold && e.pointerId === this.bondHold.pointerId) this.clearBondHold();
     if (this.autoPointerId === null || e.pointerId !== this.autoPointerId) return;
     this.autoPointerId = null;
     this.game?.setAutoHeld(false);
   };
+
+  /** Starts the Bond Breaker's hold-to-confirm on one of its two triggers.
+   *
+   *  The charge is spent WHEN THE METER FILLS, not on the release after it:
+   *  the fill reaching the top is the moment the player is watching for, so
+   *  the field-wide shatter (and onBondBreak's thump + sound) lands with it
+   *  rather than waiting for a lift they have no reason to make. Releasing
+   *  early — or sliding the thumb off, see onBondHoldMove — drains the meter
+   *  and spends nothing.
+   *
+   *  Keyboard and gamepad deliberately do NOT hold: `B` and the pad button
+   *  fire on press, as does a keyboard activation of the button itself
+   *  (onClick's detail-0 branch). The accident this guards against is a thumb
+   *  grazing glass, which those devices cannot have — the same line input.ts
+   *  draws when it exempts the mouse from the misfire gate — and a hold
+   *  requirement on the keyboard path would only take the instant, one-key
+   *  route away from the players relying on it. */
+  private startBondHold(el: HTMLElement, pointerId: number): void {
+    this.clearBondHold();
+    // One number for the meter and the timer (see BOND_HOLD_MS).
+    el.style.setProperty("--bond-hold", `${BOND_HOLD_MS}ms`);
+    el.classList.add("bond-trigger--holding");
+    this.bondHold = {
+      pointerId,
+      el,
+      rect: el.getBoundingClientRect(),
+      timer: window.setTimeout(() => {
+        this.clearBondHold();
+        this.onGameAction("bond");
+      }, BOND_HOLD_MS),
+    };
+    window.addEventListener("pointermove", this.onBondHoldMove);
+    // The press is worth confirming on its own, before anything has happened
+    // yet: it is what tells a thumb that the hold has STARTED and is being
+    // counted. onGameAction's own tap follows a second later if it completes.
+    void tapHaptic();
+  }
+
+  /** Cancels the hold when the finger leaves the trigger it started on. A hold
+   *  the player can back out of by sliding away is the same escape hatch
+   *  input.ts gives a misfired drag — "nothing happened" has to be reachable
+   *  once the finger is already down. */
+  private onBondHoldMove = (e: PointerEvent): void => {
+    const h = this.bondHold;
+    if (!h || e.pointerId !== h.pointerId) return;
+    const r = h.rect;
+    if (
+      e.clientX < r.left - BOND_HOLD_SLOP ||
+      e.clientX > r.right + BOND_HOLD_SLOP ||
+      e.clientY < r.top - BOND_HOLD_SLOP ||
+      e.clientY > r.bottom + BOND_HOLD_SLOP
+    ) {
+      this.clearBondHold();
+    }
+  };
+
+  /** Tears a hold down — the timer, the button's meter and the move listener.
+   *  Called on release, on drift, the instant the hold completes, and whenever
+   *  play stops (setState), since a modal replacing the rail means the
+   *  pointerup that would have ended it is never coming. Idempotent. */
+  private clearBondHold(): void {
+    const h = this.bondHold;
+    if (!h) return;
+    window.clearTimeout(h.timer);
+    // Dropping the class ends the fill animation, and the base rule's
+    // transition drains the meter back down instead of blinking it away — an
+    // abandoned hold should visibly UNWIND, not just stop existing.
+    h.el.classList.remove("bond-trigger--holding");
+    this.bondHold = null;
+    window.removeEventListener("pointermove", this.onBondHoldMove);
+  }
 
   /** Drops the Autoloader trigger unconditionally — used whenever the game
    *  leaves "playing" (pause, win, loss, menu), since no pointerup is coming
@@ -2827,7 +2949,10 @@ class App {
     // and a SUCCESSFUL bomb arm still fired one. A press is worth confirming
     // even when its effect is invisible, so this is unconditional for every
     // press that lands (a disabled trigger never reaches here —
-    // onGamePointerDown drops it), and the arm's own tap goes.
+    // onGamePointerDown drops it), and the arm's own tap goes. Bond Breaker
+    // reaches this only once its hold COMPLETES, so its tap lands on the
+    // shatter rather than on the press that started counting (which got its
+    // own, in startBondHold).
     void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
