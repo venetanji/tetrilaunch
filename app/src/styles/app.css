@@ -1148,7 +1148,15 @@ body.crt-off #app::after { display: none; }
   z-index: 6;
   border-radius: var(--r-md);
   border: var(--bw) solid var(--line-strong);
-  box-shadow: var(--shadow-hard-sm), inset 0 1px 0 rgba(255,255,255,0.05);
+  /* NO --shadow-hard-sm. That token is a 2px hard BLACK slab offset right and
+     down, and those are exactly the two edges the crest's bands now occupy
+     (.plant__crest--flank / --skirt): an outer box-shadow paints beneath its
+     own element but BEFORE descendants, so the slab showed through every gap
+     between the teeth as a black square at each tooth's root — the artifact
+     the ring is supposed to replace. The crest IS the panel's edge treatment
+     on all four sides now, so the drop shadow has nothing left to say. The
+     inset top highlight stays: it lights the panel's own face. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
   background: linear-gradient(180deg, rgba(22,22,37,.95), rgba(9,9,18,.96));
   display: flex; flex-direction: column;
   /* visible: the PWR cap rides ABOVE the top edge, and the mod chips' xN
@@ -1173,15 +1181,13 @@ body.crt-off #app::after { display: none; }
   border: var(--bw) solid var(--line-strong);
   border-bottom: none;
   border-radius: var(--r-md) var(--r-md) 0 0;
-  /* The x-offset of --shadow-hard-sm, without its y-offset. That token is
-     `2px 2px 0 rgba(0,0,0,.85)` — a hard, unblurred slab — and this cap's
-     bottom edge is not a free edge, it is a JOIN: the cap overlaps the panel
-     top by 2px so it reads as bolted on. A 2px downward shadow therefore lands
-     ON the panel and paints a solid black bar the full width of the cap, which
-     is the stray line under the PWR meter. `border-bottom: none` above is the
-     same decision already taken for the border; the shadow just never followed
-     it. The right edge IS free, so that half of the offset stays. */
-  box-shadow: 2px 0 0 rgba(0, 0, 0, 0.85);
+  /* NO drop shadow at all. This was --shadow-hard-sm's x-offset alone: the
+     cap's bottom edge is a JOIN (it overlaps the panel top by 2px so it reads
+     as bolted on), so the y-offset had already been dropped for painting a
+     black bar under the meter. The right edge stopped being free too once the
+     crest's shoulder strip mounted there — the surviving 2px slab showed
+     through the gaps between that strip's teeth as a black notch at the cap's
+     corner. The cap's edges are the crest's job now, all the way round. */
 }
 .pl-pwr .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted); flex: none; }
 .pl-pwr__track { flex: 1; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
@@ -1246,6 +1252,14 @@ body.crt-off #app::after { display: none; }
   /* Tooth depth — the canvas teeth's 13 world px, on the same --fpx scale
      everything else on the panel wears. */
   --crest-h: max(7px, calc(13 * var(--fpx)));
+  /* WHERE THE FIELD ACTUALLY ENDS, for the two band strips. Not the field
+     rect: render.ts's drawWalls strokes the glowing wall along world inset 2
+     at lineWidth 4, so the wall occupies the first FOUR world px of the field
+     and its inner edge — the last pixel that is still open bay — is 4 in. Run
+     the bands to the raw rect instead and every tooth tip lands in the middle
+     of that stroke or past it, into the letterbox, which reads as the pattern
+     spilling out of the frame rather than filling it. */
+  --crest-wall: calc(4 * var(--fpx));
   /* The metal, lit toward the tips so the spikes read as forged, not flat. */
   --crest-hi: #3a3a5e;
   --crest-lo: #23233c;
@@ -1354,9 +1368,10 @@ body.crt-off #app::after { display: none; }
 .plant__crest--port {
   /* -bw on top of the band width: offsets resolve against the panel's
      PADDING box, which sits a border inside the frame fractions the band is
-     measured from. Same correction on the skirt below. */
-  left: calc(-0.0167 * var(--field-w) - var(--bw));
-  width: calc(0.0167 * var(--field-w));
+     measured from. Same correction on the skirt below. +--crest-wall keeps
+     the tips off the glowing wall. */
+  left: calc(-0.0167 * var(--field-w) - var(--bw) + var(--crest-wall));
+  width: calc(0.0167 * var(--field-w) - var(--crest-wall));
   top: 0;
   bottom: calc(-1 * var(--bw));
   background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
@@ -1366,10 +1381,10 @@ body.crt-off #app::after { display: none; }
     100% 84%, 48% 88%, 100% 91%, 28% 96%, 100% 100%);
 }
 .plant__crest--skirt {
-  left: calc(-0.0167 * var(--field-w) - var(--bw));
+  left: calc(-0.0167 * var(--field-w) - var(--bw) + var(--crest-wall));
   right: calc(-1 * var(--bw));
   top: calc(100% + var(--bw));
-  height: calc(0.0297 * var(--field-h));
+  height: calc(0.0297 * var(--field-h) - var(--crest-wall));
   background-image: linear-gradient(0deg, var(--crest-hi), var(--crest-lo));
   clip-path: polygon(0% 0%, 3% 88%, 6% 0%, 10% 100%, 14% 0%, 17% 52%,
     21% 0%, 26% 96%, 31% 0%, 34% 66%, 38% 0%, 43% 100%, 48% 0%, 52% 44%,
