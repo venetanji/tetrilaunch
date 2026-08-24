@@ -277,9 +277,10 @@ export const INSTALLS: InstallDef[] = [
   //
   // Everything past the on-ramp is priced against the day it takes to earn:
   // 30 is most of a tier's contracts, 50 is a tier, 70 is a tier plus its run
-  // win. The shelf now totals 460 (with the two former Options folded in
-  // below) against 600 of income — slack enough to make a wrong purchase
-  // survivable, tight enough that the choice is a choice.
+  // win. The shelf now totals 445 — these seven installs at 300, plus the two
+  // live unlocks below (Weather Survey 60, Scrap Cache 85) — against 600 of
+  // income: slack enough to make a wrong purchase survivable, tight enough
+  // that the choice is a choice.
   { id: "reactor", cost: 15 },
   { id: "launcher", cost: 15 },
   { id: "magazine", cost: 30 },
@@ -441,9 +442,11 @@ export function safeLoadout(meta: MetaState): UpgradeTiers {
  * still yields tierSalvage(tier) total no matter how many Contracts are
  * played, and Unlimited keeps selling throughput, not salvage.
  *
- * Sizing: awards sum to 1,500 across the ten-tier ladder against a ~1,600
- * salvage tree (unlocks 1,400 + installs 195), so finishing the tree means
- * finishing the ladder — the tree can no longer outrun the exam.
+ * Sizing: awards sum to 600 across the ten-tier ladder (a flat 60 per tier —
+ * see TIER_SALVAGE_PER_TIER below for why the slope went) against a ~445
+ * salvage shelf (installs 300 + the two live unlocks 145), so finishing the
+ * shelf still means climbing most of the ladder — the tree cannot outrun
+ * the exam.
  * ---------------------------------------------------------------------- */
 export const TIER_CONTRACTS_REQUIRED = 3;
 export const TIER_SALVAGE_BASE = 60;
@@ -464,7 +467,7 @@ export const TIER_SALVAGE_BASE = 60;
  * base would re-break that. The SLOPE is what compounded — +20/tier reaches
  * 240 a tier by tier 10, against a shelf that does not grow — so the slope is
  * what goes. Every tier now pays 60, one contract still buys the entry system,
- * and total income falls 1,500 -> 600 against a ~460 shelf.
+ * and total income falls 1,500 -> 600 against a ~445 shelf.
  */
 export const TIER_SALVAGE_PER_TIER = 0;
 

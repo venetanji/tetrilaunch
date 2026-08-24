@@ -526,7 +526,13 @@ default stack gives it that:
 
 - `lib/platform.ts`'s `requestFullscreen` / `autoEnterFullscreenForRun` is a
   **browser** path. It early-returns on standalone and Capacitor contexts by
-  design, because the Fullscreen API does nothing inside a WebView.
+  design, because the Fullscreen API does nothing inside a WebView. For the
+  same reason `fullscreenSupported()` reports false on native, and the app
+  renders **no fullscreen control at all** in the shells — neither the HUD
+  rail button nor the pause modal's row (Android's WebView exposes
+  `requestFullscreen`, so API presence alone would have kept a dead button on
+  screen). The rail's layout budget drops the slot with it
+  (`layout.ts`'s `RailLoadout.fullscreen`).
 - Capacitor's generated `MainActivity` is a bare `BridgeActivity`, and
   `AppTheme.NoActionBar` sets no fullscreen attributes. `windowNoTitle` removes
   the *action* bar, not the *system* bars.

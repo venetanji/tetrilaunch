@@ -200,7 +200,7 @@ export type BayTrack =
  *  because the arc is a thing you read, and a wrong assignment should be
  *  noticeable here instead of twenty minutes into a run. */
 const BAY_TRACKS: readonly BayTrack[] = [
-  "bay-1",  // 1   chilled beginning
+  "bay-1",  // 1   chill beginning (Remastered)
   "bay-2",  // 2   2 chill
   "bay-3",  // 3   Threes
   "bay-4",  // 4   Level Four on the floor

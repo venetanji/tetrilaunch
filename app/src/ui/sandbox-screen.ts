@@ -74,7 +74,7 @@ export function sandboxScreen(s: SandboxState, meta: MetaState): string {
       ${u.name.split(" ")[0]} ${t}/${MAX_TIER}</button>`;
   }).join("");
 
-  return `<div class="screen screen--fit neon-backdrop">
+  return `<div class="screen neon-backdrop">
     <div class="sbx" data-build="${SANDBOX_MARKER}">
       <div class="sbx__hdr">
         <div>

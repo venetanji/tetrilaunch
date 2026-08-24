@@ -196,8 +196,11 @@ export interface FinalDef {
  * ------------------------------------------------------------------------- */
 
 /** Quota added by Rush Order. Named because the card copy interpolates it and
- *  the arithmetic above quotes it. */
-export const RUSH_ORDER_QUOTA = 800;
+ *  the arithmetic above quotes it. (This shipped as 800 for a while — a slip,
+ *  never a re-sizing: the sizing note above and its measured table were always
+ *  computed at $750 (+6.4 stock = 750/117.5), and at $800 the crossing slides
+ *  off the mid-track Reactor the pair is designed around.) */
+export const RUSH_ORDER_QUOTA = 750;
 /** Share of each line's payout Rate Cut withholds. */
 export const RATE_CUT = 0.2;
 
@@ -281,34 +284,37 @@ const TIGHT_GAUGE_ALLOWANCE_PER_CELL = 4;
  * directions, and the middle — cargo that breaks when you want it to — is the
  * thing the player has spent the run learning to work with.
  *
- * MATERIAL RATES ARE NOT CAPPED HERE, and that is deliberate rather than an
- * oversight of hazards.ts's MIX_TOTAL_CAP. That cap exists because the ratchet
- * mix is a CUMULATIVE walk over six axes that can each be taken many times, and
- * past a total of 1.0 the later materials can never come up at all while the
- * earlier ones swallow the whole belt. An inspection writes ONE material at ONE
- * rate on ONE bay, so neither failure is reachable — but the other half of that
- * note still binds ("every shipment is a hazard is not a hard bay, it is an
- * unplayable one"), and no rate below goes past 0.45. sim/systems.ts pins the
- * total under 0.75 on the worst arrival it can construct.
+ * MATERIAL RATES ARE RE-CAPPED AFTER THE CLAUSE LANDS — see applyFinal at the
+ * bottom of this file. The first draft of this header argued the opposite
+ * ("an inspection writes ONE material at ONE rate on ONE bay, so the failure
+ * is not reachable"), and the worst arrival a run can actually construct
+ * proved it wrong: every notch poured into the materials the clause does NOT
+ * write left the mix already at hazards.ts's MIX_TOTAL_CAP when the clause
+ * arrived, and Powder Run pushed the belt to 0.78. applyFinal now re-caps to
+ * MIX_TOTAL_CAP, holding the clause's own material at the rate its card
+ * quotes and taking the reduction out of the ratcheted ones; sim/systems.ts
+ * pins the total at the cap on that same worst arrival. The other half of
+ * hazards.ts's note still binds here too ("every shipment is a hazard is not
+ * a hard bay, it is an unplayable one"): no rate below goes past 0.45.
  * ------------------------------------------------------------------------- */
 
 /** The salvage pile a wall clause opens the bay holding, as pieces.ts's column
  *  profile: cells filled in slot column k, counted up from the floor, k from
  *  the wall outward.
  *
- *  Fifteen cubes, uneven, with one column left EMPTY. The gap is the point —
- *  it is the shaft the player can still shoot into, and without it the wall is
- *  a flat lid that says "these rows are gone" rather than a pile that says
- *  "dig". Uneven for the same reason contracts.ts's salvageProfile is: a wall
- *  that reads as someone else's abandoned work is a puzzle, and a rectangle is
- *  a wall.
+ *  Eleven cubes, uneven, with two columns left EMPTY. The gaps are the point —
+ *  they are the shafts the player can still shoot into, and without them the
+ *  wall is a flat lid that says "these rows are gone" rather than a pile that
+ *  says "dig". Uneven for the same reason contracts.ts's salvageProfile is: a
+ *  wall that reads as someone else's abandoned work is a puzzle, and a
+ *  rectangle is a wall.
  *
- *  Fifteen also matters to congestion. level.ts's PILE_TIERS taxes a launch
+ *  Eleven also matters to congestion. level.ts's PILE_TIERS taxes a launch
  *  once the field holds more than 32 live cubes, and a standing wall counts —
- *  so a bay that opens on this pile opens roughly half way to the first knee,
- *  and every launch all bay is priced closer to it. That is a real second cost
- *  the card does not have to state, and Bay Extension's pileAllowance is
- *  exactly what buys it back. */
+ *  so a bay that opens on this pile opens about a third of the way to the
+ *  first knee, and every launch all bay is priced closer to it. That is a real
+ *  second cost the card does not have to state, and Bay Extension's
+ *  pileAllowance is exactly what buys it back. */
 const SALVAGE_PROFILE: readonly number[] = [2, 2, 2, 0, 2, 2, 1, 0];
 
 /** Cubes Fouled Bay pulls off every congestion knee (level.ts's PILE_TIERS,
@@ -662,7 +668,10 @@ export const FINALS: FinalDef[] = [
   {
     id: "fouled-bay",
     name: "Fouled Bay",
-    desc: `At least 1 shipment in 8 is tar, and the yard books a fused pile as clutter: congestion bites ${FOULED_ALLOWANCE} cubes earlier all shift.`,
+    // 12%, said as 12% — the sibling clause's grammar. This used to read
+    // "1 shipment in 8", which is 12.5% against a schedule floored at 0.12:
+    // the one card in the module whose quoted floor the bay didn't deliver.
+    desc: `At least 12% of the belt is tar, and the yard books a fused pile as clutter: congestion bites ${FOULED_ALLOWANCE} cubes earlier all shift.`,
     tier: 8,
     system: "demolition",
     apply: (cfg) => {

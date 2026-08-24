@@ -87,7 +87,7 @@ import {
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm,
-  playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio,
+  playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
 } from "./lib/audio";
 
 type AppState =
@@ -190,6 +190,18 @@ class App {
    *  onCongestion fires on crossings only, so a bay paused while congested and
    *  then resumed would come back silent until the pile happened to move. */
   private congestion = 0;
+  /** The crest's beat (see syncHud): the music envelope currently painted
+   *  onto the plant as --crest-beat, its running peak (for normalisation, so
+   *  a quiet bed pulses as visibly as a loud one), and the last value
+   *  actually written — style writes are skipped while the quantised value
+   *  holds still. */
+  private crestBeat = 0;
+  private crestPeak = 0.05;
+  private crestBeatShown = -1;
+  /** Cached once: the beat is decoration in motion, so it is never driven
+   *  under prefers-reduced-motion — the same call the crest's jiggle and
+   *  spark animations make in app.css. */
+  private motionMQ = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   /** The bed THIS Contract attempt drew (contracts.ts's contractBed), held for
    *  the life of the attempt instead of re-derived. syncMusic runs on every
    *  state change, so deriving it there would re-roll the 5% special each time
@@ -306,11 +318,15 @@ class App {
 
     lockLandscape();
     // Before the first solve: the boot screens carry no abilities, so the rail
-    // budget is the four base buttons (two on fine-pointer devices, where the
-    // CSS hides the game buttons). Without this the solver's conservative
-    // default (a full seven-slot draft) could pick the bottom-strip layout on
-    // a 360dp phone that the real rail fits fine.
-    setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() }));
+    // budget is the base buttons (two on fine-pointer devices, where the
+    // CSS hides the game buttons; one fewer wherever no fullscreen toggle
+    // mounts — the native shells, iPhone Safari). Without this the solver's
+    // conservative default (a full seven-slot draft) could pick the
+    // bottom-strip layout on a 360dp phone that the real rail fits fine.
+    setRailSlots(railSlotsFor({
+      bond: false, demo: false, auto: false,
+      finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
+    }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
     // first solve too — snug mode reserves the band on the rail's side.
     this.applyRailSide(false);
@@ -544,7 +560,10 @@ class App {
   private resetRailBudget(): void {
     this.railKey = null;
     this.railSlotsLatch = RAIL_SLOTS_BASE;
-    const slots = railSlotsFor({ bond: false, demo: false, auto: false, finePointer: this.finePointer() });
+    const slots = railSlotsFor({
+      bond: false, demo: false, auto: false,
+      finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
+    });
     if (slots !== getRailSlots()) {
       setRailSlots(slots);
       this.onResize();
@@ -562,6 +581,7 @@ class App {
       demo: g.level.bombCharges > 0,
       auto: g.level.autoLaunchMs > 0,
       finePointer: this.finePointer(),
+      fullscreen: fullscreenSupported(),
     });
     const key: object = this.run ?? g;
     if (key !== this.railKey) {
@@ -620,6 +640,9 @@ class App {
       // the bay on screen is not under.
       final: this.run && this.run.levelIndex === RUN_LEVELS - 1 ? this.run.final : null,
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
+      // False in the native shells and on iPhone Safari — no fullscreen
+      // button is rendered there at all (see screens.ts / platform.ts).
+      fullscreenSupported: fullscreenSupported(),
       contract: this.contract
         ? {
             // The bay name and, when the Contract is a variant, what makes it
@@ -786,7 +809,7 @@ class App {
         }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal();
+        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported());
         break;
       case "bayclear":
         if (g && this.run) {
@@ -909,18 +932,17 @@ class App {
     if (!canvas || !this.attract.mount(canvas)) host.classList.remove("is-live");
   }
 
-  /** Reflects fullscreen availability/state onto every fullscreen control
-   *  currently mounted (the HUD icon button and/or the pause modal's row —
+  /** Reflects fullscreen STATE onto every fullscreen control currently
+   *  mounted (the HUD icon button and/or the pause modal's row —
    *  renderOverlay() recreates both from scratch on every state change, so
-   *  this needs to re-run each time, not just once at startup). Hides the
-   *  control entirely on platforms without a Fullscreen API at all (e.g.
-   *  iPhone Safari in-browser) instead of showing a button that can never
-   *  do anything. */
+   *  this needs to re-run each time, not just once at startup). Availability
+   *  is decided earlier than this: where no Fullscreen API can do anything
+   *  (the native shells, iPhone Safari), screens.ts renders no control at
+   *  all — see platform.ts's fullscreenSupported — so there is nothing here
+   *  to hide, only labels to keep honest. */
   private syncFullscreenButtons(): void {
-    const supported = fullscreenSupported();
     const fs = isFullscreen();
     this.overlay.querySelectorAll<HTMLElement>('[data-action="fullscreen"]').forEach((btn) => {
-      btn.classList.toggle("fs-hidden", !supported);
       btn.setAttribute("aria-label", fs ? "Exit fullscreen" : "Fullscreen");
       const label = btn.querySelector<HTMLElement>(".fs-label");
       if (label) label.textContent = fs ? "Exit Fullscreen" : "Fullscreen";
@@ -2039,6 +2061,44 @@ class App {
       const el = this.overlay.querySelector(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
+    // The plant's crest (app.css's .plant__crest — the spike ring around the
+    // panel and its PWR cap) speaks in two states the HUD already trusts,
+    // toggled here so they survive every renderOverlay remount:
+    //  - the congestion tier, the SAME pileTier read the Launch price below
+    //    and render.ts's floor rows use — floor, price and machine move on
+    //    one rule. In both modes, not just Deep Run: a Contract bay congests
+    //    the same way even though it prices no launches.
+    //  - the strand warning (game.ts's trajectoryStrands), which is what the
+    //    canvas teeth wore before the crest took the spikes over — the crest
+    //    turns maw-red for exactly the frames drawChute heats the mouth.
+    const plant = this.overlay.querySelector<HTMLElement>(".plant");
+    if (plant) {
+      const crestTier = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
+      plant.classList.toggle("plant--congest-warn", crestTier === 0);
+      plant.classList.toggle("plant--congest-danger", crestTier >= 1);
+      plant.classList.toggle("plant--maw", g.trajectoryStrands);
+      // THE BEAT — the crest breathes with the soundtrack (app.css's
+      // --crest-beat brightness). musicLevel is the raw RMS off the audio
+      // graph's tap; everything that makes it read as a PULSE happens here:
+      // normalised against its own decaying peak (so every bed uses the full
+      // range regardless of mastering), scaled up as the bay congests (the
+      // machine beats harder, on top of the tier recolour), and shaped by a
+      // fast-rise/slow-fall follower so hits snap and decays trail. Written
+      // only on real change at a 1/40 quantum — the style write is the only
+      // cost, so silence and steady passages cost nothing. Never driven
+      // under reduced motion; the var stays 0 and the CSS line is inert.
+      if (!this.motionMQ?.matches) {
+        const raw = musicLevel();
+        this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
+        const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
+        this.crestBeat += (target - this.crestBeat) * (target > this.crestBeat ? 0.5 : 0.12);
+        const q = Math.round(this.crestBeat * 40) / 40;
+        if (q !== this.crestBeatShown) {
+          this.crestBeatShown = q;
+          plant.style.setProperty("--crest-beat", String(q));
+        }
+      }
+    }
     // In a Contract these two slots hold lines and launches instead of funds
     // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so
     // the funds readout would sit at $0 with 0 launches for the whole bay.

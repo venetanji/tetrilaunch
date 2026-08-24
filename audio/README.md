@@ -35,7 +35,12 @@ there is no translation step anywhere.
 audio/
   fx/        one-shots, trimmed to their first transient
              shoot, impact, lineClear, pieceLost, settleStart,
-             cryoShatter, bondBreak, bondBreak2, reloadReady
+             cryoShatter, bondBreak, bondBreak2, reloadReady,
+             explosion, uiClick, bombArm, uiConfirm
+             …plus the congestion loops (looping, not one-shots):
+             congestionLoop, congestionLoop2, congestionLoop3
+             (the full list is FX in app/scripts/prepare-audio.mjs, which
+             FAILS the run on any mapped-but-missing master)
   stingers/  20–25s pieces, never trimmed, kept stereo
              bayClear, gameOver, gameOver2, refit
   tracks/    looping beds; these keep their SONG titles, since the track's
@@ -63,7 +68,7 @@ else the bed of the bay matching its slot, so Contracts 1, 2 and 3 take bays 1,
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
 | `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
-| `bay-1`  | chilled beginning   | bay 1, and Contract 1 |
+| `bay-1`  | chill beginning (Remastered) | bay 1, and Contract 1 |
 | `bay-2`  | 2 chill             | bay 2, and Contract 2 |
 | `bay-3`  | Threes              | bay 3, and Contract 3 |
 | `bay-4`  | Level Four on the floor | bay 4 |

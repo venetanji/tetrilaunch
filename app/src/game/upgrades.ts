@@ -4,7 +4,7 @@ import { DEMO_RESUPPLY_LINES, type LevelConfig } from "./level";
  * SHIP UPGRADES — the FTL layer of the run.
  *
  * The compactor rig IS the ship: it starts at a fixed stock size and gets
- * refitted with scrap earned in-run. Six systems, three tiers each, bought at
+ * refitted with scrap earned in-run. Seven systems, three tiers each, bought at
  * REFIT STOPS (after bays 3, 6 and 9 — see run.ts's isRefitBay). Upgrades are
  * PERMANENT for the run and are re-applied onto a fresh base level every bay,
  * exactly like drafted mods.
@@ -343,8 +343,8 @@ export function tiersCost(tiers: UpgradeTiers): number {
  * leaderboard.
  * ------------------------------------------------------------------------- */
 
-/** Ladder cost of every track maxed: 6 tracks x (20+35+55) = 660. Derived, not
- *  typed in, so re-pricing TIER_COSTS or adding a seventh system can't leave a
+/** Ladder cost of every track maxed: 7 tracks x (20+35+55) = 770. Derived, not
+ *  typed in, so re-pricing TIER_COSTS or adding an eighth system can't leave a
  *  stale constant behind. */
 export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
 

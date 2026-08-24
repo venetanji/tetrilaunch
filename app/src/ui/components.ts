@@ -100,9 +100,11 @@ export function pieceCellsHTML(
 }
 
 /** Belt-mounted next-piece preview (1d recycling-plant layout — see
- *  screens.ts's hudHTML) — just the colored 4x4 grid, no label/type text,
- *  since the conveyor belt's own "◂ NEXT" tag already carries that meaning
- *  and there's no room for a full chip on the angled belt. */
+ *  screens.ts's hudHTML) — just the colored 4x4 grid, no label/type text.
+ *  There's no room for a full chip on the angled belt, and the transport
+ *  itself says "this is what's coming" without words: the marching chevrons
+ *  light up in the shipment's colour (the "◂ NEXT" caption this used to lean
+ *  on is gone — see hudHTML's belt note for why the phones ate it). */
 export function beltPieceHTML(
   type: PieceType,
   quarterTurns = 0,
@@ -128,30 +130,33 @@ export function beltSealedHTML(): string {
   return `<div class="next__bomb-tile next__bomb-tile--sealed" aria-label="Next: sealed">?</div>`;
 }
 
-/** Stable 2-letter glyph + tiny pixel-font name per ratcheted AXIS, shown as a
- *  chip in the recycling-plant HUD panel (see screens.ts's hudHTML and
- *  game/hazards.ts's HAZARDS). Kept as an explicit table rather than derived
- *  from `name` each render, so a chip's glyph never shifts if an axis's display
- *  copy changes — "stable per id" per the 1d design brief. Anything not listed
- *  falls back to an auto-derived id slice rather than crashing.
+/** Stable 2-letter glyph per ratcheted AXIS, for the notch tally line in the
+ *  recycling-plant HUD panel (see runNotchTallyHTML below and game/hazards.ts's
+ *  HAZARDS). Kept as an explicit table rather than derived from `name` each
+ *  render, so a glyph never shifts if an axis's display copy changes — "stable
+ *  per id" per the 1d design brief. Anything not listed falls back to an
+ *  auto-derived id slice rather than crashing.
  *
- *  This row used to list drafted MODS. It lists the player's own difficulty
- *  choices now, and that is a bigger change than the swap looks: the chips are
+ *  (These used to be 30px CHIPS carrying a glyph plus a tiny pixel-font name;
+ *  the tally keeps only the glyph — see runNotchTallyHTML's width story.)
+ *
+ *  This line used to list drafted MODS. It lists the player's own difficulty
+ *  choices now, and that is a bigger change than the swap looks: the glyphs are
  *  no longer a trophy shelf of what you were given, they are the running bill
  *  for what you took on. Which is exactly what a player needs on screen while
  *  deciding whether the next notch is affordable. */
-const AXIS_GLYPHS: Record<HazardId, { g: string; nm: string }> = {
-  target: { g: "QT", nm: "QUOTA" },
-  cost: { g: "$L", nm: "FUEL" },
-  time: { g: "CL", nm: "SHIFT" },
-  wind: { g: "WD", nm: "X.WIND" },
-  sweeper: { g: "SW", nm: "SWEEP" },
-  slag: { g: "SL", nm: "SLAG" },
-  cryo: { g: "CR", nm: "CRYO" },
-  rebar: { g: "RB", nm: "REBAR" },
-  volatile: { g: "VL", nm: "VOLATL" },
-  tar: { g: "TR", nm: "TAR" },
-  magnetic: { g: "MG", nm: "MAGNET" },
+const AXIS_GLYPHS: Record<HazardId, string> = {
+  target: "QT",
+  cost: "$L",
+  time: "CL",
+  wind: "WD",
+  sweeper: "SW",
+  slag: "SL",
+  cryo: "CR",
+  rebar: "RB",
+  volatile: "VL",
+  tar: "TR",
+  magnetic: "MG",
 };
 
 /**
@@ -181,10 +186,10 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
   const taken = HAZARDS.filter((h) => (ratchets[h.id] ?? 0) > 0);
   const parts = taken.map((h) => {
     const n = ratchets[h.id] ?? 0;
-    const glyph = AXIS_GLYPHS[h.id] ?? { g: h.id.slice(0, 2).toUpperCase(), nm: "" };
+    const glyph = AXIS_GLYPHS[h.id] ?? h.id.slice(0, 2).toUpperCase();
     const kind = h.kind === "content" ? "bane" : "tradeoff";
     const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
-    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph.g}${stack}</span>`;
+    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph}${stack}</span>`;
   });
   // The Final Inspection's clause (game/finals.ts) rides the same line, in its
   // own colour, on the one bay it applies to. It belongs here rather than on a

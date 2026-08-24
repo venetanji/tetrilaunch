@@ -177,12 +177,12 @@ export function hintAim(profile: InputProfile): string {
   );
 }
 
-export function hintAbility(action: "bond" | "demo" | "auto", profile: InputProfile): string {
-  const what = action === "bond" ? "break bonds" : action === "demo" ? "arm a charge" : "hold to autofire";
-  if (profile === "touch") return `tap the rail's ${action === "bond" ? "bolt" : action === "demo" ? "charge" : "loader"} to ${what}`;
-  const label = profile === "gamepad" ? padLabel(padFor(action)) : keyLabel(keyFor(action));
-  return `${action === "auto" ? "hold" : "press"} ${label} to ${what}`;
-}
+/* No hintAbility here: the ability buttons and chips carry their own labels
+ * (screens.ts renders the key/pad tag on the trigger itself), so no screen
+ * ever asked the table for an ability sentence. One was exported anyway and
+ * sat unused — the header's "every player-facing instruction renders through
+ * these" is about the hints that exist, not a promise to pre-write hints
+ * nothing renders. */
 
 /* ---------------------------------------------------------------------------
  * Persistence plumbing

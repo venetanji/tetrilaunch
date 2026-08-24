@@ -148,18 +148,10 @@
   --z-toast: 60;
   --z-crt: 70;
 
-  /* --- Compact top HUD bar ---
-     A single slim row (chips + PWR + NEXT + pause/fullscreen) instead of the
-     old two-row/~30%-of-screen block, so it stops covering the apex of high
-     lob trajectories on phones (cannon sits ~40% down, arcs peak above it —
-     see render.ts's drawTrajectory). Height budget target: 48-64 CSS px. */
-  --hud-bar-h: clamp(44px, 15vh, 60px);
-  --hud-bar-pad-x: clamp(8px, 1.6vw, 16px);
-  --fs-chip-label-c: 8px;
-  --fs-chip-value-c: 13px;
-  /* Semi-transparent, no blur — keeps the dotted trajectory arc readable
-     through the top bar instead of smearing it behind frosted glass. */
-  --panel-alpha: 0.55;
+  /* No compact-top-HUD-bar tokens any more (--hud-bar-h, --hud-bar-pad-x,
+     --fs-chip-label-c/-value-c, --panel-alpha): the top chip bar they sized
+     was replaced wholesale by the recycling-plant panel (app.css's .plant),
+     and nothing read them after that. */
 
   /* ==========================================================================
      Control layout — touch targets, control-cluster placement, safe-area

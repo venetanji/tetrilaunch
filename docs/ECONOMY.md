@@ -56,7 +56,7 @@ price ladder of **20 / 35 / 55** scrap (110 for a full track).
 | **HYDRAULICS** | ×1.6/2.2/2.8 settle assist · +8/16/24% stroke | Turns "nearly a line" into a payout. The upgrade for builds that land loose cubes. |
 | **MAGAZINE** | −15/30/45% cooldown | Tempo. |
 | **REACTOR** | +$60/120/180 float · +$15/30/45 per line | The economy track. |
-| **BONDS** | +1/2/3 Bond Breaker charges per bay | Compaction for builds whose pieces don't flatten their own pile. |
+| **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
 
 **Income sizing.** A clean bay clears ~8 lines → ~26 scrap. Stops arrive at
 roughly 78 / 156 / 234 cumulative scrap, i.e. "one track nearly maxed, or two
@@ -192,23 +192,36 @@ penalty. Holding a trigger puts the WHEN in the player's hands and leaves the
 WHERE scattered, which is the upgrade's identity: a stream you point and time,
 never a better cannon.
 
-## Salvage always pays
+## Salvage: tier milestones, not run receipts
 
-`salvageForRun = 3 + 5×bays + 1×⌊lines/2⌋ + 25 if the run completed`
-
-The `+3` floor is deliberate. "Dying gives you resources" has to be true even for
-a bay-1 flameout, or the worst runs pay nothing.
+Salvage is banked by **tier milestones** (`meta.ts`'s `tierSalvage`), not per
+run played: each of the tier's three first-clear Contracts pays a 15-salvage
+milestone and the tier's Deep Run win pays the fourth, a flat **60 per tier —
+600 across the ten-tier ladder against a ~445 shelf** (installs 300 + the two
+live unlocks 145). Grind-proof by construction: a Contract pays only on its
+once-ever first clear, only at the current tier, and only for the first three,
+so replaying can't farm the currency. (An earlier per-run formula —
+`3 + 5×bays + …` — is long gone; this section used to quote it.)
 
 Unlocks add **options**, never flat stat bumps: a new modifier enters the draft
 pool, a new consumable exists, the wind gets surveyed. That constraint keeps a
-veteran's run harder-won rather than merely bigger-numbered, while still making a
-failed run worth having played.
+veteran's run harder-won rather than merely bigger-numbered.
 
 ## Congestion: pricing the spam endgame
 
-**Status: measured, not shipped.** `makeBaseLevel` sets `pileTiers: []`, so the
-mechanic is inert until one line in `level.ts` turns it on. Everything below is
-what `npm run sim:pile` says about it.
+**Status: shipped, on every bay.** `makeBaseLevel` carries `level.ts`'s
+`PILE_TIERS` on every bay: two knees at **32 and 48** live cubes, charging
+**×1.25 / ×2** launchCost, slowing the reload **×1.5 / ×2**, and capping the
+line-payout multiplier at **0.75 / 0.5**. The clock burn measured below
+shipped **off** (`clockSec: 0` — a 2026-08-22 device playtest read a hidden
+bite out of the bay clock as unfair rather than as pressure; the wiring stays
+for a future opt-in hazard axis). Everything below is the `npm run sim:pile`
+work that shaped the design and is kept as the record of it; where it and the
+shipped numbers disagree, `PILE_TIERS`'s note in `level.ts` is the authority —
+most notably the bot census argued for thresholds of 48/64, and the owner's
+device playtest falsified that (a bot fires every reload and holds roughly
+twice the standing pile a human's aimed cadence does; the knees stay at the
+human pile's 32/48).
 
 ### The problem
 
@@ -221,11 +234,13 @@ that skips the game.
 
 ### The rule
 
-Count live cubes on the field. Past a threshold, every launch costs a multiple of
-the bay's launchCost and burns seconds off the bay clock. Highest matching tier
-wins; the tiers do not stack. The tax is charged **on the shot**, never held
-against the pile — a player who stops firing and lets the press work pays
-nothing, which is what makes this a disincentive rather than a punishment.
+Count live cubes on the field. Past a threshold, every launch costs a multiple
+of the bay's launchCost and reloads slower, and a clear pays a capped multiple
+(the clock-burn variant the sim tested below shipped off — see the status
+note). Highest matching tier wins; the tiers do not stack. The tax is charged
+**on the shot**, never held against the pile — a player who stops firing and
+lets the press work pays nothing, which is what makes this a disincentive
+rather than a punishment.
 
 ### What the sim found
 
@@ -270,7 +285,7 @@ and it does that to the careful player as readily as the reckless one — so it
 into a time loss, which still lets the bay settle what is in the air, and it
 falls hardest on whoever fired the most shots.
 
-### Where it landed
+### Where the sim landed (superseded on device — see the status note)
 
 Move the thresholds, keep the penalties. At **48 and 64 cubes** with the
 originally-specced ×1.5/×2 and 2s/5s, the tax fires on 23%/17% of careful shots
@@ -350,7 +365,7 @@ knowing it can still change anything.
 
 | Tier | System | Clause | …or |
 |---|---|---|---|
-| 1 | Reactor Output | **Rush Order** — quota +$800 | **Rate Cut** — every line pays 20% less |
+| 1 | Reactor Output | **Rush Order** — quota +$750 | **Rate Cut** — every line pays 20% less |
 | 2 | Launcher Coils | **Head Gale** — a dead-steady gale into the muzzle, at the cap | **Tail Gale** — a gale dead astern, at the cap, gusting 3× |
 | 3 | Press / Bay | **Double Shift** — the press runs at 2× | **Tight Gauge** — the bay gives up 2 open cells |
 | 4 | Bay Extension | **Cold Chain** — 22% of the belt frozen | **Ice Wall** — the bay opens on 11 cubes of unthawed salvage |
