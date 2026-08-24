@@ -73,6 +73,26 @@ export class Compactor {
     Matter.Composite.add(world, this.body);
   }
 
+  /**
+   * The leftmost x a cube can settle at and still be reachable — the boundary
+   * cargo is STRANDED across.
+   *
+   * Derived from the bar itself: leftX is its body-centre at the fully-retreated
+   * stop, so a cube flush against its face there sits at the closest-to-the-
+   * launcher position the zone will ever reach. The face never gets further
+   * left than that, so anything left of this can never be compacted or counted
+   * for a line.
+   *
+   * Lives here rather than at each of its three readers (lineClear's
+   * markLostPieces decays across it, game.ts warns on it, chute.ts sizes its
+   * maw to it) because all three have to agree on it exactly: a warning drawn
+   * against one number and a penalty charged against another is a game lying
+   * about its own rules.
+   */
+  get strandCutoffX(): number {
+    return this.leftX + this.width / 2 - CELL / 2;
+  }
+
   get x(): number {
     return this.body.position.x;
   }

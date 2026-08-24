@@ -90,6 +90,65 @@ play, while blowing up a row you were two cubes from closing is a clear,
 self-inflicted loss. Both sides of the trade now exist, which is exactly what the
 old version lacked.
 
+## Slag: a bounty, and a resupply line
+
+Slag was the one material that was never anything but a loss, and `hazards.ts`
+said so out loud — "the one material with no passive counter". The Final
+Inspection pass measured
+the cost from the other side: one notch at the ladder's gentlest rate takes the
+`aim` bot from 100% to 0%, because it cannot fire the charge that is slag's only
+exit. Two different failures hid under that, and they got two different answers.
+
+**You run out of bombs.** A bay is long enough to out-last six charges — the
+Tier 6 `Slag Wall` clause opens one on 11 cubes of the stuff — and the seventh
+dead shipment had no answer at all. That is scarcity, and no payout fixes it. So
+the **maxed** Demolition Rack now returns a charge every **4 lines**, mid-bay:
+~8 charges on a clean bay instead of 6, and a long grinding bay keeps paying.
+
+The loop is circular on purpose. Resupply is earned in lines and slag is what
+stops you clearing lines, so the tier pays out for charges spent *unblocking
+rows* rather than hoarded. It will not rescue a bay that is already buried, and
+should not. It also makes that capstone a change in **kind** rather than another
+`+2`, which is the shape the track's own note was already reaching for ("a charge
+you can PLAN for beats a charge you might be dealt").
+
+**Slag has no upside.** A volatile detonation now pays **$20 per slag cube** it
+removes — `$8` of scrap metal plus a `$12` denial premium, since a slag cube is
+worth $0 as line material for its whole life *and* holds a slot in a row nothing
+can close.
+
+This looks like the payout `resolveVolatile` explicitly refuses, and the
+distinction is the whole licence for it. That refusal is about paying for a
+*detonation*: "paying for it would make ratcheting the volatile axis an income
+strategy, which is the exact inversion of a hazard." The bounty is a property of
+**slag**, not of volatile — live cargo a hazard obliterates is still a total
+loss, so a run that ratchets volatile alone earns nothing from it. The money
+exists only where the player took a **second** axis on purpose. Two ratchets,
+one build.
+
+The play was already the designed one. `lineClear.ts` names the answer to
+volatile as "deliberately chaining it into a pile that was never going to
+complete a row anyway", and a slag pile is definitionally exactly that. It just
+paid nothing.
+
+**Bombs stay at $8 on slag.** Their problem is that they run out, not that they
+underpay, and the resupply line answers that directly. Keeping the premium
+exclusive to volatile also keeps the strategy's identity: the *renewable*
+channel is the profitable one, because a bomb is capped per bay and the belt is
+not.
+
+Sized to sit between two things. A volatile lobbed into a three-slag cluster
+returns $60 against a $25 launch, so disposal is clearly worth the shot; a line
+still pays 100+ before combo, so disposal never out-earns playing the game —
+the same hierarchy the bomb's quarter-rate scrap trickle already protects. Funds
+only, no scrap: this is a bay-local relief valve, and paying scrap would turn a
+slag ratchet into a route to permanent progression.
+
+**Still to verify on device.** The bots cannot fire a charge or lob a soft
+volatile, so neither half of this is measurable in `sim/sweep.ts` — the same
+blind spot the Bond Breaker and Autoloader sit in. The numbers are reasoned, not
+calibrated.
+
 ## Payload sizes
 
 `pieceSize` drives cube count, per-cube **density** and joint **fragility**
@@ -123,15 +182,15 @@ It only works on top of the build it belongs to: cheap enough payloads to surviv
 the waste, and Bond Breakers (or Hydraulics) to flatten what it piles up.
 
 It used to fire on a free-running timer, and that was a real bug rather than a
-balance problem. Measured on device, one Autoloader bay threw **34 lost pieces
-from 32 shots** (106%, against an 11% baseline) at **16 shots per line**, and
-its launches were spread evenly across the compactor cycle (z=0.71 retreat vs
-press) while the same player's manual shots were strongly biased toward the open
-window (z=4.27). A metronome cannot see the compactor, so it spent about half
-its shots firing into a shut bay and paying the lost-piece penalty. Holding a
-trigger puts the WHEN in the player's hands and leaves the WHERE scattered,
-which is the upgrade's identity: a stream you point and time, never a better
-cannon.
+balance problem. Measured on device, one Autoloader bay threw **34 lost cubes
+from 32 shots** (1.06 per shot, against a 0.11 baseline) at **16 shots per
+line**, and its launches were spread evenly across the compactor cycle (z=0.71
+retreat vs press) while the same player's manual shots were strongly biased
+toward the open window (z=4.27). A metronome cannot see the compactor, so it
+spent about half its shots firing into a shut bay and paying the lost-piece
+penalty. Holding a trigger puts the WHEN in the player's hands and leaves the
+WHERE scattered, which is the upgrade's identity: a stream you point and time,
+never a better cannon.
 
 ## Salvage always pays
 
@@ -271,11 +330,127 @@ taken by a player who has no idea yet what a notch feels like. That is the same
 reasoning that already took `TIME_NOTCH` from 20 to 5, carried the rest of the
 way.
 
+## The Final Inspection: the last choice of a run
+
+`finals.ts`. Every bay-clear but one deals the axis ratchet — pick a notch, it
+sticks for the rest of the run. That contract stops meaning anything at the last
+draft, because there is no rest of the run: a notch taken before bay 10 is a
+notch taken *for* bay 10 and nothing else, so the ratchet's whole shape (cheap
+now, ruinous by the tenth repeat) is spent on a decision that will never repeat.
+
+So the draft dealt after bay 9 deals something else: **two clauses attached to
+the final bay, one of which the player must take.** Three properties.
+
+**It is the Tier's own exam.** A Tier opens exactly one new hazard axis and the
+Workshop sells exactly the system that makes it cheap; the inspection asks that
+pairing as a question. Tier 1 taught the money axes and sold the Reactor, so its
+final bay is about money. Tier 2 taught the wind and sold the Launcher, so its
+final bay is weather. The card names the system, once, on the last screen where
+knowing it can still change anything.
+
+| Tier | System | Clause | …or |
+|---|---|---|---|
+| 1 | Reactor Output | **Rush Order** — quota +$800 | **Rate Cut** — every line pays 20% less |
+| 2 | Launcher Coils | **Head Gale** — a dead-steady gale into the muzzle, at the cap | **Tail Gale** — a gale dead astern, at the cap, gusting 3× |
+| 3 | Press / Bay | **Double Shift** — the press runs at 2× | **Tight Gauge** — the bay gives up 2 open cells |
+| 4 | Bay Extension | **Cold Chain** — 22% of the belt frozen | **Ice Wall** — the bay opens on 11 cubes of unthawed salvage |
+| 5 | Bond Emitter | **Rebar Run** — 32% of the belt rigid | **Cold Weld** — nothing in the bay comes apart on its own |
+| 6 | Demolition Rack | **Slag Run** — 17% of the belt dead | **Slag Wall** — the bay opens on 11 cubes of somebody else's slag |
+| 7 | Bay Extension | **Powder Run** — 27% of the belt volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
+| 8 | Demolition Rack | **Tar Run** — 18% of the belt tar | **Fouled Bay** — 12% tar, congestion bites 12 cubes earlier |
+| 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
+| 10 | Bond Emitter | **Dead Weight** — every shipment a pentomino, +50% a launch | **Short Measure** — every shipment a domino, −40% a launch |
+
+**Both clauses are equally bad, and bad differently.** That is what makes it a
+choice rather than a toll, and it is the part that had to be measured. The unit
+is *extra lines the final bay demands*, and Tier 1 is the clean case: a flat
+quota raise costs a fixed amount of revenue, so its price in lines falls as your
+rate rises; a percentage cut costs a share of everything you earn, so its price
+falls faster. The two **cross**, and the crossing is parked at the mid-track
+Reactor — which is what a bay-10 rig typically carries. Below it take the flat
+raise, above it take the percentage. The right answer is a direct readout of how
+good your rate actually is.
+
+The owner's original sketch was +$1000 against −25%. Both moved: at $1000 the
+percentage wins at every rig and the crossing falls off the bottom of the table,
+which is a pair with a right answer, i.e. not a pair.
+
+**Neither is a lose button.** Every clause is floored the way `Shift Cut` is
+floored, for the reason `hazards.ts` gives — an axis that can reach an
+unplayable bay is a lose button, not a difficulty knob — and harder here,
+because this fires on the run's last bay where a dead bay costs the whole run.
+`sim/systems.ts` builds the worst arrival it can (every axis the Tier deals,
+ratcheted as deep as a run can take it) and asserts the resulting bay still has
+a clock, a press stroke, a payable line and cargo to build rows out of.
+
+### What the measurement could and could not settle
+
+Two instruments: `contracts.ts`'s own launch-budget model (exact for money,
+cargo size, line width and materials; blind to physics) and the `aim` bot at 20
+seeds a cell. The full table lives in `finals.ts`'s header.
+
+**Six of the twenty clauses measured at or above the bay they are meant to make
+harder.** That looks like six broken cards. It is not — sorted by what each
+clause takes away, all twenty fall into three groups with no exceptions:
+
+| What the clause takes away | Clauses | Bot |
+|---|---|---|
+| **Cubes that can reach a line** | every material clause, plus Cold Weld and Dead Weight | −15 to −70 |
+| **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, Short Measure | free or better |
+
+The third group is the finding. The bot does not plan a row — it solves an angle
+and fires on every cooldown — so a clause that shrinks the space of *good*
+placements costs it nothing, while one that shrinks the space of *legal* ones
+sometimes helps. `Tight Gauge` is the proof: a narrower bay took its conversion
+from 4.30 shots per line to 2.87, because a nearer open stop packs the pile
+tighter, which is the metric the bot is implicitly optimising.
+
+So the table is **a measurement of the harness, not of those six clauses**: this
+bot prices cubes-into-lines and money, and is blind to placement quality by
+construction. It is equally not evidence that they *are* costs — nothing here,
+and nothing else in the repo, measures how hard a bay is to plan. That gap is
+what a device playtest fills, and it is where those six clauses live.
+
+Two consequences are already in the numbers:
+
+- **Material rates are set against the ladder, not the bot.** One notch of slag
+  or cryo at `materialRate(1) = 0.07` — a rate the shipped game deals routinely
+  — takes the bot from 100% to 0%. A 0% row says nothing about the number, so
+  no rate a card QUOTES exceeds what `materialRate` reaches at six notches
+  (`MATERIAL_CAP`, 0.32). The rate actually delivered can sit above it: a
+  clause floors its material at the card's rate and then adds a notch on top,
+  bounded by `FINAL_MATERIAL_CAP` (0.4) — see `finals.ts`'s `schedule`.
+- **The bot's cadence is not a human's** — the same limit `PILE_TIERS` learned
+  the hard way. `Fouled Bay` is priced in exactly that currency.
+
+Two corrections fell out of the pricing and are worth stating on their own.
+
+`applyFinal` runs *after* `applyRatchets`, which is where `MIX_TOTAL_CAP` is
+enforced — so a material clause landing on an already-full belt pushed it to
+0.78 against a cap of 0.55. It now re-caps, holding the clause's own material at
+the rate its card quotes and taking the reduction from the ratcheted ones.
+
+Because that rate is a floor rather than a quantity, the six material cards
+read **"at least N%"**. A run carrying two Slag notches meets `Slag Wall`'s 8%
+card with a belt at 12%: the design is deliberate — a mandatory cost the
+player's own earlier choices could pre-pay is not a cost — but a bare number
+would be wrong on exactly the arrivals where it matters. `sim/systems.ts` pins
+it: a clause whose delivered rate can exceed its own clean-bay rate must say so
+on its face.
+
+`penaltyPerLostPiece` is charged **per cube**, not per piece
+(`lost = lostCubes.length`), so a spilled tetromino costs four times the number
+the field is named for and a spilled pentomino five. The field keeps its name —
+it is threaded through saves, telemetry and the harness — but the projection
+tile now says which unit it is in.
+
 ## Tuning
 
 Everything is a named constant with a comment:
 
-- `level.ts` — `makeBaseLevel` formulas, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`
+- `level.ts` — `makeBaseLevel` formulas, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`,
+  `SLAG_BOUNTY`, `DEMO_RESUPPLY_LINES`
 - `upgrades.ts` — `TIER_COSTS`, per-track `apply`
 - `meta.ts` — `UNLOCKS` prices, `SALVAGE_*` weights
 - `mods.ts` — per-mod numbers
@@ -283,6 +458,8 @@ Everything is a named constant with a comment:
 - `run.ts` — `REFIT_EVERY`
 - `level.ts` — `PILE_TIERS` (congestion thresholds and penalties)
 - `hazards.ts` — `TIME_LADDER`, `COST_LADDER`
+- `finals.ts` — `FINALS` (the Final Inspection's twenty clauses, one pair per
+  Tier), `RUSH_ORDER_QUOTA`, `RATE_CUT`, `SALVAGE_PROFILE`, `FOULED_ALLOWANCE`
 
 `npm run sim:balance` sweeps bays × bots × mods; `npm run sim:pile` sweeps the
 congestion tax (and `--census` alone answers "how full is a bay actually"). Two caveats it can't see past:

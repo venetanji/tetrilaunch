@@ -518,12 +518,12 @@ introduction order:
 
 | Material | Behaviour | Answers with |
 |---|---|---|
-| **Slag** ✅ | occupies a slot, can never count toward a line | Demolition, or shove it out |
+| **Slag** ✅ | occupies a slot, can never count toward a line | Demolition, or shove it out — and blowing it up **pays a bounty** (ECONOMY.md) |
 | **Cryo** ✅ | must be struck before it will compact; pressed cold it shatters the line | sequencing |
-| **Rebar** | joints never break — a rigid anchor | building around it |
-| **Volatile** | detonates on hard impact, taking neighbours | soft landings, or deliberate chains |
-| **Tar** | bonds permanently on contact; Bond Breaker won't split it | avoidance |
-| **Magnetic** | self-aligns to neighbours — a *helpful* blocker | pairs with loose builds |
+| **Rebar** ✅ | joints never break — a rigid anchor | building around it |
+| **Volatile** ✅ | detonates on hard impact, taking neighbours | soft landings, or deliberate chains |
+| **Tar** ✅ | bonds permanently on contact; Bond Breaker won't split it | avoidance |
+| **Magnetic** ✅ | self-aligns to neighbours — a *helpful* blocker | pairs with loose builds |
 
 Slag is the chocolate. Magnetic exists so the vocabulary isn't uniformly
 punishing — a material the player is glad to see keeps the others from reading as
@@ -532,11 +532,16 @@ noise.
 None of these need a new system. All of them are content on the engine that
 exists.
 
-✅ **Slag and cryo are built** — see
+✅ **All six are built.** This table read "slag and cryo" long after the other
+four shipped, which cost a design pass the time to rediscover that volatile
+already existed — `theme.ts`'s `MATERIAL_SPEC` carries all six and `hazards.ts`
+opens one content axis per Mark from 4 to 9. Slag and cryo came first — see
 [the spec](superpowers/specs/2026-08-01-materials-slag-cryo-design.md). A
-material is a property of a whole shipment (`theme.ts`'s `Material`), introduced
-one per Mark on a per-shipment roll (`level.ts`'s `materialMixFor`), and enforced
-in exactly one place: `lineClear.ts`'s `fillsSlots`. Mark 1 stays entirely clean.
+material is a property of a whole shipment (`theme.ts`'s `Material`) and enforced
+in exactly one place: `lineClear.ts`'s `fillsSlots`. It is no longer *scheduled*
+by the ladder at all — `level.ts`'s `materialMixFor` is retired, and a material
+now arrives only when the player ratchets its content axis (`hazards.ts`), so
+facing one and choosing to face it are the same act. Mark 1 stays entirely clean.
 
 Two things the build settled that this table could not:
 

@@ -106,8 +106,70 @@ const FX_NAMES: FxName[] = [
  * matters — the point of a level target is that the bed can move and the jingle
  * keeps its distance.
  */
-const FX_BUS_GAIN = 0.6;
-const MUSIC_GAIN = 0.75;
+const FX_BUS_GAIN = 0.45;
+/** Set by ear on the test phone, not by meter. The master limiter below
+ *  passes the bed through untouched (0.0001 dB of reduction over 20s of
+ *  music) but Blink's makeup gain still lifts the routed path, so 0.75 read
+ *  hotter out of the speaker than the constant suggests. STINGER_GAIN is a
+ *  ratio of this, so the bay-clear jingle keeps its 6 dB gap for free. */
+const MUSIC_GAIN = 0.55;
+/**
+ * THE MASTER LIMITER — the safety net the headroom note above assumed it did
+ * not need.
+ *
+ * That note budgets for ONE effect over the bed: 0.84 x 0.75 = 0.63 for the
+ * music, 0.71 x 0.6 = 0.43 for the effect, and it calls the resulting 1.05
+ * "the worst imaginable" coincidence. It is not. Twelve lines earlier the same
+ * block says a launch "fires several times a second", and playFx applies no
+ * voice cap at all — every call spawns a fresh BufferSource straight into the
+ * bus. Two coincident effects over the bed is 0.63 + 0.43 + 0.43 = 1.48, about
+ * 3.4 dB past the 1.0 where Web Audio hard-clips, and impacts arrive in bursts
+ * by design (see the 60ms floor in playImpact). Nothing sat between the sum
+ * and the destination, so that overage went out as distortion.
+ *
+ * Reported from an Android playtest as the LEVEL MUSIC breaking up while the
+ * stingers stayed clean, which is exactly the signature this predicts: the bed
+ * is the only thing effects stack on top of, and stingers are unrouted <audio>
+ * (see unlockAudio) that never reach this node at all. The bed is the victim
+ * of the sum, not the source of it — so the fix belongs at the sum.
+ *
+ * Tuned as a limiter, not a compressor. Hard knee and ratio 20 mean nothing
+ * happens at all until the ceiling is actually threatened, which keeps the
+ * music — the foreground, per the mix note — untouched in the ordinary case.
+ * The 3ms attack is fast enough for those transients without the low-frequency
+ * distortion a sub-millisecond attack causes; the 250ms release is long enough
+ * not to pump on burst fire.
+ *
+ * THRESHOLD IS -4, NOT -2, AND THE REASON IS MEASURED RATHER THAN ARITHMETIC.
+ * The steady-state sum says -2 is plenty: ratio 20 puts even a 5.4 dB overage
+ * at -1.7 dBFS. But DynamicsCompressorNode has NO LOOKAHEAD, so a sharp
+ * transient runs open for the length of the attack before the gain reduction
+ * bites, and the peak that escapes in those 3ms is not what the ratio predicts.
+ * Rendered through the real graph and the real mp3s on an Android WebView
+ * (Chrome 150, OnePlus CPH2573), peak at the destination, worst of three beds
+ * against impact/explosion stacked 3 and 5 deep:
+ *
+ *   threshold -2, attack 3ms -> 1.011   STILL CLIPS
+ *   threshold -3, attack 3ms -> 0.980
+ *   threshold -4, attack 3ms -> 0.951
+ *
+ * -4 also comes back LOUDER, not quieter: Blink's compressor applies an
+ * internal makeup gain that grows as the threshold drops, so the quietest bed
+ * measured 0.626 at -4 against 0.549 at -2. Lowering MUSIC_GAIN does NOT
+ * substitute for this — swept 0.75 down to 0.45, the 4-effect peak only moved
+ * 1.030 -> 1.010, because once the limiter is engaged the output sits at its
+ * ceiling and the residual overage is the transient escaping the attack, which
+ * the bed level does not control.
+ *
+ * This bounds the SUMMED graph, which is not a licence to raise the parts. If
+ * the limiter is audibly working during normal play, the mix underneath it is
+ * too hot and the durable fix is still the one prepare-audio.mjs owns.
+ */
+const LIMITER_THRESHOLD_DB = -4;
+const LIMITER_KNEE_DB = 0;
+const LIMITER_RATIO = 20;
+const LIMITER_ATTACK_S = 0.003;
+const LIMITER_RELEASE_S = 0.25;
 const STINGER_UNDER_DB = -6;
 const STINGER_GAIN = MUSIC_GAIN * 10 ** (STINGER_UNDER_DB / 20);
 /** Crossfade between tracks, and the fade applied when a stinger is cut short
@@ -191,6 +253,10 @@ let ctx: AudioContext | null = null;
 let fxBus: GainNode | null = null;
 /** Music's last stop before the output, so congestion can close it down. */
 let musicFilter: BiquadFilterNode | null = null;
+/** The one node every routed source passes through on its way out. Null only
+ *  if the context could not build one, in which case the buses fall back to
+ *  connecting straight at the destination exactly as they used to. */
+let master: DynamicsCompressorNode | null = null;
 /** The static's level. Null until the first congested bay — a player who never
  *  fills one never pays for the noise source at all. */
 let staticGain: GainNode | null = null;
@@ -217,6 +283,9 @@ let unlocked = false;
  *  the next screen. */
 export function setAudioEnabled(next: { sound: boolean; music: boolean }): void {
   soundOn = next.sound;
+  // Held so the resume below can tell an actual OFF -> ON toggle from the many
+  // calls that just restate the settings. See the branch for why that matters.
+  const wasMusicOn = musicOn;
   musicOn = next.music;
   if (fxBus && ctx) fxBus.gain.setTargetAtTime(soundOn ? FX_BUS_GAIN : 0, ctx.currentTime, 0.01);
   if (!musicOn) {
@@ -225,8 +294,16 @@ export function setAudioEnabled(next: { sound: boolean; music: boolean }): void 
     fadeOutAndStop(stinger);
     stinger = null;
     stingerName = null;
-  } else if (musicName) {
-    // Turned back on: resume whatever the current screen wants.
+  } else if (!wasMusicOn && musicName) {
+    // Turned back ON — and only then. playMusic() cannot resume an element, it
+    // builds a new one from zero, so running this on a bed that was already
+    // playing RESTARTS it. This function is called on load and again from the
+    // first pointerdown (main.ts's syncAudioSettings), both of which restate
+    // music: true over a menu bed that started at first render, so without the
+    // wasMusicOn guard the bed audibly restarted twice every launch — once a
+    // few seconds in as settings loaded, once on the first touch. Measured on
+    // the device: menu.mp3 played at 60ms and again from zero at 3640ms, two
+    // elements overlapping for 450ms before the first was faded out.
     const want = musicName;
     musicName = null;
     playMusic(want);
@@ -250,14 +327,58 @@ export function unlockAudio(): void {
   try {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;
-    ctx = new Ctor();
+    // "playback", NOT the default "interactive". The default asks for the
+    // smallest buffer the device will give, which on the OnePlus test phone is
+    // a HAL frame count of 192 — 4ms. That is the buffer the whole Web Audio
+    // graph renders into, and it is what has to absorb every hiccup between
+    // here and the speaker. On Bluetooth there are a lot of them: the same
+    // device reports an A2DP write latency averaging 321ms with timestamp
+    // jitter peaking over 1000ms, and 4ms of buffer cannot ride that out. The
+    // result is an underrun — the bed audibly breaking up — which is NOT
+    // clipping and is why lowering the gains never fixed it.
+    //
+    // The tell is that STINGERS stayed clean throughout. They are unrouted
+    // <audio> elements (see below) that cross the same Bluetooth link, the
+    // same AAC encode and the same vendor post-processing, so the wireless
+    // path cannot be the cause. What they do not share is this buffer: the
+    // platform media pipeline gives them hundreds of ms of it.
+    //
+    // "balanced", NOT "playback". baseLatency alone is a trap here: it reads
+    // 21.3ms for "playback" against 20ms for "balanced", a difference of
+    // nothing. But on Android "playback" asks for a DEEP BUFFER output track,
+    // which changes the whole path behind the mixer, and the number that
+    // reaches the player is outputLatency. Measured in-app over A2DP:
+    //
+    //   interactive   base  4ms   output 288ms   192 frames
+    //   balanced      base 20ms   output 320ms   960 frames   <- here
+    //   playback      base 21ms   output 696ms  1024 frames
+    //
+    // "playback" cost 408ms and was immediately audible as lag on the launch
+    // and impact cues. "balanced" buys 5x the buffer for 32ms, which against
+    // the 288ms Bluetooth already imposes is nothing.
+    ctx = new Ctor({ latencyHint: "balanced" });
+    // Built before the buses so both can be pointed at it. A context too old
+    // to have a compressor still gets the pre-limiter graph rather than no
+    // audio: `out` is simply the destination in that case.
+    try {
+      master = ctx.createDynamicsCompressor();
+      master.threshold.value = LIMITER_THRESHOLD_DB;
+      master.knee.value = LIMITER_KNEE_DB;
+      master.ratio.value = LIMITER_RATIO;
+      master.attack.value = LIMITER_ATTACK_S;
+      master.release.value = LIMITER_RELEASE_S;
+      master.connect(ctx.destination);
+    } catch {
+      master = null;
+    }
+    const out: AudioNode = master ?? ctx.destination;
     fxBus = ctx.createGain();
     fxBus.gain.value = soundOn ? FX_BUS_GAIN : 0;
-    fxBus.connect(ctx.destination);
+    fxBus.connect(out);
     musicFilter = ctx.createBiquadFilter();
     musicFilter.type = "lowpass";
     musicFilter.frequency.value = MUSIC_OPEN_HZ;
-    musicFilter.connect(ctx.destination);
+    musicFilter.connect(out);
     // The context can be stopped from OUTSIDE suspendAudio: a phone call, a
     // voice assistant, an alarm, a Bluetooth handoff — the OS ends the audio
     // session while the page stays visible, so the visibilitychange pair never
@@ -381,10 +502,18 @@ export function playBondBreak(): void {
  *  half the radius (VOLATILE_BLAST_CELLS against BOMB_BLAST_R) — so it plays
  *  smaller, pitched up and pulled back, rather than shipping a second file to
  *  say a smaller version of the same thing. */
-export function playExplosion(kind: "bomb" | "volatile"): void {
-  playFx("explosion", kind === "bomb"
-    ? { rate: 0.96 + Math.random() * 0.08 }
-    : { rate: 1.18 + Math.random() * 0.08, gain: 0.7 });
+export function playExplosion(kind: "bomb" | "volatile" | "chute"): void {
+  // One sample, three readings. A bomb is the reference; a volatile pop is
+  // pitched up and quieter (a hazard going off, not ordnance); the intake chute
+  // is pitched DOWN and quieter still, which turns the same bang into a dull
+  // crunch — a shredder swallowing cargo rather than an explosion. Rate and
+  // gain rather than a fourth asset deliberately: this is a mistake being
+  // acknowledged, and it should not out-announce a demolition charge.
+  if (kind === "bomb") return playFx("explosion", { rate: 0.96 + Math.random() * 0.08 });
+  if (kind === "volatile") {
+    return playFx("explosion", { rate: 1.18 + Math.random() * 0.08, gain: 0.7 });
+  }
+  playFx("explosion", { rate: 0.66 + Math.random() * 0.06, gain: 0.62 });
 }
 
 /** Menu taps. Quiet on purpose — a click is confirmation, not an event — and

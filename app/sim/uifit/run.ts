@@ -165,6 +165,7 @@ const ASSERTIONS = [
   { id: "textclip", desc: "no text is hard-clipped by its box" },
   { id: "clipped", desc: "no content is cut off by an ancestor's overflow edge" },
   { id: "overlap", desc: "boxes laid out side by side do not cover each other" },
+  { id: "spill", desc: "a grid/flex item stays inside the box that lays it out" },
   { id: "draghint", desc: "the drag hint's gesture plays clear of the plant panel" },
   { id: "reveal", desc: "the tutorial's first step reveals only what it teaches" },
   { id: "plant", desc: "the HUD plant panel stays inside its design box" },
@@ -197,7 +198,7 @@ function measure(cfg: {
   const vh = window.innerHeight;
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
-    clipped: [], overlap: [], draghint: [], reveal: [],
+    clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
     plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [], warn: [],
   };
   const label = (el: Element): string => {
@@ -402,6 +403,62 @@ function measure(cfg: {
     if (ox > 1 && oy > 1) {
       out.overlap.push(`${aSel} covers ${bSel} by ${Math.round(ox)}x${Math.round(oy)}px`);
     }
+  });
+
+  // --- spill: a grid/flex item must stay inside the box that lays it out -----
+  // The GENERAL form of `overlap`. NO_OVERLAP is a hand-curated pair list read
+  // through querySelector, so it sees exactly the two boxes someone thought to
+  // name, and only the first match of each — it can never say "row 4 of a grid
+  // covers row 5". This says the same thing structurally instead: an item whose
+  // parent lays it out cannot be wider than the space that parent gave it.
+  //
+  // Horizontal only. The failure mode this names is the missing `min-width: 0`
+  // on a grid/flex child — an `auto` track sized by nowrap content refuses to
+  // shrink, so the cell grows past its track and paints over whatever is beside
+  // it. Vertical growth is how a row is SUPPOSED to react to its content, and
+  // `fit`/`oneline` already own the cases where that is wrong.
+  //
+  // Nothing else could see the Controls bug this was written for: the span was
+  // not clipped (scrollWidth === clientWidth, so `textclip` green), no ancestor
+  // hid its overflow (`clipped` green), the row stayed on screen (`offscreen`
+  // green) and its own children never wrapped (`oneline` green). It simply
+  // painted over the next grid column.
+  const seenSpill = new Set<string>();
+  document.querySelectorAll("#overlay *").forEach((el) => {
+    const parent = el.parentElement;
+    if (!parent || parent === document.body) return;
+    const pcs = getComputedStyle(parent);
+    if (!/^(inline-)?(flex|grid)$/.test(pcs.display)) return;
+    // A parent that clips or scrolls is CONTAINING its child, not spilling it:
+    // the clip belongs to `clipped`, and a scroller's content is reachable.
+    if (pcs.overflowX !== "visible") return;
+    const cs = getComputedStyle(el);
+    // Out-of-flow children are not laid out by the grid at all, and a transform
+    // moves the painted box without moving the layout box `min-width` governs.
+    if (cs.position === "absolute" || cs.position === "fixed") return;
+    if (cs.transform !== "none" || cs.visibility === "hidden") return;
+    if (el.closest(decorative.join(","))) return;   // bleeds by design
+    const r = el.getBoundingClientRect();
+    if (r.width <= 2 || r.height <= 2) return;
+    const pr = parent.getBoundingClientRect();
+    const px = (v: string): number => parseFloat(v) || 0;
+    // getBoundingClientRect returns the TRANSFORMED box while getComputedStyle
+    // returns untransformed px, so mixing them measures a scaled box against
+    // unscaled padding. `.settle-note` sits at scale(0.94) until it is shown,
+    // and that mismatch alone reported its 8px dot spilling 1px on every HUD
+    // fixture on every device. The parent's own rect over its offsetWidth
+    // recovers the cumulative scale from ALL ancestors, not just this one.
+    const scale = parent.offsetWidth > 0 ? pr.width / parent.offsetWidth : 1;
+    // The CONTENT box, not the border box — a child sitting on its parent's
+    // padding is already outside the track it was given.
+    const innerL = pr.left + (px(pcs.borderLeftWidth) + px(pcs.paddingLeft)) * scale;
+    const innerR = pr.right - (px(pcs.borderRightWidth) + px(pcs.paddingRight)) * scale;
+    const over = Math.max(innerL - r.left, r.right - innerR);
+    if (over <= 1) return;
+    const key = `${label(el)} spills ${Math.round(over)}px out of ${label(parent)}`;
+    if (seenSpill.has(key)) return;
+    seenSpill.add(key);
+    out.spill.push(`${key} (${Math.round(r.width)}px in a ${Math.round(innerR - innerL)}px cell)`);
   });
 
   const rootStyle = getComputedStyle(document.documentElement);

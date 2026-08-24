@@ -24,6 +24,7 @@ import type { PieceSize, PieceType } from "../game/theme";
 import {
   HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
+import type { FinalDef, FinalId } from "../game/finals";
 import {
   ACTION_LABELS, BINDABLE_ACTIONS, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
   type BindableAction, type InputProfile,
@@ -510,6 +511,10 @@ export function leaderboardScreen(rows: string): string {
  *      LOW_LAUNCH_WARN (3) or fewer, because that's the threshold where the
  *      correct play changes from "keep feeding the bay" to "this shot has to
  *      count". A number that changes your strategy deserves to change color.
+ *      A Contract reuses this slot for its supply (its launch budget, or a
+ *      pattern's shipment queue) and escalates one shot later, at
+ *      LOW_SUPPLY_WARN (2) — see that constant for why an exact countdown
+ *      warns later than an estimate.
  *   3. TIME                        equal-weight column beside it, already had
  *      its own red-pulse at 20s.
  *   4. RELOAD                      a bar under the readout tracking the launch
@@ -536,8 +541,32 @@ export function leaderboardScreen(rows: string): string {
  * compactor are canvas-drawn (render.ts's drawPistons) since they track the
  * compactor's live x every frame; this file only owns the DOM chrome.
  */
-/** Launches-left threshold at which the readout turns danger-red and pulses. */
+/** Launches-left threshold at which the readout turns danger-red and pulses.
+ *  Deep Run only — a Contract's supply escalates at LOW_SUPPLY_WARN. */
 export const LOW_LAUNCH_WARN = 3;
+
+/**
+ * The same urgency, one shot later, for a Contract's supply readout — its
+ * launch budget, or a pattern Contract's shipment queue (see main.ts's
+ * syncHud, which picks whichever one this Contract runs on).
+ *
+ * Deliberately BELOW LOW_LAUNCH_WARN, because the two readouts are not the
+ * same kind of number. A Deep Run's launches-left is an ESTIMATE of purchasing
+ * power — floor(funds / launchCostNow) — that can fall by more than one per
+ * shot when congestion moves the price, and can climb again when a line pays
+ * out. Its warning needs a shot of headroom to still be actionable by the time
+ * the player reacts to it. A Contract's supply is an EXACT countdown: one
+ * shot, one unit, never a jump, and the player can plan against it with
+ * certainty. That warning can wait until 2 without ever ambushing anyone.
+ *
+ * It also has to wait, because a Contract's supply starts small and this
+ * number is the entire readout. The shortest pattern queue is 4 shipments
+ * (contracts.ts's patternGoal floors at 2 lines = 16 cubes = 4 tetrominoes),
+ * so a threshold of 3 would latch the danger state after the FIRST shipment
+ * and hold it for the rest of the bay. A cue that is lit for three quarters of
+ * a mode is decoration, not a warning.
+ */
+export const LOW_SUPPLY_WARN = 2;
 
 /** The transport's direction cue: eight CSS-drawn chevrons marching toward the
  *  cannon (see app.css's .belt__arrows). Eight, and elements rather than the
@@ -585,6 +614,12 @@ export function hudHTML(opts: {
   /** The run's full drafted-mod pick history, in pick order — rendered as
    *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
+  /** The Final Inspection clause in force on THIS bay (game/finals.ts), or
+   *  null. Only ever set on a run's last bay — main.ts gates it there rather
+   *  than passing RunState.final unconditionally, because the clause is banked
+   *  before the bay starts and a HUD that named it early would be advertising a
+   *  pressure the bay is not under. */
+  final?: FinalId | null;
   /** The run's bought ship upgrade tiers — rendered as tier-pip plates
    *  (components.ts's shipPlatesHTML). Deep Run only, and not because the
    *  rack would be ugly in a Contract: main.ts's hudOpts passes `{}` there,
@@ -816,7 +851,7 @@ export function hudHTML(opts: {
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
          the run's build (drafted mods, ship plates, abilities). -->
     <div class="plant">
-      <div class="pl-pwr"><span class="lbl">PWR</span>
+      <div class="pl-pwr" id="hud-pwr"><span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
         <span class="pl-pwr__val" id="hud-power-val">0%</span>
       </div>
@@ -913,7 +948,7 @@ export function hudHTML(opts: {
           // on an iPhone 13 mini, the tightest in the matrix.
           contract
             ? ""
-            : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets)}</b></div>`
+            : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets, opts.final ?? null)}</b></div>`
         }
         ${
           // The bay's own complications — the Contract analogue of the notch
@@ -1627,6 +1662,43 @@ export function pauseModal(): string {
 }
 
 /**
+ * The next-bay projection grid (preview.ts's rows) — one tile per row.
+ *
+ * Shared by the ratchet draft and the Final Inspection rather than written
+ * twice: the two screens deliberately show the SAME projection of the same
+ * config pipeline, and a second copy of this markup is how the two would
+ * eventually disagree about which rows a phone drops.
+ */
+function previewGridHTML(rows: PreviewRow[]): string {
+  return rows
+    .map((r) => {
+      const val = r.changed
+        ? `<span class="preview-stat__from">${r.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${r.to}</span>`
+        : `<span class="preview-stat__to">${r.from}</span>`;
+      // An unmoved context row is the one class of tile a landscape phone can
+      // afford to drop (app.css, at compact density) — it is neither the frame
+      // the change is read against nor the change itself. An ACTIVE row is
+      // never that class: its axis has banked notches, so the pressure is live
+      // whatever this selection touches (previewRows promotes it to core), and
+      // the tag says why the row refuses to leave (Codex #1 / canvas A12).
+      const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
+      // Both labels ship; app.css picks one by density. A landscape phone packs
+      // this grid four across, and at ~63px of interior "Shots in the bank"
+      // ellipsised to "S…" — with the ACTIVE tag beside it, four of the ten
+      // tiles named nothing at all.
+      const txt = `<span class="preview-stat__long">${r.label}</span><span class="preview-stat__short">${r.short}</span>`;
+      const label = r.active
+        ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
+        : txt;
+      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
+        <div class="preview-stat__label">${label}</div>
+        <div class="preview-stat__val">${val}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+/**
  * Ratchet modal shown between bays: freezes the just-cleared field behind a
  * scrim and asks which difficulty axis hardens for the rest of the run.
  *
@@ -1727,32 +1799,7 @@ export function draftScreen(opts: {
       </button>`;
     })
     .join("");
-  const stats = opts.preview
-    .map((r) => {
-      const val = r.changed
-        ? `<span class="preview-stat__from">${r.from}</span><span class="preview-stat__arrow">→</span><span class="preview-stat__to">${r.to}</span>`
-        : `<span class="preview-stat__to">${r.from}</span>`;
-      // An unmoved context row is the one class of tile a landscape phone can
-      // afford to drop (app.css, at compact density) — it is neither the frame
-      // the change is read against nor the change itself. An ACTIVE row is
-      // never that class: its axis has banked notches, so the pressure is live
-      // whatever this selection touches (previewRows promotes it to core), and
-      // the tag says why the row refuses to leave (Codex #1 / canvas A12).
-      const cls = r.changed ? ` preview-stat--${r.tone}` : r.kind === "context" ? " preview-stat--context" : "";
-      // Both labels ship; app.css picks one by density. A landscape phone packs
-      // this grid four across, and at ~63px of interior "Shots in the bank"
-      // ellipsised to "S…" — with the ACTIVE tag beside it, four of the ten
-      // tiles named nothing at all.
-      const txt = `<span class="preview-stat__long">${r.label}</span><span class="preview-stat__short">${r.short}</span>`;
-      const label = r.active
-        ? `<span class="preview-stat__labeltxt">${txt}</span><span class="preview-stat__live">ACTIVE</span>`
-        : txt;
-      return `<div class="preview-stat${r.active ? " preview-stat--active" : ""}${cls}">
-        <div class="preview-stat__label">${label}</div>
-        <div class="preview-stat__val">${val}</div>
-      </div>`;
-    })
-    .join("");
+  const stats = previewGridHTML(opts.preview);
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
@@ -1799,6 +1846,99 @@ export function draftScreen(opts: {
             ? "The capstone costs two notches a bay — there is no skip. Pick the pressures you are equipped for."
             : "Every bay costs one notch — there is no skip. Pick the pressure you are equipped for."
         }</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * FINAL INSPECTION — the run's LAST draft (game/finals.ts).
+ *
+ * Deliberately the same modal shell as draftScreen: same scrim, same bank
+ * chips, same projection grid, same confirm. The moment in the loop is
+ * identical (a bay cleared, a cost accepted, the next bay begun) and a player
+ * who has read nine of these should not have to re-learn the screen on the
+ * tenth. What changes is the hand and what the copy claims about it — two
+ * clauses instead of N axes, ONE pick at every Tier, and no promise that the
+ * cost sticks, because there is nothing left for it to stick to.
+ *
+ * Each card names the ship system the clause is about (FinalDef.system). That
+ * is the one piece of information this screen carries that the ratchet draft
+ * does not, and it is here because the inspection is the moment the Tier's
+ * whole argument gets settled: a player who never connected "this Tier keeps
+ * throwing weather at me" to "so buy the Launcher" is told it once, on the last
+ * screen where it can still mean something.
+ */
+export function finalScreen(opts: {
+  bayNum: number;
+  bayName: string;
+  /** The run's Tier — which pair is on the table. */
+  tier: number;
+  nextBayName: string;
+  funds: number;
+  carry: number;
+  /** The two clauses. Exactly two at every Tier (finals.ts's finalsForTier). */
+  offers: FinalDef[];
+  /** The clause selected but not yet accepted, or null. */
+  selected: string | null;
+  /** The final bay's numbers as they stand vs. with `selected` folded in. */
+  preview: PreviewRow[];
+  scrap: number;
+}): string {
+  const ready = opts.selected !== null;
+  const cards = opts.offers
+    .map((f) => {
+      const picked = opts.selected === f.id;
+      const sys = upgradeById(f.system);
+      const foot = picked
+        ? `<span class="mod-card__mark">${icon("check", 10)}</span> Accepted — tap to undo`
+        : ready
+          ? "Tap to take this one instead"
+          : "Tap to preview";
+      return `<button class="mod-card mod-card--final${picked ? " mod-card--picked" : ""}"
+        data-action="pick-final" data-final="${f.id}" aria-pressed="${picked}">
+        <div class="mod-card__kind">clause${sys ? ` <span class="mod-card__stack">${sys.name}</span>` : ""}</div>
+        <div class="mod-card__name">${f.name}</div>
+        <p class="mod-card__desc">${f.desc}</p>
+        <div class="mod-card__pick">${foot}</div>
+      </button>`;
+    })
+    .join("");
+  const stats = previewGridHTML(opts.preview);
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
+      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
+      <h2 class="display">Final Inspection</h2>
+      <p class="muted" style="margin-top:-8px">One clause rides on ${opts.nextBayName}, the last bay of the run. Take the one your ship can carry.</p>
+      <div class="draft__bank">
+        <div class="chip chip--accent chip--inline">
+          <div class="chip__label">Ended $${opts.funds} — carries</div>
+          <div class="chip__value">$${opts.carry}</div>
+        </div>
+        <div class="chip chip--inline">
+          <div class="chip__label">Clause</div>
+          <div class="chip__value" id="draft-notches">${ready ? "1" : "0"}<span class="chip__pending">/1</span></div>
+        </div>
+        <div class="chip chip--inline">
+          <div class="chip__label">Scrap — no refit left</div>
+          <div class="chip__value" style="color:var(--warn)">${scrapHTML(opts.scrap, 16)}</div>
+        </div>
+      </div>
+      <div class="draft__body">
+        <div class="draft__cards" id="draft-cards">${cards}</div>
+        <div class="draft__preview" id="draft-preview" aria-live="polite">
+          <div class="draft__preview-hd">
+            <span>${opts.nextBayName} — projected</span>
+            <span class="draft__preview-note">${ready ? "with the clause" : "as it stands"}</span>
+          </div>
+          <div class="preview-grid">${stats}</div>
+        </div>
+      </div>
+      <div class="draft__confirm" id="draft-confirm">
+        <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
+          ${ready ? `Sign it — launch ${opts.nextBayName}` : "Take a clause"}
+        </button>
+        <p class="draft__confirm-note muted">Both clauses cost about the same. Which one costs YOU less is what your refits decided.</p>
       </div>
     </div>
   </div>`;

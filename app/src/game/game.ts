@@ -1,6 +1,9 @@
 import Matter from "matter-js";
 import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
 import { Cannon, predictTrajectory } from "./cannon";
+import {
+  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
+} from "./chute";
 import { Compactor } from "./compactor";
 import {
   createStandingWall,
@@ -29,11 +32,12 @@ import {
   settleZoneCubes,
   wakeNear,
   type ClearResult,
+  slagBountyFor,
 } from "./lineClear";
-import { payoutMult } from "./level";
+import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
-import { FX_TTL, type FxEvent } from "./fx";
+import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
 import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
@@ -124,7 +128,7 @@ export interface GameEvents {
    *  visuals already ride the FxEvent queue; this is the same moment offered
    *  to the ear. One call per blast, not per cube — a volatile chain in one
    *  step aggregates into a single event exactly like its explosion visual. */
-  onExplosion?: (kind: "bomb" | "volatile") => void;
+  onExplosion?: (kind: "bomb" | "volatile" | "chute") => void;
   /** Fired when armBomb actually changes the armed state — never on a refused
    *  call — with the new state. Every input path converges on armBomb (HUD
    *  button, keyboard, gamepad), so a cue wired here covers all three without
@@ -303,6 +307,17 @@ export class Game {
   cubes: Cube[] = [];
   constraints: Matter.Constraint[] = [];
   trajectory: Matter.Vector[] = [];
+  /**
+   * True when the arc above ends somewhere the bay can never use — down the
+   * intake chute, or short of the compactor's furthest reach. Drives the
+   * canvas strand warning (render.ts): red arc, red muzzle ring, and the maw
+   * lighting up.
+   *
+   * A FIELD written by updateTrajectory rather than a getter, because it is a
+   * property of the arc and the arc only changes when the aim does — a getter
+   * would re-walk 140 points on every read, and render reads it every frame.
+   */
+  trajectoryStrands = false;
 
   score: number;
   combo = 0;
@@ -319,6 +334,10 @@ export class Game {
    *  which is the bay the player actually built. */
   private lastCongestionIdx = -1;
   linesTotal = 0;
+  /** CUBES lost off the wrong side, not pieces: it sums lostCubes.length, and
+   *  the penalty is charged per cube too. Telemetry ships it as the badly named
+   *  `lostPieces`; dividing it by a shot count gives cubes per shot, never a
+   *  fraction of shots. */
   lostTotal = 0;
   status: GameStatus = "playing";
   /** Which condition triggered a "lost" status, for end-of-run copy. */
@@ -337,6 +356,10 @@ export class Game {
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */
   bombCharges: number;
+  /** How many charges the resupply line has already returned this bay. Counts
+   *  GRANTS, not charges held, so spending one never re-opens a grant already
+   *  paid — see level.ts's bombResupply, which is idempotent against this. */
+  bombsResupplied = 0;
   /** True when a demolition charge is ARMED: the next launch fires a bomb
    *  instead of the loaded piece, free of launch cost (see shoot()). Armed
    *  rather than fire-on-tap so the shot still goes where the player aimed —
@@ -406,11 +429,13 @@ export class Game {
    *
    * The rig used to fire on a free-running 420ms timer, which made it a
    * metronome that ignored the compactor. Measured on device, one autoloader
-   * bay threw 34 lost pieces from 32 shots (106%, against an 11% baseline) at
-   * 16 shots per line, and its shots were spread evenly across the compactor
-   * cycle (z=0.71 retreat-vs-press) while the same player's manual shots were
-   * strongly biased toward the open window (z=4.27). It was firing into a shut
-   * bay roughly half the time and paying the lost-piece penalty for it.
+   * bay threw 34 lost CUBES from 32 shots (1.06 per shot, against a 0.11
+   * baseline; lostTotal counts cubes, and this was long mis-reported as a
+   * "106%" of shots) at 16 shots per line, and its shots were spread evenly
+   * across the compactor cycle (z=0.71 retreat-vs-press) while the same
+   * player's manual shots were strongly biased toward the open window
+   * (z=4.27). It was firing into a shut bay roughly half the time and paying
+   * the lost-piece penalty for it.
    *
    * Holding a trigger puts the WHEN back in the player's hands while leaving
    * the WHERE scattered, which is the upgrade's whole identity: a fast, sloppy
@@ -547,7 +572,17 @@ export class Game {
     // different prevailing winds instead of all sharing the run seed's roll.
     this.windRng = mulberry32((seed ^ (level.id * 0x9e3779b9)) >>> 0);
     // Roll the bay's steady average in [-windMax, +windMax]; 0 stays 0 (calm).
-    this.windAvg = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
+    //
+    // The roll is DRAWN even when the bay's wind is locked (level.windLock —
+    // a Final Inspection's wind fork, see finals.ts) and then thrown away, so
+    // that the gust stream that follows sits at the same position either way.
+    // A locked bay is then the same weather TEXTURE as the one the seed would
+    // have dealt, with only its prevailing average moved — which is exactly
+    // what the card promises: the sign is the choice, not the whole climate.
+    const rolled = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
+    this.windAvg = level.windMax === 0 || level.windLock === null
+      ? rolled
+      : Math.max(-1, Math.min(1, level.windLock)) * level.windMax;
     this.windCur = this.windAvg;
     this.autoRng = mulberry32((seed ^ 0x5f356495 ^ (level.id * 0x85ebca6b)) >>> 0);
     this.bondCharges = level.bondBreakerCharges;
@@ -571,7 +606,7 @@ export class Game {
     // the aim line is drawn against the pile that is actually there, and before
     // the collision handler is registered because these cubes are placed rather
     // than launched — nothing about them is an impact.
-    this.cubes.push(...createStandingWall(this.phys.world, level.standingWall));
+    this.cubes.push(...createStandingWall(this.phys.world, level.standingWall, level.standingWallMaterial));
     this.updateTrajectory();
 
     this.onCollisionStart = (e) => {
@@ -601,7 +636,7 @@ export class Game {
         // rather than removed inline for the same reason bombs are — matter is
         // mid-solve here, and deleting bodies out from under the pair loop
         // corrupts the very iteration that found them.
-        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB);
+        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult);
         for (const c of blast) this.pendingBlast.add(c.body);
         // TAR: welds to whatever it settled against. Also deferred — adding a
         // constraint during collisionStart is the same mid-solve mutation.
@@ -760,6 +795,84 @@ export class Game {
   private throwChunks(cube: Cube, now: number): void {
     const p = cube.body.position;
     this.effects.push({ kind: "chunk", x: p.x, y: p.y, color: cube.color, t0: now });
+  }
+
+  /**
+   * Price cargo the bay lost, whichever way it went — blinked out short of the
+   * compactor, or fed into the intake chute.
+   *
+   * Extracted so those two paths cannot drift. They are the same event
+   * economically (cargo the player paid to launch and will never get a line
+   * out of) and they were only ever going to be told apart by their FX, so the
+   * accounting lives in one place and each caller spawns its own.
+   *
+   * Returns what ACTUALLY left the bankroll, which is not always the nominal
+   * charge: the balance floors at 0, and a "−$100" toast over a $30 bankroll
+   * would be the HUD contradicting itself. Callers skip their toast on 0 — a
+   * Contract prices a lost piece at nothing, and a $0 penalty would teach a
+   * rule that isn't there.
+   */
+  private chargeLostCubes(n: number, _now: number): number {
+    this.combo = 0;
+    this.lostTotal += n;
+    const deducted = Math.min(this.score, n * this.level.penaltyPerLostPiece);
+    this.score -= deducted;
+    this.events.onPieceLost?.(n);
+    return deducted;
+  }
+
+  /**
+   * Feed whatever has entered the recycling plant's intake through it (see
+   * chute.ts for why the maw exists and why its rect is authored rather than
+   * measured).
+   *
+   * The FX split follows detonate's: debris PER CUBE, where each cube stood, so
+   * you can read the shape of what you lost — but ONE explosion and one sound
+   * for the batch, because a shipment going in is one event and four of them in
+   * a step would be a wall.
+   *
+   * The "−$" is the exception, and it is the entire point of the mechanic: it
+   * spawns on the chute's LIP rather than at the cubes, because the cubes are
+   * behind the plant panel and a penalty toast rendered behind an opaque panel
+   * is how this was invisible in the first place.
+   */
+  private shredChute(now: number): void {
+    // Bombs first: one that flies in goes off rather than being quietly eaten.
+    // Routed through the normal detonation queue, so it gets the bomb's own
+    // blast and sound — a demolition charge exploding is a demolition charge
+    // exploding, wherever it happened to land. It vaporizes nothing (the maw is
+    // kept empty by this very method), so the cost is the charge and no more.
+    const rightEdge = chuteRightEdge(this.strandCutoffX);
+    for (const bomb of this.liveBombs) {
+      const p = bomb.body.position;
+      if (inChute(p.x, p.y, rightEdge)) this.pendingDetonations.add(bomb.body);
+    }
+
+    const shredded = shredInChute(this.phys.world, this.cubes, this.constraints, rightEdge);
+    if (shredded.length === 0) return;
+
+    let cx = 0;
+    for (const cube of shredded) {
+      cx += cube.body.position.x;
+      this.throwChunks(cube, now);
+    }
+    cx /= shredded.length;
+    this.effects.push({
+      kind: "explosion", x: cx, y: CHUTE_LIP_Y + CHUTE_BLAST_R * 0.5, r: CHUTE_BLAST_R, t0: now,
+    });
+    this.events.onExplosion?.("chute");
+
+    const deducted = this.chargeLostCubes(shredded.length, now);
+    if (deducted > 0) {
+      // Spawned a full SINK above the lip, not 20px above it. The toast
+      // travels PENALTY_SINK_PX down over its life, and the plant panel's top
+      // edge is CHUTE_LIP_Y — so the old anchor put the number in clear air
+      // for its first third and behind an opaque panel for the rest, which is
+      // the exact failure the lip constant was introduced to avoid.
+      this.effects.push({
+        kind: "penalty", x: cx, y: CHUTE_LIP_Y - 20 - PENALTY_SINK_PX, amount: deducted, t0: now,
+      });
+    }
   }
 
   /**
@@ -932,6 +1045,17 @@ export class Game {
       140,
       () => wind,
     );
+    this.trajectoryStrands = pathStrands(this.trajectory, this.strandCutoffX);
+  }
+
+  /**
+   * The leftmost x a cube can settle at and still be reachable, i.e. the
+   * boundary lineClear's markLostPieces strands cargo across. Taken from the
+   * compactor's own open stop, so the warning drawn on the arc and the penalty
+   * charged on landing are one number and cannot drift apart.
+   */
+  get strandCutoffX(): number {
+    return this.compactor.strandCutoffX;
   }
 
   /** `auto` marks a shot the Autoloader trigger fired rather than the player's
@@ -1082,7 +1206,7 @@ export class Game {
     // with a power axis that ignored the drag entirely (see AUTO_POWER_JITTER),
     // that is what made the mod read as erratic. Measured on device before this
     // fix: 6.72 shots per line in autoloader bays against 2.94 in hand-fired
-    // ones, and 23.4% of shipments lost to the wrong side against 10.3%.
+    // ones, and 0.234 cubes lost to the wrong side per shot against 0.103.
     const aimAngle = this.cannon.angle;
     const aimPower = this.cannon.power;
     const cone = Math.PI / 3;
@@ -1287,21 +1411,31 @@ export class Game {
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
       this.events.onLineClear?.(clear.lines);
       this.spawnClearFx(clear, awarded, now);
+      // A MAXED Demolition Rack returns charges as rows close. Run against the
+      // cumulative line count rather than this clear's delta so a four-line
+      // crush pays everything it earned — see level.ts's bombResupply for why
+      // the naive modulo drops grants. Idempotent, so calling it on every clear
+      // can never double-pay.
+      const owed = bombResupply(
+        this.linesTotal, this.bombsResupplied, this.level.bombResupplyLines,
+      );
+      if (owed > 0) {
+        this.bombsResupplied += owed;
+        this.bombCharges += owed;
+      }
     }
+
+    // Cargo fed into the recycling plant's intake goes IMMEDIATELY (chute.ts).
+    // Before the blink path below, deliberately: everything inside the maw is
+    // already left of the strand cutoff, so running markLostPieces first would
+    // sentence the same cubes to a 1.4s blink they are not going to serve.
+    this.shredChute(now);
 
     // ...or when they bounce OUT before the compactor (blink away, lose points).
     markLostPieces(this.cubes, this.compactor, now);
     const lostCubes = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
-    const lost = lostCubes.length;
-    if (lost > 0) {
-      this.combo = 0;
-      this.lostTotal += lost;
-      // Deducted, not nominal: the bankroll floors at 0, and the FX below must
-      // show the number that actually left it — a "−$100" over a $30 bankroll
-      // would be the HUD contradicting itself.
-      const deducted = Math.min(this.score, lost * this.level.penaltyPerLostPiece);
-      this.score -= deducted;
-      this.events.onPieceLost?.(lost);
+    if (lostCubes.length > 0) {
+      const deducted = this.chargeLostCubes(lostCubes.length, now);
       // The expense twin of spawnClearFx's payout: one "−$" at the cluster's
       // centroid, where the cubes just blinked away. A penalty the player only
       // ever met in the end screen's tally read as a hidden rule (playtest,
@@ -1309,7 +1443,7 @@ export class Game {
       // Skipped when nothing was deducted (Contracts price a lost piece at 0,
       // and a $0 penalty toast would teach a rule that isn't there).
       if (deducted > 0) {
-        const meanX = lostCubes.reduce((s, c) => s + c.x, 0) / lost;
+        const meanX = lostCubes.reduce((s, c) => s + c.x, 0) / lostCubes.length;
         const minY = Math.min(...lostCubes.map((c) => c.y));
         this.effects.push({ kind: "penalty", x: meanX, y: minY - 20, amount: deducted, t0: now });
       }
@@ -1557,12 +1691,18 @@ export class Game {
   /**
    * Destroy everything a volatile impact caught.
    *
-   * Deliberately pays NO salvage, which is the whole difference between this
+   * Pays NO salvage for LIVE cargo, which is the whole difference between this
    * and a demolition charge. A bomb is a tool the player aimed: it turns a dead
    * pile into funds. A volatile detonation is a hazard that went off: it turns
-   * cargo the player already landed into nothing. Paying for it would make
+   * cargo the player already landed into nothing. Paying for that would make
    * ratcheting the volatile axis an income strategy, which is the exact
    * inversion of a hazard.
+   *
+   * DEAD cargo is the one exception, and it does not weaken that rule. Slag can
+   * never complete a row however the bay is played, so removing it is not a
+   * loss being reimbursed — and the bounty only exists for a player who
+   * ratcheted a SECOND axis to put slag on the belt in the first place. Volatile
+   * alone still earns nothing at all. See lineClear.ts's slagBountyFor.
    */
   private resolveVolatile(): void {
     if (!this.pendingBlast.size) return;
@@ -1571,6 +1711,7 @@ export class Game {
     let cy = 0;
     let n = 0;
     const gone: { x: number; y: number }[] = [];
+    const razed: Cube[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const cube = this.cubes[i];
       const b = cube.body;
@@ -1578,6 +1719,7 @@ export class Game {
       cx += b.position.x;
       cy += b.position.y;
       n += 1;
+      razed.push(cube);
       gone.push({ x: b.position.x, y: b.position.y });
       this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -1594,6 +1736,25 @@ export class Game {
         r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
       });
       this.events.onExplosion?.("volatile");
+      // Reuses the bomb's salvage toast rather than inventing a second one: it
+      // is the same statement ("that wreckage was worth something") and the
+      // player has already learned to read it. A payout they only meet in the
+      // end screen teaches nothing — the rule PILE_TIERS follows for its clock.
+      const bounty = slagBountyFor(razed, this.level.slagBounty);
+      if (bounty > 0) {
+        this.score += bounty;
+        // NOT salvagedFunds. That field is the demolition charge's trade and
+        // nothing else — its doc here, RunState's, and the end screen's all
+        // say so, and screens.ts prints it as "$N recovered by demolition".
+        // A volatile detonation is not a charge, and a run that never drafted
+        // one would otherwise settle up crediting money to a rack the player
+        // does not own. The payout still lands (score, above) and still reads
+        // at the moment it happens (the toast below); what it must not do is
+        // claim to be something else on the way out.
+        this.effects.push({
+          kind: "salvage", x: cx / n, y: cy / n - 24, amount: bounty, t0: now,
+        });
+      }
     }
   }
 

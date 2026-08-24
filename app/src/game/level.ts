@@ -31,7 +31,14 @@ export interface LevelConfig {
   jointBreakStretch: number;
   /** Points awarded per cleared line. */
   scorePerLine: number;
-  /** Penalty per piece that decays on the wrong side of the compactor. */
+  /** Penalty charged for cargo that decays on the wrong side of the compactor.
+   *
+   *  PER CUBE, not per piece, whatever the name says: game.ts bills
+   *  `lostCubes.length * penaltyPerLostPiece`, so a spilled tetromino costs
+   *  four times this and a spilled pentomino five. The name is kept because it
+   *  is threaded through saves, telemetry and the sim harness, but anything
+   *  that QUOTES the number to a player has to say which unit it is in (see
+   *  preview.ts's spill row). */
   penaltyPerLostPiece: number;
   /** Points needed to clear the level. */
   targetScore: number;
@@ -75,6 +82,22 @@ export interface LevelConfig {
    *  contracts.ts's salvageProfile for the other invariant (no row of it may
    *  already be complete, or the bay clears a line on frame one). */
   standingWall: number[];
+  /** What the standing wall is MADE of. "standard" — every Contract that opens
+   *  with one — is scrap that was pressed flat long before the player arrived:
+   *  it fills slots, counts for lines and is simply in the way.
+   *
+   *  A Final Inspection can open a bay on a wall of something worse
+   *  (finals.ts's Slag Wall and Ice Wall), and that is the whole reason this is
+   *  a field rather than a constant inside createStandingWall. The material
+   *  changes what the pile IS, not how it looks: slag fills a slot and can
+   *  never count, so a slag wall is rows that will not sell until a demolition
+   *  charge cuts them out; cryo is stamped unstruck, so an ice wall is rows
+   *  that count for nothing until something hits them hard enough — and that
+   *  the press will shatter, kicking their neighbours loose, if nothing does.
+   *
+   *  Read once, at bay start (pieces.ts's createStandingWall). Meaningless when
+   *  standingWall is empty, which is every ordinary bay. */
+  standingWallMaterial: Material;
   /** Hide the NEXT-shipment preview. A pattern Contract variant knob: the whole
    *  SET is still on the card, so this removes lookahead without removing
    *  information the player was promised. Never true in a Deep Run — a random
@@ -119,6 +142,33 @@ export interface LevelConfig {
    *  detonate). The economic core of the bomb: a junk pile that can never
    *  complete a line is still worth something. */
   salvagePerCube: number;
+  /** Multiplier on the impact speed that sets a VOLATILE cube off
+   *  (lineClear.ts's VOLATILE_TRIGGER_SPEED). 1 = stock, and every ordinary bay
+   *  is stock.
+   *
+   *  A multiplier rather than an absolute speed because the constant it scales
+   *  says outright that it is "only meaningful relative to" the cannon's speed
+   *  range and the world's gravity — an absolute number here would be a second
+   *  copy of that relationship, free to drift out of it. Below 1 the material
+   *  is primed finer: measured first-contact speeds run 17.3 to 30.8 across
+   *  every angle and power the cannon can produce, so 0.85 (a threshold of
+   *  18.7) leaves only the softest lob safe where stock leaves two thirds of
+   *  launches safe. finals.ts's Hair Trigger is the only thing that writes it. */
+  volatileTriggerMult: number;
+  /** Funds paid per DEAD cube (one that can never count toward a line — slag)
+   *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
+   *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
+   *  SLAG_BOUNTY for how it is sized. Bombs are untouched: their problem is
+   *  that they run out, not that they underpay, and bombResupplyLines answers
+   *  that directly. */
+  slagBounty: number;
+  /** Lines per demolition charge returned mid-bay; 0 = no resupply. Written
+   *  only by the MAXED Demolition Rack (upgrades.ts), which is what turns that
+   *  capstone from another +2 into a change in kind. A bay can out-last six
+   *  charges — the Tier 6 Slag Wall clause opens one on 11 cubes of slag — and
+   *  seventh dead shipment currently has no answer at all. See level.ts's
+   *  bombResupply and game.ts's line-clear payout. */
+  bombResupplyLines: number;
   /** Magnitude cap (px/step^2) on this bay's lateral wind. Each bay rolls a
    *  steady AVERAGE wind in [-windMax, +windMax] once from the run seed (see
    *  game.ts's windAvg), then the live wind drunk-walks gently around that
@@ -140,6 +190,21 @@ export interface LevelConfig {
    *  a learnable baseline instead of oscillating extreme-to-extreme or
    *  re-rolling every fraction of a second. Ignored when windMax is 0. */
   windGust: number;
+  /** PINNED prevailing wind, as a SIGNED FRACTION of windMax: -1 is a full
+   *  headwind at the bay's cap, +1 a full tailwind at it, 0 dead calm however
+   *  windy the bay is. null — every ordinary bay — rolls the average from the
+   *  seed the way it always has (game.ts's windAvg).
+   *
+   *  The seam a Final Inspection's wind fork runs on (finals.ts): the bay's
+   *  weather stops being a roll and becomes the thing the player CHOSE, which
+   *  is the only way a card can promise a headwind and be telling the truth.
+   *  A fraction rather than an absolute magnitude so the lock rides whatever
+   *  cap the bay actually carries — ratcheted Crosswind included — instead of
+   *  quietly capping a run that spent notches on the weather.
+   *
+   *  Ignored when windMax is 0 (the calm bays 1-3), same short-circuit the
+   *  drunk walk itself takes. */
+  windLock: number | null;
   /** Muzzle-speed multiplier from the LAUNCHER upgrade track (see
    *  upgrades.ts). 1 = stock. Scales both ends of the cannon's speed range
    *  (cannon.ts's speedMin/speedMax), so a powered launcher reaches deeper
@@ -610,6 +675,54 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
   return Math.min(streak, tier ? tier.payMult : Infinity);
 }
 
+/**
+ * What one slag cube pays when a volatile detonation removes it.
+ *
+ * Reads as salvagePerCube ($8) of scrap metal plus a $12 DENIAL premium. The
+ * bomb's refund is already justified as "a cube that will never complete a line
+ * is worth $0 as line material and salvagePerCube as scrap metal" — a slag cube
+ * is worth $0 as line material for its whole life AND occupies a slot in a row
+ * nothing can now close, so removing it is worth strictly more than removing a
+ * standard cube.
+ *
+ * Sized against the two things it must sit between. A volatile lobbed into a
+ * three-slag cluster returns $60 against a $25 launch, so disposal is clearly
+ * worth the shot; one line pays scorePerLine (100+) before combo, so disposal
+ * never out-earns playing the game. That is the same hierarchy the bomb's
+ * stingy quarter-rate scrap trickle already protects.
+ */
+export const SLAG_BOUNTY = 20;
+
+/** Lines per returned charge at a MAXED Demolition Rack. A clean bay clears ~8
+ *  lines, so the capstone runs ~8 charges instead of 6 and a long grinding bay
+ *  keeps paying — which is the case this exists for, since a bay can out-last
+ *  six charges long before it ends. */
+export const DEMO_RESUPPLY_LINES = 4;
+
+/**
+ * How many charges a bay still owes the player, given the lines cleared so far.
+ *
+ * Metered on CUMULATIVE lines against a running grant count rather than on each
+ * clear's delta, and that is the whole reason this is a function. A four-line
+ * clear arrives as a single event: an equality test (`linesTotal % interval ===
+ * 0`) would pay it once instead of the two it may have earned, and a delta test
+ * would miss it entirely whenever a clear stepped over the interval rather than
+ * landing on it. Expressed this way the grant is idempotent — replaying it can
+ * never double-pay — so the caller may run it after every clear without
+ * tracking which clears it has already seen.
+ *
+ * `interval` of 0 disables, which is every tier below the capstone and every
+ * bay of a run that never bought the track.
+ */
+export function bombResupply(
+  linesTotal: number,
+  alreadyGranted: number,
+  interval: number,
+): number {
+  if (interval <= 0) return 0;
+  return Math.max(0, Math.floor(linesTotal / interval) - alreadyGranted);
+}
+
 /** Bay 1's joint stretch tolerance at Mark 1, and the unit the whole ramp is
  *  stated in: bay 10 is exactly twice this (the Mark then multiplies the whole
  *  ramp — see BOND_MARK_STEP). Exported because render.ts sizes its weld
@@ -706,6 +819,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],
+    // Meaningless while standingWall is empty, which is every Deep Run bay —
+    // named anyway so the field has one honest default rather than a hole a
+    // caller has to know to fill.
+    standingWallMaterial: "standard",
     hideNextPreview: false,
     // 1350, up from 900. The old cooldown was short enough that the reload bar
     // was almost never the thing you were waiting on — you fired, and by the
@@ -723,6 +840,11 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     materialMix: { ...NO_MATERIALS },
     bombCharges: 0,
     salvagePerCube: 8,
+    // Stock priming. Inert-by-default, the same stance windMax 0 and
+    // autoLaunchMs 0 take.
+    volatileTriggerMult: 1,
+    slagBounty: SLAG_BOUNTY,
+    bombResupplyLines: 0,
     launchPower: 1,
     windAssist: 0,
     settleAssist: 1,
@@ -734,6 +856,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // WIND_GUST_FRACTION's doc above. windMax 0 (bays 1-3) makes this 0 too,
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
+    // Rolled, not pinned — a Final Inspection is the only thing that locks a
+    // bay's weather, and it writes this on top of a base level like every
+    // other one-off does.
+    windLock: null,
     bondBreakerCharges: 0,
     // ON. sim/pile.ts measured it, the bay now SHOWS it (render.ts's
     // congestion rows light the bay floor-up and the plant's Launch price

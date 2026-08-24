@@ -20,24 +20,26 @@ import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
 import {
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   PILE_TIERS, TARGET_PER_BAY, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
-  materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
+  materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
   type HazardId, type Ratchets,
 } from "../src/game/hazards";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
-import { Cannon } from "../src/game/cannon";
+import { Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag } from "../src/game/cannon";
+import { CHUTE, CHUTE_THROAT_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  markLostPieces,
+  markLostPieces, slagBountyFor,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -53,9 +55,12 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
-  CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isFinalDraft, isRefitBay, levelForRun,
+  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
+import {
+  FINALS, applyFinal, finalById, finalsForTier, type FinalId,
+} from "../src/game/finals";
 import {
   dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
@@ -2138,6 +2143,25 @@ section("Demolition charges + settle window (game.ts)");
   const g2 = new Game(makeBaseLevel(0), {}, 1);
   check("arming with no charges is refused", !g2.armBomb() && !g2.bombArmed);
 
+  // The resupply line's CONFIG path, end to end: a maxed Demolition Rack has to
+  // reach the bay the player is actually flying, and the bay has to open owing
+  // nothing. The grant itself is level.ts's bombResupply (proved there against
+  // its own mutants) — driving a real line clear would need a settled row, and
+  // this harness leaves physics to sim/sweep.ts's bots.
+  {
+    const maxed = makeBaseLevel(0);
+    const tiers = newTiers();
+    tiers.demolition = MAX_TIER;
+    applyUpgrades(maxed, tiers);
+    const g4 = new Game(maxed, {}, 7);
+    check("a maxed rack carries its resupply interval into the bay",
+      g4.level.bombResupplyLines === DEMO_RESUPPLY_LINES);
+    check("a bay opens owing no resupply", g4.bombsResupplied === 0);
+    // A stock bay must not quietly resupply — 0 is what disables it.
+    check("a stock bay carries no resupply line",
+      new Game(makeBaseLevel(0), {}, 8).level.bombResupplyLines === 0);
+  }
+
   // Settle window: crossing the target must NOT win instantly.
   let settleStarts = 0;
   let statuses: string[] = [];
@@ -2176,7 +2200,8 @@ section("Demolition charges + settle window (game.ts)");
 
   // Autoloader is a HELD trigger, not a timer. The old version fired on its own
   // every 420ms and could not see the compactor: on device one Autoloader bay
-  // threw 34 lost pieces from 32 shots (106% vs an 11% baseline) at 16 shots
+  // threw 34 lost CUBES from 32 shots (1.06 per shot vs a 0.11 baseline; not
+  // the "106%" this was long written as — lostTotal counts cubes) at 16 shots
   // per line, its launches spread evenly across the cycle (z=0.71) while the
   // same player's manual shots clustered in the open window (z=4.27).
   const autoCfg = applyMods(makeBaseLevel(0), ["micro", "autoloader"]);
@@ -2250,7 +2275,7 @@ section("Demolition charges + settle window (game.ts)");
   // power axis was worse: re-rolled across the whole upper 55% of the band
   // every shot, so the drag's power did literally nothing. Measured across 5
   // autoloader bays: 6.72 shots per line against 2.94 in hand-fired bays, and
-  // 23.4% of shipments lost to the wrong side against a 10.3% baseline.
+  // 0.234 cubes lost to the wrong side per shot against a 0.103 baseline.
   const AIM_ANGLE = 0.35;
   // Funds ARE the score, so a bankroll big enough to sustain a long burst also
   // wins the bay on the first shot — the target has to move with it.
@@ -2832,16 +2857,29 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // auto-height panel, and smaller pixel-font stat labels). What CAN be checked
   // headlessly — and is the part that actually made it fragile — is the WIDTH
   // BUDGET: the funds line has to fit its column with real slack at the smallest
-  // scale the game runs at, using conservative per-character advances rather
-  // than the sandbox's fallback font metrics (the real Press Start 2P is far
-  // wider than any fallback, which is exactly why this reproduced on a device
-  // and not in a headless browser).
+  // scale the game runs at, using advances measured from the app's OWN font
+  // files rather than the sandbox's fallback font metrics (the real Press Start
+  // 2P is far wider than any fallback, which is exactly why this reproduced on a
+  // device and not in a headless browser).
   //
-  // Advances are expressed in em and deliberately generous:
-  //   mono  0.60em — JetBrains Mono's actual advance
-  //   pixel 1.45em — Press Start 2P measured on-device INCLUDING letter-spacing
+  // EVERY advance below is MEASURED against app/public/fonts/*.woff2 under the
+  // exact app.css rule named beside it — not estimated. Estimating is what went
+  // wrong before: a flat "Rajdhani averages 0.45em/glyph" under-priced every
+  // tier-2 label by 13-30%. That matters in the UNSAFE direction, because
+  // fundsBudget SUBTRACTS those labels from the width it hands the funds line —
+  // undershooting a label inflates `available`, so the budget can only ever be
+  // too optimistic, never too strict. (It had not yet swallowed a real overflow:
+  // recalibrating cost the compact cases ~13px of `available` and the tightest
+  // one still clears by 64px. The margin was real; the arithmetic was not.)
+  // Measurement is linear in font-size to within 0.05%, so one em figure per
+  // string covers every scale.
+  //
+  // Both of these faces are MONOSPACE, so one per-glyph advance is exact:
+  //   mono  0.60em/glyph — JetBrains Mono, .pl-stat .v / .pl-funds .v; identical
+  //                        at weight 700 and 800
+  //   pixel 1.00em/glyph — Press Start 2P at .pl-stat .lbl's `letter-spacing: 0`
   const MONO_ADV = 0.6;
-  const PIXEL_ADV = 1.45;
+  const PIXEL_ADV = 1.0;
 
   // The CSS geometry this mirrors. Kept as named constants so a change in
   // app.css that isn't reflected here shows up as a failing budget rather than
@@ -2861,18 +2899,26 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // the budget has to model them or it prices a layout that no phone renders.
   const C_FUNDS_FS_MIN = 15, C_FUNDS_FS_FPX = 34;
   const C_STAT_LBL_MIN = 8, C_STAT_LBL_FPX = 12;
-  /** Rajdhani's advance, vs the pixel face's 1.45em — this ratio is exactly why
-   *  an 8-glyph heading fits a phone column in one face and not the other. */
-  const UI_ADV = 0.45;
-
-  /** Each stat column is as wide as the WIDER of its pixel-font label and its
-   *  mono value — the label is what dominates at small scales, and missing
-   *  that is what made the original budget wrong. Hoisted here, with the
-   *  scale factors as explicit parameters rather than a closure, because
-   *  fundsBudget below and the Lost-column check further down both need the
-   *  same formula and are not nested inside one another. */
-  const col = (label: string, value: string, lblAdv: number, statLbl: number, statVal: number, statPad: number) =>
-    Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
+  /**
+   * Rajdhani is PROPORTIONAL, so — unlike the two monospace faces above — no
+   * single per-glyph advance is right for it. Its real per-glyph cost runs from
+   * 0.516em (LEFT) to 0.645em (COMBO) depending on how many round bowls the word
+   * carries, which is why a flat average failed worst on exactly the labels this
+   * budget uses. These are measured widths of the WHOLE WORD, in em of the
+   * label's font-size, as [data-density="compact"] .pl-stat .lbl renders it:
+   * rajdhani-700.woff2, letter-spacing 0.06em, uppercase.
+   */
+  const UI_EM: Record<string, number> = {
+    LAUNCHES: 4.7637, // 38.109px @ 8px
+    SHIPMENTS: 5.2246, // 41.797px @ 8px
+    TIME: 2.1563, // 17.250px @ 8px
+  };
+  /** Worst per-glyph advance seen across a wider survey of the HUD's labels
+   *  (COMBO, 0.6449em). A label that is not in the table above is priced at this
+   *  rather than at an average, so adding one can never quietly price it
+   *  NARROWER than a word that was actually measured. */
+  const UI_ADV_MAX = 0.6449;
+  const uiLabelEm = (label: string) => UI_EM[label] ?? label.length * UI_ADV_MAX;
 
   /** Width the funds line needs vs. the width its column actually gets. */
   function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
@@ -2888,12 +2934,32 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const statLbl = compact
       ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX)
       : mx(STAT_LBL_MIN, STAT_LBL_FPX);
-    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
+    /** Width of a tier-2 label in em of its own font-size. Compact swaps the
+     *  face, so it swaps the metric with it. */
+    const lblEm = (label: string) =>
+      compact ? uiLabelEm(label) : label.length * PIXEL_ADV;
     const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
     const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
 
-    const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)), lblAdv, statLbl, statVal, statPad);
-    const timeCol = col("TIME", "0:00", lblAdv, statLbl, statVal, statPad) + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+    // Each stat column is as wide as the WIDER of its label and its mono value —
+    // the label is what dominates at small scales, and missing that is what made
+    // the original budget wrong.
+    const col = (label: string, value: string) =>
+      Math.max(lblEm(label) * statLbl, value.length * MONO_ADV * statVal) + statPad;
+    // The first column's heading is "Launches" on a normal bay and "Shipments"
+    // on a pattern Contract (screens.ts's plant panel) — one glyph longer and
+    // 0.46em wider. The budget has to price the WIDER of the two it can render,
+    // or it proves the case that happens not to be the tight one.
+    const launchesCol = col("SHIPMENTS", String(Math.floor(funds / 25)));
+    const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+    // A LINES Contract renders a third column where a Deep Run puts its clock
+    // (screens.ts's hudHTML). It cannot be the binding one: "LOST" and "TIME"
+    // are both 4 glyphs, so the label term is identical, and its widest value
+    // ("999", the degenerate near-total-loss case) is shorter than "0:00" — so
+    // lostCol <= timeCol holds by construction at every viewport. Returned so
+    // the check below reads the same numbers this budget does rather than
+    // re-deriving them from a second copy of the model.
+    const lostCol = col("LOST", "999") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 
     const gaps = 2 * mx(READ_GAP_MIN, READ_GAP_FPX);
     const available = content - launchesCol - timeCol - gaps;
@@ -2906,7 +2972,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
       MONO_ADV * fundsFs +
       tgtStr.length * MONO_ADV * fundsFs * TGT_EM;
 
-    return { available, needed, slack: available - needed, mode: l.mode };
+    return { available, needed, slack: available - needed, mode: l.mode, timeCol, lostCol };
   }
 
   // Every viewport class, at the worst realistic bankroll/target pairing. The
@@ -2961,17 +3027,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // which is not six times the coverage.
   {
     const [name, w, h] = VIEWPORTS[0];
-    const l = computeLayout(w, h);
-    const fpx = l.fw / 1280;
-    const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
-    const compact = l.density === "compact";
-    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
-    const statLbl = compact ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX) : mx(STAT_LBL_MIN, STAT_LBL_FPX);
-    const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
-    const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
-    const margin = mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
-    const timeCol = col("TIME", "0:00", lblAdv, statLbl, statVal, statPad) + margin;
-    const lostCol = col("LOST", "999", lblAdv, statLbl, statVal, statPad) + margin;
+    const { timeCol, lostCol } = fundsBudget(w, h, 1_259, 1_700);
     check(
       `${name}: a lines Contract's assumed Lost width fits inside Time's (holds for every viewport by construction)`,
       lostCol <= timeCol,
@@ -3525,6 +3581,87 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         { body: inertA, material: "standard", struck: true } as Cube,
         { body: inertB, material: "slag", struck: true } as Cube,
       ], inertA, inertB).length === 0);
+  }
+
+  // THE SLAG BOUNTY. A volatile detonation pays for the SLAG it destroys and
+  // for nothing else. The distinction is the entire licence for this payout:
+  // game.ts's resolveVolatile refuses to pay for a detonation as such, because
+  // "paying for it would make ratcheting the volatile axis an income strategy,
+  // which is the exact inversion of a hazard". A bounty on slag is not that —
+  // it pays only where the player ratcheted a SECOND axis, and it pays for
+  // removing cargo that was already worth nothing. If a future edit ever makes
+  // a standard cube pay here, that argument is broken and check 2 is the one
+  // that says so.
+  {
+    const at = (x: number, material: Material): Cube => ({
+      body: Matter.Bodies.rectangle(x, 100, CELL, CELL),
+      material, struck: true,
+    } as Cube);
+    const slag3 = [at(0, "slag"), at(CELL, "slag"), at(CELL * 2, "slag")];
+    check("a volatile blast pays the bounty for every slag cube it destroys",
+      slagBountyFor(slag3, SLAG_BOUNTY) === 3 * SLAG_BOUNTY,
+      `${slagBountyFor(slag3, SLAG_BOUNTY)} vs ${3 * SLAG_BOUNTY}`);
+    // The anti-inversion rule, pinned. Live cargo obliterated by a hazard is a
+    // LOSS and must stay one.
+    const cargo = [at(0, "standard"), at(CELL, "cryo"), at(CELL * 2, "volatile")];
+    check("a volatile blast pays nothing for the live cargo it destroys",
+      slagBountyFor(cargo, SLAG_BOUNTY) === 0);
+    check("a mixed blast pays for the slag half only",
+      slagBountyFor([...slag3, ...cargo], SLAG_BOUNTY) === 3 * SLAG_BOUNTY);
+    // The premium is what makes disposal worth a launch; equal to salvagePerCube
+    // it would just be the bomb's refund with extra steps.
+    const stock = makeBaseLevel(0);
+    check("slag is worth strictly more than a standard cube's salvage",
+      SLAG_BOUNTY > stock.salvagePerCube,
+      `bounty ${SLAG_BOUNTY} vs salvage ${stock.salvagePerCube}`);
+    // ...and strictly less than a line, or disposal becomes the game.
+    check("a blast full of slag still pays less than one line",
+      3 * SLAG_BOUNTY < stock.scorePerLine * 2,
+      `${3 * SLAG_BOUNTY} vs ${stock.scorePerLine * 2}`);
+  }
+
+  // THE RESUPPLY LINE. A bay is long enough to out-last six charges — PR #70's
+  // Slag Wall opens one on 11 cubes of it — so the capstone returns charges as
+  // lines are cleared. Metered on LINES cumulatively rather than on a per-clear
+  // delta: a 4-line clear arrives as one event, and an equality test against
+  // the interval would silently skip the grant.
+  {
+    const N = DEMO_RESUPPLY_LINES;
+    check("no charge is owed before the first interval is reached",
+      bombResupply(N - 1, 0, N) === 0);
+    check("one charge is owed at the interval",
+      bombResupply(N, 0, N) === 1);
+    check("a charge already granted is never granted twice",
+      bombResupply(N, 1, N) === 0);
+    // The delta-vs-cumulative trap: four lines at once must still pay.
+    check("a single multi-line clear that spans an interval still pays",
+      bombResupply(N * 2, 1, N) === 1);
+    check("a clear spanning two intervals pays both",
+      bombResupply(N * 2, 0, N) === 2);
+    // 0 disables — every tier below the capstone, and every bay of a run that
+    // never bought the track.
+    check("an interval of 0 never returns a charge",
+      bombResupply(999, 0, 0) === 0);
+  }
+
+  // Only the MAXED Demolition Rack resupplies. The lower tiers stay a flat
+  // count, so the capstone is a change in kind rather than another +2.
+  {
+    const tiersAt = (t: number) => {
+      const tiers = newTiers();
+      tiers.demolition = t;
+      const cfg = makeBaseLevel(0);
+      applyUpgrades(cfg, tiers);
+      return cfg;
+    };
+    check("demolition tiers 0-2 grant no resupply",
+      [0, 1, 2].every((t) => tiersAt(t).bombResupplyLines === 0));
+    check("demolition tier 3 opens the resupply line",
+      tiersAt(MAX_TIER).bombResupplyLines === DEMO_RESUPPLY_LINES,
+      `${tiersAt(MAX_TIER).bombResupplyLines}`);
+    // The charge count itself is untouched by this change.
+    check("the capstone still grants its six charges",
+      tiersAt(MAX_TIER).bombCharges === 6);
   }
 
   // Tar welds to what it settles against, and the weld is the joint nothing
@@ -4235,9 +4372,18 @@ section("Congestion tax (level.ts PILE_TIERS / game.ts pileTier)");
 
   // A std shipment is 4 cubes, so two launches put 8 on the field — past both
   // thresholds. Stepping only a few frames between them keeps everything alive.
+  //
+  // AIMED, deliberately. The cannon's rest pose is 20 degrees at minimum power,
+  // which drops the shipment about 490px out — inside the recycling plant's
+  // intake (chute.ts), where it is now shredded within ~20 steps. These checks
+  // are about what a POPULATED field costs, so they have to put cargo somewhere
+  // the bay actually keeps it; before the chute existed the fumbled default
+  // happened to work, which is the whole reason the chute exists.
   const fireTwice = (game: Game) => {
     for (let i = 0; i < 2; i++) {
       const t = 10_000 + i * 10_000;
+      game.cannon.angle = Math.PI / 6;
+      game.cannon.power = game.cannon.speedMax;
       game.shoot(t);
       for (let s = 0; s < 5; s++) game.update(t + s);
     }
@@ -4495,6 +4641,437 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
 }
 
 // ---------------------------------------------------------------------------
+section("Final Inspection: the run's last draft (finals.ts, run.ts)");
+{
+  // EVERY Tier deals a pair. A Tier with no pair falls back to the table's top
+  // rung rather than dealing nothing (finalsForTier), which is the right
+  // behaviour for a Tier ABOVE the ladder and a silent hole for one inside it —
+  // so the hole is checked here rather than discovered on a player's last bay.
+  let everyTierPaired = true;
+  const missing: number[] = [];
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    if (!FINALS.some((f) => f.tier === tier)) {
+      everyTierPaired = false;
+      missing.push(tier);
+    }
+  }
+  check("every Tier 1..MARK_COUNT has its own pair in the table",
+    everyTierPaired, `missing: ${missing.join(", ")}`);
+
+  let handsWellFormed = true;
+  const illFormed: string[] = [];
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    const hand = finalsForTier(tier);
+    // Exactly two, and two DIFFERENT clauses: the whole feature is a fork, and
+    // a hand of one (or of the same card twice) is a toll with a card frame
+    // around it.
+    if (hand.length !== 2 || hand[0].id === hand[1].id) {
+      handsWellFormed = false;
+      illFormed.push(`tier ${tier}: ${hand.map((f) => f.id).join(",") || "empty"}`);
+    }
+  }
+  check("every Tier deals exactly two distinct clauses", handsWellFormed, illFormed.join(" · "));
+
+  const ids = FINALS.map((f) => f.id);
+  check("clause ids are unique", new Set(ids).size === ids.length);
+  check("every clause resolves by id", ids.every((id) => finalById(id)?.id === id));
+  check("an unknown id resolves to nothing", finalById("no-such-clause") === undefined);
+
+  // Card copy carries its own number, the same rule every HazardDef.desc
+  // follows: the player is accepting a cost sight-unseen on the run's LAST bay,
+  // where a vague card turns a deliberate trade into a guess. A clause whose
+  // effect is a direction rather than a size (the wind pair) says so in words.
+  const vague = FINALS.filter((f) => !/\d/.test(f.desc) && !/\b(full|pinned|nothing|never)\b/i.test(f.desc));
+  check("every clause states its own size", vague.length === 0, vague.map((f) => f.id).join(", "));
+
+  // The boundary. The offer is built at the moment a bay is WON, before the run
+  // advances, so the index is the bay just cleared: clearing bay 9 (index 8)
+  // opens the inspection and nothing else does.
+  const finalDrafts = Array.from({ length: RUN_LEVELS }, (_, i) => i).filter(isFinalDraft);
+  check("exactly one draft in a run is the inspection",
+    finalDrafts.length === 1 && finalDrafts[0] === RUN_LEVELS - 2, finalDrafts.join(","));
+
+  // The clause lands on the LAST bay and on no other. A run carrying a clause
+  // must play bays 1-9 exactly as a run without one — otherwise a replayed
+  // earlier bay (Restart Bay) would silently inherit the final bay's terms.
+  {
+    let leaks = 0;
+    for (const clause of FINALS) {
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: i };
+        const withClause = levelForRun({ ...run, final: clause.id });
+        const without = levelForRun(run);
+        if (JSON.stringify(withClause) !== JSON.stringify(without)) leaks += 1;
+      }
+    }
+    check("no clause touches any bay but the last", leaks === 0, `${leaks} leak(s)`);
+  }
+
+  // …and it DOES land there. A clause that changed nothing would be a free
+  // pick, which is the one thing an inspection may never be.
+  {
+    const inert: string[] = [];
+    for (const clause of FINALS) {
+      const run = {
+        ...newRun(7, [], 0, newTiers(), clause.tier),
+        levelIndex: RUN_LEVELS - 1,
+      };
+      const before = levelForRun(run);
+      const after = levelForRun({ ...run, final: clause.id });
+      if (JSON.stringify(before) === JSON.stringify(after)) inert.push(clause.id);
+    }
+    check("every clause actually changes the final bay", inert.length === 0, inert.join(", "));
+  }
+
+  // A pair whose two clauses produce the SAME bay is not a choice.
+  {
+    const same: string[] = [];
+    for (let tier = 1; tier <= MARK_COUNT; tier++) {
+      const [a, b] = finalsForTier(tier);
+      const run = { ...newRun(7, [], 0, newTiers(), tier), levelIndex: RUN_LEVELS - 1 };
+      if (JSON.stringify(levelForRun({ ...run, final: a.id }))
+        === JSON.stringify(levelForRun({ ...run, final: b.id }))) same.push(`tier ${tier}`);
+    }
+    check("a pair's two clauses build different bays", same.length === 0, same.join(", "));
+  }
+
+  check("no clause is a no-op on a null id", (() => {
+    const cfg = makeBaseLevel(9, 1);
+    const before = JSON.stringify(cfg);
+    applyFinal(cfg, null);
+    // Unknown ids are ignored for the same forward-compatibility reason
+    // applyRatchets ignores unknown axes — a renamed clause must not throw on
+    // a run's last bay.
+    applyFinal(cfg, "not-a-clause" as FinalId);
+    return JSON.stringify(cfg) === before;
+  })());
+
+  // NOT A LOSE BUTTON. hazards.ts floors Shift Cut at 45s because "an axis that
+  // can reach an unplayable bay is not a difficulty knob, it is a lose button",
+  // and the rule binds harder here: this fires on the run's last bay, where a
+  // dead bay costs the whole run rather than one notch. Checked on the WORST
+  // realistic arrival — every ratchet the Tier can deal, taken as deep as a run
+  // can take it — rather than on a clean base, because a clause that is safe
+  // alone and fatal on top of nine notches is still fatal.
+  {
+    const broken: string[] = [];
+    // TWO arrivals per clause, because the obvious one is not the worst one.
+    //
+    // Round-robin over every axis the Tier deals is the arrival that looks
+    // adversarial, and for the material clauses it is the GENEROUS one: it
+    // ratchets the clause's own material too, which the clause then overwrites
+    // rather than stacks on. The real worst case pours every notch into the
+    // materials the clause does NOT write, so applyRatchets caps a full belt
+    // and the clause lands on top of it. Measured before applyFinal re-capped:
+    // that arrival took Powder Run to 0.78 of the belt while this check, run
+    // on the round-robin alone, passed at 0.55. A worst-case assertion that
+    // does not construct the worst case is not an assertion.
+    const arrivals = (clause: (typeof FINALS)[number]): Ratchets[] => {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      const pour = (axes: typeof HAZARDS): Ratchets => {
+        const r: Ratchets = {};
+        if (!axes.length) return r;
+        for (let n = 0; n < notches; n++) {
+          const a = axes[n % axes.length];
+          r[a.id] = (r[a.id] ?? 0) + 1;
+        }
+        return r;
+      };
+      const pool = hazardsForMark(clause.tier);
+      // Which material the clause writes, read off a clean bay rather than
+      // declared: a clause that grows a second material later is covered
+      // without anyone remembering to update a list here.
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      // The second pour is CONTENT AXES ONLY, minus the clause's own material.
+      // Including the number axes would spread the notches so thin that the
+      // belt never fills, which is exactly how the first version of this check
+      // passed while Powder Run was reaching 0.78 — the pour has to be able to
+      // reach the cap before the clause is asked to push past it.
+      return [
+        pour(pool),
+        pour(pool.filter((h) => h.kind === "content" && !own.includes(h.material!))),
+      ];
+    };
+    for (const clause of FINALS) {
+     for (const ratchets of arrivals(clause)) {
+      const run = {
+        ...newRun(7, [], 0, newTiers(), clause.tier),
+        levelIndex: RUN_LEVELS - 1,
+        ratchets,
+        final: clause.id,
+      };
+      const cfg = levelForRun(run);
+      const why: string[] = [];
+      if (!(cfg.targetScore > 0)) why.push("target <= 0");
+      if (!(cfg.scorePerLine > 0)) why.push("pays nothing per line");
+      if (!(cfg.startingFunds >= cfg.launchCost)) why.push("cannot afford one launch");
+      if (!(cfg.timeLimitSec >= 45)) why.push(`clock ${cfg.timeLimitSec}s`);
+      // compactor.ts's floor: at equality the two stops share an X and the bar
+      // has zero travel — it never moves again while still counting strokes.
+      if (!(cfg.compactorOpenCells > cfg.compactorMinLineCells)) why.push("press has no stroke");
+      if (!(cfg.compactorSpeed > 0)) why.push("press stopped");
+      if (!Number.isFinite(cfg.windLock ?? 0) || Math.abs(cfg.windLock ?? 0) > 1) why.push("wind lock out of range");
+      // Every shipment a hazard, at any ratchet depth, is not a hard bay — it
+      // is one with no cargo to build rows out of. Asserted against hazards.ts's
+      // OWN cap rather than a looser number of this file's invention: the
+      // ratchet mix is held to 0.55 and a clause may not route around it (see
+      // applyFinal's re-cap). A tolerance, not equality, because the scaling is
+      // floating point.
+      const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
+      if (mix > MIX_TOTAL_CAP + 1e-9) why.push(`materials sum ${mix.toFixed(3)}`);
+      if (why.length) broken.push(`${clause.id}: ${why.join(", ")}`);
+     }
+    }
+    check("no clause can build an unplayable final bay", broken.length === 0, broken.join(" · "));
+
+    // …and the re-cap takes its reduction from the RATCHETED materials, never
+    // from the clause's own. FinalDef.desc prints that rate as a promise the
+    // player accepted one screen ago; scaling it would make the card lie about
+    // the bay it just sold them.
+    const lied: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] < clean.materialMix[k] - 1e-9) {
+            lied.push(`${clause.id}:${k} ${clean.materialMix[k].toFixed(2)}->${full.materialMix[k].toFixed(2)}`);
+          }
+        }
+      }
+    }
+    check("the re-cap never scales the rate a clause's card quotes",
+      lied.length === 0, lied.join(", "));
+
+    // ...and where the arriving ratchet pushes the belt PAST the card's rate,
+    // the card has to say so. schedule() floors a material at the quoted rate
+    // and then adds a notch on top, so a run carrying two Slag notches meets
+    // Slag Wall's "8%" card with a belt at 12%. That is the design — a
+    // mandatory cost the player's own earlier choices could pre-pay is not a
+    // cost — but it makes a bare number on the card wrong on exactly the
+    // arrivals it matters for. "At least" is what makes it true on all of them.
+    const bare: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      let overshoots = false;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] > clean.materialMix[k] + 1e-9) overshoots = true;
+        }
+      }
+      if (overshoots && !/at least/i.test(clause.desc)) bare.push(clause.id);
+    }
+    check("a clause that can outrun its own card says \"at least\" on it",
+      bare.length === 0, bare.join(", "));
+  }
+
+  // The wind pair's seam. A locked bay must actually blow the way its card
+  // says, at the cap, rather than rolling — and an UNLOCKED bay must keep
+  // rolling exactly as it always did.
+  {
+    const cfg = makeBaseLevel(9, 1);
+    const rolled = new Game(cfg, {}, 4242).windAverage;
+    const head = new Game({ ...cfg, windLock: -1 }, {}, 4242).windAverage;
+    const tail = new Game({ ...cfg, windLock: 1 }, {}, 4242).windAverage;
+    check("a locked headwind sits at the bay's cap, against",
+      Math.abs(head + cfg.windMax) < 1e-9, String(head));
+    check("a locked tailwind sits at the bay's cap, behind",
+      Math.abs(tail - cfg.windMax) < 1e-9, String(tail));
+    check("an unlocked bay still rolls", Math.abs(rolled) < cfg.windMax && rolled !== head && rolled !== tail,
+      String(rolled));
+    // A calm bay stays calm however the clause is written — bays 1-3 carry
+    // windMax 0 and the lock rides the cap, so it has nothing to multiply.
+    const calm = makeBaseLevel(0, 1);
+    check("a lock cannot conjure wind out of a calm bay",
+      new Game({ ...calm, windLock: -1 }, {}, 1).windAverage === 0);
+  }
+
+  // The projection has to SHOW every clause, or the player is signing blind.
+  // preview.ts drops a row nothing moved, so a clause whose only effect is on a
+  // field with no row is invisible on the one screen built to price it.
+  {
+    const unseen: string[] = [];
+    for (const clause of FINALS) {
+      const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
+      const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+      if (!rows.some((r) => r.changed)) unseen.push(clause.id);
+    }
+    check("every clause moves at least one projected number", unseen.length === 0, unseen.join(", "));
+
+    // …and at least one of those rows has to read as a COST.
+    //
+    // Moving a number is not enough, and a review round proved it: the Bonds
+    // row carried higherIsWorse: false, so Cold Weld — one half of a mandatory
+    // pair — projected its unbreakable bay entirely in the "better" tone and
+    // read as the free choice in a fork that is supposed to have none. The
+    // clause was correct, the number was correct, and the screen still told the
+    // player the opposite of the truth.
+    //
+    // Some rows going GREEN is fine and deliberate: Short Measure genuinely
+    // makes a launch cheaper, and Dead Weight genuinely buys a bigger payload.
+    // What no clause may do is project a bay that costs nothing anywhere.
+    const painless: string[] = [];
+    for (const clause of FINALS) {
+      const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
+      const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+      if (!rows.some((r) => r.tone === "worse")) painless.push(clause.id);
+    }
+    check("every clause projects at least one row as a cost",
+      painless.length === 0, painless.join(", "));
+
+    // …and it must still move one on a DEEP arrival, not just a clean bay.
+    //
+    // Found in review, and the clean-bay check above is exactly what missed it:
+    // Tight Gauge clamps at compactor.ts's stroke floor, and three Sweeper
+    // notches reach that floor before the inspection is dealt, so a MANDATORY
+    // cost the player picked over Double Shift changed nothing at all. Every
+    // clause is re-checked here against the deepest ratchet its own Tier can
+    // deal on each axis in turn — a clause that can be silently eaten by a
+    // ratchet the player already took is not a cost, and nothing about the
+    // clean bay reveals it.
+    const eaten: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+        if (!rows.some((r) => r.changed)) eaten.push(`${clause.id} under ${axis.id}x${notches}`);
+      }
+    }
+    check("no ratchet can silently eat a clause", eaten.length === 0, eaten.join(", "));
+
+    // A clause may never REFUND a material the run already ratcheted deeper
+    // than the clause asks for. Also found in review: every material clause
+    // used to assign its rate outright, so at six cryo notches a Tier-4 bay
+    // entered the inspection at 0.32 and Cold Chain — whose apply does nothing
+    // else — took it to 0.22, making the mandatory final cost strictly easier.
+    // finals.ts's schedule() is the floor that fixes it.
+    //
+    // Read per material against the arrival, not off the total: the re-cap
+    // legitimately scales OTHER materials down to make room for the clause's
+    // own (rebar-run on a cryo-ratcheted bay moves 0.32 cryo to 0.23 while the
+    // belt goes 0.32 -> 0.55 overall), so the total is allowed to rise and a
+    // non-clause material is allowed to fall. What is never allowed is the
+    // clause's own material coming out lower than it went in.
+    const refunded: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        if (axis.kind !== "content") continue;
+        const mat = axis.material!;
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const before = levelForRun(run);
+        const after = levelForRun({ ...run, final: clause.id });
+        // Only the material this clause SCHEDULES is held; the rest may be
+        // scaled by the re-cap, which is the cap doing its job.
+        const clean = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+        });
+        if (clean.materialMix[mat] <= 0) continue;
+        if (after.materialMix[mat] < before.materialMix[mat] - 1e-9) {
+          refunded.push(`${clause.id} cut ${mat} ${before.materialMix[mat].toFixed(2)}->${after.materialMix[mat].toFixed(2)}`);
+        }
+      }
+    }
+    check("no clause refunds a material the run ratcheted deeper",
+      refunded.length === 0, refunded.join(", "));
+  }
+
+  // advanceRun must carry the clause. It is banked at the last draft and read
+  // on the bay after it, so a step that dropped it would quietly refund the
+  // player's choice.
+  {
+    const run = { ...newRun(7, [], 0, newTiers(), 1), levelIndex: 8, final: "rate-cut" as FinalId };
+    check("advanceRun carries the accepted clause",
+      advanceRun(run, 100, 100, 0, 0).final === "rate-cut");
+  }
+
+  // COLD WELD MEANS IT, on a rig that bought the Seam Splitter.
+  //
+  // Found by review, not by the checks above: pieces.ts restates a FINITE base
+  // for a weakened type when the bay's own stretch is not finite (Infinity x
+  // 0.7 is still Infinity, so the passive would otherwise be a no-op on an
+  // unbreakable bay). That fallback is right for the capstone format, which the
+  // ladder imposes — and wrong here, where the player signed a card that says
+  // nothing comes apart. Left alone, a Bond Emitter t2/t3 rig flew Cold Weld
+  // with S and Z splitting at 1.54, the most fragile thing in the bay, under a
+  // card and a projection tile that both said "unbreakable".
+  //
+  // Asserted through createTetrisPiece rather than off the config, because the
+  // stamp on the constraint is what updateBreakableJoints actually reads — a
+  // config check would have passed while the bay still shattered.
+  {
+    const stampOf = (cfg: LevelConfig, type: PieceType): number => {
+      const w = Matter.Engine.create().world;
+      const p = createTetrisPiece(
+        w, 200, 200, 0, { x: 0, y: 0 }, type, cfg.jointStiffness, cfg.pieceSize,
+        cfg.jointBreakStretch, "standard",
+        { types: cfg.weakBondTypes, mult: cfg.weakBondMult },
+      );
+      return (p.constraints[0] as unknown as { breakStretch: number }).breakStretch;
+    };
+    const run = {
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, 5),
+      levelIndex: RUN_LEVELS - 1,
+      final: "cold-weld" as FinalId,
+    };
+    const cfg = levelForRun(run);
+    check("Cold Weld stands the Seam Splitter down",
+      cfg.weakBondTypes.length === 0 && cfg.weakBondMult === 1,
+      `${cfg.weakBondTypes.join(",")} x${cfg.weakBondMult}`);
+    check("...so every shape it ships really is unbreakable",
+      PIECE_TYPES.every((t) => stampOf(cfg, t) === Infinity),
+      PIECE_TYPES.filter((t) => stampOf(cfg, t) !== Infinity).join(", "));
+    // The fallback is untouched where it belongs: the CAPSTONE bay is
+    // unbreakable because the ladder made it so, and the passive the player
+    // paid for still survives that.
+    const capstone = levelForRun({
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, UNBREAKABLE_MARK),
+      levelIndex: RUN_LEVELS - 1,
+    });
+    check("the capstone's own unbreakable bay still honours the Seam Splitter",
+      Number.isFinite(stampOf(capstone, "S")) && stampOf(capstone, "T") === Infinity,
+      `S ${stampOf(capstone, "S")} / T ${stampOf(capstone, "T")}`);
+  }
+
+  // Every clause names a real ship system, and the copy on the card resolves.
+  {
+    const orphans = FINALS.filter((f) => !UPGRADES.some((u) => u.id === f.system));
+    check("every clause names a real ship system", orphans.length === 0,
+      orphans.map((f) => `${f.id} -> ${f.system}`).join(", "));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Music beds (run ladder + Contract picks vs public/audio/music)");
 {
   // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
@@ -4604,6 +5181,254 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   check("no music file ships unclaimed", orphaned.length === 0, orphaned.join(", "));
 }
 
+
+// ---------------------------------------------------------------------------
+// GESTURE MISFIRE PREVENTION — the firing floor, the strand warning, the chute.
+// ---------------------------------------------------------------------------
+section("Misfire prevention");
+{
+  const DT = 1000 / 60;
+
+  // --- The firing floor -----------------------------------------------------
+  // The threshold in world px, re-derived from the constants rather than
+  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
+  // bounds are module-private in cannon.ts (nothing outside it has any business
+  // knowing the mapping), so this brackets the crossing through the public
+  // function instead of asserting a number.
+  let floorPx = 0;
+  for (let len = 0; len <= 260; len += 0.5) {
+    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  }
+  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+  check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
+  check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
+  check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
+  // gesture asked for, not what the cannon happens to be holding — a tap
+  // returning the previous drag's ratio is precisely how a graze used to fire a
+  // full-power shot at an aim nobody chose.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const pulled = c.aimFromDrag(-120, 90);
+    check("a real drag reports its own ratio", pulled >= MIN_FIRE_RATIO, String(pulled));
+    check("a tap after a hard pull reports 0, not the pull", c.aimFromDrag(0, 0) === 0);
+    // The cannon KEEPS the pull — a tap must not stomp an aim the player set,
+    // which is also why the gate cannot read powerRatio back off it.
+    check("...and leaves the cannon's power untouched", Math.abs(c.powerRatio - pulled) < 1e-9,
+      `${c.powerRatio} vs ${pulled}`);
+  }
+
+  // --- The chute ------------------------------------------------------------
+  // The maw is authored in world px and the panel it models is authored in CSS
+  // fractions of the field, in a different file, in a different language. That
+  // is a seam two people can move independently, and if they ever disagree the
+  // game draws a hazard somewhere other than where it enforces one. So read the
+  // stylesheet and compare. (String-matched, necessarily — this harness has no
+  // browser and cannot measure a rendered box. It catches the numbers drifting
+  // apart, which is the failure that matters here; the RENDERED fit is
+  // sim/uifit's job.)
+  {
+    const cssPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css",
+    );
+    const css = fs.readFileSync(cssPath, "utf8");
+    const plant = css.slice(css.indexOf("\n.plant {"), css.indexOf("\n.pl-pwr {"));
+    const frac = (re: RegExp): number | null => {
+      const m = plant.match(re);
+      return m ? Number(m[1]) : null;
+    };
+    const left = frac(/left:\s*calc\(var\(--field-x\)\s*\+\s*([\d.]+)\s*\*\s*var\(--field-w\)\)/);
+    const width = frac(/width:\s*calc\(([\d.]+)\s*\*\s*var\(--field-w\)\)/);
+    const bottom = frac(/bottom:\s*calc\(100%\s*-\s*var\(--field-y\)\s*-\s*([\d.]+)\s*\*\s*var\(--field-h\)\)/);
+    const height = frac(/min-height:\s*calc\(([\d.]+)\s*\*\s*var\(--field-h\)\)/);
+    check("the plant panel's frame fractions are still readable from app.css",
+      left !== null && width !== null && bottom !== null && height !== null,
+      `${left} ${width} ${bottom} ${height}`);
+    if (left !== null && width !== null && bottom !== null && height !== null) {
+      check("the chute's mouth ends where the plant panel does",
+        CHUTE.x1 === Math.round((left + width) * WORLD.width),
+        `${CHUTE.x1} vs ${Math.round((left + width) * WORLD.width)}`);
+      check("the chute's lip sits at the plant panel's top edge",
+        CHUTE.y0 === Math.round((bottom - height) * WORLD.height),
+        `${CHUTE.y0} vs ${Math.round((bottom - height) * WORLD.height)}`);
+    }
+  }
+  check("the chute reaches the floor", CHUTE.y1 === WORLD.height);
+  check("the chute reaches the left wall", CHUTE.x0 === 0);
+  check("the cannon is not standing in its own chute", !inChute(CANNON.x, CANNON.y));
+
+  // THE HOPPER. The grinder must sit below every arc that is on its way
+  // somewhere useful and above everything that comes to rest behind the panel.
+  // Both bounds measured off the live trajectory across the whole aim cone; see
+  // CHUTE_THROAT_Y. Restated here as a RANGE rather than the value, so the
+  // check fails when the throat is moved into either population instead of
+  // merely when it changes.
+  check("the grinder clears the deepest useful arc", CHUTE_THROAT_Y > 543 + 40,
+    String(CHUTE_THROAT_Y));
+  check("the grinder is above anything that lands behind the panel", CHUTE_THROAT_Y < 698 - 40,
+    String(CHUTE_THROAT_Y));
+  check("the mouth is drawn well above the grinder", CHUTE.y0 < CHUTE_THROAT_Y - 100);
+
+  // Bay Extension T3 walks the press's open stop LEFT of the panel's edge. The
+  // maw has to give that ground back, or the upgrade silently buys two cells of
+  // shredder.
+  {
+    const wide = makeBaseLevel(0);
+    applyUpgrades(wide, { ...newTiers(), bay: MAX_TIER });
+    const w = new Game(wide, {}, 5);
+    check("a T3 bay's press reaches inside the panel's footprint",
+      w.strandCutoffX < CHUTE.x1, `${w.strandCutoffX} vs ${CHUTE.x1}`);
+    check("...so the maw gives that ground back",
+      chuteRightEdge(w.strandCutoffX) === w.strandCutoffX,
+      String(chuteRightEdge(w.strandCutoffX)));
+    check("...while a stock bay keeps the panel's own edge",
+      chuteRightEdge(new Game(makeBaseLevel(0), {}, 5).strandCutoffX) === CHUTE.x1);
+  }
+
+  {
+    const cfg = makeBaseLevel(0);
+    const g = new Game(cfg, {}, 11);
+    // Aim into the mouth and fire: steeply down at minimum power is the shape
+    // of every fumbled shot, and it is the shape the old game silently ate.
+    g.cannon.angle = -Math.PI / 3;
+    g.cannon.power = g.cannon.speedMin;
+    // A combo the misfire has to cost. Set rather than earned: this asserts the
+    // shred runs the same accounting the blink path does, and `combo === 0` on
+    // a bay that never cleared a line would be true whatever happened.
+    g.combo = 3;
+    const before = g.score;
+    check("the launch is accepted", g.shoot(0));
+    const paid = before - g.score;
+    // A FIXED, short window rather than "step until the field empties". The old
+    // behaviour also ends with an empty field — it just takes a settle plus a
+    // 1.4s blink to get there (112 steps, measured with the shred disabled), so
+    // a check that waits for the field to clear passes with the chute switched
+    // off entirely. Half a second is the claim: gone while the player is still
+    // looking at where it went.
+    for (let i = 1; i <= 30; i++) g.update(i * DT);
+    check("cargo fired into the chute is gone within half a second",
+      g.cubes.length === 0, `${g.cubes.length} still on the field`);
+    check("...and it cost the launch plus the lost-piece penalty, no more",
+      before - g.score === paid + SIZE_SPEC[cfg.pieceSize].cubes * cfg.penaltyPerLostPiece,
+      `${before - g.score}`);
+    check("...and broke the combo", g.combo === 0, String(g.combo));
+  }
+
+  {
+    // The other half of the claim: a shot the player MEANT must cross the maw
+    // untouched. Full power up the middle is the ordinary delivery.
+    const g = new Game(makeBaseLevel(0), {}, 12);
+    g.cannon.angle = Math.PI / 4;
+    g.cannon.power = g.cannon.speedMax;
+    g.shoot(0);
+    let anyInMaw = false;
+    for (let i = 1; i < 300; i++) {
+      g.update(i * DT);
+      if (g.cubes.some((c) => inChute(c.body.position.x, c.body.position.y))) anyInMaw = true;
+    }
+    check("a good shot never enters the chute", !anyInMaw);
+    check("...and is still on the field", g.cubes.length > 0);
+  }
+
+  {
+    // THE FLY-THROUGH — the invariant the hopper exists for, and the one a
+    // full-depth maw would break. A shallow downward shot at full power crosses
+    // the machine's airspace low (the arc passes ~(519, 398), inside the panel's
+    // box) on its way out over the bay. The chute must not take it there: it may
+    // only ever collect cargo that has come to REST somewhere unreachable, never
+    // intercept something still in flight. Whether that particular shot is any
+    // GOOD is a separate question and not this check's business — what is
+    // asserted is that the shot gets to finish and be judged on its landing.
+    const g = new Game(makeBaseLevel(0), {}, 14);
+    g.cannon.angle = -Math.PI / 18;
+    g.cannon.power = g.cannon.speedMax;
+    g.updateTrajectory();
+    check("a flat delivery over the plant is not warned against", !g.trajectoryStrands);
+    g.shoot(0);
+    const launched = g.cubes.length;
+    let cleared = false;
+    let aliveAtClear = 0;
+    for (let i = 1; i < 240 && !cleared; i++) {
+      g.update(i * DT);
+      // The moment the whole shipment is past the maw's footprint, still in the
+      // air. Everything after that is ordinary bay physics.
+      if (g.cubes.length && g.cubes.every((c) => c.body.position.x > CHUTE.x1)) {
+        cleared = true;
+        aliveAtClear = g.cubes.length;
+      }
+    }
+    check("...it clears the plant's footprint in flight", cleared);
+    check("...with the whole shipment intact", aliveAtClear === launched,
+      `${aliveAtClear} of ${launched}`);
+  }
+
+  // --- The strand warning ---------------------------------------------------
+  {
+    const g = new Game(makeBaseLevel(0), {}, 13);
+    g.cannon.angle = -Math.PI / 4;
+    g.cannon.power = g.cannon.speedMin;
+    g.updateTrajectory();
+    check("a steep weak aim is flagged as stranding", g.trajectoryStrands);
+
+    g.cannon.angle = Math.PI / 5;
+    g.cannon.power = g.cannon.speedMax;
+    g.updateTrajectory();
+    check("a strong lofted aim is not flagged", !g.trajectoryStrands);
+
+    // The cutoff the warning uses and the one markLostPieces punishes on have to
+    // be the SAME number, or the arc goes red where nothing is charged (or
+    // worse, stays green where something is).
+    check(
+      "the warning reads the compactor's own strand cutoff",
+      g.strandCutoffX === g.compactor.leftX + g.compactor.width / 2 - CELL / 2,
+    );
+  }
+
+  // A truncated arc is not a landing. predictTrajectory stops at 140 steps
+  // whether or not the shot has come down, and treating that cut-off point as
+  // where the piece lands would flag every high lob in the game.
+  check(
+    "an arc still climbing at the step limit is not called short",
+    !pathStrands([{ x: 200, y: 300 }, { x: 400, y: 100 }], 780),
+  );
+
+  // ...but an arc that DID run out of field is a landing, and its last stored
+  // sample sits above the floor rather than on it. predictTrajectory pushes
+  // each point at the top of its loop and breaks after integrating, so the
+  // step that crosses y = WORLD.height is never recorded: asking the final
+  // sample whether it reached the ground is asking the one point guaranteed
+  // not to have. These three pin the reading that replaced it — the step
+  // between the last two samples is what ended the arc, so the landing is
+  // extrapolated across it.
+  //
+  // Measured over 121 angles x 101 powers at stock gravity: before this, the
+  // warning missed 2207 of 8906 genuinely short landings (24.8%); after, 58
+  // (0.7%), with no shot warned that lands long.
+  //
+  // Every x below is RIGHT of CHUTE.x1 (624) on purpose. The chute spans
+  // x 0..624, so a short landing left of that is already caught by the
+  // path-intersection branch above and would pass these checks for the wrong
+  // reason — the band this test is actually about is 624..780: short of the
+  // press's reach, but past the grinder, where the landing test is the only
+  // thing that can see it.
+  check(
+    "a short landing is called short even though its last sample is airborne",
+    // dy 16 puts the next step at y 722, past the floor: the arc ended here.
+    // Extrapolates to x ~717 — clear of the maw, short of the press.
+    pathStrands([{ x: 680, y: 690 }, { x: 700, y: 706 }], 780),
+  );
+  check(
+    "a landing beyond the cutoff is not called short",
+    pathStrands([{ x: 900, y: 690 }, { x: 920, y: 706 }], 780) === false,
+  );
+  check(
+    "a descending arc cut by the step limit is not called short",
+    // Same descent, but still 200px up: the cap ended this one, not the
+    // ground, so where it lands is unknown and nothing should be claimed.
+    !pathStrands([{ x: 680, y: 490 }, { x: 700, y: 506 }], 780),
+  );
+}
 
 console.log(
   failures === 0

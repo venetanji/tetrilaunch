@@ -168,9 +168,14 @@ export function volatileBlast(
   cubes: Cube[],
   a: Matter.Body,
   b: Matter.Body,
+  /** Per-bay multiplier on the trigger speed (level.ts's volatileTriggerMult).
+   *  1 = stock, and a bay that never writes it behaves byte-identically to
+   *  before the knob existed. Below 1 the material is primed finer — see the
+   *  field's doc for why this is a multiplier rather than an absolute speed. */
+  triggerMult = 1,
 ): Cube[] {
   const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
-  if (rel < VOLATILE_TRIGGER_SPEED) return [];
+  if (rel < VOLATILE_TRIGGER_SPEED * (triggerMult > 0 ? triggerMult : 1)) return [];
   const primed = cubes.find(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );
@@ -182,6 +187,36 @@ export function volatileBlast(
     const d = Math.hypot(c.body.position.x - p.x, c.body.position.y - p.y);
     return d <= r;
   });
+}
+
+/**
+ * What a volatile detonation earns for the DEAD CARGO it removed.
+ *
+ * The licence for this payout is narrow and worth restating, because
+ * Game.resolveVolatile refuses the obvious version right next to where it calls
+ * this: a detonation as such pays nothing, since paying for one would make
+ * ratcheting the volatile axis an income strategy — the exact inversion of a
+ * hazard. This is not that. It pays for cubes that could NEVER have completed a
+ * row, and it only exists at all for a player who ratcheted a second axis to
+ * put them on the belt. Live cargo a hazard obliterated is still a pure loss.
+ *
+ * The test is `countsForLines`, not `material === "slag"`, because that flag IS
+ * the design argument: a cube worth $0 as line material for the whole of its
+ * life is worth removing, and one that was merely inconvenient is not. Slag is
+ * the only material that reads false today; a future one that does inherits the
+ * bounty, which is the intended reading rather than an accident.
+ *
+ * Deliberately funds-only — no scrap. Funds are the bay's operating budget and
+ * this is a bay-local relief valve; paying scrap would feed the SHIP, making a
+ * slag ratchet a route to permanent progression. That is a far larger claim
+ * than "dead weight is worth clearing".
+ */
+export function slagBountyFor(destroyed: Cube[], perCube: number): number {
+  let n = 0;
+  for (const cube of destroyed) {
+    if (!MATERIAL_SPEC[cube.material].countsForLines) n += 1;
+  }
+  return n * perCube;
 }
 
 /**
@@ -606,7 +641,7 @@ export function shatterColdCryo(
  * here.
  */
 export function markLostPieces(cubes: Cube[], compactor: Compactor, now: number): void {
-  const cutoff = compactor.leftX + compactor.width / 2 - CELL / 2;
+  const cutoff = compactor.strandCutoffX;
   for (const c of cubes) {
     const b = c.body;
     if (c.blinkStart !== null) {
