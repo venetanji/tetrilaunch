@@ -38,6 +38,7 @@ import {
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 import { claimId, type CommissionId } from "./commissions";
+import { newGodRecord, type GodRecord } from "./god";
 
 export { MARK_COUNT };
 
@@ -396,6 +397,13 @@ export interface MetaState {
    *  claimedContracts, and for the same monetization reason: a claim can tick
    *  a tier milestone, so a re-claimable one would be a salvage tap. */
   commissions: string[];
+  /** God Tier standing and today's attempt ledger (god.ts's GodRecord).
+   *
+   *  Lives here rather than in its own localStorage key because it is
+   *  progression: it outlives a run and a session, it is what the eleventh
+   *  rung of the menu ladder reads, and a save that carried a Mark without a
+   *  streak (or the reverse) would be two half-truths about the same player. */
+  god: GodRecord;
 }
 
 export function newMeta(): MetaState {
@@ -403,6 +411,7 @@ export function newMeta(): MetaState {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), claimedContracts: [], commissions: [],
+    god: newGodRecord(),
   };
 }
 

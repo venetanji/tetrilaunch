@@ -1,6 +1,7 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
 import { newTiers, type UpgradeTiers } from "../game/upgrades";
+import { newGodRecord, type GodRecord } from "../game/god";
 
 export interface Settings {
   sound: boolean;
@@ -125,6 +126,19 @@ export function loadMeta(): MetaState {
     meta.tierContracts = Number.isFinite(meta.tierContracts)
       ? Math.max(0, Math.floor(meta.tierContracts))
       : 0;
+    // God Tier standing (game/god.ts's GodRecord). Read field by field over a
+    // fresh record rather than trusted wholesale: it decides how many ranked
+    // attempts today still has, so a hand-edited `attempts: -5` would be an
+    // unlimited daily. Every field is a non-negative integer or it isn't used.
+    const rawGod = meta.god as unknown;
+    const god = newGodRecord();
+    if (rawGod && typeof rawGod === "object" && !Array.isArray(rawGod)) {
+      for (const key of Object.keys(god) as (keyof GodRecord)[]) {
+        const v = (rawGod as Record<string, unknown>)[key];
+        god[key] = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+      }
+    }
+    meta.god = god;
     // The loadout gates how strong a rig may be, so it gets the strictest read
     // of anything here: a non-object, or any track that isn't a finite number,
     // drops the whole thing back to stock rather than being partially trusted.

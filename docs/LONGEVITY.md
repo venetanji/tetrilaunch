@@ -231,10 +231,48 @@ calibrated:
 
 | Pressure | What it spends | Reuses |
 |---|---|---|
-| **Notch** | one pre-applied ratchet on any axis open at Mark 10 | `hazards.ts` |
+| **Notch** | one pre-applied ratchet on a number axis open at Mark 10 | `hazards.ts` |
+| **Content** | one pre-applied ratchet on a material axis | `hazards.ts` |
 | **Boss** | a Final Inspection clause applied to the bay, un-chosen | `finals.ts` |
-| **Ceiling** | a launch budget on the bay | `level.ts`'s `launchBudget` |
+| **Ration** | the bay loses its clock and runs to launches instead | `level.ts`'s `launchBudget` |
 | **Quota** | a bump to the bay's funding target | `level.ts` |
+
+**A ration is not a launch ceiling on top of the clock**, and the difference
+was measured rather than argued. A 150s bay at the ladder's 1350ms cooldown
+physically permits about 111 shots, and a human aiming at the measured ~4.5s a
+shot fits about 33; the launch model prices bay 2 at 87 launches for a stock
+rig, so a ceiling sized off it was never once the binding constraint. Taking
+the clock *away* instead makes it the one pressure that changes what **kind** of
+bay you are in rather than how much it asks for — which is worth more to a
+daily than another multiplier, because a day with four rationed bays is
+structurally a different run and not merely a harder one. `DESIGN.md`'s
+argument for launch budgets transfers intact: a budget is spent only by acting,
+so it is worth the same to a fast player and a deliberate one.
+
+Two rules bound it, both from a two-year sweep of generated days rather than
+from taste. **One structural pressure per bay** — a ration never shares a bay
+with a boss — and **a rationed bay never buys quota**, because a ration is
+*sized* from what the bay demands and stacking a Rush Order plus two quota
+units onto a clockless bay produced 179-launch bays, about thirteen minutes.
+With both rules the range is 62–105 launches, four to eight minutes.
+
+Templates come out with real identities, which is the test that mattered
+(days per template over 730 generated days):
+
+| Template | bosses/day | rations/day | notches/day | quota units/day |
+|---|---|---|---|---|
+| Gauntlet | 4.3 | 0 | 1.3 | 0.1 |
+| Foundry | 1.4 | 0 | 9.1 | 2.2 |
+| Austerity | 1.1 | 4.3 | 3.6 | 0.4 |
+| Squeeze | 1.0 | 0 | 11.9 | 3.4 |
+| Wildcat | 2.0 | 1.0 | 6.1 | 1.9 |
+
+The structural pressures are **placed before the per-bay spend, not rolled
+inside it**, and that is the whole reason those rows differ. A bay's allowance
+is a tenth or so of the day; a boss costs 30 and a ration 18, so when
+everything rolled together the cheap pressures always got there first and every
+template produced the same run with different notches on it. Gauntlet — the day
+whose entire identity is bosses — dealt exactly the one forced onto bay 10.
 
 **A boss bay is a Final Inspection you did not get to choose.** That is the
 whole trick and it is worth stating plainly, because it buys twenty authored,
