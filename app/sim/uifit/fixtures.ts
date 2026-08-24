@@ -335,7 +335,7 @@ export const SCREENS: Record<string, () => string> = {
       // `plates` already "" (screens.ts, contract mode never renders the
       // rack), bondChip and demoChip were the only things keeping `plates ||
       // bondChip || demoChip` truthy, so `.pl-mods` rendered a row the real
-      // app never shows on a Contract screen. Silent on all 9 compact
+      // app never shows on a Contract screen. Silent on all 10 compact
       // devices, where `.hud--contract .pl-mods` is `display: none`
       // regardless (app.css) — but real on the three roomy tablets, where
       // nothing hides it, and it was the entire `plant`/`draghint` overflow.
@@ -539,10 +539,19 @@ export const SCREEN_IDS = Object.keys(SCREENS);
  *  --field-h from 271.00px to 335.25px and the plant's design floor from
  *  116.42px to 144.02px — measured with sim/uifit's own harness, both
  *  Contract screens, both before and after this fix. Every other device in
- *  the matrix was unaffected (already past the seven-slot columnFits
- *  threshold either way), which is exactly why `plant`/`draghint`/`rail`
- *  stayed green the whole time this was wrong: nothing here overflowed a box,
- *  the box itself was the wrong size. */
+ *  the matrix is MODE-unaffected (`columnFits` was already true at seven
+ *  slots, so none of them fell to the bottom-band branch either way) — but
+ *  not fully unaffected: railColumnCap still shrinks as railSlots grows, so
+ *  nine of the other twelve (every phone; the three tablets are already
+ *  clamped at RAIL_MAX=60 regardless of slot count) had their rail buttons
+ *  quietly undersized too, from 44-52.43px up to the real four-slot 60px cap
+ *  — measured the same way, `hud` (seven slots) against `hud-contract` (four)
+ *  at the same device and insets. That is exactly why `plant`/`draghint`/
+ *  `rail` stayed green the whole time this was wrong: none of the three
+ *  measures a rail button's own size, only whether it overlaps the field —
+ *  and nothing here overflowed a box either; the box itself was the wrong
+ *  size, or, on those nine, comfortably inside a box sized for buttons
+ *  smaller than the ones the real Contract actually renders. */
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
   demo: HUD_BASE.demoOwned,

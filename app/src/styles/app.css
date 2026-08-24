@@ -1339,7 +1339,7 @@ body.crt-off #app::after { display: none; }
    matrix; the three tablets (all >460px tall) were never affected. */
 .pl-tier b .ico { width: 9px; height: 9px; }
 
-/* ---------- The two BASELINE rows share one correction ---------------------
+/* ---------- The three rows that put a MONO value beside a PIXEL label ------
    `align-items: baseline` lines these rows up on an edge Press Start 2P does
    not draw on, and even correcting for that is not enough: the two faces draw
    caps of different heights, so meeting on a shared FOOT still leaves the
@@ -1354,31 +1354,25 @@ body.crt-off #app::after { display: none; }
    `position: relative` and not a margin: the correction is optical, and the
    panel's height budget is measured to the row box. Nothing may move.
 
-   Held by sim/uifit's `inkline` assertion, which compares where the two
-   typefaces actually put ink rather than where their baselines are — no other
-   assertion can see this, since the row does not overflow, wrap, clip or
-   scroll while it is wrong.
-
-   NOT `.pl-tier b`, even though it is the same pixel-label-beside-mono-value
-   shape. That row is `align-items: center` (its own rule above), not
-   `baseline` — forced there to stop its fixed 9px salvage glyph inflating the
-   line box, which means it has no baseline-participating child and
-   contributes a SYNTHESIZED baseline (its own bottom margin edge) to
-   `.pl-tier`'s outer `align-items: baseline`, not a text baseline. This
-   correction was measured against two BASELINE text runs, LIFTING the mono
-   run to meet the pixel label; `.pl-tier b`'s synthesized baseline already
-   sits ABOVE where it needs to be (the 9px glyph, still taller than the 6px
-   type floor even correctly sized, centers the text above the box's bottom
-   edge), so the same lift only pushes it further wrong — measured -1.98px to
-   -4.49px against the 0.5px tolerance, versus -0.83px to -2.27px with no
-   correction at all (both fail; the direction that fixes this row is DOWN,
-   not up). See `--pixel-optical-drop-centered` below for `.pl-tier b`'s own,
-   separately measured, oppositely-signed correction. */
-.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
-/* `.pl-tier b`'s own correction, for the reason the note above gives. Sign is
-   POSITIVE (shifts down), not negative like the rule above — this row's
-   error runs the opposite direction. */
-.pl-tier b { position: relative; top: var(--pixel-optical-drop-centered); }
+   `.pl-tier b` takes the SAME correction as the other two, on the reasoning
+   that it is the same two typefaces meeting the same way — but sim/uifit's
+   `inkline` assertion cannot confirm that for this row the way it can for
+   `.pl-notch b`/`.pl-queue b`. `.pl-tier b` is `align-items: center`, not
+   `baseline` (its own rule above — load-bearing, stops the fixed salvage
+   glyph inflating the line box), and the harness's probe technique cannot
+   read a centred flex item's baseline at all: appending an inline-block probe
+   blockifies it into a flex item too, and `align-items: center` reports the
+   BOX's cross-axis centre, not any text-relative position. See run.ts's
+   `capMid` for the guard that refuses to measure this shape rather than
+   silently returning that centre as if it meant something. This rule was
+   confirmed correct by re-measuring with a technique the broken probe cannot
+   corrupt — temporarily isolating the value's text in its own inline-block so
+   it stops being a flex item and the classic baseline trick applies again —
+   which read within 0.016px of perfect on every device in the matrix, cross-
+   checked against an independent canvas-metrics-plus-Range-rect calculation
+   that never calls `capMid` at all. Two people, measuring separately by
+   different methods, agree on both the direction and the magnitude. */
+.pl-notch b, .pl-queue b, .pl-tier b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting
@@ -2809,6 +2803,14 @@ button.panel { color: var(--text); }
      phone, and every pixel here is one the brand column also wants. */
   .btn { padding: 7px 14px; font-size: 10px; }
   .btn--lg { font-size: 11px; padding: 9px 18px; }
+  /* Unscoped — matches every `.ico` on every screen at this viewport height,
+     not just the menu's, which is a defect (filed separately, not fixed
+     here: it reaches every icon size in the app, not just this row). Two
+     places already had to pin a specific icon back to its real size to work
+     around it: `.modal--refit .refit-card__price .ico` (below) and
+     `.pl-tier b .ico` (the Contract HUD's Tier row, ~line 1340). Whoever
+     fixes this rule should grep for both first — narrowing the selector here
+     may make those pins redundant rather than merely harmless. */
   .ico { width: 13px; height: 13px; }
 }
 

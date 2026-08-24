@@ -174,6 +174,7 @@ const ASSERTIONS = [
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
+  { id: "iconsize", desc: "an inline icon renders at the size its own attributes ask for" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -198,7 +199,8 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [],
+    iconsize: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -508,6 +510,22 @@ function measure(cfg: {
     }
   });
 
+  // --- iconsize: an inline icon must render at the size it asked for -------
+  // icon() (icons.ts) stamps width/height ATTRIBUTES on every <svg class=
+  // "ico"> — the one place its intended size is written down. Comparing that
+  // against the rendered box catches ANY rule that silently resizes an icon,
+  // anywhere in the app, in one pass — this is what would have caught the
+  // app-wide `.ico{13px}` media-query bug (app.css, filed separately) on
+  // every screen at once, instead of one row getting its own local pin only
+  // after someone happened to measure it by hand.
+  document.querySelectorAll(".ico").forEach((svg, i) => {
+    const asked = parseFloat(svg.getAttribute("width") ?? "");
+    const got = svg.getBoundingClientRect().width;
+    if (asked > 0 && Math.abs(got - asked) > 0.5) {
+      out.iconsize.push(`${label(svg.parentElement ?? svg)} icon #${i} renders ${got.toFixed(1)}px, markup asks for ${asked}px`);
+    }
+  });
+
   // --- inkline: a label and its value must share one OPTICAL line ----------
   // Two typefaces baseline-aligned are not thereby eye-aligned, and — the part
   // this assertion originally got wrong — neither are two typefaces whose caps
@@ -543,9 +561,44 @@ function measure(cfg: {
   // What has to agree is where the two faces put a plain cap, which is a
   // property of the faces and not of the tally. H has no round overshoot in
   // either of them.
+  //
+  // The baseline probe is UNSAFE on a flex or grid container whose items are
+  // not baseline-aligned, and this is not a corner case worth a silent wrong
+  // answer. Appending an inline-block child to `el` only reads the true line
+  // box's baseline if `el` lays that child out as an ordinary inline box — a
+  // flex/grid container BLOCKIFIES it into an item instead (confirmed via
+  // getComputedStyle: an inline-block probe's computed display reads "block"
+  // the moment it is appended into one), and `vertical-align` has no effect
+  // on a flex/grid item, so `align-items` decides where it lands instead of
+  // the text underneath it.
+  // Under `baseline` that item is a no-own-baseline participant, and the flex
+  // baseline-alignment algorithm places its margin edge ON the line's real
+  // shared baseline (the same edge the classic inline-block trick relies on)
+  // — confirmed empirically against `.pl-notch b` (flex, baseline): the probe
+  // lands somewhere between the box's top and bottom, tracking the real text.
+  // Under any OTHER align-items the probe is simply centred (or start/end
+  // aligned) on the box's own cross-axis, with no relationship to the ink at
+  // all — confirmed against `.pl-tier b` (flex, center): the probe's position
+  // was bit-identical to the box's geometric centre, regardless of content.
+  // Silently returning that centre as "the baseline" is how `.pl-tier`
+  // shipped a confidently-wrong -1.98px to -4.49px reading, and how a since-
+  // reverted fix then shipped an equally confident wrong number in the other
+  // direction. FAIL instead: a caller that cannot see this row's real ink has
+  // to know that, not be handed a plausible-looking lie.
   const PROBE_PX = 1000;
   const capMid = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
     if (!(el.textContent ?? "").trim()) return null;
+    const cs0 = getComputedStyle(el);
+    if (
+      (cs0.display === "flex" || cs0.display === "inline-flex"
+        || cs0.display === "grid" || cs0.display === "inline-grid")
+      && cs0.alignItems !== "baseline"
+    ) {
+      throw new Error(
+        `capMid cannot measure ${label(el)}: ${cs0.display} with align-items:${cs0.alignItems} `
+          + `blockifies the baseline probe into an item and centres it instead of tracking the ink.`,
+      );
+    }
     const probe = document.createElement("span");
     probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
     el.appendChild(probe);
@@ -589,8 +642,21 @@ function measure(cfg: {
       const lbl = row.querySelector(lblSel);
       const val = row.querySelector(valSel);
       if (!lbl || !val) return;
-      const a = capMid(lbl, cvs);
-      const b = capMid(val, cvs);
+      // capMid THROWS rather than returning a number for a shape it cannot
+      // trust (see its own comment) — caught here, once per row, so one
+      // unmeasurable entry does not abort every other screen's run. Printed
+      // as a warning rather than silently dropped: a row this assertion
+      // cannot see is a coverage gap, not a pass, and the report says so on
+      // every run rather than once.
+      let a: number | null;
+      let b: number | null;
+      try {
+        a = capMid(lbl, cvs);
+        b = capMid(val, cvs);
+      } catch (err) {
+        out.warn.push(`inkline cannot verify ${rowSel}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
       if (a === null || b === null) return;
       // Half a pixel: below that the difference is rasterisation, not layout.
       if (Math.abs(b - a) > 0.5) {
@@ -923,7 +989,11 @@ if (grown.length) {
 }
 
 if (warnings.length) {
-  console.log(`⚠ ${warnings.length} ellipsis truncation(s) — deliberate unless they aren't:`);
+  // Two unrelated kinds share this channel now: an ellipsis/line-clamp is a
+  // deliberate design decision worth a skim, and an "inkline cannot verify"
+  // entry is a coverage gap worth fixing or baselining — each message states
+  // its own kind, so the header stays generic rather than naming just one.
+  console.log(`⚠ ${warnings.length} warning(s) — see each line for its kind:`);
   for (const w of warnings.slice(0, 10)) console.log(`    ${w}`);
   if (warnings.length > 10) console.log(`    …and ${warnings.length - 10} more`);
   console.log("");
