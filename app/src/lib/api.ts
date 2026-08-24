@@ -18,6 +18,10 @@ function apiBase(): string {
 export interface ScoreEntry {
   name: string;
   score: number;
+  /** The Tier the run was flown at. 0 is "untiered" — a row banked by a client
+   *  older than tier boards. Rows the app submits are always 1..MARK_COUNT. */
+  mark: number;
+  /** The bay the run ended on. Display only; the board's key is `mark`. */
   level: number;
   lines: number;
   created_at: number;
@@ -26,12 +30,22 @@ export interface ScoreEntry {
 export interface SubmitResult {
   ok: boolean;
   rank: number;
+  mark: number;
   scores: ScoreEntry[];
 }
 
-export async function fetchLeaderboard(level = 1, limit = 10): Promise<ScoreEntry[]> {
+/**
+ * One Tier's board, or the combined one.
+ *
+ * A Tier is the build budget a run was flown with, so scores are only
+ * comparable inside one — which is why `mark` is required here rather than
+ * defaulted. `null` asks for every Tier at once and exists for the legacy
+ * shape, not as a default anything in the app should fall back to.
+ */
+export async function fetchLeaderboard(mark: number | null, limit = 10): Promise<ScoreEntry[]> {
   try {
-    const res = await fetch(`${apiBase()}/api/scores?level=${level}&limit=${limit}`);
+    const q = mark === null ? "" : `mark=${mark}&`;
+    const res = await fetch(`${apiBase()}/api/scores?${q}limit=${limit}`);
     if (!res.ok) return [];
     const data = (await res.json()) as { scores: ScoreEntry[] };
     return data.scores ?? [];
@@ -43,6 +57,7 @@ export async function fetchLeaderboard(level = 1, limit = 10): Promise<ScoreEntr
 export async function submitScore(
   name: string,
   score: number,
+  mark: number,
   level: number,
   lines: number,
 ): Promise<SubmitResult | null> {
@@ -50,7 +65,7 @@ export async function submitScore(
     const res = await fetch(`${apiBase()}/api/scores`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, score, level, lines }),
+      body: JSON.stringify({ name, score, mark, level, lines }),
     });
     if (!res.ok) return null;
     return (await res.json()) as SubmitResult;

@@ -3401,7 +3401,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
   section("End-modal leaderboard slice");
 
   const entry = (name: string, score: number): ScoreEntry => ({
-    name, score, level: 1, lines: 10, created_at: 0,
+    name, score, mark: 1, level: 1, lines: 10, created_at: 0,
   });
   const board = ["ACE", "NOVA", "RUST", "ZED", "KAI", "ORB", "FLUX", "VOLT", "HEX", "GIO"]
     .map((n, i) => entry(n, 24680 - i * 1900));

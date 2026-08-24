@@ -146,11 +146,23 @@ npm run deploy                    # build + wrangler deploy --env="" (production
 
 The Worker serves the built app and exposes:
 
-- `GET  /api/scores?level=1&limit=10` → top scores
-- `POST /api/scores` `{ name, score, level, lines }` → inserts, returns `{ rank, scores }`
+- `GET  /api/scores?mark=7&limit=10` → that **Tier's** top scores
+- `GET  /api/scores?limit=10` → combined board, every Tier (the pre-tier shape, kept
+  so shipped store builds still see a populated list)
+- `POST /api/scores` `{ name, score, mark, level, lines }` → inserts, returns
+  `{ rank, mark, scores }`. `rank` is within `mark`. A body with no `mark` stores `0`
+  — "untiered", never a real Tier — so an older client cannot 400.
+
+**Boards are per Tier**, because the Tier *is* the build budget
+(`upgrades.ts`'s `budgetForMark`): a Tier 1 score and a Tier 9 score are not
+comparable, and one shared list ranks players by which Tier they attempted before it
+ranks them by how well they flew it. That matters more now the home tower lets a
+player drop back down the ladder at will — on a single board, farming Tier 1 would
+top it. `level` is the bay the run ended on; it is carried for display and is *not*
+the board's key (every client hardcoded it to `1` until tier boards landed).
 
 D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
-`migrations/0001_init.sql`.
+`migrations/` — `0001_init.sql`, then `0002_tier_boards.sql`.
 
 ### Deploy strategy
 
@@ -180,9 +192,24 @@ Three environments, and the difference between them is the DATABASE, not the URL
 
 ```bash
 git checkout main && git merge --ff-only staging
-npm run db:migrate       # ONLY if migrations/ gained a file; applies to the live D1
+npm run db:migrate       # applies 0002_tier_boards.sql to the LIVE D1
 npm run deploy           # build + wrangler deploy --env=""
 ```
+
+**Clearing the board is a separate, deliberate command** — not part of the migration.
+This release changes the economy across 247 commits, so scores banked under the old
+balance are not comparable to anything set after it, and the decision was to start
+clean rather than rank two different games together:
+
+```bash
+npx wrangler d1 execute tetrilaunch-leaderboard --remote --env="" \
+  --command "DELETE FROM scores"
+```
+
+It lives here rather than in `migrations/0002` on purpose: a migration runner is a
+thing people run without reading, and `DELETE FROM scores` against the live database
+is not a thing to discover by running it. `0002` is purely additive, so applying
+migrations early is safe and this line is the only irreversible step in the release.
 
 `--env=""` is not decoration. With more than one environment defined, a bare
 `wrangler deploy` warns that no target was named and falls back to the top level; naming it

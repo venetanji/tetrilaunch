@@ -29,6 +29,10 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
   // A long name is the wide case for the row's flexible column.
   name: i === 3 ? "LONGESTNAME" : `PILOT${i + 1}`,
   score: 98_760 - i * 1_137,
+  // One Tier's board, which is what the screen shows: every row on a board is
+  // by definition the same Tier, so varying it here would measure a list the
+  // app cannot produce.
+  mark: 7,
   level: 10 - (i % 10),
   lines: 240 - i * 7,
   created_at: 1_760_000_000 + i,
@@ -309,7 +313,8 @@ export const SCREENS: Record<string, () => string> = {
       padName: "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)",
       rebinding: null,
     }),
-  leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
+  leaderboard: () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"), S.boardTierHTML(7)),
 
   // TWO fixtures, because the screen has two shapes and only one of them was
   // ever measured. `workshop` is the early save: nothing owned, so there are no

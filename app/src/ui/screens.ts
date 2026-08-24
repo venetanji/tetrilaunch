@@ -475,7 +475,7 @@ export const END_BOARD_TOP = 5;
 
 export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): string {
   if (!rows.length) {
-    return `<div class="muted" style="padding:20px;text-align:center">No scores yet — be the first!</div>`;
+    return `<div class="muted" style="padding:20px;text-align:center">No scores at this Tier yet — be the first!</div>`;
   }
   const medals = ["🥇", "🥈", "🥉"];
   return `<div class="lb">${rows
@@ -492,7 +492,17 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
     .join("")}</div>`;
 }
 
-export function leaderboardScreen(rows: string): string {
+/** Which Tier's board is on show. A board is per-Tier because the Tier IS the
+ *  build budget (upgrades.ts's budgetForMark), so a score only means something
+ *  beside other scores flown with the same one — which makes "which Tier" part
+ *  of the board's identity and not a caption. Read-only on purpose: picking a
+ *  Tier is the home tower's job (PR #86), and a second picker on this screen
+ *  would be a second answer to a question the tower already asks.  */
+export function boardTierHTML(mark: number): string {
+  return `<div class="eyebrow" style="margin:var(--sp-2) 0 0">Tier ${mark}</div>`;
+}
+
+export function leaderboardScreen(rows: string, tier: string): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -500,6 +510,7 @@ export function leaderboardScreen(rows: string): string {
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
+      ${tier}
       <div id="lb-body" data-scroll>${rows}</div>
       <button class="btn btn--primary" data-action="play">${icon("play")}Play</button>
     </div>

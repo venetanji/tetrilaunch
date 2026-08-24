@@ -300,6 +300,17 @@ class App {
   private lastNext: string | null = null;
   private lastNextId: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
+  /** Which Tier's board `cachedBoard` holds. A board is per-Tier because the
+   *  Tier is the build budget, so this is part of the board's identity, not a
+   *  view preference — every fetch names it and the screen shows which one it
+   *  is looking at. Seeded from the player's own attemptable Tier, which is the
+   *  board their next run will land on. */
+  private boardMark = 1;
+  /** The Tier of the run that just ended — the board the end modal shows and
+   *  the Tier a submitted score is filed under. Captured at finishRun rather
+   *  than read off `run` at submit time, because those are two different
+   *  moments and only the first one is guaranteed to still have the run. */
+  private endedMark = 1;
   private submitted = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
@@ -907,6 +918,7 @@ class App {
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
+          S.boardTierHTML(this.boardMark),
         );
         break;
       case "playing":
@@ -1752,7 +1764,12 @@ class App {
     telemetry.endRun(won, result.salvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
-    this.refreshBoard();
+    // The run's OWN Tier, captured before `run` can be replaced: the end
+    // modal's board and the score about to be submitted have to be the same
+    // one, and it is not necessarily the Tier the player may attempt next —
+    // recordRunEnd above may just have advanced them.
+    this.endedMark = this.run.mark;
+    void this.refreshBoard(this.endedMark);
     this.setState(won ? "won" : "lost");
   }
 
@@ -2194,10 +2211,18 @@ class App {
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
   }
 
-  private async refreshBoard(): Promise<void> {
-    // The D1 board is the single RUN board for now — level is always 1
-    // regardless of which bay the run ended on.
-    this.cachedBoard = await fetchLeaderboard(1, 10);
+  /**
+   * Load one Tier's board into `cachedBoard` and paint it.
+   *
+   * The Tier is an argument rather than a field read, because both callers know
+   * something the field does not: a finished run belongs on the board of the
+   * Tier IT flew, and the picker belongs on the one that was tapped. Passing it
+   * also updates `boardMark`, so the screen and the data cannot disagree about
+   * which board is on show — which is the failure mode a shared field invites.
+   */
+  private async refreshBoard(mark: number): Promise<void> {
+    this.boardMark = mark;
+    this.cachedBoard = await fetchLeaderboard(mark, 10);
     // won/lost highlight the player's own just-played name; the standalone
     // leaderboard screen doesn't (matches renderOverlay's existing per-state
     // leaderboardRowsHTML args).
@@ -2693,7 +2718,12 @@ class App {
         this.rebinding = null;
         this.renderOverlay();
         break;
-      case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
+      case "leaderboard":
+        // Opens on the board the player's next run will land on — the one their
+        // score is about to be measured against — not on Tier 1.
+        void this.refreshBoard(markUnlocked(this.meta));
+        this.setState("leaderboard");
+        break;
       case "workshop": this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
@@ -3124,8 +3154,15 @@ class App {
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), 1, lines);
-    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
+    // `level` was hardcoded to 1 by every client that ever ran, which is why
+    // the column has been a constant since it was added. It is the bay the run
+    // ended on, so send that; the board's key is `mark`, and `level` is now a
+    // fact about the row rather than a partition nobody partitioned by.
+    const bay = (this.run?.levelIndex ?? 0) + 1;
+    const res = await submitScore(
+      name, this.finalScore(g, this.state === "won"), this.endedMark, bay, lines,
+    );
+    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(this.endedMark, 10));
     this.renderBoardRows(name);
     void successHaptic();
   }
