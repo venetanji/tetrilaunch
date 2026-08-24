@@ -258,6 +258,22 @@ const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
  *  outcome is already decided. */
 const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
 
+/** Hard ceiling on a loss settle window (see settleDone), measured from the step
+ *  it opened and never re-armed. The window's real exit is a run of press
+ *  strokes that crush nothing, which terminates on its own because only a clear
+ *  resets that run; this exists so a degenerate compactorSpeed — a bar that
+ *  never completes a stroke at all — cannot make the window infinite. 30s, the
+ *  same ceiling brokeGraceSteps caps itself at, and far beyond legitimate play:
+ *  a stroke is one compactor cycle (~3.6s), so this covers about eight crushed
+ *  rows against goals that top out at eight lines. */
+const SETTLE_CEILING_STEPS = Math.round(30 * (1000 / DT));
+
+/** Completed press strokes that must crush NOTHING before an overtime bay is
+ *  called (see settleDone). Two, because one is measurably too few — a pile
+ *  still settling can absorb a whole stroke and then give up two rows on the
+ *  next two. */
+const SETTLE_FRUITLESS_STROKES = 2;
+
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
  *  ~5.7 degrees. Wide enough that consecutive shots genuinely scatter (that's
  *  the mechanic), tight enough that where the player points the cannon still
@@ -449,6 +465,20 @@ export class Game {
    *  (rightX) — "a pressing stroke has completed since step S" is then just
    *  `lastFullAdvanceStep > S`. */
   private lastFullAdvanceStep = -1;
+
+  /** Whether a row has been crushed during the pressing stroke currently in
+   *  progress. Reset at each stroke boundary — see the settle bookkeeping in
+   *  update(). */
+  private clearedThisStroke = false;
+
+  /** Consecutive completed press strokes that crushed nothing, counted only
+   *  while a loss settle window is open (opening one zeroes it). This is what
+   *  ends an overtime bay — see settleDone. */
+  private fruitlessStrokes = 0;
+
+  /** Compactor.strokes as of the boundary this class last acted on, so each
+   *  completed stroke is scored exactly once. */
+  private lastSeenStroke = 0;
 
   /** Physics steps elapsed (one per update() call) — bombs use this instead
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
@@ -1405,6 +1435,9 @@ export class Game {
       const awarded = Math.round(clear.lines * this.level.scorePerLine * bonus);
       this.score += awarded;
       this.linesTotal += clear.lines;
+      // Flagged for the settle bookkeeping below: this stroke did work, so it
+      // does not count toward the fruitless run that ends an overtime bay.
+      this.clearedThisStroke = true;
       // Scrap is earned per LINE, flat and combo-free (unlike funds): capital
       // shouldn't spike on a lucky multi-clear, or one good stroke would buy a
       // whole upgrade track. See level.ts's SCRAP_PER_LINE note.
@@ -1423,6 +1456,16 @@ export class Game {
         this.bombsResupplied += owed;
         this.bombCharges += owed;
       }
+    }
+
+    // Settle bookkeeping, deliberately AFTER the clear block above: the tick the
+    // bar reaches its stop is the tick Compactor.update() increments `strokes`,
+    // and the row that stop crushes is resolved here — a boundary read any
+    // earlier would score a productive stroke as fruitless.
+    if (this.compactor.strokes !== this.lastSeenStroke) {
+      this.lastSeenStroke = this.compactor.strokes;
+      this.fruitlessStrokes = this.clearedThisStroke ? 0 : this.fruitlessStrokes + 1;
+      this.clearedThisStroke = false;
     }
 
     // Cargo fed into the recycling plant's intake goes IMMEDIATELY (chute.ts).
@@ -1505,38 +1548,49 @@ export class Game {
       //
       //   queue empty      — overtime, exactly like the launch budget below:
       //                      the last shipment is still airborne and is the one
-      //                      most likely to close the goal, so wait for a
-      //                      completed press and a field at rest.
+      //                      most likely to close the goal, so let the press
+      //                      finish resolving the bay (settleDone).
       //   unreachable      — the arithmetic already settled it (see
       //                      objectiveUnreachable). Nothing that happens next
       //                      can change the answer, so the only reason to wait
       //                      at all is to let the player SEE the cube they just
       //                      lost blink out. A second is enough for that;
       //                      making them play out a dead bay is not kindness.
-      if (this.piecesUpStep === null) this.piecesUpStep = this.stepCount;
-      const waited = this.stepCount - this.piecesUpStep;
-      const strokeDone = this.lastFullAdvanceStep > this.piecesUpStep;
+      //
+      // The unreachable clock runs from piecesUpStep, NOT from settleDone's
+      // re-armed reference: a clear is evidence the bay is still resolving, and
+      // a bay that is provably dead is not resolving whatever else it does.
+      if (this.piecesUpStep === null) {
+        this.piecesUpStep = this.stepCount;
+        // Strokes before this point were spent on a bay that still had cargo
+        // coming; only the run of fruitless ones from HERE says the press is
+        // finished with what it was given.
+        this.fruitlessStrokes = 0;
+      }
       const done = this.objectiveUnreachable
-        ? waited > UNREACHABLE_GRACE_STEPS
-        : (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
-          waited > this.brokeGraceSteps;
+        ? this.stepCount - this.piecesUpStep > UNREACHABLE_GRACE_STEPS
+        : this.settleDone(this.piecesUpStep);
       if (done) {
         this.lossReason = "pieces";
         this.setStatus("lost");
       }
     } else if (this.launchesLeft <= 0) {
       // Budget spent — but the last launch is still airborne, so this is
-      // overtime, not a verdict. Identical settle gate to the clock below:
-      // wait for a completed pressing stroke AND a field at rest, so a line
-      // the final shipment completed gets crushed and counted, with the same
-      // capped grace so a never-resting pile can't stall forever. The win test
-      // above runs first, so finishing on the last launch is a clear.
-      if (this.launchesUpStep === null) this.launchesUpStep = this.stepCount;
-      const strokeDone = this.lastFullAdvanceStep > this.launchesUpStep;
-      if (
-        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
-        this.stepCount - this.launchesUpStep > this.brokeGraceSteps
-      ) {
+      // overtime, not a verdict. Same settle gate as the queue above (a lines
+      // Contract's budget and a pattern Contract's manifest are the same limit
+      // under two names), so a row the press still has to compress gets the
+      // strokes it needs. The win test above runs first, so finishing on the
+      // last launch is a clear.
+      //
+      // Reachable on Contracts only: launchesLeft is Infinity on an unbudgeted
+      // bay, and every Deep Run bay is unbudgeted. The clock below is Deep
+      // Run's own limit and is deliberately NOT re-armed — extending a run's
+      // overtime is a balance decision, not a settle-window fix.
+      if (this.launchesUpStep === null) {
+        this.launchesUpStep = this.stepCount;
+        this.fruitlessStrokes = 0;
+      }
+      if (this.settleDone(this.launchesUpStep)) {
         this.lossReason = "launches";
         this.setStatus("lost");
       }
@@ -1641,6 +1695,53 @@ export class Game {
       const minY = Math.min(...clear.cubes.map((c) => c.y));
       this.effects.push({ kind: "payout", x: meanX, y: minY - 30, amount: awarded, t0: now });
     }
+  }
+
+  /**
+   * The LOSS settle window's exit, shared by the two Contract overtime gates —
+   * manifest exhausted and launch budget spent. The win side has its own
+   * (resolveWin); this is the same idea pointed the other way.
+   *
+   * `openedAt` is the step the window opened. The gate it replaces was "one
+   * pressing stroke has completed since then, and the field is at rest", and
+   * that was wrong twice over.
+   *
+   * A row is cleared by the press COMPRESSING it, so a bay left holding two
+   * part-built rows of different lengths with gaps inside needs the bar to go
+   * back and press AGAIN before the second one closes. And "a stroke has
+   * completed" was satisfied by the tail of the stroke already running when the
+   * window opened: the bar was mid-press, it finished, and that counted as the
+   * bay's one chance. So a bay was called dead with every cube it needed still
+   * sitting on the field. Measured across 2,430 pattern-Contract attempts (sim,
+   * tiers 1-9, three bots), 7 bays lost that way, each holding avail == required
+   * with nothing blinking, each going on to clear its remaining rows.
+   *
+   * What ends the bay now is a run of FRUITLESS STROKES — completed presses that
+   * crushed nothing, counted from the moment the window opened. A stroke that
+   * clears resets the run, because a crushed row is proof the press is still
+   * resolving the bay; the run is what terminates it, since strokes that clear
+   * are bounded by the cubes on the field.
+   *
+   * The count is 2 rather than 1 because one is measurably not enough: a pile
+   * settles for a while under the bar, and a stroke can pass through it doing
+   * nothing visible while the next two each crush a row (seen at tier 6 —
+   * fruitless press at step 535, rows crushed at 747 and 950). One is also
+   * exactly the rule that was already there. Every extra stroke costs a losing
+   * bay one compactor cycle (~3.6s) before its modal, which against a Contract
+   * that is free and instant to retry is the cheaper mistake by far.
+   *
+   * The capped grace relaxes the AT-REST half only, so contact jitter under the
+   * bar — common enough that waiting for perfect stillness alone would sometimes
+   * never fire — cannot stall the verdict. SETTLE_CEILING_STEPS is the only
+   * unconditional exit, so a degenerate compactorSpeed that never completes a
+   * stroke at all still ends the bay.
+   */
+  private settleDone(openedAt: number): boolean {
+    if (this.fruitlessStrokes < SETTLE_FRUITLESS_STROKES) {
+      return this.stepCount - openedAt > SETTLE_CEILING_STEPS;
+    }
+    return this.cubes.every((c) => isAtRest(c.body))
+      || this.stepCount - this.lastFullAdvanceStep > this.brokeGraceSteps;
   }
 
   /**

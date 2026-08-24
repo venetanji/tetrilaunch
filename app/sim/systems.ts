@@ -2187,6 +2187,82 @@ section("Demolition charges + settle window (game.ts)");
   check("a bayclear FX is spawned", g3.effects.some((e) => e.kind === "bayclear"));
   check("settling ends with the win", !g3.settling);
 
+  // -------------------------------------------------------------------------
+  // LOSS settle window: an overtime bay must not be called while the press is
+  // still resolving it (game.ts's settleDone).
+  //
+  // The bug this pins: a row is cleared by the press COMPRESSING it, so a bay
+  // holding part-built rows needs the bar to go back and press again. The gate
+  // used to end the bay after a single completed advance — which the stroke
+  // already underway satisfied — so a zero-waste Contract died with every cube
+  // it still needed sitting on the field.
+  {
+    // A Contract-shaped bay: no clock, no launch cost, an exact-inventory
+    // manifest that is ALREADY empty, and a wall carrying comfortably more
+    // cubes than the goal needs, so objectiveUnreachable stays false and the
+    // slow path (not the 1s dead-bay early-out) is the one under test. Column
+    // 4 is pinned to zero so no row starts complete.
+    const wall = [4, 4, 4, 4, 0, 4, 2, 2];
+    const exact: LevelConfig = {
+      ...makeBaseLevel(0),
+      launchCost: 0, timeLimitSec: 0, targetScore: Number.MAX_SAFE_INTEGER,
+      objectiveLines: 2, launchBudget: 0, pieceQueue: ["I"], standingWall: [...wall],
+      startingFunds: 0, penaltyPerLostPiece: 0,
+    };
+    const gs = new Game(exact, {}, 17);
+    // Spend the last shipment: an empty array reads as a CYCLING bag
+    // (cannon.ts's `finite`), so the manifest has to be run down, not declared.
+    let ts = 5000;
+    check("the last shipment fires", gs.shoot(ts));
+    check("...leaving the manifest empty", gs.piecesLeft === 0, String(gs.piecesLeft));
+    check("...with more cargo than the goal needs",
+      gs.cubesAvailable > gs.cubesRequired, `${gs.cubesAvailable} vs ${gs.cubesRequired}`);
+    check("...so the bay is not provably dead", !gs.objectiveUnreachable);
+
+    // Run until the first press stroke completes. The bay must survive it: one
+    // stroke is exactly what the old gate accepted.
+    const strokes0 = gs.compactor.strokes;
+    let guard = 0;
+    while (gs.compactor.strokes === strokes0 && gs.status === "playing" && guard++ < 3000) {
+      gs.update((ts += DT));
+    }
+    check("a queue-empty bay survives its first press stroke",
+      gs.status === "playing", `${gs.status} at stroke ${gs.compactor.strokes}`);
+
+    // ...but it must terminate on the SECOND fruitless one. This wall gives the
+    // press nothing to crush, so both strokes are fruitless and the run of two
+    // is complete — which pins SETTLE_FRUITLESS_STROKES from the outside.
+    const strokes1 = gs.compactor.strokes;
+    guard = 0;
+    while (gs.status === "playing" && guard++ < 3000) gs.update((ts += DT));
+    check("...and is called once a second press also crushes nothing",
+      gs.status === "lost" && gs.linesTotal === 0
+        && gs.compactor.strokes === strokes1 + 1,
+      `${gs.status} at stroke ${gs.compactor.strokes} (first was ${strokes0}), ${gs.linesTotal} lines`);
+    check("...for the right reason", gs.lossReason === "pieces", String(gs.lossReason));
+  }
+
+  // A PROVABLY dead bay keeps its fast early-out: nothing above may slow down
+  // "you lost by one cube", which is 81% of measured Contract losses.
+  {
+    const dead: LevelConfig = {
+      ...makeBaseLevel(0),
+      launchCost: 0, timeLimitSec: 0, targetScore: Number.MAX_SAFE_INTEGER,
+      objectiveLines: 2, launchBudget: 0, pieceQueue: ["I"], standingWall: [],
+      startingFunds: 0, penaltyPerLostPiece: 0,
+    };
+    const gd = new Game(dead, {}, 19);
+    let td = 5000;
+    gd.shoot(td);
+    check("one shipment cannot cover two lines", gd.objectiveUnreachable,
+      `${gd.cubesAvailable} vs ${gd.cubesRequired}`);
+    let steps = 0;
+    while (gd.status === "playing" && steps++ < 3000) gd.update((td += DT));
+    check("...and is called within the 1s unreachable grace",
+      gd.status === "lost" && steps < 120, `${gd.status} after ${steps} steps`);
+    check("...for the right reason", gd.lossReason === "pieces", String(gd.lossReason));
+  }
+
   // Wind assist must reduce the force the player actually feels.
   const windy = makeBaseLevel(9);
   const bare = new Game({ ...windy, windAssist: 0 }, {}, 11);
