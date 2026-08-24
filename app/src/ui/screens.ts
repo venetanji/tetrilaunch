@@ -1,6 +1,6 @@
 import { PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
-import { LEVEL_1 } from "../game/level";
+import { baseBayFor, LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
@@ -8,7 +8,7 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, budgetForMark, nextTierCost, orderCost, orderSize, orderedTier,
+  MARK_COUNT, MAX_TIER, UPGRADES, budgetForMark, nextTierCost, orderCost, orderSize, orderedTier,
   refitTracks, tiersCost, upgradeById,
   type RefitOrder, type UpgradeTiers,
 } from "../game/upgrades";
@@ -23,7 +23,7 @@ import type { ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
-  HAZARDS, totalNotches, type HazardDef, type HazardId, type Ratchets,
+  HAZARDS, picksPerBay, totalNotches, type HazardDef, type HazardId, type Ratchets,
 } from "../game/hazards";
 import type { FinalDef, FinalId } from "../game/finals";
 import {
@@ -39,7 +39,12 @@ import type { PreviewRow } from "../game/preview";
  * parts, so the ladder has ONE face wherever it shows up.
  * ------------------------------------------------------------------------ */
 export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
-  return `<span class="tier-plate tier-plate--${size}" aria-label="Tier ${tier}"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">${tier}</span></span>`;
+  // The God floor wears the SAME plate, not a badge of its own — it is a floor
+  // of the same tower, and the ladder having one face is the whole point of
+  // this component. Only the two parts' contents change, plus a tint class.
+  const god = tier === GOD_TIER;
+  const label = god ? "God tier" : `Tier ${tier}`;
+  return `<span class="tier-plate tier-plate--${size}${god ? " tier-plate--god" : ""}" aria-label="${label}"><span class="tier-plate__lbl">${god ? "God" : "Tier"}</span><span class="tier-plate__n">${god ? "★" : tier}</span></span>`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -96,11 +101,213 @@ export function splashScreen(): string {
   </div>`;
 }
 
+/* ---------------------------------------------------------------------------
+ * THE TIER TOWER — the home screen's elevator (the "tierlevator").
+ *
+ * The ladder used to be a NUMBER on a chip: "Tier 4", plus two ticks for the
+ * halves that complete it. That told you where you were standing and nothing
+ * else — not how far the ladder goes, not that the rungs below you are still
+ * flyable, and not what any of them would be like. A shaft with a floor per
+ * Mark says all three without a word of copy: the ten floors ARE the ladder,
+ * the car parked on one is where you are, and the floors under it are visibly
+ * still there.
+ *
+ * WHAT PICKING A FLOOR DOES. It sets the Mark the Deep Run flies at, and
+ * nothing else. Flying a Mark you have already beaten earns no salvage and
+ * cannot advance the ladder — meta.ts's recordRunEnd already gates its tier
+ * bookkeeping on `runMark === markUnlocked(meta)`, and has since before this
+ * screen existed, precisely so a replayed Mark cannot tick anything. So the
+ * tower needed no new rule to be safe: the lower floors are practice, and the
+ * top floor is the exam. What it does NOT do is let anyone fly ABOVE their
+ * unlock — `open()` below is the gate, and main.ts re-checks it before
+ * starting a run, because a DOM attribute is not a permission.
+ *
+ * FLOOR ORDER is top-down: God, 10, 9 … 1. A tower whose ground floor is not
+ * at the bottom is not a tower.
+ * ------------------------------------------------------------------------ */
+
+/** The God floor's index in the shaft. Not a Mark — MARK_COUNT is the top of
+ *  the real ladder — so it gets a number above every Mark and is compared by
+ *  identity everywhere rather than by "> 10". */
+export const GOD_TIER = MARK_COUNT + 1;
+
+/** How many floors the shaft holds: the Marks, plus God on the roof. */
+export const TOWER_FLOORS = MARK_COUNT + 1;
+
+export interface TowerState {
+  /** The highest Mark the player may fly (meta.ts's markUnlocked). */
+  unlocked: number;
+  /** The floor the car is parked on — a Mark, or GOD_TIER. */
+  selected: number;
+  /** Whether the God floor is open (the whole ladder beaten). */
+  god: boolean;
+}
+
+/** True when `tier` is a floor this player may ride to. The one gate; main.ts
+ *  calls it again before a run starts. */
+export function tierOpen(state: TowerState, tier: number): boolean {
+  return tier === GOD_TIER ? state.god : tier >= 1 && tier <= state.unlocked;
+}
+
+/** Where a floor sits in the shaft, counting from the roof — the car's whole
+ *  position is this one number (app.css does the arithmetic from --tower-idx),
+ *  so the travel animation is a single custom property to write. */
+export function towerIndexOf(tier: number): number {
+  return tier === GOD_TIER ? 0 : MARK_COUNT - tier + 1;
+}
+
+/**
+ * How long the car takes to reach `to` from `from`, in ms.
+ *
+ * Distance-scaled rather than flat, because a flat duration makes a one-floor
+ * nudge feel sluggish and a nine-floor climb feel teleported — the whole point
+ * of drawing a shaft is that the ladder has a LENGTH, and the only way the car
+ * can express it is by taking longer over more of it. Capped so that even the
+ * full run of the tower stays under the ~1.2s where a menu animation stops
+ * reading as feedback and starts reading as a wait.
+ */
+export function towerTravelMs(from: number, to: number): number {
+  return Math.min(1100, 260 + Math.abs(towerIndexOf(to) - towerIndexOf(from)) * 95);
+}
+
+function floorHTML(state: TowerState, tier: number): string {
+  const open = tierOpen(state, tier);
+  const god = tier === GOD_TIER;
+  const sel = tier === state.selected;
+  const cls = ["tower__floor"];
+  if (god) cls.push("tower__floor--god");
+  if (sel) cls.push("is-selected");
+  if (!open) cls.push("is-locked");
+  // The three lit squares are WINDOWS, and they are the reason a locked floor
+  // still reads as a floor rather than as a disabled button: a dark building
+  // is a building. They dim with the floor rather than disappearing.
+  const windows = `<span class="tower__windows">${"<i></i>".repeat(3)}</span>`;
+  const label = god ? "God tier" : `Tier ${tier}`;
+  return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"`
+    + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
+    + ` aria-label="${label}${open ? "" : " — locked"}">`
+    + `<span class="tower__gap" aria-hidden="true"></span>`
+    + `<span class="tower__n">${god ? "GOD" : tier}</span>`
+    + windows
+    + `</button>`;
+}
+
+export function tierTowerHTML(state: TowerState): string {
+  // Roof first, ground floor last.
+  const floors: string[] = [];
+  for (let t = GOD_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
+  const idx = towerIndexOf(state.selected);
+  return `<div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
+    <div class="tower__shaft" style="--tower-idx:${idx}">
+      <!-- The headhouse: the motor room every real lift has on its roof, and
+           the one piece of the drawing that is pure signage. Its lamp is the
+           only thing on the home screen that moves when the car does not. -->
+      <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
+      <div class="tower__rail" aria-hidden="true"></div>
+      <div class="tower__car" aria-hidden="true"><span></span></div>
+      ${floors.join("")}
+    </div>
+    <div class="tower__base" aria-hidden="true"></div>
+  </div>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * BASE BAY PANEL — what the selected floor is actually like to fly.
+ *
+ * Four numbers and a belt. All five come from the game's own tables
+ * (level.ts's baseBayFor, hazards.ts's HAZARDS) rather than from copy, so the
+ * panel cannot promise a bay the ladder does not deal — this is the surface a
+ * balance pass is most likely to silently invalidate, and deriving is the only
+ * defence that survives one.
+ *
+ * They are the STOCK bays: no loadout, no ratchets, no carry. That is the only
+ * honest quote from a menu where none of those are chosen yet.
+ * ------------------------------------------------------------------------ */
+function statCellHTML(name: IconName, label: string, value: string, tint: string): string {
+  return `<div class="bay-stat">${icon(name, 14)}<span class="bay-stat__txt">`
+    + `<span class="bay-stat__lbl">${label}</span>`
+    + `<span class="bay-stat__val" style="--stat-tint:${tint}">${value}</span>`
+    + `</span></div>`;
+}
+
+/** The six material axes in ladder order, lit once the selected Mark deals
+ *  them. Not a static list: it is hazards.ts's own content axes, so a material
+ *  added or re-gated there shows up here with no edit. */
+function beltLadderHTML(mark: number): string {
+  const content = HAZARDS.filter((h) => h.kind === "content" && h.material);
+  const glyphs = content
+    .map((h) => {
+      const live = h.mark <= mark;
+      const title = live
+        ? `${h.name} — dealt from Tier ${h.mark}`
+        : `${h.name} — unlocks at Tier ${h.mark}`;
+      return `<span class="bay-belt__mat${live ? "" : " is-dark"}" title="${title}"`
+        + ` role="img" aria-label="${title}">${materialIconHTML(h.material!, 13)}</span>`;
+    })
+    .join("");
+  const live = content.filter((h) => h.mark <= mark).length;
+  // picksPerBay is the capstone's OTHER rung: Mark 10 adds no new material and
+  // asks for two ratchets a bay instead, which is the thing that makes the top
+  // floor different from the ninth. It belongs beside the material count
+  // because between them they are the whole of "what does this Mark deal".
+  const picks = picksPerBay(mark);
+  return `<div class="bay-belt">
+    <span class="bay-belt__lbl">Belt</span>
+    <span class="bay-belt__mats">${glyphs}</span>
+    <span class="bay-belt__count">${live}/${content.length}${picks > 1 ? ` · ${picks} picks` : ""}</span>
+  </div>`;
+}
+
+export function baseBayPanelHTML(opts: {
+  /** The floor the panel is describing — a Mark, or GOD_TIER. */
+  tier: number;
+  best: number;
+  /** The entitlement / sandbox chips, if this build has any. */
+  extras?: string;
+}): string {
+  const god = opts.tier === GOD_TIER;
+  // God flies the top of the ladder, so it reads off MARK_COUNT's bays — the
+  // floor is a different CONTRACT, not a different bay table.
+  const mark = god ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
+  const bay = baseBayFor(mark);
+  const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
+  // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
+  // parked on, one column away from the tower that is showing exactly that,
+  // and directly above a Deep Run button whose plate says it a third time.
+  // Best is what survives: the one number on this panel that appears nowhere
+  // else on the screen.
+  return `<div class="panel base-bay" aria-label="Selected tier \u2014 base bay">
+    <div class="base-bay__head">
+      <div class="base-bay__best">Best ${opts.best}</div>
+    </div>
+    <div class="base-bay__grid">
+      ${statCellHTML("reactor", "Target", `$${bay.targetFrom}→${bay.targetTo}`, "var(--accent)")}
+      ${statCellHTML("launcher", "Launch", `$${bay.launchCost} · $${bay.startingFunds}`, "var(--warn)")}
+      ${statCellHTML("clock", "Clock", `${formatMMSS(bay.timeLimitSec * 1000)} · ${bay.bays} bays`, "var(--text)")}
+      ${statCellHTML("bonds", "Bonds", bonds, "var(--piece-t)")}
+    </div>
+    ${beltLadderHTML(mark)}
+    <div class="base-bay__extras">${opts.extras ?? ""}</div>
+  </div>`;
+}
+
 /** `store` is absent on web and on native builds without a RevenueCat key —
  *  the store entry point hides itself rather than offering a dead button.
  *  `guide` carries the first-session system (canvas A2/A3): which action
  *  holds the ONE NEXT STEP badge, the live numbers the subtitles state the
- *  offer in, and whether the Guided Tutorial entry is still owed. */
+ *  offer in, and whether the Guided Tutorial entry is still owed.
+ *
+ *  THREE COLUMNS now, not two. The middle one is the tier tower (see
+ *  tierTowerHTML), and the brand column's chip strip is gone with it — the
+ *  strip's three readouts have each moved to where they are actually used:
+ *  Tier IS the tower, Best is the base-bay panel's header, and Salvage was
+ *  already printed on the Workshop button's subtitle in the same breath as
+ *  what it can buy, so the chip was the second, context-free copy of it.
+ *  The three columns are three KINDS of thing: the SHELF (the demo panel,
+ *  which is the tutorial's door, over the entries nobody opens the game to
+ *  reach), the LADDER, and the LOOP (the recap of the parked floor, then the
+ *  three things you can launch into). The entitlement entry is a shelf row —
+ *  the demo taking How to Play's job is what freed it one. */
 export function menuScreen(
   best: number,
   salvage = 0,
@@ -122,20 +329,30 @@ export function menuScreen(
    *  fight the menu's own decoration (the wordmark is pointer-events: none by
    *  design), and be untestable. So: a button. */
   sandbox = false,
+  /** Which floor the car is parked on and which floors are open. Absent only
+   *  where `progress` is (a caller with no meta state at all), and the screen
+   *  then falls back to a one-floor tower at Tier 1 rather than to no tower —
+   *  the shaft is the menu's centre column, and a hole there is worse than a
+   *  ground floor. */
+  tower?: TowerState,
 ): string {
-  // The tier chip answers "where am I on the ladder and what's left" from the
-  // homepage (playtest call, 2026-08-08): the tier being flown, and the two
-  // halves that complete it — the Deep Run and the Contracts — as live ticks.
-  const tierChip = progress
-    ? `<div class="chip chip--tier">
-        <div class="chip__label">Tier</div>
-        <div class="chip__value" style="color:var(--accent)">${progress.tier}</div>
-        <div class="tier-chip__halves">
-          <span class="${progress.runDone ? "done" : ""}">${progress.runDone ? "✓" : "○"} Run</span>
-          <span class="${progress.contracts >= progress.needed ? "done" : ""}">${progress.contracts >= progress.needed ? "✓" : "○"} Contracts ${progress.contracts}/${progress.needed}</span>
-        </div>
-      </div>`
-    : "";
+  const twr: TowerState = tower ?? {
+    unlocked: progress?.tier ?? 1,
+    selected: progress?.tier ?? 1,
+    god: false,
+  };
+  // The Deep Run flies the SELECTED floor, so everything on that button reads
+  // off `selected` rather than off the unlocked Mark. main.ts rewrites both
+  // parts in place while the car is travelling (it must not re-render the
+  // menu — that would tear down the attract demo mid-animation), which is why
+  // they carry ids rather than being found by shape.
+  const sel = twr.selected;
+  const godSel = sel === GOD_TIER;
+  // Only the developer sandbox rides the recap's footnote row now — the
+  // entitlement entries moved onto the demo panel (see the note there). A
+  // dev-only entry is exactly what a footnote row is for, and it is absent
+  // from every shippable bundle anyway (lib/sandbox.ts).
+  const extras = sandbox ? sandboxChipHTML() : "";
   return `<div class="screen neon-backdrop">
     <div class="menu split">
       <div class="menu__brand">
@@ -161,32 +378,61 @@ export function menuScreen(
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           where every cleared bay ratchets one difficulty axis of your choosing.</p>
+          <!-- THE PANEL IS THE DOOR. A bay playing itself, with no HUD over
+               it, is already a demonstration of how the game works — so it is
+               the tutorial's entry rather than a decoration sitting beside
+               one. That gives the lesson the largest, most obvious target on
+               the screen AND gives the shelf below its row back, which is
+               where the entitlement entry now lives as a real button.
+
+               A transparent hit layer rather than a <button> wrapped around
+               the whole panel: the wordmark inside is an <h1>, which is not
+               phrasing content and cannot legally live in a button, and the
+               canvas has to stay out of the accessible name. The corner tag is
+               the visible affordance and rides inside the hit layer, so the
+               two can never drift apart. -->
+          <button class="menu__demo-hit" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}"
+            aria-label="${guide?.firstLaunch ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
+            <span class="menu__demo-tag">${icon("howto", 11)}Tutorial</span>
+            ${guide?.firstLaunch ? nextBadgeHTML("Start here") : ""}
+          </button>
         </div>
-        <div class="menu__status" aria-label="Player progress">
-          ${tierChip}
-          <div class="chip menu__stat">
-            <div class="chip__label">Best</div>
-            <div class="chip__value" style="color:var(--accent)">${best}</div>
-          </div>
-          <div class="chip menu__stat">
-            <div class="chip__label">Salvage</div>
-            <div class="chip__value" style="color:var(--warn)">${salvageHTML(salvage, 16)}</div>
-          </div>
-          ${store?.unlimited ? unlimitedBadgeHTML() : ""}
-          ${store?.available && !store.unlimited ? unlockChipHTML() : ""}
-          ${sandbox ? sandboxChipHTML() : ""}
+        <!-- The SHELF: everything a player does not open the game to reach.
+             How to Play used to head it and is now the demo panel above, which
+             is what freed the row the entitlement entry takes — a full-size
+             button in the column, rather than the 23px footnote it started as
+             or the band across the artwork that replaced it. -->
+        <div class="menu__nav">
+          ${
+            store?.unlimited ? unlimitedBadgeHTML()
+            : store?.available ? unlockChipHTML()
+            : ""
+          }
+          <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
+          <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
         </div>
       </div>
+      ${tierTowerHTML(twr)}
       <div class="menu__actions">
+        <!-- The recap sits ON the column it describes. It answers "what is
+             this floor like to fly", and the button that flies it is the next
+             thing under it — across the screen from it (where it started) the
+             player had to hold four numbers in their head while their eye
+             travelled past the whole tower to reach the button they qualify. -->
+        ${baseBayPanelHTML({ tier: sel, best, extras })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
              offer in LIVE numbers (A3), the Deep Run button carries the tier
              plate (A1 — the plate takes the icon slot), and exactly one
              button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play">${
-          progress ? tierPlateHTML(progress.tier, "menu") : icon("play")
-        }<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays${progress ? ` at Tier ${progress.tier}` : ""} in one run</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play" id="menu-play">${
+          tierPlateHTML(sel, "menu")
+        }<span class="btn__txt">Deep Run<span class="btn__sub" id="menu-play-sub">${
+          godSel
+            ? "All ten marks at once · no mercy"
+            : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
+        }</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
@@ -203,28 +449,13 @@ export function menuScreen(
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
-        ${
-          // A2: on first launch the Guided Tutorial takes How to Play's slot,
-          // badged START HERE — it supersedes the manual for a player who has
-          // never fired a shot, and the column stays six rows at every
-          // density (a seventh row overflows a 360dp phone by 70px). Once the
-          // coach is finished or skipped the entry disappears and How to Play
-          // returns, keeping the guided replay.
-          guide?.firstLaunch
-            ? `<button class="btn btn--secondary btn--block btn--menu btn--next" data-action="tutorial">${icon("howto")}<span class="btn__txt">Guided Tutorial<span class="btn__sub">Learn the cannon in one bay</span></span>${nextBadgeHTML("Start here")}</button>`
-            : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
-        }
-        <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        <!-- Nothing is a seventh button here — not the Unlimited upsell, and not
-             the developer sandbox. This column gets 325px on a landscape phone
-             and six buttons need 290; a seventh needs 330 and overflows the
-             viewport, which costs the LAST row rather than its own — the
-             sandbox build put Settings off the bottom of a 360dp phone exactly
-             this way. Both extra entries live in the brand column's chip row
-             instead (unlockChipHTML / sandboxChipHTML), which wraps, so this
-             column is six buttons in every build and at every entitlement
-             state. -->
-        <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
+        <!-- Three, and never a fourth. This column is the recap plus the loop
+             it describes, and the recap is not compressible: it holds four
+             readouts and the belt. Neither extra entry is a button here — the
+             Unlimited upsell is a shelf row in the brand column, and the
+             developer sandbox rides the recap's own footnote row — which is
+             what keeps this column the same three rows in every build and at
+             every entitlement state. -->
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
@@ -247,23 +478,23 @@ export interface StoreState {
 }
 
 function unlimitedBadgeHTML(): string {
-  return `<div class="chip menu__entitlement">
-    <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
-  </div>`;
+  return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Unlimited</div>`;
 }
 
-/** The pre-purchase counterpart to the badge above, in the same chip row.
- *  A real `.btn` (B1: a chip is a readout — something pressable is a button),
- *  restyled by `.chip--cta` to sit in the status strip rather than reading as
- *  a seventh menu action. See the note in menuScreen's action column for why
- *  it isn't one. */
+/** The pre-purchase counterpart to the badge above, in the same shelf row.
+ *  A full-size `.btn` and the only thing on the menu that pulses: it is an
+ *  offer rather than a control anyone came looking for, so it has to do the
+ *  finding. It has been three things — a 23px footnote inside the tier recap,
+ *  a band across the demo artwork, and this — and only this one treats a
+ *  purchase entry the way the rest of the screen treats a control. */
 function unlockChipHTML(): string {
-  return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
+  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
 }
 
-/** The developer sandbox's entry, in the chip row rather than the action column
- *  — see the note there on why that column is six buttons and no more. Only
- *  rendered by a build that compiled the sandbox in (lib/sandbox.ts). */
+/** The developer sandbox's entry, in the tier recap's footnote row rather than
+ *  a column of its own — see the note in menuScreen's action column on why
+ *  that column is three buttons and no more. Only rendered by a build that
+ *  compiled the sandbox in (lib/sandbox.ts), which is none that ships. */
 function sandboxChipHTML(): string {
   return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
 }

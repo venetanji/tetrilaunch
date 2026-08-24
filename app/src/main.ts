@@ -34,7 +34,7 @@ import {
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
+  INSTALLS, MARK_COUNT, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
   recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
@@ -193,6 +193,34 @@ class App {
    *  Game, canvas and rAF loop, and only exists while the menu is up — see
    *  syncAttract. */
   private attract = new AttractDemo();
+  /** Which floor the menu's tier tower has its car parked on — the Mark the
+   *  next Deep Run flies, or screens.ts's GOD_TIER.
+   *
+   *  Session state, not saved: it exists so a player can drop back down the
+   *  ladder for a practice run, and the thing they want on the NEXT launch is
+   *  the exam again. Null until the menu is first drawn, and re-clamped every
+   *  time it is (see towerState) — the unlocked Mark moves under it whenever a
+   *  tier completes, and a car parked on a floor that has since become the
+   *  wrong one is worse than one that quietly went back to the top. */
+  private pickedTier: number | null = null;
+  /** The value of `meta.mark` that `pickedTier` was chosen against.
+   *
+   *  A pick is session state layered ON TOP of a ladder position, so when the
+   *  ladder itself moves the pick belongs to a screen that no longer exists.
+   *  Compared against `meta.mark` rather than against `markUnlocked`, because
+   *  `mark` is the one number a tier completion actually moves and BOTH of the
+   *  tower's gates derive from it — the unlocked Mark (`mark + 1`, saturating)
+   *  and the God floor (`mark >= MARK_COUNT`). Keying on the derived unlock
+   *  would miss the completion that opens God, which is the single most
+   *  significant one on the ladder. */
+  private pickedAtMark: number | null = null;
+  /** Set while the car is between floors. The Deep Run button is re-plated on
+   *  ARRIVAL rather than on the tap, so the plate and the shaft never disagree
+   *  about which floor is being described mid-flight. */
+  private towerTravel: number | null = null;
+  /** Clears the locked-floor shake. Held so a rapid second tap restarts it
+   *  rather than being cut short by the first tap's timer. */
+  private denyTimer = 0;
   private input: InputController;
   private settings: Settings = loadSettings();
 
@@ -522,6 +550,15 @@ class App {
     // A rebind capture cannot outlive the Controls screen — a keypress on the
     // menu must never silently rebind Fire.
     if (s !== "controls") this.rebinding = null;
+    // The car's arrival callback writes into menu DOM that is about to be
+    // replaced. Harmless (setPlayPlate no-ops on a missing element) but it
+    // would also leave towerTravel set, which pickTier reads as "still
+    // moving" and would make the next tap on the parked floor a no-op.
+    if (s !== "menu") {
+      window.clearTimeout(this.towerTravel ?? undefined);
+      window.clearTimeout(this.denyTimer);
+      this.towerTravel = null;
+    }
     this.state = s;
     this.syncMusic(s);
     this.renderOverlay();
@@ -804,6 +841,178 @@ class App {
     return next ? { name: upgradeById(next.id)!.name, cost: next.cost } : null;
   }
 
+  /**
+   * The tier tower's state for this render (screens.ts's TowerState).
+   *
+   * Re-clamped every time, not just when the player taps: `markUnlocked` moves
+   * the moment a tier completes, and the completion can happen on a screen
+   * that is not this one (a Contract clear is the usual way). A car left
+   * parked on a floor the player has since climbed past would quietly send the
+   * next Deep Run at the OLD Mark — so an out-of-range pick is dropped rather
+   * than carried, and the default is always the exam.
+   *
+   * The God floor opens on `mark >= MARK_COUNT`, i.e. once the whole ladder
+   * has actually been beaten — not on `markUnlocked`, which saturates at
+   * MARK_COUNT one clear early.
+   */
+  private towerState(): S.TowerState {
+    const unlocked = markUnlocked(this.meta);
+    const god = this.meta.mark >= MARK_COUNT;
+    const state: S.TowerState = { unlocked, selected: unlocked, god };
+    // Two conditions, and the SECOND is the one this used to be missing.
+    // `tierOpen` only rejects a floor above the unlock, so it catches a save
+    // that went backwards and nothing else — when the ladder moves FORWARD
+    // every previously-picked floor stays open and the stale pick survived it.
+    // A player who parked the car on Tier 2 for a practice run and then
+    // completed their tier from the Contract board came back to a menu still
+    // offering Tier 2: an already-beaten Mark that earns no salvage and cannot
+    // advance the ladder, chosen for them, at the exact moment the point of
+    // the screen is the new exam. (Codex review, PR #86.)
+    const fresh = this.pickedAtMark === this.meta.mark;
+    if (this.pickedTier !== null && fresh && S.tierOpen(state, this.pickedTier)) {
+      state.selected = this.pickedTier;
+    } else {
+      this.pickedTier = null;
+      this.pickedAtMark = null;
+    }
+    return state;
+  }
+
+  /** The Mark a Deep Run started right now would fly. Re-derived from
+   *  towerState rather than read off `pickedTier`, so the clamp above is the
+   *  ONLY gate and a stale pick can never reach newRun. */
+  private runMark(): number {
+    const t = this.towerState().selected;
+    // God flies the top of the ladder. The floor's own rules ("all ten marks
+    // at once") are not specified anywhere in the game yet — see the note on
+    // GOD_TIER in screens.ts — so until they are, it is MARK_COUNT's run.
+    return t === S.GOD_TIER ? MARK_COUNT : t;
+  }
+
+  /**
+   * Ride the car to `tier`, or refuse.
+   *
+   * The refusal is the floor shaking its head, not a toast: the tower is what
+   * the player is reading when they tap it, and a message would cover it. The
+   * deny class is dropped on a timer rather than on animationend because the
+   * animation is `none` under prefers-reduced-motion, where animationend never
+   * fires and the floor would stay red forever.
+   */
+  private pickTier(tier: number): void {
+    const state = this.towerState();
+    const shaft = this.overlay.querySelector<HTMLElement>(".tower__shaft");
+    if (!shaft) return;
+    const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
+    if (!S.tierOpen(state, tier)) {
+      if (floor) {
+        floor.classList.remove("is-denied");
+        // Force a reflow so a second tap on the same locked floor replays the
+        // shake instead of doing nothing — removing and re-adding a class in
+        // one frame is a no-op to the animation engine otherwise.
+        void floor.offsetWidth;
+        floor.classList.add("is-denied");
+        window.clearTimeout(this.denyTimer);
+        this.denyTimer = window.setTimeout(() => floor.classList.remove("is-denied"), 620);
+      }
+      return;
+    }
+    if (tier === state.selected && this.towerTravel === null) return;
+
+    const dur = S.towerTravelMs(state.selected, tier);
+    this.pickedTier = tier;
+    // Stamped with the ladder position it was chosen against — see the field.
+    this.pickedAtMark = this.meta.mark;
+    shaft.style.setProperty("--tower-dur", `${dur}ms`);
+    shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
+    for (const f of shaft.querySelectorAll<HTMLElement>(".tower__floor")) {
+      const sel = Number(f.getAttribute("data-tier")) === tier;
+      f.classList.toggle("is-selected", sel);
+      f.setAttribute("aria-pressed", String(sel));
+      f.classList.remove("is-denied");
+    }
+    // In flight the plate ROLLS from one floor's number to the next, in the
+    // direction the car is going. It used to blank to two dots, which changed
+    // the plate's width and made the primary button grow and shrink for the
+    // length of the trip (reported from a device).
+    this.rollPlate(state.selected, tier, dur);
+    this.setPlaySub(null);
+    window.clearTimeout(this.towerTravel ?? undefined);
+    this.towerTravel = window.setTimeout(() => {
+      this.towerTravel = null;
+      this.setSelectedTier(tier);
+    }, dur);
+  }
+
+  /**
+   * Roll the Deep Run plate's number from `from` to `to` over `dur`.
+   *
+   * Two 1em cells in a track, ordered so the incoming number enters from the
+   * side the car is heading towards: riding UP the tower the old number leaves
+   * through the top, riding down it leaves through the bottom. The plate's
+   * number slot is a fixed 2ch (app.css), so "9" to "10" rolls in the same box
+   * as "2" to "1" and nothing around it moves.
+   */
+  private rollPlate(from: number, to: number, dur: number): void {
+    const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
+    if (!n) return;
+    const face = (t: number): string => (t === S.GOD_TIER ? "★" : String(t));
+    // A HIGHER tier is a higher floor — GOD_TIER is above every Mark, so the
+    // same comparison covers the God floor with no special case.
+    const up = to > from;
+    const cells = up ? [from, to] : [to, from];
+    n.style.setProperty("--roll-dur", `${dur}ms`);
+    n.style.setProperty("--roll-from", up ? "0" : "-1em");
+    n.style.setProperty("--roll-to", up ? "-1em" : "0");
+    n.innerHTML = `<span class="tier-plate__roll">${cells.map((t) => `<b>${face(t)}</b>`).join("")}</span>`;
+    // Cleared before the new track is armed. A second tap while the first roll
+    // is still running would otherwise find `is-rolled` already set, so the
+    // fresh track would render at its END offset immediately and the rAF pair
+    // below would have nothing left to transition — the number would snap.
+    n.classList.remove("is-rolled");
+    n.classList.add("is-rolling");
+    // Two frames, not one: the track has to be laid out AT the start offset
+    // before the end offset can transition from it, and a single rAF still
+    // lands inside the same style flush on WebKit.
+    requestAnimationFrame(() => requestAnimationFrame(() => n.classList.add("is-rolled")));
+  }
+
+  /**
+   * Land the whole screen on `tier`: the plate, the button's subtitle, and the
+   * base-bay panel beside the tower.
+   *
+   * The PANEL is the half that was missing. It answers "what is this floor
+   * like to fly" — target, launch price, clock, bonds, and which materials the
+   * belt deals — and it was rendered once at menu build and never touched
+   * again, so riding from Tier 5 to Tier 1 left it still describing Tier 5's
+   * bay (caught driving the real build on a phone viewport). A readout that
+   * describes a floor the car has left is worse than no readout.
+   *
+   * The extras row is carried across rather than rebuilt: it holds the
+   * developer sandbox door, which is build state and has nothing to do with
+   * which floor is selected.
+   */
+  private setSelectedTier(tier: number): void {
+    const plate = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate");
+    if (plate) plate.outerHTML = S.tierPlateHTML(tier, "menu");
+    this.setPlaySub(tier);
+    const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
+    if (!panel) return;
+    const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
+    panel.outerHTML = S.baseBayPanelHTML({ tier, best: loadBest(), extras });
+  }
+
+  /** The Deep Run button's subtitle for `tier`, or the in-flight line when it
+   *  is null. */
+  private setPlaySub(tier: number | null): void {
+    const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
+    if (!sub) return;
+    sub.textContent = tier === null
+      ? "Elevator moving…"
+      : tier === S.GOD_TIER
+        ? "All ten marks at once · no mercy"
+        : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
@@ -832,6 +1041,7 @@ class App {
             firstLaunch: !this.settings.seenTutorial,
           },
           SANDBOX,
+          this.towerState(),
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
@@ -1144,7 +1354,17 @@ class App {
       this.meta.unlocks,
       startingScrap,
       safeLoadout(this.meta),
-      markUnlocked(this.meta),
+      // The floor the tower's car is parked on, not simply the unlocked Mark.
+      // Flying a Mark already beaten earns nothing and advances nothing —
+      // meta.ts's recordRunEnd gates its tier bookkeeping on
+      // `runMark === markUnlocked(meta)` — so the lower floors are practice
+      // and no rule had to change to make them safe.
+      //
+      // The LOADOUT stays the one bought against the unlocked Mark's budget
+      // (safeLoadout above). Re-validating it against the picked floor would
+      // mean dropping to a stock rig to fly an easier tier, which is the
+      // opposite of what picking one is for.
+      this.runMark(),
     );
     this.contract = null;
     this.contractMusic = null;
@@ -2656,6 +2876,16 @@ class App {
     if (e.detail === 0 && !(e as PointerEvent).pointerType) this.actionFeedback(el);
     switch (action) {
       case "play": this.startGame(); break;
+      // A floor of the tier tower. Never re-renders the menu: the overlay's
+      // innerHTML is rewritten wholesale by renderOverlay, which would tear
+      // down the attract demo's canvas (see syncAttract) and restart the car's
+      // CSS transition from wherever it had got to. So the shaft, the floors
+      // and the Deep Run button are edited in place.
+      case "pick-tier": {
+        const tier = Number(el.getAttribute("data-tier"));
+        if (Number.isFinite(tier)) this.pickTier(tier);
+        break;
+      }
       case "howto": this.setState("howto"); break;
       // How to Play's "Guided Tutorial": replay the interactive coach on a
       // fresh run, even for a player who already finished or skipped it.

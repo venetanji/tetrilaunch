@@ -19,7 +19,7 @@ import type { PieceType } from "../../src/game/theme";
 import { LEVEL_1 } from "../../src/game/level";
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import { MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
+import { MARK_COUNT, MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
@@ -197,6 +197,15 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+/** The tower with the whole ladder beaten and the car on the God floor — the
+ *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
+ *  save, so this is the only fixture that reaches it. */
+const TOWER_TOP: S.TowerState = {
+  unlocked: MARK_COUNT,
+  selected: S.GOD_TIER,
+  god: true,
+};
+
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
  *  NEXT STEP badge on Workshop (salvage covers an install) and the live
  *  numbers the subtitles state the offer in. */
@@ -279,6 +288,17 @@ export const SCREENS: Record<string, () => string> = {
     S.menuScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE),
   "menu-nostore-live": () =>
     live(S.menuScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE)),
+  // The tier tower at the TOP of the ladder, which is the widest every string
+  // on the base-bay panel gets: "God tier · Base bay" for the eyebrow, "×1.9 ∞"
+  // for the bond multiplier (UNBREAKABLE_MARK's capstone), and "6/6 · 2 picks"
+  // for the belt count (all six materials dealt, and CAPSTONE_MARK's second
+  // ratchet). PROGRESS above is a Mark-0 save, so every other menu fixture
+  // measures the panel at Tier 1 — where the belt is empty and the bonds read
+  // "×1.0" — and would never have caught the top of the ladder overflowing.
+  "menu-tower-top": () =>
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, TOWER_TOP),
+  "menu-tower-top-live": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, TOWER_TOP)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.

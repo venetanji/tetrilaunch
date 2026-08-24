@@ -25,3 +25,32 @@
   `tokens/app.css`. Next sync from a machine with `/design-login` should upload
   `design/screens/contracts.html` (group "Screens") and re-copy
   `app/src/styles/app.css` over `tokens/app.css`.
+- 2026-08-24: home screen rebuilt around the TIER TOWER (screens.ts's
+  `tierTowerHTML` + `baseBayPanelHTML`, app.css's `.tower` / `.base-bay`),
+  from the "Staging branch elevator tower design" handoff bundle, then
+  rearranged over a device playtest into the shape that shipped:
+  * LEFT is the shelf. The attract demo panel is now the TUTORIAL's door (a
+    transparent `.menu__demo-hit` over the whole panel, tagged in the corner
+    the bay never fills) — a bay playing itself is already the explanation.
+    That freed the row under it for the entitlement entry, which is a
+    full-size button there rather than the footnote it started as.
+  * CENTRE is the tower: eleven floors, God on the roof, car rides to the
+    tapped floor and sets the Mark the Deep Run flies.
+  * RIGHT is the loop in the order you do it: the base-bay recap of the parked
+    floor, then Deep Run / Contracts / Workshop.
+  * The Tier/Best/Salvage chip strip is gone. Tier is the tower, Salvage was
+    already on the Workshop button, Best is the recap's one-line header. The
+    recap carries no "Tier N · Base bay" line either — the tower says it and
+    the Deep Run plate says it again.
+  * The tier plate's two halves now have FIXED slots (`min-width: 2ch` /
+    `calc(4ch + 0.32em)`), and the number rolls like an odometer while the car
+    travels. It used to blank to "··" and resize the primary button.
+  `design/screens/menu.html` rewritten to match (it was still carrying the
+  PRE-retro token values — `--r-md:10px`, rounded pills — so the card had been
+  lying about the app's own corners since the retro pass).
+  NOT YET UPLOADED, same reason as the 2026-08-22 entry: this ran from a Claude
+  Code web session, where DesignSync has no design-system authorization. Next
+  sync from a machine with `/design-login` owes the project, in one plan:
+  `design/screens/menu.html` (group "Screens", replacing the old card),
+  `design/screens/contracts.html` (group "Screens", still never uploaded), and
+  a re-copy of `app/src/styles/app.css` over `tokens/app.css`.
