@@ -79,6 +79,25 @@ function modeOf(b: Bay): "run" | "contract" {
 const runBays = bays.filter((b) => modeOf(b) === "run");
 const contractBays = bays.filter((b) => modeOf(b) === "contract");
 
+/**
+ * Deep Run bays split by the TIER they were flown at.
+ *
+ * The clock and the bankroll are both tier-scaled now (level.ts's tier ladder:
+ * 180s/$20 a shot at Tier 1 down to 144s/$30 at Tier 10), so pooling a session
+ * that spans Marks reports a median nobody played — a Tier 1 bay's slack and a
+ * Tier 10 bay's slack are answers to different questions. Sections 3 and 4
+ * therefore report per Mark whenever a session holds more than one; a
+ * single-Mark session prints exactly what it always did.
+ */
+function byMark(set: Bay[]): [number, Bay[]][] {
+  const groups = new Map<number, Bay[]>();
+  for (const b of set) {
+    const m = b.mark ?? 1;
+    groups.set(m, [...(groups.get(m) ?? []), b]);
+  }
+  return [...groups].sort((a, b) => a[0] - b[0]);
+}
+
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
 function quantile(xs: number[], q: number): number {
   if (!xs.length) return NaN;
@@ -165,9 +184,17 @@ for (const [name, set] of [["deep run", runBays], ["contract", contractBays]] as
 console.log("\n3. CLOCK  (Deep Run bays only — Contracts have no clock)");
 const wins = runBays.filter((b) => b.result === "won" && b.timeLimitSec > 0);
 if (wins.length) {
-  const slack = wins.map((b) => 1 - b.secs / b.timeLimitSec);
-  console.log(`   won bays used ${pct(1 - quantile(slack, 0.5))} of the limit (median) · tightest ${pct(1 - Math.min(...slack))}`);
-  console.log(`   -> ${quantile(slack, 0.5) > 0.4 ? "clock is SLACK — the target is the real constraint" : "clock BINDS — time pressure is doing work"}`);
+  for (const [mark, set] of byMark(wins)) {
+    const slack = set.map((b) => 1 - b.secs / b.timeLimitSec);
+    // The tier sets the shift length, but a Shift Cut notch shortens it mid-run
+    // (hazards.ts), so a Mark's bays do NOT all share one clock — print the
+    // limits actually flown rather than the first bay's, which would read as a
+    // constant the deeper bays never had.
+    const limits = [...new Set(set.map((b) => b.timeLimitSec))].sort((a, b) => b - a);
+    console.log(`   Mark ${mark} (${limits.join("/")}s): won bays used ${pct(1 - quantile(slack, 0.5))} of the limit (median)` +
+      ` · tightest ${pct(1 - Math.min(...slack))} · ${set.length} bays`);
+    console.log(`   -> ${quantile(slack, 0.5) > 0.4 ? "clock is SLACK — the target is the real constraint" : "clock BINDS — time pressure is doing work"}`);
+  }
 } else {
   console.log("   no timed bays won yet");
 }
@@ -189,19 +216,23 @@ for (const [name, set] of [["deep run", runBays], ["contract", contractBays]] as
 // 4. Bankroll pressure — how close to broke, and when.
 // ---------------------------------------------------------------------------
 console.log("\n4. BANKROLL  (Deep Run bays only — Contracts have no bankroll)");
-const mins = runBays
-  .filter((b) => b.launchCost > 0)
-  .map((b) => {
-    const lowest = b.funds.length ? Math.min(...b.funds.map((f) => f.v)) : b.endScore;
-    return { bay: b.bay, lowest, cost: b.launchCost, shotsLeft: Math.floor(lowest / b.launchCost) };
-  });
-if (!mins.length) {
+const banked = runBays.filter((b) => b.launchCost > 0);
+if (!banked.length) {
   console.log("   no bays with a bankroll");
 } else {
-  console.log(`   median low-water mark: $${quantile(mins.map((m) => m.lowest), 0.5).toFixed(0)}` +
-    ` (${quantile(mins.map((m) => m.shotsLeft), 0.5).toFixed(0)} shots of headroom)`);
-  const scary = mins.filter((m) => m.shotsLeft <= 2).length;
-  console.log(`   bays that got within 2 shots of broke: ${scary}/${mins.length}`);
+  for (const [mark, set] of byMark(banked)) {
+    const mins = set.map((b) => {
+      const lowest = b.funds.length ? Math.min(...b.funds.map((f) => f.v)) : b.endScore;
+      return { bay: b.bay, lowest, cost: b.launchCost, shotsLeft: Math.floor(lowest / b.launchCost) };
+    });
+    const scary = mins.filter((m) => m.shotsLeft <= 2).length;
+    // Same reason as the clock above: a Fuel Levy notch raises the price of a
+    // shot mid-run, so list the prices flown rather than the opening one.
+    const costs = [...new Set(set.map((b) => b.launchCost))].sort((a, b) => a - b);
+    console.log(`   Mark ${mark} ($${costs.join("/")}/shot): median low-water mark $${quantile(mins.map((m) => m.lowest), 0.5).toFixed(0)}` +
+      ` (${quantile(mins.map((m) => m.shotsLeft), 0.5).toFixed(0)} shots of headroom)` +
+      ` · within 2 shots of broke: ${scary}/${mins.length}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

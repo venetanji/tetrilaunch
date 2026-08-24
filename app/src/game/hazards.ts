@@ -5,10 +5,11 @@ import { WIND_GUST_FRACTION } from "./level";
  * HAZARDS — the axis ratchet that replaced the modifier draft.
  *
  * Why this exists at all is measured, not asserted. level.ts's calibration note
- * records three sweeps over MARK_TARGET_STEP returning byte-identical win rates,
- * a clock cut to 35% still giving 3/3 wins, and compactor-speed scaling pinned
- * at 0 for being actively harmful. A fully-kitted rig trivializes the ladder, so
- * no multiplier on the ladder's own numbers produces a graded response.
+ * records three sweeps over the old per-Mark target MULTIPLIER returning
+ * byte-identical win rates, a clock cut to 35% still giving 3/3 wins, and
+ * compactor-speed scaling pinned at 0 for being actively harmful. A fully-kitted
+ * rig trivializes the ladder, so no multiplier on the ladder's own numbers
+ * produces a graded response.
  *
  * The conclusion the design drew: stop scaling what a bay demands behind the
  * player's back, and hand them the knob instead. Before every bay the player
@@ -27,11 +28,14 @@ import { WIND_GUST_FRACTION } from "./level";
  *    with the purse now the binding constraint (level.ts's economy note), every
  *    notch is a real fork, and a third card only invited the least-bad shrug.
  *  - **Marks add axes rather than steepen them.** Higher Marks do not make the
- *    ratchet bigger; they put more kinds of pressure on the table. A Mark is a
- *    statement about which hazards and systems exist, and nothing else — which
- *    is why level.ts's MARK_TARGET_STEP is 0 (the ladder's OWN per-bay target
- *    ramp, TARGET_PER_BAY, is a different thing: it is the baseline climb every
- *    run faces, not a knob a Mark moves).
+ *    ratchet bigger; they put more kinds of pressure on the table. A Mark is
+ *    mostly a statement about which hazards and systems exist. What it does
+ *    move is a bay's OPENING TERMS (level.ts's tier ladder — the first bay's
+ *    target, the clock, the price of a shot), which is a different thing from
+ *    the ratchet: the terms are chosen before the run and visible on the menu,
+ *    the notches are chosen during it. The ladder's OWN per-bay target ramp
+ *    (TARGET_PER_BAY) is a third thing again: the baseline climb every run
+ *    faces, at any Mark.
  *  - **Content axes are the same object as number axes.** Slag is not a
  *    scheduled probability the ladder inflicts any more; it is a notch the
  *    player took instead of a harder number. That swap is only attractive once

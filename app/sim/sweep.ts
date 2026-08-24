@@ -2,7 +2,11 @@
 // Balance sweep CLI.
 //
 //   npx tsx sim/sweep.ts [--bays 1,2,3] [--seeds 5] [--bots middle,lob,flat,lob-rot]
-//     [--mods all|none|comma,list] [--carry 100]
+//     [--mods all|none|comma,list] [--carry 100] [--mark 1]
+//
+// --mark picks the TIER the bays are built at (level.ts's tier ladder sets the
+// target, the clock and the launch cost per tier), so two sweeps are only
+// comparable at the same Mark. It is printed in the header banner.
 //
 // --mods accepts "+"-joined groups for stacked variants tested together,
 // e.g. "half+overclock,premium" is two variants: [half,overclock] stacked,
@@ -21,6 +25,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeBaseLevel, WIND_GUST_FRACTION, type LevelConfig } from "../src/game/level";
 import { MODS, applyMods } from "../src/game/mods";
+import { MARK_COUNT } from "../src/game/upgrades";
 import { BOTS } from "./bots";
 import { runBay, type BayOutcome } from "./runner";
 
@@ -46,6 +51,11 @@ interface Args {
   /** windMax override for every tested bay (--windmax); NaN = use the
    *  level ladder's own value. For wind-amplitude tuning sweeps. */
   windMax: number;
+  /** The TIER every tested bay is built at (--mark, default 1). The tier ladder
+   *  (level.ts) sets the target, the clock and the launch cost, so a sweep is
+   *  only comparable to another sweep at the same Mark — which is why it is
+   *  printed in the header banner rather than left implicit. */
+  mark: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -107,7 +117,12 @@ function parseArgs(argv: string[]): Args {
   // without editing level.ts between runs.
   const windMax = parseFloat(get("--windmax") ?? "NaN");
 
-  return { bays, seeds, bots, modVariants, carry, windMax };
+  // Which tier to sweep. Default 1 rather than "the shipped numbers", because
+  // after the tier ladder landed there is no single set of shipped numbers —
+  // Tier 1 is the bottom rung and the honest default for a bot that flies stock.
+  const mark = Math.max(1, Math.min(MARK_COUNT, parseInt(get("--mark") ?? "1", 10) || 1));
+
+  return { bays, seeds, bots, modVariants, carry, windMax, mark };
 }
 
 // ---------------------------------------------------------------------------
@@ -122,8 +137,8 @@ function parseArgs(argv: string[]): Args {
  *  comes from the --carry CLI flag (default 100, a typical one-line
  *  overshoot); it's a flat per-bay assumption here since the sweep doesn't
  *  simulate a full run end-to-end. */
-function baseLevelForBay(bay: number, carry: number, windMax = NaN): LevelConfig {
-  const cfg = makeBaseLevel(bay - 1);
+function baseLevelForBay(bay: number, carry: number, windMax = NaN, mark = 1): LevelConfig {
+  const cfg = makeBaseLevel(bay - 1, mark);
   if (bay > 1) cfg.startingFunds = cfg.startingFunds + carry;
   if (!Number.isNaN(windMax)) {
     cfg.windMax = windMax;
@@ -224,7 +239,7 @@ function main(): void {
 
   console.log("# Tetrilaunch balance sweep\n");
   console.log(
-    `bays=${args.bays.join(",")} seeds=${args.seeds} bots=${args.bots.join(",")} carry=${args.carry} ` +
+    `mark=${args.mark} bays=${args.bays.join(",")} seeds=${args.seeds} bots=${args.bots.join(",")} carry=${args.carry} ` +
       `mods=${args.modVariants.length ? args.modVariants.map((ids) => ids.join("+")).join(",") : "none"}\n`,
   );
 
@@ -235,9 +250,9 @@ function main(): void {
   {
     const bay = args.bays[0] ?? 1;
     const botName = args.bots[0] ?? Object.keys(BOTS)[0];
-    const cfg = baseLevelForBay(bay, args.carry, args.windMax);
+    const cfg = baseLevelForBay(bay, args.carry, args.windMax, args.mark);
     const run1 = runBay(cfg, BOTS[botName](1), 1);
-    const run2 = runBay(baseLevelForBay(bay, args.carry, args.windMax), BOTS[botName](1), 1);
+    const run2 = runBay(baseLevelForBay(bay, args.carry, args.windMax, args.mark), BOTS[botName](1), 1);
     const same = JSON.stringify(run1) === JSON.stringify(run2);
     console.log(
       `Reproducibility check (bay ${bay}, bot ${botName}, seed 1): ` +
@@ -268,7 +283,7 @@ function main(): void {
     for (const botName of args.bots) {
       const rows: BayOutcome[] = [];
       for (let seed = 1; seed <= args.seeds; seed++) {
-        const cfg = baseLevelForBay(bay, args.carry, args.windMax);
+        const cfg = baseLevelForBay(bay, args.carry, args.windMax, args.mark);
         const outcome = runBay(cfg, BOTS[botName](seed), seed);
         rows.push(outcome);
         allResults.push(outcome);
@@ -319,7 +334,7 @@ function main(): void {
         for (const botName of args.bots) {
           const rows: BayOutcome[] = [];
           for (let seed = 1; seed <= args.seeds; seed++) {
-            const cfg = applyMods(baseLevelForBay(bay, args.carry, args.windMax), ids);
+            const cfg = applyMods(baseLevelForBay(bay, args.carry, args.windMax, args.mark), ids);
             const outcome = runBay(cfg, BOTS[botName](seed), seed);
             outcome.mods = ids;
             rows.push(outcome);

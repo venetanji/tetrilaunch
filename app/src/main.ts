@@ -108,6 +108,15 @@ type AppState =
   // shape. Reaching it is what is gated (see SANDBOX).
   | "sandbox";
 
+/** The states in which a Deep Run is being flown, or has just ended and is
+ *  still on screen. `this.run` is NOT cleared on the way back to the menu (only
+ *  starting a Contract nulls it), so "is there a run object" is not the same
+ *  question as "is a run on screen" — which matters to boardTier, since a run
+ *  that completed its tier leaves meta.mark one ahead of run.mark. */
+const RUN_STATES: ReadonlySet<AppState> = new Set<AppState>([
+  "playing", "bayclear", "refit", "draft", "paused", "won", "lost",
+]);
+
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
  *  to wall-clock time — see the loop() accumulator for why this is capped.
@@ -1219,7 +1228,7 @@ class App {
             });
         }
         break;
-      case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
+      case "howto": this.overlay.innerHTML = S.howtoScreen(markUnlocked(this.meta)); break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
@@ -1323,6 +1332,7 @@ class App {
               // it has to be added here, exactly as scrapEarned above.
               salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
               tiers: this.run.tiers,
+              boardTier: this.run.mark,
             });
         }
         break;
@@ -2166,7 +2176,7 @@ class App {
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       scrap: run.scrap,
       tiers: run.tiers,
       mark: run.mark,
@@ -2396,7 +2406,7 @@ class App {
       bayNum: run.levelIndex,
       bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really
@@ -2438,7 +2448,7 @@ class App {
       bayNum: run.levelIndex,
       bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       carry: run.carry,
       offers: this.pendingFinals,

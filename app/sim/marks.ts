@@ -2,7 +2,8 @@
 // Mark calibration CLI.
 //
 //   npx tsx sim/marks.ts [--marks 1,5,10] [--bays 1,4,7,10] [--seeds 3]
-//     [--bots aim] [--carry 150] [--target-step 0.12] [--speed-step 0.04]
+//     [--bots aim] [--carry 150] [--target-mult 1.2] [--speed-step 0.04]
+//     [--notches none|spread]
 //
 // Answers the one question the Mark ladder can't be tuned without
 // (docs/DESIGN.md): does a rig built with the FULL Mark-N budget, played at the
@@ -27,7 +28,7 @@
 // worthless and bomb-carrying builds are undersold), and they fire a fixed arc
 // rather than reading the pile. A human clears bays these bots lose.
 import {
-  makeBaseLevel, MARK_SPEED_STEP, MARK_TARGET_STEP, SCRAP_PER_BAY, SCRAP_PER_LINE,
+  makeBaseLevel, MARK_SPEED_STEP, SCRAP_PER_BAY, SCRAP_PER_LINE,
 } from "../src/game/level";
 import {
   applyRatchets,
@@ -178,7 +179,12 @@ const get = (flag: string): string | undefined => {
 const nums = (s: string): number[] =>
   s.split(",").map((x) => parseInt(x.trim(), 10)).filter(Number.isFinite);
 
-const marks = nums(get("--marks") ?? Array.from({ length: MARK_COUNT }, (_, i) => i + 1).join(","));
+// Clamped to the ladder: an out-of-range Mark reaches spreadRatchets with an
+// EMPTY axis pool (Mark 0 offers nothing), where the round-robin indexes
+// axes[k % 0] and hands back undefined. A CLI flag should be corrected, not
+// fatal — sweep.ts clamps its own --mark the same way.
+const marks = nums(get("--marks") ?? Array.from({ length: MARK_COUNT }, (_, i) => i + 1).join(","))
+  .map((m) => Math.max(1, Math.min(MARK_COUNT, m)));
 // A spread of the ladder rather than all ten bays: bay 1 is the floor, bay 10
 // the ceiling, and the two in between catch a curve that sags in the middle.
 const bays = nums(get("--bays") ?? "1,4,7,10");
@@ -186,11 +192,15 @@ const seeds = parseInt(get("--seeds") ?? "3", 10);
 const botNames = (get("--bots") ?? "aim").split(",").map((s) => s.trim()).filter(Boolean);
 // Mirrors run.ts's RunState.carry — a typical one-line overshoot into bay > 1.
 const carry = parseInt(get("--carry") ?? "150", 10);
-// Candidate values for level.ts's MARK_TARGET_STEP / MARK_SPEED_STEP. Overriding
-// them here rather than editing the constants is what makes this a SEARCH: the
-// shipped numbers are a guess until a sweep says otherwise, and the sweep has to
-// be able to try values the source doesn't hold.
-const targetStep = parseFloat(get("--target-step") ?? String(MARK_TARGET_STEP));
+// Candidate scalings applied ON TOP of the shipped tier ladder. Overriding here
+// rather than editing level.ts is what makes this a SEARCH: the shipped curve is
+// a guess until a sweep says otherwise, and the sweep has to be able to try
+// values the source doesn't hold.
+//
+// --target-mult multiplies the tier's own target (1 = the shipped ladder, 1.25 =
+// "what if every tier asked a quarter more"), and --speed-step is still the
+// per-Mark compactor-speed step level.ts pins at 0.
+const targetMult = parseFloat(get("--target-mult") ?? "1");
 const speedStep = parseFloat(get("--speed-step") ?? String(MARK_SPEED_STEP));
 // --ratchets none|spread. `none` is the harness's original meaning: the rig
 // against STOCK bays, no hazard notches — which measures the SHIP, not the
@@ -234,17 +244,22 @@ function evaluate(
     let bayTotal = 0;
     for (const botName of botNames) {
       for (let s = 0; s < seeds; s++) {
-        // Build the base at Mark 1 (stock) and apply the CANDIDATE mark scaling
-        // by hand, so a sweep can try steps the shipped constants don't hold.
+        // Build the bay AT THIS MARK — the tier ladder (level.ts) is now what
+        // states the target, the clock and the launch cost, so the thing being
+        // calibrated is the shipped curve rather than a multiplier on a flat
+        // one. Candidate overrides are applied on top.
+        //
         // Order mirrors run.ts's levelForRun exactly — base, then upgrades —
         // because REACTOR raises scorePerLine and would otherwise be measured
         // against the wrong target.
-        // mark (not 1) so cfg.mark is honest: the ratchet ladders read it
-        // (notchTotal starts at mark - 1). With MARK_TARGET_STEP and
-        // MARK_SPEED_STEP both 0 nothing else in the base config moves.
+        // mark (not 1) so the bay is built on the TIER LADDER (level.ts): the
+        // opening target, the clock and the launch cost all read the Mark, and
+        // so does cfg.mark, which the ratchet ladders need (notchTotal starts
+        // at mark - 1). --target-mult then scales the tier's own target for a
+        // candidate sweep; MARK_SPEED_STEP stays 0, so nothing else moves.
         let cfg = makeBaseLevel(bay - 1, mark);
         const marksAbove = mark - 1;
-        cfg.targetScore = Math.round(cfg.targetScore * (1 + targetStep * marksAbove));
+        cfg.targetScore = Math.round(cfg.targetScore * targetMult);
         cfg.compactorSpeed *= 1 + speedStep * marksAbove;
         applyUpgrades(cfg, tiers);
         // Same order as run.ts's levelForRun: the ship first, then the
@@ -291,18 +306,19 @@ function verdict(runRate: number): string {
 const pct = (x: number): string => `${(x * 100).toFixed(0)}%`;
 
 console.log(
-  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-step ${targetStep} · speed-step ${speedStep} · ratchets ${ratchetMode}`,
+  `Mark calibration — bays ${bays.join("/")} · ${seeds} seeds · bots ${botNames.join("+")} · carry $${carry} · target-mult ${targetMult} · speed-step ${speedStep} · ratchets ${ratchetMode}`,
 );
 console.log(
   `Criterion: the BEST build at a Mark should fall JUST SHORT (run clear 2-35%).\n`,
 );
 
-const header = ["Mark", "budget", ...Object.keys(ARCHETYPES).map((a) => a.slice(0, 7)), "best", "run", "verdict"];
+const header = ["Mark", "budget", "bar", ...Object.keys(ARCHETYPES).map((a) => a.slice(0, 7)), "best", "run", "verdict"];
 console.log(header.map((h, i) => h.padStart(i === 0 ? 4 : 8)).join(" "));
 
 const rows: { mark: number; best: string; runRate: number }[] = [];
 for (const mark of marks) {
   const budget = budgetForMark(mark);
+  const bar = makeBaseLevel(0, mark);
   const cells: string[] = [];
   let best = { name: "", overall: -1, perBay: new Map<number, number>() };
   for (const [name, build] of Object.entries(ARCHETYPES)) {
@@ -316,6 +332,7 @@ for (const mark of marks) {
     [
       String(mark).padStart(4),
       String(budget).padStart(8),
+      `$${bar.targetScore}/${bar.timeLimitSec}s`.padStart(8),
       ...cells.map((c) => c.padStart(8)),
       best.name.padStart(8),
       pct(runRate).padStart(8),

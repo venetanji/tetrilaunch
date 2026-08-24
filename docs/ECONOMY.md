@@ -29,6 +29,34 @@ Two observations from playtesting shaped the fix:
   coming and can't act on. The answer had to be an **agentive** one: a system the
   player can choose to invest in.
 
+## The tier ladder — what a bay costs and pays at each Mark
+
+The Deep Run bay used to demand the same thing at every Mark: $800 on the first
+bay, a 150s clock, $25 a shot. The tier being flown now states all three
+(`level.ts`'s `targetScoreFor` / `timeLimitFor` / `launchCostFor`), extending
+that bay downward for a new player and upward for a veteran. The ladder's own
+per-bay climb (`TARGET_PER_BAY`) is unchanged and rides on top — the tier sets
+where the climb starts and steepens it slightly.
+
+| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
+|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
+| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
+| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
+| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
+
+Three things this deliberately does **not** touch:
+
+- **The mistake budget stays eight launches** (`LAUNCH_BUDGET_SHOTS`). The float
+  is derived from it rather than fixed in dollars, so a dearer shot at a high
+  tier costs more money for the same runway instead of quietly shortening it —
+  the sweep pinned the shot count, not the $200.
+- **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
+  lines*, not richer ones — which is why the leaderboard is per tier now: a
+  shared board would rank the ladder rather than the play.
+- **`penaltyPerLostPiece` stays on the bay index** (25 + 2i). A fourth knob that
+  also punished sloppy play harder would compound the other three into a cliff.
+
 ## Three currencies, three horizons
 
 | | Lifetime | Earned by | Spent on |
@@ -474,8 +502,11 @@ tile now says which unit it is in.
 
 Everything is a named constant with a comment:
 
-- `level.ts` — `makeBaseLevel` formulas, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`,
-  `SLAG_BOUNTY`, `DEMO_RESUPPLY_LINES`
+- `level.ts` — the tier ladder (`TARGET_BASE`, `TARGET_PER_TIER`,
+  `TARGET_PER_BAY`, `TARGET_PER_BAY_PER_TIER`, `TIME_BASE`, `TIME_PER_TIER`,
+  `LAUNCH_COST_BASE`, `LAUNCH_COST_TOP`, `LAUNCH_BUDGET_SHOTS`), the rest of
+  `makeBaseLevel`, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`, `SLAG_BOUNTY`,
+  `DEMO_RESUPPLY_LINES`
 - `upgrades.ts` — `TIER_COSTS`, per-track `apply`
 - `meta.ts` — `UNLOCKS` prices, `SALVAGE_*` weights
 - `mods.ts` — per-mod numbers
@@ -486,8 +517,10 @@ Everything is a named constant with a comment:
 - `finals.ts` — `FINALS` (the Final Inspection's twenty clauses, one pair per
   Tier), `RUSH_ORDER_QUOTA`, `RATE_CUT`, `SALVAGE_PROFILE`, `FOULED_ALLOWANCE`
 
-`npm run sim:balance` sweeps bays × bots × mods; `npm run sim:pile` sweeps the
-congestion tax (and `--census` alone answers "how full is a bay actually"). Two caveats it can't see past:
+`npm run sim:balance` sweeps bays × bots × mods at one tier (`--mark`, default
+1 — two sweeps only compare at the same Mark); `npm run sim:pile` sweeps the
+congestion tax (and `--census` alone answers "how full is a bay actually");
+`npx tsx sim/marks.ts` sweeps the tier ladder itself. Two caveats it can't see past:
 the bots never use abilities (Bond Breaker, Demolition read as 0 delta), and the
 Autoloader is now a held trigger no bot holds, so it reads as a clean 0 delta
 too rather than the old *fight for the cannon* whose sweep numbers measured a

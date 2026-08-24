@@ -1,6 +1,6 @@
 import { PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
-import { baseBayFor, LEVEL_1 } from "../game/level";
+import { baseBayFor, makeBaseLevel, tierDemands } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
@@ -563,17 +563,29 @@ function unlockChipHTML(): string {
   return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
 }
 
-export function howtoScreen(): string {
+/** `tier` is the Mark the player would fly next (meta.ts's markUnlocked). The
+ *  briefing quotes REAL numbers, and since the tier ladder (level.ts) sets the
+ *  target, the clock and the launch cost, those numbers are only true for one
+ *  tier — so the screen names which one rather than quoting a bay nobody is
+ *  about to play. */
+export function howtoScreen(tier = 1): string {
+  const lv = makeBaseLevel(0, tier);
+  // The per-bay climb is a property of the tier, not of any one bay's config.
+  const bar = tierDemands(tier);
   const steps = [
     ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">${keyLabel(keyFor("aimUp"))}</span><span class="kbd">${keyLabel(keyFor("aimDown"))}</span> to aim, <span class="kbd">${keyLabel(keyFor("powerDown"))}</span><span class="kbd">${keyLabel(keyFor("powerUp"))}</span> for power.`],
     ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">${keyLabel(keyFor("rotl"))}</span><span class="kbd">${keyLabel(keyFor("rotr"))}</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
     ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
     ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
-    ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
+    ["06", "Mind the bankroll", `At <b>Tier ${tier}</b> every launch costs <b>$${lv.launchCost}</b>, and a full line pays out <b>$${lv.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${lv.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. The first bay wants <b>$${lv.targetScore}</b> in <b>${formatMMSS(lv.timeLimitSec * 1000)}</b>, and every bay after it wants <b>$${bar.targetPerBay}</b> more — before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
     ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (${scrapHTML()})</b> is earned per line and spent on your ship at refit stops. <b>Salvage (${salvageHTML()})</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
-    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on seven systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>, <b>demolition rack</b>. Three tiers each; they last the whole run.`],
-    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
+    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on it. ${
+      tier <= 1
+        ? `At <b>Tier 1</b> the stop offers the <b>reactor</b> alone — the economy the run is tuned around; the rest of the yard opens at Tier 2.`
+        : `The yard carries seven systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b> and the <b>demolition rack</b>.`
+    } Three tiers each; they last the whole run.`],
+    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints — and the <b>tier</b> you fly sets the opening terms: a higher tier wants more money, on a shorter shift, at a dearer price per shot. Clear a bay and you <b>ratchet ${picksPerBay(tier) > 1 ? `${picksPerBay(tier)} difficulty axes` : "a difficulty axis"}</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
   return `<div class="screen neon-backdrop">
     <div class="howto">
@@ -796,6 +808,7 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
     .join("")}</div>`;
 }
 
+<<<<<<< HEAD
 /**
  * The standalone Leaderboard.
  *
@@ -831,6 +844,17 @@ export function leaderboardScreen(rows: string, opts?: {
         <div style="text-align:left"><div class="eyebrow">${
           sandbox ? "Tier S · Sandbox" : "Launch Bay"
         }</div>
+=======
+/** `tier` is the board being shown. Every tier keeps its OWN board (main.ts
+ *  submits under the run's Mark): the tier ladder means a Tier 10 run banks
+ *  more lines against a heavier target than a Tier 1 run ever can, so a single
+ *  shared list would rank the ladder rather than the play. */
+export function leaderboardScreen(rows: string, tier = 1): string {
+  return `<div class="screen neon-backdrop center">
+    <div class="panel modal pop" style="width:min(560px,94vw)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="text-align:left"><div class="eyebrow">Tier ${tier} · Deep Run</div>
+>>>>>>> origin/claude/tier-progression-expansion-tco5qr
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
@@ -1936,7 +1960,7 @@ export function refitScreen(opts: {
     <div class="panel modal modal--refit pop" style="width:min(940px,96vw)">
       <div class="refit__hdr">
         <div style="text-align:left">
-          <div class="eyebrow">Refit stop · after bay ${opts.bayNum}</div>
+          <div class="eyebrow">Mark ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
           <p class="muted refit__blurb" style="margin:0">The compactor rig is your ship. Stage what you want; Undock installs the lot. Next up: ${opts.nextBayName}.</p>
         </div>
@@ -2609,6 +2633,11 @@ export function endModal(opts: {
    *  sitting on the same foot line would read as one number counted twice. */
   salvagedFunds: number;
   tiers: UpgradeTiers;
+  /** The board this score posts to — the RUN's own Mark (RunState.mark), never
+   *  `progress.tier`: a run that completed its tier has already advanced the
+   *  Mark by the time this renders, and the score belongs to the tier it was
+   *  actually flown at. */
+  boardTier: number;
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   // Demolition recovery, appended to whichever foot line the branch below
@@ -2736,6 +2765,7 @@ export function endModal(opts: {
       }
       </div>
       <div class="end__side">
+        <div class="eyebrow">Tier ${opts.boardTier} board</div>
         <div class="submit-row" id="submit-row">
           <input class="name-input" id="name-input" maxlength="12" placeholder="YOUR NAME"
             value="${opts.name}" autocomplete="off" spellcheck="false" />

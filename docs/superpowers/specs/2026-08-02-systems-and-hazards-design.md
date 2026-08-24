@@ -3,6 +3,12 @@
 **Date:** 2026-08-02
 **Status:** approved (architecture) — **sub-project 1 (systems layer) shipped**
 on branch `systems-layer`; the hazard draft and material counters are unbuilt.
+**Superseded in part (2026-08-24) by the tier ladder** (`docs/ECONOMY.md`,
+`level.ts`): "a Mark's numbers stop moving" no longer holds. A Mark states the
+bay's opening terms — target, clock and launch cost — on an explicit per-tier
+curve set once at run start. What this document says about the ratchet stands:
+higher Marks still add axes rather than steepening notches, and the notch sizes
+are the same at every Mark.
 See `docs/superpowers/plans/2026-08-02-systems-layer.md` for what phase 1
 actually landed, including three departures from this document's numbers.
 

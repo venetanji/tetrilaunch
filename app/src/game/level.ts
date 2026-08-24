@@ -307,22 +307,26 @@ export interface LevelConfig {
 // and scorePerLine are all PER-BAY (not cumulative), and only a CAPPED share
 // of the surplus banked above a cleared bay's target carries into the next one
 // (run.ts's RunState.carry / advanceRun / CARRY_CAP). The budget is deliberately
-// TIGHT: a $200 float buys eight stock launches ($25 each), down from the ten
-// it used to buy. Eight is the number the whole change turns on — it is the
-// mistake budget. At Launch Bay (i=0) a perfect 8-cube line costs 2 shots
-// ($50) for a $100 payout, so a precise player nets $50/line and grows; at the
-// measured ~2.9 launches/line (contracts.ts's PLANNING_EFFICIENCY note) the
-// same line nets $27, and a single piece bounced out of the bay (-$25) erases
-// it. So volume does not pay for itself and precision does, which is the
-// puzzle the mode is supposed to be.
+// TIGHT: the float buys EIGHT launches at every tier (LAUNCH_BUDGET_SHOTS),
+// which is the mistake budget; what the tier moves is what those eight cost —
+// $160 at Tier 1's $20 a shot, $240 at Tier 10's $30. At Tier 1's
+// Launch Bay (i=0) a perfect 8-cube line costs 2 shots ($40) for a $100 payout,
+// so a precise player nets $60/line and grows; at the measured ~2.9
+// launches/line (contracts.ts's PLANNING_EFFICIENCY note) the same line nets
+// $42, and a single piece bounced out of the bay (-$25) erases most of it. So
+// volume does not pay for itself and precision does, which is the puzzle the
+// mode is supposed to be.
 //
 // The float was cut rather than the launch priced up, deliberately: a dearer
 // shot taxes the precise player exactly as hard as the careless one, where a
 // shorter runway only bites once you have already missed. The sweep agrees —
 // at $250 the volume bot won 38% of bay 1 and at $200 it wins 17%, while the
-// deep bays barely move (sim/sweep.ts, 24 seeds).
+// deep bays barely move (sim/sweep.ts, 24 seeds). The tier ladder does price
+// the shot up, but only ACROSS the ladder and never inside a run: Tier 1 is
+// cheaper than that sweep's $25, Tier 10 dearer, and a run's price is fixed
+// before it starts.
 //
-// Later bays keep the same $25 launch price but pay out faster (scorePerLine
+// Later bays keep the tier's launch price but pay out faster (scorePerLine
 // ramps +10/bay) against a rising target (+TARGET_PER_BAY/bay), so the purse
 // tightens as the ladder climbs and the Reactor float install (upgrades.ts)
 // becomes the deep-run economy answer. The $25+2i lost-piece penalty and
@@ -332,26 +336,152 @@ const LEVEL_NAMES = [
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
 ] as const;
 
-/** Per-bay funding target — RISES every bay, automatically, by
- *  TARGET_PER_BAY. Per-bay (not cumulative) because each bay is its own
- *  economy: only the capped overshoot above this target carries into the next
- *  bay's float (see run.ts's RunState.carry / CARRY_CAP).
+/* ---------------------------------------------------------------------------
+ * THE TIER LADDER — what a Mark actually DEMANDS.
  *
- *  The ramp is back, and the reason the old one was removed no longer applies.
- *  The old ramp (800 + 150i against a flat $250 float and uncapped carry) was
- *  measured to be a DURATION knob: with a bottomless purse, income per line
- *  always beat spend per line, so any target was only a matter of time. The
- *  budget is the lever that now bites (tight float, capped carry), and once
- *  money is scarce a rising target lengthens the bay's demand against a purse
- *  that does NOT rise with it — which is a difficulty curve. It also takes the
- *  ramp out of the player's draft: the ladder's own climb is no longer
- *  something a hazard card can be spent opting into (hazards.ts RETIRED Quota
- *  Raise from the offer for exactly this reason — the ladder's own ramp is
- *  that pressure's home now; see RETIRED_AXES). */
-export const TARGET_PER_BAY = 100;
+ * Three knobs state the bay's opening terms, and all three are a function of
+ * the TIER being flown (RunState.mark) rather than constants every tier shares:
+ *
+ *   targetScore   $600 on Tier 1's first bay, +$20 a tier  -> $780 at Tier 10.
+ *   timeLimitSec  180s at Tier 1, -4s a tier               -> 144s at Tier 10.
+ *   launchCost    $20 at Tier 1, straight line to          -> $30 at Tier 10.
+ *
+ * Why this exists: the ladder had collapsed to a single set of numbers. Tier 1
+ * and Tier 10 demanded exactly the same bay, so the only thing a Mark changed
+ * was which hazards existed and how big a build budget you brought — and a tier
+ * that asks a new player for the same $800 as a veteran is a bad first bay and
+ * a weightless tenth one. The curve extends the ladder in BOTH directions from
+ * those flat numbers: the bottom is genuinely gentler (more clock, a smaller
+ * bar, cheaper shots) and the top genuinely heavier.
+ *
+ * The measurement in the MARK SCALING note below still stands — raising the bar
+ * ALONE buys duration, not difficulty — and nothing here claims otherwise. Two
+ * things carry the difficulty instead, and the tier only sets where they start
+ * from: the tight purse (see the economy note above) and the hazard ratchet
+ * (hazards.ts), which a run is forced to take a notch of after every bay.
+ *
+ * Every number is a named constant because a play pass will edit them first,
+ * and sim/marks.ts sweeps them (--notches spread models the ratchet a run
+ * actually carries; without it the ladder alone reads FREE at mid Marks, which
+ * is the finding, not a bug).
+ * ------------------------------------------------------------------------ */
 
-function targetScoreFor(i: number): number {
-  return 800 + TARGET_PER_BAY * i;
+/** Tiers on the ladder. Mirrors upgrades.ts's MARK_COUNT, duplicated rather
+ *  than imported to keep this module import-free of the upgrade layer (which
+ *  imports LevelConfig from here); sim/systems.ts asserts the two agree. */
+export const TIER_COUNT = 10;
+
+/** Funding target on the FIRST bay of a Tier 1 run, and what each further tier
+ *  adds to it. */
+export const TARGET_BASE = 600;
+export const TARGET_PER_TIER = 20;
+
+/** What each further BAY inside a run adds to the target, and how much that
+ *  per-bay step itself grows per tier (Tier 1 climbs $100 a bay, Tier 10 $118).
+ *
+ *  The ramp is the ladder's own difficulty curve and the reason the old one was
+ *  removed no longer applies. The old ramp (800 + 150i against a flat $250
+ *  float and uncapped carry) was measured to be a DURATION knob: with a
+ *  bottomless purse, income per line always beat spend per line, so any target
+ *  was only a matter of time. The budget is the lever that now bites (tight
+ *  float, capped carry), and once money is scarce a rising target lengthens the
+ *  bay's demand against a purse that does NOT rise with it — which is a
+ *  difficulty curve. It also takes the ramp out of the player's draft: the
+ *  ladder's own climb is no longer something a hazard card can be spent opting
+ *  into (hazards.ts RETIRED Quota Raise from the offer for exactly this reason;
+ *  see RETIRED_AXES).
+ *
+ *  The tier steepens it rather than replacing it: what a tier moves outright is
+ *  where the run STARTS (TARGET_BASE + TARGET_PER_TIER), so Tier 1 climbs
+ *  $600 -> $1500 across its ten bays and Tier 10 climbs $780 -> $1842. */
+export const TARGET_PER_BAY = 100;
+export const TARGET_PER_BAY_PER_TIER = 2;
+
+/** Bay clock at Tier 1, and the seconds each further tier takes off it. */
+export const TIME_BASE = 180;
+export const TIME_PER_TIER = 4;
+
+/** Launch cost at Tier 1 and at the top of the ladder; the tiers between are a
+ *  straight line, rounded to whole dollars (20, 21, 22, 23, 24, 26, 27, 28, 29,
+ *  30). Held flat WITHIN a run on purpose — a cost that climbs per bay while
+ *  the target climbs too compounds into a bankruptcy cliff, and the economy
+ *  note above records the sweep that chose a shorter runway over a dearer shot
+ *  as the way to tighten a bay. */
+export const LAUNCH_COST_BASE = 20;
+export const LAUNCH_COST_TOP = 30;
+
+/** Opening launches the bay's float buys — the MISTAKE BUDGET, and the number
+ *  the purse is actually tuned to (see the economy note above: at $250 the
+ *  volume bot won 38% of bay 1, at eight launches 17%). It is a SHOT count
+ *  rather than a dollar figure because the tier now prices a shot: holding the
+ *  float at a flat $200 while the launch cost climbed $20 -> $30 would have
+ *  quietly handed Tier 1 ten launches and Tier 10 six, moving the one number
+ *  the sweep pinned. startingFunds is therefore derived from it, which keeps
+ *  every tier's opening runway the same LENGTH while the tier decides what that
+ *  runway costs (sim/systems.ts asserts the 7-9 band at every Mark). */
+export const LAUNCH_BUDGET_SHOTS = 8;
+
+/** Clamp a Mark to the ladder. Callers pass RunState.mark, which is 1-based and
+ *  already bounded — but makeBaseLevel is reachable from the sim, the attract
+ *  loop and a restored save, so the curves refuse to extrapolate off either
+ *  end rather than emitting a bay nobody can play. */
+function tierOf(mark: number): number {
+  return Math.max(1, Math.min(TIER_COUNT, Math.floor(mark)));
+}
+
+/** The funding target of bay `i` (0-based) at `mark`. Per-bay (not cumulative)
+ *  because each bay is its own economy: only the capped overshoot above this
+ *  target carries into the next bay's float (run.ts's RunState.carry /
+ *  CARRY_CAP), never the whole ending score. */
+export function targetScoreFor(i: number, mark = 1): number {
+  const tier = tierOf(mark);
+  const first = TARGET_BASE + TARGET_PER_TIER * (tier - 1);
+  const perBay = TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (tier - 1);
+  return first + perBay * Math.max(0, i);
+}
+
+/** The bay clock at `mark`, in seconds. Flat across a run — the tier sets the
+ *  shift length, and the Shift Cut notch (hazards.ts) is how it gets shorter
+ *  mid-run. */
+export function timeLimitFor(mark = 1): number {
+  return TIME_BASE - TIME_PER_TIER * (tierOf(mark) - 1);
+}
+
+/** The per-shot launch cost at `mark`. Flat across a run — see LAUNCH_COST_BASE. */
+export function launchCostFor(mark = 1): number {
+  const tier = tierOf(mark);
+  const span = (LAUNCH_COST_TOP - LAUNCH_COST_BASE) / (TIER_COUNT - 1);
+  return Math.round(LAUNCH_COST_BASE + span * (tier - 1));
+}
+
+/** The bay's opening float at `mark`: LAUNCH_BUDGET_SHOTS shots' worth, so the
+ *  runway is the same length at every tier ($160 at Tier 1, $240 at Tier 10)
+ *  and only its price moves. */
+export function startingFundsFor(mark = 1): number {
+  return LAUNCH_BUDGET_SHOTS * launchCostFor(mark);
+}
+
+/** What a tier asks of you, as the three numbers the menu quotes before you
+ *  accept it: the FIRST bay's funding target, the shift length and the price of
+ *  a shot. A tier the player can't read before pressing Play is just a number
+ *  next to the word "Tier", so this exists to be printed (see ui/screens.ts's
+ *  menuScreen and howtoScreen) rather than to be played — the bay itself is
+ *  always makeBaseLevel's whole config. */
+export function tierDemands(mark = 1): {
+  tier: number;
+  targetScore: number;
+  targetPerBay: number;
+  timeLimitSec: number;
+  launchCost: number;
+} {
+  const tier = tierOf(mark);
+  return {
+    tier,
+    targetScore: targetScoreFor(0, tier),
+    targetPerBay: targetScoreFor(1, tier) - targetScoreFor(0, tier),
+    timeLimitSec: timeLimitFor(tier),
+    launchCost: launchCostFor(tier),
+  };
 }
 
 /**
@@ -367,13 +497,15 @@ function targetScoreFor(i: number): number {
  *   of rubbery as break-resistance rises.
  * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
  *   sloppy play faster and harder.
- * - targetScore (800 + TARGET_PER_BAY·i) climbs every bay on its own; the
- *   clock (150s), launch cost ($25) and startingFunds ($200) are flat
- *   PER-BAY floats — only the prior bay's CAPPED overshoot (RunState.carry)
- *   stacks on top. The purse is deliberately tight: a flat float against a
- *   rising quota means later bays demand more lines from the same money,
- *   which is what makes precise launches the strategy (scorePerLine still
- *   ramps +10/bay, so a clean line stays net-positive all the way down).
+ * - targetScore climbs every bay on its own (TARGET_PER_BAY·i, steepened a
+ *   little by the tier); the clock, the launch cost and the opening target are
+ *   the TIER's three knobs (see the tier-ladder note above) and are flat inside
+ *   a run, as is startingFunds (eight launches' worth) — only the prior bay's
+ *   CAPPED overshoot
+ *   (RunState.carry) stacks on top. The purse is deliberately tight: a flat
+ *   float against a rising quota means later bays demand more lines from the
+ *   same money, which is what makes precise launches the strategy (scorePerLine
+ *   still ramps +10/bay, so a clean line stays net-positive all the way down).
  * - windMax is the core counter to "fire the same direction forever", now
  *   introduced only AFTER the player has the fundamentals down. The first
  *   three bays (i < 3) are dead calm (windMax 0) so new players learn the
@@ -488,17 +620,23 @@ export const SCRAP_PER_BAY = 10;
  * that change what the rig must DO — not from scaling what a bay demands. See
  * docs/DESIGN.md; this is now measured rather than asserted.
  *
- * TARGET_STEP is now 0, which is where the measurement above always pointed and
- * where the hazard draft finally allowed it to go. A Mark no longer moves any
- * of the numbers that state a bay's DEMAND: it is a statement about WHICH
- * hazards and systems exist (hazards.ts's ladder, meta.ts's INSTALLS) — plus
- * ONE content number, the bond ramp (BOND_MARK_STEP below), which is the kind
- * of knob the measurement said Mark difficulty has to come from: stronger
- * bonds change what the rig must DO, not how much the bay asks for. Kept as a
- * named seam rather than deleted so the measurement that zeroed it stays
- * attached to the knob it describes — same reason MARK_SPEED_STEP survives.
+ * TARGET_STEP — the per-Mark MULTIPLIER this note zeroed — is gone, and the
+ * tier ladder that replaced it is not a re-run of it. That knob piled a
+ * percentage onto one shared bar; the ladder above states each tier's opening
+ * target, clock and launch cost as absolute numbers on an explicit curve
+ * (targetScoreFor / timeLimitFor / launchCostFor), and its bottom half moves
+ * DOWN from the flat numbers rather than up.
+ *
+ * What a Mark moves is therefore three OPENING TERMS plus one content number,
+ * the bond ramp (BOND_MARK_STEP below) — which is the kind of knob the
+ * measurement said Mark difficulty has to come from: stronger bonds change what
+ * the rig must DO, not how much the bay asks for. Everything the measurement
+ * ruled out stays ruled out: no multiplier, no press-tempo scaling
+ * (MARK_SPEED_STEP, kept as a named seam at 0 so the measurement that zeroed it
+ * stays attached to the knob it describes), and no claim that a bigger bar is
+ * what makes a high Mark hard. A Mark is still mostly a statement about WHICH
+ * hazards and systems exist (hazards.ts's ladder, meta.ts's INSTALLS).
  */
-export const MARK_TARGET_STEP = 0;
 /** 0 by design — see above. Kept as a named seam rather than deleted so the
  *  measurement that zeroed it stays attached to the knob it describes. */
 export const MARK_SPEED_STEP = 0;
@@ -756,7 +894,6 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   // Mark 1 is stock, so every existing number and every tuned constant below
   // is preserved exactly at the bottom of the ladder.
   const marksAbove = Math.max(0, Math.floor(mark) - 1);
-  const targetMult = 1 + MARK_TARGET_STEP * marksAbove;
   const speedMult = 1 + MARK_SPEED_STEP * marksAbove;
   return {
     id: i + 1,
@@ -803,12 +940,14 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     penaltyPerLostPiece: 25 + i * 2,
     // The TARGET climbs every bay on its own (see targetScoreFor) — that is
     // the ladder's own difficulty curve, and it is deliberately NOT one of the
-    // axes the hazard draft can spend a notch on. Float and launch price stay
-    // flat: the purse is the pressure. A flat $200 float buys eight stock
-    // launches, so bays are won by placing shots, not by volume.
-    targetScore: Math.round(targetScoreFor(i) * targetMult),
-    startingFunds: 200,
-    launchCost: 25,
+    // axes the hazard draft can spend a notch on. What the TIER sets is where
+    // that climb starts, how steeply it climbs, and the price of a shot; the
+    // float buys the same EIGHT launches at every tier, because that count is
+    // the pressure — bays are won by placing shots, not by volume — while the
+    // tier decides what those eight cost ($160 at Tier 1, $240 at Tier 10).
+    targetScore: targetScoreFor(i, mark),
+    startingFunds: startingFundsFor(mark),
+    launchCost: launchCostFor(mark),
     // null = the seeded 7-bag (see the field's doc). This was a fixed
     // I,O,T,L,J,S,Z rotation, which made every bay open with the same pieces
     // in the same order — the first minute of every run played out identically
@@ -831,7 +970,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // launch you have to wait for is a launch worth aiming, and it is also
     // what gives congestion's reload penalty something to bite on.
     cooldownMs: 1350,
-    timeLimitSec: 150,
+    timeLimitSec: timeLimitFor(mark),
     pieceSize: "std",
     // Clean. Materials are no longer scheduled by bay and Mark at all — they
     // arrive only when the player ratchets a content axis, which is what turns
@@ -882,8 +1021,15 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
   };
 }
 
-/** The 10-level base ladder (before any drafted modifiers are applied — see
- *  mods.ts's applyMods / run.ts's levelForRun). */
+/** The 10-bay base ladder AT TIER 1 (before any ship upgrades or ratchets — see
+ *  run.ts's levelForRun).
+ *
+ *  There used to be a `LEVEL_1` alias beside this that the howto and menu copy
+ *  quoted their numbers from. It is gone rather than updated: with the tier
+ *  ladder, a bare "level 1" config silently means TIER 1's level 1, so copy
+ *  built from it would have been true for a new player and wrong for everyone
+ *  above them. The screens that quote numbers now build the bay for the tier
+ *  they are describing (ui/screens.ts's howtoScreen, tierDemands). */
 export const LEVELS: LevelConfig[] = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i));
 
 // UI references LEVEL_1 today (pre-run-mode howto/menu copy); keep it as an
@@ -893,13 +1039,20 @@ export const LEVEL_1: LevelConfig = LEVELS[0];
 /* ---------------------------------------------------------------------------
  * BASE BAY SUMMARY — what flying a given Mark actually costs you.
  *
- * The home screen's tier tower (screens.ts's tierTowerHTML) lets the player
- * park the car on any Mark they have earned, and the panel beside it has to
- * answer "what am I signing up for" for the floor currently selected. Every
- * number here is READ OFF makeBaseLevel rather than restated, because a
- * summary that restates the ladder is a summary that silently goes stale the
- * first time the ladder is retuned — and this one quotes six of the numbers a
- * balance pass edits first.
+ * The home tower (screens.ts's tierTowerHTML) parks the car on any Mark the
+ * player has earned, and the panel beside it answers "what am I signing up
+ * for" for the floor currently selected. Every number is READ OFF
+ * makeBaseLevel rather than restated, because a summary that restates the
+ * ladder goes stale the first time the ladder is retuned.
+ *
+ * MERGE NOTE (#86 + #88). This arrived with the tower, written when a Mark
+ * moved exactly one axis — its comment said so out loud: "the one axis the
+ * Mark itself moves, since MARK_TARGET_STEP and MARK_SPEED_STEP are both 0
+ * today". #88's tier ladder is precisely the change that makes that false.
+ * The summary needed no structural change BECAUSE it never restated the
+ * ladder: makeBaseLevel now varies target, clock and launch cost by Mark, and
+ * reading bay 1 and bay 10 back off it picks that up for free. Only the
+ * comment had to go — which is the whole argument for deriving over restating.
  *
  * The bays are the STOCK ones: no upgrades, no ratchets, no carry. That is the
  * honest thing to quote from a menu, where none of those are decided yet.
@@ -914,9 +1067,7 @@ export interface BaseBaySummary {
   /** Bay 1's clock, in seconds, and how many bays the run is. */
   timeLimitSec: number;
   bays: number;
-  /** Joint strength relative to Mark 1 (level.ts's BOND_MARK_STEP) — the one
-   *  axis the Mark itself moves, since MARK_TARGET_STEP and MARK_SPEED_STEP
-   *  are both 0 today. x1.0 at Mark 1. */
+  /** Joint strength relative to Mark 1 (BOND_MARK_STEP). x1.0 at Mark 1. */
   bondMult: number;
   /** True at UNBREAKABLE_MARK, where bay 10's joints go Infinity and the Bond
    *  Breaker is the only shatter left in the capstone. */
