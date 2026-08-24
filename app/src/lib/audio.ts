@@ -9,8 +9,8 @@
  * Two mechanisms, chosen per job rather than one for both:
  *
  *  - **Effects use Web Audio.** They are tiny (~120 KB for all thirteen
- *    one-shots; the three congestion loops are the deliberate exception at
- *    ~620 KB, priced in their own note below), they
+ *    one-shots; the congestion loop is the deliberate exception — one take of
+ *    three, chosen per session, priced in SESSION_LOOP's note), they
  *    overlap — several cubes land in the same frame — and they must fire on the
  *    physics event with no perceptible delay. Decoding each once into an
  *    AudioBuffer and firing a throwaway BufferSource gives unlimited overlap
@@ -60,12 +60,18 @@ export type FxName =
 export type MusicName = "menu" | ContractBed | BayTrack;
 export type StingerName = "bayClear" | "gameOver" | "gameOver2" | "refit";
 
-const FX_NAMES: FxName[] = [
+const FX_ONE_SHOTS: FxName[] = [
   "shoot", "impact", "lineClear", "pieceLost", "settleStart",
   "cryoShatter", "bondBreak", "bondBreak2", "reloadReady",
   "explosion", "uiClick", "bombArm", "uiConfirm",
-  "congestionLoop", "congestionLoop2", "congestionLoop3",
 ];
+
+/** The three interchangeable takes of the congestion cue, played IN ROTATION —
+ *  a different one each time a bay congests. See startStaticTake, which is the
+ *  only thing in the module that reads one. */
+const LOOP_TAKES: FxName[] = ["congestionLoop", "congestionLoop2", "congestionLoop3"];
+
+const FX_NAMES: FxName[] = [...FX_ONE_SHOTS, ...LOOP_TAKES];
 
 /**
  * THE MIX — and it is deliberately the inverse of what these numbers used to
@@ -193,15 +199,17 @@ const FADE_MS = 450;
  * sounding like nothing at all.
  *
  * The cue prefers a SHIPPED texture and synthesizes its old self as the
- * fallback: congestionLoop.mp3 — a designed loop, ~150 KB mono, whatever the
- * sound design wants congestion to BE (interference, clanking cargo strain) —
+ * fallback: one of the congestionLoop takes — a designed loop, 160-300 KB
+ * mono depending on which take the session rolled (see SESSION_LOOP), whatever
+ * the sound design wants congestion to BE (interference, clanking cargo
+ * strain) —
  * plays when its buffer has arrived, and white noise through a bandpass still
  * covers a missing file, a failed decode, or a bay that congests before the
  * effects finish loading. Whatever the texture is, it must stay CONTINUOUS:
  * discrete events with silence between them would read as more of the real
  * impact one-shots this plays under, not as a state. The noise-only form was
  * defended here as "an mp3 would have cost ~2.5 MB"; a short mono loop costs a
- * twentieth of that, which buys character Math.random cannot say.
+ * tenth of that, which buys character Math.random cannot say.
  *
  * Muffling means a lowpass, which means the music has to reach the audio graph
  * — so playMusic now routes its element through createMediaElementSource. That
@@ -607,6 +615,9 @@ function fadeOutAndStop(el: HTMLAudioElement | null): void {
     // removeAttribute is the quiet equivalent.
     el.removeAttribute("src");
     el.load();
+    // …and release the element itself, which clearing the stream does not do.
+    // See musicSources.
+    unrouteMusic(el);
   });
 }
 
@@ -704,6 +715,24 @@ export function stopStinger(): void {
  * element goes on playing by itself. Either way the music ends up unmuffled
  * rather than silent, and silent music would be much the worse bug.
  */
+/**
+ * The capture node for each routed element, so it can be let go of again.
+ *
+ * A MediaElementAudioSourceNode holds its element alive and stays in the graph
+ * until it is disconnected — nothing about pausing the element, clearing its
+ * src or dropping every other reference releases either one. playMusic builds
+ * a FRESH element per track (it must: createMediaElementSource may be called
+ * only once for a given element), so without this the graph gained one
+ * permanently-connected source and one pinned element on every bed change:
+ * the menu, ten bays, a contract, each refit — twenty-odd over a session, all
+ * of them silent, all of them still mixed.
+ *
+ * Weak on purpose. This map is bookkeeping about elements, not ownership of
+ * them; once fadeOutAndStop has unrouted an element and the module has dropped
+ * it, nothing here should be the reason it stays.
+ */
+const musicSources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+
 function routeMusic(el: HTMLAudioElement): void {
   if (!ctx || !musicFilter) return;
   // Once captured, this element is audible only while the context runs — so a
@@ -711,43 +740,135 @@ function routeMusic(el: HTMLAudioElement): void {
   // or the track plays silently into a dead graph (see resumeStoppedContext).
   resumeStoppedContext();
   try {
-    ctx.createMediaElementSource(el).connect(musicFilter);
+    const node = ctx.createMediaElementSource(el);
+    node.connect(musicFilter);
+    musicSources.set(el, node);
   } catch {
     /* left playing to the output on its own — see above */
   }
 }
 
-/** The static source, built on the first congested bay and then left running
- *  at zero gain for good. A BufferSource cannot be restarted, and one looping
- *  buffer is not worth the bookkeeping of tearing down and rebuilding every
- *  time a bay gets tidied.
+/** Release a routed element back out of the graph. A no-op for anything that
+ *  was never routed — stingers play unrouted by design (see playStinger), and
+ *  a capture that threw stored nothing to release. */
+function unrouteMusic(el: HTMLAudioElement): void {
+  const node = musicSources.get(el);
+  if (!node) return;
+  musicSources.delete(el);
+  try { node.disconnect(); } catch { /* graph already torn down */ }
+}
+
+/** The running loop take. Replaced, not restarted, on every rotation — a
+ *  BufferSource cannot be started twice — while the gain it plays through
+ *  persists (see ensureStatic).
  *
- *  Which source it is gets decided HERE, once: one of the shipped loop takes
- *  at random if any buffer has arrived (loadEffects), synthesized noise
- *  otherwise. Per SESSION rather than per bay on purpose — re-rolling each bay
- *  would mean tearing the source down and rebuilding it, which is exactly the
- *  bookkeeping this builder exists to avoid, and the random start offset below
- *  already keeps one session's cue from opening on the same clank twice. A bay
- *  that congests before the decodes land keeps the noise for the session —
- *  acceptable, because the fallback is the cue this shipped with for months,
- *  and swapping sources mid-cue would be audible as a glitch nobody asked
- *  for. */
+ *  Which source it is gets decided per EPISODE: the next take in the rotation
+ *  if its buffer has arrived (loadEffects), synthesized noise otherwise. The
+ *  cue is met a dozen times in a run, which is exactly the frequency at which
+ *  hearing the same clank every time starts to read as one sound effect rather
+ *  than as a machine under strain — so startStaticTake steps through the takes
+ *  instead of holding one.
+ *
+ *  Rotating costs the source teardown this used to avoid, and the reason that
+ *  was worth avoiding still stands: swapping mid-cue would be audible as a
+ *  glitch nobody asked for. So a swap only ever happens between episodes, with
+ *  the envelope proven quiet — see staticSilentAt, which is what makes the
+ *  bookkeeping safe rather than merely cheap. A bay that congests before any
+ *  decode lands still gets the noise fallback, which is the cue this shipped
+ *  with for months. */
 let staticSrc: AudioBufferSourceNode | null = null;
 /** Peak level for setCongestion to scale — depends on which source won. */
 let staticPeak = STATIC_GAIN;
-const LOOP_TAKES: FxName[] = ["congestionLoop", "congestionLoop2", "congestionLoop3"];
+/**
+ * The persistent half of the cue's graph: one gain, built on the first
+ * congested bay and kept for good.
+ *
+ * Split from the source because the source is now swapped every episode (see
+ * startStaticTake). Keeping the envelope, the beat tap and the bus routing on
+ * a node that never changes is what lets setCongestion go on addressing one
+ * gain, and what keeps a rotation from having to re-derive any of it.
+ */
 function ensureStatic(): void {
   if (!ctx || !fxBus || staticGain) return;
   try {
     const gain = ctx.createGain();
     gain.gain.value = 0;
+    // The static joins the crest's beat tap (see musicLevel): under heavy
+    // congestion the lowpass has pulled the bed down to a murmur, and without
+    // this the crest would fall STILL at exactly the moment the machine is
+    // working hardest. Post-gain, so the tap hears the cue at the level the
+    // player does.
+    if (pulseTap) {
+      try { gain.connect(pulseTap); } catch { /* observer only — losable */ }
+    }
+    // Through the EFFECTS bus rather than straight to the output: the static is
+    // a game cue, so the Sound toggle should govern it and it should sit at the
+    // effects level. Routing it here means both come for free.
+    gain.connect(fxBus);
+    staticGain = gain;
+  } catch {
+    staticGain = null;
+  }
+}
+
+/**
+ * ROTATION — which take the NEXT congestion episode opens with.
+ *
+ * Steps through the decoded takes in order from a random start, rather than
+ * re-rolling: a die repeats itself, and a cue the player meets a dozen times
+ * in a run is exactly where a repeat gets noticed. -1 means nothing has played
+ * yet, so the first episode takes index 0 of a list that was already rotated
+ * by the random start below.
+ */
+let staticTake = -1;
+/** Where in LOOP_TAKES the session's rotation begins, so two launches do not
+ *  open on the same take even though both then rotate in the same order. */
+const takeOffset = Math.floor(Math.random() * LOOP_TAKES.length);
+
+/**
+ * When the cue last went quiet, on the context clock; -1 while it is audible.
+ *
+ * The rotation swaps one looping BufferSource for another, and a swap is only
+ * inaudible if nothing is coming out at the time. `congestion` reaching 0 is
+ * not that moment: the gain rides there on setTargetAtTime, which approaches
+ * zero without arriving, so a bay that decongests and re-congests inside a
+ * second would swap the source while its tail was still ringing. Four fall
+ * time constants puts the tail under 2% of peak, which is silence in a mix
+ * that also has music and impacts in it.
+ */
+let staticSilentAt = -1;
+
+/** Retire the running loop. Stopped AND disconnected: a stopped BufferSource
+ *  that is still wired stays in the graph, and this is a rotation, so it would
+ *  happen again every bay. */
+function stopStaticSource(): void {
+  const src = staticSrc;
+  staticSrc = null;
+  if (!src) return;
+  try { src.stop(); } catch { /* never started */ }
+  try { src.disconnect(); } catch { /* already gone */ }
+}
+
+/**
+ * Start the next take through the persistent gain built by ensureStatic.
+ *
+ * Everything specific to WHICH take is here; the envelope, the beat tap and
+ * the bus routing live on the gain and survive every swap, so setCongestion
+ * keeps addressing one node no matter how many sources have come and gone.
+ */
+function startStaticTake(): void {
+  if (!ctx || !staticGain) return;
+  stopStaticSource();
+  try {
     const src = ctx.createBufferSource();
-    // Whichever takes have decoded by now are the pool — a partial drop (one
-    // variant shipped, two pending) rotates over what exists.
-    const takes = LOOP_TAKES.map((n) => buffers.get(n))
+    // Whichever takes have decoded are the pool — a partial drop (one variant
+    // shipped, two pending) rotates over what exists.
+    const pool = LOOP_TAKES
+      .map((n) => buffers.get(n))
       .filter((b): b is AudioBuffer => b !== undefined);
-    const sample = takes.length
-      ? takes[Math.floor(Math.random() * takes.length)]
+    staticTake += 1;
+    const sample = pool.length
+      ? pool[(staticTake + takeOffset) % pool.length]
       : undefined;
     if (sample) {
       src.buffer = sample;
@@ -761,7 +882,7 @@ function ensureStatic(): void {
       src.loopEnd = sample.duration - pad;
       staticPeak = STATIC_SAMPLE_GAIN;
       // No bandpass: the sample IS the designed spectrum. Straight to gain.
-      src.connect(gain).connect(fxBus);
+      src.connect(staticGain);
     } else {
       // Two seconds is long enough that the loop point is inaudible in noise.
       const frames = Math.floor(ctx.sampleRate * 2);
@@ -777,28 +898,15 @@ function ensureStatic(): void {
       band.frequency.value = 2000;
       band.Q.value = 0.6;
       staticPeak = STATIC_GAIN;
-      src.connect(band).connect(gain).connect(fxBus);
+      src.connect(band).connect(staticGain);
     }
-    // The static joins the crest's beat tap (see musicLevel): under heavy
-    // congestion the lowpass has pulled the bed down to a murmur, and without
-    // this the crest would fall STILL at exactly the moment the machine is
-    // working hardest. Post-gain, so the tap hears the cue at the level the
-    // player does.
-    if (pulseTap) {
-      try { gain.connect(pulseTap); } catch { /* observer only — losable */ }
-    }
-    // Through the EFFECTS bus rather than straight to the output: the static is
-    // a game cue, so the Sound toggle should govern it and it should sit at the
-    // effects level. Routing it here means both come for free.
-    //
     // Started at a random offset into the loop region, so the cue does not
-    // open on the same clank every session. On the noise fallback loopStart
-    // and loopEnd are both 0, so the offset is 0 and nothing changes.
+    // open on the same clank even when the rotation comes back around. On the
+    // noise fallback loopStart and loopEnd are both 0, so the offset is 0 and
+    // nothing changes.
     src.start(0, src.loopStart + Math.random() * Math.max(0, src.loopEnd - src.loopStart));
     staticSrc = src;
-    staticGain = gain;
   } catch {
-    staticGain = null;
     staticSrc = null;
   }
 }
@@ -813,11 +921,24 @@ function ensureStatic(): void {
 export function setCongestion(level: number): void {
   const next = Math.max(0, Math.min(1, level));
   const rising = next > congestion;
+  const wasSilent = congestion <= 0;
   congestion = next;
   if (!ctx) return;
   resumeStoppedContext();
-  if (next > 0) ensureStatic();
   const now = ctx.currentTime;
+  if (next > 0) {
+    ensureStatic();
+    // Rotate on the way IN to an episode, never during one. The first episode
+    // has no source yet; a later one gets the next take only once the previous
+    // one's tail has decayed out of earshot (see staticSilentAt), so a bay that
+    // flickers across a tier boundary keeps playing rather than stuttering
+    // between takes.
+    const quietLongEnough = staticSilentAt >= 0 && now - staticSilentAt > CUE_FALL_TAU * 4;
+    if (!staticSrc || (wasSilent && quietLongEnough)) startStaticTake();
+    staticSilentAt = -1;
+  } else if (!wasSilent) {
+    staticSilentAt = now;
+  }
   const tau = rising ? CUE_RISE_TAU : CUE_FALL_TAU;
   staticGain?.gain.setTargetAtTime(staticPeak * next, now, tau);
   // A congesting bay also drags the texture's pitch up a shade, so the cue

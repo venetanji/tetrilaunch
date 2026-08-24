@@ -31,6 +31,7 @@
     "sim:balance": "tsx sim/sweep.ts",
     "sim:pile": "tsx sim/pile.ts",
     "sim:perf": "tsx sim/perf.ts",
+    "sim:renderperf": "tsx sim/renderperf/run.ts",
     "sim:systems": "tsx sim/systems.ts",
     "sim:patterns": "tsx sim/patterns.ts",
     "store:graphics": "node scripts/store-graphics.mjs",

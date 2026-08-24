@@ -237,12 +237,45 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
  * purchased is visible as the thing it actually is, more green rows.
  *
  * Behind everything: this is floor light, not a HUD overlay. It draws inside
- * the world clip after the cached backdrop and before the compactor, so cargo,
- * the press and the cannon all sit on top of it.
+ * the world clip after the backdrop and before the compactor, so cargo, the
+ * press and the cannon all sit on top of it.
+ *
+ * WHERE IT DRAWS FROM, and why it moved. Up to 18 of these bands cover the
+ * full width of the field, so painting them live meant blending roughly a
+ * whole canvas of translucent device pixels every frame: measured on
+ * sim/renderperf at N=300, 11.1ms of a 31.4ms frame — second only to the cargo
+ * itself, and more than the backdrop, press, cannon, seams, arc and effects
+ * put together. Baking the strips into sprites and stamping them changed
+ * nothing, which is the useful result: the cost is fill rate, not the
+ * gradients, and the only way to stop paying it every frame is to stop
+ * painting it every frame.
+ *
+ * So it paints into the background layer instead, at the end of that bake —
+ * the same place in the z-order it occupied when it ran live, because it ran
+ * first, immediately after that layer was blitted. The layer already covers
+ * every device pixel and is already stamped once per frame, so these rows now
+ * cost nothing between changes. What makes that safe is that the state is
+ * coarse: congestionRows moves `lit` one row per line's worth of cubes, so the
+ * layer re-bakes when the pile crosses a multiple of a line and not otherwise.
  */
-function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
+interface CongestionRows {
+  lit: number;
+  warnRow: number;
+  dangerRow: number;
+}
+
+/**
+ * How many floor rows are lit, and where the two tiers start biting. Split out
+ * of the drawing so the background layer can key its cache on it — see
+ * getBackgroundLayer, which is where these rows are actually painted now.
+ *
+ * `lit` moves in steps of one row per `perLine` cubes, which is what makes
+ * baking them viable: the state only changes when the pile crosses a multiple
+ * of a line, a few times a second at worst, not every frame.
+ */
+function congestionRows(scene: Scene): CongestionRows | null {
   const tiers = scene.level.pileTiers;
-  if (!tiers.length || !scene.cubes.length) return;
+  if (!tiers.length || !scene.cubes.length) return null;
   const perLine = Math.max(1, scene.level.compactorMinLineCells);
   const allowance = scene.level.pileAllowance;
   const maxRows = Math.floor(WORLD.height / CELL);
@@ -252,8 +285,15 @@ function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
   // and the row holding it is that count divided by a line.
   const rowFor = (t: { cubes: number }): number =>
     Math.floor((t.cubes + allowance) / perLine);
-  const warnRow = tiers[0] ? rowFor(tiers[0]) : Infinity;
-  const dangerRow = tiers[1] ? rowFor(tiers[1]) : Infinity;
+  return {
+    lit,
+    warnRow: tiers[0] ? rowFor(tiers[0]) : Infinity,
+    dangerRow: tiers[1] ? rowFor(tiers[1]) : Infinity,
+  };
+}
+
+function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows): void {
+  const { lit, warnRow, dangerRow } = rows;
 
   ctx.save();
   for (let r = 0; r < lit; r++) {
@@ -290,11 +330,12 @@ export function render(
   const vp = viewport ?? computeViewport(cssW, cssH);
   syncSpriteScale(vp.scale * dpr);
 
-  // Backdrop, field gradient, grid and wall glow are static per viewport —
-  // blit the cached opaque layer instead of re-painting them (no clearRect
-  // needed underneath, the layer covers every device pixel).
+  // Backdrop, field gradient, grid, wall glow AND the congestion floor are
+  // static between changes of pile height — blit the cached opaque layer
+  // instead of re-painting them (no clearRect needed underneath, the layer
+  // covers every device pixel).
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp), 0, 0);
+  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   // Clip to the world rect
@@ -303,7 +344,6 @@ export function render(
   ctx.rect(0, 0, WORLD.width, WORLD.height);
   ctx.clip();
 
-  drawCongestionRows(ctx, scene);
   // The plant's intake, under everything: cargo falling in has to draw OVER
   // the mouth it is falling into, and the arc has to draw over both.
   drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
@@ -349,18 +389,143 @@ export function render(
 // baked glows use the same blur numbers drawCube always passed.
 // ---------------------------------------------------------------------------
 
-/** World-px margin around a sprite's shape for its baked glow: the widest
- *  blur used is 22 device px (cold cryo), which at the minimum bake scale of
- *  1 (see syncSpriteScale) spills at most 22 world px past the shape, plus
- *  the 1.25px of edge-highlight stroke outside the cube's face. */
+/**
+ * World-px margin a cube sprite is BAKED with, before trimToInk hands back the
+ * part of it that has ink in it. The widest blur used is 22 device px (cold
+ * cryo), which at the minimum bake scale of 1 (see syncSpriteScale) spills 33
+ * world px past the shape — canvas shadowBlur reaches 1.5x its value before
+ * alpha hits zero, measured across blur 10/16/22/26 at bake scales 1/1.5/2/3 —
+ * plus the 1.25px of edge-highlight stroke outside the cube's face. 26 does
+ * not cover that worst case and never did; it is left exactly as it is,
+ * because widening it would change what a cold cryo cube looks like at bake
+ * scale 1 and this pass is not the place to make that call.
+ *
+ * What it is NOT any more is what every cube blits. It is only the canvas the
+ * bake gets to grow into. That distinction is the biggest single lever in the
+ * renderer, because a cube sprite is stamped once per cube per frame and what
+ * it costs is its AREA: sim/renderperf measures cargo at 85% of a 300-cube
+ * frame's draw cost (37.5ms of 44.1ms), and at a flat 26 the transparent
+ * margin was 5.3x the area of the cube inside it.
+ */
 const SPRITE_PAD = 26;
+
+/**
+ * How many rows of KNOWN-TRANSPARENT margin trimToInk leaves around the ink.
+ *
+ * Two, and the number is measured rather than cautious. drawCube stamps a
+ * sprite through a rotated, very slightly non-1:1 drawImage, so the rasteriser
+ * filters it, and a filter kernel reads pixels just outside the ones it lands
+ * on. Cropping flush to the ink puts the sprite's own edge inside that kernel
+ * and changes what the outermost ink pixels blend against. Diffed against the
+ * untrimmed frame at N=300: flush to the ink is ~430k pixels out by up to
+ * 43/255, one guard row is ~1.2k out by 1, and two rows reach the floor below.
+ * Three and four rows measure the same as two, so the extra margin buys
+ * nothing and is not taken.
+ */
+const INK_GUARD = 2;
+
+/**
+ * Trim a freshly baked sprite to the pixels that actually carry ink, and hand
+ * back the canvas to stamp plus the world extent to stamp it at.
+ *
+ * WHY MEASURE RATHER THAN DERIVE. The margin only has to hold the glow, and a
+ * glow's reach in WORLD px falls as the bake scale rises: shadowBlur is
+ * specified in device pixels and the spec exempts it from the CTM, so the same
+ * blur covers a third as much world at 3x as at 1x. Computing a per-sprite pad
+ * from the blur was tried first and it does shrink the sprites — but every
+ * distinct pad rounds makeSpriteCanvas's ceil differently, which moves the
+ * effective bake scale a fraction of a percent and re-rasterises the cube's
+ * FACE against a different sub-pixel grid. That came to ~430k pixels of
+ * difference at N=300: all of it antialiasing on neon edges, none of it
+ * clipped glow, and none of it anything a change billed as invisible should
+ * be doing.
+ *
+ * Cropping has neither problem. The pixels are the ones the old bake produced,
+ * untouched; the crop is symmetric and lands on whole device pixels; and the
+ * world extent handed back is the cropped device size divided by the scale the
+ * bake ACTUALLY ran at, so the source-to-destination ratio drawCube stamps
+ * with is the ratio it stamped before and every source pixel lands where it
+ * landed. What goes away is margin whose alpha is zero, and source-over with
+ * zero alpha is the identity — so the frame is the same frame, simply smaller
+ * to draw.
+ *
+ * NOT bit-for-bit, and the honest number matters more than the round claim:
+ * `half` is a different float than the constant it replaced, so the stamped
+ * quad's device-space corners round differently in the last place. Measured
+ * against the untrimmed frame at N=300, that is ~650 of 3,686,400 pixels
+ * (0.018%) differing by 1/255, with a handful at 4. It does not fall further
+ * with a wider guard, so that is the floor of the technique rather than a
+ * setting left untuned. sim/renderperf --snapshot is what holds it there: a
+ * change that clips a glow does not land in that range, it lands in the range
+ * the note above records for a flush crop.
+ *
+ * The scan is per BAKE — a few dozen sprites over a run, each a few tens of
+ * thousands of pixels — so it never lands in a frame.
+ */
+function trimToInk(ctx: CanvasRenderingContext2D, worldW: number): {
+  canvas: HTMLCanvasElement;
+  half: number;
+} {
+  const src = ctx.canvas;
+  const { width: w, height: h } = src;
+  // The scale the bake ACTUALLY ran at: the ceiled backing size over the world
+  // box, not spritePxScale — see makeSpriteCanvas for why those differ. Every
+  // world number below divides by this one.
+  const baked = w / worldW;
+  // A readback is the one thing here that can fail on a caller's terms rather
+  // than ours (a context that refuses getImageData). The untrimmed sprite is
+  // always a correct answer — it is what shipped before this function existed —
+  // so a failure costs the optimisation and nothing else. Cargo must draw.
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return { canvas: src, half: worldW / 2 };
+  }
+
+  // Walk rings in from the edge until one has ink in it. Symmetric on purpose:
+  // drawCube stamps sprites centred on the body, so an off-centre crop would
+  // need an offset it has no way to know about.
+  const alphaAt = (x: number, y: number): number => data[(y * w + x) * 4 + 3];
+  const limit = Math.min(w, h) >> 1;
+  let inset = limit;
+  outer: for (let i = 0; i < limit; i++) {
+    for (let x = i; x < w - i; x++) {
+      if (alphaAt(x, i) !== 0 || alphaAt(x, h - 1 - i) !== 0) { inset = i; break outer; }
+    }
+    for (let y = i; y < h - i; y++) {
+      if (alphaAt(i, y) !== 0 || alphaAt(w - 1 - i, y) !== 0) { inset = i; break outer; }
+    }
+  }
+  inset -= INK_GUARD;
+  if (inset <= 0) return { canvas: src, half: worldW / 2 };
+
+  const size = w - inset * 2;
+  const out = document.createElement("canvas");
+  out.width = size;
+  out.height = size;
+  // A 1:1, integer-offset blit — an exact copy of those device pixels, with no
+  // filter anywhere in the path to change one of them.
+  out.getContext("2d")!.drawImage(src, inset, inset, size, size, 0, 0, size, size);
+  return { canvas: out, half: size / baked / 2 };
+}
 
 /** Device pixels per world px the current sprites are baked at; 0 = nothing
  *  baked yet. Clamped to [1, 3]: below 1 the glow would out-spill SPRITE_PAD,
  *  above 3 sprites cost memory with no visible gain. */
 let spritePxScale = 0;
 
-const cubeSprites = new Map<string, HTMLCanvasElement>();
+/** A baked, ink-trimmed cube face and the world extent it stamps at. The
+ *  extent travels WITH the sprite because trimToInk decides it per sprite:
+ *  slag carries no glow at all, cold cryo carries the widest one, and the same
+ *  face needs less world margin the higher the bake scale climbs. */
+interface CubeSprite {
+  canvas: HTMLCanvasElement;
+  /** Half the sprite's world-px extent. */
+  half: number;
+}
+
+const cubeSprites = new Map<string, CubeSprite>();
 /** Everything ELSE baked at the live scale — compactor bar, piston parts,
  *  cannon, FX shards/sparks, ghost cells — one map, keys prefixed by kind.
  *  These exist for the same reason cubeSprites does: shadowBlur is a full
@@ -436,7 +601,7 @@ function getCubeSprite(
   color: string,
   slag: boolean,
   cold: boolean,
-): HTMLCanvasElement {
+): CubeSprite {
   const key = `${type}|${color}|${slag ? "s" : cold ? "c" : "n"}`;
   const hit = cubeSprites.get(key);
   if (hit) return hit;
@@ -479,8 +644,9 @@ function getCubeSprite(
   roundRect(ctx, -h, -h, CELL, CELL, 5);
   ctx.stroke();
 
-  cubeSprites.set(key, ctx.canvas);
-  return ctx.canvas;
+  const sprite = trimToInk(ctx, CELL + SPRITE_PAD * 2);
+  cubeSprites.set(key, sprite);
+  return sprite;
 }
 
 /** Trajectory dots are all stamps of one glowing disc scaled 0.5-1.5×. Baked
@@ -516,12 +682,14 @@ function getBackgroundLayer(
   cssH: number,
   dpr: number,
   vp: Viewport,
+  rows: CongestionRows | null,
 ): HTMLCanvasElement {
   // Same Math.floor sizing as main.ts's onResize gives the live canvas, so
   // the layer maps 1:1 onto it.
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
-  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}`;
+  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|` +
+    (rows ? `${rows.lit}:${rows.warnRow}:${rows.dangerRow}` : "-");
   if (bgLayer && bgLayerKey === key) return bgLayer;
 
   if (!bgLayer) bgLayer = document.createElement("canvas");
@@ -537,6 +705,9 @@ function getBackgroundLayer(
   bctx.clip();
   drawBackground(bctx);
   drawWalls(bctx);
+  // Over the walls' glow and under everything else, which is exactly where
+  // this used to run when it ran live — see the note above drawCongestionRows.
+  if (rows) drawCongestionRows(bctx, rows);
   bctx.restore();
   bgLayerKey = key;
   return bgLayer;
@@ -1020,11 +1191,14 @@ function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void 
   const sprite = getCubeSprite(cube.type, color, slag, cold);
 
   const b = cube.body;
-  const half = CELL / 2 + SPRITE_PAD;
+  // The sprite's own half-extent, not a shared constant: trimToInk gives each
+  // face back only as much world as its glow reached, so stamping them all at
+  // one size would scale most of them.
+  const half = sprite.half;
   ctx.save();
   ctx.translate(b.position.x, b.position.y);
   ctx.rotate(b.angle);
-  ctx.drawImage(sprite, -half, -half, half * 2, half * 2);
+  ctx.drawImage(sprite.canvas, -half, -half, half * 2, half * 2);
   ctx.restore();
 }
 

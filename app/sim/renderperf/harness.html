@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Tetrilaunch render-cost harness</title>
+    <!-- render.ts draws text in the app's self-hosted faces. Loading them here
+         is not cosmetic: an unresolved family falls back to a system face with
+         different metrics and a different raster cost, and every number this
+         harness prints is a rasterisation result. -->
+    <link rel="stylesheet" href="/fonts/fonts.css" />
+    <style>
+      html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+      #game { display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>
