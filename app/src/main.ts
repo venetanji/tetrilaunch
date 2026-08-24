@@ -112,6 +112,26 @@ const STEP = 1000 / 60;
  *  which reads as smooth-but-briefly-slow instead of stuttering. */
 const MAX_CATCHUP_STEPS = 2;
 
+/**
+ * States whose overlay covers the canvas outright, so the field behind it is
+ * not worth drawing — see the loop()'s render gate.
+ *
+ * Membership is a fact about the MARKUP, not a preference: every screen listed
+ * here renders a `.screen.neon-backdrop` (ui/screens.ts), which is
+ * `position: absolute; inset: 0` over a background that bottoms out at an
+ * opaque `var(--bg)` (styles/tokens.css). Nothing behind one of them reaches a
+ * pixel.
+ *
+ * The modal states are deliberately NOT here. `.modal-scrim` is
+ * `rgba(4,4,10,0.72)` over a `backdrop-filter: blur(4px)` (styles/app.css), so
+ * the bay really is visible through a pause card, a draft or a run-end panel,
+ * and skipping the draw there would empty the canvas behind them.
+ */
+const COVERS_CANVAS = new Set<AppState>([
+  "splash", "menu", "howto", "settings", "controls",
+  "leaderboard", "workshop", "contracts", "sandbox",
+]);
+
 /** How long the misfire guide stays up. One pass of the corrective animation
  *  (app.css's --hint-correct-dur) plus a beat to read the end pose. The
  *  onboarding loop runs 3400ms and repeats forever, which is right for an
@@ -2038,16 +2058,24 @@ class App {
     }
     this.last = now;
 
-    // Not while the menu is up. `game` is never nulled — a finished run's bay
-    // is still here — so without this the menu re-painted a field nobody can
-    // see (.neon-backdrop bottoms out at an opaque var(--bg)) every frame.
-    // That was merely wasteful before; it is now actively harmful, because the
-    // menu is also when the attract demo is drawing. render.ts's sprite and
-    // background-layer caches each hold ONE viewport, so two canvases at
+    // Not while a screen is covering the canvas. `game` is never nulled — a
+    // finished run's bay is still here — so without this the app re-painted a
+    // field nobody can see, every frame, for as long as the player reads a
+    // menu.
+    //
+    // On the menu that was also actively harmful, which is why this started
+    // there: the menu is when the attract demo draws, and render.ts's sprite
+    // and background-layer caches each hold ONE viewport, so two canvases at
     // different scales alternating every frame would flush and re-bake both —
     // the whole glow-blur cost those caches exist to remove, paid twice a
     // frame, on the one screen that should be idle.
-    if (g && this.state !== "menu") {
+    //
+    // The rest of COVERS_CANVAS is the same waste without that second effect,
+    // and it is not small: sim/renderperf puts a full bay's frame at ~22ms of
+    // drawing, and the Workshop, the Contracts board and the leaderboard are
+    // exactly the screens a player sits on. Every one of them was paying it
+    // to paint pixels that an opaque `.screen.neon-backdrop` covers.
+    if (g && !COVERS_CANVAS.has(this.state)) {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
