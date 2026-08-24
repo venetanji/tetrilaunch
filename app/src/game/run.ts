@@ -3,7 +3,7 @@ import { makeBaseLevel } from "./level";
 import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
 import { applyFinal, type FinalId } from "./finals";
 import {
-  applyUpgrades, newTiers, nextTierCost, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, orderRungs, UPGRADES,
   type RefitOrder, type UpgradeTiers,
 } from "./upgrades";
 
@@ -377,9 +377,11 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
  *
  * The rungs themselves go on through buyUpgrade, one at a time, so the Bond
  * Emitter's magazine delta is issued by exactly the rule that issued it when
- * every tier was its own purchase. Tracks are walked in UPGRADES order rather
- * than in the object's key order, which keeps the commit deterministic however
- * the order was assembled.
+ * every tier was its own purchase. The sequence comes from upgrades.ts's
+ * orderRungs — UPGRADES order, not the object's key order, so the commit is
+ * deterministic however the order was assembled, and so anything that has to
+ * narrate the commit afterwards (main.ts's per-rung telemetry) reads the same
+ * sequence off the same function instead of re-deriving it.
  */
 export function buyUpgrades(
   run: RunState,
@@ -399,17 +401,13 @@ export function buyUpgrades(
   if (spend > run.scrap) return null;
 
   let next = run;
-  for (const def of UPGRADES) {
-    for (let i = Math.max(0, Math.floor(order[def.id] ?? 0)); i > 0; i--) {
-      const cost = nextTierCost(next.tiers[def.id] ?? 0);
-      if (cost === null) return null;
-      const step = buyUpgrade(next, def.id, cost, maxTier);
-      // Unreachable after the pass above, and still checked: returning a
-      // half-installed run here would be the one way this function could spend
-      // scrap on a build the yard never showed.
-      if (!step) return null;
-      next = step;
-    }
+  for (const rung of orderRungs(run.tiers, order)) {
+    const step = buyUpgrade(next, rung.id, rung.cost, maxTier);
+    // Unreachable after the pass above, and still checked: returning a
+    // half-installed run here would be the one way this function could spend
+    // scrap on a build the yard never showed.
+    if (!step) return null;
+    next = step;
   }
   return next;
 }

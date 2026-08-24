@@ -30,7 +30,7 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, clearTrack, newTiers, orderSize, refitTracks, stageTier, upgradeById,
+  MAX_TIER, clearTrack, newTiers, orderRungs, orderSize, refitTracks, stageTier, upgradeById,
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
@@ -1747,16 +1747,25 @@ class App {
    *  without touching the run at all. */
   private onRefitDone(): void {
     if (this.state !== "refit" || !this.run) return;
-    const size = orderSize(this.run.tiers, this.refitOrder);
-    if (size > 0) {
-      const next = buyUpgrades(this.run, this.refitOrder, MAX_TIER);
+    const before = this.run;
+    if (orderSize(before.tiers, this.refitOrder) > 0) {
+      const next = buyUpgrades(before, this.refitOrder, MAX_TIER);
       if (next) {
-        // One event per tier installed, with the scrap left AFTER the order —
-        // telemetry.refit's contract is "a tier was bought at this bay", and a
-        // staged yard buys several at once rather than changing what an event
-        // means.
-        for (const [id, tiers] of Object.entries(this.refitOrder)) {
-          for (let i = 0; i < (tiers ?? 0); i++) telemetry.refit(next.levelIndex + 1, next.scrap, id);
+        // One event per rung, each carrying the balance BEFORE that rung.
+        // telemetry.ts stores the field as `scrapBefore`, and a yard that buys
+        // six rungs at once must not report the post-batch balance for all six
+        // — that is what makes refit affordability readable after the fact ("at
+        // what balance did they stop buying?"), and a flat final figure answers
+        // it wrong for every event including a single-rung order.
+        //
+        // The sequence is upgrades.ts's orderRungs, which is the same walk
+        // buyUpgrades installs by, so the reconstruction cannot drift from the
+        // purchase: subtracting each rung's price in turn lands exactly on
+        // next.scrap.
+        let scrap = before.scrap;
+        for (const rung of orderRungs(before.tiers, this.refitOrder)) {
+          telemetry.refit(before.levelIndex + 1, scrap, rung.id);
+          scrap -= rung.cost;
         }
         this.run = next;
         void successHaptic();

@@ -383,6 +383,40 @@ export function orderCost(tiers: UpgradeTiers, order: RefitOrder): number {
 }
 
 /**
+ * The RUNGS an order installs, in the order run.ts's buyUpgrades installs
+ * them: which track, the tier each rung climbs FROM, and what that rung costs.
+ *
+ * Exists so the commit and anything that has to narrate the commit read the
+ * same sequence off one function. main.ts's onRefitDone is the caller that
+ * makes it worth having: telemetry records a `scrapBefore` per rung, and
+ * reconstructing "the balance before each of six purchases" from a batch
+ * needs the rungs in installation order with their individual prices — which
+ * is exactly what buyUpgrades walks, and exactly the thing that would rot if
+ * it were walked twice.
+ *
+ * Clamped and price-terminated, so it enumerates only rungs that exist. It
+ * does NOT validate the order (buyUpgrades does that, strictly, before
+ * spending anything) — an order that climbs past the ladder simply has fewer
+ * rungs here than its numbers claim.
+ */
+export function orderRungs(
+  tiers: UpgradeTiers,
+  order: RefitOrder,
+): { id: UpgradeId; from: number; cost: number }[] {
+  const rungs: { id: UpgradeId; from: number; cost: number }[] = [];
+  for (const def of UPGRADES) {
+    const start = Math.min(MAX_TIER, tiers[def.id] ?? 0);
+    const want = Math.max(0, Math.floor(order[def.id] ?? 0));
+    for (let i = 0; i < want; i++) {
+      const cost = nextTierCost(start + i);
+      if (cost === null) break;
+      rungs.push({ id: def.id, from: start + i, cost });
+    }
+  }
+  return rungs;
+}
+
+/**
  * Queue one more tier of `id`, or null when the yard cannot take it: the system
  * is not aboard (tier 0 — a refit RAISES, it never installs; see run.ts's
  * buyUpgrade), the track is already ordered to MAX, or the extra rung does not

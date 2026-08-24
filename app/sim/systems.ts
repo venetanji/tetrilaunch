@@ -45,7 +45,7 @@ import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
 import {
   applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, upgradeById,
-  clearTrack, orderCost, orderSize, orderedTier, orderedTiers, stageTier,
+  clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
@@ -1864,6 +1864,39 @@ section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
   check("an over-ordered track clamps at MAX",
     orderedTier(rig, { reactor: 9 }, "reactor") === MAX_TIER &&
       orderedTiers(rig, { reactor: 9 }).reactor === MAX_TIER);
+
+  // THE RUNGS, in installation order. buyUpgrades walks these to install and
+  // main.ts walks the same list to reconstruct the per-rung `scrapBefore` its
+  // telemetry records, so the two cannot disagree about what was bought at
+  // what balance.
+  const rungs = orderRungs(rig, { bay: 1, reactor: 2 });
+  check("rungs come back in UPGRADES order, not the order's key order",
+    rungs.map((r) => r.id).join(",") === "bay,reactor,reactor",
+    rungs.map((r) => r.id).join(","));
+  check("each rung names the tier it climbs FROM",
+    rungs.map((r) => r.from).join(",") === "2,1,2",
+    rungs.map((r) => r.from).join(","));
+  check("each rung is priced at that tier's rung of the ladder",
+    rungs.map((r) => r.cost).join(",") === [T[2], T[1], T[2]].join(","),
+    rungs.map((r) => r.cost).join(","));
+  check("the rungs' prices sum to what the order costs",
+    rungs.reduce((a, r) => a + r.cost, 0) === orderCost(rig, { bay: 1, reactor: 2 }));
+  check("an order past the ladder's top enumerates only the rungs that exist",
+    orderRungs(rig, { reactor: 9 }).length === MAX_TIER - 1);
+  check("an empty order has no rungs", orderRungs(rig, {}).length === 0);
+  // The reconstruction main.ts performs: start at the run's balance, subtract
+  // each rung in turn. It has to land exactly on what the commit deducted, or
+  // the telemetry's `scrapBefore` series is describing a different purchase.
+  check("walking the rungs from the opening balance lands on the commit's", (() => {
+    const start = { ...newRun(9, [], 0, rig, 6), scrap: 300 };
+    const o: RefitOrder = { bay: 1, reactor: 2 };
+    let scrap = start.scrap;
+    const before: number[] = [];
+    for (const r of orderRungs(start.tiers, o)) { before.push(scrap); scrap -= r.cost; }
+    return scrap === buyUpgrades(start, o, MAX_TIER)!.scrap
+      && before[0] === 300 && before.length === 3
+      && before.every((b, i) => i === 0 || b < before[i - 1]);
+  })());
 
   // THE COMMIT. All or nothing: a half-installed order would spend real scrap
   // on a build the player never saw projected, which is the surprise staging

@@ -3998,9 +3998,22 @@ button.panel { color: var(--text); }
      viewport this is a line of header bought back for a row of tiles. Same
      trade as .workshop__blurb, one step further. */
   .modal--refit .refit__blurb { display: none; }
-  /* The order box loses its air, never its numbers: the scrap left is the one
-     figure every disabled button on the shelf is explained by. */
-  .modal--refit .refit__order { padding: 4px 8px; }
+  /* The order box lies DOWN here — label, balance and queue on one line
+     instead of three. It loses its air, never its numbers: the scrap left is
+     the one figure every disabled button on the shelf is explained by, and the
+     queue beside it is why that figure is not the run's. Worth ~24px of header,
+     and the header is where the projection's rows come from: the panel beside
+     the shelf is the one thing on this screen that cannot scroll, and on the
+     narrowest device in the matrix it had 2px to spare. */
+  .modal--refit .refit__order {
+    flex-direction: row; align-items: baseline; flex-wrap: nowrap;
+    gap: 8px; padding: 4px 9px;
+  }
+  /* …and the title block gives up its 320px basis so the row can sit BESIDE
+     it. .refit__hdr wraps, so a basis the narrowest viewport cannot honour
+     does not shrink the header — it pushes the order box onto a line of its
+     own and costs more than laying it flat just saved. */
+  .modal--refit .refit__hdr > div:first-child { flex-basis: 180px; }
   .modal--refit .refit__order-scrap { font-size: 14px; }
   .modal--refit .refit__order-spend { font-size: 9px; }
   .modal--refit .refit__body { gap: 6px; }
