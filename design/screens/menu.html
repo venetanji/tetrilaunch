@@ -4,33 +4,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Menu — Tetrilaunch</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<title>Home — Tetrilaunch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700;800&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
+/* Mirrors app/src/ui/screens.ts menuScreen + tierTowerHTML + baseBayPanelHTML,
+   and app.css's .menu / .tower / .base-bay sections.
 
+   THREE COLUMNS: the brand stack, the tier tower, the action rail. The tower
+   is the change — the ladder used to be a NUMBER on a chip ("Tier 4", plus two
+   ticks for the halves that complete it), which said where you were standing
+   and nothing else: not how far the ladder goes, not that the rungs below you
+   are still flyable, and not what any of them would be like. A shaft with a
+   floor per Mark says all three without a word of copy.
+
+   PICKING A FLOOR sets the Mark the next Deep Run flies at, and nothing else.
+   Flying a Mark already beaten earns no salvage and cannot advance the ladder
+   — meta.ts's recordRunEnd has always gated its tier bookkeeping on
+   `runMark === markUnlocked(meta)` — so the lower floors are practice and the
+   top floor is the exam. Locked floors refuse with a shake rather than a
+   toast, because the tower is what the player is reading when they tap it.
+
+   THE BASE BAY PANEL replaced the Tier/Best/Salvage chip strip. The strip was
+   three chips answering three unrelated questions in the same shape; the tier
+   one is now the tower, and Salvage was always printed a second time on the
+   Workshop button beside the thing it can buy. What is left is Best, which is
+   a header line, and the room that freed goes to the question the strip could
+   never answer: what the floor you have selected is actually like to fly. All
+   five readouts derive from game/level.ts's baseBayFor and hazards.ts's
+   content axes, so the panel cannot promise a bay the ladder does not deal.
+
+   Drawn here at 792x360 — a OnePlus 12 in landscape, the viewport this game
+   actually runs in, and the tightest one in sim/uifit/devices.ts that is not
+   the 640px budget phone. Eleven floors in a 313px shaft is 26px a floor; see
+   the note in app.css's .tower on why the tap floor cannot be met on a phone
+   and is met on every tablet. */
 :root{
   --bg:#07070f; --bg-deep:#04040a; --surface:#12121f; --surface-2:#1b1b2e; --surface-3:#24243b;
   --line:#2e2e4a; --line-strong:#3d3d63;
   --text:#eaeaff; --text-dim:#b6b6df; --text-muted:#8080ac; --text-faint:#55557a;
   --accent:#00f0ff; --accent-2:#7a5cff; --accent-ink:#04040a; --danger:#ff2d55; --warn:#ffb020; --success:#00ff9c;
-  --piece-i:#00f0ff; --piece-o:#ffe500; --piece-t:#b026ff; --piece-l:#ff8a00; --piece-j:#2979ff; --piece-s:#00ff85; --piece-z:#ff2d55;
+  --piece-i:#00f0ff; --piece-o:#ffe500; --piece-t:#b026ff; --piece-l:#ff8a00; --piece-j:#2979ff;
   --font-display:"Orbitron","Rajdhani",ui-sans-serif,system-ui,sans-serif;
   --font-ui:"Rajdhani","Segoe UI",ui-sans-serif,system-ui,sans-serif;
   --font-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
-  --fs-display:clamp(40px,8vw,88px); --fs-h1:clamp(28px,5vw,44px); --fs-h2:clamp(20px,3.4vw,30px);
-  --fs-h3:18px; --fs-body:16px; --fs-sm:14px; --fs-xs:12px;
-  --fw-regular:500; --fw-medium:600; --fw-bold:700; --fw-black:900;
-  --tracking-wide:0.08em; --tracking-wider:0.18em;
-  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px; --sp-8:64px;
-  --r-sm:6px; --r-md:10px; --r-lg:16px; --r-xl:24px; --r-pill:999px;
+  --font-pixel:"Press Start 2P","Orbitron",ui-monospace,monospace;
+  --fs-h3:18px; --fs-sm:14px; --fs-xs:12px;
+  --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  /* Retro pass: square, steppy corners + chunky borders and hard shadows. */
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-xl:5px; --r-pill:3px;
+  --bw:2px; --bw-thick:3px;
+  --shadow-hard-sm:2px 2px 0 rgba(0,0,0,0.85); --shadow-hard:3px 3px 0 rgba(0,0,0,0.85);
+  --shadow-hard-lg:4px 4px 0 rgba(0,0,0,0.85);
   --glow-accent:0 0 8px rgba(0,240,255,0.55),0 0 24px rgba(0,240,255,0.28);
-  --glow-soft:0 0 6px rgba(122,92,255,0.35),0 0 18px rgba(122,92,255,0.18);
-  --shadow-panel:0 12px 40px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.04);
-  --shadow-card:0 6px 20px rgba(0,0,0,0.45);
-  --ease:cubic-bezier(0.22,1,0.36,1); --dur-fast:120ms; --dur:220ms; --dur-slow:420ms;
-  --hud-pad:20px; --z-hud:10; --z-overlay:40; --z-toast:60;
+  --ease:cubic-bezier(0.22,1,0.36,1); --dur:220ms;
 }
-
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-height:100vh}
+.eyebrow{font-family:var(--font-pixel);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent)}
+.display{font-family:var(--font-display);font-weight:900;letter-spacing:0.08em;line-height:0.95}
 .neon-backdrop{
   background:
     radial-gradient(120% 90% at 50% -10%, rgba(122,92,255,0.16), transparent 60%),
@@ -39,105 +70,236 @@
   position:relative;
 }
 .neon-backdrop::after{
-  content:""; position:absolute; inset:0; pointer-events:none;
-  background:repeating-linear-gradient(0deg,rgba(255,255,255,0.025) 0px,rgba(255,255,255,0.025) 1px,transparent 1px,transparent 3px);
-  mix-blend-mode:overlay; opacity:.5;
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.22) 0px,rgba(0,0,0,0.22) 1px,transparent 1px,transparent 3px);
+  mix-blend-mode:multiply;opacity:0.3;
 }
+.screen{position:relative;height:100vh;min-height:0;display:flex;flex-direction:column;padding:8px;overflow:hidden}
+.panel{background:linear-gradient(180deg,rgba(27,27,46,0.92),rgba(12,12,24,0.94));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--shadow-hard)}
 
-*{box-sizing:border-box;margin:0;padding:0}
-.display{font-family:var(--font-display);font-weight:var(--fw-black);letter-spacing:var(--tracking-wide);line-height:.95}
-.eyebrow{font-family:var(--font-display);font-size:var(--fs-xs);letter-spacing:var(--tracking-wider);text-transform:uppercase;color:var(--accent)}
-.muted{color:var(--text-muted)}
-.neon-text{color:var(--text);text-shadow:0 0 12px rgba(0,240,255,0.55),0 0 30px rgba(122,92,255,0.35)}
-.brand-gradient{background:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));-webkit-background-clip:text;background-clip:text;color:transparent}
-.btn{font-family:var(--font-display);font-weight:var(--fw-bold);letter-spacing:var(--tracking-wide);text-transform:uppercase;font-size:var(--fs-body);border:1px solid transparent;border-radius:var(--r-pill);padding:14px 30px;cursor:pointer;transition:transform var(--dur-fast) var(--ease),box-shadow var(--dur) var(--ease),background var(--dur) var(--ease);display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);color:var(--text);background:var(--surface-2)}
-.btn--primary{background:linear-gradient(100deg,var(--accent),#38d6ff);color:var(--accent-ink);box-shadow:var(--glow-accent)}
-.btn--secondary{background:var(--surface-2);border-color:var(--line-strong);color:var(--text)}
+/* ---- buttons (app.css .btn, at the compact step) ---- */
+.btn{font-family:var(--font-display);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+  border:var(--bw) solid transparent;border-radius:var(--r-md);padding:7px 14px;font-size:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:var(--sp-2);color:var(--text);
+  background:var(--surface-2);box-shadow:var(--shadow-hard-sm);position:relative;line-height:1.2}
+.btn--primary{background:linear-gradient(100deg,var(--accent),#38d6ff);color:var(--accent-ink);border-color:var(--accent)}
+.btn--secondary{border-color:var(--line-strong)}
 .btn--ghost{background:transparent;color:var(--text-dim);border-color:var(--line)}
-.btn--danger{background:linear-gradient(100deg,var(--danger),#ff6f8b);color:#1a0008}
-.btn--block{width:100%}
-.btn--lg{font-size:var(--fs-h3);padding:18px 40px}
-.icon-btn{width:52px;height:52px;border-radius:var(--r-md);background:rgba(18,18,31,0.75);border:1px solid var(--line);color:var(--text);font-size:20px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(6px);transition:all var(--dur) var(--ease)}
-.panel{background:linear-gradient(180deg,rgba(27,27,46,0.92),rgba(12,12,24,0.94));border:1px solid var(--line-strong);border-radius:var(--r-xl);box-shadow:var(--shadow-panel);backdrop-filter:blur(10px)}
-.screen{position:absolute;inset:0;display:flex;flex-direction:column;padding:var(--hud-pad);overflow:hidden}
-.center{align-items:center;justify-content:center}
-.menu{display:grid;grid-template-columns:1.2fr minmax(220px,320px);gap:var(--sp-6);align-items:center;height:100%;padding:clamp(20px,4vw,60px)}
-.menu__brand,.menu__actions{min-width:0}
-.menu__brand{display:flex;flex-direction:column;gap:var(--sp-4)}
-.menu__title{font-size:clamp(30px,6.2vw,66px);letter-spacing:.01em;overflow-wrap:anywhere}
-.menu__sub{color:var(--text-dim);font-size:var(--fs-h3);max-width:46ch}
-.menu__actions{display:flex;flex-direction:column;gap:var(--sp-3);width:100%;justify-self:end}
-.hud{position:absolute;inset:0;pointer-events:none}
-.hud>*{pointer-events:auto}
-.hud__top{position:absolute;top:var(--hud-pad);left:var(--hud-pad);right:var(--hud-pad);display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-3)}
-.hud__cluster{display:flex;gap:var(--sp-3);align-items:center}
-.chip{background:rgba(18,18,31,0.72);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 14px;display:flex;flex-direction:column;gap:2px;min-width:84px;backdrop-filter:blur(6px)}
-.chip__label{font-size:10px;letter-spacing:var(--tracking-wider);text-transform:uppercase;color:var(--text-muted)}
-.chip__value{font-family:var(--font-mono);font-weight:700;font-size:20px;color:var(--text)}
-.chip--accent .chip__value{color:var(--accent)}
-.chip--combo .chip__value{color:var(--piece-o)}
-.power{display:flex;align-items:center;gap:var(--sp-2);background:rgba(18,18,31,0.72);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 12px;backdrop-filter:blur(6px)}
-.power__track{width:120px;height:10px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
-.power__fill{height:100%;width:0%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--success),var(--warn) 60%,var(--danger));box-shadow:0 0 10px rgba(255,176,32,0.6)}
-.next{display:flex;align-items:center;gap:var(--sp-2);background:rgba(18,18,31,0.72);border:1px solid var(--line);border-radius:var(--r-md);padding:6px 12px;backdrop-filter:blur(6px)}
-.next__grid{width:46px;height:46px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:1px}
-.next__cell{border-radius:2px}
-.hud__bottom{position:absolute;bottom:var(--hud-pad);left:var(--hud-pad);right:var(--hud-pad);display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp-3)}
-.controls{display:flex;align-items:center;gap:var(--sp-3)}
-.rotate-cluster{display:flex;flex-direction:column;gap:var(--sp-2)}
-.hint{font-size:var(--fs-xs);letter-spacing:var(--tracking-wide);opacity:.7;align-self:flex-end;padding-bottom:6px}
-.shoot-btn{width:92px;height:92px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#38d6ff,var(--accent) 55%,#0090a8);color:var(--accent-ink);border:none;cursor:pointer;font-family:var(--font-display);font-weight:900;letter-spacing:1px;font-size:15px;box-shadow:0 0 24px rgba(0,240,255,0.55),inset 0 -6px 14px rgba(0,0,0,0.25)}
-.goal{display:flex;flex-direction:column;gap:4px;min-width:180px}
-.goal__bar{height:8px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
-.goal__fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));box-shadow:var(--glow-accent)}
-.modal-scrim{position:absolute;inset:0;z-index:var(--z-overlay);background:rgba(4,4,10,0.72);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center}
-.modal{width:min(520px,92vw);padding:clamp(20px,4vw,40px);text-align:center;display:flex;flex-direction:column;gap:var(--sp-4)}
-.modal h2{font-family:var(--font-display);font-size:var(--fs-h1)}
-.modal .row{display:flex;gap:var(--sp-3);justify-content:center;flex-wrap:wrap}
-.stat-row{display:flex;justify-content:center;gap:var(--sp-6);margin:var(--sp-2) 0}
-.stat{display:flex;flex-direction:column}
-.stat b{font-family:var(--font-mono);font-size:28px}
-.stat span{font-size:var(--fs-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--text-muted)}
-.setting{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:14px 4px;border-bottom:1px solid var(--line)}
-.setting__label{display:flex;flex-direction:column}
-.setting__label b{font-weight:600}
-.setting__label span{font-size:var(--fs-sm);color:var(--text-muted)}
-.toggle{position:relative;width:56px;height:30px;border-radius:var(--r-pill);background:var(--surface-3);border:1px solid var(--line);cursor:pointer;transition:all var(--dur) var(--ease);flex:none}
-.toggle::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--text-muted);transition:all var(--dur) var(--ease)}
-.toggle[aria-checked="true"]{background:linear-gradient(90deg,var(--accent),#38d6ff);border-color:transparent;box-shadow:var(--glow-accent)}
-.toggle[aria-checked="true"]::after{left:31px;background:var(--accent-ink)}
-.howto{max-width:900px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:var(--sp-3);padding-block:var(--sp-3)}
-.howto__grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)}
-.step{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-4)}
-.step__n{font-family:var(--font-display);font-weight:900;color:var(--accent);font-size:22px}
-.step p{color:var(--text-dim);font-size:var(--fs-sm)}
-.kbd{font-family:var(--font-mono);font-size:12px;background:var(--surface-3);border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--text)}
-.splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-4);height:100%}
-.splash .display{font-size:var(--fs-display)}
-.loader{width:200px;height:6px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
-.loader::after{content:"";display:block;width:40%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));box-shadow:var(--glow-accent);animation:slide 1.1s var(--ease) infinite}
-@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
-@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
-.pop{animation:pop var(--dur) var(--ease)}
-.rotate-guard{position:absolute;inset:0;z-index:var(--z-toast);background:var(--bg-deep);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:var(--sp-4);text-align:center;padding:var(--sp-6)}
-.rotate-guard .phone{width:70px;height:120px;border:3px solid var(--accent);border-radius:12px;animation:rot 1.6s var(--ease) infinite;box-shadow:var(--glow-accent)}
-@keyframes rot{0%,40%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
-.lb{display:flex;flex-direction:column;gap:6px}
-.lb__row{display:grid;grid-template-columns:40px 1fr auto auto;gap:var(--sp-3);align-items:center;padding:10px 14px;border-radius:var(--r-md);background:rgba(255,255,255,0.03);border:1px solid var(--line)}
-.lb__row--me{border-color:var(--accent);box-shadow:var(--glow-accent);background:rgba(0,240,255,0.08)}
-.lb__rank{font-family:var(--font-display);font-weight:900;font-size:18px;color:var(--text-dim)}
-.lb__name{font-family:var(--font-display);font-weight:700;letter-spacing:1px}
-.lb__lines{font-size:var(--fs-xs);color:var(--text-muted)}
-.lb__score{font-family:var(--font-mono);font-weight:700;font-size:18px;color:var(--accent)}
-.submit-row{display:flex;gap:var(--sp-2)}
-.name-input{flex:1;background:var(--surface-3);border:1px solid var(--line-strong);border-radius:var(--r-md);color:var(--text);padding:12px 16px;font-family:var(--font-display);font-weight:700;letter-spacing:2px;text-transform:uppercase;font-size:16px;text-align:center;outline:none}
+.btn--lg{font-size:11px;padding:9px 18px}
+.btn--menu{justify-content:flex-start;text-align:left}
+.btn__txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.btn__sub{font-family:var(--font-ui);font-weight:600;text-transform:none;letter-spacing:0;
+  font-size:11px;line-height:1.15;opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ico{width:13px;height:13px;flex:none}
+.next-badge{position:absolute;top:-9px;right:8px;font-family:var(--font-pixel);font-size:6px;
+  letter-spacing:0.08em;text-transform:uppercase;background:var(--warn);color:var(--accent-ink);
+  padding:3px 5px;border-radius:var(--r-sm)}
+.btn--next{border-color:var(--warn)}
 
-body{font-family:var(--font-ui);background:#020206;color:var(--text);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px}
-.frame{width:960px;height:540px;position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--line);box-shadow:0 20px 60px rgba(0,0,0,.6)}
+/* ---- tier plate (app.css .tier-plate, row form at compact) ---- */
+.tier-plate{display:inline-flex;align-items:center;justify-content:center;flex-direction:row;gap:4px;flex:none;
+  border:var(--bw) solid currentColor;border-radius:var(--r-md);background:rgba(4,4,10,0.28);padding:3px 6px}
+.tier-plate__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.08em;text-transform:uppercase;line-height:1;opacity:0.8}
+.tier-plate__n{font-family:var(--font-mono);font-weight:800;line-height:1;font-size:14px}
+.tier-plate--god{background:rgba(255,176,32,0.22)}
 
+/* ---- the three columns ---- */
+.menu{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 118px 300px;
+  gap:var(--sp-4);align-items:stretch;padding:6px 18px}
+.menu > *{min-width:0}
+.menu__brand{display:flex;flex-direction:column;gap:var(--sp-2);--brand-w:min(100%,360px)}
+.menu__demo{position:relative;flex:none;width:var(--brand-w);aspect-ratio:16/9;
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;
+  background:radial-gradient(120% 90% at 50% -10%,rgba(122,92,255,0.18),transparent 60%),#080814;
+  box-shadow:var(--shadow-hard)}
+.menu__title{position:absolute;left:8px;top:8px;margin:0;font-size:19px;display:flex;flex-direction:column;
+  line-height:0.92;pointer-events:none;
+  background:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.menu__demo-tag{position:absolute;right:7px;top:6px;font-family:var(--font-pixel);font-size:6px;
+  letter-spacing:0.1em;color:var(--text-faint)}
+.menu__actions{display:flex;flex-direction:column;gap:var(--sp-2);justify-content:center}
+.menu__actions > .btn{flex:1 1 auto;min-height:44px;max-height:64px}
+.menu__actions > .btn--menu{flex-grow:1.25;max-height:84px}
+
+/* ---- base bay panel ---- */
+.base-bay{flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:4px;padding:5px 7px 6px;width:var(--brand-w)}
+.base-bay__head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2);min-width:0}
+.base-bay__eyebrow{font-size:7px;letter-spacing:0.12em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.base-bay__eyebrow.is-god{color:var(--warn)}
+.base-bay__best{font-family:var(--font-pixel);font-size:6.5px;letter-spacing:0.06em;color:var(--text-faint);
+  text-transform:uppercase;white-space:nowrap;flex:none}
+.base-bay__grid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;
+  grid-template-rows:repeat(2,minmax(0,1fr));gap:4px}
+.bay-stat{display:flex;align-items:center;gap:5px;min-height:0;overflow:hidden;padding:3px 5px;
+  background:rgba(255,255,255,0.035);border:1px solid var(--line);border-radius:var(--r-sm);min-width:0}
+.bay-stat .ico{color:var(--stat-tint,var(--text-dim))}
+.bay-stat__txt{display:flex;flex-direction:column;gap:1px;min-width:0}
+.bay-stat__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted)}
+.bay-stat__val{font-family:var(--font-mono);font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bay-belt{display:flex;align-items:center;gap:6px;flex:none}
+.bay-belt__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.06em;text-transform:uppercase;
+  color:var(--text-muted);flex:none}
+.bay-belt__mats{display:flex;align-items:center;gap:5px;flex:none}
+.bay-belt__mat{display:flex;flex:none}
+.bay-belt__mat.is-dark{opacity:0.22;filter:grayscale(1)}
+.bay-belt__count{margin-left:auto;min-width:0;font-family:var(--font-mono);font-size:10px;color:var(--text-faint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---- the tier tower ---- */
+.tower{--tower-floors:11;--tower-pad:3px;--tower-gap:2px;
+  --tower-slack:calc(2 * var(--tower-pad) + (var(--tower-floors) - 1) * var(--tower-gap));
+  --tower-floor-h:calc((100% - var(--tower-slack)) / var(--tower-floors));
+  align-self:center;height:min(100%,520px);display:flex;flex-direction:column;align-items:stretch}
+.tower__shaft{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--tower-gap);
+  padding:var(--tower-pad);background:linear-gradient(180deg,rgba(27,27,46,0.9),rgba(8,8,18,0.96));
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md) var(--r-md) 0 0;box-shadow:var(--shadow-hard)}
+.tower__head{position:absolute;left:0;right:0;top:-13px;height:13px;display:flex;justify-content:center;
+  align-items:flex-end;gap:3px;z-index:3}
+.tower__head i{width:2px;background:var(--line-strong)}
+.tower__head i:first-child{height:13px}
+.tower__head i:last-child{height:9px}
+.tower__head b{width:5px;height:5px;background:var(--warn);border-radius:1px;animation:tower-lamp 1.4s steps(2,end) infinite}
+@keyframes tower-lamp{0%,100%{opacity:0.25}50%{opacity:1}}
+.tower__rail{position:absolute;left:12px;top:6px;bottom:6px;width:2px;background:var(--line);opacity:0.9}
+.tower__car{position:absolute;left:5px;width:16px;height:var(--tower-floor-h);
+  top:calc(var(--tower-pad) + var(--tower-idx) * (var(--tower-floor-h) + var(--tower-gap)));
+  display:flex;align-items:center;justify-content:center;z-index:2;
+  transition:top var(--tower-dur,355ms) cubic-bezier(0.34,1.28,0.64,1)}
+.tower__car span{width:100%;height:80%;border:var(--bw) solid var(--accent);border-radius:1px;
+  background:rgba(0,240,255,0.16);display:flex;align-items:center;justify-content:center;
+  animation:tower-car 1.6s ease-in-out infinite}
+.tower__car span::after{content:"";width:4px;height:4px;background:var(--accent);border-radius:1px}
+@keyframes tower-car{0%,100%{box-shadow:0 0 0 rgba(0,240,255,0)}50%{box-shadow:0 0 10px rgba(0,240,255,0.55)}}
+.tower__floor{display:flex;align-items:center;gap:4px;flex:1 1 0;min-height:0;padding:0 5px 0 3px;
+  border:1px solid var(--line);border-radius:1px;background:rgba(255,255,255,0.035);color:var(--text-dim);
+  font:inherit;cursor:pointer;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
+.tower__gap{width:22px;flex:none}
+.tower__n{font-family:var(--font-mono);font-size:12px;font-weight:800;line-height:1;color:inherit}
+.tower__floor--god .tower__n{font-family:var(--font-pixel);font-size:7px;letter-spacing:0.04em}
+.tower__windows{display:flex;gap:2px;margin-left:auto;flex:none}
+.tower__windows i{width:4px;height:4px;background:currentColor;border-radius:1px;opacity:0.4}
+.tower__floor.is-selected{border-color:var(--accent);color:var(--accent);background:rgba(0,240,255,0.12);
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,0.5)}
+.tower__floor.is-selected .tower__windows i{opacity:0.95}
+.tower__floor--god.is-selected{border-color:var(--warn);color:var(--warn);background:rgba(255,176,32,0.16)}
+.tower__floor.is-locked{color:var(--text-faint);background:rgba(255,255,255,0.012);opacity:0.55;cursor:not-allowed}
+.tower__floor.is-locked .tower__windows i{opacity:0.18}
+.tower__base{flex:none;height:6px;background:var(--surface-3);border:var(--bw) solid var(--line-strong);
+  border-top:0;border-radius:0 0 var(--r-md) var(--r-md)}
+@media (prefers-reduced-motion: reduce){
+  .tower__car{transition:none}
+  .tower__head b,.tower__car span{animation:none}
+}
 </style>
 </head>
 <body>
-<div class="frame"><div class="screen neon-backdrop"><div class="menu"><div class="menu__brand"><div class="eyebrow">Physics Cannon Puzzle</div><h1 class="menu__title display neon-text brand-gradient">TETRILAUNCH</h1><p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed full rows into the compactor before it sweeps them away.</p><div class="chip" style="flex-direction:row;align-items:center;gap:10px;max-width:220px"><div class="chip__label">Best</div><div class="chip__value" style="color:var(--accent)">6120</div></div></div><div class="menu__actions"><button class="btn btn--primary btn--lg btn--block">▶ Play</button><button class="btn btn--secondary btn--block">How to Play</button><button class="btn btn--secondary btn--block">Leaderboard</button><button class="btn btn--ghost btn--block">Settings</button></div></div></div></div>
+<div class="screen neon-backdrop">
+  <div class="menu">
+
+    <div class="menu__brand">
+      <!-- The wordmark lives INSIDE the demo box: the panel is a live bay with
+           no HUD over it, so its top-left corner is the one place a real
+           screenshot would have chrome and the mini-field doesn't. -->
+      <div class="menu__demo">
+        <div class="menu__demo-tag">ATTRACT DEMO</div>
+        <h1 class="menu__title display" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
+      </div>
+
+      <div class="panel base-bay" aria-label="Selected tier — base bay">
+        <div class="base-bay__head">
+          <div class="eyebrow base-bay__eyebrow">Tier 4 · Base bay</div>
+          <div class="base-bay__best">Best 6120</div>
+        </div>
+        <div class="base-bay__grid">
+          <div class="bay-stat">
+            <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M6 7h4v4H6z" fill="var(--accent)" stroke="none"/><path d="M3 13V10"/><path d="M8 13v-1"/><path d="M13 13V4"/><path d="M3 5l2-2 2 2"/></svg>
+            <span class="bay-stat__txt"><span class="bay-stat__lbl">Target</span><span class="bay-stat__val">$800→1700</span></span>
+          </div>
+          <div class="bay-stat">
+            <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--warn)" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 12l9-9"/><path d="M4 9l2 2"/><path d="M6 7l2 2"/><path d="M8 5l2 2"/><path d="M11 2h3v3z" fill="var(--warn)" stroke="none"/></svg>
+            <span class="bay-stat__txt"><span class="bay-stat__lbl">Launch</span><span class="bay-stat__val">$25 · $200</span></span>
+          </div>
+          <div class="bay-stat">
+            <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--text-dim)" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M3 8h10"/><path d="M8 3v10"/><path d="M8 8l3-2"/><path d="M2 2h2"/><path d="M12 2h2"/></svg>
+            <span class="bay-stat__txt"><span class="bay-stat__lbl">Clock</span><span class="bay-stat__val">2:30 · 10 bays</span></span>
+          </div>
+          <div class="bay-stat">
+            <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--piece-t)" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M7 7h2v2H7z" fill="var(--piece-t)" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/></svg>
+            <span class="bay-stat__txt"><span class="bay-stat__lbl">Bonds</span><span class="bay-stat__val">×1.3</span></span>
+          </div>
+        </div>
+        <!-- The six material axes in ladder order (hazards.ts's content axes),
+             lit as the selected Mark reaches them. A dark glyph is still a
+             GLYPH — greyed, never hidden — because the row's job is to show how
+             much of the ladder is still ahead, which an empty space cannot do.
+             At Tier 4 only Cryo is dealt. -->
+        <div class="bay-belt">
+          <span class="bay-belt__lbl">Belt</span>
+          <span class="bay-belt__mats">
+            <span class="bay-belt__mat" title="Cryo Contract — dealt from Tier 4"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6V20.4M4.7 7.8L19.3 16.2M4.7 16.2L19.3 7.8" fill="none" stroke="#9fe8ff" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="bay-belt__mat is-dark" title="Rebar Contract — unlocks at Tier 5"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.8V20.2M15 3.8V20.2M3.8 9H20.2M3.8 15H20.2" fill="none" stroke="#e54c00" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="bay-belt__mat is-dark" title="Slag Contract — unlocks at Tier 6"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12A7.6 7.6 0 1 0 19.6 12A7.6 7.6 0 1 0 4.4 12M6.6 17.4L17.4 6.6" fill="none" stroke="#6d6a7c" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="bay-belt__mat is-dark" title="Volatile Contract — unlocks at Tier 7"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5L14.6 8.2L20.6 4.4L17.2 10.6L23.5 12L17.2 13.4L20.6 19.6L14.6 15.8L12 22.5L9.4 15.8L3.4 19.6L6.8 13.4L0.5 12L6.8 10.6L3.4 4.4L9.4 8.2Z" fill="#d4ff3a" stroke="none"/></svg></span>
+            <span class="bay-belt__mat is-dark" title="Tar Contract — unlocks at Tier 8"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 7.2H9.4A4.8 4.8 0 0 1 9.4 16.8H7.4A4.8 4.8 0 0 1 7.4 7.2ZM14.6 7.2H16.6A4.8 4.8 0 0 1 16.6 16.8H14.6A4.8 4.8 0 0 1 14.6 7.2Z" fill="none" stroke="#6b5f80" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="bay-belt__mat is-dark" title="Magnetic Contract — unlocks at Tier 9"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 19V12a6.6 6.6 0 0 1 13.2 0V19" fill="none" stroke="#8f9bd6" stroke-width="3.6" stroke-linecap="round"/></svg></span>
+          </span>
+          <span class="bay-belt__count">1/6</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- THE TIER TOWER. Floors run top-down — God, 10, 9 … 1 — because a tower
+         whose ground floor is not at the bottom is not a tower. The car is
+         parked on Tier 4 (--tower-idx 7, counting from the roof); floors 5-10
+         and God are locked, and refuse with a shake rather than a message. -->
+    <div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
+      <div class="tower__shaft" style="--tower-idx:7">
+        <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
+        <div class="tower__rail" aria-hidden="true"></div>
+        <div class="tower__car" aria-hidden="true"><span></span></div>
+        <button class="tower__floor tower__floor--god is-locked" aria-label="God tier — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">GOD</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 10 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">10</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 9 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">9</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 8 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">8</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 7 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">7</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 6 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">6</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 5 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">5</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-selected" aria-label="Tier 4" aria-pressed="true"><span class="tower__gap"></span><span class="tower__n">4</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 3" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">3</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 2" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">2</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 1" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">1</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+      </div>
+      <div class="tower__base" aria-hidden="true"></div>
+    </div>
+
+    <!-- Six buttons, and never a seventh: this column gets 325px on a landscape
+         phone and six rows need 290. The entitlement upsell and the developer
+         sandbox entry live in the base-bay panel's last row instead. -->
+    <div class="menu__actions">
+      <button class="btn btn--primary btn--lg btn--menu">
+        <span class="tier-plate"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">4</span></span>
+        <span class="btn__txt">Deep Run<span class="btn__sub">Clear 10 bays at Tier 4 in one run</span></span>
+      </button>
+      <button class="btn btn--secondary btn--menu">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M3 4h10v10H3z"/><path d="M6 4V2h4v2"/><path d="M6 8h4"/><path d="M6 11h4"/></svg>
+        <span class="btn__txt">Contracts<span class="btn__sub">3 today · 16 each · no clock, no launch cost</span></span>
+      </button>
+      <button class="btn btn--secondary btn--menu btn--next">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M8 2l5 3v6l-5 3-5-3V5z"/><path d="M6.5 6.5h3v3h-3z"/></svg>
+        <span class="btn__txt">Workshop<span class="btn__sub">48 banked — Reactor costs 60</span></span>
+        <span class="next-badge">Next step</span>
+      </button>
+      <button class="btn btn--secondary">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 3h12v10H2z"/><path d="M8 3v10"/><path d="M4 6h2"/><path d="M4 9h2"/><path d="M10 6h2"/><path d="M10 9h2"/></svg>How to Play</button>
+      <button class="btn btn--secondary">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 13V9h3.5v4zM6.25 13V3h3.5v10zM10.5 13V6H14v7z" fill="currentColor" stroke="none"/></svg>Leaderboard</button>
+      <button class="btn btn--ghost">
+        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 4h12"/><path d="M2 8h12"/><path d="M2 12h12"/><path d="M4.5 2.5h2.5v3H4.5z" fill="currentColor"/><path d="M9 6.5h2.5v3H9z" fill="currentColor"/><path d="M5.5 10.5h2.5v3H5.5z" fill="currentColor"/></svg>Settings</button>
+    </div>
+
+  </div>
+</div>
 </body>
 </html>

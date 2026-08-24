@@ -47,6 +47,10 @@ export type IconName =
   // and their metrics wobble the buttons. Emoji survive only in flavour copy
   // now, never in a control.
   | "pause" | "fullscreen" | "rotl" | "rotr" | "close" | "check" | "bond" | "retry"
+  // The bay clock, for the home screen's base-bay panel. A READOUT glyph, not a
+  // control — nothing about it is pressable — so it sits with the currencies
+  // below rather than with the rail's control set above.
+  | "clock"
   // THE TWO CURRENCIES, and they must never look alike. Both used to render as
   // the ♻ emoji — literally the same character for scrap and for salvage, on
   // the refit chip and the workshop chip, and on both shops' price buttons —
@@ -203,6 +207,12 @@ const PATHS: Record<IconName, string> = {
     `<path d="M4 8h9l-2 5H2z" fill="currentColor" stroke="none"/>`,
   // The retry arrow (was the ↻ dingbat on Try/Play Again buttons).
   retry: `<path d="M3.4 11.2A5.6 5.6 0 1 0 3.4 4.8"/><path d="M2.6 1.6v3.8h3.8"/>`,
+  // The bay clock: a square face crossed by its own axes, one hand short of
+  // vertical, and two ears on top. Deliberately NOT a circle — every other
+  // glyph in this table is built out of straight runs on the pixel grid, and a
+  // 16px circle is the one shape that cannot be, so a round clock would be the
+  // single anti-aliased blur in a set that is otherwise crisp at 13px.
+  clock: `<path d="M3 8h10"/><path d="M8 3v10"/><path d="M8 8l3-2"/><path d="M2 2h2"/><path d="M12 2h2"/>`,
 };
 
 /**

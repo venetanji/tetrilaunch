@@ -889,3 +889,56 @@ export const LEVELS: LevelConfig[] = Array.from({ length: 10 }, (_, i) => makeBa
 // UI references LEVEL_1 today (pre-run-mode howto/menu copy); keep it as an
 // alias for the ladder's first entry rather than a second source of truth.
 export const LEVEL_1: LevelConfig = LEVELS[0];
+
+/* ---------------------------------------------------------------------------
+ * BASE BAY SUMMARY — what flying a given Mark actually costs you.
+ *
+ * The home screen's tier tower (screens.ts's tierTowerHTML) lets the player
+ * park the car on any Mark they have earned, and the panel beside it has to
+ * answer "what am I signing up for" for the floor currently selected. Every
+ * number here is READ OFF makeBaseLevel rather than restated, because a
+ * summary that restates the ladder is a summary that silently goes stale the
+ * first time the ladder is retuned — and this one quotes six of the numbers a
+ * balance pass edits first.
+ *
+ * The bays are the STOCK ones: no upgrades, no ratchets, no carry. That is the
+ * honest thing to quote from a menu, where none of those are decided yet.
+ * ------------------------------------------------------------------------ */
+export interface BaseBaySummary {
+  /** Bay 1's funding target, and bay 10's — the run's arc in two numbers. */
+  targetFrom: number;
+  targetTo: number;
+  /** Stock price of one launch, and the float every bay opens on. */
+  launchCost: number;
+  startingFunds: number;
+  /** Bay 1's clock, in seconds, and how many bays the run is. */
+  timeLimitSec: number;
+  bays: number;
+  /** Joint strength relative to Mark 1 (level.ts's BOND_MARK_STEP) — the one
+   *  axis the Mark itself moves, since MARK_TARGET_STEP and MARK_SPEED_STEP
+   *  are both 0 today. x1.0 at Mark 1. */
+  bondMult: number;
+  /** True at UNBREAKABLE_MARK, where bay 10's joints go Infinity and the Bond
+   *  Breaker is the only shatter left in the capstone. */
+  unbreakableCapstone: boolean;
+}
+
+export function baseBayFor(mark: number): BaseBaySummary {
+  const m = Math.max(1, Math.floor(mark));
+  const first = makeBaseLevel(0, m);
+  const last = makeBaseLevel(LEVELS.length - 1, m);
+  return {
+    targetFrom: first.targetScore,
+    targetTo: last.targetScore,
+    launchCost: first.launchCost,
+    startingFunds: first.startingFunds,
+    timeLimitSec: first.timeLimitSec,
+    bays: LEVELS.length,
+    // Read off the ramp rather than recomputed: jointBreakStretch at bay 1 is
+    // BASE_BREAK_STRETCH x 1 x the Mark's factor, so dividing the two gives
+    // the factor back without this function knowing the formula. Bay 1 rather
+    // than bay 10 deliberately — bay 10 is the one that goes Infinity.
+    bondMult: first.jointBreakStretch / BASE_BREAK_STRETCH,
+    unbreakableCapstone: last.jointBreakStretch === Infinity,
+  };
+}

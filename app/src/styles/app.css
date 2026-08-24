@@ -242,9 +242,46 @@ body.crt-off #app::after { display: none; }
 }
 
 /* Full-screen menu layouts (landscape split) */
+/* THREE columns since the tier tower landed: brand, shaft, actions. The shaft
+   is a fixed width because it is a DRAWING of a building — a tower that
+   changes proportion with the viewport stops reading as one — and the action
+   rail keeps the width it was already measured at. What is left is the brand
+   column's, which is the only one whose contents can reflow.
+
+   `stretch`, not the .split default of `center`: the tower has to reach the
+   floor of the row it is in, and stretching is also what squares the brand
+   column against the action rail rather than centring two different heights
+   against each other (the note under the 620px query below spent a paragraph
+   getting those two edges to within half a pixel by hand). */
 .menu {
   height: 100%;
   padding: clamp(20px, 4vw, 60px);
+  --tower-w: 118px;
+  --rail-w: 300px;
+  --split-cols: minmax(0, 1fr) var(--tower-w) var(--rail-w);
+  --split-gap: var(--sp-4);
+  --split-align: stretch;
+}
+/* Two fixed columns and one flexible one means the brand column pays for both
+   of them, and on the narrowest landscape phone in the fleet (640x360) it
+   could not: 640px less the screen's own padding leaves 581, and 118 + 300 +
+   two sp-4 gaps takes 450 of it, leaving 131px for a column that has to hold
+   the wordmark. Orbitron sets TETRILAUNCH at 8.33x the font size and the title
+   floors at 24px, so 131px could not fit the word on one line at any size the
+   clamp allows — the reduced-motion menu (where the title is real text rather
+   than a wordmark inside the demo box) overflowed the viewport by 42px.
+
+   Both fixed columns step down together below 700px, which puts the brand
+   column back to 233px there — a little WIDER than the 229px the old
+   two-column menu gave it, so nothing that fitted before has less room now.
+   The step is keyed on WIDTH, unlike everything else on this screen, because
+   this is the one constraint on the menu that genuinely is horizontal. */
+@media (max-width: 700px) {
+  .menu {
+    --tower-w: 92px;
+    --rail-w: 232px;
+    --split-gap: var(--sp-3);
+  }
 }
 /* min-width:0 now comes from `.split > *`. */
 /* The title has to fit the BRAND COLUMN, not the viewport — the column is only
@@ -388,50 +425,314 @@ body.crt-off #app::after { display: none; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* The brand column's status strip: Tier, Best, Salvage, and the Unlimited
-   chip (upsell before purchase, ★ badge after).
+/* ---------- Base bay panel (screens.ts's baseBayPanelHTML) ----------
+   What replaced the status strip. The strip was three chips answering three
+   unrelated questions in the same shape — a tier, a high score and a currency
+   balance — and the tier one has become the tower in the middle column, while
+   Salvage was always printed a second time on the Workshop button beside the
+   thing it can buy. What is left is Best, which is a header line, and the room
+   that freed goes to the question the strip could never answer: what the floor
+   you have selected is actually like to fly.
 
-   These four used to be a flex row with `flex-wrap: wrap`, written inline on
-   the element. On a phone the brand column is ~250px wide — narrower than two
-   chips — so "wrap" meant FOUR stacked lines, 204px of them, and the brand
-   column outgrew the menu by 20-45px on the 640x360 and 667x375 devices. That
-   was the last of the menu's overflow after the width-breakpoint fix.
-
-   A 2-column grid puts the same four chips in two rows at any column width,
-   and the chips stretch to fill rather than each claiming its natural width. */
-.menu__status {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 0.65fr));
-  gap: var(--sp-2);
-  align-items: stretch;
+   `flex: 1 1 0` + `min-height: 0`: the panel takes exactly the height the demo
+   above it leaves, at every viewport, which is what keeps the brand column the
+   same height as the action rail without either being measured by hand. */
+.base-bay {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex; flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px 8px;
   width: var(--brand-w);
 }
-.menu__status .chip { min-width: 0; min-height: 58px; justify-content: center; }
-.menu__stat, .menu__entitlement {
-  flex-direction: row; align-items: center; gap: var(--sp-2);
+.base-bay__head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2);
+  min-width: 0;
 }
-/* The entitlement badge and the upsell are one full-width row under the three
-   readouts — they are a different KIND of thing (a state, or an offer), and
-   sharing a cell with Salvage made the strip read as four peers. */
-.menu__entitlement, .menu__status .chip--cta { grid-column: 1 / -1; }
-.menu__status .chip--cta { width: 100%; justify-content: center; }
-/* Compact (every landscape phone): the brand column is ~250-290px, narrower
-   than three chips — at three columns the outer two were driven to ~67px and
-   the grid pushed its own first cell off the left edge of a 640x360 device.
-   Two columns with the tier chip spanning is the same information in a box
-   that exists: the tier row is the tall one (it carries the Run/Contracts
-   ticks), and Best/Salvage are one line each. */
-[data-density="compact"] .menu__status {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+/* The eyebrow yields first. It is the line the tower beside it already
+   answers — the car is parked on the floor this names — where Best is the one
+   number on the panel that appears nowhere else on the screen. */
+.base-bay__eyebrow {
+  font-size: 7px; letter-spacing: 0.12em; color: var(--accent);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-[data-density="compact"] .menu__status .chip--tier { grid-column: 1 / -1; }
-[data-density="compact"] .menu__status .chip { min-height: 46px; padding: 6px 9px; }
-[data-density="compact"] .menu__status .chip__label { font-size: 7px; }
-[data-density="compact"] .menu__status .chip__value { font-size: 16px; }
-[data-density="compact"] .menu__status .tier-chip__halves { font-size: 9px; }
+.base-bay__eyebrow.is-god { color: var(--warn); }
+.base-bay__best {
+  font-family: var(--font-pixel); font-size: 6.5px; letter-spacing: 0.06em;
+  color: var(--text-faint); text-transform: uppercase; white-space: nowrap;
+  flex: none;
+}
+/* Two by two rather than four across: at the brand column's ~283px a
+   four-column grid gives each cell 65px, and "$800→1700" needs 58px of mono
+   before its glyph. Two rows of two is the same four numbers at a size they
+   can actually be read at. */
+/* Explicit `1fr` rows, not the implicit `auto` ones. Auto rows size to their
+   content and then overflow the grid box rather than shrinking with it, so on
+   a 360px phone — where the panel gets 146px and its content wants 149 — the
+   belt row was drawn straight over the bottom of the stat cells. Flexible rows
+   give the two of them the height that exists and let the cells clip their own
+   text (which they already do, with an ellipsis) instead. */
+.base-bay__grid {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.bay-stat {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 0; overflow: hidden;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+/* The glyph takes the stat's tint, the number stays plain — the colour is
+   there to tell the four cells apart at a glance, and four differently
+   coloured NUMBERS would read as four different states instead. */
+.bay-stat .ico { color: var(--stat-tint, var(--text-dim)); }
+.bay-stat__txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.bay-stat__lbl {
+  font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.bay-stat__val {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The belt: the six material axes in ladder order (hazards.ts's content
+   axes), lit as the selected Mark reaches them. A dark glyph is still a
+   GLYPH — greyed rather than hidden — because the row's job is to show how
+   much of the ladder is still ahead, which an empty space cannot do. */
+.bay-belt { display: flex; align-items: center; gap: 6px; flex: none; }
+.bay-belt__lbl {
+  font-family: var(--font-pixel); font-size: 6px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted); flex: none;
+}
+/* `flex: none`, and it has to be: six 13px glyphs and five 5px gaps are 103px,
+   and with the row's default shrink the label and the count took their width
+   first and left the glyphs 56px — so three of the six rendered outside their
+   own container. The count is the shrinkable one; it is a number that can
+   ellipsize, where a material glyph is either drawn or it is a lie. */
+.bay-belt__mats { display: flex; align-items: center; gap: 5px; flex: none; }
+.bay-belt__mat { display: flex; flex: none; }
+.bay-belt__mat.is-dark { opacity: 0.22; filter: grayscale(1); }
+.bay-belt__count {
+  margin-left: auto; min-width: 0;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Entitlement / sandbox entries — the only part of the old strip with nowhere
+   better to go. A row inside the panel rather than a seventh action button,
+   for the reason spelled out in menuScreen's action column. The web build
+   renders neither, so the row collapses rather than leaving a gap. */
+.base-bay__extras { display: flex; gap: 6px; flex: none; }
+.base-bay__extras:empty { display: none; }
+/* Written as a two-class selector rather than `.base-bay__extras > *`, and it
+   has to be. The compact query's `.btn { padding: 7px 14px; font-size: 10px }`
+   is one class too, comes ~3500 lines later, and therefore won — the upsell
+   rendered at full button height, which on a 360px phone is the ~18px that
+   pushed the belt row down over the stat cells above it. These entries are a
+   footnote on a readout panel, not a seventh action button, and they have to
+   be sized like one at every viewport. */
+.base-bay__extras .chip--cta,
+.base-bay__extras .menu__entitlement,
+.base-bay__extras .btn {
+  flex: 1 1 0; min-width: 0;
+  flex-direction: row; align-items: center; justify-content: center;
+  gap: 5px;
+}
 
-.menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
+/* ============================================================================
+   THE TIER TOWER (screens.ts's tierTowerHTML) — the home screen's elevator.
+
+   ONE number drives the whole animation: --tower-idx, the floor's position
+   counted from the roof. The car's top is arithmetic on it, so main.ts moves
+   the car by writing a single custom property and never touches geometry.
+
+   The floor height has to be DERIVED rather than fixed, because the shaft is
+   whatever height the menu row gives it: with N floors at `flex: 1 1 0`, shaft
+   padding at both ends and N-1 gaps between them, the slack the floors do not
+   get is (2 x pad + (N-1) x gap). Take that off first and the rest divides
+   evenly — and that quotient is also the step the car has to move by, which is
+   why both read it from the same three custom properties instead of from two
+   copies of the same arithmetic.
+   ========================================================================== */
+.tower {
+  --tower-floors: 11;
+  --tower-pad: 3px;
+  --tower-gap: 2px;
+  --tower-slack: calc(2 * var(--tower-pad) + (var(--tower-floors) - 1) * var(--tower-gap));
+  --tower-floor-h: calc((100% - var(--tower-slack)) / var(--tower-floors));
+  /* Centred and capped rather than stretched to the row. On a landscape phone
+     `100%` always wins and the tower fills the screen, which is the drawing as
+     authored; on a tablet the cap stops eleven floors being spread over 900px
+     of glass, where each floor becomes an 80px band holding a 12px number and
+     the building reads as a ladder diagram instead.
+
+     520px, not a rounder number: eleven floors and the shaft's own slack
+     (--tower-slack, 26px) is 44px a floor at exactly 510px, and 44px is the
+     tap floor the rest of this screen is built to. Anywhere with the height to
+     spare — both tablets and the iPad Pro — the tower therefore clears it
+     outright. A 360px-tall phone gives the shaft 313px, where eleven floors
+     cannot each be 44px by arithmetic, and they come out at 26px; see the
+     entries this leaves in sim/uifit/baseline.json. */
+  align-self: center;
+  height: min(100%, 520px);
+  display: flex; flex-direction: column; align-items: stretch;
+}
+.tower__shaft {
+  position: relative;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  gap: var(--tower-gap);
+  padding: var(--tower-pad);
+  background: linear-gradient(180deg, rgba(27, 27, 46, 0.9), rgba(8, 8, 18, 0.96));
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  box-shadow: var(--shadow-hard);
+}
+/* The headhouse — the motor room on a real lift's roof. Sits ABOVE the shaft's
+   own box (negative top) so the floors keep the full height, and is the reason
+   the shaft's top corners are the only rounded ones. */
+.tower__head {
+  position: absolute; left: 0; right: 0; top: -13px; height: 13px;
+  display: flex; justify-content: center; align-items: flex-end; gap: 3px;
+  z-index: 3;
+}
+.tower__head i { width: 2px; background: var(--line-strong); }
+.tower__head i:first-child { height: 13px; }
+.tower__head i:last-child { height: 9px; }
+.tower__head b {
+  width: 5px; height: 5px; background: var(--warn); border-radius: 1px;
+  animation: tower-lamp 1.4s steps(2, end) infinite;
+}
+@keyframes tower-lamp { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+/* The guide rail the car runs on. Purely drawing — but it is what makes the
+   car read as riding rather than as a highlight sliding down a list. */
+.tower__rail {
+  position: absolute; left: 12px; top: 6px; bottom: 6px;
+  width: 2px; background: var(--line); opacity: 0.9;
+}
+.tower__car {
+  position: absolute; left: 5px; width: 16px;
+  height: var(--tower-floor-h);
+  top: calc(var(--tower-pad) + var(--tower-idx) * (var(--tower-floor-h) + var(--tower-gap)));
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+  /* Duration is written per trip by main.ts (screens.ts's towerTravelMs) — a
+     nine-floor climb has to take longer than a one-floor nudge or the shaft
+     has no length. The fallback is the one-floor figure. */
+  transition: top var(--tower-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1);
+}
+.tower__car span {
+  width: 100%; height: 80%;
+  border: var(--bw) solid var(--accent);
+  border-radius: 1px;
+  background: rgba(0, 240, 255, 0.16);
+  display: flex; align-items: center; justify-content: center;
+  animation: tower-car 1.6s ease-in-out infinite;
+}
+.tower__car span::after {
+  content: ""; width: 4px; height: 4px; background: var(--accent); border-radius: 1px;
+}
+@keyframes tower-car {
+  0%, 100% { box-shadow: 0 0 0 rgba(0, 240, 255, 0); }
+  50% { box-shadow: 0 0 10px rgba(0, 240, 255, 0.55); }
+}
+.tower__floor {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1 1 0; min-height: 0;
+  padding: 0 5px 0 3px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+/* The car's lane. An empty span rather than padding, so the floor's own
+   content starts clear of the shaft wall whether or not the car is here. */
+.tower__gap { width: 22px; flex: none; }
+.tower__n {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 800;
+  line-height: 1; color: inherit;
+}
+.tower__floor--god .tower__n {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.04em;
+}
+.tower__windows { display: flex; gap: 2px; margin-left: auto; flex: none; }
+.tower__windows i {
+  width: 4px; height: 4px; background: currentColor; border-radius: 1px; opacity: 0.4;
+}
+.tower__floor.is-selected {
+  border-color: var(--accent); color: var(--accent);
+  background: rgba(0, 240, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.tower__floor.is-selected .tower__windows i { opacity: 0.95; }
+.tower__floor--god.is-selected {
+  border-color: var(--warn); color: var(--warn);
+  background: rgba(255, 176, 32, 0.16);
+}
+.tower__floor.is-locked {
+  color: var(--text-faint);
+  background: rgba(255, 255, 255, 0.012);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.tower__floor.is-locked .tower__windows i { opacity: 0.18; }
+/* Refusal, not a message. A floor you have not earned shakes its head and
+   stays where it is — a toast would cover the tower the player is reading. */
+.tower__floor.is-denied {
+  color: var(--danger); border-color: var(--danger);
+  animation: tower-deny 300ms ease 2;
+}
+@keyframes tower-deny {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+/* The slab the building stands on: square-bottomed, so the shaft above it
+   cannot read as a floating card. */
+.tower__base {
+  flex: none; height: 6px;
+  background: var(--surface-3);
+  border: var(--bw) solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+/* The car still MOVES with reduced motion — where it is parked is the screen's
+   state, not decoration — it just gets there at once, and the two idle
+   animations (the lamp, the car's own glow) stop entirely. */
+@media (prefers-reduced-motion: reduce) {
+  .tower__car { transition: none; }
+  .tower__head b, .tower__car span { animation: none; }
+  .tower__floor.is-denied { animation: none; }
+}
+
+/* The rail fills its column now that the row stretches. The three primary
+   entries take a quarter more than the three plain ones — they are the ones
+   carrying two lines of text — which is the ratio the buttons already had at
+   their natural heights, just held against the column instead of against
+   their own content. The max-heights are what stop a tablet from stretching
+   six buttons into six panels. */
+.menu__actions {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  width: 100%; justify-self: end;
+  justify-content: center;
+}
+/* `min-height` is the load-bearing half. Without it the rail's own flex
+   distribution SHRANK the plain buttons to 38-42px on every 360px phone —
+   under the 44px tap floor the whole rail is built to clear — because
+   `flex-shrink` defaults to 1 and the six natural heights plus five gaps come
+   out just over the column. Six 44px rows and five sp-2 gaps is 304px against
+   the 325px the column gets at compact, so the floor fits with room to spare
+   and the grow below spends only what is actually left over. */
+.menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 64px; }
+.menu__actions > .btn--menu { flex-grow: 1.25; max-height: 84px; }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -3726,17 +4027,15 @@ button.panel { color: var(--text); }
    competing with a headline — and it can't shrink far now that it carries the
    wordmark, which has to stay legible. */
 @media (max-height: 620px) {
-  /* Two widths, because the column holds two different amounts of content. The
-     status strip is three readouts for a build with no store (the web build and
-     any APK without a RevenueCat key), and FOUR rows once there is one — the
-     ★ Unlock upsell before purchase, the ★ UNLIMITED badge after, both spanning
-     `grid-column: 1 / -1`. That extra row is ~52px, and it comes straight out of
-     the panel's height budget: measured, 360px overflows a 360px-tall viewport
-     by 23px with the store row present and fits with 14px to spare without it.
-     Keying the width off the row itself is what lets the no-store case use the
-     room it actually has instead of paying for content it never renders. */
+  /* ONE width now, where the status strip needed two. The strip's extra store
+     row (the ★ Unlock upsell before purchase, the ★ UNLIMITED badge after) was
+     ~52px taken straight out of the demo panel's height budget, so the column
+     had to narrow the panel by 80px whenever the row existed just to stay
+     inside a 360px-tall viewport. Those entries now ride the base-bay panel's
+     last row, and that panel is `flex: 1 1 0` — it absorbs the row out of its
+     OWN box instead of pushing the column taller, so the entitlement state no
+     longer changes the demo's size at all. */
   .menu__brand { --brand-w: min(100%, 360px); }
-  .menu__brand:has(.chip--cta, .menu__entitlement) { --brand-w: min(100%, 280px); }
 }
 /* No second step at 460px. The old one took the panel to 280px in a 386px
    column, leaving 106px — 27% of the column — empty to its right while the
@@ -3767,6 +4066,31 @@ button.panel { color: var(--text); }
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
   .menu__brand { gap: var(--sp-2); }
+  /* The base-bay panel's budget on a 360px phone is what the 16:9 demo above
+     it leaves — 146px at 792x360 — against 149px of content at the desktop
+     paddings. Three pixels, and every one of them has to come off the chrome
+     rather than off the type: the four values are the whole point of the
+     panel, and they are already at 11px. */
+  /* The entitlement row shrinks HERE and only here. Sized down globally it
+     took the paywall entry to 23px on the tablets — a real button, under the
+     44px tap floor, on the three devices that have all the height in the world
+     to give it. On a 360px phone the panel's whole budget is 146px, so this is
+     the one viewport where the row has to be a footnote rather than a
+     control-sized thing. */
+  .base-bay__extras .chip--cta,
+  .base-bay__extras .menu__entitlement,
+  .base-bay__extras .btn { padding: 3px 8px; font-size: 9px; min-height: 0; }
+  .base-bay { gap: 4px; padding: 5px 7px 6px; }
+  .base-bay__grid { gap: 4px; }
+  .bay-stat { padding: 3px 5px; gap: 5px; }
+  /* 10px, down from 11. The longest of the four values is the clock's
+     "2:30 · 10 bays" — fourteen mono characters, which at 11px want 98px of a
+     cell that has 102 once the glyph and the paddings are out, and the pair of
+     `·` separators put it over on half the fleet. The other three have room to
+     spare at either size, so the step is taken by all four rather than by the
+     one, because four readouts in a grid that disagree about their type size
+     read as three readouts and a mistake. */
+  .bay-stat__val { font-size: 10px; }
   .menu__sub { font-size: var(--fs-sm); max-width: 44ch; }
   .menu__actions { gap: var(--sp-2); }
   /* Sized down again once the options carried icons: a glyph does some of the
@@ -4652,6 +4976,12 @@ button.panel { color: var(--text); }
   text-transform: uppercase; line-height: 1; opacity: 0.8;
 }
 .tier-plate__n { font-family: var(--font-mono); font-weight: 800; line-height: 1; }
+/* The God floor's plate wears the tower's own warn tint rather than the
+   ladder's cyan — it is the one floor that is not a Mark, and the plate is the
+   only place that fact travels to outside the shaft. Background only: the
+   border stays `currentColor` so the plate still belongs to whatever button it
+   is sitting on. */
+.tier-plate--god { background: rgba(255, 176, 32, 0.22); }
 .tier-plate--menu { width: 58px; height: 52px; margin-inline: 2px 4px; }
 .tier-plate--menu .tier-plate__n { font-size: 24px; }
 /* The compact variant the canvas never drew: measured at 640x360 the menu

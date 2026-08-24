@@ -25,3 +25,18 @@
   `tokens/app.css`. Next sync from a machine with `/design-login` should upload
   `design/screens/contracts.html` (group "Screens") and re-copy
   `app/src/styles/app.css` over `tokens/app.css`.
+- 2026-08-24: home screen rebuilt around the TIER TOWER (screens.ts's
+  `tierTowerHTML` + `baseBayPanelHTML`, app.css's `.tower` / `.base-bay`),
+  from the "Staging branch elevator tower design" handoff bundle. The menu is
+  three columns now — brand, shaft, action rail — and the Tier/Best/Salvage
+  chip strip is gone: Tier IS the tower, Best is the base-bay panel's header,
+  and Salvage was already on the Workshop button. `design/screens/menu.html`
+  rewritten to match (it was still carrying the PRE-retro token values —
+  `--r-md:10px`, rounded pills — so the card had been lying about the app's
+  own corners since the retro pass).
+  NOT YET UPLOADED, same reason as the 2026-08-22 entry: this ran from a Claude
+  Code web session, where DesignSync has no design-system authorization. Next
+  sync from a machine with `/design-login` owes the project, in one plan:
+  `design/screens/menu.html` (group "Screens", replacing the old card),
+  `design/screens/contracts.html` (group "Screens", still never uploaded), and
+  a re-copy of `app/src/styles/app.css` over `tokens/app.css`.
