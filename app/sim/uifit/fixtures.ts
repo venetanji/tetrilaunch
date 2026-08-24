@@ -511,12 +511,38 @@ function endModal(won: boolean): string {
 export const SCREEN_IDS = Object.keys(SCREENS);
 
 /** The rail loadout each screen renders, mirroring what main.ts's hudOpts
- *  feeds the layout solver (layout.ts's railSlotsFor). Screens built on
- *  HUD_BASE carry all three abilities — the seven-slot worst case — and
+ *  feeds the layout solver (layout.ts's railSlotsFor). Deep Run screens built
+ *  on HUD_BASE carry all three abilities — the seven-slot worst case — and
  *  screens with no HUD have no rail, so they get the base budget. `hud-stock`
  *  falls through to NO_RAIL on purpose rather than by omission: it is a rig
  *  that owns no abilities, so the rail it renders is the base one. The harness
- *  applies this BEFORE publishing the layout, exactly like the app. */
+ *  applies this BEFORE publishing the layout, exactly like the app.
+ *
+ *  The two Contract screens fall through to NO_RAIL for the identical reason
+ *  `hud-stock` does. HUD_LOADOUT reads HUD_BASE.bondBreakerOwned/demoOwned/
+ *  autoloaderOwned directly — the same three fields the hud-contract fixture's
+ *  own comment already corrected to false in the hudHTML() opts, because
+ *  levelForContract never grants any of them. This mapping is a SEPARATE
+ *  reader of the same HUD_BASE data and was not corrected with it, so both
+ *  Contract screens kept handing the layout solver a Deep-Run-worst-case
+ *  seven-slot rail — a state main.ts's hudOpts (bond: g.bondCharges > 0, demo:
+ *  g.level.bombCharges > 0, auto: g.level.autoLaunchMs > 0, all false for a
+ *  Contract) never produces.
+ *
+ *  Not a rounding error: railColumnCap (layout.ts) divides the usable column
+ *  height by railSlots, and computeLayout's `columnFits` check is a MODE
+ *  switch, not a scale factor — seven slots that don't fit the column at all
+ *  fail it and fall back to a bottom band, which is subtracted from the field
+ *  before --field-h is set. On the tightest device in the matrix that is
+ *  exactly what was happening: iPhone 13 mini's `mode` was "tall" (bottom
+ *  band) at seven slots and "snug" (side band) at the real four, taking
+ *  --field-h from 271.00px to 335.25px and the plant's design floor from
+ *  116.42px to 144.02px — measured with sim/uifit's own harness, both
+ *  Contract screens, both before and after this fix. Every other device in
+ *  the matrix was unaffected (already past the seven-slot columnFits
+ *  threshold either way), which is exactly why `plant`/`draghint`/`rail`
+ *  stayed green the whole time this was wrong: nothing here overflowed a box,
+ *  the box itself was the wrong size. */
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
   demo: HUD_BASE.demoOwned,
@@ -524,8 +550,7 @@ const HUD_LOADOUT = {
 };
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
-  return id === "hud" || id === "hud-rich" || id === "hud-contract"
-    || id === "hud-contract-lines" || id === "hud-notched"
+  return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
