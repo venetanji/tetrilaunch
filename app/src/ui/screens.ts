@@ -227,7 +227,14 @@ export function menuScreen(
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
-    <div class="build-tag" aria-hidden="true">${import.meta.env.VITE_BUILD_ID as string}</div>
+    <div class="build-tag" aria-hidden="true">${
+      // Vite's `define` (vite.config.ts) statically replaces the
+      // import.meta.env.VITE_BUILD_ID reference below with the build's short
+      // SHA. Outside a Vite build — sim/systems.ts imports this module
+      // straight through tsx — import.meta.env does not exist at all, so the
+      // typeof guard is load-bearing, not defensive noise.
+      typeof import.meta.env !== "undefined" ? (import.meta.env.VITE_BUILD_ID as string) : "dev"
+    }</div>
   </div>`;
 }
 
