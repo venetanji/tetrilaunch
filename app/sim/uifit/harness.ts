@@ -105,7 +105,12 @@ function publishLayout(): void {
 
 export interface UiFitApi {
   screens: string[];
-  render(id: string, insets: Insets): void;
+  /** `finePointer` mirrors main.ts's hudOpts: on a mouse/trackpad the rail
+   *  sheds its game buttons, so the solver must be budgeted for the two that
+   *  remain. Passing it is not optional decoration — budget the seven-slot
+   *  touch column on a desktop row and the solver reserves a band for buttons
+   *  that rule out of the DOM, i.e. it measures a layout no browser renders. */
+  render(id: string, insets: Insets, finePointer?: boolean): void;
   layout(): ReturnType<typeof computeLayout>;
 }
 
@@ -117,14 +122,14 @@ declare global {
 
 const api: UiFitApi = {
   screens: SCREEN_IDS,
-  render(id, insets) {
+  render(id, insets, finePointer = false) {
     const make = SCREENS[id];
     if (!make) throw new Error(`unknown screen "${id}"`);
     applyInsets(insets);
     // The same loadout -> slot budget hand-off main.ts's hudOpts performs, so
-    // the solver prices the rail this screen actually renders. The harness
-    // runs with hasTouch, so no fine-pointer branch here.
-    setRailSlots(railSlotsFor(railLoadoutFor(id)));
+    // the solver prices the rail this screen actually renders — including the
+    // fine-pointer branch, where only fullscreen and pause survive.
+    setRailSlots(railSlotsFor({ ...railLoadoutFor(id), finePointer }));
     publishLayout();
     overlay.innerHTML = make();
   },

@@ -262,6 +262,21 @@ overriding `env(safe-area-inset-*)` in a stylesheet rule that the app's own
 `.safe-probe` then measures back, so the iOS inset plumbing is exercised
 rather than stubbed.
 
+**The matrix has two halves.** Thirteen handset/tablet rows with a coarse
+pointer and real landscape insets, and six `platform: "web"` rows with
+`pointer: "fine"` and none. The pointer is not a detail: `@media (pointer:
+fine)` is a structural switch in `app.css` — it hides the rail's game buttons,
+changes what the rail asks the layout solver to budget, and is the only
+condition under which the keyboard hint strip is drawn at all. While every row
+was coarse, a whole control surface existed in no test, which is how a hint
+strip centred on the window instead of on the field shipped. The web rows are
+picked to cover all three layout modes, and deliberately include the everyday
+16:9/16:10 laptop sizes, where the solver goes `snug` and reserves an 84px
+right band: the field's centre and the window's centre are 42px apart there,
+so anything anchored to the wrong one is off by exactly that much on the most
+common window there is — and dead centre on the ultrawide row, which is what
+makes the class of bug so easy to miss by eye.
+
 One assertion per row of `run.ts`'s `ASSERTIONS`, run on every device x screen.
 The load-bearing one is `scrollers`: `ALLOWED_SCROLLERS` is the single place
 the product rule *"no vertical scrolling except the leaderboard rows and the
@@ -279,10 +294,20 @@ anything:
 | `overlap`  | two boxes laid out to sit *beside* each other covering each other — the tutorial card spilling over the plant readout |
 | `draghint` | the onboarding gesture animating underneath the plant panel, which is `z-index: 6` while the hint is not |
 | `reveal`   | the tutorial's step-0 progressive reveal, whose `display: none` rules are weak enough that any later rule of equal weight silently un-hides a block |
+| `kbdhint`  | the desktop key-hint strip anchored to the viewport rather than to the solved field — 42px off centre and up to 69px adrift below it on an ordinary laptop window, while looking perfect on ultrawide |
 
 When adding one, reintroduce the defect it guards and confirm the assertion
 **fails** before trusting it — every one of the four above was proven that way,
 and the numbers quoted in their comments are what the failing run reported.
+
+**What the baseline currently holds.** All 25 entries are the one
+`Web · 800x600 window` row — a browser window dragged genuinely small. They are
+real (a `.draft__body` that needs 200px more height than it has, menu chips
+whose labels spill their cells, the bond/demo chips 1px under the 44px floor,
+badges 0.01em under their air floor), and they are the honest cost of adding
+the row: it is also the only row narrow enough to prove the hint strip's width
+bound, and a bound nothing tests is not a bound. Every other device row,
+including the five larger web rows, is clean.
 
 **The baseline.** `uifit/baseline.json` records the violations that exist
 today, keyed `device|screen|assertion`. A run fails on violations NOT in it,

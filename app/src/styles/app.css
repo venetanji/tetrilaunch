@@ -1006,6 +1006,17 @@ body.crt-off #app::after { display: none; }
    ~180px it did not need. Inline inside, so the chips and their connecting
    text lay out as the sentence they are. */
 .kbd-hint__part { white-space: nowrap; }
+/* The chips have vertical padding, and vertical padding on an INLINE box does
+   not grow the line it sits on — it just draws outside it. Inline is what the
+   chips became the moment each hint got its own wrapper (before that they were
+   flex items in their own right, block-ified, and their padding counted), so
+   the strip measured 16px tall while its chips drew 24px, spilling 4px above
+   and below. In "wide", where the strip sits 2px off the foot of a field that
+   reaches the bottom of the window, those 4px were 2px under the window edge
+   and clipped. inline-block makes the padding part of the line again; the
+   `vertical-align` keeps the chip on the text's optical centre rather than its
+   baseline, which is what stops "Q/E rotate" from stepping up and down. */
+.kbd-hint .kbd { display: inline-block; vertical-align: middle; }
 .kbd-hint__sep { opacity: 0.4; }
 /* A gamepad player sees the strip whatever the pointer type (D2): the pad is
    the control surface, and the rail's touch buttons say nothing about it. */
