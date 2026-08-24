@@ -2691,16 +2691,29 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // auto-height panel, and smaller pixel-font stat labels). What CAN be checked
   // headlessly — and is the part that actually made it fragile — is the WIDTH
   // BUDGET: the funds line has to fit its column with real slack at the smallest
-  // scale the game runs at, using conservative per-character advances rather
-  // than the sandbox's fallback font metrics (the real Press Start 2P is far
-  // wider than any fallback, which is exactly why this reproduced on a device
-  // and not in a headless browser).
+  // scale the game runs at, using advances measured from the app's OWN font
+  // files rather than the sandbox's fallback font metrics (the real Press Start
+  // 2P is far wider than any fallback, which is exactly why this reproduced on a
+  // device and not in a headless browser).
   //
-  // Advances are expressed in em and deliberately generous:
-  //   mono  0.60em — JetBrains Mono's actual advance
-  //   pixel 1.45em — Press Start 2P measured on-device INCLUDING letter-spacing
+  // EVERY advance below is MEASURED against app/public/fonts/*.woff2 under the
+  // exact app.css rule named beside it — not estimated. Estimating is what went
+  // wrong before: a flat "Rajdhani averages 0.45em/glyph" under-priced every
+  // tier-2 label by 13-30%. That matters in the UNSAFE direction, because
+  // fundsBudget SUBTRACTS those labels from the width it hands the funds line —
+  // undershooting a label inflates `available`, so the budget can only ever be
+  // too optimistic, never too strict. (It had not yet swallowed a real overflow:
+  // recalibrating cost the compact cases ~13px of `available` and the tightest
+  // one still clears by 64px. The margin was real; the arithmetic was not.)
+  // Measurement is linear in font-size to within 0.05%, so one em figure per
+  // string covers every scale.
+  //
+  // Both of these faces are MONOSPACE, so one per-glyph advance is exact:
+  //   mono  0.60em/glyph — JetBrains Mono, .pl-stat .v / .pl-funds .v; identical
+  //                        at weight 700 and 800
+  //   pixel 1.00em/glyph — Press Start 2P at .pl-stat .lbl's `letter-spacing: 0`
   const MONO_ADV = 0.6;
-  const PIXEL_ADV = 1.45;
+  const PIXEL_ADV = 1.0;
 
   // The CSS geometry this mirrors. Kept as named constants so a change in
   // app.css that isn't reflected here shows up as a failing budget rather than
@@ -2720,9 +2733,26 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // the budget has to model them or it prices a layout that no phone renders.
   const C_FUNDS_FS_MIN = 15, C_FUNDS_FS_FPX = 34;
   const C_STAT_LBL_MIN = 8, C_STAT_LBL_FPX = 12;
-  /** Rajdhani's advance, vs the pixel face's 1.45em — this ratio is exactly why
-   *  an 8-glyph heading fits a phone column in one face and not the other. */
-  const UI_ADV = 0.45;
+  /**
+   * Rajdhani is PROPORTIONAL, so — unlike the two monospace faces above — no
+   * single per-glyph advance is right for it. Its real per-glyph cost runs from
+   * 0.516em (LEFT) to 0.645em (COMBO) depending on how many round bowls the word
+   * carries, which is why a flat average failed worst on exactly the labels this
+   * budget uses. These are measured widths of the WHOLE WORD, in em of the
+   * label's font-size, as [data-density="compact"] .pl-stat .lbl renders it:
+   * rajdhani-700.woff2, letter-spacing 0.06em, uppercase.
+   */
+  const UI_EM: Record<string, number> = {
+    LAUNCHES: 4.7637, // 38.109px @ 8px
+    SHIPMENTS: 5.2246, // 41.797px @ 8px
+    TIME: 2.1563, // 17.250px @ 8px
+  };
+  /** Worst per-glyph advance seen across a wider survey of the HUD's labels
+   *  (COMBO, 0.6449em). A label that is not in the table above is priced at this
+   *  rather than at an average, so adding one can never quietly price it
+   *  NARROWER than a word that was actually measured. */
+  const UI_ADV_MAX = 0.6449;
+  const uiLabelEm = (label: string) => UI_EM[label] ?? label.length * UI_ADV_MAX;
 
   /** Width the funds line needs vs. the width its column actually gets. */
   function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
@@ -2738,16 +2768,23 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const statLbl = compact
       ? mx(C_STAT_LBL_MIN, C_STAT_LBL_FPX)
       : mx(STAT_LBL_MIN, STAT_LBL_FPX);
-    const lblAdv = compact ? UI_ADV : PIXEL_ADV;
+    /** Width of a tier-2 label in em of its own font-size. Compact swaps the
+     *  face, so it swaps the metric with it. */
+    const lblEm = (label: string) =>
+      compact ? uiLabelEm(label) : label.length * PIXEL_ADV;
     const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
     const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
 
-    // Each stat column is as wide as the WIDER of its pixel-font label and its
-    // mono value — the label is what dominates at small scales, and missing that
-    // is what made the original budget wrong.
+    // Each stat column is as wide as the WIDER of its label and its mono value —
+    // the label is what dominates at small scales, and missing that is what made
+    // the original budget wrong.
     const col = (label: string, value: string) =>
-      Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
-    const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)));
+      Math.max(lblEm(label) * statLbl, value.length * MONO_ADV * statVal) + statPad;
+    // The first column's heading is "Launches" on a normal bay and "Shipments"
+    // on a pattern Contract (screens.ts's plant panel) — one glyph longer and
+    // 0.46em wider. The budget has to price the WIDER of the two it can render,
+    // or it proves the case that happens not to be the tight one.
+    const launchesCol = col("SHIPMENTS", String(Math.floor(funds / 25)));
     const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 
     const gaps = 2 * mx(READ_GAP_MIN, READ_GAP_FPX);

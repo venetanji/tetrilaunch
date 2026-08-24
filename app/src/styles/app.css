@@ -4162,10 +4162,16 @@ button.panel { color: var(--text); }
    17px -> 15px buys ~12% of the line, which covers five figures with slack.
    That alone is not enough on the tightest device (an iPhone 13 mini gives the
    column ~82px against ~97px needed), so the tier-2 LABELS give up the pixel
-   face too. Press Start 2P advances ~1.45em including its tracking, so
-   "LAUNCHES" is ~70px and the column is as wide as its heading rather than its
-   number; Rajdhani at 8px is ~29px for the same word and more readable at that
-   size. Done TOGETHER on measured evidence: the label change alone was WORSE
+   face too. Press Start 2P is monospace and advances exactly 1em per glyph at
+   this rule's `letter-spacing: 0`, so "LAUNCHES" is 64px at 8px and the column
+   is as wide as its heading rather than its number; Rajdhani 700 with the 0.06em
+   tracking below is 38.1px for the same word — 40% narrower, and more readable
+   at that size. (Both figures are MEASURED against public/fonts/*.woff2, and
+   sim/systems.ts's width budget mirrors them. An earlier revision of this
+   comment claimed ~29px for the Rajdhani word, from a flat 0.45em/glyph average;
+   Rajdhani is proportional and the real per-glyph cost is 0.52-0.65em, so that
+   average under-priced every label here by 13-30%.)
+   Done TOGETHER on measured evidence: the label change alone was WORSE
    (145px vs 140px) because a 9px label line cost more height than the wrap it
    prevented, and only the pair clears it. The pixel face stays everywhere else
    on the panel — it is this one eight-glyph column heading it cannot afford. */
