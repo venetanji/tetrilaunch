@@ -83,6 +83,19 @@ export interface RunState {
    *  what the run's leaderboard entry is filed under, so a run can't change
    *  which board it's competing on halfway through. */
   mark: number;
+  /** Flown from Tier S (lib/devmode.ts), not from the ladder.
+   *
+   *  Set at construction and never changed, exactly like `mark` above and for
+   *  the same reason: it decides which board the run is competing on, and a
+   *  run that could switch boards halfway through is a run whose score means
+   *  nothing. It is also what makes the mode safe to ship — main.ts's
+   *  finishRun reads it and skips recordRunEnd entirely, so no sandbox run
+   *  banks salvage or ticks a tier however it was configured.
+   *
+   *  A Contract is not covered by this and does not need to be: contracts.ts
+   *  strips the run economy outright, and main.ts clears `run` before starting
+   *  one. */
+  sandbox: boolean;
   /** The Final Inspection clause accepted before the LAST bay (finals.ts), or
    *  null for every bay before it.
    *
@@ -129,6 +142,11 @@ export function newRun(
     tiers: { ...loadout },
     unlocks: [...unlocks],
     mark,
+    // A ladder run unless the caller says otherwise. Tier S is the ONE caller
+    // that overrides it (main.ts's launchSandbox), which is why this is a
+    // field on the run rather than a sixth positional argument nobody else
+    // would ever pass.
+    sandbox: false,
     // Nothing is inspected until the run reaches its last draft.
     final: null,
   };
@@ -324,6 +342,13 @@ export function advanceRun(
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
+    // Carried, obviously — but worth stating why it is spelled out in a
+    // function that rebuilds the run field by field: a run that stopped being
+    // a sandbox run at bay 2 would spend the other nine bays quietly earning
+    // salvage and filing its score on the ladder's board. The field is
+    // required on RunState (not optional) precisely so this line cannot be
+    // forgotten here or in any future rebuilder.
+    sandbox: run.sandbox,
     tiers: { ...run.tiers },
     unlocks: [...run.unlocks],
     mark: run.mark,

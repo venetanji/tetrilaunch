@@ -75,7 +75,14 @@ import {
   pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
-import { applySandboxMaterials, SANDBOX_MATERIALS } from "../src/game/sandbox";
+import {
+  applySandboxMaterials, bumpSandboxRatchet, maxedTiers, newSandbox, ratchetTotal,
+  sandboxAxes, sandboxRunFor, SANDBOX_MATERIALS, SANDBOX_RATCHET_MAX,
+  type SandboxState,
+} from "../src/game/sandbox";
+import { sandboxScreen } from "../src/ui/sandbox-screen";
+import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
+import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -105,8 +112,9 @@ import {
   resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
+import * as S from "../src/ui/screens";
 import { icon, type IconName } from "../src/ui/icons";
-import type { ScoreEntry } from "../src/lib/api";
+import { BOARD_DEEP_RUN, BOARD_SANDBOX, type ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
 
@@ -3091,7 +3099,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
-    leftHandRail: false, stickAssist: true,
+    leftHandRail: false, stickAssist: true, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -5920,6 +5928,165 @@ section("Misfire prevention");
     // ground, so where it lands is unknown and nothing should be claimed.
     !pathStrands([{ x: 680, y: 490 }, { x: 700, y: 506 }], 780),
   );
+}
+
+
+// ---------------------------------------------------------------------------
+section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)");
+// ---------------------------------------------------------------------------
+{
+  // THE GESTURE. Nine taps in a row, with "in a row" meaning inside the window
+  // — the failure this must not have is a counter that holds at 6 from
+  // yesterday and completes on three taps today.
+  const streak = new TapStreak();
+  let last = streak.press(0);
+  for (let i = 1; i < DEV_TAPS_REQUIRED - 1; i++) last = streak.press(i * 200);
+  check("eight taps do not open the door", !last.complete);
+  check("the beacon lights before the ninth tap", last.progress > 0);
+  check("the ninth tap opens it",
+    streak.press((DEV_TAPS_REQUIRED - 1) * 200).complete);
+
+  const lapsed = new TapStreak();
+  for (let i = 0; i < DEV_TAPS_REQUIRED - 1; i++) lapsed.press(i * 200);
+  check("a lapse resets the streak",
+    !lapsed.press((DEV_TAPS_REQUIRED - 1) * 200 + DEV_TAP_WINDOW_MS + 1).complete);
+
+  const again = new TapStreak();
+  for (let i = 0; i < DEV_TAPS_REQUIRED; i++) again.press(i * 200);
+  // The gesture TOGGLES, so the tenth tap has to start a fresh run rather than
+  // re-completing the ninth — otherwise holding a finger down would flap the
+  // mode on and off.
+  check("completing resets, so the next tap starts over",
+    !again.press(DEV_TAPS_REQUIRED * 200).complete);
+
+  check("an early tap says nothing", new TapStreak().press(0).progress === 0);
+
+  // THE TOWER. Tier S is a door, not a floor: the car cannot ride to it, it has
+  // no index in the shaft, and it is absent unless the mode is open.
+  const shut: S.TowerState = { unlocked: 5, selected: 5, god: false };
+  const open: S.TowerState = { ...shut, sandbox: true };
+  check("the elevator is deactivated for Tier S", !S.tierOpen(open, S.SANDBOX_TIER));
+  check("Tier S is not a Mark", S.SANDBOX_TIER < 1);
+  check("the shaft still holds only the ladder", S.TOWER_FLOORS === MARK_COUNT + 1);
+  check("no floor shares Tier S's id",
+    !Array.from({ length: S.TOWER_FLOORS }, (_, i) => i + 1).includes(S.SANDBOX_TIER));
+  check("the door is absent with the mode shut",
+    !S.tierTowerHTML(shut).includes(`data-tier="${S.SANDBOX_TIER}"`));
+  check("the door is drawn with the mode open",
+    S.tierTowerHTML(open).includes(`data-tier="${S.SANDBOX_TIER}"`));
+  check("the beacon is tappable", S.tierTowerHTML(shut).includes('data-action="tower-beacon"'));
+  // The gates the ladder already had must be untouched by the new floor: an
+  // unearned Mark stays shut whether or not the sandbox is open.
+  check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
+  check("the God floor still needs the ladder beaten", !S.tierOpen(open, S.GOD_TIER));
+
+  // THE RUN. This is the gate that makes the mode safe to ship, so it is
+  // checked at the model rather than only in main.ts's finishRun.
+  const sbx: SandboxState = {
+    ...newSandbox(), tier: 9, target: { kind: "bay", bay: 7 },
+    tiers: maxedTiers(), ratchets: { wind: 2 },
+  };
+  const sRun = sandboxRunFor(sbx);
+  check("a Tier S run is marked as one", sRun.sandbox === true);
+  check("a ladder run is not", newRun(1).sandbox === false);
+  check("it starts at the chosen bay", sRun.levelIndex === 6);
+  check("it flies the chosen Mark", sRun.mark === 9);
+  check("it carries the pre-ratcheted axes", sRun.ratchets.wind === 2);
+  check("it starts cold", sRun.carry === 0);
+  // The flag has to survive every bay, or a run that stopped being a sandbox
+  // run at bay 2 would spend the rest of the run earning salvage.
+  check("the flag survives advanceRun",
+    advanceRun(sRun, 900, 800, 12, 40).sandbox === true);
+
+  // The bay the BRIEFING quotes and the bay the launch builds are the same
+  // call, so they cannot describe two different bays.
+  check("the briefing cannot drift from the launch",
+    levelForRun(sandboxRunFor(sbx)).targetScore === levelForRun(sRun).targetScore);
+  check("pre-ratcheting actually changes the bay",
+    levelForRun(sandboxRunFor({ ...sbx, ratchets: {} })).timeLimitSec
+      !== levelForRun(sandboxRunFor({ ...sbx, ratchets: { time: 2 } })).timeLimitSec);
+
+  // AXES. Only what the Mark's own ladder deals, wrapping at the cap.
+  check("axes are the Mark's own ladder", sandboxAxes(1).every((h) => h.mark <= 1));
+  check("a higher Mark opens more", sandboxAxes(9).length > sandboxAxes(1).length);
+  let sr: Ratchets = {};
+  for (let i = 0; i < SANDBOX_RATCHET_MAX; i++) sr = bumpSandboxRatchet(sr, "wind");
+  check("an axis notches up to the cap", sr.wind === SANDBOX_RATCHET_MAX);
+  check("and wraps back to nothing", bumpSandboxRatchet(sr, "wind").wind === undefined);
+  check("the notch total is the sum", ratchetTotal({ wind: 2, sweeper: 1 }) === 3);
+
+  // THE BOARDS. Two ids, and they must not be the same one.
+  check("Tier S has a board of its own", BOARD_SANDBOX !== BOARD_DEEP_RUN);
+  check("the ladder keeps board 1", BOARD_DEEP_RUN === 1);
+
+  // THE SCREEN. It ships, so every control it draws has to be one main.ts
+  // routes — and the ones that must never ship have to be absent.
+  const sScreen = sandboxScreen({ s: sbx, meta: newMeta(), best: 0 });
+  check("the screen offers every mode",
+    ["bay", "pattern", "lines"].every((m) => sScreen.includes(`data-mode="${m}"`)));
+  check("the screen offers every axis the Mark deals",
+    sandboxAxes(9).every((h) => sScreen.includes(`data-axis="${h.id}"`)));
+  check("the screen can launch", sScreen.includes('data-action="sbx-launch"'));
+  check("the shipping screen carries no save-editing controls",
+    !sScreen.includes("sbx-wipe") && !sScreen.includes("sbx-grant-mark"));
+  check("the developer render does",
+    sandboxScreen({ s: sbx, meta: newMeta(), best: 0, cheats: cheatRowHTML(newMeta()) })
+      .includes("sbx-wipe"));
+  // The cheats themselves, checked here because nothing else can: they are
+  // eliminated from every build the app ships, so the only place their effect
+  // is ever observed is a test that imports them directly.
+  check("a cheat rewrites the save", applyCheat("sbx-grant-salvage", newMeta(), 1)!.salvage === 1000);
+  check("a non-cheat is not handled", applyCheat("sbx-launch", newMeta(), 1) === null);
+
+  // The end modal has to say what the run did NOT do, or a player will assume
+  // it did.
+  const sEnd = S.endModal({
+    won: false, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
+    name: "ACE", rows: "", reason: "broke", bayNum: 3, bayName: "Bay",
+    runComplete: false, tierCompleted: null, tierSalvage: 0,
+    progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 20,
+    salvagedFunds: 0, tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+  });
+  check("a Tier S end says nothing was banked", sEnd.includes("No salvage"));
+  check("a Tier S end names its board", sEnd.includes("Tier S board"));
+  check("a Tier S end does not draw the tier-completion row",
+    !sEnd.includes("salvage-row--tier-done"));
+
+  // THE CONTRACT HALF of the mode, and the gate it needs that the Deep Run
+  // half does not. recordContractClear asks two questions — is this id
+  // unclaimed, and does its tier match the player's — and a Tier S Contract
+  // answers both "yes" while being rolled from a seed the player picked and
+  // re-rolled until it was easy. So main.ts refuses the award path outright
+  // for a sandbox Contract; this pins the property that makes that necessary.
+  {
+    const meta = { ...newMeta(), mark: 2 };               // playing Tier 3
+    const c = generateContract(20_260_824, markUnlocked(meta), PATTERN_SLOT, "plain");
+    const banked = recordContractClear(meta, c);
+    check("an at-tier Contract clear banks salvage whatever seed it came from",
+      banked.salvage > 0);
+    // ...which is exactly why the sandbox may never reach that call: the same
+    // clear, from Tier S, must leave the save untouched.
+    check("...so Tier S must not reach that path at all",
+      banked.meta.salvage !== meta.salvage);
+  }
+  // The Contract end screen has to say the same thing the Deep Run end does,
+  // and point back at the bench rather than at a daily board it never came
+  // from.
+  {
+    const cEnd = S.contractEndModal({
+      won: true, name: "Practice", kind: "pattern", lines: 4, goal: 4,
+      launchesUsed: 8, launches: 8, queue: ["I", "O"] as PieceType[], cubesWasted: 0,
+      award: null, progress: tierProgressFor(newMeta()), salvageTotal: 0, sandbox: true,
+    });
+    check("a Tier S Contract end banks nothing", cEnd.includes("banks no"));
+    check("a Tier S Contract end goes back to the bench",
+      cEnd.includes('data-action="sandbox"') && !cEnd.includes('data-action="contracts"'));
+  }
+
+  // The leaderboard only grows a tab strip once there is a second board.
+  check("one board, no tabs", !S.leaderboardScreen("").includes("lb-tab"));
+  check("two boards, two tabs",
+    S.leaderboardScreen("", { board: BOARD_SANDBOX, sandbox: true }).includes("lb-tab"));
 }
 
 console.log(

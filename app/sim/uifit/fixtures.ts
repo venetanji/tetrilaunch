@@ -13,7 +13,10 @@
  * that overflows.
  */
 import * as S from "../../src/ui/screens";
-import type { ScoreEntry } from "../../src/lib/api";
+import { sandboxScreen } from "../../src/ui/sandbox-screen";
+import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
+import { newSandbox, type SandboxState } from "../../src/game/sandbox";
+import { BOARD_DEEP_RUN, BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
 import { LEVEL_1 } from "../../src/game/level";
@@ -36,7 +39,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
-  leftHandRail: false, stickAssist: true,
+  leftHandRail: false, stickAssist: true, devMode: false,
 };
 
 const STORE = { available: true, unlimited: false };
@@ -197,6 +200,28 @@ const HUD_BASE = {
 
 const PROGRESS = tierProgressFor(midMeta());
 
+/** Tier S set to the WIDEST bay it can describe: the capstone Mark (every
+ *  hazard axis open, so the axis row is at its longest), the last bay, a maxed
+ *  rig, the material parade, and four axes already notched. Every one of those
+ *  is the state that makes some row on that screen as long as it can get. */
+const SANDBOX_BAY: SandboxState = {
+  ...newSandbox(),
+  tier: MARK_COUNT,
+  target: { kind: "bay", bay: RUN_LEVELS },
+  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3 },
+  material: "all",
+  ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,
+};
+
+/** The Contract half, at the tier where the variant row is longest: tier 8
+ *  offers six unlocked variants and greys "Guided · t9", which is the widest
+ *  that row gets (a locked chip carries its rung as well as its name). */
+const SANDBOX_CONTRACT: SandboxState = {
+  ...newSandbox(),
+  tier: 8,
+  target: { kind: "pattern", variant: "blind" },
+};
+
 /** The tower with the whole ladder beaten and the car on the God floor — the
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
  *  save, so this is the only fixture that reaches it. */
@@ -205,6 +230,13 @@ const TOWER_TOP: S.TowerState = {
   selected: S.GOD_TIER,
   god: true,
 };
+
+/** The same tower with Tier S open — the tallest the column ever gets, because
+ *  the basement plate is drawn UNDER the base slab and raises the tower's own
+ *  height cap by its height rather than taking it out of the shaft (see
+ *  app.css's .tower--sub). Worth its own fixture precisely because it is the
+ *  one change to this column that cannot be caught by measuring the shaft. */
+const TOWER_SANDBOX: S.TowerState = { ...TOWER_TOP, sandbox: true };
 
 /** The menu's first-session inputs (canvas A2/A3), mid-progression: the one
  *  NEXT STEP badge on Workshop (salvage covers an install) and the live
@@ -296,9 +328,17 @@ export const SCREENS: Record<string, () => string> = {
   // measures the panel at Tier 1 — where the belt is empty and the bonds read
   // "×1.0" — and would never have caught the top of the ladder overflowing.
   "menu-tower-top": () =>
-    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, TOWER_TOP),
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP),
   "menu-tower-top-live": () =>
-    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, TOWER_TOP)),
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_TOP)),
+  // Tier S open: the tower grows a basement plate under its slab, so the menu's
+  // centre column is taller than any other fixture makes it. Paired live and
+  // not, like every other menu state, because the brand column's height is what
+  // the row is measured against.
+  "menu-tier-s": () =>
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX),
+  "menu-tier-s-live": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX)),
   // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
   // the upsell chip — the tallest menu the app can produce, which is exactly
   // why it is its own fixture.
@@ -330,6 +370,14 @@ export const SCREENS: Record<string, () => string> = {
       rebinding: null,
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
+  // The two-board state: the tab strip only exists once Tier S is open, and it
+  // takes a row off the board's own height, so both boards get a fixture.
+  "leaderboard-tabs": () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
+      { board: BOARD_DEEP_RUN, sandbox: true }),
+  "leaderboard-sandbox": () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
+      { board: BOARD_SANDBOX, sandbox: true }),
 
   // TWO fixtures, because the screen has two shapes and only one of them was
   // ever measured. `workshop` is the early save: nothing owned, so there are no
@@ -559,6 +607,27 @@ export const SCREENS: Record<string, () => string> = {
 
   "end-won": () => endModal(true),
   "end-lost": () => endModal(false),
+  // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
+  // no Workshop invitation) and the action row grows a third button, which is
+  // the widest that row ever gets.
+  "end-sandbox": () => endModal(false, true),
+
+  // TIER S itself, in all three of the shapes it takes. The mode ships, so
+  // these are shipping screens and are held to the same fit budget as every
+  // other one — which is the whole reason they are here and the old developer
+  // tool never was.
+  //
+  // The rig/axis columns are at their WORST CASE deliberately: Mark 10 opens
+  // every axis hazards.ts has, which is the longest that column can be, and
+  // the belt row carries all six materials plus both overrides at every Mark.
+  sandbox: () => sandboxScreen({ s: SANDBOX_BAY, meta: midMeta(), best: 98_760 }),
+  "sandbox-contract": () =>
+    sandboxScreen({ s: SANDBOX_CONTRACT, meta: midMeta(), best: 0 }),
+  // The developer build: one extra row, in a column that already scrolls.
+  "sandbox-dev": () =>
+    sandboxScreen({
+      s: SANDBOX_BAY, meta: midMeta(), best: 98_760, cheats: cheatRowHTML(midMeta()),
+    }),
 
   "contract-end": () =>
     S.contractEndModal({
@@ -577,11 +646,33 @@ export const SCREENS: Record<string, () => string> = {
       // The A10 target-price sentence is the salvage row's longest state.
       nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
+
+  // The Tier S variant of the same modal: the award row is replaced and the
+  // actions point back at the bench, so it is a different row count and a
+  // different widest string.
+  "contract-end-sandbox": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: null,
+      progress: PROGRESS,
+      salvageTotal: 1_700,
+      sandbox: true,
+    }),
 };
 
-function endModal(won: boolean): string {
+function endModal(won: boolean, sandbox = false): string {
   return S.endModal({
     won,
+    sandbox,
+    sandboxSetup: sandbox ? "Mark 10 · from bay 9 · 6 notches · parade belt" : undefined,
     score: 98_760,
     lines: 240,
     baysCleared: won ? 10 : 6,

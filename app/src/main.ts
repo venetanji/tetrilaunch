@@ -34,7 +34,7 @@ import {
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, MARK_COUNT, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
+  INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked, nextStep,
   recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
@@ -43,9 +43,11 @@ import {
   PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import { SANDBOX } from "./lib/sandbox";
+import { DEV_TAP_WINDOW_MS, TapStreak } from "./lib/devmode";
+import { applyCheat, cheatRowHTML } from "./lib/sandbox-cheats";
 import {
-  applySandboxMaterials, maxedTiers, newSandbox,
-  type SandboxMaterial, type SandboxState,
+  applySandboxMaterials, bumpSandboxRatchet, maxedTiers, newSandbox, ratchetTotal,
+  sandboxAxes, sandboxRunFor, type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
 import { render } from "./game/render";
@@ -71,7 +73,10 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
-import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
+import {
+  BOARD_DEEP_RUN, BOARD_SANDBOX, fetchLeaderboard, submitScore,
+  type BoardId, type ScoreEntry,
+} from "./lib/api";
 import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
@@ -210,6 +215,14 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
+   *  (lib/devmode.ts). Held on the app rather than in the DOM because the
+   *  menu's markup is rewritten wholesale by renderOverlay, and a counter
+   *  that reset every time the store entitlement resolved would be a gesture
+   *  nobody could complete. */
+  private beaconTaps = new TapStreak();
+  /** Clears the beacon's lit state when a streak lapses. */
+  private beaconTimer = 0;
   private input: InputController;
   private settings: Settings = loadSettings();
 
@@ -261,6 +274,12 @@ class App {
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
    *  a loss costs nothing (see onGameStatus). */
   private contract: Contract | null = null;
+  /** The Contract in hand was launched from Tier S rather than from the daily
+   *  board. Contracts have no RunState to carry a flag on (startContract
+   *  clears `run` outright — see the note there), so the one thing that has to
+   *  travel with them does it here: whether the belt override applies, and
+   *  which board the attempt belongs to. Cleared by every other entry point. */
+  private sandboxContract = false;
   /** How congested the bay is, 0 (clean) to 1 (worst tier), as reported by
    *  game.ts's onCongestion. Held here rather than only pushed to the mixer
    *  because the cue has to be MUTED off-screen and restored on the way back:
@@ -316,7 +335,13 @@ class App {
    *  which gates the arrival animation (see syncHud's queue block). */
   private lastNext: string | null = null;
   private lastNextId: string | null = null;
-  private cachedBoard: ScoreEntry[] = [];
+  /** Last fetched rows PER BOARD (lib/api.ts's BoardId). Two boards means two
+   *  caches: switching tabs on the leaderboard must not blank the rows the
+   *  other tab already had while a fetch is in flight, and the run-end modal
+   *  reads whichever board the run it just ended belongs to. */
+  private boards: Record<BoardId, ScoreEntry[]> = { [BOARD_DEEP_RUN]: [], [BOARD_SANDBOX]: [] };
+  /** Which board the standalone Leaderboard screen is showing. */
+  private lbBoard: BoardId = BOARD_DEEP_RUN;
   private submitted = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
@@ -847,7 +872,15 @@ class App {
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
     const god = this.meta.mark >= MARK_COUNT;
-    const state: S.TowerState = { unlocked, selected: unlocked, god };
+    const state: S.TowerState = {
+      unlocked, selected: unlocked, god,
+      // Tier S is a SETTING, not progress — it is drawn under the tower for
+      // anyone who has found the beacon and turned nothing else on. Read
+      // through sandboxOpen so a sandbox BUILD always shows the door: a
+      // developer should not have to perform a nine-tap gesture to reach the
+      // tool their build exists to carry.
+      sandbox: this.sandboxOpen(),
+    };
     if (this.pickedTier !== null && S.tierOpen(state, this.pickedTier)) {
       state.selected = this.pickedTier;
     } else {
@@ -867,6 +900,69 @@ class App {
     return t === S.GOD_TIER ? MARK_COUNT : t;
   }
 
+  /** Whether Tier S can be entered at all. The setting is the door; the build
+   *  flag is a second, independent way in that only exists where the cheats
+   *  do, so a developer never has to perform the gesture to reach the tool. */
+  private sandboxOpen(): boolean {
+    return this.settings.devMode || SANDBOX;
+  }
+
+  /** Which leaderboard the run currently in hand belongs to. Read off the RUN
+   *  (run.ts's RunState.sandbox), never off the current screen or the setting:
+   *  a player who closes Tier S in Settings mid-run must still have that run
+   *  filed where it was flown. */
+  private runBoard(): BoardId {
+    return this.run?.sandbox ? BOARD_SANDBOX : BOARD_DEEP_RUN;
+  }
+
+  /** One line naming what a Tier S run was set to — for the end modal, which
+   *  is otherwise the one screen in the mode that cannot say what was flown. */
+  private sandboxSetupLine(): string {
+    const s = this.sandbox;
+    const bay = s.target.kind === "bay" ? s.target.bay : 1;
+    const notches = ratchetTotal(s.ratchets);
+    return `Mark ${s.tier} · from bay ${bay}`
+      + (notches > 0 ? ` · ${notches} notch${notches === 1 ? "" : "es"}` : "")
+      + (s.material !== "mix" ? ` · ${s.material} belt` : "");
+  }
+
+  /**
+   * One tap on the tower's headhouse beacon (lib/devmode.ts).
+   *
+   * Patched in place, never through renderOverlay: the menu's markup is
+   * rewritten wholesale there, which would tear down the attract demo's canvas
+   * mid-gesture — and on the completing tap it is exactly what we DO want, so
+   * the two paths are separated rather than one being made to serve both.
+   *
+   * The lamp is the only feedback the gesture gets, and it gets it from the
+   * halfway mark on. Before that a tap does nothing visible, which is correct:
+   * someone who brushed the roof of the building should not be told there is
+   * a door in it.
+   */
+  private onBeaconTap(el: HTMLElement): void {
+    const r = this.beaconTaps.press(performance.now());
+    window.clearTimeout(this.beaconTimer);
+    if (r.complete) {
+      el.style.removeProperty("--beacon");
+      this.settings.devMode = !this.settings.devMode;
+      saveSettings(this.settings);
+      // The tower gains (or loses) a floor, so this one IS a re-render.
+      this.renderOverlay();
+      void successHaptic();
+      playUiConfirm();
+      return;
+    }
+    el.style.setProperty("--beacon", String(r.progress));
+    void tapHaptic();
+    // Pitch rises with the streak — the same "something is counting" the lamp
+    // says, for a thumb that is covering it.
+    playUiClick(1 + r.progress * 0.35);
+    this.beaconTimer = window.setTimeout(
+      () => el.style.removeProperty("--beacon"),
+      DEV_TAP_WINDOW_MS,
+    );
+  }
+
   /**
    * Ride the car to `tier`, or refuse.
    *
@@ -878,6 +974,14 @@ class App {
    */
   private pickTier(tier: number): void {
     const state = this.towerState();
+    // Tier S is a door, not a floor: the elevator is deactivated for it (see
+    // screens.ts's SANDBOX_TIER) and the tap opens the level-select screen
+    // instead of moving anything. Checked BEFORE the shaft lookup, because
+    // nothing about this branch involves the shaft.
+    if (tier === S.SANDBOX_TIER) {
+      if (this.sandboxOpen()) this.setState("sandbox");
+      return;
+    }
     const shaft = this.overlay.querySelector<HTMLElement>(".tower__shaft");
     if (!shaft) return;
     const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
@@ -964,18 +1068,30 @@ class App {
             install: this.nextInstall(),
             firstLaunch: !this.settings.seenTutorial,
           },
-          SANDBOX,
           this.towerState(),
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
-      // Guarded even here. Nothing can reach this state in a shippable build
-      // (see onClick's sandbox cases), but a render path that would draw the
-      // screen anyway is the kind of thing a later refactor turns back on by
-      // accident, and the whole point of the gate is that it holds without
-      // anyone having to remember it.
+      // Tier S. The MODE ships (lib/devmode.ts), so this is no longer gated on
+      // the build — it is gated on the door being open, and guarded here as
+      // well as at the two entry points for the same reason the tower's
+      // tierOpen is re-checked before newRun: a state reachable by a route
+      // nobody has thought of yet must still refuse to draw. The build flag
+      // now decides only whether the save-editing CHEATS are in the screen.
       case "sandbox":
-        this.overlay.innerHTML = SANDBOX ? sandboxScreen(this.sandbox, this.meta) : "";
+        this.overlay.innerHTML = this.sandboxOpen()
+          ? sandboxScreen({
+              s: this.sandbox,
+              meta: this.meta,
+              best: loadBest(BOARD_SANDBOX),
+              // THE fold. `SANDBOX` is inlined at build time, so a shippable
+              // bundle contains `""` here and Rollup drops cheatRowHTML,
+              // applyCheat, the marker and every cheat string with it. See
+              // lib/sandbox-cheats.ts for why this is a string rather than a
+              // flag the screen branches on.
+              cheats: SANDBOX ? cheatRowHTML(this.meta) : "",
+            })
+          : "";
         break;
       case "contracts":
         this.overlay.innerHTML = S.contractsScreen({
@@ -1018,6 +1134,7 @@ class App {
                     salvage: this.contractAward.salvage,
                   }
                 : null,
+              sandbox: this.sandboxContract,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               nextInstall: this.nextInstall(),
@@ -1040,7 +1157,8 @@ class App {
         break;
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
-          S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
+          S.leaderboardRowsHTML(S.fullBoard(this.boards[this.lbBoard] ?? [])),
+          { board: this.lbBoard, sandbox: this.settings.devMode },
         );
         break;
       case "playing":
@@ -1102,10 +1220,10 @@ class App {
               lines: this.run.linesTotal + g.linesTotal,
               baysCleared: this.run.levelIndex + (this.state === "won" ? 1 : 0),
               funds: g.score,
-              best: loadBest(),
+              best: loadBest(this.runBoard()),
               name: loadName(),
               rows: S.leaderboardRowsHTML(
-                S.endBoard(this.cachedBoard, loadName() || undefined),
+                S.endBoard(this.boards[this.runBoard()] ?? [], loadName() || undefined),
                 loadName() || undefined,
               ),
               reason: g.lossReason,
@@ -1118,6 +1236,10 @@ class App {
               tierCompleted: this.lastTier?.completedTier ?? null,
               tierSalvage: this.lastTier?.salvage ?? 0,
               progress: tierProgressFor(this.meta),
+              // A Tier S run has no tier state to report, so the modal swaps
+              // that whole row rather than printing zeroes into it.
+              sandbox: this.run.sandbox,
+              sandboxSetup: this.run.sandbox ? this.sandboxSetupLine() : undefined,
               salvageTotal: this.meta.salvage,
               scrapEarned: this.run.scrapEarned + g.scrapEarned,
               // Banked bays plus the one still on screen. The current bay has
@@ -1310,9 +1432,15 @@ class App {
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
     const cfg = levelForRun(this.run);
-    // Sandbox material override, and nothing in a shipped build: SANDBOX folds
-    // to false there and the call goes with it (lib/sandbox.ts).
-    if (SANDBOX) applySandboxMaterials(cfg, this.sandbox.material);
+    // Tier S's belt override, and ONLY on a Tier S run.
+    //
+    // This used to be gated on SANDBOX — correct while the whole mode was a
+    // developer build, and a silent no-op the moment it shipped: the screen
+    // would have offered a Belt control that did nothing in every build a
+    // player can install. It is gated on the RUN instead, which is also the
+    // stricter rule: a ladder run cannot pick up a parade belt left selected
+    // on the sandbox screen, however the mode was opened.
+    if (this.run.sandbox) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
@@ -1675,11 +1803,16 @@ class App {
    * guarding every one of those with "unless it's a contract". Clearing
    * this.run is what keeps the two modes from bleeding into each other.
    */
-  private startContract(c: Contract): void {
+  private startContract(c: Contract, fromSandbox = false): void {
     this.game?.destroy();
     this.congestion = 0;
     this.run = null;
     this.contract = c;
+    // Defaults to false, so every existing caller (the daily board, retry,
+    // next-contract) clears it by saying nothing — which is the right default
+    // for a flag whose failure mode is a real Contract being flown with a
+    // sandbox belt on it.
+    this.sandboxContract = fromSandbox;
     // Rolled here, once, because this is the start of an ATTEMPT — a retry is
     // a fresh roll (see contractBed), a pause is not.
     this.contractMusic = contractBed(c);
@@ -1689,8 +1822,10 @@ class App {
     // its steps (funds, target) don't exist here.
     this.tutorialStep = null;
     const cfg = levelForContract(c);
-    // As in startLevel: sandbox only, folded away everywhere else.
-    if (SANDBOX) applySandboxMaterials(cfg, this.sandbox.material);
+    // As in startLevel, and gated the same way: only a Contract launched FROM
+    // Tier S takes the belt override. The daily board's Contracts are the real
+    // thing and must ship what the generator dealt them.
+    if (this.sandboxContract) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
@@ -1742,6 +1877,24 @@ class App {
         lines: g.linesTotal, lostPieces: g.lostTotal, endScore: g.score,
       });
       telemetry.endRun(s === "won", 0);
+      if (s === "won" && this.sandboxContract) {
+        // TIER S: a practice Contract banks nothing, exactly as a Tier S Deep
+        // Run does (see finishRun). This branch is not an optimisation of the
+        // one below — it is the gate. A sandbox Contract is generated from an
+        // arbitrary seed at an arbitrary tier, and recordContractClear checks
+        // neither: it asks only whether the id is unclaimed and whether the
+        // tier matches, so a Contract rolled at the player's own tier and
+        // cleared here would have banked a real milestone's salvage, on a
+        // puzzle the daily board never dealt and the player could re-roll
+        // until it was easy.
+        void successHaptic();
+        this.contractAward = null;
+        this.contractBoardComplete = false;
+        this.nextContract = null;
+        this.showSettleNote(false);
+        this.setState("contract-end");
+        return;
+      }
       if (s === "won") {
         void successHaptic();
         // Log ONCE per Contract, ever — meta.claimedContracts is both the
@@ -1890,13 +2043,31 @@ class App {
   private finishRun(won: boolean): void {
     const g = this.game;
     if (!g || !this.run) return;
+    const score = this.finalScore(g, won);
+    // TIER S: the run is real, the score is real, and NONE of the bookkeeping
+    // happens. No recordRunEnd, so no salvage, no run count, no bestBay, no
+    // tier tick — a practice run flown at Mark 10 from bay 9 on a rig nobody
+    // paid for must not be able to move a single number the ladder reads. The
+    // best and the board it lands on are its own (lib/api.ts's BOARD_SANDBOX),
+    // which is what lets it keep a score at all.
+    //
+    // This is the ONE gate that makes the mode safe to ship, so it is the
+    // first thing in the function rather than a flag threaded through it.
+    if (this.run.sandbox) {
+      this.lastTier = null;
+      telemetry.endRun(won, 0);
+      saveBest(score, BOARD_SANDBOX);
+      void this.refreshBoard(BOARD_SANDBOX);
+      this.setState(won ? "won" : "lost");
+      return;
+    }
     const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
     saveMeta(this.meta);
-    saveBest(this.finalScore(g, won));
-    this.refreshBoard();
+    saveBest(score);
+    void this.refreshBoard();
     this.setState(won ? "won" : "lost");
   }
 
@@ -2332,16 +2503,24 @@ class App {
     // slice is chosen by state rather than inferred from `highlight`: the screen
     // lists everyone, the modal shows the top 5 plus the player's own row, which
     // is what keeps it inside a 360px landscape viewport without scrolling.
+    // Which board's rows: the screen shows the tab you are on, and every modal
+    // shows the board the run it is reporting was flown on (runBoard) — never
+    // the tab, which belongs to a screen that is not up.
+    const board = this.state === "leaderboard" ? this.lbBoard : this.runBoard();
+    const cached = this.boards[board] ?? [];
     const rows = this.state === "leaderboard"
-      ? S.fullBoard(this.cachedBoard)
-      : S.endBoard(this.cachedBoard, highlight);
+      ? S.fullBoard(cached)
+      : S.endBoard(cached, highlight);
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
   }
 
-  private async refreshBoard(): Promise<void> {
-    // The D1 board is the single RUN board for now — level is always 1
-    // regardless of which bay the run ended on.
-    this.cachedBoard = await fetchLeaderboard(1, 10);
+  /** Fetch one board and repaint whatever is showing it. Defaults to the board
+   *  the current run belongs to, which is the Deep Run board outside a run. */
+  private async refreshBoard(board: BoardId = this.runBoard()): Promise<void> {
+    this.boards[board] = await fetchLeaderboard(board, 10);
+    // A fetch that landed after the player moved on must not repaint over a
+    // screen showing the other board.
+    if (this.state === "leaderboard" && board !== this.lbBoard) return;
     // won/lost highlight the player's own just-played name; the standalone
     // leaderboard screen doesn't (matches renderOverlay's existing per-state
     // leaderboardRowsHTML args).
@@ -2754,7 +2933,7 @@ class App {
     }
     // Keyboard shortcut into the sandbox from anywhere, for iterating on it
     // under `vite dev` without walking back to the menu each time.
-    if (SANDBOX && e.key === "~") this.setState("sandbox");
+    if (this.sandboxOpen() && e.key === "~") this.setState("sandbox");
   };
 
   private onKeydown = (e: KeyboardEvent): void => {
@@ -2810,6 +2989,9 @@ class App {
         if (Number.isFinite(tier)) this.pickTier(tier);
         break;
       }
+      // The Tier S gesture. Never re-renders on a partial streak — see
+      // onBeaconTap.
+      case "tower-beacon": this.onBeaconTap(el); break;
       case "howto": this.setState("howto"); break;
       // How to Play's "Guided Tutorial": replay the interactive coach on a
       // fresh run, even for a player who already finished or skipped it.
@@ -2847,7 +3029,23 @@ class App {
         this.rebinding = null;
         this.renderOverlay();
         break;
-      case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
+      case "leaderboard":
+        this.lbBoard = BOARD_DEEP_RUN;
+        void this.refreshBoard();
+        this.setState("leaderboard");
+        break;
+      // A leaderboard tab. Re-renders from the cache immediately and refreshes
+      // behind it, so switching boards is instant on a board already fetched
+      // and never shows the OTHER board's rows while the fetch is in flight.
+      case "lb-board": {
+        const board = Number(el.getAttribute("data-board"));
+        if (board === BOARD_DEEP_RUN || board === BOARD_SANDBOX) {
+          this.lbBoard = board;
+          this.renderOverlay();
+          void this.refreshBoard();
+        }
+        break;
+      }
       case "workshop": this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
@@ -2857,7 +3055,9 @@ class App {
         break;
       }
       case "contract-retry":
-        if (this.contract) this.startContract(this.contract);
+        // Retrying keeps whichever mode the attempt was launched in: a Tier S
+        // Contract retried out of the sandbox is still a Tier S Contract.
+        if (this.contract) this.startContract(this.contract, this.sandboxContract);
         break;
       case "contract-next":
         if (this.nextContract) this.startContract(this.nextContract);
@@ -2867,7 +3067,14 @@ class App {
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
-      case "restart": this.startGame(); break;
+      // "Play Again" / "Fly it again". A Tier S run re-flies the SAME
+      // configuration rather than dropping into a ladder run — the whole
+      // reason to be in the mode is that the bay you just lost is one tap
+      // away, and startGame() would silently hand back a different one.
+      case "restart":
+        if (this.run?.sandbox) this.launchSandbox();
+        else this.startGame();
+        break;
       case "restart-bay": this.restartBay(); break;
       // Retry from the tutorial's failure card. startLevel rebuilds this bay
       // from the run (which never advanced, so its seed, funds and Bond
@@ -2901,31 +3108,47 @@ class App {
       case "refit-done": this.onRefitDone(); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
-      // Only reachable in a build that rendered the button (see menuScreen),
-      // and guarded again here so the state is unreachable even if some other
-      // path ever emits this action.
-      case "sandbox": if (SANDBOX) this.setState("sandbox"); break;
+      // Tier S, from the tower's basement door, the run-end modal, the
+      // leaderboard's own tab, or the sandbox build's menu chip. Gated on the
+      // door being open rather than on the build, and re-checked here because
+      // four callers is four chances for one of them to be wrong.
+      case "sandbox": if (this.sandboxOpen()) this.setState("sandbox"); break;
       default:
-        // Every sandbox action funnels through one guarded call rather than a
-        // case each, so there is exactly ONE place a shippable build has to
-        // fold away — and if the fold ever stops happening, this returns before
-        // touching anything rather than half-executing a cheat.
-        if (SANDBOX && action.startsWith("sbx-")) this.onSandboxAction(action, el);
+        // Every Tier S action funnels through one guarded call rather than a
+        // case each, so there is exactly ONE place the door is checked — and
+        // the save-editing half is checked AGAIN inside, against the build
+        // flag, because those never ship however the door was opened.
+        if (action.startsWith("sbx-") && this.sandboxOpen()) {
+          this.onSandboxAction(action, el);
+        }
         break;
     }
   };
 
   /**
-   * The sandbox's whole control surface. Only reached behind SANDBOX.
+   * Tier S's whole control surface. Only reached with the door open.
    *
-   * Every branch either edits `this.sandbox` and re-renders, or edits the SAVE
-   * and re-renders. The save-editing ones are deliberately blunt and
-   * deliberately explicit — a developer who taps "Mark := tier" has said what
-   * they want to happen to their own save, and a sandbox that tried to be
-   * careful about it would just be a slower way to reach the same state.
+   * TWO HALVES, and the split is the point. Everything above `sbx-grant-mark`
+   * configures the MODE — what to fly and how hard — and ships. Everything
+   * from there down rewrites the SAVE, and is checked a second time against
+   * the build flag, because a player who found a nine-tap gesture has been
+   * given a practice mode and not a cheat menu. The save-editing ones stay
+   * deliberately blunt: a developer who taps "Mark := tier" has said what they
+   * want to happen to their own save.
    */
   private onSandboxAction(action: string, el: HTMLElement): void {
     switch (action) {
+      // The mode selector. Keeps the tier and the seed — changing what you are
+      // flying should not lose where you were flying it.
+      case "sbx-mode": {
+        const mode = el.getAttribute("data-mode") ?? "bay";
+        this.sandbox.target = mode === "bay"
+          ? { kind: "bay", bay: 1 }
+          : mode === "lines"
+            ? { kind: "lines" }
+            : { kind: "pattern", variant: "plain" };
+        break;
+      }
       case "sbx-tier": {
         this.sandbox.tier = Number(el.getAttribute("data-tier") ?? "1");
         // Selecting a tier below the current variant's rung would leave the
@@ -2936,8 +3159,28 @@ class App {
         if (t.kind === "pattern" && variantSpec(t.variant).tier > this.sandbox.tier) {
           this.sandbox.target = { kind: "pattern", variant: "plain" };
         }
+        // Same rule one level up: an axis only this Mark's ladder deals has to
+        // go when the Mark does, or the bay would be flown with a notch the
+        // screen has stopped offering and can no longer show.
+        const open = new Set(sandboxAxes(this.sandbox.tier).map((h) => h.id));
+        for (const id of Object.keys(this.sandbox.ratchets) as HazardId[]) {
+          if (!open.has(id)) delete this.sandbox.ratchets[id];
+        }
         break;
       }
+      // One notch on one axis, wrapping at SANDBOX_RATCHET_MAX. Deep Run only:
+      // a Contract never reads run.ratchets (contracts.ts builds its bay from
+      // its own config), so offering them there would be a control that
+      // silently does nothing.
+      case "sbx-axis": {
+        if (this.sandbox.target.kind !== "bay") break;
+        const id = (el.getAttribute("data-axis") ?? "") as HazardId;
+        if (sandboxAxes(this.sandbox.tier).some((h) => h.id === id)) {
+          this.sandbox.ratchets = bumpSandboxRatchet(this.sandbox.ratchets, id);
+        }
+        break;
+      }
+      case "sbx-axis-clear": this.sandbox.ratchets = {}; break;
       case "sbx-variant":
         this.sandbox.target = {
           kind: "pattern",
@@ -2973,31 +3216,22 @@ class App {
         // so the seeded generators keep their uint32 arithmetic.
         this.sandbox.seed = (this.sandbox.seed + 1) % 1_000_000_007;
         break;
-      case "sbx-grant-mark":
-        this.meta = { ...this.meta, mark: Math.max(0, this.sandbox.tier - 1) };
-        saveMeta(this.meta);
-        break;
-      case "sbx-grant-salvage":
-        this.meta = { ...this.meta, salvage: this.meta.salvage + 1000 };
-        saveMeta(this.meta);
-        break;
-      case "sbx-unlock-all":
-        this.meta = {
-          ...this.meta,
-          unlocks: UNLOCKS.map((u) => u.id),
-          loadout: maxedTiers(),
-        };
-        saveMeta(this.meta);
-        break;
-      case "sbx-wipe":
-        this.meta = newMeta();
-        saveMeta(this.meta);
-        break;
       case "sbx-launch":
         this.launchSandbox();
         return; // startContract/startLevel render for us
-      default:
-        return;
+      default: {
+        // ---- Save editing. Not in any shippable bundle. -------------------
+        //
+        // Reached ONLY through `SANDBOX &&`, which is what lets Rollup drop
+        // the branch, the call, the import and every cheat string with it —
+        // a runtime guard inside this switch would have left them all in
+        // dist/. See lib/sandbox-cheats.ts for the whole argument.
+        const cheated = SANDBOX ? applyCheat(action, this.meta, this.sandbox.tier) : null;
+        if (!cheated) return;
+        this.meta = cheated;
+        saveMeta(this.meta);
+        break;
+      }
     }
     this.renderOverlay();
   }
@@ -3013,18 +3247,18 @@ class App {
   private launchSandbox(): void {
     const t = this.sandbox.target;
     if (t.kind === "bay") {
-      // A real run, fast-forwarded to the chosen bay. levelIndex is the only
-      // thing moved: hazards stay un-ratcheted because the draft did not
-      // happen, and carry stays 0 because no earlier bay was played. Both are
-      // the honest state for "bay 7, cold" — which is the bay worth testing.
+      // A real run, started at the chosen bay, on the chosen rig, with the
+      // chosen axes already notched on. Built by game/sandbox.ts's
+      // sandboxRunFor — the SAME call the briefing panel previews through, so
+      // what the screen quoted and what launches cannot be two different bays.
+      //
+      // carry stays 0 because no earlier bay was played: "bay 7, cold" is the
+      // honest state, and a fabricated bankroll would make it a different bay.
       this.game?.destroy();
       this.contract = null;
       this.submitted = false;
       this.lastTier = null;
-      this.run = {
-        ...newRun(Date.now() >>> 0, this.meta.unlocks, 0, this.sandbox.tiers, this.sandbox.tier),
-        levelIndex: Math.max(0, Math.min(RUN_LEVELS - 1, t.bay - 1)),
-      };
+      this.run = sandboxRunFor(this.sandbox, this.meta.unlocks);
       telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
       this.startLevel();
       return;
@@ -3033,6 +3267,7 @@ class App {
       t.kind === "pattern"
         ? generateContract(this.sandbox.seed, this.sandbox.tier, PATTERN_SLOT, t.variant)
         : generateContract(this.sandbox.seed, this.sandbox.tier, 0),
+      true,
     );
   }
 
@@ -3278,8 +3513,12 @@ class App {
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), 1, lines);
-    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
+    // The board the RUN was flown on. A Tier S score never touches the Deep
+    // Run board — see lib/api.ts's board note for why that is the one thing
+    // this call must not get wrong.
+    const board = this.runBoard();
+    const res = await submitScore(name, this.finalScore(g, this.state === "won"), board, lines);
+    this.boards[board] = res?.scores ?? (await fetchLeaderboard(board, 10));
     this.renderBoardRows(name);
     void successHaptic();
   }

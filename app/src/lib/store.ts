@@ -1,4 +1,5 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
+import { BOARD_DEEP_RUN, BOARD_SANDBOX, type BoardId } from "./api";
 import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
 import { newTiers, type UpgradeTiers } from "../game/upgrades";
 
@@ -21,6 +22,15 @@ export interface Settings {
   /** Gamepad stick-aiming assist: the left stick's aim is smoothed through a
    *  short lerp so analogue jitter doesn't wobble the arc (gamepad.ts). */
   stickAssist: boolean;
+  /** Tier S is open — the sandbox floor is drawn under the tower and the mode
+   *  can be entered (see lib/devmode.ts for the gesture that flips this, and
+   *  for why a MODE is a setting while the developer CHEATS stay a build flag).
+   *
+   *  Persisted, unlike everything the sandbox screen itself holds: finding the
+   *  gesture is the discovery, and making a player re-find it on every launch
+   *  would turn a hidden door into a chore. Off by default, so a save written
+   *  before Tier S existed opens exactly as it did. */
+  devMode: boolean;
 }
 
 const SETTINGS_KEY = "tetrilaunch.settings";
@@ -30,7 +40,7 @@ const META_KEY = "tetrilaunch.meta";
 
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
-  leftHandRail: false, stickAssist: true,
+  leftHandRail: false, stickAssist: true, devMode: false,
 };
 
 export function loadSettings(): Settings {
@@ -60,11 +70,31 @@ export function saveName(name: string): void {
   }
 }
 
-export function loadBest(): number {
-  return Number(localStorage.getItem(BEST_KEY) || 0);
+/**
+ * Personal best, PER BOARD.
+ *
+ * The Deep Run best keeps the original key untouched, so nobody's number moves
+ * when this build lands. Tier S gets its own, for the same reason it gets its
+ * own leaderboard: a sandbox run can be flown at Mark 10 with a maxed rig from
+ * bay 9, and one such score would permanently outrank every honest run in the
+ * one figure the menu prints as "Best".
+ */
+function bestKey(board: BoardId): string {
+  return board === BOARD_SANDBOX ? `${BEST_KEY}.sandbox` : BEST_KEY;
 }
-export function saveBest(score: number): void {
-  if (score > loadBest()) localStorage.setItem(BEST_KEY, String(score));
+
+export function loadBest(board: BoardId = BOARD_DEEP_RUN): number {
+  const n = Number(localStorage.getItem(bestKey(board)) || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+export function saveBest(score: number, board: BoardId = BOARD_DEEP_RUN): void {
+  if (score > loadBest(board)) {
+    try {
+      localStorage.setItem(bestKey(board), String(score));
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /** Lifetime bays STARTED, any mode (canvas D3): once it passes three, the

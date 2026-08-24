@@ -577,9 +577,20 @@ body.crt-off #app::after { display: none; }
      spare — both tablets and the iPad Pro — the tower therefore clears it
      outright. A 360px-tall phone gives the shaft 313px, where eleven floors
      cannot each be 44px by arithmetic, and they come out at 26px; see the
-     entries this leaves in sim/uifit/baseline.json. */
+     entries this leaves in sim/uifit/baseline.json.
+
+     The cap is RAISED by exactly the basement's own height when Tier S is
+     drawn (see .tower--sub), rather than the basement taking its height out of
+     the shaft. Letting it come out of the shaft would have paid for a floor
+     nobody climbs with 2.6px off every floor that is climbed — which is the
+     whole 44px argument above, undone by an optional extra. On a viewport
+     where `100%` already wins, the basement does take its space from the
+     shaft, exactly as an eleventh floor's worth of anything would: those are
+     the phones the tower is already baselined short on. */
+  --tower-sub-h: 0px;
+  --tower-sub-gap: 0px;
   align-self: center;
-  height: min(100%, 520px);
+  height: min(100%, calc(520px + var(--tower-sub-h) + var(--tower-sub-gap)));
   display: flex; flex-direction: column; align-items: stretch;
 }
 .tower__shaft {
@@ -601,6 +612,17 @@ body.crt-off #app::after { display: none; }
   display: flex; justify-content: center; align-items: flex-end; gap: 3px;
   z-index: 3;
 }
+/* A <button> now (the Tier S gesture — see screens.ts's towerHeadHTML), so it
+   has to shed every default a button brings and keep the mast's own hit area
+   generous enough for a thumb that is aiming at a 5px lamp. The padding grows
+   the target UPWARD and outward, into the gap above the shaft, where there is
+   nothing to steal it from. */
+.tower__head {
+  padding: 6px 14px 0; margin: 0;
+  background: none; border: 0; color: inherit; font: inherit;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  top: -19px; height: 19px;
+}
 .tower__head i { width: 2px; background: var(--line-strong); }
 .tower__head i:first-child { height: 13px; }
 .tower__head i:last-child { height: 9px; }
@@ -609,6 +631,91 @@ body.crt-off #app::after { display: none; }
   animation: tower-lamp 1.4s steps(2, end) infinite;
 }
 @keyframes tower-lamp { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+/* THE STREAK, mid-gesture. main.ts writes --beacon (0..1) from the halfway tap
+   onward and clears it when the streak lapses, so an unlit beacon is the
+   resting state and the only state anyone who is not tapping ever sees.
+
+   The lamp swells and warms toward the accent rather than simply brightening:
+   brightness alone is what the idle blink already does, and a progress signal
+   that is the idle animation turned up is not a signal. The blink is suspended
+   while the streak is live for the same reason — two things cannot both own
+   the lamp. */
+.tower__head[style*="--beacon"] b {
+  animation: none;
+  opacity: 1;
+  transform: scale(calc(1 + var(--beacon, 0) * 0.9));
+  background: color-mix(in srgb, var(--accent) calc(var(--beacon, 0) * 100%), var(--warn));
+  box-shadow: 0 0 calc(2px + var(--beacon, 0) * 10px)
+    color-mix(in srgb, var(--accent) calc(var(--beacon, 0) * 100%), var(--warn));
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+/* ---------------------------------------------------------------------------
+   TIER S — the basement door (screens.ts's sandboxFloorHTML).
+
+   Under the slab, not in the shaft, and drawn so that is unmistakable: it is
+   the only part of the building with a hazard stripe on it, it has no windows
+   (a floor nobody lives on), and the car's lane does not reach it. See the
+   note on SANDBOX_TIER for why it is outside the shaft rather than a twelfth
+   floor in it — the short version is that the elevator does not serve it and
+   eleven floors is what the tap-target arithmetic was sized for.
+   ------------------------------------------------------------------------ */
+/* 44px — the tap floor — wherever the height exists, and it costs the shaft
+   nothing there because the tower's own cap is raised by exactly this amount
+   (see --tower-sub-h above).
+
+   On a LANDSCAPE PHONE the height does not exist, and the door has to give it
+   back. `min(100%, cap)` resolves against an indefinite row there, so the
+   tower is sized by its content — which means every pixel the door takes is a
+   pixel added to the menu's centre column, and the action rail beside it
+   answers by shrinking its own buttons from 44px to 23px. That is the whole
+   rail, six real buttons, paying for one basement door. So on short viewports
+   the door drops to the band the ladder's own floors already occupy there
+   (21-26px, baselined in sim/uifit/baseline.json): under the tap floor, in
+   the company of every other control in this tower, and the mode stays
+   reachable at full size from Settings. */
+.tower--sub { --tower-sub-h: 44px; --tower-sub-gap: 3px; }
+@media (max-height: 460px) {
+  .tower--sub { --tower-sub-h: 26px; }
+}
+.tower__sub {
+  flex: none; height: var(--tower-sub-h);
+  margin-top: var(--tower-sub-gap);
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 6px;
+  background: rgba(255, 176, 32, 0.09);
+  border: var(--bw) solid var(--warn);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-hard);
+  color: var(--warn);
+  font: inherit; cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.tower__sub:hover, .tower__sub:focus-visible { background: rgba(255, 176, 32, 0.2); }
+.tower__sub-n {
+  font-family: var(--font-pixel); font-size: 10px; line-height: 1;
+  width: 16px; text-align: center; flex: none;
+}
+.tower__sub-txt {
+  min-width: 0;
+  font-size: 11px; font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  /* Ellipsis, not a hard clip. On the narrowest tower (118px on a 640x360
+     phone) the word does not fit beside the plate and the stripe, and a word
+     sliced mid-letter reads as a rendering fault where "SANDB…" reads as a
+     label that ran out of room. The plate carries the identity either way. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The stripe fills whatever the label leaves, so it reads as a hazard band
+   across the door rather than as a fixed decoration that runs out. */
+.tower__sub-hz {
+  /* Shrinks to nothing before the label gives up a character: the stripe is
+     decoration and the word is the label. */
+  flex: 0 1 auto; width: 100%; min-width: 0; height: 8px; margin-left: auto;
+  background: repeating-linear-gradient(
+    -45deg, var(--warn) 0 3px, transparent 3px 6px);
+  opacity: 0.5;
+}
 /* The guide rail the car runs on. Purely drawing — but it is what makes the
    car read as riding rather than as a highlight sliding down a list. */
 .tower__rail {
@@ -711,6 +818,10 @@ body.crt-off #app::after { display: none; }
   .tower__car { transition: none; }
   .tower__head b, .tower__car span { animation: none; }
   .tower__floor.is-denied { animation: none; }
+  /* The beacon's swell STAYS — it is the gesture's only feedback, and a
+     progress indicator that does not move is not one. Only its transition
+     goes, so it steps rather than eases. */
+  .tower__head[style*="--beacon"] b { transition: none; }
 }
 
 /* The rail fills its column now that the row stretches. The three primary
@@ -5622,48 +5733,305 @@ button.panel { color: var(--text); }
 /* The refit yard is ONE COLUMN of cards at every width (the Workshop's shelf —
    see .refit__shelf); there is no column policy left for density to set. */
 
-/* ---------- Developer sandbox (ui/sandbox-screen.ts) ----------
-   Only ever rendered in a build that compiled lib/sandbox.ts's gate to true, so
-   these rules are dead weight in a store bundle — a few hundred bytes of CSS,
-   against a JS gate that has to fold for the screen to be reachable at all.
-   Kept here rather than inlined so the screen reads like every other one.
+/* ============================================================================
+   TIER S — the sandbox's level-select screen (ui/sandbox-screen.ts).
 
-   Deliberately plain. This is a tool: rows of chips, one line each, wrapping on
-   a phone, with the tap targets big enough to hit while holding the device in
-   one hand. Nothing here should compete with the game for attention. */
+   This block replaces the old developer-tool styling wholesale. That styling
+   was written on the argument that "every pixel spent making it pretty is a
+   pixel not spent on a row of buttons", which was right for a screen only a
+   developer could reach and is wrong for a mode with a floor in the tower and
+   a leaderboard of its own.
+
+   THREE COLUMNS, and they are the decision in order: what you are flying, how
+   hard you are making it, what that comes out as. The third is the only one
+   that stretches, because it is the only one whose content grows — the other
+   two are fixed sets of chips and a column that stretches around a fixed set
+   of chips is a column of empty space.
+
+   It collapses to two columns and then to one, and the ORDER of the collapse
+   is deliberate: the briefing goes full-width alongside the launch button
+   first (it is what you read before committing), and only at the narrowest
+   does the whole thing become one scrolling column.
+   ========================================================================== */
 .sbx {
-  display: flex; flex-direction: column; gap: 10px;
-  padding: var(--hud-pad); height: 100%; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  padding: var(--hud-pad);
+  height: 100%; min-height: 0;
 }
-.sbx__hdr { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.sbx-row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+
+/* ---- Header ------------------------------------------------------------ */
+.sbx__hdr {
+  display: flex; align-items: center; gap: var(--sp-4);
+  flex: none; flex-wrap: wrap;
+}
+.sbx__id { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
+/* The same plate the tower's basement door wears, at reading size. One
+   component, two placements: the door you came through and the room you are
+   standing in have to be recognisably the same thing. */
+.sbx__plate {
+  width: 34px; height: 34px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-pixel); font-size: 14px; line-height: 1;
+  color: var(--warn);
+  background: rgba(255, 176, 32, 0.12);
+  border: var(--bw) solid var(--warn);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-hard-sm);
+}
+.sbx__ttl { font-size: var(--fs-h2); line-height: 1.05; }
+/* The one sentence that says what the mode costs you, which is nothing. It
+   sits in the HEADER rather than over the launch button because it is a
+   standing fact about the screen, not a warning about the next action —
+   and a player who has to be reassured at the moment of committing has
+   already been made anxious by the screen. */
+.sbx__lede {
+  flex: 1 1 16rem; min-width: 0;
+  margin: 0; color: var(--text-muted);
+  font-size: var(--fs-sm); line-height: 1.35;
+}
+.sbx__hdr-end { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; flex: none; }
+.sbx__best { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.1; }
+.sbx__best span {
+  font-size: 9px; letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sbx__best b { font-family: var(--font-mono); font-size: 18px; color: var(--piece-o); }
+
+/* ---- Columns ----------------------------------------------------------- */
+.sbx__cols {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; gap: var(--sp-3);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+.sbx-col {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  min-height: 0; min-width: 0;
+  padding: var(--sp-3);
+  background: var(--surface); border: var(--bw) solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-hard);
+  overflow-y: auto;
+}
+.sbx-col__ttl {
+  flex: none; margin: 0;
+  font-family: var(--font-pixel); font-size: 9px; line-height: 1;
+  letter-spacing: 0.06em; color: var(--text-muted); text-transform: uppercase;
+}
+/* The briefing column is the one that must never scroll away from its launch
+   button: the button is pinned to the bottom and the brief above it takes what
+   is left. */
+.sbx-col--brief { overflow: hidden; }
+.sbx__launch { flex: none; margin-top: auto; }
+
+/* ---- Rows and chips ---------------------------------------------------- */
+.sbx-row { display: flex; flex-direction: column; gap: var(--sp-1); flex: none; }
 .sbx-row__lbl {
-  flex: 0 0 5.5rem; color: var(--text-dim);
-  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: 0.08em;
+  display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  font-size: 11px; font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  color: var(--text-dim);
 }
-.sbx-row__opts { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 12rem; }
+/* The hint after the label. Lower-case and un-tracked on purpose: it is a
+   sentence fragment explaining the row, and setting it like the label would
+   make the screen read as fourteen headings. */
+.sbx-row__lbl span {
+  font-size: 11px; font-weight: var(--fw-regular);
+  letter-spacing: 0; text-transform: none; color: var(--text-muted);
+}
+.sbx-row__opts { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+/* The two LONG rows — the belt's eight cargo names and the capstone Mark's ten
+   difficulty axes — pack into a grid instead of wrapping as free-width chips.
+   Free-width wrapping is right for a row of digits and wrong for a row of
+   two-word names: in the 200px column a landscape phone gives this pane, every
+   named chip claimed a line of its own and the pane grew to 767px of scroll,
+   four screenfuls of a screen whose whole point is comparing its own settings.
+   A two-up grid wraps the NAMES instead of the row and the same ten axes come
+   in at a third of the height. */
+.sbx-row--pack .sbx-row__opts {
+  /* 76px, and the number is measured rather than chosen: the narrowest column
+     this screen produces is ~180px (three columns of a 640px phone, less
+     padding), and two tracks plus the gap have to fit inside it or auto-fill
+     drops to ONE and every named chip is back to a line of its own — which is
+     worse than not packing at all, because the name then wraps as well. */
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+}
+.sbx-row--pack .sbx-chip {
+  /* Column, like the rig chips: a wrapped two-word name and a pip row cannot
+     share a line inside 76px, and laying them out as one row pushed the pips
+     2px past the chip's own edge. Same stack, same reason, so they read as the
+     same control. */
+  flex-direction: column; gap: 3px;
+  min-width: 0; padding: 4px 5px;
+  font-size: 11px;
+  white-space: normal; line-height: 1.1; text-align: center;
+}
+
 .sbx-chip {
-  min-height: 34px; padding: 4px 10px;
-  background: rgba(255,255,255,0.04); color: var(--text);
-  border: 1px solid var(--line); border-radius: var(--r-sm);
-  font-size: var(--fs-sm); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  /* 44x44 — the tap floor, on every chip including the single-digit Marks.
+     This screen used to be a developer tool where 28px chips were a reasonable
+     trade for density; it is a shipping mode now, and a mode whose entire
+     control surface is chips cannot be the one screen that opts out of the
+     floor. What it costs is height, which is why the columns scroll (see the
+     .sbx-col note and sim/uifit/run.ts's ALLOWED_SCROLLERS). */
+  min-height: 44px; min-width: 44px; padding: 4px 9px;
+  background: var(--surface-2); color: var(--text);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-sm);
+  font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
+  line-height: 1; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-.sbx-chip--on { background: rgba(0,240,255,0.16); border-color: var(--accent); color: var(--accent); }
-.sbx-chip--warn { border-color: rgba(255,45,85,0.5); color: #ff2d55; }
-.sbx-chip:disabled { opacity: 0.35; cursor: default; }
-.sbx-preview {
-  border: 1px solid var(--line); border-radius: var(--r-sm);
-  padding: 10px; display: flex; flex-direction: column; gap: 4px;
-  background: rgba(255,255,255,0.03);
+.sbx-chip:hover:not(:disabled) { border-color: var(--line-strong); }
+.sbx-chip.is-on {
+  background: rgba(0, 240, 255, 0.16); border-color: var(--accent); color: var(--accent);
 }
-.sbx-preview__ttl { color: var(--accent); font-size: var(--fs-h3); }
-.sbx-preview__brief { color: var(--text); font-size: var(--fs-sm); }
-/* Monospace on the facts row: it is a queue and a column profile, and the whole
-   reason to read it is to compare it against the last one. */
-.sbx-preview__facts,
-.sbx-preview__id {
-  color: var(--text-dim); font-size: var(--fs-sm);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.sbx-chip:disabled { opacity: 0.32; cursor: default; }
+.sbx-chip--act {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.sbx-chip--warn { border-color: rgba(255, 45, 85, 0.55); color: var(--danger); }
+.sbx-chip--seed { font-family: var(--font-mono); }
+/* Rig and axis chips stack their pips under the name, so a whole column of
+   them can be read as a bar chart of how loaded the ship (or the bay) is
+   without reading a single number. */
+.sbx-chip--rig { flex-direction: column; gap: 3px; padding: 5px 8px; }
+.sbx-chip__n { font-size: 11px; }
+.sbx-chip__pips { display: flex; gap: 2px; }
+.sbx-chip__pips i {
+  width: 5px; height: 3px; border-radius: 1px;
+  background: currentColor; opacity: 0.22;
+}
+.sbx-chip__pips i.on { opacity: 1; }
+.sbx-axes__clear { align-self: flex-start; }
+
+/* ---- Briefing ---------------------------------------------------------- */
+.sbx-brief {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+.sbx-brief__ttl {
+  font-family: var(--font-display); font-weight: var(--fw-bold);
+  font-size: var(--fs-h3); line-height: 1.1; color: var(--accent);
+}
+.sbx-brief__sub {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+}
+.sbx-brief__brief { margin: 0; font-size: var(--fs-sm); line-height: 1.35; color: var(--text); }
+/* A grid of label-over-value cells. Two things it must not do, both learned
+   from the harness: it must not squeeze (a fixed 3-up put "$1240" in a 33px
+   cell on the budget phone and the number spilled 46px out of its own box),
+   and a value must not move when a neighbour's label grows — these are the
+   numbers you compare between two configurations, and a figure that shifts
+   between them cannot be compared at a glance. auto-fill against a floor wide
+   enough for the longest value answers both: cells are uniform, and the count
+   falls to whatever the column can actually hold. */
+.sbx-brief__facts {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 4px;
+}
+.sbx-fact {
+  display: flex; flex-direction: column; gap: 1px;
+  min-width: 0;
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.035);
+  border-left: var(--bw) solid var(--line);
+  border-radius: var(--r-sm);
+}
+.sbx-fact__lbl {
+  font-size: 9px; letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  color: var(--text-muted);
+}
+.sbx-fact__val {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sbx-brief__note {
+  margin: 0; font-size: 11px; line-height: 1.35; color: var(--text-muted);
+}
+.sbx-brief__id {
+  margin-top: auto;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
   word-break: break-all;
 }
-.sbx__foot { display: flex; gap: 10px; justify-content: flex-end; margin-top: auto; padding-top: 8px; }
+
+/* ---- Developer cheats. Build-gated in the markup; see sandbox-screen.ts. -- */
+.sbx-dev {
+  margin-top: var(--sp-2); padding-top: var(--sp-2);
+  border-top: 1px dashed rgba(255, 45, 85, 0.4);
+  display: flex; flex-direction: column; gap: var(--sp-1);
+}
+.sbx-dev__lbl {
+  display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  font-size: 11px; font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  color: var(--danger);
+}
+.sbx-dev__lbl span {
+  font-size: 10px; font-weight: var(--fw-regular);
+  letter-spacing: 0; text-transform: none; color: var(--text-muted);
+}
+
+/* THE COLLAPSE, and the rule that decides it is HEIGHT, not width.
+
+   The obvious policy — narrow means fewer columns — is wrong for the device
+   this screen is actually used on. A landscape phone is 792x360: it has width
+   to spare and no height at all, and folding it to one column there turns
+   three panes that each scroll a little into one page that scrolls 744px,
+   which is three screenfuls of a screen whose whole job is to be compared
+   against itself. So three columns is the layout for SHORT viewports, and two
+   columns is for narrow-and-TALL ones — a tablet held upright, or a small
+   desktop window — where the briefing genuinely reads better across the full
+   width than in a 40% gutter.
+
+   One column survives only for viewports narrower than any device in the
+   matrix, where three columns of 44px chips cannot be laid out at all. */
+@media (max-width: 900px) and (min-height: 520px) {
+  .sbx__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sbx-col--brief { grid-column: 1 / -1; overflow-y: auto; }
+  .sbx-brief { overflow: visible; }
+}
+/* Short: keep the three columns, tighten everything that is not a tap target.
+   The chips keep their 44px floor — that is the one thing density may not buy. */
+@media (max-height: 460px) {
+  .sbx { gap: var(--sp-2); }
+  .sbx__lede { display: none; }
+  .sbx-col { gap: var(--sp-2); padding: var(--sp-2); }
+  .sbx-chip { font-size: var(--fs-xs); padding: 3px 6px; }
+  .sbx-brief__ttl { font-size: var(--fs-body); }
+}
+@media (max-width: 620px) {
+  .sbx__cols { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); }
+}
+
+/* ---------- Leaderboard: two boards (screens.ts's leaderboardScreen) ----
+   Only rendered once Tier S is open. A tab strip with one tab in it is a
+   question mark, not a control, so a player who has never found the mode sees
+   the board they always saw. */
+.lb-tabs { display: flex; gap: var(--sp-1); }
+.lb-tab {
+  flex: 1 1 0; min-height: 44px; padding: 6px 10px;
+  background: var(--surface-2); color: var(--text-muted);
+  border: var(--bw) solid var(--line); border-radius: var(--r-sm);
+  font: inherit; font-size: 11px; font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-wide); text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.lb-tab.is-on {
+  background: rgba(0, 240, 255, 0.14); border-color: var(--accent); color: var(--accent);
+}
+
+/* ---------- Run end: the Tier S row (screens.ts's sandboxEndRowHTML) ----
+   Warn-coloured rather than the salvage row's own gold-on-gold, because it is
+   saying the opposite of what that row says: nothing was banked, and that is
+   the feature. */
+.salvage-row--sandbox {
+  background: rgba(255, 176, 32, 0.07);
+  border-color: rgba(255, 176, 32, 0.5);
+}
+.salvage-row__amt--sandbox {
+  font-family: var(--font-pixel); font-size: 18px; color: var(--warn);
+}
