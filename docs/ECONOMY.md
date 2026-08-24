@@ -182,15 +182,15 @@ It only works on top of the build it belongs to: cheap enough payloads to surviv
 the waste, and Bond Breakers (or Hydraulics) to flatten what it piles up.
 
 It used to fire on a free-running timer, and that was a real bug rather than a
-balance problem. Measured on device, one Autoloader bay threw **34 lost pieces
-from 32 shots** (106%, against an 11% baseline) at **16 shots per line**, and
-its launches were spread evenly across the compactor cycle (z=0.71 retreat vs
-press) while the same player's manual shots were strongly biased toward the open
-window (z=4.27). A metronome cannot see the compactor, so it spent about half
-its shots firing into a shut bay and paying the lost-piece penalty. Holding a
-trigger puts the WHEN in the player's hands and leaves the WHERE scattered,
-which is the upgrade's identity: a stream you point and time, never a better
-cannon.
+balance problem. Measured on device, one Autoloader bay threw **34 lost cubes
+from 32 shots** (1.06 per shot, against a 0.11 baseline) at **16 shots per
+line**, and its launches were spread evenly across the compactor cycle (z=0.71
+retreat vs press) while the same player's manual shots were strongly biased
+toward the open window (z=4.27). A metronome cannot see the compactor, so it
+spent about half its shots firing into a shut bay and paying the lost-piece
+penalty. Holding a trigger puts the WHEN in the player's hands and leaves the
+WHERE scattered, which is the upgrade's identity: a stream you point and time,
+never a better cannon.
 
 ## Salvage always pays
 

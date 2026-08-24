@@ -37,7 +37,14 @@ interface Bay extends ModeTag {
   shots: Shot[]; funds: { t: number; v: number }[]; lineClears: { t: number; lines: number }[];
   abilities: { t: number; kind: string }[];
   result: "won" | "lost" | null; reason: string | null; secs: number;
-  lines: number; lostPieces: number; endScore: number;
+  lines: number;
+  /** CUBES lost off the wrong side, NOT pieces: this is Game.lostTotal, which
+   *  adds lostCubes.length. A std shot puts 4 of them in play, a `tiny` one 2,
+   *  a `bulk` one 5 — so this over a shot count is not a rate of anything. The
+   *  name is wrong but load-bearing (sessions persist to localStorage under
+   *  it), so it stays. */
+  lostPieces: number;
+  endScore: number;
 }
 interface Run { mark: number; bays: Bay[]; won: boolean | null; salvage: number }
 /** Optional: sessions recorded before the field existed have no `mode`. */
@@ -126,7 +133,16 @@ const totalLines = bays.reduce((a, b) => a + b.lines, 0);
 const totalLost = bays.reduce((a, b) => a + b.lostPieces, 0);
 console.log("\n2. EFFICIENCY");
 console.log(`   ${(totalShots / Math.max(1, totalLines)).toFixed(2)} shots per line  (${totalShots} shots, ${totalLines} lines)`);
-console.log(`   ${(totalLost / Math.max(1, totalShots) * 100).toFixed(1)}% of shots lost to the wrong side`);
+// Reported per shot rather than as a percentage, because the numerator counts
+// CUBES (see Bay.lostPieces) and the denominator counts shots. An earlier
+// version divided the two and called the result "% of shots lost", which
+// overstated it by the bay's cubes-per-piece and could print >100% — ECONOMY.md
+// carried a "106%" for exactly that reason. A true percentage needs cubes
+// FIRED, and that is not shots x pieceSize either: a bomb launch is a shot that
+// carries no cargo, so the denominator would still be wrong. Per-shot is a
+// ratio of two things the session actually records, and it stays meaningful
+// when piece size varies across bays in one sitting.
+console.log(`   ${(totalLost / Math.max(1, totalShots)).toFixed(2)} cubes lost to the wrong side per shot  (${totalLost} cubes)`);
 
 // Split by mode: this is the number contracts.ts's PLANNING_EFFICIENCY is
 // derived from, and Contracts differ from Deep Run in piece size and in having

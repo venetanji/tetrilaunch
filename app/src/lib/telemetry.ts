@@ -69,6 +69,12 @@ export interface BayRecord {
   reason: string | null;
   secs: number;
   lines: number;
+  /** CUBES lost off the wrong side, NOT pieces — it is Game.lostTotal, which
+   *  adds lostCubes.length per decay. Cubes per shot varies with the bay's
+   *  pieceSize (tiny 2, std 4, bulk 5), so this over a shot count is not a
+   *  fraction of shots; sim/playtest.ts once reported it as one and printed
+   *  106%. The name predates the cube-wise penalty and is now frozen: it is a
+   *  key in sessions already persisted to localStorage. */
   lostPieces: number;
   endScore: number;
 }
@@ -218,6 +224,8 @@ export function sampleFunds(score: number, t: number): void {
 
 export function endBay(r: {
   result: "won" | "lost"; reason: string | null; secs: number;
+  /** `lostPieces` is Game.lostTotal — a CUBE count, not a piece count. See
+   *  BayRecord.lostPieces for why the name stays wrong. */
   lines: number; lostPieces: number; endScore: number;
 }): void {
   if (!bay) return;

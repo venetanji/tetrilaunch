@@ -334,6 +334,10 @@ export class Game {
    *  which is the bay the player actually built. */
   private lastCongestionIdx = -1;
   linesTotal = 0;
+  /** CUBES lost off the wrong side, not pieces: it sums lostCubes.length, and
+   *  the penalty is charged per cube too. Telemetry ships it as the badly named
+   *  `lostPieces`; dividing it by a shot count gives cubes per shot, never a
+   *  fraction of shots. */
   lostTotal = 0;
   status: GameStatus = "playing";
   /** Which condition triggered a "lost" status, for end-of-run copy. */
@@ -425,11 +429,13 @@ export class Game {
    *
    * The rig used to fire on a free-running 420ms timer, which made it a
    * metronome that ignored the compactor. Measured on device, one autoloader
-   * bay threw 34 lost pieces from 32 shots (106%, against an 11% baseline) at
-   * 16 shots per line, and its shots were spread evenly across the compactor
-   * cycle (z=0.71 retreat-vs-press) while the same player's manual shots were
-   * strongly biased toward the open window (z=4.27). It was firing into a shut
-   * bay roughly half the time and paying the lost-piece penalty for it.
+   * bay threw 34 lost CUBES from 32 shots (1.06 per shot, against a 0.11
+   * baseline; lostTotal counts cubes, and this was long mis-reported as a
+   * "106%" of shots) at 16 shots per line, and its shots were spread evenly
+   * across the compactor cycle (z=0.71 retreat-vs-press) while the same
+   * player's manual shots were strongly biased toward the open window
+   * (z=4.27). It was firing into a shut bay roughly half the time and paying
+   * the lost-piece penalty for it.
    *
    * Holding a trigger puts the WHEN back in the player's hands while leaving
    * the WHERE scattered, which is the upgrade's whole identity: a fast, sloppy
@@ -1200,7 +1206,7 @@ export class Game {
     // with a power axis that ignored the drag entirely (see AUTO_POWER_JITTER),
     // that is what made the mod read as erratic. Measured on device before this
     // fix: 6.72 shots per line in autoloader bays against 2.94 in hand-fired
-    // ones, and 23.4% of shipments lost to the wrong side against 10.3%.
+    // ones, and 0.234 cubes lost to the wrong side per shot against 0.103.
     const aimAngle = this.cannon.angle;
     const aimPower = this.cannon.power;
     const cone = Math.PI / 3;

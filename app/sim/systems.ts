@@ -2146,7 +2146,8 @@ section("Demolition charges + settle window (game.ts)");
 
   // Autoloader is a HELD trigger, not a timer. The old version fired on its own
   // every 420ms and could not see the compactor: on device one Autoloader bay
-  // threw 34 lost pieces from 32 shots (106% vs an 11% baseline) at 16 shots
+  // threw 34 lost CUBES from 32 shots (1.06 per shot vs a 0.11 baseline; not
+  // the "106%" this was long written as — lostTotal counts cubes) at 16 shots
   // per line, its launches spread evenly across the cycle (z=0.71) while the
   // same player's manual shots clustered in the open window (z=4.27).
   const autoCfg = applyMods(makeBaseLevel(0), ["micro", "autoloader"]);
@@ -2220,7 +2221,7 @@ section("Demolition charges + settle window (game.ts)");
   // power axis was worse: re-rolled across the whole upper 55% of the band
   // every shot, so the drag's power did literally nothing. Measured across 5
   // autoloader bays: 6.72 shots per line against 2.94 in hand-fired bays, and
-  // 23.4% of shipments lost to the wrong side against a 10.3% baseline.
+  // 0.234 cubes lost to the wrong side per shot against a 0.103 baseline.
   const AIM_ANGLE = 0.35;
   // Funds ARE the score, so a bankroll big enough to sustain a long burst also
   // wins the bay on the first shot — the target has to move with it.
