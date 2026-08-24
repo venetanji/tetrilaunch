@@ -358,17 +358,28 @@ Two consequences are already in the numbers:
 - **Material rates are set against the ladder, not the bot.** One notch of slag
   or cryo at `materialRate(1) = 0.07` — a rate the shipped game deals routinely
   — takes the bot from 100% to 0%. A 0% row says nothing about the number, so
-  no rate exceeds what `materialRate` reaches at six notches.
+  no rate a card QUOTES exceeds what `materialRate` reaches at six notches
+  (`MATERIAL_CAP`, 0.32). The rate actually delivered can sit above it: a
+  clause floors its material at the card's rate and then adds a notch on top,
+  bounded by `FINAL_MATERIAL_CAP` (0.4) — see `finals.ts`'s `schedule`.
 - **The bot's cadence is not a human's** — the same limit `PILE_TIERS` learned
   the hard way. `Fouled Bay` is priced in exactly that currency.
 
-One correction fell out of the pricing and is worth stating on its own:
+Two corrections fell out of the pricing and are worth stating on their own.
+
 `applyFinal` runs *after* `applyRatchets`, which is where `MIX_TOTAL_CAP` is
 enforced — so a material clause landing on an already-full belt pushed it to
 0.78 against a cap of 0.55. It now re-caps, holding the clause's own material at
 the rate its card quotes and taking the reduction from the ratcheted ones.
 
-One correction fell out of the pricing and is worth stating on its own:
+Because that rate is a floor rather than a quantity, the six material cards
+read **"at least N%"**. A run carrying two Slag notches meets `Slag Wall`'s 8%
+card with a belt at 12%: the design is deliberate — a mandatory cost the
+player's own earlier choices could pre-pay is not a cost — but a bare number
+would be wrong on exactly the arrivals where it matters. `sim/systems.ts` pins
+it: a clause whose delivered rate can exceed its own clean-bay rate must say so
+on its face.
+
 `penaltyPerLostPiece` is charged **per cube**, not per piece
 (`lost = lostCubes.length`), so a spilled tetromino costs four times the number
 the field is named for and a spilled pentomino five. The field keeps its name —

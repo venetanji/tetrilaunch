@@ -354,11 +354,16 @@ const FOULED_ALLOWANCE = 12;
  * keeps the single material sane, and applyFinal's re-cap still holds the belt
  * as a whole to MIX_TOTAL_CAP.
  *
- * The card copy stays as written — it quotes the rate the clause SCHEDULES,
- * which is what it promises to put on the belt. Where a ratchet has already
- * beaten it the bay is worse than the card says, and the draft's own material
- * row prints the resulting rate, so the number the player decides against is
- * the true one either way.
+ * THE CARD COPY SAYS "AT LEAST", because the rule above means the number on it
+ * is a floor and not a quantity. An earlier version of this note argued the
+ * bare number was still honest, on the grounds that the draft's own material
+ * row prints the resulting rate — but the card is what the player reads while
+ * deciding, and "8% of the belt" is a promise about the bay they are being
+ * sold. A run carrying two Slag notches meets Slag Wall's 8% card and gets a
+ * belt at 12%: not the rate quoted, and worse in the direction that matters.
+ * Naming it a floor costs two words and makes the card true on every arrival.
+ * sim/systems.ts pins this: a clause whose delivered rate can exceed its own
+ * clean-bay rate must say so on its face.
  */
 /** The most of one material a clause may leave on the belt, ratchet included.
  *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and well
@@ -504,7 +509,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "cold-chain",
     name: "Cold Chain",
-    desc: "22% of the belt arrives frozen. Every frozen cube owes you a strike before it counts for anything.",
+    desc: "At least 22% of the belt arrives frozen. Every frozen cube owes you a strike before it counts for anything.",
     tier: 4,
     system: "bay",
     apply: (cfg) => { schedule(cfg, "cryo", 0.22); },
@@ -512,7 +517,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "ice-wall",
     name: "Ice Wall",
-    desc: "The bay opens on 11 cubes of frozen salvage nobody thawed, and 16% of the belt arrives the same way.",
+    desc: "The bay opens on 11 cubes of frozen salvage nobody thawed, and at least 16% of the belt arrives the same way.",
     tier: 4,
     system: "bay",
     apply: (cfg) => {
@@ -536,7 +541,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "rebar-run",
     name: "Rebar Run",
-    desc: "32% of the belt is rebar. What lands is what you keep — nothing but a Bond Breaker will split it.",
+    desc: "At least 32% of the belt is rebar. What lands is what you keep — nothing but a Bond Breaker will split it.",
     tier: 5,
     system: "bonds",
     apply: (cfg) => { schedule(cfg, "rebar", 0.32); },
@@ -587,7 +592,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "slag-run",
     name: "Slag Run",
-    desc: "17% of the belt is dead metal. It fills a slot, it never counts, and only a charge moves it.",
+    desc: "At least 17% of the belt is dead metal. It fills a slot, it never counts, and only a charge moves it.",
     tier: 6,
     system: "demolition",
     apply: (cfg) => { schedule(cfg, "slag", 0.17); },
@@ -595,7 +600,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "slag-wall",
     name: "Slag Wall",
-    desc: "The bay opens on 11 cubes of somebody else's slag, stacked against the wall, and 8% of the belt adds to it.",
+    desc: "The bay opens on 11 cubes of somebody else's slag, stacked against the wall, and at least 8% of the belt adds to it.",
     tier: 6,
     system: "demolition",
     apply: (cfg) => {
@@ -617,7 +622,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "powder-run",
     name: "Powder Run",
-    desc: "27% of the belt is volatile. Land one hard and it takes its neighbours with it.",
+    desc: "At least 27% of the belt is volatile. Land one hard and it takes its neighbours with it.",
     tier: 7,
     system: "bay",
     apply: (cfg) => { schedule(cfg, "volatile", 0.27); },
@@ -625,7 +630,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "hair-trigger",
     name: "Hair Trigger",
-    desc: "20% of the belt is volatile, primed 15% finer — at this setting only the softest lob will not set it off.",
+    desc: "At least 20% of the belt is volatile, primed 15% finer — at this setting only the softest lob will not set it off.",
     tier: 7,
     system: "bay",
     apply: (cfg) => {
@@ -649,7 +654,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "tar-run",
     name: "Tar Run",
-    desc: "18% of the belt is tar. It welds to whatever it touches and a Bond Breaker will not split it.",
+    desc: "At least 18% of the belt is tar. It welds to whatever it touches and a Bond Breaker will not split it.",
     tier: 8,
     system: "demolition",
     apply: (cfg) => { schedule(cfg, "tar", 0.18); },
@@ -657,7 +662,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "fouled-bay",
     name: "Fouled Bay",
-    desc: `1 shipment in 8 is tar, and the yard books a fused pile as clutter: congestion bites ${FOULED_ALLOWANCE} cubes earlier all shift.`,
+    desc: `At least 1 shipment in 8 is tar, and the yard books a fused pile as clutter: congestion bites ${FOULED_ALLOWANCE} cubes earlier all shift.`,
     tier: 8,
     system: "demolition",
     apply: (cfg) => {

@@ -4496,6 +4496,36 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     }
     check("the re-cap never scales the rate a clause's card quotes",
       lied.length === 0, lied.join(", "));
+
+    // ...and where the arriving ratchet pushes the belt PAST the card's rate,
+    // the card has to say so. schedule() floors a material at the quoted rate
+    // and then adds a notch on top, so a run carrying two Slag notches meets
+    // Slag Wall's "8%" card with a belt at 12%. That is the design — a
+    // mandatory cost the player's own earlier choices could pre-pay is not a
+    // cost — but it makes a bare number on the card wrong on exactly the
+    // arrivals it matters for. "At least" is what makes it true on all of them.
+    const bare: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      let overshoots = false;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] > clean.materialMix[k] + 1e-9) overshoots = true;
+        }
+      }
+      if (overshoots && !/at least/i.test(clause.desc)) bare.push(clause.id);
+    }
+    check("a clause that can outrun its own card says \"at least\" on it",
+      bare.length === 0, bare.join(", "));
   }
 
   // The wind pair's seam. A locked bay must actually blow the way its card
