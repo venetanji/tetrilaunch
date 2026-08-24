@@ -851,15 +851,28 @@ export class Game {
     const shredded = shredInChute(this.phys.world, this.cubes, this.constraints, rightEdge);
     if (shredded.length === 0) return;
 
+    // ONE BLAST PER CUBE, AT THE CUBE. This used to average the shredded cubes
+    // into a single explosion, which was the right call when they were being
+    // eaten one at a time by a grinder buried inside the machine. Now the
+    // surface takes the whole shipment at once (chute.ts's CHUTE_SURFACE_Y), so
+    // a piece meeting the roof should come apart ALONG it — a run of blasts
+    // across the contact, not one puff at their mean.
+    //
+    // Held just ABOVE the lip rather than at each cube's own y. The canvas
+    // draws under the DOM panel, so a blast centred where the cube actually
+    // died is a blast behind opaque chrome; lifting it a third of its radius
+    // clear puts the body of it in open field with its base tucked under the
+    // roof, which is what an impact ON a surface looks like anyway.
     let cx = 0;
     for (const cube of shredded) {
-      cx += cube.body.position.x;
+      const px = cube.body.position.x;
+      cx += px;
       this.throwChunks(cube, now);
+      this.effects.push({
+        kind: "explosion", x: px, y: CHUTE_LIP_Y - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R, t0: now,
+      });
     }
     cx /= shredded.length;
-    this.effects.push({
-      kind: "explosion", x: cx, y: CHUTE_LIP_Y + CHUTE_BLAST_R * 0.5, r: CHUTE_BLAST_R, t0: now,
-    });
     this.events.onExplosion?.("chute");
 
     const deducted = this.chargeLostCubes(shredded.length, now);

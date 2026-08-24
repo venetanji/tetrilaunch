@@ -32,8 +32,8 @@ import {
 } from "../src/game/hazards";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
-import { Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag } from "../src/game/cannon";
-import { CHUTE, CHUTE_THROAT_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
+import { Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag, SPEED_MAX } from "../src/game/cannon";
+import { CHUTE, CHUTE_SURFACE_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -5296,17 +5296,17 @@ section("Misfire prevention");
   check("the chute reaches the left wall", CHUTE.x0 === 0);
   check("the cannon is not standing in its own chute", !inChute(CANNON.x, CANNON.y));
 
-  // THE HOPPER. The grinder must sit below every arc that is on its way
-  // somewhere useful and above everything that comes to rest behind the panel.
-  // Both bounds measured off the live trajectory across the whole aim cone; see
-  // CHUTE_THROAT_Y. Restated here as a RANGE rather than the value, so the
-  // check fails when the throat is moved into either population instead of
-  // merely when it changes.
-  check("the grinder clears the deepest useful arc", CHUTE_THROAT_Y > 543 + 40,
-    String(CHUTE_THROAT_Y));
-  check("the grinder is above anything that lands behind the panel", CHUTE_THROAT_Y < 698 - 40,
-    String(CHUTE_THROAT_Y));
-  check("the mouth is drawn well above the grinder", CHUTE.y0 < CHUTE_THROAT_Y - 100);
+  // THE SURFACE IS THE MOUTH. The machine used to be a hopper — a grinder
+  // plane 231px down inside it, so the footprint claimed the floor of the maw
+  // but not its airspace, and cargo crossed the whole body of the machine on
+  // the way to it. It is a wall now: what you can touch, it takes.
+  check("the machine's surface is its mouth", CHUTE_SURFACE_Y === CHUTE.y0,
+    `${CHUTE_SURFACE_Y} vs ${CHUTE.y0}`);
+  // The one thing the old depth genuinely bought — no tunnelling — has to
+  // survive the move. It does, by a wide margin: the region runs from the
+  // surface to the floor, against a max-power launch of 28px per step.
+  check("nothing can outrun the surface in one step", CHUTE.y1 - CHUTE_SURFACE_Y > SPEED_MAX * 2,
+    `${CHUTE.y1 - CHUTE_SURFACE_Y} vs ${SPEED_MAX * 2}`);
 
   // Bay Extension T3 walks the press's open stop LEFT of the panel's edge. The
   // maw has to give that ground back, or the upgrade silently buys two cells of
@@ -5370,35 +5370,36 @@ section("Misfire prevention");
   }
 
   {
-    // THE FLY-THROUGH — the invariant the hopper exists for, and the one a
-    // full-depth maw would break. A shallow downward shot at full power crosses
-    // the machine's airspace low (the arc passes ~(519, 398), inside the panel's
-    // box) on its way out over the bay. The chute must not take it there: it may
-    // only ever collect cargo that has come to REST somewhere unreachable, never
-    // intercept something still in flight. Whether that particular shot is any
-    // GOOD is a separate question and not this check's business — what is
-    // asserted is that the shot gets to finish and be judged on its landing.
+    // THE FLY-THROUGH IS A STRIKE NOW. This shot — shallow, full power — used
+    // to be the invariant the hopper existed to protect: its arc dips into the
+    // machine's box around (519, 398) and it carried on out to x 941. The maw
+    // let it, because the grinder sat 231px lower.
+    //
+    // That corridor is gone on purpose. Skimming the roof was never a move the
+    // machine offered, and leaving it open made scraping the surface a cheap
+    // way to shear the bonds off a shipment. So the assertions invert: the
+    // warning must FIRE for an aim that clips the machine, and the cargo must
+    // die on the surface rather than tunnel through it.
     const g = new Game(makeBaseLevel(0), {}, 14);
     g.cannon.angle = -Math.PI / 18;
     g.cannon.power = g.cannon.speedMax;
     g.updateTrajectory();
-    check("a flat delivery over the plant is not warned against", !g.trajectoryStrands);
+    check("an aim that clips the machine IS warned against", g.trajectoryStrands);
     g.shoot(0);
     const launched = g.cubes.length;
-    let cleared = false;
-    let aliveAtClear = 0;
-    for (let i = 1; i < 240 && !cleared; i++) {
+    let escaped = false;
+    let gone = 0;
+    for (let i = 1; i < 240; i++) {
       g.update(i * DT);
-      // The moment the whole shipment is past the maw's footprint, still in the
-      // air. Everything after that is ordinary bay physics.
-      if (g.cubes.length && g.cubes.every((c) => c.body.position.x > CHUTE.x1)) {
-        cleared = true;
-        aliveAtClear = g.cubes.length;
+      // Anything that made it past the maw's right edge while still inside the
+      // machine's depth got THROUGH it — the exact failure this replaces.
+      if (g.cubes.some((c) => c.body.position.x > CHUTE.x1 && c.body.position.y > CHUTE_SURFACE_Y)) {
+        escaped = true;
       }
+      if (!g.cubes.length) { gone = i; break; }
     }
-    check("...it clears the plant's footprint in flight", cleared);
-    check("...with the whole shipment intact", aliveAtClear === launched,
-      `${aliveAtClear} of ${launched}`);
+    check("...nothing comes out the far side of the machine", !escaped);
+    check("...the whole shipment is taken", gone > 0 && launched > 0, `${launched} launched, gone at step ${gone}`);
   }
 
   // --- The strand warning ---------------------------------------------------
