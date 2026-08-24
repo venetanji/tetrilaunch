@@ -20,9 +20,9 @@ clears them away.
   target** and **countdown**; bank the target before the clock or the bankroll
   runs out.
 - **Ten Marks** are the difficulty ladder over Deep Run. Each one states harder
-  terms — the opening bay's funding target climbs from **$600 to $780** (and the
-  per-bay climb steepens with it, so a run ends at **$1500** at Tier 1 and
-  **$1842** at Tier 10), the shift shortens **180s → 144s**, a shot costs
+  terms — the opening bay's funding target climbs from **$900 to $1080** (and the
+  per-bay climb steepens with it, so a run ends at **$1800** at Tier 1 and
+  **$2142** at Tier 10), the shift shortens **180s → 144s**, a shot costs
   **$20 → $30** against a float that always buys the same eight launches — and
   hands you a larger **build budget** to spend on the ship to meet them. The Mark you may
   attempt is always **one above your best clear**. Nothing purchasable raises it —

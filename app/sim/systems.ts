@@ -407,17 +407,17 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // formula at all.
   const t1 = tierDemands(1);
   const top = tierDemands(MARK_COUNT);
-  check("Tier 1 opens at $600, 180s, $20 a shot",
-    t1.targetScore === 600 && t1.timeLimitSec === 180 && t1.launchCost === 20,
+  check("Tier 1 opens at $900, 180s, $20 a shot",
+    t1.targetScore === 900 && t1.timeLimitSec === 180 && t1.launchCost === 20,
     `$${t1.targetScore}/${t1.timeLimitSec}s/$${t1.launchCost}`);
-  check("the top tier opens at $780, 144s, $30 a shot",
-    top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
+  check("the top tier opens at $1080, 144s, $30 a shot",
+    top.targetScore === 1080 && top.timeLimitSec === 144 && top.launchCost === 30,
     `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
   // Where a run ENDS is the tier's opening plus the ladder's own per-bay climb
   // (TARGET_PER_BAY, steepened a little by the tier) — the two curves compose,
   // and this is the number that says by how much.
-  check("the last bay of a run climbs from $1500 at Tier 1 to $1842 at the top",
-    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 1842,
+  check("the last bay of a run climbs from $1800 at Tier 1 to $2142 at the top",
+    makeBaseLevel(9, 1).targetScore === 1800 && makeBaseLevel(9, MARK_COUNT).targetScore === 2142,
     `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
 
   // Every rung has to move, or a tier is a no-op the player still paid for.
@@ -469,6 +469,20 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "the loss penalty is Mark-invariant",
     makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
   );
+  // The Reactor is the strongest thing scrap can buy and is meant to be — but
+  // its FLOAT half must not hand the player the bay before a shot is fired.
+  // Asserted as a share of the quota rather than a dollar figure, since both
+  // sides of the ratio move: at +$180 against Tier 1's $900 the maxed rig
+  // opened bay 1 a third of the way home and cleared it in three lines, which
+  // is what the raise and the halving together exist to stop.
+  {
+    const maxed = makeBaseLevel(0, 1);
+    applyUpgrades(maxed, { ...newTiers(), reactor: MAX_TIER });
+    check("a maxed Reactor does not pre-pay the opening bay",
+      maxed.startingFunds < maxed.targetScore * 0.3,
+      `$${maxed.startingFunds} float vs a $${maxed.targetScore} quota`);
+  }
+
   // The scope check, and the one that catches the likeliest way to get this
   // wrong: keying the curve off the BAY index `i` (which carries every other
   // ramp in makeBaseLevel) instead of off the mark. Only these may differ

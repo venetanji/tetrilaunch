@@ -309,7 +309,9 @@ export interface LevelConfig {
 // (run.ts's RunState.carry / advanceRun / CARRY_CAP). The budget is deliberately
 // TIGHT: the float buys EIGHT launches at every tier (LAUNCH_BUDGET_SHOTS),
 // which is the mistake budget; what the tier moves is what those eight cost —
-// $160 at Tier 1's $20 a shot, $240 at Tier 10's $30. At Tier 1's
+// $160 at Tier 1's $20 a shot, $240 at Tier 10's $30. Eight launches against a
+// $900 opening quota is deliberate: the float is a runway, not a down payment,
+// and the bay is meant to be earned. At Tier 1's
 // Launch Bay (i=0) a perfect 8-cube line costs 2 shots ($40) for a $100 payout,
 // so a precise player nets $60/line and grows; at the measured ~2.9
 // launches/line (contracts.ts's PLANNING_EFFICIENCY note) the same line nets
@@ -372,8 +374,19 @@ const LEVEL_NAMES = [
 export const TIER_COUNT = 10;
 
 /** Funding target on the FIRST bay of a Tier 1 run, and what each further tier
- *  adds to it. */
-export const TARGET_BASE = 600;
+ *  adds to it.
+ *
+ *  900, up from 600, and the reason is what a BUILT rig does to a bay rather
+ *  than what a stock one does. Measured at the shipped ~2.9 launches/line: a
+ *  stock rig cleared Tier 1's first bay in 10.5 lines, a maxed Reactor in
+ *  THREE — about twelve seconds of play. Scrap comes fast enough to max the
+ *  economy track, and once it is maxed the bay is over before it has asked the
+ *  player anything, which is the opposite of what the ladder's own per-bay
+ *  climb is for. The raise is half the answer; the other half is the Reactor's
+ *  float bonus (upgrades.ts), which was pre-paying the bay before a shot was
+ *  fired. Together they put a maxed rig's opening bay at ~7.5 lines and leave
+ *  a stock one where the tier ladder had it. */
+export const TARGET_BASE = 900;
 export const TARGET_PER_TIER = 20;
 
 /** What each further BAY inside a run adds to the target, and how much that

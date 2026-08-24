@@ -32,7 +32,8 @@ Two observations from playtesting shaped the fix:
 ## The tier ladder — what a bay costs and pays at each Mark
 
 The Deep Run bay used to demand the same thing at every Mark: $800 on the first
-bay, a 150s clock, $25 a shot. The tier being flown now states all three
+bay, a 150s clock, $25 a shot — and it was sized for a stock rig, so a maxed
+Reactor cleared it in three lines. The tier being flown now states all three
 (`level.ts`'s `targetScoreFor` / `timeLimitFor` / `launchCostFor`), extending
 that bay downward for a new player and upward for a veteran. The ladder's own
 per-bay climb (`TARGET_PER_BAY`) is unchanged and rides on top — the tier sets
@@ -40,10 +41,10 @@ where the climb starts and steepens it slightly.
 
 | Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
 |---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
+| 1 | $900 → $1800 | +$100 | 180s | $20 | $160 |
+| 3 | $940 → $1876 | +$104 | 172s | $22 | $176 |
+| 6 | $1000 → $1990 | +$110 | 160s | $26 | $208 |
+| 10 | $1080 → $2142 | +$118 | 144s | $30 | $240 |
 
 Three things this deliberately does **not** touch:
 
@@ -83,7 +84,7 @@ price ladder of **20 / 35 / 55** scrap (110 for a full track).
 | **LAUNCHER** | +6/12/18% muzzle speed · 20/40/60% wind cancelled | **The wind answer.** More speed to throw through a headwind, plus a stabilizer that cancels part of it outright. |
 | **HYDRAULICS** | ×1.6/2.2/2.8 settle assist · +8/16/24% stroke | Turns "nearly a line" into a payout. The upgrade for builds that land loose cubes. |
 | **MAGAZINE** | −15/30/45% cooldown | Tempo. |
-| **REACTOR** | +$60/120/180 float · +$15/30/45 per line | The economy track. |
+| **REACTOR** | +$30/60/90 float · +$15/30/45 per line | The economy track. The float half was halved when the quota rose (`level.ts`'s `TARGET_BASE`): at +$180 it was bigger than a Tier 1 bay's whole float, so a maxed rig opened the bay already paid for and cleared it in three lines against a stock rig's ten. |
 | **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
 
 **The stop is a plan, not a checkout.** Tapping a track *stages* a tier into an

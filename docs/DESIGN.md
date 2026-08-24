@@ -288,10 +288,10 @@ climb (`TARGET_PER_BAY`) rides on top and the tier steepens it a little.
 
 | Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
 |---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
+| 1 | $900 → $1800 | +$100 | 180s | $20 | $160 |
+| 3 | $940 → $1876 | +$104 | 172s | $22 | $176 |
+| 6 | $1000 → $1990 | +$110 | 160s | $26 | $208 |
+| 10 | $1080 → $2142 | +$118 | 144s | $30 | $240 |
 
 Read it as the tier's *terms*, not its difficulty: the calibration above still
 holds that a bigger bar mostly buys duration, and what makes a bay bite is the
@@ -300,6 +300,28 @@ a tier that means something numerically before a single hazard is drafted, and a
 first bay a new player can actually clear. The clock and the launch cost are
 properties of the tier and hold for the whole run; the target steps per bay, and
 the tier sets both where it starts and how steeply it climbs.
+
+**Why the opening quota is $900 and not $600.** The first pass set it at $600
+and that was tuned against a stock rig, which cleared Tier 1's first bay in 10.5
+lines at the measured ~2.9 launches/line. A *maxed Reactor* cleared the same bay
+in **three** — about twelve seconds. Scrap arrives fast enough to max the economy
+track, so the bay a built player actually meets was over before it asked them
+anything. Two changes, together: the quota rose $300 at every tier, and the
+Reactor's FLOAT half halved (+$60/120/180 → +$30/60/90, `upgrades.ts`) because at
++$180 it exceeded a Tier 1 bay's entire float and pre-paid the quota before a
+shot was fired. The Reactor's rate half is untouched — it is still the economy
+track, it just no longer buys the bay outright.
+
+| First bay, lines needed | stock rig | maxed Reactor |
+|---|---|---|
+| before | 10.5 | 3.0 |
+| after | 17.6 | 7.5 |
+
+The cost of that is real and worth stating: from the middle of the ladder up, a
+stock rig's first bay no longer fits its clock (Tier 6 needs ~131s of a 160s
+shift, Tier 10 far more). The economy track stops being merely strong and becomes
+required — which is what `upgrades.ts`'s own note already assumed ("a stock rig
+can't reliably finish the Mark-1 run without them"), now true further up too.
 
 The float is derived, not fixed: it is always `LAUNCH_BUDGET_SHOTS` (eight)
 launches' worth, so every tier opens with the same runway LENGTH and only its
@@ -312,16 +334,25 @@ bays 1/4/7/10, carry $150). `--notches spread` is new and is why these numbers m
 models the ratchet the mode actually forces (`picksPerBay(mark) x` cleared bays, round-robin over
 that Mark's number axes), instead of measuring a bare ladder no run is ever played on.
 
-| Mark | budget | bar | best build | run clear | verdict |
+| Mark | budget | bar | best build | run clear (at $600) | run clear (at $900) |
 |---|---|---|---|---|---|
-| 1 | 77 | $600/180s | economy | 1% | too hard |
-| 3 | 231 | $640/172s | economy | 33% | just short |
-| 6 | 462 | $700/160s | economy | 16% | just short |
-| 8 | 616 | $740/152s | economy | 3% | just short |
-| 10 | 770 | $780/144s | economy | 0% | IMPOSSIBLE |
+| 1 | 77 | $900/180s | economy | 1% | 1% |
+| 3 | 231 | $940/172s | economy | 33% | 8% |
+| 6 | 462 | $1000/160s | economy | 16% | 4% |
+| 8 | 616 | $1040/152s | economy | 3% | 0% |
+| 10 | 770 | $1080/144s | spatial | 0% | 0% |
 
-Three of five rungs land inside the criterion band (2–35%). The two that don't are the ends, and
-they fail for opposite reasons. **Mark 1 is budget-starved, not over-asked**: 77 ladder points buy
+Both columns are the same sweep; the left one is the $600 opening quota this
+shipped with first, the right one the $900 it ships with now. **The raise costs
+roughly 4x in run-clear rate through the middle of the ladder**, and that is the
+price of the bay-length fix above — a bot that clears a three-line bay reliably
+does not clear a seven-line one. Reported rather than tuned away because the two
+numbers answer different questions: the sweep measures whether a bay can be WON,
+the raise was made because a bay was over too FAST, and only a human pass can say
+which of those the ladder should be sized to.
+
+Two of five rungs land inside the criterion band (2–35%) at the shipped quota, against three before
+the raise. The rungs that miss are the ends, and they miss for opposite reasons. **Mark 1 is budget-starved, not over-asked**: 77 ladder points buy
 `LCH1 RCT1` and nothing else, so the rung below Mark 3 reads harder than the rung above it — the
 budget curve, not the tier ladder, is what to move if that inversion matters. **Mark 10 at 0%** is
 where every one of the harness's caveats bites hardest, and all of them push the number down rather
@@ -331,6 +362,10 @@ who drafted for their build would take. Treat both ends as "needs a human pass",
 note that without the ratchet modelled at all the same sweep still reads *FREE* at the middle Marks,
 which is the finding that matters: a run's difficulty lives in the purse and the ratchet, not in the
 bar the tier states.
+
+If a human pass says the ladder is now too steep, the first knob to reach for is **`TARGET_PER_BAY`**
+(the +$100 a bay climb), not `TARGET_BASE`: the opening quota is what fixes bay length for a built
+rig, while the per-bay climb is what compounds into the late bays these numbers are failing at.
 
 Two consequences worth stating:
 

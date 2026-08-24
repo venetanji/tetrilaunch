@@ -167,15 +167,24 @@ export const UPGRADES: UpgradeDef[] = [
     name: "Reactor Output",
     glyph: "RCT",
     blurb: "A bigger float every bay and a better rate per line — the economy track.",
+    // The FLOAT half is +$30/60/90, halved from +$60/120/180; the RATE half is
+    // untouched. This is still the economy track and a maxed reactor is still
+    // the strongest thing scrap can buy — what it no longer does is PRE-PAY the
+    // bay. At +$180 the bonus was larger than a Tier 1 bay's entire float
+    // ($160, see level.ts's LAUNCH_BUDGET_SHOTS), so a maxed rig opened bay 1
+    // already most of the way to the quota and cleared it in three lines
+    // against a stock rig's ten. Halved, the same bay asks ~7.5 lines: the
+    // track buys a better RATE and a real cushion, and the bay still has to be
+    // earned. Raised the quota to meet it too — see level.ts's TARGET_BASE.
     tiers: [
-      "+$60 float · +$15 per line",
-      "+$120 float · +$30 per line",
-      "+$180 float · +$45 per line",
+      "+$30 float · +$15 per line",
+      "+$60 float · +$30 per line",
+      "+$90 float · +$45 per line",
     ],
-    current: (t) => (t === 0 ? "stock reactor" : `+$${60 * t} float · +$${15 * t}/line`),
-    step: () => ({ dir: "up", text: "+$60 float" }),
+    current: (t) => (t === 0 ? "stock reactor" : `+$${30 * t} float · +$${15 * t}/line`),
+    step: () => ({ dir: "up", text: "+$30 float" }),
     apply(cfg, tier) {
-      cfg.startingFunds += 60 * tier;
+      cfg.startingFunds += 30 * tier;
       cfg.scorePerLine += 15 * tier;
     },
   },
