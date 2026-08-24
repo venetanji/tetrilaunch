@@ -857,6 +857,7 @@ export function hudHTML(opts: {
       <div class="pl-pwr" id="hud-pwr">
         <i class="plant__crest plant__crest--cap" aria-hidden="true"></i>
         <i class="plant__crest plant__crest--step" aria-hidden="true"></i>
+        <i class="plant__crest plant__crest--shoulder" aria-hidden="true"></i>
         <span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
         <span class="pl-pwr__val" id="hud-power-val">0%</span>

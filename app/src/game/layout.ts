@@ -126,8 +126,13 @@ const RAIL_EDGE = 16;
  *  set it (headless checks, first paint) stay conservative. */
 let railSlots = RAIL_SLOTS_MAX;
 
+/** Floor of ONE, not two: the smallest real rail is the pause button alone —
+ *  a fine-pointer device with no fullscreen toggle (railSlotsFor returns 1
+ *  there), and clamping it back to 2 would keep reserving an empty slot the
+ *  budget exists to reclaim. The floor's only job is to keep the column math
+ *  above zero. */
 export function setRailSlots(n: number): void {
-  railSlots = Math.max(2, Math.min(RAIL_SLOTS_MAX, Math.round(n)));
+  railSlots = Math.max(1, Math.min(RAIL_SLOTS_MAX, Math.round(n)));
 }
 
 export function getRailSlots(): number {

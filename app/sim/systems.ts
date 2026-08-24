@@ -2505,8 +2505,13 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
     railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true, fullscreen: false }) === 1);
   check("the budget clamps to the seven-slot worst case",
     (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
-  check("the budget clamps above the fine-pointer floor",
-    (setRailSlots(0), getRailSlots() === 2));
+  // Floor of ONE: the pause-only rail (fine pointer, no fullscreen toggle) is
+  // a real budget and must survive the clamp — see setRailSlots.
+  check("the budget clamps at the one-button floor",
+    (setRailSlots(0), getRailSlots() === 1));
+  check("the pause-only budget survives the clamp",
+    (setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: true, fullscreen: false })),
+      getRailSlots() === 1));
 
   // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
   // fullscreen Chrome. It must keep the vertical side rail at every loadout —
