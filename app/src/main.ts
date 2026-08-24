@@ -34,9 +34,9 @@ import {
   type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, UNLOCKS, buyInstall, installAvailable, markUnlocked, newMeta, nextStep,
-  recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
-  unlockById, type MetaState, type TierResult,
+  INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta,
+  nextStep, recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
+  unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
 import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
@@ -650,7 +650,22 @@ class App {
             // screens.ts's hudHTML for why a pattern bay cannot use it.
             lost: g.lostTotal,
             conditions: this.contract.conditions,
-            progress: tierProgressFor(this.meta),
+            tier: this.contract.tier,
+            // Only while THIS bay's clear would still bank the milestone the
+            // row quotes — the same three-way gate recordContractClear
+            // settles on (unclaimed, at the current tier, under the
+            // milestone cap). A replay, an off-tier board entry, or the
+            // fresh contract-end render after the clear just banked all
+            // pass null, and the panel says practice instead of advertising
+            // a tier tick and a salvage figure this bay can never pay.
+            progress: (() => {
+              const p = tierProgressFor(this.meta);
+              const banks =
+                !contractClaimed(this.meta, this.contract.id) &&
+                this.contract.tier === p.tier &&
+                p.contracts < TIER_CONTRACTS_REQUIRED;
+              return banks ? p : null;
+            })(),
           }
         : null,
     };

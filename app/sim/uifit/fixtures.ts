@@ -387,6 +387,7 @@ export const SCREENS: Record<string, () => string> = {
       contract: {
         name: "Cold Storage Backlog",
         kind: "pattern",
+        tier: 1,
         goal: 4,
         lines: 1,
         launchesLeft: 6,
@@ -426,6 +427,7 @@ export const SCREENS: Record<string, () => string> = {
       contract: {
         name: "Foundry Overrun",
         kind: "lines",
+        tier: 1,
         goal: 5,
         lines: 2,
         launchesLeft: 9,
