@@ -121,22 +121,50 @@ export function menuScreen(
    *  fight the menu's own decoration (the wordmark is pointer-events: none by
    *  design), and be untestable. So: a button. */
   sandbox = false,
+  /** The Tier ladder, rendered as the TOWER inside the attract demo (see
+   *  towerHTML) — ten floors rising off the bay floor where the wordmark plate
+   *  used to sit.
+   *
+   *  That space rather than a third menu column, and the difference is the
+   *  whole reason this fits a phone. A column of ten 44px rungs is 440px of
+   *  height a landscape phone does not have and 236px of width it does not
+   *  have either; the demo panel is already there, already sized, and was
+   *  already spending its best corner on a wordmark. The tower is a readout
+   *  and a door — the control is ladderScreen, which the tower and the Tier
+   *  chip both open. */
+  ladder?: LadderView,
 ): string {
   // The tier chip answers "where am I on the ladder and what's left" from the
   // homepage (playtest call, 2026-08-08): the tier being flown, and the two
   // halves that complete it — the Deep Run and the Contracts — as live ticks.
-  const tierChip = progress
-    ? `<div class="chip chip--tier">
-        <div class="chip__label">Tier</div>
+  //
+  // It is also the LADDER's door on any viewport too narrow for the middle
+  // column: the chip is already the ladder's one-line summary — the Tier and
+  // its two halves — so tapping it to see the whole thing is the gesture a
+  // player would guess, and it costs the action column no height (which is the
+  // one budget that column has none of). A real <button>, per the same rule
+  // the Unlimited chip follows: a chip is a readout, anything pressable is a
+  // button wearing chip styling.
+  const tierBody = progress
+    ? `<div class="chip__label">Tier</div>
         <div class="chip__value" style="color:var(--accent)">${progress.tier}</div>
         <div class="tier-chip__halves">
           <span class="${progress.runDone ? "done" : ""}">${progress.runDone ? "✓" : "○"} Run</span>
           <span class="${progress.contracts >= progress.needed ? "done" : ""}">${progress.contracts >= progress.needed ? "✓" : "○"} Contracts ${progress.contracts}/${progress.needed}</span>
-        </div>
-      </div>`
+        </div>`
     : "";
+  const tierChip = !progress
+    ? ""
+    : ladder
+      ? `<button class="chip chip--tier chip--door" data-action="ladder" aria-label="Tier ${progress.tier} — open the Tier ladder">${tierBody}</button>`
+      : `<div class="chip chip--tier">${tierBody}</div>`;
+  // The Deep Run button flies the LADDER's selection, which is the exam unless
+  // the player picked a cleared Tier to replay. Falls back to the exam when no
+  // ladder was passed, so the fixture that predates it renders unchanged.
+  const flying = ladder?.selected ?? progress?.tier ?? 1;
+  const replay = !!progress && flying < progress.tier;
   return `<div class="screen neon-backdrop">
-    <div class="menu split">
+    <div class="menu split${ladder ? " menu--tower" : ""}">
       <div class="menu__brand">
         <!-- The demo (game/attract.ts drives the canvas), the wordmark sitting
              in it, and the paragraph both replaced.
@@ -156,6 +184,7 @@ export function menuScreen(
              (or without a 2D context) gets it on screen. -->
         <div class="menu__demo">
           <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
+          ${ladder ? towerHTML(ladder) : ""}
           <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
@@ -183,9 +212,9 @@ export function menuScreen(
              offer in LIVE numbers (A3), the Deep Run button carries the tier
              plate (A1 — the plate takes the icon slot), and exactly one
              button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play">${
-          progress ? tierPlateHTML(progress.tier, "menu") : icon("play")
-        }<span class="btn__txt">Deep Run<span class="btn__sub">Clear ${RUN_LEVELS} bays${progress ? ` at Tier ${progress.tier}` : ""} in one run</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}${replay ? " btn--replay" : ""}" data-action="play">${
+          progress ? tierPlateHTML(flying, "menu") : icon("play")
+        }<span class="btn__txt">${replay ? "Replay Tier" : "Deep Run"}<span class="btn__sub">Clear ${RUN_LEVELS} bays${progress ? ` at Tier ${flying}` : ""} in one run${replay ? " · Tier " + flying + "'s own build budget" : ""}</span></span>${guide?.step === "run" && !replay ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
@@ -257,6 +286,181 @@ function unlockChipHTML(): string {
  *  rendered by a build that compiled the sandbox in (lib/sandbox.ts). */
 function sandboxChipHTML(): string {
   return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE TIER LADDER (docs/LONGEVITY.md)
+ *
+ * Ten rungs and a capstone. It answers two questions with one object, and that
+ * is deliberate — they turned out to be the same question:
+ *
+ *   WHERE AM I?      docs/DESIGN.md asks for a Mark to "change the rig visibly
+ *                    on screen", on the grounds that progress which only exists
+ *                    as a number in a menu doesn't read as progress. A column
+ *                    of ten rungs with eight of them lit is the progress.
+ *   WHAT DO I FLY?   a cleared Tier is replayable, at THAT Tier's build budget
+ *                    (meta.ts's safeLoadout), so the same rung that shows where
+ *                    you are is the control that picks what Deep Run loads.
+ *
+ * It renders in two places from one function: inline in the menu's middle
+ * column where a viewport is wide enough to have one, and as its own screen
+ * from the Tier chip everywhere else. The chip is the right door for the
+ * narrow case because it is already the ladder's one-line summary — it says
+ * the Tier and the two halves — so tapping it to see the whole thing is the
+ * gesture a player would guess.
+ * ------------------------------------------------------------------------ */
+
+export interface LadderRung {
+  tier: number;
+  /** `current` is the exam — the one Tier whose clear advances the Mark.
+   *  `cleared` is replayable. `locked` is not reachable yet, and shows nothing
+   *  about its contents: naming Tier 7's hazard on a locked rung would spoil a
+   *  reveal to save nobody any time (docs/LONGEVITY.md's open calls). */
+  state: "cleared" | "current" | "locked";
+  /** Commission claims banked at this Tier, and how many it can pose. */
+  claimed: number;
+  total: number;
+}
+
+export interface LadderGod {
+  /** Tier 10 cleared. Until then the capstone is a signpost, not a door. */
+  unlocked: boolean;
+  /** Today's day-shape name (god.ts's GodTemplate) — what today IS, before it
+   *  is flown. A daily whose character is only discoverable by losing to it is
+   *  a daily people play once. */
+  template: string;
+  blurb: string;
+  attemptsLeft: number;
+  attempts: number;
+  streak: number;
+  best: number;
+}
+
+export interface LadderView {
+  rungs: LadderRung[];
+  /** The Tier the Deep Run button will fly. */
+  selected: number;
+  god: LadderGod;
+}
+
+/** One rung. A `locked` rung is still a real <button> — disabled — rather than
+ *  a div, so it keeps its place in the tab order and announces WHY it can't be
+ *  pressed instead of silently not being a control. */
+function rungHTML(r: LadderRung, selected: number): string {
+  const on = r.tier === selected;
+  const glyph = r.state === "locked" ? "🔒" : r.state === "current" ? "◆" : "✓";
+  const cls = `rung rung--${r.state}${on ? " is-on" : ""}`;
+  const label =
+    r.state === "locked"
+      ? `Tier ${r.tier}, locked`
+      : `Fly Tier ${r.tier}${r.state === "current" ? ", the current exam" : ", replay"}, ${r.claimed} of ${r.total} commissions`;
+  return `<button class="${cls}" ${r.state === "locked" ? "disabled" : ""} data-action="pick-tier" data-tier="${r.tier}" aria-label="${label}" aria-pressed="${on}">
+    <span class="rung__glyph" aria-hidden="true">${glyph}</span>
+    <span class="rung__n">${r.tier}</span>
+    <span class="rung__cm">${r.state === "locked" ? "—" : `${r.claimed}/${r.total}`}</span>
+  </button>`;
+}
+
+/** The capstone. Locked it states its one entry condition; unlocked it is the
+ *  day's card — template, attempts left, streak — and the button that flies it.
+ *
+ *  Attempts are shown as "2 of 3 left" rather than as a bare number because
+ *  the denominator is the part that has to be legible: it is the same for
+ *  every player, subscriber or not, and a board nobody believes is equal is
+ *  not worth posting to (god.ts's GOD_ATTEMPTS). */
+function godRungHTML(g: LadderGod): string {
+  if (!g.unlocked) {
+    return `<div class="rung rung--god is-locked">
+      <span class="rung__glyph" aria-hidden="true">🔒</span>
+      <span class="rung__godname">God Tier</span>
+      <span class="rung__godsub">Clear Tier 10 to open the dailies</span>
+    </div>`;
+  }
+  const out = g.attemptsLeft <= 0;
+  const sub = out ? "Out of attempts — a new day lands at midnight UTC" : g.blurb;
+  const foot = `<span class="rung__godfoot">${g.attemptsLeft} of ${g.attempts} attempts left${g.streak > 0 ? ` · ${g.streak}-day streak` : ""}${g.best > 0 ? ` · best ${g.best}` : ""}</span>`;
+  return `<button class="rung rung--god${out ? " is-spent" : ""}" ${out ? "disabled" : ""} data-action="god">
+    <span class="rung__glyph" aria-hidden="true">★</span>
+    <span class="rung__godname">God Tier · ${g.template}</span>
+    <span class="rung__godsub">${sub}</span>
+    ${foot}
+  </button>`;
+}
+
+/** The rungs at full size — the CONTROL half of the ladder, as opposed to the
+ *  tower's readout half. Only ladderScreen renders it, which is why it carries
+ *  no heading of its own: the modal already has one, and a panel that titled
+ *  itself inside a titled modal would say "Tier Ladder" twice. */
+export function ladderPanel(view: LadderView): string {
+  return `<div class="ladder">
+    <div class="ladder__rungs" role="group" aria-label="Tier ladder">
+      ${view.rungs.map((r) => rungHTML(r, view.selected)).join("")}
+    </div>
+    ${godRungHTML(view.god)}
+  </div>`;
+}
+
+/**
+ * THE TOWER — the ladder as a building, standing in the attract demo's bay.
+ *
+ * This is the menu's rendering of the ladder, and it replaces the wordmark
+ * plate that used to sit in the demo panel's bottom-left corner. Ten floors
+ * rising off the ground, the capstone as a spire, and each floor's windows lit
+ * in proportion to the Commissions claimed at that Tier — so a save's whole
+ * history reads at a glance, from the ground up, in the one part of the menu
+ * that was pure decoration.
+ *
+ * It is a READOUT and a DOOR, not the control. Ten floors have to share the
+ * demo panel's height, which on a landscape phone is about 157px — 14px a
+ * floor, a quarter of the 44px a tap target owes. So the whole tower is one
+ * button and it opens ladderScreen, where the rungs are full size. Trying to
+ * make each floor tappable is how this ends up back in a column nobody has
+ * room for.
+ *
+ * Emitted top-down (Tier 10 first) because that is the order the DOM stacks
+ * in and the order a building is read in. The ground is the last element, and
+ * it is a real element rather than a border so it can be thicker than one
+ * hairline without the floor above it inheriting the weight.
+ */
+export function towerHTML(view: LadderView): string {
+  const cleared = view.rungs.filter((r) => r.state === "cleared").length;
+  const g = view.god;
+  const floors = [...view.rungs]
+    .reverse()
+    .map((r) => {
+      // Windows lit = commissions claimed. A locked floor is dark whatever its
+      // tally says, which cannot currently disagree (a locked Tier has no
+      // claims) but would if a future build ever un-cleared a Tier.
+      const lit = r.state === "locked" || r.total <= 0
+        ? 0
+        : Math.round((Math.min(r.claimed, r.total) / r.total) * 100);
+      return `<span class="tower__floor tower__floor--${r.state}${r.tier === view.selected ? " is-on" : ""}" style="--lit:${lit}%"><i>${r.tier}</i></span>`;
+    })
+    .join("");
+  return `<button class="tower" data-action="ladder" aria-label="Tier ladder — flying Tier ${view.selected}, ${cleared} of ${view.rungs.length} Tiers cleared${g.unlocked ? `, God Tier open with ${g.attemptsLeft} of ${g.attempts} attempts left today` : ""}">
+    <span class="tower__spire${g.unlocked ? " is-on" : ""}" aria-hidden="true">${g.unlocked ? "★" : "•"}</span>
+    ${floors}
+    <span class="tower__ground" aria-hidden="true"></span>
+  </button>`;
+}
+
+/** The ladder as its own screen — the narrow-viewport door, opened from the
+ *  menu's Tier chip. Same panel, a title and a way back. */
+export function ladderScreen(view: LadderView): string {
+  return `<div class="screen neon-backdrop center">
+    <div class="panel modal pop ladder-modal" style="width:min(560px,94vw)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="text-align:left"><div class="eyebrow">Deep Run</div>
+        <h2 class="display" style="font-size:var(--fs-h1)">Tier Ladder</h2></div>
+        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+      </div>
+      ${ladderPanel(view)}
+      <p class="ladder__note">A replay flies that Tier's own build budget, so its board stays a
+      ranking of how well the Tier was played rather than how far past it you have climbed.
+      It banks no salvage and no tier progress — what it pays is a board place and Commissions.</p>
+      <button class="btn btn--primary" data-action="play">${icon("play")}Fly Tier <span id="ladder-sel">${view.selected}</span></button>
+    </div>
+  </div>`;
 }
 
 export function howtoScreen(): string {
@@ -2079,8 +2283,17 @@ export function endModal(opts: {
    *  sitting on the same foot line would read as one number counted twice. */
   salvagedFunds: number;
   tiers: UpgradeTiers;
+  /** COMMISSIONS this run's end banked (commissions.ts), already resolved to
+   *  card names. Empty on every run that flew no clause, which is most of
+   *  them — the row is suppressed rather than printed as "none", the same
+   *  treatment the demolition foot line gets and for the same reason. */
+  commissions?: string[];
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
+  // Named separately so the row below reads as a list and not as an
+  // expression: a claim is a (clause, Tier) pair, and the Tier is already the
+  // one this modal is about, so only the clause names are printed here.
+  const claims = opts.commissions ?? [];
   // Demolition recovery, appended to whichever foot line the branch below
   // renders. Suppressed at zero rather than printed as "$0": a charge is a
   // draft pick most runs never make, so the line would be dead weight on the
@@ -2154,6 +2367,22 @@ export function endModal(opts: {
            before they see the leaderboard. Salvage arrives per MILESTONE
            (meta.ts): a first at-tier win banks its share on the spot, so the
            progress row can carry a payout line without a completion. -->
+      ${
+        // COMMISSIONS, above the tier row rather than folded into it. A claim
+        // is a different KIND of thing from tier progress — progress is where
+        // the ladder stands, a claim is something the player DID and chose to
+        // do — and the two sharing a line would make the clause read as a
+        // footnote on the salvage.
+        claims.length
+          ? `<div class="salvage-row salvage-row--commission">
+        <div class="salvage-row__amt">✦</div>
+        <div class="salvage-row__body">
+          <b>${claims.length === 1 ? "Commission banked" : `${claims.length} Commissions banked`}</b>
+          <span class="muted">${claims.join(" · ")} — at Tier ${opts.progress.tier}.</span>
+        </div>
+      </div>`
+          : ""
+      }
       ${
         opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">

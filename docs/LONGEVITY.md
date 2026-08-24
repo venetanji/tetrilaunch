@@ -34,18 +34,51 @@ ladder already contains ten difficulty settings, twenty authored Final
 Inspection clauses, eleven hazard axes and six materials.** What is missing is
 permission to re-enter it and a reason to.
 
-## 1. The ladder panel — replaying a Tier
+## 1. The tower — replaying a Tier
 
-The menu's middle is empty at every aspect ratio wider than 16:9 and empty
-twice over on a tablet (see `sim/results/uifit/ios-ipad-pro-12-9/menu-live.png`).
-It gets the **ladder**: ten rungs plus a capstone, showing for each Tier whether
-it is cleared, current or locked, how many of its Commissions are claimed, and —
-tapped — which Tier the Deep Run button will fly.
+The menu's attract demo (`game/attract.ts`) is a live bay with no HUD over it,
+and it spends its best corner — the plant panel's footprint, bottom-left, the
+one place nothing the autopilot does ever reaches — on the **TETRILAUNCH**
+wordmark. That corner gets the ladder instead: a **tower**, ten floors rising
+off the bay floor, the capstone as a spire above them, and each floor's windows
+lit in proportion to the Commissions claimed at that Tier. A save's whole
+history reads at a glance, from the ground up, in the part of the menu that was
+pure decoration.
 
-This is not only a selector. `DESIGN.md` already asks for it in another voice:
-"progress that only exists as a number in a menu doesn't read as progress." A
-column of ten rungs with eight of them lit is the progress; the eleventh is the
-thing you are climbing toward.
+`DESIGN.md` already asks for this in another voice — "progress that only exists
+as a number in a menu doesn't read as progress." A building with eight lit
+floors is the progress; the spire is the thing you are climbing toward.
+
+**The tower is a readout and a door, not the control.** Ten floors share the
+demo panel's height, which on a landscape phone is about 157px — 14px a floor,
+a quarter of the 44px a tap target owes. So the whole tower is one button and
+it opens the **ladder modal**, where the rungs are full size: ten of them in an
+`auto-fit` grid that resolves to five columns and two rows inside the modal's
+`min(560px, 94vw)`, the capstone underneath, and a confirm that names the Tier
+it will fly. The Tier chip in the status strip opens the same modal — it is
+already the ladder's one-line summary, so tapping it to see the whole thing is
+the gesture a player would guess.
+
+A third menu column was the first build of this and it does not fit a phone.
+Ten rungs at 44px is 440px of height against the ~348px a landscape phone has,
+and 236px of width the two existing columns have already spent; the version
+that did fit starved the brand stack to a zero-width grid cell on all five
+landscape phones. The demo panel is a box that already exists, is already sized
+by `--brand-w`, and was already spending its best corner on a wordmark.
+
+The wordmark goes, in both demo states. It stays in the DOM — it is the
+canvas's accessible name and the reduced-motion fallback's headline — but the
+plate and the letters both hide, because that corner holds one thing and the
+ladder is the one that changes. The game's name is still the splash screen, the
+tab title and the icon. Dropping it from the fallback is not only consistency:
+that state pays `clamp(30px, 6.2vw, 66px)` for the wordmark and fits today only
+because it asks for nothing else, so a tower beside it overflowed three
+landscape phones. Where the demo is inert (reduced motion, no 2D context) there
+is no bay for a building to stand in, and the tower lays on its side as a 44px
+progress strip instead.
+
+All thirteen devices in `sim/uifit` render the tower, the modal and the menu
+with zero fit violations.
 
 ### The budget clamp is what makes it honest
 
@@ -376,8 +409,8 @@ migration first.
    copies.
 3. **Tier replay** — `safeLoadout(meta, tier)`, `trimLoadout`, and the one line
    in `startGame` that stops assuming `markUnlocked`.
-4. **The ladder panel** — the menu's middle, and the only piece of this that is
-   pure UI.
+4. **The tower** — the attract demo's corner, plus the ladder modal behind it;
+   the only piece of this that is pure UI.
 5. **Boards** — migration, Worker, `api.ts`, and deleting the hardcoded `1`.
 6. **God Tier** — the generator and its sim proof, then its screens.
 7. **Rigs**, later, reading the Commission ledger that step 2 built.
@@ -406,9 +439,13 @@ migration first.
   launches-per-line ceiling is exactly what `PLANNING_EFFICIENCY` measures) but
   the restraint clauses are invisible to a bot that never uses an ability, which
   is the same blind spot `ECONOMY.md` already records.
-- **Does the ladder panel show locked Tiers' content?** Showing Tier 7's hazard
-  axis on a locked rung spoils a reveal; hiding it makes the ladder a row of
-  question marks. Currently: name and lock state only.
+- **Does the ladder show locked Tiers' content?** Showing Tier 7's hazard axis
+  on a locked rung spoils a reveal; hiding it makes the ladder a row of
+  question marks. Currently: number and lock state only.
+- **Does the tower survive losing the wordmark?** The menu no longer says what
+  the game is called anywhere except the tab title. That is the right trade for
+  a screen a returning player sees every session and the wrong one for a
+  screenshot in a store listing, and the store listing is a real constituency.
 - **"God Tier" is the working name.** It reads as a meme next to Launch Bay,
   Cargo Dock and Freight Yard. `DEAD SHIFT`, `BLACK SHIFT` and `THE LONG HAUL`
   all fit the world better. Not renamed yet because the brief named it and a

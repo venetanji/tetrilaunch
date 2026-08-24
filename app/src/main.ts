@@ -3,6 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
+  foldBay, type BayStats,
   buyUpgrade, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { finalsForTier, type FinalDef, type FinalId } from "./game/finals";
@@ -30,11 +31,12 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, newTiers, nextTierCost, refitTracks, upgradeById,
+  MARK_COUNT, MAX_TIER, newTiers, nextTierCost, refitTracks, upgradeById,
   type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
   INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
+  playableTier,
   recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
@@ -68,7 +70,14 @@ import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
 import * as S from "./ui/screens";
-import { fetchLeaderboard, submitScore, type ScoreEntry } from "./lib/api";
+import { fetchLeaderboard, submitScore, tierBoard, type BoardKey, type ScoreEntry } from "./lib/api";
+import {
+  GOD_ATTEMPTS, godAttemptsLeft, godBoardKey, godRunFor, levelForGod, recordGodAttempt,
+  GOD_MARK, type GodRun,
+} from "./game/god";
+import {
+  claimedAtTier, commissionById, commissionCountFor, earnedCommissions,
+} from "./game/commissions";
 import { compactorSpeedFor } from "./game/compactor";
 import {
   loadSettings, saveSettings, loadName, saveName, loadBest, saveBest,
@@ -93,7 +102,7 @@ import {
 type AppState =
   | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
-  | "contracts" | "contract-end" | "coach-fail"
+  | "contracts" | "contract-end" | "coach-fail" | "ladder"
   // Developer sandbox. Present in the union unconditionally — a state name is
   // free, and a conditional type would mean every switch below needed a second
   // shape. Reaching it is what is gated (see SANDBOX).
@@ -176,6 +185,19 @@ class App {
    *  can show it without recomputing (and so re-rendering the modal — e.g.
    *  after the leaderboard fetch lands — can't award a completion twice). */
   private lastTier: TierResult | null = null;
+  /** The Tier the Deep Run button will fly — the exam by default, or a cleared
+   *  Tier the player picked off the ladder to replay (docs/LONGEVITY.md).
+   *
+   *  Session-scoped on purpose. A persisted selection means a player who once
+   *  went back to drill Tier 3 launches the app a week later and is quietly
+   *  flying Tier 3 against a Tier-3 budget, wondering why their rig shrank.
+   *  Re-picking costs one tap; a silent wrong Tier costs a run. */
+  private tier = markUnlocked(this.meta);
+  /** The God Tier day this run is flying, or null for an ordinary Deep Run.
+   *  Everything that branches on mode branches on this one field being set. */
+  private god: GodRun | null = null;
+  /** Commission claims the just-ended run banked, for the end modal. */
+  private lastClaims: string[] = [];
   /** Timer that auto-advances the bay-clear celebration; cleared if the player
    *  taps through it first. */
   private bayClearTimer: number | null = null;
@@ -717,6 +739,50 @@ class App {
     return next ? { name: upgradeById(next.id)!.name, cost: next.cost } : null;
   }
 
+  /** The ladder the menu and the ladder screen both render (screens.ts's
+   *  ladderPanel). Built here rather than in the screen because every fact on
+   *  it is a meta.ts/god.ts rule — which Tier is the exam, which are cleared,
+   *  how many clauses a Tier can pose, how many attempts today has left — and
+   *  a screen deriving those is a screen that can disagree with the model. */
+  private ladderView(): S.LadderView {
+    const top = markUnlocked(this.meta);
+    const rungs: S.LadderRung[] = [];
+    for (let t = 1; t <= MARK_COUNT; t++) {
+      rungs.push({
+        tier: t,
+        state: t < top ? "cleared" : t === top ? "current" : "locked",
+        claimed: claimedAtTier(this.meta.commissions, t).length,
+        total: commissionCountFor(t),
+      });
+    }
+    // The capstone opens on a BEATEN Tier 10, i.e. mark === MARK_COUNT — not on
+    // markUnlocked, which clamps at MARK_COUNT and would therefore read as
+    // "unlocked" for the whole of the player's last climb.
+    const unlocked = this.meta.mark >= MARK_COUNT;
+    const day = godRunFor();
+    return {
+      rungs,
+      selected: playableTier(this.meta, this.tier),
+      god: {
+        unlocked,
+        template: day.template.name,
+        blurb: day.template.blurb,
+        attemptsLeft: godAttemptsLeft(this.meta.god),
+        attempts: GOD_ATTEMPTS,
+        streak: this.meta.god.streak,
+        best: this.meta.god.best,
+      },
+    };
+  }
+
+  /** Which board the run in flight competes on (lib/api.ts's BoardKey). One
+   *  accessor, read by both the submit and the refresh, so a score can never be
+   *  posted to a board the screen is not showing. */
+  private boardKey(): BoardKey {
+    if (this.god) return godBoardKey(this.god.seed);
+    return tierBoard(this.run?.mark ?? playableTier(this.meta, this.tier));
+  }
+
   private renderOverlay(): void {
     const g = this.game;
     switch (this.state) {
@@ -734,8 +800,10 @@ class App {
             firstLaunch: !this.settings.seenTutorial,
           },
           SANDBOX,
+          this.ladderView(),
         );
         break;
+      case "ladder": this.overlay.innerHTML = S.ladderScreen(this.ladderView()); break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
       // Guarded even here. Nothing can reach this state in a shippable build
       // (see onClick's sandbox cases), but a render path that would draw the
@@ -897,6 +965,12 @@ class App {
               // tier) plus where the tier stands now — the modal's payout row
               // became a progress row when salvage moved to tier completion.
               tierCompleted: this.lastTier?.completedTier ?? null,
+              // Claim ids back to card names. parseClaim would give the Tier
+              // too, but the modal is already about one Tier, so only the
+              // clause name is printed (screens.ts's commission row).
+              commissions: this.lastClaims
+                .map((c) => commissionById(c.slice(0, c.lastIndexOf("@")))?.name)
+                .filter((n): n is string => !!n),
               tierSalvage: this.lastTier?.salvage ?? 0,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
@@ -1054,17 +1128,62 @@ class App {
     // change this run's draft pool, and the run never has to reach back into
     // localStorage.
     const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
+    // The LADDER's selection, not markUnlocked: a cleared Tier is replayable
+    // (docs/LONGEVITY.md). The same number goes to newRun twice over — it sets
+    // the ladder the bays are built from AND the build budget the loadout is
+    // trimmed to — because those are the two halves of "flying Tier N", and
+    // letting them disagree is exactly how a 660-point rig would end up on a
+    // Tier-3 board.
+    const tier = playableTier(this.meta, this.tier);
+    this.god = null;
     this.run = newRun(
       Date.now() >>> 0,
       this.meta.unlocks,
       startingScrap,
-      safeLoadout(this.meta),
-      markUnlocked(this.meta),
+      safeLoadout(this.meta, tier),
+      tier,
     );
     this.contract = null;
     this.contractMusic = null;
     this.submitted = false;
     this.lastTier = null;
+    this.lastClaims = [];
+    telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
+    this.startLevel();
+  }
+
+  /** Fly today's God Tier day (game/god.ts). Structurally startGame with two
+   *  differences, and only two: the run is pinned to GOD_MARK whatever the
+   *  ladder says, and `this.god` holds the day so startLevel builds its bays
+   *  from levelForGod instead of levelForRun.
+   *
+   *  The attempt is NOT spent here. It is spent when the run FINISHES (see
+   *  finishRun), win or lose — a day is meant to be lost, and a cap charged at
+   *  the door would let a player peek at the day and quit for free, which is
+   *  the whole advantage a limited board is supposed to deny. */
+  private startGodRun(): void {
+    if (this.meta.mark < MARK_COUNT) return;
+    const day = godRunFor();
+    if (godAttemptsLeft(this.meta.god, day.seed) <= 0) return;
+    void autoEnterFullscreenForRun();
+    const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
+    this.god = day;
+    this.run = newRun(
+      // The RUN's own seed is the day's, so the ratchet offers between bays are
+      // dealt the same to everybody (hazardOffers keys on run.seed). What the
+      // player TAKES is still theirs — the day is a shared position, not a
+      // fixed obstacle course.
+      day.seed >>> 0,
+      this.meta.unlocks,
+      startingScrap,
+      safeLoadout(this.meta, GOD_MARK),
+      GOD_MARK,
+    );
+    this.contract = null;
+    this.contractMusic = null;
+    this.submitted = false;
+    this.lastTier = null;
+    this.lastClaims = [];
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
     this.startLevel();
   }
@@ -1080,7 +1199,7 @@ class App {
     // levelForRun already seeds the bay's Bond Breaker charges from the run's
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
-    const cfg = levelForRun(this.run);
+    const cfg = this.god ? levelForGod(this.run, this.god) : levelForRun(this.run);
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
@@ -1568,7 +1687,12 @@ class App {
         // player accepts. A ratchet taken here would be a permanent commitment
         // one bay before permanence expires, which is the whole reason the last
         // draft deals something else.
-        if (isFinalDraft(this.run.levelIndex)) {
+        // ...and not in God Tier, where the DAY chose bay 10's clause and it
+        // is already applied (god.ts's boss bays). Dealing an inspection on
+        // top would stack two clauses on the capstone — two quota raises, say
+        // — which is the combination the generator's one-structural-pressure
+        // rule exists to prevent everywhere else.
+        if (!this.god && isFinalDraft(this.run.levelIndex)) {
           this.pendingFinals = finalsForTier(this.run.mark);
           this.pendingOffers = [];
         } else {
@@ -1624,6 +1748,7 @@ class App {
     if (this.state !== "bayclear") return;
     const g = this.game;
     if (!g || !this.run) return;
+    const stats = this.bayStats(g);
     // Bank the cleared bay NOW (not at draft-dismiss time) so the refit screen
     // can spend the scrap this bay just earned. advanceRun also steps
     // levelIndex, so everything downstream — the draft's "next bay" name, the
@@ -1639,10 +1764,39 @@ class App {
       // whatever this bay did not spend is what the next one opens with.
       g.bondCharges,
       g.salvagedFunds,
+      // Read BEFORE the bond stock is advanced — bayStats diffs against the
+      // run's current magazine, so folding after would measure zero.
+      stats,
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
     this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
+  }
+
+  /** What the just-stopped bay contributes to the run's commission tally
+   *  (run.ts's RunStats). Read here rather than inside run.ts because two of
+   *  the five numbers are DIFFERENCES against the stock the bay opened with,
+   *  and only main.ts holds both sides:
+   *
+   *   - bombs fired is not `granted - left`: the resupply line tops the rack
+   *     back up mid-bay (game.ts's bombsResupplied), so a two-snapshot diff
+   *     under-counts every resupplied charge. Granted PLUS resupplied, less
+   *     what is left, is the count that survives a resupply.
+   *   - bonds used is the run's magazine against what the bay has left, since
+   *     the magazine is granted once per RUN and threaded bay to bay.
+   *
+   *  The clock reports Infinity on a clockless bay — a rationed God Tier bay,
+   *  or any Contract — because `tightestSec` is a running minimum and a bay
+   *  that cannot run out of time must never be the one that sets it. */
+  private bayStats(g: Game): BayStats {
+    const granted = g.level.bombCharges + g.bombsResupplied;
+    return {
+      shots: g.shotsFired,
+      lostCubes: g.lostTotal,
+      bombsFired: Math.max(0, granted - g.bombCharges),
+      bondsUsed: Math.max(0, (this.run?.bondCharges ?? 0) - g.bondCharges),
+      timeLeftSec: Number.isFinite(g.timeLeftMs) ? Math.max(0, g.timeLeftMs / 1000) : Infinity,
+    };
   }
 
   /** Common run-end path for both a bay-10 win and any loss: record the run
@@ -1652,9 +1806,45 @@ class App {
   private finishRun(won: boolean): void {
     const g = this.game;
     if (!g || !this.run) return;
-    const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
+    // The DECIDING bay never reaches afterBayClear — a loss obviously doesn't,
+    // and the bay-10 win routes straight here — so the run's tally is short
+    // exactly the bay that mattered until this fold. Written back onto the run
+    // so the end screen and the clause checks read one number, not two.
+    this.run = { ...this.run, stats: foldBay(this.run.stats, this.bayStats(g)) };
+    const lines = this.run.linesTotal + g.linesTotal;
+    // A God Tier run flies at GOD_MARK and would otherwise look to
+    // recordRunEnd exactly like a Tier-10 exam win — banking the exam's
+    // milestone salvage and its clauses off a day that is not the ladder at
+    // all. It is past the ladder; it ticks nothing on it.
+    const earned = this.god
+      ? []
+      : earnedCommissions({
+          run: this.run, won, lines, funds: g.score, target: g.target,
+        });
+    const result = recordRunEnd(
+      this.meta,
+      // Same reasoning: a God Tier run must not match markUnlocked, and
+      // passing 0 is how recordRunEnd's existing off-tier guard says so.
+      this.god ? 0 : this.run.mark,
+      won,
+      this.run.levelIndex + 1,
+      earned,
+    );
     this.lastTier = result;
+    this.lastClaims = result.claimed;
     this.meta = result.meta;
+    if (this.god) {
+      // Spent on a FINISHED attempt, win or lose. A God Tier day is meant to
+      // be lost; a cap charged at the door would let a player open the day,
+      // read it and quit for free, which is the one thing a limited board
+      // cannot allow.
+      this.meta = {
+        ...this.meta,
+        god: recordGodAttempt(
+          this.meta.god, this.god.seed, this.finalScore(g, won), this.run.levelIndex + 1,
+        ),
+      };
+    }
     telemetry.endRun(won, result.salvage);
     saveMeta(this.meta);
     saveBest(this.finalScore(g, won));
@@ -1930,6 +2120,22 @@ class App {
     this.startLevel();
   }
 
+  /** Re-render the ladder modal's rungs and its confirm label IN PLACE after a
+   *  pick. Renders the screen to a detached container and lifts the two live
+   *  regions out of it, so the rung markup has one source of truth
+   *  (screens.ts's ladderPanel) rather than a second copy here that could
+   *  drift — the same idiom refreshRefit and renderBoardRows use. */
+  private refreshLadder(): void {
+    const rungs = this.overlay.querySelector(".ladder__rungs");
+    const label = this.overlay.querySelector("#ladder-sel");
+    if (!rungs || !label) return;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = S.ladderScreen(this.ladderView());
+    const fresh = tmp.querySelector(".ladder__rungs");
+    if (fresh) rungs.innerHTML = fresh.innerHTML;
+    label.textContent = String(playableTier(this.meta, this.tier));
+  }
+
   private pause(): void {
     if (this.state !== "playing" || !this.game) return;
     this.game.paused = true;
@@ -1997,9 +2203,11 @@ class App {
   }
 
   private async refreshBoard(): Promise<void> {
-    // The D1 board is the single RUN board for now — level is always 1
-    // regardless of which bay the run ended on.
-    this.cachedBoard = await fetchLeaderboard(1, 10);
+    // One board per Tier, and one per God Tier day (lib/api.ts's BoardKey).
+    // Every score used to be filed under level 1 whatever Tier it was flown
+    // at, which was survivable while only one Tier was reachable at a time and
+    // stopped being so the moment a cleared Tier could be replayed.
+    this.cachedBoard = await fetchLeaderboard(this.boardKey(), 10);
     // won/lost highlight the player's own just-played name; the standalone
     // leaderboard screen doesn't (matches renderOverlay's existing per-state
     // leaderboardRowsHTML args).
@@ -2434,6 +2642,23 @@ class App {
         this.renderOverlay();
         break;
       case "leaderboard": this.refreshBoard(); this.setState("leaderboard"); break;
+      case "ladder": this.setState("ladder"); break;
+      case "pick-tier": {
+        // Clamped through meta.ts rather than trusted: the locked rungs render
+        // disabled, but the gate that decides which Tiers exist is a model
+        // rule and a gate that lives only in the markup is not a gate.
+        this.tier = playableTier(this.meta, Number(el.getAttribute("data-tier")));
+        // Patched in place on the ladder modal, re-rendered on the menu. Same
+        // reasoning as refreshRefit: a full renderOverlay recreates the
+        // `.panel.modal.pop` node and replays its entrance animation, so a
+        // player comparing three Tiers watches the modal fly in three times.
+        // The menu has no such animation and its Deep Run button's whole copy
+        // changes, so there it is a re-render.
+        if (this.state === "ladder") this.refreshLadder();
+        else this.renderOverlay();
+        break;
+      }
+      case "god": this.startGodRun(); break;
       case "workshop": this.setState("workshop"); break;
       case "contracts": this.setState("contracts"); break;
       case "contract": {
@@ -2772,8 +2997,13 @@ class App {
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), 1, lines);
-    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
+    const board = this.boardKey();
+    // `level` is the run's DEPTH now, not a board id: bays reached, which is
+    // what the row is worth carrying. `board` is what it ranks against.
+    const res = await submitScore(
+      name, this.finalScore(g, this.state === "won"), (this.run?.levelIndex ?? 0) + 1, lines, board,
+    );
+    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(board, 10));
     this.renderBoardRows(name);
     void successHaptic();
   }

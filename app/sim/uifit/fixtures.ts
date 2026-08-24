@@ -222,6 +222,46 @@ const live = (html: string): string =>
   html.replace('class="menu__demo"', 'class="menu__demo is-live"');
 
 /**
+ * The Tier ladder (screens.ts's ladderPanel) at its WIDEST state, which is the
+ * one that has to fit: mid-ladder, so some rungs are cleared, one is the exam
+ * and the rest are locked; every visible rung carries a two-digit commission
+ * tally; and the capstone is UNLOCKED, which is its tall form — name, blurb
+ * and a foot line carrying attempts, streak and a five-figure best all at
+ * once. A ladder that fits this fits every state a save can be in.
+ *
+ * The god block is hand-built rather than read from godRunFor() for the same
+ * reason every other fixture pins its seed: today's template would otherwise
+ * change the blurb's length daily and the baseline with it.
+ */
+const LADDER: S.LadderView = {
+  rungs: Array.from({ length: 10 }, (_, i) => ({
+    tier: i + 1,
+    state: i + 1 < 6 ? "cleared" : i + 1 === 6 ? "current" : "locked",
+    claimed: i + 1 < 6 ? 9 : 0,
+    total: 9,
+  })),
+  selected: 4,
+  god: {
+    unlocked: true,
+    template: "Austerity",
+    blurb: "Shipments are rationed — the back half runs to launches, with no clock at all.",
+    attemptsLeft: 2,
+    attempts: 3,
+    streak: 14,
+    best: 98_760,
+  },
+};
+
+/** The capstone's LOCKED state, which is a different height and is what every
+ *  player sees until they beat Tier 10 — i.e. the common case, not the edge. */
+const LADDER_LOCKED: S.LadderView = {
+  ...LADDER,
+  selected: 1,
+  rungs: LADDER.rungs.map((r, i) => ({ ...r, state: i === 0 ? "current" : "locked", claimed: 0 })),
+  god: { ...LADDER.god, unlocked: false, streak: 0, best: 0 },
+};
+
+/**
  * Screen id -> markup. Ids are stable: run.mjs, the PNG filenames and any
  * allowlist in the assertions all key off them.
  */
@@ -237,6 +277,23 @@ export const SCREENS: Record<string, () => string> = {
   // a player with "reduce motion" on actually sees.
   menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
   "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE)),
+  // The menu WITH the TOWER in the attract demo (docs/LONGEVITY.md) — ten
+  // floors where the wordmark plate used to be. Its own fixtures rather than
+  // an argument added to the four above, because the four above are still the
+  // real state of a save that has never been passed a ladder, and because the
+  // tower hides the wordmark, which is a materially different demo panel.
+  // Both capstone states, since the spire differs.
+  "menu-tower": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, LADDER)),
+  "menu-tower-locked": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, LADDER_LOCKED)),
+  // The demo's FALLBACK state with a tower in it (reduced motion, or no 2D
+  // context): the panel has no 16:9 box of its own there, so the tower stands
+  // in a min-height the stylesheet gives it and the copy has to clear it.
+  "menu-tower-static": () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, false, LADDER),
+  // The same panel as its own screen — the door the Tier chip opens on any
+  // viewport too narrow for the column.
+  ladder: () => S.ladderScreen(LADDER),
+  "ladder-locked": () => S.ladderScreen(LADDER_LOCKED),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>
     S.menuScreen(98_760, 1_480, { available: true, unlimited: true }, PROGRESS, GUIDE),
