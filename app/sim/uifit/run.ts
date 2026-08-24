@@ -121,6 +121,19 @@ const ALLOWED_SCROLLERS = [
   // and the alternative is a launch button that scrolls out of reach on the
   // screen whose one forward action it is.
   ".sbx-brief",
+  // The guide's INDEX column (ui/screens.ts's guideScreen). An unbounded list
+  // by construction — 41 topics today, and one more every time a material,
+  // an axis or a ship system ships — against a column that is at most five
+  // 44px rows tall on a landscape phone. Same category as the workshop shelf:
+  // more stock than screen, so it scrolls rather than clamping.
+  //
+  // NOT `.guide__body`, the pane beside it. That element carries
+  // `overflow-y: auto` in the stylesheet as a BACKSTOP — a long topic degrades
+  // to a scroll instead of the hard mid-sentence clip its predecessor shipped
+  // with — and leaving it off this list is what makes needing that backstop a
+  // CI failure. Exactly the stance `.coach__body` takes above, for exactly the
+  // same reason: copy is written to the pane.
+  "#guide-list",
 ];
 
 /**

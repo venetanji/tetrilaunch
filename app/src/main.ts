@@ -22,6 +22,26 @@ function withPicks(ratchets: Ratchets, picks: HazardId[]): Ratchets {
   return out;
 }
 
+/** A drill's seed, derived from its topic id.
+ *
+ *  Fixed rather than rolled, and that is the point: a drill is a lesson, and
+ *  "Try Again" has to hand back the SAME bay — the same wind, the same 7-bag
+ *  deal, the same standing wall — or the player is being asked to learn from an
+ *  example that changes every time they look at it. Contracts make the same
+ *  promise from their own seed (contracts.ts); a drill has no generator to take
+ *  one from, so it hashes its own name.
+ *
+ *  FNV-1a, kept inside a uint32 because every seeded generator downstream
+ *  (cannon.ts's bag, game.ts's wind) does uint32 arithmetic. */
+function drillSeed(id: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
 /** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
  *  so two runs with the same build produce byte-identical strings. */
 function axisNotchList(ratchets: Ratchets): string[] {
@@ -42,6 +62,10 @@ import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
   PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
+import {
+  GUIDE_TOPICS, topicById, topicsIn, drillUnlocked, type ChapterId, type GuideTopic,
+} from "./game/guide";
+import { levelForDrill } from "./game/drills";
 import { SANDBOX } from "./lib/sandbox";
 import { DEV_TAP_WINDOW_MS, TapStreak } from "./lib/devmode";
 import { applyCheat, cheatRowHTML } from "./lib/sandbox-cheats";
@@ -103,6 +127,10 @@ type AppState =
   | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
+  // A guide drill's result card (game/drills.ts). Its own state rather than a
+  // flag on "contract-end": the two settle different things, and sharing a
+  // state would mean every branch in that card asking which mode it is in.
+  | "drill-end"
   // Developer sandbox. Present in the union unconditionally — a state name is
   // free, and a conditional type would mean every switch below needed a second
   // shape. Reaching it is what is gated (see SANDBOX).
@@ -376,6 +404,24 @@ class App {
   /** performance.now() of the last misfire guide, for its rate limit. */
   private lastMisfireGuide = -Infinity;
 
+  /** THE GUIDE (ui/screens.ts's guideScreen) — which chapter is open and which
+   *  topic is selected. Held on the app rather than inside the screen for one
+   *  reason: a drill LEAVES the screen and comes back, and coming back to the
+   *  top of Basics after playing the tar drill would make the guide feel like
+   *  it forgot what you were reading. Defaults to the catalogue's first topic,
+   *  which is the Guided Tutorial — the row a first-time player wants. */
+  private guideChapter: ChapterId = "basics";
+  private guideTopic: string = GUIDE_TOPICS[0].id;
+  /** The guide topic whose drill is currently being flown, or null.
+   *
+   *  Parallel to `contract`, exclusive with it and with `run`, and for the same
+   *  reason both of those exist: it is what decides how a finished bay is
+   *  JUDGED. onGameStatus reads it first, and a drill's verdict is routed out
+   *  before any of the bookkeeping a Contract or a run would do — no salvage,
+   *  no tier tick, no run record, no leaderboard, no telemetry. A drill that
+   *  could be farmed would turn the guide into a grind. */
+  private drill: GuideTopic | null = null;
+
   /** INTERACTIVE COACH (issue #23) — current step of the first-run tutorial,
    *  or null when it isn't running. Runs on bay 1 of a Deep Run until
    *  settings.seenTutorial is set (finish or skip); each step advances when
@@ -418,6 +464,9 @@ class App {
    *  rebind (null = none). */
   private controlsTab: S.ControlsTab = "touch";
   private rebinding: BindableAction | null = null;
+  /** Which screen Controls was opened FROM, so its Back and Done return there.
+   *  Settings is the historical door; the guide's Controls row is the other. */
+  private controlsBack: "settings" | "howto" = "settings";
   /** Lifetime bays started (canvas D3) — past three, the finger-drag hint
    *  retires for good. Persisted; cached here so the hot path never reads
    *  localStorage. */
@@ -630,6 +679,14 @@ class App {
       case "refit": case "draft": return;
 
       case "lost": case "contract-end": playStinger("gameOver"); return;
+      // A drill's verdict, in the voice the verdict deserves: a cleared lesson
+      // rings out like a cleared bay, and a failed one gets the bay-clear
+      // stinger's absence rather than the run's funeral — nothing ended, and a
+      // game-over cue would say the opposite of what the card says.
+      case "drill-end":
+        if (this.game?.status === "won") playStinger("bayClear");
+        else { stopStinger(); playMusic("menu"); }
+        return;
       case "won": playStinger("gameOver2"); return;
 
       case "playing":
@@ -728,6 +785,23 @@ class App {
     }
   }
 
+  /**
+   * Is the plant showing the LINES readout — a goal over a supply — rather than
+   * the Deep Run bankroll one?
+   *
+   * True for every Contract and for a lines-shaped drill, false for a run and
+   * for the two ECONOMY drills, whose whole lesson is the bankroll readout.
+   *
+   * One predicate rather than two conditions written out twice, because the two
+   * places that ask are the two halves of ONE panel: hudOpts decides which
+   * shape to render, and syncHud patches that shape every frame. If they ever
+   * disagreed the panel would be built as one thing and updated as another —
+   * `#hud-score` written with a dollar figure into a slot labelled Lines.
+   */
+  private linesBay(g: Game): boolean {
+    return this.contract !== null || (this.drill !== null && g.level.objectiveLines > 0);
+  }
+
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
    *  bay/time/next-piece fields consistent across playing/paused/draft/end.
    *  Also the one choke point where the rail's button set is decided, so it
@@ -801,7 +875,37 @@ class App {
       // False in the native shells and on iPhone Safari — no fullscreen
       // button is rendered there at all (see screens.ts / platform.ts).
       fullscreenSupported: fullscreenSupported(),
-      contract: this.contract
+      // A drill names itself in the banner and drops the tier row and the ship
+      // rack (see screens.ts's `drill` opt for why all three go together).
+      drill: this.drill?.drill ? { name: this.drill.drill.name } : null,
+      contract: this.drill
+        ? // A LINES-shaped drill fills the Contract block, because it is that
+          // bay: a line goal and a launch budget, read out of exactly the same
+          // two columns. The two ECONOMY drills deliberately fall through to
+          // null — their whole lesson is the funds-against-target readout a
+          // Contract block would replace. Same predicate syncHud patches
+          // against, so the panel cannot be built as one shape and updated as
+          // the other.
+          this.linesBay(g)
+          ? {
+              name: this.drill.drill?.name ?? this.drill.name,
+              kind: "lines" as const,
+              goal: g.level.objectiveLines,
+              lines: g.linesTotal,
+              launchesLeft: g.launchesLeft === Infinity ? 0 : g.launchesLeft,
+              remaining: [],
+              lost: g.lostTotal,
+              // The lesson, in the slot the bay's complications live in — a
+              // player who paused mid-drill has to be able to re-read what they
+              // are up against without leaving the bay. The HUD-length string,
+              // not the card's sentence: this row is one line and does not wrap
+              // (see DrillSpec.conditions).
+              conditions: this.drill.drill?.conditions ?? "",
+              tier: this.drill.tier,
+              progress: null,
+            }
+          : null
+        : this.contract
         ? {
             // The bay name and, when the Contract is a variant, what makes it
             // one. On the card the variant is a heading; in the plant readout
@@ -1229,6 +1333,33 @@ class App {
         }
         break;
       case "howto": this.overlay.innerHTML = S.howtoScreen(markUnlocked(this.meta)); break;
+      case "howto":
+        this.overlay.innerHTML = S.guideScreen({
+          chapter: this.guideChapter,
+          topicId: this.guideTopic,
+          meta: this.meta,
+        });
+        break;
+      // The drill result, over the dead bay's own HUD — the same placement the
+      // tutorial's failure card uses, and for the same reason: the readout the
+      // card is talking about (lines against the goal, the budget it spent) is
+      // right there to be pointed at.
+      case "drill-end":
+        if (g && this.drill?.drill) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.drillEndModal({
+              won: g.status === "won",
+              name: this.drill.drill.name,
+              topic: this.drill.name,
+              lines: g.linesTotal,
+              goal: g.level.objectiveLines,
+              shotsUsed: g.shotsFired,
+              launches: g.level.launchBudget,
+              brief: this.drill.drill.brief,
+            });
+        }
+        break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
@@ -1238,6 +1369,7 @@ class App {
           settings: this.settings,
           padName: this.pad.detected(),
           rebinding: this.rebinding,
+          back: this.controlsBack,
         });
         break;
       case "leaderboard":
@@ -1500,6 +1632,7 @@ class App {
     );
     this.contract = null;
     this.contractMusic = null;
+    this.drill = null;
     this.submitted = false;
     this.lastTier = null;
     telemetry.startRun(this.run.mark, this.run.tiers, this.run.unlocks);
@@ -1883,6 +2016,61 @@ class App {
   }
 
   /**
+   * Fly one guide drill (game/drills.ts).
+   *
+   * Modelled on startContract line for line, because a drill is the same kind
+   * of bay: no run to advance, no clock unless the lesson IS the clock, and a
+   * loss that costs nothing. The differences are all subtractions —
+   *
+   *  - No telemetry. `startBay`/`startRun` record a session the balance sweeps
+   *    read, and a drill is not one: it ships authored material rates far above
+   *    anything the ladder deals, so counting it would poison the very numbers
+   *    it was built beside. sim/ constructs drills directly when it wants them.
+   *  - No coach. The guide IS the coach here; a tutorial card over a drill card
+   *    would be two lessons on one screen.
+   *  - No music roll. A drill takes the menu bed's neighbour rather than a
+   *    Contract's rolled special — see syncMusic.
+   *
+   * `topic` is carried rather than the DrillSpec alone so the result card can
+   * point back at the paragraph the player came from, and so "Try Again"
+   * rebuilds from the same row.
+   */
+  private startDrill(topic: GuideTopic): void {
+    if (!topic.drill) return;
+    this.game?.destroy();
+    this.congestion = 0;
+    this.run = null;
+    this.contract = null;
+    this.contractMusic = null;
+    this.nextContract = null;
+    this.submitted = false;
+    this.tutorialStep = null;
+    this.drill = topic;
+    const cfg = levelForDrill(topic.id, topic.drill);
+    // The seed is FIXED per drill (drillSeed), so "Try Again" is the same bay —
+    // same wind, same 7-bag deal, same standing wall. A lesson you can only
+    // half-repeat is not a lesson; the same argument restartBay makes for a
+    // Contract.
+    this.game = new Game(cfg, {
+      onShoot: (info) => {
+        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+      },
+      onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
+      onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
+      onBondBreak: () => { void impactHaptic(); playBondBreak(); },
+      onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
+      onImpact: (strength) => playImpact(strength),
+      onCryoShatter: () => playFx("cryoShatter"),
+      onExplosion: (kind) => { void impactHaptic(); playExplosion(kind); },
+      onBombArmed: (armed) => playFx("bombArm", { rate: armed ? 1 : 0.85 }),
+      onCongestion: (tier, tiers) => this.setCongestion(tier, tiers),
+      onStatus: (st) => this.onGameStatus(st),
+    }, drillSeed(topic.id));
+    this.setState("playing");
+    this.armDragHint();
+  }
+
+  /**
    * Begin a Contract. Deliberately a separate path from startGame(): a Contract
    * has no RunState at all — no carried funds, no drafted mods, no refit stops,
    * nothing to advance — so routing it through the run machinery would mean
@@ -1893,6 +2081,7 @@ class App {
     this.game?.destroy();
     this.congestion = 0;
     this.run = null;
+    this.drill = null;
     this.contract = c;
     // Defaults to false, so every existing caller (the daily board, retry,
     // next-contract) clears it by saying nothing — which is the right default
@@ -1951,6 +2140,20 @@ class App {
   private onGameStatus(s: GameStatus): void {
     const g = this.game;
     if (!g) return;
+    // DRILL: not progress, in any sense the rest of this method understands.
+    // Routed out ABOVE the Contract branch and above finishRun so that none of
+    // their bookkeeping can run — no claimed-contract id, no tier tick, no
+    // salvage, no run count, no leaderboard submit, no end-of-bay telemetry.
+    // A drill is a bay the player was shown; nothing about the save may
+    // remember it happened.
+    if (this.drill) {
+      if (s !== "won" && s !== "lost") return;
+      this.showSettleNote(false);
+      if (s === "won") void successHaptic();
+      else void impactHaptic();
+      this.setState("drill-end");
+      return;
+    }
     // CONTRACT: no run to advance, no salvage, no leaderboard. A loss here is
     // free by design — the whole point of the mode is that you can retry it.
     if (this.contract) {
@@ -2559,6 +2762,15 @@ class App {
 
   private restartBay(): void {
     if (this.state !== "paused") return;
+    // A drill restarts from its own fixed seed (drillSeed), so pausing and
+    // restarting hands back the identical lesson — same reasoning as the
+    // Contract below.
+    if (this.drill) {
+      this.startDrill(this.drill);
+      this.last = performance.now();
+      this.acc = 0;
+      return;
+    }
     // Restarting a Contract re-generates the same bay from its seed, which is
     // the whole point of the mode — retry the identical puzzle, not a reroll.
     if (this.contract) {
@@ -2785,11 +2997,12 @@ class App {
         }
       }
     }
-    // In a Contract these two slots hold lines and launches instead of funds
-    // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so
-    // the funds readout would sit at $0 with 0 launches for the whole bay.
-    if (this.contract) {
-      const pattern = this.contract.kind === "pattern";
+    // On a LINES bay — a Contract, or a lines-shaped drill (see linesBay) —
+    // these two slots hold lines and launches instead of funds and launches
+    // (screens.ts's hudHTML): neither has a bankroll, so the funds readout
+    // would sit at $0 with 0 launches for the whole bay.
+    if (this.linesBay(g)) {
+      const pattern = this.contract?.kind === "pattern";
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
@@ -2828,7 +3041,7 @@ class App {
     // doing exactly its job: a bay you have filled up really does hold fewer
     // shots than the same bankroll bought a minute ago, and the number falling
     // as the pile grows is the clearest statement of the rule the HUD can make.
-    if (!this.contract) {
+    if (!this.linesBay(g)) {
       // The meta line's three economy numbers, patched in the same Deep-Run-only
       // branch that owns the readout above them: a Contract renders no meta line
       // at all, so writing them there would be writing into nothing.
@@ -3079,6 +3292,47 @@ class App {
       // onBeaconTap.
       case "tower-beacon": this.onBeaconTap(el); break;
       case "howto": this.setState("howto"); break;
+      // THE GUIDE. Both selections live on the app (see guideChapter), so
+      // switching chapters keeps the pane and the highlighted row in step and
+      // a drill can return to the row it was launched from.
+      case "guide-chapter": {
+        const id = el.getAttribute("data-chapter") as ChapterId | null;
+        const topics = id ? topicsIn(id) : [];
+        if (topics.length) {
+          this.guideChapter = id!;
+          // Land on the chapter's first topic rather than on nothing: an empty
+          // pane beside a full index reads as a broken screen, and the first
+          // row of a chapter is written to be its introduction.
+          this.guideTopic = topics[0].id;
+          this.renderOverlay();
+        }
+        break;
+      }
+      case "guide-topic": {
+        const id = el.getAttribute("data-topic");
+        if (id && topicById(id)) {
+          this.guideTopic = id;
+          this.renderOverlay();
+        }
+        break;
+      }
+      // Launch a drill. Gated here as well as rendered gated, so the state is
+      // unreachable even if some other path ever emits the action — the same
+      // belt-and-braces the sandbox entry uses, and for the same reason: a
+      // material bay two tiers before the ship can answer it teaches the
+      // wrong lesson.
+      case "drill": {
+        const t = topicById(el.getAttribute("data-topic") ?? "");
+        if (t && drillUnlocked(t, this.meta)) this.startDrill(t);
+        break;
+      }
+      case "drill-retry":
+        if (this.drill) this.startDrill(this.drill);
+        break;
+      case "drill-exit":
+        this.drill = null;
+        this.setState("howto");
+        break;
       // How to Play's "Guided Tutorial": replay the interactive coach on a
       // fresh run, even for a player who already finished or skipped it.
       case "tutorial":
@@ -3091,7 +3345,15 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
-      case "controls": this.setState("controls"); break;
+      // Two doors into Controls — Settings and the guide's Controls row — and
+      // the screen goes back through whichever one was used. Remembered here
+      // rather than inferred from history: the screen re-renders on every tab
+      // and every rebind, and a back target that changed under the player mid
+      // rebind would be worse than no memory at all.
+      case "controls":
+        this.controlsBack = this.state === "howto" ? "howto" : "settings";
+        this.setState("controls");
+        break;
       case "controls-tab": {
         const tab = el.getAttribute("data-tab");
         if (tab === "touch" || tab === "keyboard" || tab === "gamepad") {
@@ -3149,7 +3411,10 @@ class App {
         if (this.nextContract) this.startContract(this.nextContract);
         else this.setState("contracts");
         break;
-      case "menu": this.contract = null; this.contractMusic = null; this.setState("menu"); break;
+      case "menu":
+        this.contract = null; this.contractMusic = null; this.drill = null;
+        this.setState("menu");
+        break;
       case "pause": this.pause(); break;
       case "resume": this.resume(); break;
       case "fullscreen": void toggleFullscreen().then(() => this.syncFullscreenButtons()); break;
@@ -3342,6 +3607,7 @@ class App {
       // honest state, and a fabricated bankroll would make it a different bay.
       this.game?.destroy();
       this.contract = null;
+      this.drill = null;
       this.submitted = false;
       this.lastTier = null;
       this.run = sandboxRunFor(this.sandbox, this.meta.unlocks);

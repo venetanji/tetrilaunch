@@ -32,6 +32,18 @@ import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { dailyContracts } from "../../src/game/contracts";
+import { DRILLS } from "../../src/game/drills";
+import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
+
+/** The catalogue row with the most copy among those `pick` accepts — the pane's
+ *  real worst case, asked of the data instead of hardcoded. Tags are stripped
+ *  first: `<b>` costs the pane nothing, and counting it would rank a
+ *  number-heavy topic above a genuinely longer one. */
+function longestTopic(pick: (t: GuideTopic) => boolean): GuideTopic {
+  return GUIDE_TOPICS.filter(pick).reduce((a, b) =>
+    b.body.replace(/<[^>]+>/g, "").length > a.body.replace(/<[^>]+>/g, "").length ? b : a,
+  );
+}
 
 const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
   // A long name is the wide case for the row's flexible column.
@@ -354,13 +366,82 @@ export const SCREENS: Record<string, () => string> = {
       firstLaunch: true,
     }),
 
-  howto: () => S.howtoScreen(),
+  // THE GUIDE (How to Play). Seven fixtures, because the pane has seven shapes
+  // and the screen it replaces had ONE fixture — a single argument-less call —
+  // which is how a horizontal card row shipped for months clipping its own copy
+  // on every device in this matrix with every assertion green.
+  //
+  //   guide            a new save on the FIRST topic: the CTA foot (Guided
+  //                    Tutorial, no drill), and every material row locked.
+  //   guide-drill      an unlocked drill's foot — the two-line brief plus the
+  //                    Run affordance.
+  //   guide-locked     the same card gated, which renders a DIFFERENT foot and
+  //                    adds a tier badge to the pane header. On a material
+  //                    topic, since that is where the gate actually bites.
+  //   guide-art        the widest art strip the screen can produce (seven shape
+  //                    tiles) under a body.
+  //   guide-rig        the deepest chapter — ten rows, so the index really
+  //                    scrolls — on a PROGRESSED save, where the tab counts are
+  //                    non-zero and nothing is gated.
+  //   guide-worst      the tallest pane the catalogue can build, computed.
+  //   guide-worst-art  the same, among the topics that also carry art.
+  guide: () => S.guideScreen({ chapter: "basics", topicId: "tutorial", meta: newMeta() }),
+  // THE WORST CASE, computed rather than named. The pane's budget is spent by
+  // the BODY, and which topic has the longest one changes every time a
+  // paragraph is edited — so pinning a topic id here would measure whichever
+  // row happened to be longest the day the fixture was written. These two ask
+  // the catalogue: the longest body outright, and the longest body that also
+  // carries the art strip (the strip is ~34px of the pane, so it is a
+  // materially tighter budget and a different worst case).
+  "guide-worst": () => {
+    const t = longestTopic(() => true);
+    return S.guideScreen({ chapter: t.chapter, topicId: t.id, meta: ownedMeta() });
+  },
+  "guide-worst-art": () => {
+    const t = longestTopic((x) => !!x.material || x.id === "sizes" || x.id === "rotate");
+    return S.guideScreen({ chapter: t.chapter, topicId: t.id, meta: ownedMeta() });
+  },
+  "guide-drill": () =>
+    S.guideScreen({ chapter: "basics", topicId: "topout", meta: newMeta() }),
+  "guide-locked": () =>
+    S.guideScreen({ chapter: "cargo", topicId: "mat-magnetic", meta: newMeta() }),
+  "guide-art": () =>
+    S.guideScreen({ chapter: "basics", topicId: "rotate", meta: newMeta() }),
+  "guide-rig": () => S.guideScreen({ chapter: "rig", topicId: "sys-bonds", meta: ownedMeta() }),
+
+  // The drill result, both verdicts. The LOSS card is the tall one: it repeats
+  // the drill's brief where the win card states one short line.
+  //
+  // The modal alone, no HUD behind it — the same shape the `contract-end`
+  // fixture takes. main.ts does mount both together, but the HUD is measured by
+  // its own fixtures at every rail configuration, and stacking HUD_BASE's
+  // four-ability rail under a modal measures the rail's slot count rather than
+  // the card.
+  "drill-end-won": () =>
+    S.drillEndModal({
+      won: true, name: "Cold Chain", topic: "Cryo", lines: 2, goal: 2,
+      shotsUsed: 14, launches: 20,
+      brief: DRILLS["mat-cryo"].brief,
+    }),
+  "drill-end-lost": () =>
+    S.drillEndModal({
+      won: false, name: "Cold Chain", topic: "Cryo", lines: 1, goal: 2,
+      shotsUsed: 20, launches: 20,
+      brief: DRILLS["mat-cryo"].brief,
+    }),
   settings: () => S.settingsScreen(SETTINGS, STORE),
   // The Controls screen (canvas D1), one fixture per family: the keyboard tab
   // in its capture state (the widest row copy), the gamepad tab with a real
   // pad id detected (the longest Detected line).
   "controls-touch": () =>
     S.controlsScreen({ tab: "touch", settings: SETTINGS, padName: null, rebinding: null }),
+  // The guide's door into the same screen. Its eyebrow and back target differ,
+  // and "How to Play" is the wider of the two eyebrows — measured because the
+  // header is the one row on this screen with no slack.
+  "controls-from-guide": () =>
+    S.controlsScreen({
+      tab: "touch", settings: SETTINGS, padName: null, rebinding: null, back: "howto",
+    }),
   "controls-keyboard": () =>
     S.controlsScreen({ tab: "keyboard", settings: SETTINGS, padName: null, rebinding: "fire" }),
   "controls-gamepad": () =>

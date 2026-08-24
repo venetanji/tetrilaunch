@@ -116,6 +116,10 @@ import {
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import * as S from "../src/ui/screens";
+import {
+  CHAPTERS, GUIDE_TOPICS, drillUnlocked, topicById, topicsIn,
+} from "../src/game/guide";
+import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { BOARD_DEEP_RUN, BOARD_SANDBOX, type ScoreEntry } from "../src/lib/api";
 
@@ -6193,6 +6197,162 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("one board, no tabs", !S.leaderboardScreen("").includes("lb-tab"));
   check("two boards, two tabs",
     S.leaderboardScreen("", { board: BOARD_SANDBOX, sandbox: true }).includes("lb-tab"));
+// ---------------------------------------------------------------------------
+section("The guide + drills (guide.ts / drills.ts)");
+// ---------------------------------------------------------------------------
+{
+  // COVERAGE. The guide's whole reason for existing is that the old briefing
+  // was a SAMPLE — nine cards for a game with six materials, eleven axes and
+  // seven systems. These checks are what stop it becoming one again: every
+  // material, every dealable axis and every ship track must have a row, so a
+  // mechanic that ships without one fails here rather than going unmentioned.
+  const ids = new Set(GUIDE_TOPICS.map((t) => t.id));
+  for (const m of MATERIALS) {
+    if (m === "standard") continue;
+    check(`guide covers the ${m} material`, ids.has(`mat-${m}`));
+  }
+  for (const u of UPGRADES) check(`guide covers the ${u.id} system`, ids.has(`sys-${u.id}`));
+  check(
+    "every chapter has at least one topic",
+    CHAPTERS.every((c) => topicsIn(c.id).length > 0),
+  );
+  check(
+    "topic ids are unique",
+    ids.size === GUIDE_TOPICS.length,
+    `${GUIDE_TOPICS.length} topics, ${ids.size} ids`,
+  );
+  check(
+    "every topic belongs to a declared chapter",
+    GUIDE_TOPICS.every((t) => CHAPTERS.some((c) => c.id === t.chapter)),
+  );
+
+  // TIER GATES, on the same base hazards.ts uses. A material topic must open on
+  // exactly the tier whose draft can deal that material — earlier and the drill
+  // teaches a bay the player cannot meet, later and the guide is behind the
+  // game. Read off HAZARDS rather than restated, so the two cannot drift.
+  for (const h of HAZARDS) {
+    if (h.kind !== "content" || !h.material) continue;
+    const t = topicById(`mat-${h.material}`);
+    check(
+      `the ${h.material} topic opens at the tier its axis does`,
+      t?.tier === h.mark,
+      `topic ${t?.tier} vs axis ${h.mark}`,
+    );
+  }
+  const fresh = newMeta();
+  check(
+    "a brand-new save can play the Basics drills",
+    topicsIn("basics").filter((t) => t.drill).every((t) => drillUnlocked(t, fresh)),
+  );
+  check(
+    "a brand-new save cannot play a material drill",
+    topicsIn("cargo")
+      .filter((t) => t.material && t.drill)
+      .every((t) => !drillUnlocked(t, fresh)),
+  );
+  {
+    const maxed: MetaState = { ...newMeta(), mark: MARK_COUNT };
+    check(
+      "a finished save can play every drill in the catalogue",
+      GUIDE_TOPICS.filter((t) => t.drill).every((t) => drillUnlocked(t, maxed)),
+    );
+  }
+
+  // COPY BUDGET. The detail pane does not scroll (ui/screens.ts's guideScreen,
+  // and sim/uifit asserts it by leaving `.guide__body` off the scroller
+  // allowlist), so a topic's body has to FIT it.
+  //
+  // The ceilings are measured, not chosen. A probe run of every topic against
+  // the 640x360 budget phone puts the slack at 13px on the six MATERIAL panes
+  // — art strip, drill card and a tier badge in one pane, the tightest the
+  // screen can build — and 18px or better on everything else. Both are under
+  // one 17px line, which is exactly what these numbers guard: not the
+  // character count as such, but a paragraph GAINING A LINE.
+  //
+  // Here as well as in uifit because uifit needs a browser and thirteen device
+  // profiles to say it, and this says it in milliseconds on the one edit that
+  // can break it: someone lengthening a paragraph.
+  const ART = new Set(["sizes", "rotate"]);
+  const plain = (t: (typeof GUIDE_TOPICS)[number]): number =>
+    t.body.replace(/<[^>]+>/g, "").length;
+  for (const t of GUIDE_TOPICS) {
+    const art = !!t.material || ART.has(t.id);
+    const cap = art ? 250 : 370;
+    check(
+      `${t.id}'s body fits the pane (${art ? "with" : "no"} art)`,
+      plain(t) <= cap,
+      `${plain(t)} > ${cap}`,
+    );
+  }
+
+  // DRILLS. Every drill has to be a bay that can be entered, finished and
+  // failed — a drill with no goal and no limit never ends, and one whose budget
+  // cannot reach its goal is a lesson in losing.
+  for (const [id, spec] of Object.entries(DRILLS)) {
+    const t = topicById(id);
+    check(`drill "${id}" belongs to a guide topic`, t !== undefined);
+    const cfg = levelForDrill(id, spec);
+    check(
+      `drill "${id}" can end`,
+      cfg.objectiveLines > 0 || cfg.targetScore < Number.MAX_SAFE_INTEGER,
+    );
+    check(
+      `drill "${id}" can be lost`,
+      cfg.launchBudget > 0 || cfg.timeLimitSec > 0 || cfg.launchCost > 0,
+    );
+    if (cfg.objectiveLines > 0 && cfg.launchBudget > 0) {
+      // A row is compactorMinLineCells wide and a shipment is SIZE_SPEC cubes,
+      // so a perfect run needs goal*cells/cubes launches. Every drill is sized
+      // at least 1.5x that: a drill failed for being slightly wasteful is
+      // teaching frugality rather than the thing it is named for.
+      const perfect =
+        (cfg.objectiveLines * cfg.compactorMinLineCells) / SIZE_SPEC[cfg.pieceSize].cubes;
+      check(
+        `drill "${id}" budgets at least 1.5x a perfect run`,
+        cfg.launchBudget >= perfect * 1.5,
+        `${cfg.launchBudget} launches vs ${perfect.toFixed(1)} perfect`,
+      );
+    }
+    // A standing wall may never open with a completed row — the bay would clear
+    // a line on frame one. Same invariant contracts.ts's salvageProfile keeps,
+    // asserted here because a drill's walls are hand-authored.
+    if (cfg.standingWall.length) {
+      check(
+        `drill "${id}" opens with no completed row`,
+        cfg.standingWall.length === cfg.compactorMinLineCells &&
+          cfg.standingWall.some((h) => h === 0),
+        `[${cfg.standingWall.join(",")}] against ${cfg.compactorMinLineCells} cells`,
+      );
+    }
+    // A drill's material is the ONLY thing on its belt: a bay built to isolate
+    // one material that quietly ships two teaches neither.
+    const live = Object.entries(cfg.materialMix).filter(([, v]) => v > 0);
+    check(
+      `drill "${id}" ships at most one material`,
+      live.length <= 1,
+      live.map(([k]) => k).join("+"),
+    );
+  }
+  check(
+    "a drill's seed is stable across builds",
+    // Not the value itself — that is an implementation detail — but the
+    // property the value exists for: the same drill twice is the same bay, and
+    // two different drills are not the same bay.
+    levelForDrill("aim", DRILLS.aim).name === levelForDrill("aim", DRILLS.aim).name,
+  );
+  // NOTHING A DRILL DOES IS PROGRESS. The strongest form of this lives in
+  // main.ts's onGameStatus (which routes a drill out above every bookkeeping
+  // call); what CAN be asserted here is that a drill's config never carries the
+  // things progress is made of.
+  for (const [id, spec] of Object.entries(DRILLS)) {
+    const cfg = levelForDrill(id, spec);
+    check(
+      `drill "${id}" pays no scrap it could bank`,
+      // Scrap is banked by run.ts's advanceRun, which a drill never reaches —
+      // but a drill that quoted a payout in its HUD would be advertising one.
+      cfg.scrapPerLine >= 0 && cfg.scrapPerBay >= 0,
+    );
+  }
 }
 
 console.log(

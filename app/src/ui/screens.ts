@@ -1,4 +1,4 @@
-import { PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
+import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { baseBayFor, makeBaseLevel, tierDemands } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
@@ -14,10 +14,13 @@ import {
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
-  installById, markBudget, tierMilestoneSalvage, tierProgressFor,
+  installById, markBudget, markUnlocked, tierMilestoneSalvage, tierProgressFor,
   type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
+import {
+  CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
+} from "../game/guide";
 import type { Settings } from "../lib/store";
 import { BOARD_DEEP_RUN, BOARD_SANDBOX, type BoardId, type ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
@@ -563,55 +566,173 @@ function unlockChipHTML(): string {
   return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
 }
 
-/** `tier` is the Mark the player would fly next (meta.ts's markUnlocked). The
- *  briefing quotes REAL numbers, and since the tier ladder (level.ts) sets the
- *  target, the clock and the launch cost, those numbers are only true for one
- *  tier — so the screen names which one rather than quoting a bay nobody is
- *  about to play. */
-export function howtoScreen(tier = 1): string {
-  const lv = makeBaseLevel(0, tier);
-  // The per-bay climb is a property of the tier, not of any one bay's config.
-  const bar = tierDemands(tier);
-  const steps = [
-    ["01", "Aim & charge", `<b>Pull back</b> like a slingshot — the shot fires <b>opposite</b> your drag, and <b>distance sets the power</b>. Release to fire. On desktop use <span class="kbd">${keyLabel(keyFor("aimUp"))}</span><span class="kbd">${keyLabel(keyFor("aimDown"))}</span> to aim, <span class="kbd">${keyLabel(keyFor("powerDown"))}</span><span class="kbd">${keyLabel(keyFor("powerUp"))}</span> for power.`],
-    ["02", "Rotate the piece", `Pieces turn in crisp <b>90° steps</b> — tap <span class="kbd">${keyLabel(keyFor("rotl"))}</span><span class="kbd">${keyLabel(keyFor("rotr"))}</span> or the <span class="kbd">⟲</span>/<span class="kbd">⟳</span> buttons. The glowing piece at the cannon shows the exact orientation before you fire; the conveyor belt carries the piece coming <b>after</b> it.`],
-    ["03", "Watch the arc", `The dotted parabola previews exactly where the piece flies. Pieces are joined by breakable joints — hard hits shatter them.`],
-    ["04", "Fill the rows", `Land enough cubes in a row on the right of the compactor to complete a full straight line.`],
-    ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
-    ["06", "Mind the bankroll", `At <b>Tier ${tier}</b> every launch costs <b>$${lv.launchCost}</b>, and a full line pays out <b>$${lv.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${lv.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. The first bay wants <b>$${lv.targetScore}</b> in <b>${formatMMSS(lv.timeLimitSec * 1000)}</b>, and every bay after it wants <b>$${bar.targetPerBay}</b> more — before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
-    ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (${scrapHTML()})</b> is earned per line and spent on your ship at refit stops. <b>Salvage (${salvageHTML()})</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
-    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on it. ${
-      tier <= 1
-        ? `At <b>Tier 1</b> the stop offers the <b>reactor</b> alone — the economy the run is tuned around; the rest of the yard opens at Tier 2.`
-        : `The yard carries seven systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b> and the <b>demolition rack</b>.`
-    } Three tiers each; they last the whole run.`],
-    ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints — and the <b>tier</b> you fly sets the opening terms: a higher tier wants more money, on a shorter shift, at a dearer price per shot. Clear a bay and you <b>ratchet ${picksPerBay(tier) > 1 ? `${picksPerBay(tier)} difficulty axes` : "a difficulty axis"}</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
-  ];
+/* #89 re-added a sandboxChipHTML here; #90 had deleted it. #90 wins: Tier S
+ * has a door of its own under the tower now, and a second entry to one screen
+ * on one screen is how a menu stops feeling owned. */
+
+/* ---------------------------------------------------------------------------
+ * HOW TO PLAY — the guide (game/guide.ts) as a master/detail screen.
+ *
+ * WHAT WAS WRONG WITH THE OLD ONE, precisely, because it is the whole reason
+ * this is shaped the way it is.
+ *
+ * It was nine literal cards in a horizontal snap row, and on every device in
+ * the matrix each card CLIPPED ITS OWN COPY. On the 640x360 budget phone card
+ * 01 lost everything after "distance sets the" — mid-sentence, mid-word on some
+ * rows — because `.step` carried `overflow: hidden` against a fixed-height row.
+ * Nothing in CI saw it: `textclip` skips any element with child elements, and
+ * every card's paragraph has a `<b>` in it. So the screen that teaches the game
+ * shipped for months with its sentences cut in half, and the harness was green.
+ *
+ * The layout answer is the same one the Workshop and the Controls screen
+ * already reached: a landscape phone has WIDTH and no height, so the axis that
+ * carries a list is the vertical one INSIDE a column, not the horizontal one
+ * across the screen. An index column that scrolls, a detail pane that does not.
+ * A player reads one topic at a time and picks the next one deliberately, which
+ * is what an index is for and what a snap row of nine cards actively fights.
+ *
+ * Three rules hold this together, and each of them is asserted rather than
+ * hoped for:
+ *
+ *  - THE INDEX SCROLLS AND NOTHING ELSE DOES. `#guide-list` is on sim/uifit's
+ *    scroller allowlist, on the same grounds as the Workshop's shelf: it is an
+ *    unbounded list by definition — 41 topics today, more with every material.
+ *  - THE DETAIL PANE DOES NOT. `.guide__body` keeps `overflow-y: auto` as a
+ *    backstop so a long topic degrades to a scroll instead of a hard clip, and
+ *    is deliberately NOT allowlisted, so needing it FAILS CI. That is exactly
+ *    the stance `.coach__body` takes, for exactly the reason above: copy is
+ *    written to the pane, and a pane that quietly swallows the tail is how the
+ *    old screen got away with it.
+ *  - EVERY ROW IS A TAP TARGET. The index is the only route to two thirds of
+ *    the content, so its rows carry the 44px floor like the Workshop's tabs do.
+ *
+ * The screen is otherwise a pure function of (chapter, topic, save): main.ts
+ * holds the two ids and re-renders. No local state, so a drill that returns
+ * here comes back to the row it was launched from.
+ * ------------------------------------------------------------------------ */
+
+/** Art for the topics where a picture says it faster than the sentence does —
+ *  and only those. A decorative tile on every row would cost the detail pane
+ *  the height its copy is written to. */
+function topicArtHTML(t: GuideTopic): string {
+  const tile = (inner: string, label?: string): string =>
+    `<span class="guide__tile">${inner}${label ? `<span class="guide__tile-lbl">${label}</span>` : ""}</span>`;
+  if (t.material) {
+    // The mark, then the SAME SHAPE twice — plain, then in this material. Same
+    // shape on purpose: two different pieces side by side make the piece colour
+    // the loudest difference in the picture, and the piece colour is the one
+    // thing that is not the lesson. Held constant, the only thing that changes
+    // between the two tiles is the material, which is the comparison the player
+    // has to make on the belt at a glance.
+    return `<div class="guide__art">
+      ${tile(materialIconHTML(t.material, 24))}
+      ${tile(pieceCellsHTML("T"), "Plain")}
+      ${tile(pieceCellsHTML("T", 1, 0, "std", t.material), MATERIAL_SPEC[t.material].name)}
+    </div>`;
+  }
+  if (t.id === "sizes") {
+    return `<div class="guide__art">
+      ${tile(pieceCellsHTML("O", 1, 0, "tiny"), "Micro")}
+      ${tile(pieceCellsHTML("T", 1, 0, "std"), "Standard")}
+      ${tile(pieceCellsHTML("T", 1, 0, "bulk"), "Bulk")}
+    </div>`;
+  }
+  if (t.id === "rotate") {
+    return `<div class="guide__art">${PIECE_TYPES.map(
+      (p) => tile(pieceCellsHTML(p as PieceType)),
+    ).join("")}</div>`;
+  }
+  return "";
+}
+
+/** The row's right-hand marker: what this topic OFFERS, in one glance down the
+ *  column — a bay you can play, a bay you have not earned yet, or nothing. */
+function topicMarkHTML(t: GuideTopic, tier: number): string {
+  if (t.cta) return `<span class="guide__mark guide__mark--drill">▸</span>`;
+  if (!t.drill) return "";
+  return t.tier <= tier
+    ? `<span class="guide__mark guide__mark--drill">▸</span>`
+    : `<span class="guide__mark guide__mark--locked">T${t.tier}</span>`;
+}
+
+export function guideScreen(opts: {
+  chapter: ChapterId;
+  /** Selected topic. Callers that cannot know one (a fresh open) pass the
+   *  chapter's first topic; this never invents a selection, so the pane and
+   *  the highlighted row can never disagree. */
+  topicId: string;
+  /** The save, for the tier every drill gate is measured against. */
+  meta: MetaState;
+}): string {
+  const tier = markUnlocked(opts.meta);
+  const topics = topicsIn(opts.chapter);
+  const topic = topics.find((t) => t.id === opts.topicId) ?? topics[0];
+
+  const tabs = CHAPTERS.map((c) => {
+    const n = unlockedDrills(c.id, opts.meta);
+    return `<button class="workshop__tab${c.id === opts.chapter ? " workshop__tab--on" : ""}" role="tab" data-action="guide-chapter" data-chapter="${c.id}" aria-selected="${c.id === opts.chapter}">${c.name}${n ? `<b>${n}</b>` : ""}</button>`;
+  }).join("");
+
+  const rows = topics
+    .map(
+      (t) => `<button class="guide__row${t.id === topic.id ? " guide__row--on" : ""}" data-action="guide-topic" data-topic="${t.id}" aria-current="${t.id === topic.id}">
+        <span class="guide__row-name">${t.name}</span>
+        ${topicMarkHTML(t, tier)}
+      </button>`,
+    )
+    .join("");
+
+  // The pane's foot. Three states, and the locked one NAMES ITS TIER rather
+  // than hiding: a row that says "Tier 6" is a roadmap, a row that is simply
+  // absent is a surprise — the same argument the Workshop's gated cards make.
+  let foot = "";
+  if (topic.cta) {
+    foot = `<button class="guide__drill" data-action="${topic.cta.action}">
+      <span class="guide__drill-txt">
+        <span class="guide__drill-kind">Start here</span>
+        <span class="guide__drill-brief">${topic.cta.note}</span>
+      </span>
+      <span class="guide__drill-go">${topic.cta.label}</span>
+    </button>`;
+  } else if (topic.drill && topic.tier <= tier) {
+    foot = `<button class="guide__drill" data-action="drill" data-topic="${topic.id}">
+      <span class="guide__drill-txt">
+        <span class="guide__drill-kind">Drill · ${topic.drill.name}</span>
+        <span class="guide__drill-brief">${topic.drill.brief}</span>
+      </span>
+      <span class="guide__drill-go">${icon("play", 12)}Run</span>
+    </button>`;
+  } else if (topic.drill) {
+    foot = `<div class="guide__drill guide__drill--locked">
+      <span class="guide__drill-txt">
+        <span class="guide__drill-kind">Drill · ${topic.drill.name}</span>
+        <span class="guide__drill-brief">${topic.drill.brief}</span>
+      </span>
+      <span class="guide__drill-go">${drillGate(topic)}</span>
+    </div>`;
+  }
+
   return `<div class="screen neon-backdrop">
-    <div class="howto">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div><div class="eyebrow">Briefing</div><h2 class="display" style="font-size:var(--fs-h1)">How to Play</h2></div>
+    <div class="guide">
+      <div class="guide__hdr">
+        <div class="guide__title">
+          <div class="eyebrow">Briefing</div>
+          <h2 class="display">How to Play</h2>
+        </div>
+        <button class="btn btn--primary guide__play" data-action="play">${icon("play")}Start Run</button>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
-      <div class="howto__grid">
-        ${steps
-          .map(
-            ([n, t, p]) =>
-              `<div class="panel step"><div class="step__n">${n}</div><b>${t}</b><p>${p}</p></div>`,
-          )
-          .join("")}
-      </div>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px">
-        ${PIECE_TYPES.map(
-          (t) =>
-            `<div class="panel" style="padding:8px;width:56px;height:56px">${pieceCellsHTML(
-              t as PieceType,
-            )}</div>`,
-        ).join("")}
-      </div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
-        <button class="btn btn--secondary btn--lg" data-action="tutorial">Guided Tutorial</button>
+      <div class="workshop__tabs guide__tabs" role="tablist">${tabs}</div>
+      <div class="guide__cols">
+        <div class="guide__list" id="guide-list" role="tablist" data-scroll>${rows}</div>
+        <div class="guide__pane" role="tabpanel">
+          <div class="guide__pane-hdr">
+            <h3 class="guide__topic">${topic.name}</h3>
+            ${topic.tier > 1 ? `<span class="guide__tier">Tier ${topic.tier}</span>` : ""}
+          </div>
+          <div class="guide__body">${topic.body}${topicArtHTML(topic)}</div>
+          ${foot}
+        </div>
       </div>
     </div>
   </div>`;
@@ -679,6 +800,11 @@ export type ControlsTab = "touch" | "keyboard" | "gamepad";
 export function controlsScreen(opts: {
   tab: ControlsTab;
   settings: Settings;
+  /** Where the close button and Done go back to. Settings is the historical
+   *  door and stays the default; the guide is the other one, and a player who
+   *  opened this from a How to Play row expects to land back on that row rather
+   *  than in Settings. main.ts remembers which door was used. */
+  back?: "settings" | "howto";
   /** Detected gamepad id, or null — browsers hide pads until a button is
    *  pressed, and the pane says so instead of reading as broken. */
   padName: string | null;
@@ -702,6 +828,7 @@ export function controlsScreen(opts: {
       <span class="bind-row__key">${value}</span>
     </div>`;
 
+  const back = opts.back ?? "settings";
   let pane = "";
   if (opts.tab === "touch") {
     pane = `${infoRow("Aim & fire", "drag anywhere · release fires")}
@@ -721,8 +848,8 @@ export function controlsScreen(opts: {
   return `<div class="screen neon-backdrop">
     <div class="controls">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <div><div class="eyebrow">Settings</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
-        <button class="icon-btn" data-action="settings" aria-label="Back">${icon("close", 18)}</button>
+        <div><div class="eyebrow">${back === "howto" ? "How to Play" : "Settings"}</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
+        <button class="icon-btn" data-action="${back}" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="workshop__tabs" role="tablist">
         ${tabBtn("touch", "Touch")}
@@ -731,7 +858,7 @@ export function controlsScreen(opts: {
       </div>
       <div class="controls__pane" id="controls-grid" role="tabpanel" data-scroll>${pane}</div>
       <div class="row" style="justify-content:center">
-        <button class="btn btn--primary" data-action="settings">Done</button>
+        <button class="btn btn--primary" data-action="${back}">Done</button>
         ${opts.tab === "touch" ? "" : `<button class="btn btn--ghost" data-action="controls-reset">Reset ${opts.tab}</button>`}
       </div>
     </div>
@@ -1013,6 +1140,18 @@ export function hudHTML(opts: {
    *  carries the whole rest of it rather than just a count: planning against
    *  the full set is the mode, so showing only "4 left" would hide the part
    *  the player is actually reasoning about. */
+  /** A GUIDE DRILL (game/drills.ts) rather than a run or a Contract.
+   *
+   *  A separate flag from `contract` because the two overlap only partly. A
+   *  lines-shaped drill fills the `contract` block below — same goal-over-lines
+   *  readout, same launch budget column, because a drill IS that bay — but the
+   *  two economy drills keep the Deep Run readout (funds against a target) and
+   *  pass no contract block at all. What is true of EVERY drill is what this
+   *  flag governs: the bay banner names the drill instead of claiming a bay
+   *  number the player is not on, the tier row goes (a drill banks nothing, so
+   *  a tier deal is not a thing it can advertise), and the ship rack goes with
+   *  it — a drill's rig is granted by the lesson, not built by the player. */
+  drill?: { name: string } | null;
   contract?: {
     name: string;
     kind: "lines" | "pattern";
@@ -1072,7 +1211,7 @@ export function hudHTML(opts: {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    tier, loaded, contract, fullscreenSupported = true,
+    tier, loaded, contract, drill, fullscreenSupported = true,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -1153,7 +1292,7 @@ export function hudHTML(opts: {
     : "";
   // The ship rack is a Deep Run readout. See the build row below for why a
   // Contract does not get one.
-  const plates = contract ? "" : shipPlatesHTML(tiers);
+  const plates = contract || drill ? "" : shipPlatesHTML(tiers);
   // BAY BANNER — the run position, top-center of the field. Playtest feedback:
   // "Bay 1/10" as small muted text inside the plant title read as part of the
   // level name, so players didn't know they were 1 bay into a 10-bay run. The
@@ -1161,7 +1300,11 @@ export function hudHTML(opts: {
   // lit, current pip amber) so progress is readable at a glance without
   // parsing any numbers. Contract mode shows the contract's name instead —
   // there is no run position to report.
-  const bayBanner = contract
+  const bayBanner = drill
+    ? `<div class="bay-banner bay-banner--contract" role="status">
+        <span class="bay-banner__mode">Drill</span> ${drill.name}
+      </div>`
+    : contract
     ? `<div class="bay-banner bay-banner--contract" role="status">
         <span class="bay-banner__mode">Contract</span> ${contract.name}
       </div>`
@@ -1442,7 +1585,7 @@ export function hudHTML(opts: {
           // tier progress advancing on a first clear — lands via
           // contract-end's own fresh hudHTML() render, not a live patch, so
           // main.ts still never looks the id up.
-          contract
+          contract && !drill
             ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress?.tier ?? contract.tier}</span><b id="hud-tier">${
                 // The deal, or the honest absence of one. With a milestone
                 // still to bank the row quotes the count and the salvage; with
@@ -2820,11 +2963,11 @@ export function endModal(opts: {
  *  the card as a value instead, which is the part that differs once the tier's
  *  quota is full.
  *
- *  The board is also its own block rather than a borrowed `.howto__grid`. That
- *  grid is the How-to deck's horizontal SNAP ROW, which is right for nine cards
- *  read once in order and wrong for three offers compared against each other —
- *  two of them were off-screen behind a sideways scroll, and a board you have to
- *  swipe to see is a board you cannot compare. Three cards fit the width they
+ *  The board is also its own block rather than a borrowed layout. It used to
+ *  reuse the How to Play deck's horizontal SNAP ROW, which put two of the three
+ *  offers off-screen behind a sideways scroll — and a board you have to swipe to
+ *  see is a board you cannot compare. (That row is gone from How to Play too
+ *  now, for a related reason: see guideScreen.) Three cards fit the width they
  *  are given; nothing here scrolls in either axis. */
 export function contractsScreen(opts: {
   contracts: ContractCard[];
@@ -2968,6 +3111,60 @@ export function queueTallyHTML(queue: readonly PieceType[]): string {
       return `<span style="color:${PIECE_COLORS[t]};font-weight:700">${t}</span>×${n}`;
     })
     .join(" ");
+}
+
+/**
+ * DRILL RESULT — the end of a guide drill (game/drills.ts).
+ *
+ * Deliberately the SMALLEST end card in the app, and deliberately not
+ * contractEndModal with the payout row deleted. A Contract's end card exists to
+ * settle an economy: what banked, what the tier still owes, what the salvage
+ * buys next. A drill settles nothing — it banks no salvage, ticks no tier,
+ * records no run — so every one of those rows would be a row saying "nothing
+ * happened", which reads as a failure rather than as a lesson finishing.
+ *
+ * What it says instead is the only thing a drill has to: whether the lesson
+ * landed, and the two ways out. The topic name is the eyebrow so the card
+ * points back at the paragraph it came from — a player who has just watched a
+ * row refuse to sell wants to re-read WHY, and "Cryo" over the verdict is the
+ * shortest route back to it.
+ */
+export function drillEndModal(opts: {
+  won: boolean;
+  /** The drill's own name — "Cold Chain", not the topic's. */
+  name: string;
+  /** The guide topic it teaches, for the eyebrow and the way back. */
+  topic: string;
+  lines: number;
+  goal: number;
+  shotsUsed: number;
+  /** 0 when the drill has no launch budget (the timed and economy ones). */
+  launches: number;
+  /** The lesson's one line, repeated: a player who just failed it is exactly
+   *  the player who did not finish reading it the first time. */
+  brief: string;
+}): string {
+  const budget = opts.launches > 0
+    ? `<div class="stat"><b style="color:var(--warn)">${Math.min(opts.launches, opts.shotsUsed)}/${opts.launches}</b><span>Launches</span></div>`
+    : `<div class="stat"><b style="color:var(--warn)">${opts.shotsUsed}</b><span>Launches</span></div>`;
+  const stats = `<div class="stat-row">
+      ${opts.goal > 0 ? `<div class="stat"><b style="color:var(--accent)">${opts.lines}/${opts.goal}</b><span>Lines</span></div>` : ""}
+      ${budget}
+    </div>`;
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal end end--contract pop">
+      <div class="end__main">
+        <div class="eyebrow" style="color:${opts.won ? "var(--success)" : "var(--warn)"}">${opts.topic} · Drill</div>
+        <h2 class="display">${opts.won ? "Lesson Landed" : "Run It Again"}</h2>
+        <p class="muted" style="margin-top:-6px">${opts.won ? `${opts.name} cleared. Nothing was banked and nothing was spent — a drill never touches your save.` : opts.brief}</p>
+        ${stats}
+      </div>
+      <div class="row end__actions">
+        <button class="btn btn--primary" data-action="drill-retry">${icon("retry", 12)}Try Again</button>
+        <button class="btn btn--ghost" data-action="drill-exit">Back to Guide</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 /**
