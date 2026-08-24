@@ -5,7 +5,7 @@ import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
-import { finalsForTier, type FinalDef, type FinalId } from "./game/finals";
+import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
   hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
@@ -70,8 +70,9 @@ import { SANDBOX } from "./lib/sandbox";
 import { DEV_TAP_WINDOW_MS, TapStreak } from "./lib/devmode";
 import { applyCheat, cheatRowHTML } from "./lib/sandbox-cheats";
 import {
-  applySandboxMaterials, bumpSandboxRatchet, maxedTiers, newSandbox, ratchetTotal,
-  sandboxAxes, sandboxRunFor, type SandboxMaterial, type SandboxState,
+  applySandboxMaterials, bumpSandboxRatchet, finalFitsTier, maxedTiers, newSandbox,
+  ratchetTotal, sandboxAxes, sandboxRunFor, SANDBOX_FINAL_BAY,
+  type SandboxMaterial, type SandboxState,
 } from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
 import { render } from "./game/render";
@@ -1032,7 +1033,14 @@ class App {
     // God flies the top of the ladder. The floor's own rules ("all ten marks
     // at once") are not specified anywhere in the game yet — see the note on
     // GOD_TIER in screens.ts — so until they are, it is MARK_COUNT's run.
-    return t === S.GOD_TIER ? MARK_COUNT : t;
+    if (t === S.GOD_TIER) return MARK_COUNT;
+    // Tier S never reaches newRun through here: the button that would start a
+    // ladder run opens the level select instead (see the `play` action), and a
+    // Tier S launch builds its run from sandbox.ts. Clamped rather than thrown
+    // because this is a getter three screens read — the safe answer is the
+    // bottom of the ladder, not a crash on the menu.
+    if (t === S.SANDBOX_TIER) return 1;
+    return t;
   }
 
   /** Whether Tier S can be entered at all. The setting is the door; the build
@@ -1073,9 +1081,14 @@ class App {
     const s = this.sandbox;
     const bay = s.target.kind === "bay" ? s.target.bay : 1;
     const notches = ratchetTotal(s.ratchets);
+    // The clause only counts when the bay it applies to is the one that was
+    // flown — same guard levelForRun uses, so this line cannot claim an
+    // inspection the run never sat under.
+    const clause = bay === SANDBOX_FINAL_BAY && s.final ? finalById(s.final) : undefined;
     return `Mark ${s.tier} · from bay ${bay}`
       + (notches > 0 ? ` · ${notches} notch${notches === 1 ? "" : "es"}` : "")
-      + (s.material !== "mix" ? ` · ${s.material} belt` : "");
+      + (s.material !== "mix" ? ` · ${s.material} belt` : "")
+      + (clause ? ` · ${clause.name}` : "");
   }
 
   /**
@@ -1092,13 +1105,21 @@ class App {
    * a door in it.
    */
   private onBeaconTap(el: HTMLElement): void {
+    // Only ever reached while the mode is CLOSED — once it is open the beacon
+    // carries `pick-tier` instead (screens.ts's towerHeadHTML) and a tap is a
+    // floor selection. Re-checked here rather than trusted from the markup, for
+    // the same reason pickTier re-checks tierOpen: a data attribute is not a
+    // permission, and this one would silently close the floor the car is on.
+    if (this.sandboxOpen()) return;
     const r = this.beaconTaps.press(performance.now());
     window.clearTimeout(this.beaconTimer);
     if (r.complete) {
       el.style.removeProperty("--beacon");
-      this.settings.devMode = !this.settings.devMode;
+      // SET, never toggled. The gesture opens Tier S once and has no second
+      // meaning; Settings is where it goes back off, with a label on it.
+      this.settings.devMode = true;
       saveSettings(this.settings);
-      // The tower gains (or loses) a floor, so this one IS a re-render.
+      // The tower gains a floor, so this one IS a re-render.
       this.renderOverlay();
       void successHaptic();
       playUiConfirm();
@@ -1126,16 +1147,13 @@ class App {
    */
   private pickTier(tier: number): void {
     const state = this.towerState();
-    // Tier S is a door, not a floor: the elevator is deactivated for it (see
-    // screens.ts's SANDBOX_TIER) and the tap opens the level-select screen
-    // instead of moving anything. Checked BEFORE the shaft lookup, because
-    // nothing about this branch involves the shaft.
-    if (tier === S.SANDBOX_TIER) {
-      if (this.sandboxOpen()) this.setState("sandbox");
-      return;
-    }
     const shaft = this.overlay.querySelector<HTMLElement>(".tower__shaft");
     if (!shaft) return;
+    // Tier S is a floor now, so it takes this whole path — the car rides to the
+    // roof, the plate rolls to S, and the primary button changes face. What it
+    // does NOT do any more is jump straight to the level select: that is what
+    // pressing the button does, exactly as pressing it flies the Mark the car
+    // is parked on. The old branch that navigated from here is gone.
     const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
     if (!S.tierOpen(state, tier)) {
       if (floor) {
@@ -1158,7 +1176,15 @@ class App {
     this.pickedAtMark = this.meta.mark;
     shaft.style.setProperty("--tower-dur", `${dur}ms`);
     shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
-    for (const f of shaft.querySelectorAll<HTMLElement>(".tower__floor")) {
+    // The roof park is a class rather than an index (see tierTowerHTML), so it
+    // has to be toggled alongside the property the other eleven floors move by.
+    shaft.parentElement?.classList.toggle("tower--roof", tier === S.SANDBOX_TIER);
+    // The headhouse is in this list because it is a floor (screens.ts) — left
+    // out, riding to the roof would light nothing and riding away from it would
+    // leave the roof lit. Selected by the pair of classes rather than by
+    // `[data-tier]`, so the beacon in its CLOSED state (which carries no
+    // data-tier) cannot be swept up by the same query.
+    for (const f of shaft.querySelectorAll<HTMLElement>(".tower__floor, .tower__head--floor")) {
       const sel = Number(f.getAttribute("data-tier")) === tier;
       f.classList.toggle("is-selected", sel);
       f.setAttribute("aria-pressed", String(sel));
@@ -1189,10 +1215,14 @@ class App {
   private rollPlate(from: number, to: number, dur: number): void {
     const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
     if (!n) return;
-    const face = (t: number): string => (t === S.GOD_TIER ? "★" : String(t));
+    const face = (t: number): string =>
+      t === S.GOD_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
     // A HIGHER tier is a higher floor — GOD_TIER is above every Mark, so the
-    // same comparison covers the God floor with no special case.
-    const up = to > from;
+    // same comparison covers the God floor with no special case. Tier S is the
+    // one floor whose id does NOT order with its height (it is -1 and sits on
+    // the roof), so the direction is taken from the shaft index instead, which
+    // is the number the car is actually moving through.
+    const up = S.towerIndexOf(to) < S.towerIndexOf(from);
     const cells = up ? [from, to] : [to, from];
     n.style.setProperty("--roll-dur", `${dur}ms`);
     n.style.setProperty("--roll-from", up ? "0" : "-1em");
@@ -1226,25 +1256,42 @@ class App {
    * which floor is selected.
    */
   private setSelectedTier(tier: number): void {
+    const sbx = tier === S.SANDBOX_TIER;
     const plate = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate");
     if (plate) plate.outerHTML = S.tierPlateHTML(tier, "menu");
     this.setPlaySub(tier);
+    // The button's own NAME changes on the roof, not just its subtitle — the
+    // floor decides what the primary action is, and "Deep Run" over a subtitle
+    // about the sandbox would be the button lying about where it goes. The
+    // NEXT STEP badge comes off with it: the guide is pointing at the ladder,
+    // and Tier S is not on it.
+    const ttl = this.overlay.querySelector<HTMLElement>("#menu-play-ttl");
+    if (ttl) ttl.textContent = sbx ? "Sandbox" : "Deep Run";
+    const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
+    btn?.classList.toggle("btn--sbx", sbx);
+    if (sbx) btn?.classList.remove("btn--next");
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
-    panel.outerHTML = S.baseBayPanelHTML({ tier, best: loadBest(), extras });
+    // Tier S reads its OWN board's best — the panel is the recap of the floor
+    // the car is on, and a ladder best printed over a sandbox panel would be
+    // the one number on it that belonged to somewhere else.
+    const best = sbx ? loadBest(BOARD_SANDBOX) : loadBest();
+    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras });
   }
 
-  /** The Deep Run button's subtitle for `tier`, or the in-flight line when it
+  /** The primary button's subtitle for `tier`, or the in-flight line when it
    *  is null. */
   private setPlaySub(tier: number | null): void {
     const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
     if (!sub) return;
     sub.textContent = tier === null
       ? "Elevator moving…"
-      : tier === S.GOD_TIER
-        ? "All ten marks at once · no mercy"
-        : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
+      : tier === S.SANDBOX_TIER
+        ? "Any Mark, any bay, any Contract · own board"
+        : tier === S.GOD_TIER
+          ? "All ten marks at once · no mercy"
+          : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
   }
 
   private renderOverlay(): void {
@@ -1265,7 +1312,11 @@ class App {
       case "menu":
         this.resetRailBudget();
         this.overlay.innerHTML = S.menuScreen(
-          loadBest(), this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
+          // The parked floor's OWN board, so the recap panel's one number
+          // belongs to the floor the rest of the panel is describing — see
+          // setSelectedTier, which does the same on every ride.
+          this.towerState().selected === S.SANDBOX_TIER ? loadBest(BOARD_SANDBOX) : loadBest(),
+          this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
           // The first-session system (canvas A2/A3): the one computed NEXT
           // STEP, the live numbers for the subtitles, and the Guided
           // Tutorial entry until the coach has been finished or skipped.
@@ -3296,7 +3347,19 @@ class App {
     // styling its buttons honestly.
     if (e.detail === 0 && !(e as PointerEvent).pointerType) this.actionFeedback(el);
     switch (action) {
-      case "play": this.startGame(); break;
+      // The primary button flies the parked floor — and on the roof, "flying
+      // it" is opening the level select, because Tier S is the one floor that
+      // has to be configured before it can deal a bay. Routed here rather than
+      // by giving the button a second data-action, so there is exactly one
+      // place that decides what the primary action means and it reads the same
+      // tower state the button was rendered from. sandboxOpen is re-checked
+      // because a floor selected before Settings closed the mode must not still
+      // open it (screens.ts's tierOpen is the other half of the same gate).
+      case "play":
+        if (this.towerState().selected === S.SANDBOX_TIER) {
+          if (this.sandboxOpen()) this.setState("sandbox");
+        } else this.startGame();
+        break;
       // A floor of the tier tower. Never re-renders the menu: the overlay's
       // innerHTML is rewritten wholesale by renderOverlay, which would tear
       // down the attract demo's canvas (see syncAttract) and restart the car's
@@ -3536,6 +3599,13 @@ class App {
         for (const id of Object.keys(this.sandbox.ratchets) as HazardId[]) {
           if (!open.has(id)) delete this.sandbox.ratchets[id];
         }
+        // And the same rule again for the Final Inspection, which needs it
+        // most: the clause pair IS the Mark's exam, so every rung offers a
+        // different two and a selection never survives the move. Left in place
+        // it would be a clause in force on bay 10 with no chip lit to say so —
+        // the one failure this screen's derived briefing cannot catch, because
+        // the briefing would faithfully report the wrong bay.
+        if (!finalFitsTier(this.sandbox.final, this.sandbox.tier)) this.sandbox.final = null;
         break;
       }
       // One notch on one axis, wrapping at SANDBOX_RATCHET_MAX. Deep Run only:
@@ -3551,6 +3621,26 @@ class App {
         break;
       }
       case "sbx-axis-clear": this.sandbox.ratchets = {}; break;
+      // A Final Inspection clause on the last bay (finals.ts). Deep Run only,
+      // for the same reason the axes are: a Contract's bay is built by
+      // contracts.ts and never reads run.final.
+      //
+      // Picking one MOVES the target to the final bay, and that is the whole
+      // usability of the row rather than a convenience. levelForRun applies the
+      // clause on bay 10 and nowhere else, so a clause selected over bay 3 is
+      // inert — and a control that silently does nothing is the one thing this
+      // screen is not allowed to have. "None" does not move anything: it is the
+      // ladder's own bay 10, and it has to stay pickable from wherever you are.
+      case "sbx-final": {
+        if (this.sandbox.target.kind !== "bay") break;
+        const raw = el.getAttribute("data-final") ?? "none";
+        if (raw === "none") { this.sandbox.final = null; break; }
+        const id = raw as FinalId;
+        if (!finalFitsTier(id, this.sandbox.tier)) break;
+        this.sandbox.final = id;
+        this.sandbox.target = { kind: "bay", bay: SANDBOX_FINAL_BAY };
+        break;
+      }
       case "sbx-variant":
         this.sandbox.target = {
           kind: "pattern",
