@@ -1175,10 +1175,13 @@ class App {
     // Stamped with the ladder position it was chosen against — see the field.
     this.pickedAtMark = this.meta.mark;
     shaft.style.setProperty("--tower-dur", `${dur}ms`);
-    shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
-    // The roof park is a class rather than an index (see tierTowerHTML), so it
-    // has to be toggled alongside the property the other eleven floors move by.
-    shaft.parentElement?.classList.toggle("tower--roof", tier === S.SANDBOX_TIER);
+    // Tier S does not move the car — the lift goes OUT OF SERVICE instead (see
+    // tierTowerHTML). So the index is left exactly where it was: the car powers
+    // down at the floor it was already parked on, rather than sliding somewhere
+    // first. Riding back to a Mark writes the index again and the lift comes up.
+    const off = tier === S.SANDBOX_TIER;
+    if (!off) shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
+    shaft.parentElement?.classList.toggle("tower--off", off);
     // The headhouse is in this list because it is a floor (screens.ts) — left
     // out, riding to the roof would light nothing and riding away from it would
     // leave the roof lit. Selected by the pair of classes rather than by
@@ -1288,7 +1291,7 @@ class App {
     sub.textContent = tier === null
       ? "Elevator moving…"
       : tier === S.SANDBOX_TIER
-        ? "Any Mark, any bay, any Contract · own board"
+        ? "Any Mark, bay or Contract · own board"
         : tier === S.GOD_TIER
           ? "All ten marks at once · no mercy"
           : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;

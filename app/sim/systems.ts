@@ -6083,10 +6083,20 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the shaft still holds only the ladder", S.TOWER_FLOORS === MARK_COUNT + 1);
   check("no floor shares Tier S's id",
     !Array.from({ length: S.TOWER_FLOORS }, (_, i) => i + 1).includes(S.SANDBOX_TIER));
-  // The roof is ABOVE God, which is index 0 — the one negative index in the
-  // shaft, and what puts the car in the headhouse rather than on a rung.
+  // The roof is ABOVE God, which is index 0. Nothing rides there — the index
+  // exists so travel time and the plate roll know S is above Mark 10 rather
+  // than, as its raw id would suggest, below Mark 1.
   check("the roof sits above the God floor",
     S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.GOD_TIER));
+  // The lift does not serve it: picking S switches the tower off rather than
+  // moving the car, so the shaft's index must NOT be the roof's.
+  check("the lift goes out of service rather than to the roof",
+    S.tierTowerHTML(parked).includes("tower--off")
+      && !S.tierTowerHTML(parked).includes(`--tower-idx:${S.towerIndexOf(S.SANDBOX_TIER)}`));
+  // The secret survives the unlock: no plate, no letter, nothing the closed
+  // headhouse does not already draw. The only difference is the lamp's state.
+  check("the open roof looks like the closed one",
+    !S.tierTowerHTML(open).includes("tower__head-n"));
   check("no Mark shares the roof's index",
     !Array.from({ length: MARK_COUNT }, (_, i) => S.towerIndexOf(i + 1))
       .includes(S.towerIndexOf(S.SANDBOX_TIER)));
@@ -6216,6 +6226,24 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the screen offers every axis the Mark deals",
     sandboxAxes(9).every((h) => sScreen.includes(`data-axis="${h.id}"`)));
   check("the screen can launch", sScreen.includes('data-action="sbx-launch"'));
+  // THE INSPECTION ROW — the reason the boss bay was untestable. Both of the
+  // rung's clauses have to be on the screen, and so does the way back to the
+  // ladder's own bay 10, or the row is a one-way door.
+  check("the screen offers both of the rung's clauses",
+    sandboxFinals(9).every((f) => sScreen.includes(`data-final="${f.id}"`)));
+  check("the screen offers no clause at all", sScreen.includes('data-final="none"'));
+  check("it offers no OTHER rung's clauses",
+    sandboxFinals(1).every((f) => !sScreen.includes(`data-final="${f.id}"`)));
+  // The briefing names the clause in force, so a Target the Mark's ordinary bay
+  // 10 would not produce has something on the panel accounting for it.
+  const sInspect = sandboxScreen({
+    s: { ...sbx, target: { kind: "bay", bay: SANDBOX_FINAL_BAY }, final: sandboxFinals(9)[0].id },
+    meta: newMeta(), best: 0,
+  });
+  check("the briefing names the clause in force",
+    sInspect.includes(sandboxFinals(9)[0].name));
+  check("the briefing stays quiet with no clause",
+    !sScreen.includes("sbx-brief__clause"));
   check("the shipping screen carries no save-editing controls",
     !sScreen.includes("sbx-wipe") && !sScreen.includes("sbx-grant-mark"));
   check("the developer render does",

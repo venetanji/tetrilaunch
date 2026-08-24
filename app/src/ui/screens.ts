@@ -212,11 +212,12 @@ export function sandboxOpen(state: TowerState): boolean {
  *  position is this one number (app.css does the arithmetic from --tower-idx),
  *  so the travel animation is a single custom property to write.
  *
- *  MINUS ONE for Tier S, which is the arithmetic saying exactly what the
- *  drawing says: one floor above God, in the headhouse, outside the shaft's own
- *  box. app.css's `top` calc takes a negative index without a special case (the
- *  car simply rides up past the roofline), so the whole of "the lift serves the
- *  roof now" is this one number. */
+ *  MINUS ONE for Tier S — above God, which is 0. The CAR never uses it: the
+ *  lift does not serve the roof, and tierTowerHTML parks it at the top of the
+ *  shaft and switches it off instead. What does use it is everything that needs
+ *  the roof ORDERED against the ladder: towerTravelMs (how long the trip takes)
+ *  and the plate roll's direction, both of which have to know that S is above
+ *  Mark 10 and not, as its raw id would suggest, below Mark 1. */
 export function towerIndexOf(tier: number): number {
   if (tier === SANDBOX_TIER) return -1;
   return tier === GOD_TIER ? 0 : MARK_COUNT - tier + 1;
@@ -271,12 +272,19 @@ function floorHTML(state: TowerState, tier: number): string {
  * meet an unlabelled control whose only honest label would give the secret
  * away, and a keyboard user has no way to perform a nine-tap gesture anyway.
  *
- * OPEN, it is Tier S's floor, and an ordinary one: same `pick-tier` action and
- * same `data-tier` every rung in the shaft carries, so one tap parks the car on
- * it exactly as a tap on Mark 7 parks the car there. It joins the a11y tree at
- * that point, with a real label, because there is no longer a secret to keep —
- * and the taps stop counting, because the streak has nothing left to open. That
- * is the whole of "acts just like any other floor from then on".
+ * OPEN, it is Tier S's selection: same `pick-tier` action and same `data-tier`
+ * every rung in the shaft carries, so one tap picks it exactly as a tap on Mark
+ * 7 picks that. It joins the a11y tree at that point, with a real label, and the
+ * taps stop counting, because the streak has nothing left to open.
+ *
+ * IT LOOKS THE SAME IN BOTH STATES, and that is the point rather than an economy
+ * of effort. The mode is a secret — nine taps is the whole design of finding it
+ * — so the roof does not grow a plate, a letter or a highlight once it opens.
+ * Anyone who has not performed the gesture is looking at a lamp on a roof, which
+ * is what it was before and what it stays. What changes is the LAMP, and only
+ * when the mode is selected: it blinks bigger and brighter, and the building
+ * below it goes dark (see .tower--off). The one visible difference is a state
+ * you can only reach by having already found it.
  *
  * ONE-WAY. Nine taps SET the mode; they do not toggle it. A gesture whose
  * meaning inverts once performed is a trap — the tap that opens the door is the
@@ -296,21 +304,27 @@ function towerHeadHTML(state: TowerState): string {
   return `<button class="tower__head tower__head--floor${sel ? " is-selected" : ""}" type="button"
     data-action="pick-tier" data-tier="${SANDBOX_TIER}" aria-pressed="${sel}"
     aria-label="Tier S — sandbox. Any Mark, any bay, any Contract. Scores are kept on a separate board."
-    >${lamps}<span class="tower__head-n" aria-hidden="true">S</span></button>`;
+    >${lamps}</button>`;
 }
 
 export function tierTowerHTML(state: TowerState): string {
   // Roof first, ground floor last.
   const floors: string[] = [];
   for (let t = GOD_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
-  const idx = towerIndexOf(state.selected);
-  // The car's ROOF park is a class, not arithmetic on --tower-idx. Index -1
-  // resolves to a top of one full floor-height above the shaft, which would
-  // hang a 44px car off the side of the building; the headhouse is 22px. So the
-  // roof is the one position the car does not compute — it docks into the motor
-  // room at a fixed size, which is also what a real lift does.
-  const roof = state.selected === SANDBOX_TIER;
-  return `<div class="tower${roof ? " tower--roof" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
+  // THE LIFT DOES NOT SERVE THE ROOF. Picking Tier S shuts the building down:
+  // the car goes dark where it stands and the beacon takes over, blinking
+  // bigger and brighter. It is not a floor the elevator reaches, and animating
+  // a car up into the motor room would say it is — the tower is the LADDER, and
+  // the one selection that is not a rung of it should read as the ladder
+  // switching off rather than as an eleventh stop on it.
+  //
+  // So the car's index is never SANDBOX_TIER's. It parks at the top of the
+  // shaft and powers down, which is also the honest answer to "where is the car
+  // when the building is off": wherever it last was, and on a first render that
+  // is as far up as it goes.
+  const off = state.selected === SANDBOX_TIER;
+  const idx = towerIndexOf(off ? GOD_TIER : state.selected);
+  return `<div class="tower${off ? " tower--off" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}">
       ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
@@ -343,11 +357,18 @@ function statCellHTML(name: IconName, label: string, value: string, tint: string
 /** The six material axes in ladder order, lit once the selected Mark deals
  *  them. Not a static list: it is hazards.ts's own content axes, so a material
  *  added or re-gated there shows up here with no edit. */
-function beltLadderHTML(mark: number): string {
+function beltLadderHTML(mark: number, unknown = false): string {
   const content = HAZARDS.filter((h) => h.kind === "content" && h.material);
   const glyphs = content
     .map((h) => {
-      const live = h.mark <= mark;
+      // Tier S lights the whole belt rather than withholding it. The four stat
+      // tiles take a "?" because a number has a "?" the same height as itself;
+      // a material glyph does not, and a row of question marks where the icons
+      // go is TALLER than the icons — the panel visibly changed height as the
+      // car reached the roof. Every material is reachable from Tier S anyway
+      // (the belt selector offers all six and a parade of all six at once), so
+      // "all of them" is not a placeholder here, it is the honest answer.
+      const live = unknown || h.mark <= mark;
       const title = live
         ? `${h.name} — dealt from Tier ${h.mark}`
         : `${h.name} — unlocks at Tier ${h.mark}`;
@@ -364,7 +385,11 @@ function beltLadderHTML(mark: number): string {
   return `<div class="bay-belt">
     <span class="bay-belt__lbl">Belt</span>
     <span class="bay-belt__mats">${glyphs}</span>
-    <span class="bay-belt__count">${live}/${content.length}${picks > 1 ? ` · ${picks} picks` : ""}</span>
+    <span class="bay-belt__count">${
+      unknown
+        ? "set on launch"
+        : `${live}/${content.length}${picks > 1 ? ` · ${picks} picks` : ""}`
+    }</span>
   </div>`;
 }
 
@@ -380,10 +405,16 @@ function beltLadderHTML(mark: number): string {
  *
  * So the panel does not guess, and it does not go blank either. It prints the
  * one honest answer — not known yet — in the shape the four numbers already
- * occupy, so the column does not resize when the car reaches the roof and the
+ * occupy, so the column does not resize when the tower switches over and the
  * player can see it is the same readout with the values withheld. The glyphs
  * jitter because a static "?" reads as a value that failed to load; a moving
  * one reads as a machine that has not been told yet.
+ *
+ * THE BELT IS THE EXCEPTION, and it is a layout fact rather than a preference:
+ * a "?" is the height of the number it replaces, but it is TALLER than a 13px
+ * material glyph, so a row of six of them grew the panel and the whole column
+ * wobbled as the selection changed. The belt lights all six instead — which is
+ * also true, since Tier S can deal any material and a parade of all of them.
  */
 function unknownBayPanelHTML(best: number, extras: string): string {
   const cell = (name: IconName, label: string, tint: string): string =>
@@ -398,13 +429,7 @@ function unknownBayPanelHTML(best: number, extras: string): string {
       ${cell("clock", "Clock", "var(--text)")}
       ${cell("bonds", "Bonds", "var(--piece-t)")}
     </div>
-    <div class="bay-belt">
-      <span class="bay-belt__lbl">Belt</span>
-      <span class="bay-belt__mats bay-belt__mats--q" aria-hidden="true">${
-        "<span class=\"bay-stat__q\">?</span>".repeat(6)
-      }</span>
-      <span class="bay-belt__count">set on launch</span>
-    </div>
+    ${beltLadderHTML(MARK_COUNT, true)}
     <div class="base-bay__extras">${extras}</div>
   </div>`;
 }
@@ -586,7 +611,7 @@ export function menuScreen(
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${sbxSel ? "Sandbox" : "Deep Run"}</span><span class="btn__sub" id="menu-play-sub">${
           sbxSel
-            ? "Any Mark, any bay, any Contract · own board"
+            ? "Any Mark, bay or Contract · own board"
             : godSel
               ? "All ten marks at once · no mercy"
               : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
