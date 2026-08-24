@@ -1,6 +1,10 @@
 # dependencies
-node_modules/
-app/node_modules/
+# No trailing slash: with one, these match DIRECTORIES only, and a symlink
+# named node_modules slips straight past them into a `git add -A`. That is
+# exactly what happened in 704c613, which committed an absolute-path symlink
+# pointing at one machine's checkout.
+node_modules
+app/node_modules
 
 # build output
 app/dist/
