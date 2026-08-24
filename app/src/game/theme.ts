@@ -184,9 +184,24 @@ export const MATERIAL_SPEC: Record<
   // Pale ice. Bright enough to stay legible in flight, cold enough to read as
   // a different substance rather than another piece color.
   cryo: { name: "Cryo", color: "#9fe8ff", countsForLines: true, needsStrike: true },
-  // Structural orange — the colour of the thing itself, and the only warm
-  // saturated tone on the field, so "this one will not bend" reads in flight.
-  rebar: { name: "Rebar", color: "#ff8a1f", countsForLines: true, needsStrike: false, rigid: true },
+  // Hot structural red-orange. It was #ff8a1f until a CIEDE2000 audit of the
+  // whole field caught it 2.0 from the L shipment's own #ff8a00 — under the
+  // just-noticeable-difference threshold, i.e. the same colour. A rigid
+  // shipment that looked exactly like an ordinary L is the worst failure this
+  // table can have, and no colour-blindness was needed to hit it.
+  //
+  // #e54c00 was picked by searching HSV space for the hex with the largest
+  // WORST-CASE distance from all twelve other swatches, scored under normal,
+  // deuteranopia and protanopia at once. It takes rebar/standard-L from 2.0 to
+  // 17.9 and — the reason this hue and not another — rebar/volatile from 17.0
+  // to 33.3 under deuteranopia, which is the pair that reads as identical to a
+  // red-green-deficient player.
+  //
+  // That search also proved the palette is FULL: the best hex available
+  // anywhere reaches a worst case of only 21, and only by going dark enough to
+  // impersonate tar. There is no thirteenth colour, which is why MATERIAL_GLYPH
+  // below exists and why it is not optional.
+  rebar: { name: "Rebar", color: "#e54c00", countsForLines: true, needsStrike: false, rigid: true },
   // Hazard yellow-green, the one colour the palette otherwise refuses. It is a
   // warning label, and it is the only material whose cost lands on cubes that
   // were already safely down.
@@ -209,6 +224,119 @@ export const MATERIAL_SPEC: Record<
  */
 export function shipmentColor(type: PieceType, material: Material = "standard"): string {
   return MATERIAL_SPEC[material].color ?? PIECE_COLORS[type];
+}
+
+/**
+ * MATERIAL GLYPHS — the material's identity as a SHAPE.
+ *
+ * Colour cannot carry this any more, and that is a measured claim rather than a
+ * preference. Thirteen swatches share this field (seven shipment colours and six
+ * material colours) on one near-black backdrop, and a CIEDE2000 sweep of all of
+ * them found rebar sitting 2.0 from a standard L, and slag, tar and magnetic
+ * clustered inside 13 of each other once shipmentAura lifts the dim two into
+ * visibility. Searching the whole HSV space for a better thirteenth colour
+ * returned a best worst-case of 21 — no better than pairs players already report
+ * as indistinguishable. The palette is full. Shape is the channel that is left.
+ *
+ * So every non-standard material owns a glyph, and the glyph is what IDENTIFIES
+ * it; colour drops to a first-glance hint that nothing depends on alone. That
+ * is also why there is no "colour-blind mode" toggle guarding these: the
+ * collisions above are present for ordinary vision too, so a build without the
+ * glyphs is broken for everyone and gating them would ship the broken one by
+ * default.
+ *
+ * The six are deliberately different SILHOUETTE CLASSES, not merely different
+ * drawings — ringed-and-slashed, radial needles, orthogonal lattice, solid mass,
+ * interlocked loops, closed arch. Two glyphs that differ only in detail collapse
+ * at belt-tile size and in peripheral vision, which is exactly where they are
+ * read. Volatile is the only FILLED one because mass reads as danger faster than
+ * outline does, and volatile is the material whose cost lands on cubes that were
+ * already safely down.
+ *
+ * Authored once, as SVG path data in a 24x24 box centred on (12, 12), because
+ * both consumers can eat it directly: the canvas renderer builds a Path2D from
+ * `d`, and the DOM previews drop it into a `<path>`. A glyph drawn twice is a
+ * glyph that drifts.
+ */
+export interface MaterialGlyph {
+  /** SVG path data, 24x24 box, centred on (12, 12). */
+  d: string;
+  /** Stroke width in that same 24-unit space, or 0 to fill the path instead. */
+  stroke: number;
+}
+
+export const MATERIAL_GLYPH: Record<Exclude<Material, "standard">, MaterialGlyph> = {
+  // Ringed and struck through — the international "not this one" mark, for the
+  // one material that can never fill a slot.
+  slag: {
+    d: "M4.4 12A7.6 7.6 0 1 0 19.6 12A7.6 7.6 0 1 0 4.4 12M6.6 17.4L17.4 6.6",
+    stroke: 2.6,
+  },
+  // Frost needles, the same six-spoke star the cube face has carried since cryo
+  // shipped (render.ts's drawFrost) — this is that mark promoted to the belt.
+  cryo: { d: "M12 3.6V20.4M4.7 7.8L19.3 16.2M4.7 16.2L19.3 7.8", stroke: 2.6 },
+  // Reinforcing lattice. The only orthogonal glyph, so it separates from the two
+  // radial ones (cryo, volatile) by silhouette rather than by line count.
+  rebar: { d: "M9 3.8V20.2M15 3.8V20.2M3.8 9H20.2M3.8 15H20.2", stroke: 2.6 },
+  // Detonation burst, and the only solid one. See the note above on mass.
+  volatile: {
+    d: "M12 1.5L14.6 8.2L20.6 4.4L17.2 10.6L23.5 12L17.2 13.4L20.6 19.6L14.6 15.8"
+      + "L12 22.5L9.4 15.8L3.4 19.6L6.8 13.4L0.5 12L6.8 10.6L3.4 4.4L9.4 8.2Z",
+    stroke: 0,
+  },
+  // Two links welded through each other — the joint a Bond Breaker will not
+  // split, which is the whole of what tar is.
+  tar: {
+    d: "M7.4 7.2H9.4A4.8 4.8 0 0 1 9.4 16.8H7.4A4.8 4.8 0 0 1 7.4 7.2Z"
+      + "M14.6 7.2H16.6A4.8 4.8 0 0 1 16.6 16.8H14.6A4.8 4.8 0 0 1 14.6 7.2Z",
+    stroke: 2.6,
+  },
+  // A horseshoe magnet, drawn heavy so the closed arch reads as one mass rather
+  // than as another set of radiating lines.
+  magnetic: { d: "M5.4 19V12a6.6 6.6 0 0 1 13.2 0V19", stroke: 3.6 },
+};
+
+/**
+ * Materials whose glyph is drawn on the CUBE, once it is lying in the bay.
+ *
+ * Not the same question as "does this material need a glyph in the preview" —
+ * every one of them does, because every one of them changes how you aim. This
+ * asks a narrower thing: after it has landed, do you still make decisions about
+ * THIS cube? Slag yes, you have to find it again to aim a charge at it. Volatile
+ * yes, you have to know which already-landed cubes will chain. Rebar yes, that
+ * row cannot be squeezed and needs a Bond Breaker. Tar yes, so a Bond Breaker is
+ * not wasted on a weld that will not break.
+ *
+ * Magnetic is the one that is genuinely done: its whole effect happens as it
+ * settles, and afterwards it is an ordinary cube. Giving it a permanent mark
+ * would be noise on a pile that is already carrying four other marks.
+ *
+ * Cryo is absent for the opposite reason — it already has a bay treatment that
+ * says something this one cannot. render.ts's drawFrost vanishes the instant the
+ * cube is struck, so the frost encodes the struck/unstruck STATE rather than the
+ * material, and that state is the only thing worth knowing about a landed cryo
+ * cube. A static glyph would say less, not more.
+ */
+export const BAY_GLYPH_MATERIALS: Material[] = ["slag", "rebar", "volatile", "tar"];
+
+/**
+ * Ink for a glyph drawn on top of `hex` — near-black on a light material, near-
+ * white on a dark one.
+ *
+ * Arithmetic rather than a column in MATERIAL_GLYPH for the same reason
+ * shipmentAura is: the glyph is drawn on the material colour in the bay but on
+ * the AURA colour in a belt badge, so a hand-picked ink would need two values
+ * per material and a rule for which applies. Relative luminance answers both
+ * from whatever it is actually being drawn on.
+ *
+ * The 0.42 threshold sits between tar (0.13) and slag (0.42 lifted, 0.28 raw) on
+ * one side and cryo, volatile and rebar on the other — the gap is wide, so this
+ * is not a knife-edge.
+ */
+export function glyphInk(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return lum > 0.42 ? "#07070f" : "#eaeaff";
 }
 
 /** How bright the brightest channel of a telegraph colour has to be, as a

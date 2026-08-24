@@ -15,6 +15,8 @@
 import { VARIANTS, type ContractVariant } from "./contracts";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type UpgradeTiers } from "./upgrades";
 import { RUN_LEVELS } from "./run";
+import { NO_MATERIALS, type LevelConfig } from "./level";
+import { MATERIALS, type Material } from "./theme";
 
 /** What the sandbox will launch when the LAUNCH button is pressed. */
 export type SandboxTarget =
@@ -37,6 +39,57 @@ export interface SandboxState {
   /** The rig a Deep Run bay launches with. Contracts ignore it: a Contract
    *  bay is stripped of the run economy entirely (contracts.ts). */
   tiers: UpgradeTiers;
+  /** What the bay is allowed to ship — see SandboxMaterial. */
+  material: SandboxMaterial;
+}
+
+/**
+ * The sandbox's material override.
+ *
+ * Materials arrive through hazard content axes at 7-32% a shipment (hazards.ts's
+ * materialRate), and only from Mark 4 up, and only if the draft happened to deal
+ * that card. Testing how six materials READ against each other that way means
+ * drafting the right hand and then waiting on a die roll, which is not a test —
+ * it is a slot machine with a phone in your hand.
+ *
+ * So: "mix" leaves the bay exactly as the ladder built it, one material name
+ * ships nothing but that, and "all" ships an even parade of all six. "all" is the
+ * one that matters here, because the question a material's LOOK has to answer is
+ * never "what is this" in isolation — it is "which of these two is this", and
+ * that needs both of them on the belt within a few shipments of each other.
+ */
+export type SandboxMaterial = "mix" | "all" | Material;
+
+/** Every material except standard, in MATERIALS order. */
+export const SANDBOX_MATERIALS: Material[] = MATERIALS.filter((m) => m !== "standard");
+
+/**
+ * Point a level's material mix at whatever the sandbox selected.
+ *
+ * Writes `materialMix` directly rather than going through hazards.ts's ratchets:
+ * the caps there (MATERIAL_CAP 0.32 per material, and the combined cap) exist to
+ * keep a REAL run's difficulty honest, and honouring them here would mean the one
+ * screen built to look at every material could never show more than a third of a
+ * queue's worth. The shipping path is untouched — this is only ever called from
+ * launchSandbox, behind the SANDBOX gate.
+ *
+ * Returns the same object it was handed, so callers can inline it.
+ */
+export function applySandboxMaterials(cfg: LevelConfig, choice: SandboxMaterial): LevelConfig {
+  if (choice === "mix") return cfg;
+  const mix = { ...NO_MATERIALS };
+  if (choice === "all") {
+    // Just under 1.0 in total, not exactly 1.0: cannon.ts's rollMaterial walks
+    // the mix as cumulative probability and falls through to "standard" past the
+    // end, so leaving a sliver keeps the occasional ordinary shipment in the
+    // parade. Comparing a material against a plain one is half the job.
+    const each = 0.94 / SANDBOX_MATERIALS.length;
+    for (const m of SANDBOX_MATERIALS) mix[m as Exclude<Material, "standard">] = each;
+  } else if (choice !== "standard") {
+    mix[choice as Exclude<Material, "standard">] = 1;
+  }
+  cfg.materialMix = mix;
+  return cfg;
 }
 
 export function newSandbox(): SandboxState {
@@ -48,6 +101,9 @@ export function newSandbox(): SandboxState {
     seed: 20260101,
     target: { kind: "pattern", variant: "plain" },
     tiers: newTiers(),
+    // The ladder's own mix by default: the sandbox opens showing the real game,
+    // and forcing materials is something you turn on deliberately.
+    material: "mix",
   };
 }
 

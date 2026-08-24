@@ -4,8 +4,9 @@ import { CHUTE, chuteRightEdge } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
 import {
-  COLORS, shade, shipmentAura, shipmentColor,
-  type PieceSize, type PieceType,
+  BAY_GLYPH_MATERIALS, COLORS, glyphInk, MATERIAL_GLYPH, PIECE_COLORS,
+  shade, shipmentAura, shipmentColor,
+  type Material, type PieceSize, type PieceType,
 } from "./theme";
 import { pieceOffsets, type Cube } from "./pieces";
 import type { Compactor } from "./compactor";
@@ -431,13 +432,85 @@ function getSprite(
  *  highlight. Exactly the paint drawCube ran inline before the cache; the
  *  material flags are mutually exclusive (slag and cold can't both hold), and
  *  a thawed cryo cube deliberately shares the plain sprite of its color. */
+/** How much of the cube's half-width the shape-colour frame takes. The interior
+ *  keeps ~55% of the cube's AREA, which is the point of the split: material has
+ *  no second channel and shape has one (the silhouette), so the channel that is
+ *  carrying more information gets the larger region and the glyph. */
+const FRAME_PX = 5;
+
+/** Bay glyphs are drawn under full opacity so a single cube is unmistakable but
+ *  sixty of them read as surface texture rather than sixty competing icons.
+ *  This is the dial to turn if a packed pile feels noisy — not the glyph's
+ *  existence, which is load-bearing (theme.ts's MATERIAL_GLYPH). */
+const BAY_GLYPH_ALPHA = 0.62;
+
+/** Stamp a material glyph, authored in theme.ts's 24x24 box, centred on a
+ *  `size`-wide square whose top-left is (o, o) in the current transform. */
+function drawMaterialGlyph(
+  ctx: CanvasRenderingContext2D,
+  material: Material,
+  o: number,
+  size: number,
+  ink: string,
+  alpha: number,
+): void {
+  const glyph = MATERIAL_GLYPH[material as Exclude<Material, "standard">];
+  if (!glyph) return;
+  const s = size / 24;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(o, o);
+  ctx.scale(s, s);
+  const path = new Path2D(glyph.d);
+  if (glyph.stroke === 0) {
+    ctx.fillStyle = ink;
+    ctx.fill(path);
+  } else {
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = glyph.stroke;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.stroke(path);
+  }
+  ctx.restore();
+}
+
+/**
+ * One cube face, baked.
+ *
+ * TWO-TONE. A non-standard cube is drawn as its SHAPE colour framing its
+ * MATERIAL colour, with the material's glyph etched on the interior — see
+ * theme.ts's MATERIAL_GLYPH for why colour alone stopped being enough. The split
+ * matters because the two channels are not equally served: a shipment's TYPE is
+ * already legible from its silhouette, so shape colour is redundant and can live
+ * in a thin frame, while material has no second channel at all and takes the
+ * interior plus the mark.
+ *
+ * A standard shipment's material colour IS its shape colour, so it falls out of
+ * the same code as a plain solid cube — and that is a signal worth having rather
+ * than an accident: solid means ordinary, framed means think. That distinction is
+ * silhouette-level, so it survives at any size and any colour vision, which is
+ * what actually rescues the one collision no hue could fix (volatile against a
+ * standard O reads at dE00 3.3 under deuteranopia).
+ *
+ * `framed` is false for standing-wall cubes: pieces.ts gives them type "O"
+ * arbitrarily, for looks, so a frame drawn from that type would be asserting a
+ * shipment identity the cube does not have.
+ */
 function getCubeSprite(
   type: PieceType,
   color: string,
+  material: Material,
+  framed: boolean,
   slag: boolean,
   cold: boolean,
 ): HTMLCanvasElement {
-  const key = `${type}|${color}|${slag ? "s" : cold ? "c" : "n"}`;
+  const shapeColor = PIECE_COLORS[type];
+  // Two-tone only where the two colours actually differ. Standard shipments and
+  // blinking cubes (whose colour is overridden wholesale) fall through to the
+  // single-colour path that has always been here.
+  const twoTone = framed && color !== shapeColor;
+  const key = `${type}|${color}|${material}|${framed ? "f" : "u"}|${slag ? "s" : cold ? "c" : "n"}`;
   const hit = cubeSprites.get(key);
   if (hit) return hit;
 
@@ -449,33 +522,55 @@ function getCubeSprite(
 
   // Slag is inert, so it does not glow — every live shipment on the field
   // does. Cold cryo glows harder than it will once thawed: the frost is the
-  // warning.
+  // warning. The glow keeps the MATERIAL colour even on a two-tone cube: it is
+  // the channel with no redundancy, so it gets the halo.
   ctx.shadowColor = color;
   ctx.shadowBlur = slag ? 0 : cold ? 22 : 16;
   roundRect(ctx, -h, -h, CELL, CELL, 5);
-  ctx.fillStyle = color;
+  ctx.fillStyle = twoTone ? shapeColor : color;
   ctx.fill();
   ctx.shadowBlur = 0;
 
+  // The material's own region, inset inside the shape-colour frame.
+  const io = twoTone ? -h + FRAME_PX : -h;
+  const isize = twoTone ? CELL - FRAME_PX * 2 : CELL;
+  const ir = twoTone ? 2.5 : 5;
+  if (twoTone) {
+    roundRect(ctx, io, io, isize, isize, ir);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  const bayGlyph = BAY_GLYPH_MATERIALS.includes(material);
   ctx.save();
-  roundRect(ctx, -h, -h, CELL, CELL, 5);
+  roundRect(ctx, io, io, isize, isize, ir);
   ctx.clip();
   if (slag) {
     // Rubble hatching instead of the type pattern — slag has no shipment
     // identity left to advertise, which is precisely its point.
-    drawSlagFace(ctx, -h, CELL, dark, light);
-  } else {
-    // Per-type interior pattern (ported from main.py draw_square_piece)
-    drawPattern(ctx, type, -h, -h, CELL, dark, light);
-    // Frost crystals over the type pattern, so a cryo O still reads as an O.
-    // They vanish the instant it thaws — that transition IS the feedback that
-    // the strike landed, and the row is now completable.
-    if (cold) drawFrost(ctx, -h, CELL);
+    drawSlagFace(ctx, io, isize, dark, light);
+  } else if (!bayGlyph) {
+    // Per-type interior pattern (ported from main.py draw_square_piece).
+    // Skipped where a glyph is about to take the same space: pattern AND mark
+    // is busier than either alone, and the mark is the one carrying something
+    // the player cannot read anywhere else on a landed cube.
+    drawPattern(ctx, type, io, io, isize, dark, light);
   }
+  // Frost over whatever the interior holds, so a cryo O still reads as an O.
+  // It vanishes the instant the cube thaws — that transition IS the feedback
+  // that the strike landed, and the row is now completable.
+  if (cold) drawFrost(ctx, io, isize);
   ctx.restore();
 
+  if (bayGlyph) {
+    drawMaterialGlyph(ctx, material, io, isize, glyphInk(color), BAY_GLYPH_ALPHA);
+  }
+
   ctx.lineWidth = 2.5;
-  ctx.strokeStyle = light;
+  // The rim belongs to whichever colour owns the cube's outer edge, so a
+  // two-tone cube's frame reads as one object rather than as a material-colour
+  // hairline sitting on an unrelated band.
+  ctx.strokeStyle = twoTone ? shade(shapeColor, 45) : light;
   roundRect(ctx, -h, -h, CELL, CELL, 5);
   ctx.stroke();
 
@@ -1009,15 +1104,24 @@ function getPistonHeadSprite(): HTMLCanvasElement {
 
 function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
   if (!blinkVisible(cube, now)) return;
-  const color = cube.blinkStart !== null ? "#ff6464" : cube.color;
-  // A cube's material is legible from its color alone (theme.ts's
-  // MATERIAL_SPEC), but the two that CHANGE ITS WORTH get a second, non-color
-  // cue as well: color alone would leave a colour-blind player reading slag as
-  // just another shipment, and the whole mechanic is knowing which cubes count.
-  // Both cues (and the glow) are baked into the sprite — see getCubeSprite.
+  const blinking = cube.blinkStart !== null;
+  const color = blinking ? "#ff6464" : cube.color;
+  // A cube's material is NOT legible from its colour — that was the old claim
+  // here and a CIEDE2000 audit of the field disproved it (theme.ts's
+  // MATERIAL_GLYPH has the numbers). So every material that still asks the
+  // player for a decision once it is lying in the bay carries a glyph, on top
+  // of the shape-colour frame that separates "what is it made of" from "what
+  // shape is it". All of it (and the glow) is baked into the sprite — see
+  // getCubeSprite.
+  //
+  // A blinking cube opts out of both: its colour is overridden wholesale by the
+  // clear animation, so a frame and a mark would be decorating a cube that is
+  // about to stop existing.
   const slag = cube.material === "slag";
   const cold = cube.material === "cryo" && !cube.struck;
-  const sprite = getCubeSprite(cube.type, color, slag, cold);
+  const sprite = getCubeSprite(
+    cube.type, color, cube.material, cube.framed !== false && !blinking, slag, cold,
+  );
 
   const b = cube.body;
   const half = CELL / 2 + SPRITE_PAD;
@@ -1413,16 +1517,73 @@ function drawLoadedPiece(
   // One glowing cell per color, baked (the ghost is on screen whenever the
   // cannon is loaded — this was up to five live glow fills every frame).
   // Baked opaque; GHOST_ALPHA fades the stamp, glow included.
-  const sprite = getSprite(`ghost|${color}`, box, box, (c) => {
+  //
+  // Two-tone on the same rule the bay cubes use (getCubeSprite): the shipment's
+  // shape colour frames its material's. The muzzle is the third surface that has
+  // to agree about what is loaded, so it agrees about this too.
+  const shapeColor = PIECE_COLORS[cannon.currentType];
+  const twoTone = color !== shapeColor;
+  const sprite = getSprite(`ghost|${color}|${shapeColor}`, box, box, (c) => {
     c.shadowColor = color;
     c.shadowBlur = 12;
-    c.fillStyle = color;
+    c.fillStyle = twoTone ? shapeColor : color;
     roundRect(c, GHOST_CELL_PAD, GHOST_CELL_PAD, cell, cell, 4);
     c.fill();
+    if (twoTone) {
+      c.shadowBlur = 0;
+      const i = cell * 0.2;
+      c.fillStyle = color;
+      roundRect(c, GHOST_CELL_PAD + i, GHOST_CELL_PAD + i, cell - i * 2, cell - i * 2, 2.5);
+      c.fill();
+    }
   });
   ctx.globalAlpha = GHOST_ALPHA;
   stamp(sprite, GHOST_CELL_PAD);
   ctx.restore();
+
+  // THE MUZZLE BADGE — the same mark the belt tile and the menus carry, beside
+  // the ghost rather than on it.
+  //
+  // Deliberately NOT faded by GHOST_ALPHA. The ghost is a preview and reads
+  // correctly as a translucent promise; what it is MADE of is not a promise, it
+  // is the fact the player is aiming around, and at a glance the aura alone
+  // could not carry it (theme.ts's MATERIAL_GLYPH: slag, tar and magnetic auras
+  // land within dE00 13 of each other). Offset up and out from the tip so it
+  // never covers the silhouette it is describing.
+  if (material !== "standard") {
+    drawMuzzleBadge(ctx, tip.x + cell * 0.95, tip.y - cell * 0.95, cell * 0.55,
+      cannon.currentType, material);
+  }
+}
+
+/** The material badge stamped beside the muzzle ghost. Baked and cached like
+ *  every other repeated glow here — it is on screen for the whole aim. */
+function drawMuzzleBadge(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  type: PieceType,
+  material: Material,
+): void {
+  const fill = shipmentAura(type, material);
+  const pad = 6;
+  const box = r * 2 + pad * 2;
+  const sprite = getSprite(`muzzleBadge|${material}|${fill}|${r.toFixed(1)}`, box, box, (c) => {
+    c.shadowColor = fill;
+    c.shadowBlur = 8;
+    c.fillStyle = fill;
+    c.beginPath();
+    c.arc(pad + r, pad + r, r, 0, Math.PI * 2);
+    c.fill();
+    c.shadowBlur = 0;
+    c.lineWidth = 2;
+    c.strokeStyle = "#07070f";
+    c.stroke();
+    const g = r * 1.5;
+    drawMaterialGlyph(c, material, pad + r - g / 2, g, glyphInk(fill), 1);
+  });
+  ctx.drawImage(sprite, x - r - pad, y - r - pad, box, box);
 }
 
 /** World-px margin for a ghost cell's 12px glow. */
