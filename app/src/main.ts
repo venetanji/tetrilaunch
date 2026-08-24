@@ -203,6 +203,17 @@ class App {
    *  tier completes, and a car parked on a floor that has since become the
    *  wrong one is worse than one that quietly went back to the top. */
   private pickedTier: number | null = null;
+  /** The value of `meta.mark` that `pickedTier` was chosen against.
+   *
+   *  A pick is session state layered ON TOP of a ladder position, so when the
+   *  ladder itself moves the pick belongs to a screen that no longer exists.
+   *  Compared against `meta.mark` rather than against `markUnlocked`, because
+   *  `mark` is the one number a tier completion actually moves and BOTH of the
+   *  tower's gates derive from it — the unlocked Mark (`mark + 1`, saturating)
+   *  and the God floor (`mark >= MARK_COUNT`). Keying on the derived unlock
+   *  would miss the completion that opens God, which is the single most
+   *  significant one on the ladder. */
+  private pickedAtMark: number | null = null;
   /** Set while the car is between floors. The Deep Run button is re-plated on
    *  ARRIVAL rather than on the tap, so the plate and the shaft never disagree
    *  about which floor is being described mid-flight. */
@@ -848,10 +859,21 @@ class App {
     const unlocked = markUnlocked(this.meta);
     const god = this.meta.mark >= MARK_COUNT;
     const state: S.TowerState = { unlocked, selected: unlocked, god };
-    if (this.pickedTier !== null && S.tierOpen(state, this.pickedTier)) {
+    // Two conditions, and the SECOND is the one this used to be missing.
+    // `tierOpen` only rejects a floor above the unlock, so it catches a save
+    // that went backwards and nothing else — when the ladder moves FORWARD
+    // every previously-picked floor stays open and the stale pick survived it.
+    // A player who parked the car on Tier 2 for a practice run and then
+    // completed their tier from the Contract board came back to a menu still
+    // offering Tier 2: an already-beaten Mark that earns no salvage and cannot
+    // advance the ladder, chosen for them, at the exact moment the point of
+    // the screen is the new exam. (Codex review, PR #86.)
+    const fresh = this.pickedAtMark === this.meta.mark;
+    if (this.pickedTier !== null && fresh && S.tierOpen(state, this.pickedTier)) {
       state.selected = this.pickedTier;
     } else {
       this.pickedTier = null;
+      this.pickedAtMark = null;
     }
     return state;
   }
@@ -898,6 +920,8 @@ class App {
 
     const dur = S.towerTravelMs(state.selected, tier);
     this.pickedTier = tier;
+    // Stamped with the ladder position it was chosen against — see the field.
+    this.pickedAtMark = this.meta.mark;
     shaft.style.setProperty("--tower-dur", `${dur}ms`);
     shaft.style.setProperty("--tower-idx", String(S.towerIndexOf(tier)));
     for (const f of shaft.querySelectorAll<HTMLElement>(".tower__floor")) {
