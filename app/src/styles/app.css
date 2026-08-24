@@ -1212,18 +1212,24 @@ body.crt-off #app::after { display: none; }
 .pl-pwr__val { font-family: var(--font-mono); font-weight: 700; font-size: max(9px, calc(13.3 * var(--fpx))); color: var(--warn); flex: none; }
 
 /* ---------- The crest: the machine's intake spikes -------------------------
-   Five clip-path strips riding the plant's exposed silhouette: the top edge
-   from the field's left wall to the PWR cap (--brow), the cap's step-up side
-   (--step), the cap's own top (--cap), its short right shoulder (--shoulder)
-   and the panel's right flank (--flank). They used to be canvas teeth on the
-   chute lip (render.ts's drawChute), which had two problems this placement
-   solves. First, the notch: the PWR cap is DOM, so the canvas could only
-   ever paint BEHIND it, and the tooth run stopped dead where the cap began —
-   a bite missing from the machine right above the power bar. Second, the
-   tile: a fixed 26px sawtooth read as a repeated pattern, not machinery.
-   Each strip's tooth run is hand-authored irregular instead — varied widths,
-   varied heights, off-centre tips, no two alike — and each strip's run is
-   different from the others'.
+   Seven clip-path strips riding the plant's exposed silhouette: the top edge
+   up to the PWR cap (--brow), the cap's step-up side
+   (--step), the cap's own top (--cap), its short right shoulder (--shoulder),
+   the panel's right flank (--flank) — plus the two BANDS the panel's frame
+   fractions leave between it and the field border, filled with the same
+   pattern: the sliver down the left wall (--port) and the strip under the
+   panel to the floor (--skirt). Those two size themselves to the band, not
+   to --crest-h, so their tallest tips touch the border exactly at every
+   field scale. Every strip STOPS at its corner — the ring turns corners
+   (brow up, port left, skirt down), it never runs past one. The teeth used to be canvas, on the chute lip (render.ts's
+   drawChute), which had two problems this placement solves. First, the
+   notch: the PWR cap is DOM, so the canvas could only ever paint BEHIND it,
+   and the tooth run stopped dead where the cap began — a bite missing from
+   the machine right above the power bar. Second, the tile: a fixed 26px
+   sawtooth read as a repeated pattern, not machinery. Each strip's tooth
+   run is hand-authored irregular instead — varied widths, varied heights,
+   off-centre tips, no two alike — and each strip's run is different from
+   the others'.
 
    The strips are decoration and speak only in states the game already has.
    Congestion recolours and rattles them and starts the sparks (main.ts's
@@ -1244,6 +1250,16 @@ body.crt-off #app::after { display: none; }
   --crest-hi: #3a3a5e;
   --crest-lo: #23233c;
   background-image: linear-gradient(180deg, var(--crest-hi), var(--crest-lo));
+  /* THE BEAT. --crest-beat is the music's live envelope, 0..1, written onto
+     .plant every drawn frame by main.ts's syncHud (lib/audio.ts's
+     musicLevel — an analyser tapping the music path and the congestion
+     static). Brightness, not transform: the jiggle animations own transform
+     and the sparks own the ::before, so the pulse composes with both
+     instead of fighting either. Congestion scales the envelope's amplitude
+     in main.ts, so a congested bay doesn't just recolour — it beats harder.
+     Never set under prefers-reduced-motion (main.ts checks), so the var
+     stays 0 and this line is inert there. */
+  filter: brightness(calc(1 + var(--crest-beat, 0) * 0.7));
 }
 /* The SPARK layer — a few uneven glint bands swept across the strip by the
    congestion states below. It lives INSIDE the element, so the clip-path
@@ -1263,15 +1279,15 @@ body.crt-off #app::after { display: none; }
   background-size: 340% 100%;
 }
 
-/* The top run, panel left to the cap's shoulder — and further: it starts at
-   the FIELD's left wall (the chute mouth is wider than the panel by the
-   21-world-px lip .plant's 1.67% left inset leaves), because that sliver of
-   lip carried teeth when the canvas drew them and losing it would shorten
-   the maw. Ends 2px under the cap, whose opaque body mounts over the seam
-   (.pl-pwr is later in the DOM). */
+/* The top run, the panel's own left corner to the cap's shoulder. It stops AT
+   the corner rather than running on to the field wall: past the corner the
+   teeth would float over the port band below, and a run that turns the corner
+   (brow up, port left) reads as a machine's edge where an overshoot reads as
+   two patterns colliding. Ends 2px under the cap, whose opaque body mounts
+   over the seam (.pl-pwr is later in the DOM). */
 .plant__crest--brow {
-  left: calc(-0.0167 * var(--field-w));
-  width: calc(29.6% + 0.0167 * var(--field-w) + 2px);
+  left: calc(-1 * var(--bw));
+  width: calc(29.6% + var(--bw) + 2px);
   height: var(--crest-h);
   bottom: calc(100% + var(--bw));
   clip-path: polygon(0% 100%, 3% 42%, 6% 100%, 11% 6%, 15% 100%, 18% 64%,
@@ -1301,28 +1317,64 @@ body.crt-off #app::after { display: none; }
   width: var(--crest-h);
   top: calc(-1 * var(--bw));
   bottom: 2px;
-  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
 }
 .plant__crest--step {
   right: calc(100% + var(--bw));
+  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
   clip-path: polygon(100% 0%, 12% 18%, 100% 38%, 55% 55%, 100% 68%, 25% 84%, 100% 100%);
 }
 .plant__crest--shoulder {
   left: calc(100% + var(--bw));
-  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
+  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
   clip-path: polygon(0% 0%, 74% 14%, 0% 30%, 38% 52%, 0% 66%, 88% 82%, 0% 100%);
 }
-/* The right flank, panel top to floor — the edge the bay looks at. */
+/* The right flank, panel top to panel bottom — the edge the bay looks at.
+   It stops at the panel's own corners: teeth running on below the machine
+   (or above it) read as pattern spilling past the silhouette, not as the
+   silhouette. */
 .plant__crest--flank {
   left: calc(100% + var(--bw));
   width: var(--crest-h);
   top: calc(-1 * var(--bw));
   bottom: calc(-1 * var(--bw));
-  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
+  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
   clip-path: polygon(0% 0%, 58% 2%, 0% 5%, 96% 9%, 0% 13%, 44% 16%, 0% 19%,
     78% 24%, 0% 29%, 30% 32%, 0% 35%, 88% 40%, 0% 45%, 52% 48%, 0% 51%,
     100% 56%, 0% 61%, 38% 64%, 0% 67%, 70% 72%, 0% 77%, 26% 80%, 0% 83%,
     90% 88%, 0% 93%, 48% 96%, 0% 100%);
+}
+/* THE BANDS. The panel's frame fractions leave two slivers of bare backdrop
+   between the machine and the field border — 1.67% of the field's width down
+   the left wall, 2.97% of its height under the panel — and the crest fills
+   both, teeth rooted on the panel and reaching for the border. Sized by the
+   band, not by --crest-h, so the tallest tips land exactly on the border at
+   every scale. Both strips overhang the maw (the chute mouth starts at the
+   left wall), which is the point: cargo dropping down the left sliver falls
+   in BETWEEN teeth, into a machine that visibly wants it. */
+.plant__crest--port {
+  /* -bw on top of the band width: offsets resolve against the panel's
+     PADDING box, which sits a border inside the frame fractions the band is
+     measured from. Same correction on the skirt below. */
+  left: calc(-0.0167 * var(--field-w) - var(--bw));
+  width: calc(0.0167 * var(--field-w));
+  top: 0;
+  bottom: calc(-1 * var(--bw));
+  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
+  clip-path: polygon(100% 0%, 30% 3%, 100% 7%, 4% 12%, 100% 15%, 52% 19%,
+    100% 24%, 12% 28%, 100% 31%, 66% 36%, 100% 41%, 0% 46%, 100% 50%,
+    42% 54%, 100% 57%, 20% 62%, 100% 67%, 74% 71%, 100% 74%, 8% 79%,
+    100% 84%, 48% 88%, 100% 91%, 28% 96%, 100% 100%);
+}
+.plant__crest--skirt {
+  left: calc(-0.0167 * var(--field-w) - var(--bw));
+  right: calc(-1 * var(--bw));
+  top: calc(100% + var(--bw));
+  height: calc(0.0297 * var(--field-h));
+  background-image: linear-gradient(0deg, var(--crest-hi), var(--crest-lo));
+  clip-path: polygon(0% 0%, 3% 88%, 6% 0%, 10% 100%, 14% 0%, 17% 52%,
+    21% 0%, 26% 96%, 31% 0%, 34% 66%, 38% 0%, 43% 100%, 48% 0%, 52% 44%,
+    56% 0%, 61% 92%, 66% 0%, 70% 58%, 74% 0%, 79% 100%, 84% 0%, 88% 70%,
+    92% 0%, 96% 90%, 100% 0%);
 }
 
 /* CONGESTION — the machine under strain. Tier 1 heats the metal amber and
@@ -1354,6 +1406,8 @@ body.crt-off #app::after { display: none; }
 .plant__crest--flank, .plant__crest--flank::before { animation-delay: -0.91s; }
 .plant__crest--step, .plant__crest--step::before { animation-delay: -0.27s; }
 .plant__crest--shoulder, .plant__crest--shoulder::before { animation-delay: -0.71s; }
+.plant__crest--port, .plant__crest--port::before { animation-delay: -0.44s; }
+.plant__crest--skirt, .plant__crest--skirt::before { animation-delay: -1.13s; }
 
 /* STRAND WARNING — the aim on screen feeds the grinder. The whole ring takes
    the maw red the canvas teeth used to wear (drawChute still paints the lip

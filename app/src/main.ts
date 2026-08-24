@@ -87,7 +87,7 @@ import {
 import {
   unlockAudio, setAudioEnabled, playFx, playImpact, playLineClear, playBondBreak,
   playExplosion, playUiClick, playUiConfirm,
-  playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio,
+  playMusic, playStinger, stopStinger, setCongestion, suspendAudio, resumeAudio, musicLevel,
 } from "./lib/audio";
 
 type AppState =
@@ -190,6 +190,18 @@ class App {
    *  onCongestion fires on crossings only, so a bay paused while congested and
    *  then resumed would come back silent until the pile happened to move. */
   private congestion = 0;
+  /** The crest's beat (see syncHud): the music envelope currently painted
+   *  onto the plant as --crest-beat, its running peak (for normalisation, so
+   *  a quiet bed pulses as visibly as a loud one), and the last value
+   *  actually written — style writes are skipped while the quantised value
+   *  holds still. */
+  private crestBeat = 0;
+  private crestPeak = 0.05;
+  private crestBeatShown = -1;
+  /** Cached once: the beat is decoration in motion, so it is never driven
+   *  under prefers-reduced-motion — the same call the crest's jiggle and
+   *  spark animations make in app.css. */
+  private motionMQ = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
   /** The bed THIS Contract attempt drew (contracts.ts's contractBed), held for
    *  the life of the attempt instead of re-derived. syncMusic runs on every
    *  state change, so deriving it there would re-roll the 5% special each time
@@ -2048,12 +2060,33 @@ class App {
     //  - the strand warning (game.ts's trajectoryStrands), which is what the
     //    canvas teeth wore before the crest took the spikes over — the crest
     //    turns maw-red for exactly the frames drawChute heats the mouth.
-    const plant = this.overlay.querySelector(".plant");
+    const plant = this.overlay.querySelector<HTMLElement>(".plant");
     if (plant) {
       const crestTier = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
       plant.classList.toggle("plant--congest-warn", crestTier === 0);
       plant.classList.toggle("plant--congest-danger", crestTier >= 1);
       plant.classList.toggle("plant--maw", g.trajectoryStrands);
+      // THE BEAT — the crest breathes with the soundtrack (app.css's
+      // --crest-beat brightness). musicLevel is the raw RMS off the audio
+      // graph's tap; everything that makes it read as a PULSE happens here:
+      // normalised against its own decaying peak (so every bed uses the full
+      // range regardless of mastering), scaled up as the bay congests (the
+      // machine beats harder, on top of the tier recolour), and shaped by a
+      // fast-rise/slow-fall follower so hits snap and decays trail. Written
+      // only on real change at a 1/40 quantum — the style write is the only
+      // cost, so silence and steady passages cost nothing. Never driven
+      // under reduced motion; the var stays 0 and the CSS line is inert.
+      if (!this.motionMQ?.matches) {
+        const raw = musicLevel();
+        this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
+        const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
+        this.crestBeat += (target - this.crestBeat) * (target > this.crestBeat ? 0.5 : 0.12);
+        const q = Math.round(this.crestBeat * 40) / 40;
+        if (q !== this.crestBeatShown) {
+          this.crestBeatShown = q;
+          plant.style.setProperty("--crest-beat", String(q));
+        }
+      }
     }
     // In a Contract these two slots hold lines and launches instead of funds
     // and launches (see screens.ts's hudHTML): a Contract has no bankroll, so

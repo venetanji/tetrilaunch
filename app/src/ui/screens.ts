@@ -836,17 +836,24 @@ export function hudHTML(opts: {
          THE CREST — the machine's intake spikes, in the DOM rather than on
          the canvas (they used to be render.ts's chute teeth) so they can
          trace the panel's REAL silhouette: along the top edge, up and over
-         the raised PWR cap, and down the exposed right flank. The canvas
-         could never close the gap over the cap — the cap is DOM, painted
-         above anything the world draws — which is exactly the notch this
-         fixes. Each segment is one clip-path strip whose tooth run is
-         hand-authored irregular (no repeating background tile), and all of
-         them share .plant__crest so the congestion states (main.ts's
-         syncHud toggles .plant--congest-*) and the strand warning
-         (.plant--maw) recolour and animate the whole ring at once. -->
+         the raised PWR cap, down the exposed right flank — and out into the
+         two bands the panel's frame fractions leave bare, the sliver against
+         the field's left wall (--port) and the strip under the panel to the
+         floor (--skirt), each strip stopping at its corner so the ring turns
+         rather than overshoots. The canvas could never close the gap over the cap —
+         the cap is DOM, painted above anything the world draws — which is
+         exactly the notch this fixes. Each segment is one clip-path strip
+         whose tooth run is hand-authored irregular (no repeating background
+         tile), and all of them share .plant__crest so the congestion states
+         (main.ts's syncHud toggles .plant--congest-*), the strand warning
+         (.plant--maw) and the music's live envelope (--crest-beat, also
+         written by syncHud) recolour, animate and pulse the whole ring at
+         once. -->
     <div class="plant">
       <i class="plant__crest plant__crest--brow" aria-hidden="true"></i>
       <i class="plant__crest plant__crest--flank" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--port" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--skirt" aria-hidden="true"></i>
       <div class="pl-pwr" id="hud-pwr">
         <i class="plant__crest plant__crest--cap" aria-hidden="true"></i>
         <i class="plant__crest plant__crest--step" aria-hidden="true"></i>

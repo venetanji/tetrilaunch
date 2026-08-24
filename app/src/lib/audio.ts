@@ -273,6 +273,15 @@ let master: DynamicsCompressorNode | null = null;
 let staticGain: GainNode | null = null;
 let congestion = 0;
 const buffers = new Map<FxName, AudioBuffer>();
+/** A tap on what the player is actually hearing move — the routed music path
+ *  (post-lowpass, so congestion's muffling reads on it) plus the congestion
+ *  static — for the HUD crest's beat (main.ts's syncHud polls musicLevel once
+ *  per drawn frame). An AnalyserNode with nothing connected downstream is a
+ *  pure observer: it costs one FFT-less time-domain copy per read and cannot
+ *  colour the mix. Null wherever the graph is (no gesture yet, no Web Audio),
+ *  and musicLevel simply reports silence there. */
+let pulseTap: AnalyserNode | null = null;
+let pulseData: Uint8Array<ArrayBuffer> | null = null;
 
 let music: HTMLAudioElement | null = null;
 let musicName: MusicName | null = null;
@@ -390,6 +399,18 @@ export function unlockAudio(): void {
     musicFilter.type = "lowpass";
     musicFilter.frequency.value = MUSIC_OPEN_HZ;
     musicFilter.connect(out);
+    try {
+      // The crest's beat tap (see musicLevel). The smallest fftSize the spec
+      // allows: only getByteTimeDomainData is ever read, so a bigger window
+      // would just smear the envelope the crest is trying to ride.
+      pulseTap = ctx.createAnalyser();
+      pulseTap.fftSize = 256;
+      pulseData = new Uint8Array(pulseTap.fftSize);
+      musicFilter.connect(pulseTap);
+    } catch {
+      pulseTap = null;
+      pulseData = null;
+    }
     // The context can be stopped from OUTSIDE suspendAudio: a phone call, a
     // voice assistant, an alarm, a Bluetooth handoff — the OS ends the audio
     // session while the page stays visible, so the visibilitychange pair never
@@ -758,6 +779,14 @@ function ensureStatic(): void {
       staticPeak = STATIC_GAIN;
       src.connect(band).connect(gain).connect(fxBus);
     }
+    // The static joins the crest's beat tap (see musicLevel): under heavy
+    // congestion the lowpass has pulled the bed down to a murmur, and without
+    // this the crest would fall STILL at exactly the moment the machine is
+    // working hardest. Post-gain, so the tap hears the cue at the level the
+    // player does.
+    if (pulseTap) {
+      try { gain.connect(pulseTap); } catch { /* observer only — losable */ }
+    }
     // Through the EFFECTS bus rather than straight to the output: the static is
     // a game cue, so the Sound toggle should govern it and it should sit at the
     // effects level. Routing it here means both come for free.
@@ -805,6 +834,33 @@ export function setCongestion(level: number): void {
     now,
     tau,
   );
+}
+
+/**
+ * The live RMS of what the beat tap hears — the routed music (after the
+ * congestion lowpass, so a muffled bed reads as the quieter thing it is) plus
+ * the congestion static. Raw and unsmoothed on purpose: the one consumer
+ * (main.ts's crest beat) runs its own envelope follower with the attack/release
+ * shape IT wants, and any smoothing baked in here would just stack with it.
+ *
+ * The 0..~0.3 range this actually produces is normalised by the caller
+ * against its own running peak rather than scaled here — a fixed scale would
+ * make a quiet bed's crest permanently lazy and a loud one's permanently
+ * pinned, which is the difference between "reactive to the music" and
+ * "reactive to the mastering".
+ *
+ * Free of side effects and safe everywhere: before the first gesture, with
+ * Web Audio missing, or with music off it reports 0.
+ */
+export function musicLevel(): number {
+  if (!pulseTap || !pulseData) return 0;
+  pulseTap.getByteTimeDomainData(pulseData);
+  let sum = 0;
+  for (let i = 0; i < pulseData.length; i++) {
+    const v = (pulseData[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / pulseData.length);
 }
 
 /* --------------------------------------------------------- backgrounding */
