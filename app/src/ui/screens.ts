@@ -4,7 +4,7 @@ import { LEVEL_1 } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
-  runNotchTallyHTML, shipPlatesHTML,
+  runNotchTallyHTML, shipPlatesHTML, materialIconHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -1854,7 +1854,7 @@ export function draftScreen(opts: {
       return `<button class="mod-card mod-card--${kind}${picks > 0 ? " mod-card--picked" : ""}"
         data-action="pick-hazard" data-hazard="${h.id}" aria-pressed="${picks > 0}">
         <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
-        <div class="mod-card__name">${h.name}</div>
+        <div class="mod-card__name">${h.material ? `${materialIconHTML(h.material, 14)} ` : ""}${h.name}</div>
         <p class="mod-card__desc">${h.desc}</p>
         <div class="mod-card__pick">${foot}</div>
       </button>`;

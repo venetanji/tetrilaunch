@@ -16,6 +16,7 @@ import { VARIANTS, type ContractVariant } from "./contracts";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type UpgradeTiers } from "./upgrades";
 import { RUN_LEVELS } from "./run";
 import { NO_MATERIALS, type LevelConfig } from "./level";
+import { SIZE_SPEC } from "./pieces";
 import { MATERIALS, type Material } from "./theme";
 
 /** What the sandbox will launch when the LAUNCH button is pressed. */
@@ -78,15 +79,24 @@ export const SANDBOX_MATERIALS: Material[] = MATERIALS.filter((m) => m !== "stan
 export function applySandboxMaterials(cfg: LevelConfig, choice: SandboxMaterial): LevelConfig {
   if (choice === "mix") return cfg;
   const mix = { ...NO_MATERIALS };
+  // DE-NORMALIZED, because rollMaterial is normalized. It scales every
+  // probability by std-cubes/own-cubes so that dead CUBES per launch stay
+  // constant across size classes — correct for a real bay, and wrong for this
+  // screen, which is asking for a mix of SHIPMENTS. Divide the scaling back out
+  // or the parade is not the one that was selected: a Bulk bay handed a single
+  // material still rolled 20% standard (1 x 0.8), and an ALL parade on a Micro
+  // bay ran past cumulative 1.0 at the fourth material, so the last two could
+  // never appear at all — on the one screen built to compare them.
+  const denorm = SIZE_SPEC[cfg.pieceSize].cubes / SIZE_SPEC.std.cubes;
   if (choice === "all") {
     // Just under 1.0 in total, not exactly 1.0: cannon.ts's rollMaterial walks
     // the mix as cumulative probability and falls through to "standard" past the
     // end, so leaving a sliver keeps the occasional ordinary shipment in the
     // parade. Comparing a material against a plain one is half the job.
-    const each = 0.94 / SANDBOX_MATERIALS.length;
+    const each = (0.94 / SANDBOX_MATERIALS.length) * denorm;
     for (const m of SANDBOX_MATERIALS) mix[m as Exclude<Material, "standard">] = each;
   } else if (choice !== "standard") {
-    mix[choice as Exclude<Material, "standard">] = 1;
+    mix[choice as Exclude<Material, "standard">] = denorm;
   }
   cfg.materialMix = mix;
   return cfg;

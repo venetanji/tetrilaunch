@@ -73,6 +73,7 @@ import {
   pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
+import { applySandboxMaterials, SANDBOX_MATERIALS } from "../src/game/sandbox";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -4306,6 +4307,64 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("Sandbox material parade survives size normalization (sandbox.ts)");
+// ---------------------------------------------------------------------------
+{
+  // rollMaterial is SIZE-NORMALIZED — it scales every probability by
+  // std-cubes/own-cubes so dead cubes per LAUNCH stay constant across size
+  // classes. The sandbox asks for a mix of SHIPMENTS, so it has to divide that
+  // back out. Without the correction the screen quietly lied in both
+  // directions, and only away from the standard size class, which is exactly
+  // where nobody looks.
+  const SIZES = ["tiny", "std", "bulk"] as const;
+  const ROLLS = 4000;
+
+  /** Materials actually produced by a real Cannon over ROLLS shipments. */
+  function parade(size: (typeof SIZES)[number], choice: Parameters<typeof applySandboxMaterials>[1]) {
+    const cfg = applySandboxMaterials({ ...makeBaseLevel(1), pieceSize: size }, choice);
+    const cannon = new Cannon(cfg, 12345);
+    const seen = new Map<Material, number>();
+    for (let i = 0; i < ROLLS; i++) {
+      seen.set(cannon.currentMaterial, (seen.get(cannon.currentMaterial) ?? 0) + 1);
+      cannon.markShot(i * 1000);
+    }
+    return seen;
+  }
+
+  for (const size of SIZES) {
+    // ---- one material means ONE material -----------------------------------
+    // The reported symptom: a Bulk bay set to a single material still rolled
+    // 20% standard, because 1 x (4/5) left a fifth of the range falling through
+    // the end of the walk.
+    const solo = parade(size, "slag");
+    check(
+      `a ${size} bay set to one material launches only that material`,
+      solo.get("slag") === ROLLS,
+      `slag ${solo.get("slag") ?? 0}/${ROLLS}, standard ${solo.get("standard") ?? 0}`,
+    );
+
+    // ---- ALL means all of them ---------------------------------------------
+    // The other direction: on Micro the scaled probabilities ran past cumulative
+    // 1.0 partway through the walk, so the tail of MATERIAL_ROLL_ORDER could
+    // never be reached — the parade silently dropped materials.
+    const all = parade(size, "all");
+    const missing = SANDBOX_MATERIALS.filter((m) => !all.get(m));
+    check(
+      `a ${size} bay set to ALL launches every material`,
+      missing.length === 0,
+      missing.length ? `never appeared: ${missing.join(", ")}` : "",
+    );
+    // The deliberate sliver: something plain has to walk past, or there is
+    // nothing to compare a material against.
+    check(
+      `...and still lets an ordinary shipment through to compare against`,
+      (all.get("standard") ?? 0) > 0,
+      `standard ${all.get("standard") ?? 0}/${ROLLS}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
