@@ -103,6 +103,15 @@ type AppState =
   // shape. Reaching it is what is gated (see SANDBOX).
   | "sandbox";
 
+/** The states in which a Deep Run is being flown, or has just ended and is
+ *  still on screen. `this.run` is NOT cleared on the way back to the menu (only
+ *  starting a Contract nulls it), so "is there a run object" is not the same
+ *  question as "is a run on screen" — which matters to boardTier, since a run
+ *  that completed its tier leaves meta.mark one ahead of run.mark. */
+const RUN_STATES: ReadonlySet<AppState> = new Set<AppState>([
+  "playing", "bayclear", "refit", "draft", "paused", "won", "lost",
+]);
+
 const STEP = 1000 / 60;
 /** Most physics steps one rendered frame may run to catch the simulation up
  *  to wall-clock time — see the loop() accumulator for why this is capped.
@@ -2215,9 +2224,14 @@ class App {
    *
    *  Outside a run (the menu's Leaderboard entry) the board shown is the tier
    *  the next Deep Run would fly — the same number the menu's Tier chip and the
-   *  Deep Run button quote. */
+   *  Deep Run button quote. That is why this asks the STATE rather than just
+   *  `this.run`: the finished run object outlives the run on screen (returning
+   *  to the menu clears `this.contract`, not `this.run`), so reading `run.mark`
+   *  from the menu would open board N for a player whose tier chip, Deep Run
+   *  button and next run had all moved on to N+1. */
   private boardTier(): number {
-    return this.run?.mark ?? markUnlocked(this.meta);
+    const run = this.run;
+    return run && RUN_STATES.has(this.state) ? run.mark : markUnlocked(this.meta);
   }
 
   private async refreshBoard(): Promise<void> {

@@ -186,8 +186,12 @@ const wins = runBays.filter((b) => b.result === "won" && b.timeLimitSec > 0);
 if (wins.length) {
   for (const [mark, set] of byMark(wins)) {
     const slack = set.map((b) => 1 - b.secs / b.timeLimitSec);
-    const limit = set[0].timeLimitSec;
-    console.log(`   Mark ${mark} (${limit}s): won bays used ${pct(1 - quantile(slack, 0.5))} of the limit (median)` +
+    // The tier sets the shift length, but a Shift Cut notch shortens it mid-run
+    // (hazards.ts), so a Mark's bays do NOT all share one clock — print the
+    // limits actually flown rather than the first bay's, which would read as a
+    // constant the deeper bays never had.
+    const limits = [...new Set(set.map((b) => b.timeLimitSec))].sort((a, b) => b - a);
+    console.log(`   Mark ${mark} (${limits.join("/")}s): won bays used ${pct(1 - quantile(slack, 0.5))} of the limit (median)` +
       ` · tightest ${pct(1 - Math.min(...slack))} · ${set.length} bays`);
     console.log(`   -> ${quantile(slack, 0.5) > 0.4 ? "clock is SLACK — the target is the real constraint" : "clock BINDS — time pressure is doing work"}`);
   }
@@ -222,7 +226,10 @@ if (!banked.length) {
       return { bay: b.bay, lowest, cost: b.launchCost, shotsLeft: Math.floor(lowest / b.launchCost) };
     });
     const scary = mins.filter((m) => m.shotsLeft <= 2).length;
-    console.log(`   Mark ${mark} ($${set[0].launchCost}/shot): median low-water mark $${quantile(mins.map((m) => m.lowest), 0.5).toFixed(0)}` +
+    // Same reason as the clock above: a Fuel Levy notch raises the price of a
+    // shot mid-run, so list the prices flown rather than the opening one.
+    const costs = [...new Set(set.map((b) => b.launchCost))].sort((a, b) => a - b);
+    console.log(`   Mark ${mark} ($${costs.join("/")}/shot): median low-water mark $${quantile(mins.map((m) => m.lowest), 0.5).toFixed(0)}` +
       ` (${quantile(mins.map((m) => m.shotsLeft), 0.5).toFixed(0)} shots of headroom)` +
       ` · within 2 shots of broke: ${scary}/${mins.length}`);
   }

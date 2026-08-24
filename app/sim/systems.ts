@@ -413,8 +413,11 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("the top tier opens at $780, 144s, $30 a shot",
     top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
     `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
-  check("the last bay of a run climbs from $780 at Tier 1 to $1122 at the top",
-    makeBaseLevel(9, 1).targetScore === 780 && makeBaseLevel(9, MARK_COUNT).targetScore === 1122,
+  // Where a run ENDS is the tier's opening plus the ladder's own per-bay climb
+  // (TARGET_PER_BAY, steepened a little by the tier) — the two curves compose,
+  // and this is the number that says by how much.
+  check("the last bay of a run climbs from $1500 at Tier 1 to $1842 at the top",
+    makeBaseLevel(9, 1).targetScore === 1500 && makeBaseLevel(9, MARK_COUNT).targetScore === 1842,
     `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
 
   // Every rung has to move, or a tier is a no-op the player still paid for.
@@ -438,9 +441,17 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
 
   // A hand-edited save (or a sim caller) must never be able to walk the curve
   // off either end — level.ts's tierOf clamps, and nothing else does.
+  // Compared knob by knob rather than as whole configs: makeBaseLevel records
+  // the RAW mark on cfg.mark (the ratchet ladders read it), so an absurd mark
+  // legitimately shows up there — what must not happen is the tier CURVES
+  // extrapolating off either end into a bay nobody can play.
+  const sameBar = (a: number, b: number): boolean =>
+    tierDemands(a).targetScore === tierDemands(b).targetScore
+      && tierDemands(a).timeLimitSec === tierDemands(b).timeLimitSec
+      && tierDemands(a).launchCost === tierDemands(b).launchCost
+      && makeBaseLevel(0, a).startingFunds === makeBaseLevel(0, b).startingFunds;
   check("the curve refuses to extrapolate past the ladder",
-    JSON.stringify(makeBaseLevel(0, 0)) === JSON.stringify(makeBaseLevel(0, 1))
-      && JSON.stringify(makeBaseLevel(0, 9999)) === JSON.stringify(makeBaseLevel(0, MARK_COUNT)));
+    sameBar(0, 1) && sameBar(9999, MARK_COUNT));
 
   // Compactor speed is deliberately Mark-invariant (MARK_SPEED_STEP is 0).
   // sim/marks.ts measured it as an erratic bankruptcy tax rather than a
@@ -460,16 +471,20 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   );
   // The scope check, and the one that catches the likeliest way to get this
   // wrong: keying the curve off the BAY index `i` (which carries every other
-  // ramp in makeBaseLevel) instead of off the mark. Exactly three fields may
-  // differ between the bottom and the top of the ladder.
+  // ramp in makeBaseLevel) instead of off the mark. Only these may differ
+  // between the bottom and the top of the ladder — the three the tier states
+  // (target, clock, launch cost), the float derived from the launch cost
+  // (LAUNCH_BUDGET_SHOTS), the bond ramp a Mark is allowed to move
+  // (BOND_MARK_STEP) and the recorded mark itself.
   const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
   const highBay = makeBaseLevel(5, MARK_COUNT) as unknown as Record<string, unknown>;
   const moved = Object.keys(lowBay)
     .filter((k) => JSON.stringify(lowBay[k]) !== JSON.stringify(highBay[k]))
     .sort()
     .join(",");
-  check("a tier moves exactly the three demand knobs and nothing else",
-    moved === "launchCost,targetScore,timeLimitSec", moved || "(nothing moved)");
+  check("a tier moves exactly the demand knobs and nothing else",
+    moved === "jointBreakStretch,launchCost,mark,startingFunds,targetScore,timeLimitSec",
+    moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
   // BOND_MARK_STEP) — content rather than demand: stronger bonds change how
@@ -983,11 +998,21 @@ section("Contracts (contracts.ts)");
   for (const c of dailyContracts(5, 20260730)) {
     const cfg = levelForContract(c);
     // The three knobs the TIER ladder moves are also the three a Contract must
-    // not carry (see levelForContract). Contracts pass their tier as the BAY
-    // INDEX with the mark left at 1, so a curve keyed off `i` instead of `mark`
-    // would reach them — these are the checks that would catch it.
+    // not carry. These pin levelForContract's UNCONDITIONAL overwrites — they
+    // cannot fail for any makeBaseLevel curve, only for a dropped assignment,
+    // which is exactly what makes the Contract path immune to the tier ladder.
     check(`${c.name}: no launch cost`, cfg.launchCost === 0);
     check(`${c.name}: no clock`, cfg.timeLimitSec === 0);
+    // What the three above CAN'T see: which argument slot the tier goes in.
+    // levelForContract passes the contract's tier as the BAY INDEX with the
+    // mark left at 1 (contracts.ts), so scorePerLine — a per-bay ramp the
+    // overwrites don't touch — is the only field that tells that reading apart
+    // from `makeBaseLevel(0, c.tier)`. Without this, "fixing" contracts to pass
+    // the tier as a mark now that a mark parameter exists would silently change
+    // every Contract's payout and no check would notice.
+    check(`${c.name}: built from its tier as a BAY index`,
+      cfg.scorePerLine === makeBaseLevel(Math.min(9, c.tier)).scorePerLine,
+      `${cfg.scorePerLine}`);
     check(`${c.name}: line objective set`, cfg.objectiveLines === c.goal);
     // A funds target of 0 would win the bay on frame one; it must be
     // unreachable so the objective is the only thing that can end it.
@@ -4458,11 +4483,12 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // The tutorial teaches the fine with the bay's real number on the card —
     // same rule as every other coach step, and the reason the copy can never
     // drift from the level it narrates.
-    // "fine $N", not a bare "$N" — bay 1's launch cost is also $25, so a loose
-    // match would pass with the fine sentence deleted. The verb and the number
-    // are the assertion; the sentence they sit in is the card's to write, and
-    // is written to a hard height budget (see coachSteps), so this matches as
-    // little of it as it can and still mean something.
+    // "fine $N", not a bare "$N": match the VERB and the number, so the check
+    // keeps its teeth when a re-tune makes the fine collide with another figure
+    // on the card (it was equal to the launch cost until the tier ladder moved
+    // Tier 1's shot to $20). The sentence they sit in is the card's to write,
+    // and is written to a hard height budget (see coachSteps), so this matches
+    // as little of it as it can and still mean something.
     //
     // Against the RENDERED text, tags stripped, for the same reason: the cards
     // emphasise their figures, and where the <b> falls inside a phrase is
