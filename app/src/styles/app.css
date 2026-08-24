@@ -1115,14 +1115,31 @@ body.crt-off #app::after { display: none; }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 .pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
 
-/* Tier-2 stat columns (launches, time) — same size and weight as each other so
-   neither reads as more important than the other; both escalate the same way. */
-/* The two tier-2 columns need to read as SEPARATE numbers — at a glance
-   "0" and "2:23" side by side can otherwise scan as one figure. A hairline rule
-   and real padding between them does that without adding another label. */
+/* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
+   always, paired with a second column that depends on the mode: time on a
+   Deep Run, lost on a lines Contract (screens.ts's hudHTML). A pattern
+   Contract renders launches alone, with no partner column at all. Same size
+   and weight in every pairing, so neither column reads as more important
+   than the other; all three escalate the same way. */
+/* Two columns, when a pairing puts two on screen, need to read as SEPARATE
+   numbers — at a glance "0" and "2:23" side by side can otherwise scan as
+   one figure. A hairline rule and real padding between them does that
+   without adding another label. */
 .pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
 .pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
 .pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
+/* LOST does not get a matching min-width, and measuring says it does not
+   need one. sim/systems.ts's own budget prices "Lost" against a flat
+   per-glyph average (~14px) and would call a two-digit value the column's
+   new floor — but that average undershoots what Rajdhani actually draws
+   for these four letters: on-device at 792x360 compact, swapping
+   #hud-lost's text finds the column at 25.8px through one digit and
+   26.0px through two, a 0.2px difference. The real label is already as
+   wide as a two-digit value, so there is no jump here for a min-width to
+   fix. Three digits does move it (35px, +9px, one more mono digit) — but
+   that width is already covered: sim/systems.ts's own column-width proof
+   for this row tests exactly that case ("999") and finds it still fits
+   inside TIME's column. */
 /* Urgency, shared by the launches counter (<= LOW_LAUNCH_WARN launches, see
    main.ts's syncHud) and the clock (last 20s). One class, one look: both mean
    "you are about to run out of the thing that lets you keep playing". */
@@ -1328,21 +1345,24 @@ body.crt-off #app::after { display: none; }
    that row's share of the gap for nothing — the same defect the retired title
    row left behind, in the same two templates.
 
-   What IS here is the other half of that: a Contract's panel is SHORTER, not
-   emptier. `.plant`'s min-height is the mockup's footprint and `.plant__body`
-   spreads its rows across whatever it gets (`justify-content: space-between`) — which is right for a Deep Run's
-   five rows and wrong for a Contract's three or four, where it pushed the
-   manifest to the floor of the panel and left a hand's width of nothing above
-   it. Releasing the floor lets the panel hug what it actually has to say.
-   `height: auto` and the BOTTOM anchor were already there for the opposite
-   case (a readout that outgrows the box), so shrinking costs no new geometry:
-   the panel keeps its bottom-left corner and gives the difference back to the
-   field. The `plant` assertion is an upper bound, so a shorter panel passes
-   it.
+   What IS here is the other half of that: a Contract's rows hug the TOP of the
+   panel instead of being spread down it. `.plant__body` uses
+   `justify-content: space-between`, which is right for a Deep Run's five rows
+   and wrong for a Contract's four (lines) or five (pattern) — it pushed the
+   last row to the floor of the panel and left a hand's width of nothing above
+   it. Top-aligning them fixes that WITHOUT giving up the footprint, which is
+   what releasing `min-height` did and should not have: the panel is
+   BOTTOM-anchored, so a shorter panel does not sit lower in the same box — its
+   top edge moves. Measured at 792x360 compact just before this rule landed: a
+   Deep Run bay's panel is 154.6px tall with its top edge at y=194.7, a pattern
+   Contract 125.1 at y=224.2, a lines Contract 108.1 at y=241.2. So the readout
+   had to be re-found 17px away between two Contracts on the SAME board, and
+   46px away between a Contract and a run. The leftover height is one band of
+   air at the bottom now, and the panel starts in the same place in every mode.
 
-   The gap has to be stated once the floor is gone, because `space-between` was
-   what put air between the rows and a hugging panel has none to distribute.
-   18 --fpx is chosen against what the Deep Run panel actually spreads to,
+   The gap is stated rather than distributed for the same reason it was before:
+   `space-between` was what put air between the rows, and flex-start distributes
+   none. 18 --fpx is chosen against what the Deep Run panel actually spreads to,
    which is not one number and cannot be matched by one: it is leftover space,
    so it lands anywhere from 4.3px (iPhone 13 mini, where the readout nearly
    fills the box) to 16.8px (iPhone 16 Pro Max) at the SAME density. 18 --fpx
@@ -1350,8 +1370,15 @@ body.crt-off #app::after { display: none; }
    inside that range on every device in the matrix, and even, which the
    distributed gap is not. The per-row margins go with it: they were nudges on
    top of a distributed gap, and on an explicit one they only make the rhythm
-   uneven again. */
-.hud--contract .plant { min-height: 0; }
+   uneven again.
+
+   `justify-content` reaches this panel at every density. Deep Run's
+   `.plant__body` becomes a named-area grid at compact, where it would be inert
+   — but a Contract already opts out of that grid further down, because the
+   template names `meta` and `mods` rows a Contract does not render. It is a
+   flex column at every density, which is why one rule suffices. Do not
+   re-template it as a grid to fit the rows above. */
+.hud--contract .plant__body { justify-content: flex-start; }
 /* `.hud.hud--contract` for the WEIGHT, not the meaning — both classes are on
    the same element. The compact section further down sets this same gap at
    (0,2,0) and, being later, would win the tie against a plain
@@ -1538,7 +1565,7 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .pl-mods { grid-area: mods; }
 /* Contract mode opts OUT of the grid entirely, at every density, and keeps the
    compact gap. The grid above exists to give Deep Run's five rows an explicit
-   template; a Contract renders three or four, all full-width, all in DOM
+   template; a Contract renders four or five, all full-width, all in DOM
    order, and a template for that is just a list of the rows flex would lay out
    anyway — one that has to be kept in step with which of them render.
    It could not be, either: two of the five named areas are still empty on a
