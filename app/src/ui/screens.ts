@@ -271,11 +271,13 @@ export function baseBayPanelHTML(opts: {
   const mark = god ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
   const bay = baseBayFor(mark);
   const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
-  return `<div class="panel base-bay" aria-label="Selected tier — base bay">
+  // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
+  // parked on, one column away from the tower that is showing exactly that,
+  // and directly above a Deep Run button whose plate says it a third time.
+  // Best is what survives: the one number on this panel that appears nowhere
+  // else on the screen.
+  return `<div class="panel base-bay" aria-label="Selected tier \u2014 base bay">
     <div class="base-bay__head">
-      <div class="eyebrow base-bay__eyebrow${god ? " is-god" : ""}">${
-        god ? "God tier" : `Tier ${mark}`
-      } · Base bay</div>
       <div class="base-bay__best">Best ${opts.best}</div>
     </div>
     <div class="base-bay__grid">
@@ -301,8 +303,11 @@ export function baseBayPanelHTML(opts: {
  *  Tier IS the tower, Best is the base-bay panel's header, and Salvage was
  *  already printed on the Workshop button's subtitle in the same breath as
  *  what it can buy, so the chip was the second, context-free copy of it.
- *  Entitlement and sandbox entries are the one thing with nowhere else to go,
- *  and they ride the panel's last row (see `extras`). */
+ *  The three columns are three KINDS of thing: the SHELF (the demo panel,
+ *  which is the tutorial's door, over the entries nobody opens the game to
+ *  reach), the LADDER, and the LOOP (the recap of the parked floor, then the
+ *  three things you can launch into). The entitlement entry is a shelf row —
+ *  the demo taking How to Play's job is what freed it one. */
 export function menuScreen(
   best: number,
   salvage = 0,
@@ -343,11 +348,11 @@ export function menuScreen(
   // they carry ids rather than being found by shape.
   const sel = twr.selected;
   const godSel = sel === GOD_TIER;
-  const extras = [
-    store?.unlimited ? unlimitedBadgeHTML() : "",
-    store?.available && !store.unlimited ? unlockChipHTML() : "",
-    sandbox ? sandboxChipHTML() : "",
-  ].filter(Boolean).join("");
+  // Only the developer sandbox rides the recap's footnote row now — the
+  // entitlement entries moved onto the demo panel (see the note there). A
+  // dev-only entry is exactly what a footnote row is for, and it is absent
+  // from every shippable bundle anyway (lib/sandbox.ts).
+  const extras = sandbox ? sandboxChipHTML() : "";
   return `<div class="screen neon-backdrop">
     <div class="menu split">
       <div class="menu__brand">
@@ -373,11 +378,48 @@ export function menuScreen(
           <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
           full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
           where every cleared bay ratchets one difficulty axis of your choosing.</p>
+          <!-- THE PANEL IS THE DOOR. A bay playing itself, with no HUD over
+               it, is already a demonstration of how the game works — so it is
+               the tutorial's entry rather than a decoration sitting beside
+               one. That gives the lesson the largest, most obvious target on
+               the screen AND gives the shelf below its row back, which is
+               where the entitlement entry now lives as a real button.
+
+               A transparent hit layer rather than a <button> wrapped around
+               the whole panel: the wordmark inside is an <h1>, which is not
+               phrasing content and cannot legally live in a button, and the
+               canvas has to stay out of the accessible name. The corner tag is
+               the visible affordance and rides inside the hit layer, so the
+               two can never drift apart. -->
+          <button class="menu__demo-hit" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}"
+            aria-label="${guide?.firstLaunch ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
+            <span class="menu__demo-tag">${icon("howto", 11)}Tutorial</span>
+            ${guide?.firstLaunch ? nextBadgeHTML("Start here") : ""}
+          </button>
         </div>
-        ${baseBayPanelHTML({ tier: sel, best, extras })}
+        <!-- The SHELF: everything a player does not open the game to reach.
+             How to Play used to head it and is now the demo panel above, which
+             is what freed the row the entitlement entry takes — a full-size
+             button in the column, rather than the 23px footnote it started as
+             or the band across the artwork that replaced it. -->
+        <div class="menu__nav">
+          ${
+            store?.unlimited ? unlimitedBadgeHTML()
+            : store?.available ? unlockChipHTML()
+            : ""
+          }
+          <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
+          <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
+        </div>
       </div>
       ${tierTowerHTML(twr)}
       <div class="menu__actions">
+        <!-- The recap sits ON the column it describes. It answers "what is
+             this floor like to fly", and the button that flies it is the next
+             thing under it — across the screen from it (where it started) the
+             player had to hold four numbers in their head while their eye
+             travelled past the whole tower to reach the button they qualify. -->
+        ${baseBayPanelHTML({ tier: sel, best, extras })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -407,28 +449,13 @@ export function menuScreen(
               : `${salvageHTML(salvage, 10)} banked`
             : "Spend Salvage on permanent unlocks"
         }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
-        ${
-          // A2: on first launch the Guided Tutorial takes How to Play's slot,
-          // badged START HERE — it supersedes the manual for a player who has
-          // never fired a shot, and the column stays six rows at every
-          // density (a seventh row overflows a 360dp phone by 70px). Once the
-          // coach is finished or skipped the entry disappears and How to Play
-          // returns, keeping the guided replay.
-          guide?.firstLaunch
-            ? `<button class="btn btn--secondary btn--block btn--menu btn--next" data-action="tutorial">${icon("howto")}<span class="btn__txt">Guided Tutorial<span class="btn__sub">Learn the cannon in one bay</span></span>${nextBadgeHTML("Start here")}</button>`
-            : `<button class="btn btn--secondary btn--block" data-action="howto">${icon("howto")}How to Play</button>`
-        }
-        <button class="btn btn--secondary btn--block" data-action="leaderboard">${icon("leaderboard")}Leaderboard</button>
-        <!-- Nothing is a seventh button here — not the Unlimited upsell, and not
-             the developer sandbox. This column gets 325px on a landscape phone
-             and six buttons need 290; a seventh needs 330 and overflows the
-             viewport, which costs the LAST row rather than its own — the
-             sandbox build put Settings off the bottom of a 360dp phone exactly
-             this way. Both extra entries live in the base-bay panel's last row
-             instead (unlockChipHTML / sandboxChipHTML), which wraps, so this
-             column is six buttons in every build and at every entitlement
-             state. -->
-        <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
+        <!-- Three, and never a fourth. This column is the recap plus the loop
+             it describes, and the recap is not compressible: it holds four
+             readouts and the belt. Neither extra entry is a button here — the
+             Unlimited upsell is a shelf row in the brand column, and the
+             developer sandbox rides the recap's own footnote row — which is
+             what keeps this column the same three rows in every build and at
+             every entitlement state. -->
       </div>
     </div>
   </div>`;
@@ -443,23 +470,23 @@ export interface StoreState {
 }
 
 function unlimitedBadgeHTML(): string {
-  return `<div class="chip menu__entitlement">
-    <div class="chip__value" style="color:var(--warn, #ffe500)">★ UNLIMITED</div>
-  </div>`;
+  return `<div class="btn btn--block menu__entitlement" role="status">${icon("star", 13)}Unlimited</div>`;
 }
 
-/** The pre-purchase counterpart to the badge above, in the same chip row.
- *  A real `.btn` (B1: a chip is a readout — something pressable is a button),
- *  restyled by `.chip--cta` to sit in the status strip rather than reading as
- *  a seventh menu action. See the note in menuScreen's action column for why
- *  it isn't one. */
+/** The pre-purchase counterpart to the badge above, in the same shelf row.
+ *  A full-size `.btn` and the only thing on the menu that pulses: it is an
+ *  offer rather than a control anyone came looking for, so it has to do the
+ *  finding. It has been three things — a 23px footnote inside the tier recap,
+ *  a band across the demo artwork, and this — and only this one treats a
+ *  purchase entry the way the rest of the screen treats a control. */
 function unlockChipHTML(): string {
-  return `<button class="btn chip--cta" data-action="paywall">${icon("star", 12)}Unlock Unlimited</button>`;
+  return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
 }
 
-/** The developer sandbox's entry, in the chip row rather than the action column
- *  — see the note there on why that column is six buttons and no more. Only
- *  rendered by a build that compiled the sandbox in (lib/sandbox.ts). */
+/** The developer sandbox's entry, in the tier recap's footnote row rather than
+ *  a column of its own — see the note in menuScreen's action column on why
+ *  that column is three buttons and no more. Only rendered by a build that
+ *  compiled the sandbox in (lib/sandbox.ts), which is none that ships. */
 function sandboxChipHTML(): string {
   return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
 }

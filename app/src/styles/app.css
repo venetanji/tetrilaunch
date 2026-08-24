@@ -443,20 +443,18 @@ body.crt-off #app::after { display: none; }
   display: flex; flex-direction: column;
   gap: 6px;
   padding: 7px 9px 8px;
-  width: var(--brand-w);
+  /* Full width of the ACTION column now, not the brand column's --brand-w:
+     the recap sits on the column it describes, directly over the button that
+     flies the floor it is describing. */
+  width: 100%;
 }
+/* One line, and Best is all of it. The "Tier N · Base bay" eyebrow that shared
+   this row named the floor the tower one column over is already showing, and
+   the Deep Run plate directly below says a third time. */
 .base-bay__head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2);
+  display: flex; align-items: baseline; justify-content: flex-end; gap: var(--sp-2);
   min-width: 0;
 }
-/* The eyebrow yields first. It is the line the tower beside it already
-   answers — the car is parked on the floor this names — where Best is the one
-   number on the panel that appears nowhere else on the screen. */
-.base-bay__eyebrow {
-  font-size: 7px; letter-spacing: 0.12em; color: var(--accent);
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.base-bay__eyebrow.is-god { color: var(--warn); }
 .base-bay__best {
   font-family: var(--font-pixel); font-size: 6.5px; letter-spacing: 0.06em;
   color: var(--text-faint); text-transform: uppercase; white-space: nowrap;
@@ -523,21 +521,12 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-size: 10px; color: var(--text-faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* Entitlement / sandbox entries — the only part of the old strip with nowhere
-   better to go. A row inside the panel rather than a seventh action button,
-   for the reason spelled out in menuScreen's action column. The web build
-   renders neither, so the row collapses rather than leaving a gap. */
+/* The developer sandbox entry, and only that — the entitlement pair moved onto
+   the demo panel's band. A dev-only door is what a footnote row is for, and it
+   is absent from every shippable bundle (lib/sandbox.ts), so the row collapses
+   to nothing in the build anyone actually plays. */
 .base-bay__extras { display: flex; gap: 6px; flex: none; }
 .base-bay__extras:empty { display: none; }
-/* Written as a two-class selector rather than `.base-bay__extras > *`, and it
-   has to be. The compact query's `.btn { padding: 7px 14px; font-size: 10px }`
-   is one class too, comes ~3500 lines later, and therefore won — the upsell
-   rendered at full button height, which on a 360px phone is the ~18px that
-   pushed the belt row down over the stat cells above it. These entries are a
-   footnote on a readout panel, not a seventh action button, and they have to
-   be sized like one at every viewport. */
-.base-bay__extras .chip--cta,
-.base-bay__extras .menu__entitlement,
 .base-bay__extras .btn {
   flex: 1 1 0; min-width: 0;
   flex-direction: row; align-items: center; justify-content: center;
@@ -713,6 +702,87 @@ body.crt-off #app::after { display: none; }
   .tower__floor.is-denied { animation: none; }
 }
 
+/* ---------- The shelf (screens.ts's .menu__nav) ----------
+   How to Play, Leaderboard, Settings: the three entries nobody opens the game
+   to reach. They keep the column the attract demo already decorates, and the
+   right column goes entirely to the loop — pick a floor, read what it deals,
+   launch. `justify-content: flex-end` so the stack hangs off the bottom of the
+   column and squares with the action rail's last row rather than floating in
+   the middle of whatever height the demo leaves. */
+.menu__nav {
+  display: flex; flex-direction: column; gap: var(--sp-3);
+  flex: 1 1 auto; min-height: 0;
+  justify-content: flex-end;
+  width: var(--brand-w);
+}
+.menu__nav > .btn { flex: 0 1 auto; min-height: 44px; max-height: 56px; }
+
+/* ---------- The demo panel as the tutorial door ----------
+   A bay playing itself IS the explanation, so the panel is the entry to the
+   lesson rather than an ornament beside one. The hit layer covers the whole
+   panel: the largest target on the screen, and it costs no layout at all,
+   which is what gave the shelf below its row back for the entitlement entry.
+
+   `background: transparent` and no border — the panel already has both, and
+   the affordance is the corner tag plus what the border does on hover. */
+.menu__demo-hit {
+  position: absolute; inset: 0; z-index: 3;
+  display: block; width: 100%; height: 100%;
+  padding: 0; margin: 0;
+  background: transparent; border: 0; border-radius: inherit;
+  font: inherit; color: inherit; cursor: pointer;
+  box-shadow: none;
+}
+.menu__demo-hit:hover, .menu__demo-hit:focus-visible {
+  box-shadow: inset 0 0 0 var(--bw) var(--accent);
+  background: rgba(0, 240, 255, 0.05);
+}
+/* The word, in the corner the bay never fills — the cannon is bottom-left, the
+   pile builds bottom-right, and the wordmark owns the lower-left plate. */
+.menu__demo-tag {
+  position: absolute; top: 6px; right: 6px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 7px;
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
+  text-transform: uppercase; line-height: 1;
+  color: var(--accent);
+  background: rgba(4, 4, 10, 0.72);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+}
+.menu__demo-hit:hover .menu__demo-tag { background: rgba(0, 240, 255, 0.18); }
+/* First launch puts the NEXT STEP badge on the demo, since the demo is now the
+   lesson's door. Positioned against the panel rather than the tag so the two
+   never stack on the same corner. */
+.menu__demo-hit .next-badge { top: 6px; left: 6px; right: auto; }
+
+/* ---------- The entitlement row (screens.ts's menuScreen) ----------
+   A full-size shelf button. It has now been three things: a 23px footnote in
+   the tier recap, a band across the demo artwork, and this — and this is the
+   one that treats a purchase entry like the rest of the screen treats a
+   control. It sits at the TOP of the shelf, above Leaderboard and Settings,
+   because the shelf hangs off the bottom of its column and the top row is the
+   one the eye reaches first coming down off the demo. */
+.menu__unlock, .menu__entitlement {
+  border-color: var(--warn);
+  color: var(--warn);
+  background: linear-gradient(180deg, rgba(255, 176, 32, 0.18), rgba(255, 176, 32, 0.06));
+}
+.menu__unlock {
+  /* The one thing on the menu that pulses. It is an offer, not a control the
+     player came looking for, so it has to do the finding. */
+  animation: unlock-breathe 2.8s ease-in-out infinite;
+}
+.menu__unlock:hover { background: linear-gradient(180deg, rgba(255, 176, 32, 0.3), rgba(255, 176, 32, 0.12)); }
+@keyframes unlock-breathe {
+  0%, 100% { box-shadow: var(--shadow-hard-sm); }
+  50% { box-shadow: var(--shadow-hard-sm), 0 0 12px rgba(255, 176, 32, 0.5); }
+}
+/* Bought. Same face, no pulse, no pointer — a state, not an offer. */
+.menu__entitlement { cursor: default; }
+@media (prefers-reduced-motion: reduce) { .menu__unlock { animation: none; } }
+.menu__demo { position: relative; }
+
 /* The rail fills its column now that the row stretches. The three primary
    entries take a quarter more than the three plain ones — they are the ones
    carrying two lines of text — which is the ratio the buttons already had at
@@ -731,8 +801,13 @@ body.crt-off #app::after { display: none; }
    out just over the column. Six 44px rows and five sp-2 gaps is 304px against
    the 325px the column gets at compact, so the floor fits with room to spare
    and the grow below spends only what is actually left over. */
+.menu__actions { justify-content: flex-start; gap: var(--sp-2); }
 .menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 64px; }
 .menu__actions > .btn--menu { flex-grow: 1.25; max-height: 84px; }
+/* The recap is the column's fixed head; the three buttons share what is left.
+   `flex: none` on it rather than a height, so it stays exactly as tall as its
+   own content and the loop gets every remaining pixel. */
+.menu__actions > .base-bay { flex: none; margin-bottom: var(--sp-2); }
 
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
@@ -4071,15 +4146,21 @@ button.panel { color: var(--text); }
      paddings. Three pixels, and every one of them has to come off the chrome
      rather than off the type: the four values are the whole point of the
      panel, and they are already at 11px. */
-  /* The entitlement row shrinks HERE and only here. Sized down globally it
-     took the paywall entry to 23px on the tablets — a real button, under the
-     44px tap floor, on the three devices that have all the height in the world
-     to give it. On a 360px phone the panel's whole budget is 146px, so this is
-     the one viewport where the row has to be a footnote rather than a
-     control-sized thing. */
-  .base-bay__extras .chip--cta,
-  .base-bay__extras .menu__entitlement,
+  /* The sandbox door shrinks HERE and only here — on a 360px phone the recap's
+     budget leaves it a footnote's worth of room, and on anything taller it
+     keeps normal button sizing. Nothing shippable renders it either way. */
   .base-bay__extras .btn { padding: 3px 8px; font-size: 9px; min-height: 0; }
+  /* The reduced-motion fallback's paragraph yields, because on this viewport
+     the column it shares is the one thing that cannot: three 44px shelf rows
+     are 156px of a 313px column, and they replaced a recap panel that was
+     shorter than they are. Clamped rather than shrunk — the full text stays in
+     the DOM and in the accessibility tree, where it is also the live demo's
+     text alternative, and a visible ellipsis is the honest way to say there is
+     more of it. */
+  .menu__demo:not(.is-live) .menu__sub {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+    overflow: hidden;
+  }
   .base-bay { gap: 4px; padding: 5px 7px 6px; }
   .base-bay__grid { gap: 4px; }
   .bay-stat { padding: 3px 5px; gap: 5px; }
@@ -4971,11 +5052,55 @@ button.panel { color: var(--text); }
   border-radius: var(--r-md);
   background: rgba(4, 4, 10, 0.28);
 }
+/* Both halves are given a FIXED slot, and that is the whole point of them.
+   The plate sizes to its contents, so every string that lands in it moved the
+   button underneath: "1" -> "10" is a digit wider, "Tier" -> "God" is a
+   character narrower, and the elevator's own in-flight placeholder was two
+   dots — so riding the car made the primary button visibly grow and shrink
+   (reported from a device, 2026-08-24). A monospace face means one slot fits
+   every value it can ever hold: 2ch takes "10" and centres "1" and the God
+   star in the same box, and the pixel label's 4ch takes "TIER" and centres
+   "GOD". Nothing in the plate can change its width again. */
 .tier-plate__lbl {
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
   text-transform: uppercase; line-height: 1; opacity: 0.8;
+  /* The tracking counts. A slot of 4ch fits four CHARACTERS but not the four
+     letter-spaces stamped after them, so "TIER" still ran 0.3em past a bare
+     4ch and the plate moved when the label became "GOD". */
+  min-width: calc(4ch + 0.32em); text-align: center;
 }
-.tier-plate__n { font-family: var(--font-mono); font-weight: 800; line-height: 1; }
+.tier-plate__n {
+  font-family: var(--font-mono); font-weight: 800; line-height: 1;
+  /* Zeroed, not inherited. `.btn` sets 0.08em of display tracking and the
+     number was picking it up, so "10" came out 0.7px past its own 2ch slot
+     while "1" sat inside it — the last of the plate's width wobble, and
+     invisible in a screenshot but not on a device. Tracking belongs to the
+     label; a mono readout is spaced by its own metrics. */
+  letter-spacing: 0;
+  min-width: 2ch; text-align: center;
+}
+/* THE ODOMETER. While the car is between floors the plate rolls the old
+   number out and the new one in, in the direction the car is travelling —
+   rather than blanking to a placeholder, which is what was resizing it. The
+   track is two cells of exactly 1em, the same height the number's own
+   `line-height: 1` box already was, so the roll costs the plate no height and
+   the digits never leave their slot.
+
+   `overflow: hidden` is applied only while rolling: at rest it would crop the
+   descender-free but slightly tall God star for no reason. */
+.tier-plate__n.is-rolling { overflow: hidden; height: 1em; }
+.tier-plate__roll { display: flex; flex-direction: column; }
+.tier-plate__roll > b {
+  display: block; height: 1em; line-height: 1; font-weight: inherit;
+}
+.tier-plate__n.is-rolling .tier-plate__roll {
+  transform: translateY(var(--roll-from));
+  transition: transform var(--roll-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1);
+}
+.tier-plate__n.is-rolling.is-rolled .tier-plate__roll { transform: translateY(var(--roll-to)); }
+@media (prefers-reduced-motion: reduce) {
+  .tier-plate__n.is-rolling .tier-plate__roll { transition: none; }
+}
 /* The God floor's plate wears the tower's own warn tint rather than the
    ladder's cyan — it is the one floor that is not a Mark, and the plate is the
    only place that fact travels to outside the shaft. Background only: the

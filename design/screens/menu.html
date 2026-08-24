@@ -10,28 +10,39 @@
 /* Mirrors app/src/ui/screens.ts menuScreen + tierTowerHTML + baseBayPanelHTML,
    and app.css's .menu / .tower / .base-bay sections.
 
-   THREE COLUMNS: the brand stack, the tier tower, the action rail. The tower
-   is the change — the ladder used to be a NUMBER on a chip ("Tier 4", plus two
-   ticks for the halves that complete it), which said where you were standing
-   and nothing else: not how far the ladder goes, not that the rungs below you
-   are still flyable, and not what any of them would be like. A shaft with a
-   floor per Mark says all three without a word of copy.
+   THREE COLUMNS, and each one is a different KIND of thing: the shelf, the
+   ladder, the loop.
 
-   PICKING A FLOOR sets the Mark the next Deep Run flies at, and nothing else.
-   Flying a Mark already beaten earns no salvage and cannot advance the ladder
-   — meta.ts's recordRunEnd has always gated its tier bookkeeping on
-   `runMark === markUnlocked(meta)` — so the lower floors are practice and the
-   top floor is the exam. Locked floors refuse with a shake rather than a
-   toast, because the tower is what the player is reading when they tap it.
+   THE TOWER is the change. The ladder used to be a NUMBER on a chip ("Tier 4",
+   plus two ticks for the halves that complete it), which said where you were
+   standing and nothing else: not how far the ladder goes, not that the rungs
+   below you are still flyable, and not what any of them would be like. A shaft
+   with a floor per Mark says all three without a word of copy. Picking a floor
+   sets the Mark the next Deep Run flies at, and nothing else — flying a Mark
+   already beaten earns no salvage and cannot advance the ladder, so the lower
+   floors are practice and the top floor is the exam. Locked floors refuse with
+   a shake rather than a toast.
 
-   THE BASE BAY PANEL replaced the Tier/Best/Salvage chip strip. The strip was
-   three chips answering three unrelated questions in the same shape; the tier
-   one is now the tower, and Salvage was always printed a second time on the
-   Workshop button beside the thing it can buy. What is left is Best, which is
-   a header line, and the room that freed goes to the question the strip could
-   never answer: what the floor you have selected is actually like to fly. All
-   five readouts derive from game/level.ts's baseBayFor and hazards.ts's
-   content axes, so the panel cannot promise a bay the ladder does not deal.
+   THE RIGHT COLUMN IS THE LOOP, in the order you do it: the recap of the floor
+   the car is parked on, then the three things you can launch into. The recap is
+   ON this column deliberately — it answers "what is this floor like to fly",
+   and the button that flies it is the next thing under it.
+
+   THE DEMO PANEL IS THE TUTORIAL'S DOOR. A bay playing itself, with no HUD over
+   it, is already a demonstration of how the game works, so it is the entry to
+   the lesson rather than an ornament beside one. That makes the lesson the
+   largest target on the screen and frees the shelf row underneath for the
+   entitlement entry — a full-size button, which is what a purchase entry is
+   worth.
+
+   THE SHELF is what is left: the things nobody opens the game to reach.
+
+   WHAT WENT. The Tier/Best/Salvage chip strip — three chips answering three
+   unrelated questions in the same shape. Tier is the tower, Salvage was already
+   printed on the Workshop button beside the thing it buys, and Best is the one
+   number with nowhere else to be, so it is the recap's header and the whole of
+   it. The recap has no "Tier N · Base bay" line either: the tower one column
+   over is showing exactly that, and the Deep Run plate below says it again.
 
    Drawn here at 792x360 — a OnePlus 12 in landscape, the viewport this game
    actually runs in, and the tightest one in sim/uifit/devices.ts that is not
@@ -86,7 +97,7 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
 .btn--primary{background:linear-gradient(100deg,var(--accent),#38d6ff);color:var(--accent-ink);border-color:var(--accent)}
 .btn--secondary{border-color:var(--line-strong)}
 .btn--ghost{background:transparent;color:var(--text-dim);border-color:var(--line)}
-.btn--lg{font-size:11px;padding:9px 18px}
+.btn--lg{font-size:11px;padding:9px 14px}
 .btn--menu{justify-content:flex-start;text-align:left}
 .btn__txt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .btn__sub{font-family:var(--font-ui);font-weight:600;text-transform:none;letter-spacing:0;
@@ -100,8 +111,14 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
 /* ---- tier plate (app.css .tier-plate, row form at compact) ---- */
 .tier-plate{display:inline-flex;align-items:center;justify-content:center;flex-direction:row;gap:4px;flex:none;
   border:var(--bw) solid currentColor;border-radius:var(--r-md);background:rgba(4,4,10,0.28);padding:3px 6px}
-.tier-plate__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.08em;text-transform:uppercase;line-height:1;opacity:0.8}
-.tier-plate__n{font-family:var(--font-mono);font-weight:800;line-height:1;font-size:14px}
+/* Both halves get a FIXED slot: the plate sizes to its contents, so "1" ->
+   "10" and "Tier" -> "God" each moved the button underneath, and riding the
+   car made the primary control visibly grow and shrink. A monospace face means
+   one slot fits every value it can hold. */
+.tier-plate__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.08em;text-transform:uppercase;
+  line-height:1;opacity:0.8;min-width:calc(4ch + 0.32em);text-align:center}
+.tier-plate__n{font-family:var(--font-mono);font-weight:800;line-height:1;font-size:14px;
+  letter-spacing:0;min-width:2ch;text-align:center}
 .tier-plate--god{background:rgba(255,176,32,0.22)}
 
 /* ---- the three columns ---- */
@@ -113,21 +130,44 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
   border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;
   background:radial-gradient(120% 90% at 50% -10%,rgba(122,92,255,0.18),transparent 60%),#080814;
   box-shadow:var(--shadow-hard)}
-.menu__title{position:absolute;left:8px;top:8px;margin:0;font-size:19px;display:flex;flex-direction:column;
-  line-height:0.92;pointer-events:none;
-  background:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));
+.menu__title{position:absolute;left:6px;bottom:6px;margin:0;font-size:19px;display:flex;flex-direction:column;
+  line-height:0.92;pointer-events:none;padding:6px 8px;
+  border:var(--bw) solid var(--line-strong);border-radius:var(--r-md);background:rgba(4,4,10,0.55);
+  background-image:linear-gradient(100deg,var(--accent),var(--accent-2) 60%,var(--piece-t));
   -webkit-background-clip:text;background-clip:text;color:transparent}
-.menu__demo-tag{position:absolute;right:7px;top:6px;font-family:var(--font-pixel);font-size:6px;
-  letter-spacing:0.1em;color:var(--text-faint)}
-.menu__actions{display:flex;flex-direction:column;gap:var(--sp-2);justify-content:center}
+/* The demo panel is the tutorial's door — a transparent hit layer over the
+   whole thing, with the word in the corner the bay never fills. */
+.menu__demo-hit{position:absolute;inset:0;z-index:3;display:block;width:100%;height:100%;
+  padding:0;margin:0;background:transparent;border:0;border-radius:inherit;
+  font:inherit;color:inherit;cursor:pointer;box-shadow:none}
+.menu__demo-hit:hover{box-shadow:inset 0 0 0 var(--bw) var(--accent);background:rgba(0,240,255,0.05)}
+.menu__demo-tag{position:absolute;top:6px;right:6px;display:inline-flex;align-items:center;gap:4px;
+  padding:4px 7px;font-family:var(--font-pixel);font-size:7px;letter-spacing:0.08em;
+  text-transform:uppercase;line-height:1;color:var(--accent);background:rgba(4,4,10,0.72);
+  border:1px solid var(--accent);border-radius:var(--r-sm)}
+/* The shelf hangs off the bottom of its column so its last row squares with
+   the action rail's. */
+.menu__nav{display:flex;flex-direction:column;gap:var(--sp-3);flex:1 1 auto;min-height:0;
+  justify-content:flex-end;width:var(--brand-w)}
+.menu__nav > .btn{flex:0 1 auto;min-height:44px;max-height:56px}
+/* The entitlement entry: a full-size shelf button, and the one thing on this
+   screen that pulses — it is an offer, not a control anyone came looking for. */
+.menu__unlock{border-color:var(--warn);color:var(--warn);
+  background:linear-gradient(180deg,rgba(255,176,32,0.18),rgba(255,176,32,0.06));
+  animation:unlock-breathe 2.8s ease-in-out infinite}
+@keyframes unlock-breathe{
+  0%,100%{box-shadow:var(--shadow-hard-sm)}
+  50%{box-shadow:var(--shadow-hard-sm),0 0 12px rgba(255,176,32,0.5)}
+}
+@media (prefers-reduced-motion: reduce){.menu__unlock{animation:none}}
+.menu__actions{display:flex;flex-direction:column;gap:var(--sp-2);justify-content:flex-start}
 .menu__actions > .btn{flex:1 1 auto;min-height:44px;max-height:64px}
 .menu__actions > .btn--menu{flex-grow:1.25;max-height:84px}
+.menu__actions > .base-bay{flex:none;margin-bottom:var(--sp-2)}
 
-/* ---- base bay panel ---- */
-.base-bay{flex:1 1 0;min-height:0;display:flex;flex-direction:column;gap:4px;padding:5px 7px 6px;width:var(--brand-w)}
-.base-bay__head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-2);min-width:0}
-.base-bay__eyebrow{font-size:7px;letter-spacing:0.12em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.base-bay__eyebrow.is-god{color:var(--warn)}
+/* ---- base bay recap ---- */
+.base-bay{min-height:0;display:flex;flex-direction:column;gap:4px;padding:5px 7px 6px;width:100%}
+.base-bay__head{display:flex;align-items:baseline;justify-content:flex-end;gap:var(--sp-2);min-width:0}
 .base-bay__best{font-family:var(--font-pixel);font-size:6.5px;letter-spacing:0.06em;color:var(--text-faint);
   text-transform:uppercase;white-space:nowrap;flex:none}
 .base-bay__grid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;
@@ -137,7 +177,8 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
 .bay-stat .ico{color:var(--stat-tint,var(--text-dim))}
 .bay-stat__txt{display:flex;flex-direction:column;gap:1px;min-width:0}
 .bay-stat__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted)}
-.bay-stat__val{font-family:var(--font-mono);font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bay-stat__val{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bay-belt{display:flex;align-items:center;gap:6px;flex:none}
 .bay-belt__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.06em;text-transform:uppercase;
   color:var(--text-muted);flex:none}
@@ -199,17 +240,59 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
   <div class="menu">
 
     <div class="menu__brand">
-      <!-- The wordmark lives INSIDE the demo box: the panel is a live bay with
-           no HUD over it, so its top-left corner is the one place a real
-           screenshot would have chrome and the mini-field doesn't. -->
+      <!-- The wordmark keeps its plate in the demo's lower-left; the tutorial
+           tag takes the top-right, the one corner the bay never fills (the
+           cannon is bottom-left, the pile builds bottom-right). -->
       <div class="menu__demo">
-        <div class="menu__demo-tag">ATTRACT DEMO</div>
         <h1 class="menu__title display" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
+        <button class="menu__demo-hit" data-action="howto" aria-label="How to play">
+          <span class="menu__demo-tag">
+            <svg class="ico" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 3h12v10H2z"/><path d="M8 3v10"/><path d="M4 6h2"/><path d="M4 9h2"/><path d="M10 6h2"/><path d="M10 9h2"/></svg>Tutorial
+          </span>
+        </button>
       </div>
 
+      <div class="menu__nav">
+        <button class="btn btn--block menu__unlock" data-action="paywall">
+          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2l1.8 4.2 4.2.4-3.2 2.9 1 4.5L8 11.6 4.2 14l1-4.5L2 6.6l4.2-.4z" fill="currentColor" stroke="none"/></svg>Unlock Unlimited</button>
+        <button class="btn btn--secondary btn--block" data-action="leaderboard">
+          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 13V9h3.5v4zM6.25 13V3h3.5v10zM10.5 13V6H14v7z" fill="currentColor" stroke="none"/></svg>Leaderboard</button>
+        <button class="btn btn--ghost btn--block" data-action="settings">
+          <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 4h12"/><path d="M2 8h12"/><path d="M2 12h12"/><path d="M4.5 2.5h2.5v3H4.5z" fill="currentColor"/><path d="M9 6.5h2.5v3H9z" fill="currentColor"/><path d="M5.5 10.5h2.5v3H5.5z" fill="currentColor"/></svg>Settings</button>
+      </div>
+    </div>
+
+    <!-- THE TIER TOWER. Floors run top-down — God, 10, 9 … 1 — because a tower
+         whose ground floor is not at the bottom is not a tower. The car is
+         parked on Tier 4 (--tower-idx 7, counting from the roof); floors 5-10
+         and God are locked, and refuse with a shake rather than a message. -->
+    <div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
+      <div class="tower__shaft" style="--tower-idx:6">
+        <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
+        <div class="tower__rail" aria-hidden="true"></div>
+        <div class="tower__car" aria-hidden="true"><span></span></div>
+        <button class="tower__floor tower__floor--god is-locked" aria-label="God tier — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">GOD</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 10 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">10</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 9 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">9</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 8 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">8</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 7 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">7</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-locked" aria-label="Tier 6 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">6</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor is-selected" aria-label="Tier 5" aria-pressed="true"><span class="tower__gap"></span><span class="tower__n">5</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 4" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">4</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 3" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">3</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 2" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">2</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor" aria-label="Tier 1" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">1</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+      </div>
+      <div class="tower__base" aria-hidden="true"></div>
+    </div>
+
+    <!-- The loop, in the order you do it: what this floor deals, then the
+         three things you can launch into. Three, and never a fourth — the
+         recap is not compressible, and the entitlement entry is a shelf row
+         on the other side of the tower. -->
+    <div class="menu__actions">
       <div class="panel base-bay" aria-label="Selected tier — base bay">
         <div class="base-bay__head">
-          <div class="eyebrow base-bay__eyebrow">Tier 4 · Base bay</div>
           <div class="base-bay__best">Best 6120</div>
         </div>
         <div class="base-bay__grid">
@@ -227,76 +310,41 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
           </div>
           <div class="bay-stat">
             <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="var(--piece-t)" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M7 7h2v2H7z" fill="var(--piece-t)" stroke="none"/><path d="M8 6V2"/><path d="M8 10v4"/><path d="M6 8H2"/><path d="M10 8h4"/></svg>
-            <span class="bay-stat__txt"><span class="bay-stat__lbl">Bonds</span><span class="bay-stat__val">×1.3</span></span>
+            <span class="bay-stat__txt"><span class="bay-stat__lbl">Bonds</span><span class="bay-stat__val">×1.4</span></span>
           </div>
         </div>
         <!-- The six material axes in ladder order (hazards.ts's content axes),
              lit as the selected Mark reaches them. A dark glyph is still a
              GLYPH — greyed, never hidden — because the row's job is to show how
-             much of the ladder is still ahead, which an empty space cannot do.
-             At Tier 4 only Cryo is dealt. -->
+             much of the ladder is still ahead, which a gap cannot do. At Tier 5
+             Cryo and Rebar are dealt. -->
         <div class="bay-belt">
           <span class="bay-belt__lbl">Belt</span>
           <span class="bay-belt__mats">
             <span class="bay-belt__mat" title="Cryo Contract — dealt from Tier 4"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6V20.4M4.7 7.8L19.3 16.2M4.7 16.2L19.3 7.8" fill="none" stroke="#9fe8ff" stroke-width="2.6" stroke-linecap="round"/></svg></span>
-            <span class="bay-belt__mat is-dark" title="Rebar Contract — unlocks at Tier 5"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.8V20.2M15 3.8V20.2M3.8 9H20.2M3.8 15H20.2" fill="none" stroke="#e54c00" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+            <span class="bay-belt__mat" title="Rebar Contract — dealt from Tier 5"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.8V20.2M15 3.8V20.2M3.8 9H20.2M3.8 15H20.2" fill="none" stroke="#e54c00" stroke-width="2.6" stroke-linecap="round"/></svg></span>
             <span class="bay-belt__mat is-dark" title="Slag Contract — unlocks at Tier 6"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.4 12A7.6 7.6 0 1 0 19.6 12A7.6 7.6 0 1 0 4.4 12M6.6 17.4L17.4 6.6" fill="none" stroke="#6d6a7c" stroke-width="2.6" stroke-linecap="round"/></svg></span>
             <span class="bay-belt__mat is-dark" title="Volatile Contract — unlocks at Tier 7"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5L14.6 8.2L20.6 4.4L17.2 10.6L23.5 12L17.2 13.4L20.6 19.6L14.6 15.8L12 22.5L9.4 15.8L3.4 19.6L6.8 13.4L0.5 12L6.8 10.6L3.4 4.4L9.4 8.2Z" fill="#d4ff3a" stroke="none"/></svg></span>
             <span class="bay-belt__mat is-dark" title="Tar Contract — unlocks at Tier 8"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 7.2H9.4A4.8 4.8 0 0 1 9.4 16.8H7.4A4.8 4.8 0 0 1 7.4 7.2ZM14.6 7.2H16.6A4.8 4.8 0 0 1 16.6 16.8H14.6A4.8 4.8 0 0 1 14.6 7.2Z" fill="none" stroke="#6b5f80" stroke-width="2.6" stroke-linecap="round"/></svg></span>
             <span class="bay-belt__mat is-dark" title="Magnetic Contract — unlocks at Tier 9"><svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.4 19V12a6.6 6.6 0 0 1 13.2 0V19" fill="none" stroke="#8f9bd6" stroke-width="3.6" stroke-linecap="round"/></svg></span>
           </span>
-          <span class="bay-belt__count">1/6</span>
+          <span class="bay-belt__count">2/6</span>
         </div>
       </div>
-    </div>
 
-    <!-- THE TIER TOWER. Floors run top-down — God, 10, 9 … 1 — because a tower
-         whose ground floor is not at the bottom is not a tower. The car is
-         parked on Tier 4 (--tower-idx 7, counting from the roof); floors 5-10
-         and God are locked, and refuse with a shake rather than a message. -->
-    <div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
-      <div class="tower__shaft" style="--tower-idx:7">
-        <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
-        <div class="tower__rail" aria-hidden="true"></div>
-        <div class="tower__car" aria-hidden="true"><span></span></div>
-        <button class="tower__floor tower__floor--god is-locked" aria-label="God tier — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">GOD</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 10 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">10</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 9 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">9</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 8 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">8</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 7 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">7</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 6 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">6</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-locked" aria-label="Tier 5 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">5</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor is-selected" aria-label="Tier 4" aria-pressed="true"><span class="tower__gap"></span><span class="tower__n">4</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor" aria-label="Tier 3" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">3</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor" aria-label="Tier 2" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">2</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-        <button class="tower__floor" aria-label="Tier 1" aria-pressed="false"><span class="tower__gap"></span><span class="tower__n">1</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
-      </div>
-      <div class="tower__base" aria-hidden="true"></div>
-    </div>
-
-    <!-- Six buttons, and never a seventh: this column gets 325px on a landscape
-         phone and six rows need 290. The entitlement upsell and the developer
-         sandbox entry live in the base-bay panel's last row instead. -->
-    <div class="menu__actions">
       <button class="btn btn--primary btn--lg btn--menu">
-        <span class="tier-plate"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">4</span></span>
-        <span class="btn__txt">Deep Run<span class="btn__sub">Clear 10 bays at Tier 4 in one run</span></span>
+        <span class="tier-plate"><span class="tier-plate__lbl">Tier</span><span class="tier-plate__n">5</span></span>
+        <span class="btn__txt">Deep Run<span class="btn__sub">Clear 10 bays at Tier 5 in one run</span></span>
       </button>
       <button class="btn btn--secondary btn--menu">
         <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M3 4h10v10H3z"/><path d="M6 4V2h4v2"/><path d="M6 8h4"/><path d="M6 11h4"/></svg>
-        <span class="btn__txt">Contracts<span class="btn__sub">3 today · 16 each · no clock, no launch cost</span></span>
+        <span class="btn__txt">Contracts<span class="btn__sub">3 today · 15 each · no clock, no launch cost</span></span>
       </button>
       <button class="btn btn--secondary btn--menu btn--next">
         <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M8 2l5 3v6l-5 3-5-3V5z"/><path d="M6.5 6.5h3v3h-3z"/></svg>
-        <span class="btn__txt">Workshop<span class="btn__sub">48 banked — Reactor costs 60</span></span>
+        <span class="btn__txt">Workshop<span class="btn__sub">48 banked — Reactor Output costs 15</span></span>
         <span class="next-badge">Next step</span>
       </button>
-      <button class="btn btn--secondary">
-        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 3h12v10H2z"/><path d="M8 3v10"/><path d="M4 6h2"/><path d="M4 9h2"/><path d="M10 6h2"/><path d="M10 9h2"/></svg>How to Play</button>
-      <button class="btn btn--secondary">
-        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 13V9h3.5v4zM6.25 13V3h3.5v10zM10.5 13V6H14v7z" fill="currentColor" stroke="none"/></svg>Leaderboard</button>
-      <button class="btn btn--ghost">
-        <svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M2 4h12"/><path d="M2 8h12"/><path d="M2 12h12"/><path d="M4.5 2.5h2.5v3H4.5z" fill="currentColor"/><path d="M9 6.5h2.5v3H9z" fill="currentColor"/><path d="M5.5 10.5h2.5v3H5.5z" fill="currentColor"/></svg>Settings</button>
     </div>
 
   </div>

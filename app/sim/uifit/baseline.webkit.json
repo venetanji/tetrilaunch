@@ -1,68 +1,344 @@
 {
+  "Android · 640x360 budget|menu-first|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-live|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-nostore-live|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-nostore|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-tower-top-live|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-tower-top|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-unlimited-live|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu-unlimited|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · 640x360 budget|menu|tap": [
+    ".tower__floor 82x26"
+  ],
+  "Android · Galaxy S8+|menu-first|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-nostore-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-nostore|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-tower-top-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-tower-top|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-unlimited-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-unlimited|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu-first|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu-live|tap": [
+    ".tower__floor 108x26"
+  ],
+  "Android · OnePlus 12|menu-nostore-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu-nostore|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu-tower-top-live|tap": [
+    ".tower__floor 108x26"
+  ],
+  "Android · OnePlus 12|menu-tower-top|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu-unlimited-live|tap": [
+    ".tower__floor 108x26"
+  ],
+  "Android · OnePlus 12|menu-unlimited|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · OnePlus 12|menu|tap": [
+    ".tower__floor 108x25"
+  ],
+  "Android · Pixel 5|menu-first|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-nostore-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-nostore|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-tower-top-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-tower-top|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-unlimited-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-unlimited|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu|tap": [
+    ".tower__floor 108x28"
+  ],
+  "Android · Pixel 7 cutout|menu-first|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7 cutout|menu-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7 cutout|menu-nostore-live|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7 cutout|menu-nostore|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7 cutout|menu-tower-top-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7 cutout|menu-tower-top|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7 cutout|menu-unlimited-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7 cutout|menu-unlimited|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7 cutout|menu|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-first|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7|menu-nostore-live|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-nostore|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-tower-top-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7|menu-tower-top|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-unlimited-live|tap": [
+    ".tower__floor 108x30"
+  ],
+  "Android · Pixel 7|menu-unlimited|tap": [
+    ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu|tap": [
+    ".tower__floor 108x29"
+  ],
   "Android · Pixel Tablet|bayclear|inkline": [
-    ".pl-notch value sits -1.64px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.79px above its label",
     ".pl-tier value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|hud-contract|inkline": [
-    ".pl-queue value sits -1.64px above its label"
+    ".hud--contract .pl-notch value sits -0.79px above its label",
+    ".pl-queue value sits -0.79px above its label",
+    ".pl-tier value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|hud-notched|inkline": [
-    ".pl-notch value sits -1.64px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|hud-rich|inkline": [
-    ".pl-notch value sits -1.64px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|hud|inkline": [
-    ".pl-notch value sits -1.64px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.79px above its label"
   ],
   "Android · Pixel Tablet|pause|inkline": [
-    ".pl-notch value sits -1.64px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.79px above its label"
   ],
   "iOS · iPad Pro 12.9|bayclear|inkline": [
-    ".pl-notch value sits -1.48px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.70px above its label",
     ".pl-tier value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-contract|inkline": [
-    ".pl-queue value sits -1.48px above its label"
+    ".hud--contract .pl-notch value sits -0.70px above its label",
+    ".pl-queue value sits -0.70px above its label",
+    ".pl-tier value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-notched|inkline": [
-    ".pl-notch value sits -1.48px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|hud-rich|inkline": [
-    ".pl-notch value sits -1.48px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|hud|inkline": [
-    ".pl-notch value sits -1.48px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.70px above its label"
   ],
   "iOS · iPad Pro 12.9|pause|inkline": [
-    ".pl-notch value sits -1.48px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.70px above its label"
   ],
   "iOS · iPad mini|bayclear|inkline": [
-    ".pl-notch value sits -1.11px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.52px above its label"
   ],
   "iOS · iPad mini|hud-contract-lines|inkline": [
     ".hud--contract .pl-notch value sits -0.52px above its label",
     ".pl-tier value sits -0.52px above its label"
   ],
   "iOS · iPad mini|hud-contract|inkline": [
-    ".pl-queue value sits -1.11px above its label"
+    ".hud--contract .pl-notch value sits -0.52px above its label",
+    ".pl-queue value sits -0.52px above its label",
+    ".pl-tier value sits -0.52px above its label"
   ],
   "iOS · iPad mini|hud-notched|inkline": [
-    ".pl-notch value sits -1.11px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.52px above its label"
   ],
   "iOS · iPad mini|hud-rich|inkline": [
-    ".pl-notch value sits -1.11px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.52px above its label"
   ],
   "iOS · iPad mini|hud|inkline": [
-    ".pl-notch value sits -1.11px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.52px above its label"
   ],
   "iOS · iPad mini|pause|inkline": [
-    ".pl-notch value sits -1.11px above its label"
+    ".hud:not(.hud--contract) .pl-notch value sits -0.52px above its label"
+  ],
+  "iOS · iPhone 13 mini|menu-first|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-nostore-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-nostore|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-tower-top-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-tower-top|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-unlimited-live|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu-unlimited|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 13 mini|menu|tap": [
+    ".tower__floor 108x25"
+  ],
+  "iOS · iPhone 15|menu-first|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-nostore-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-nostore|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-tower-top-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-tower-top|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-unlimited-live|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-unlimited|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu|tap": [
+    ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-first|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-live|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-nostore-live|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-nostore|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-tower-top-live|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-tower-top|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-unlimited-live|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-unlimited|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone 16 Pro Max|menu|tap": [
+    ".tower__floor 108x32"
+  ],
+  "iOS · iPhone SE 3|menu-first|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-live|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-nostore-live|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-nostore|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-tower-top-live|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-tower-top|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-unlimited-live|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-unlimited|tap": [
+    ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu|tap": [
+    ".tower__floor 82x27"
   ]
 }

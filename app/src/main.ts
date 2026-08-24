@@ -906,35 +906,87 @@ class App {
       f.setAttribute("aria-pressed", String(sel));
       f.classList.remove("is-denied");
     }
-    // In flight: the plate says so rather than showing the destination it has
-    // not reached. Two dots, because the plate's number slot is one or two
-    // mono characters wide and a spinner in it would resize the button.
-    this.setPlayPlate(null);
+    // In flight the plate ROLLS from one floor's number to the next, in the
+    // direction the car is going. It used to blank to two dots, which changed
+    // the plate's width and made the primary button grow and shrink for the
+    // length of the trip (reported from a device).
+    this.rollPlate(state.selected, tier, dur);
+    this.setPlaySub(null);
     window.clearTimeout(this.towerTravel ?? undefined);
     this.towerTravel = window.setTimeout(() => {
       this.towerTravel = null;
-      this.setPlayPlate(tier);
+      this.setSelectedTier(tier);
     }, dur);
   }
 
-  /** Rewrite the Deep Run button's plate and subtitle for `tier`, or for the
-   *  car being between floors when it is null. In place, for the reason in
-   *  onClick's pick-tier case. */
-  private setPlayPlate(tier: number | null): void {
-    const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
-    const plate = btn?.querySelector<HTMLElement>(".tier-plate");
+  /**
+   * Roll the Deep Run plate's number from `from` to `to` over `dur`.
+   *
+   * Two 1em cells in a track, ordered so the incoming number enters from the
+   * side the car is heading towards: riding UP the tower the old number leaves
+   * through the top, riding down it leaves through the bottom. The plate's
+   * number slot is a fixed 2ch (app.css), so "9" to "10" rolls in the same box
+   * as "2" to "1" and nothing around it moves.
+   */
+  private rollPlate(from: number, to: number, dur: number): void {
+    const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
+    if (!n) return;
+    const face = (t: number): string => (t === S.GOD_TIER ? "★" : String(t));
+    // A HIGHER tier is a higher floor — GOD_TIER is above every Mark, so the
+    // same comparison covers the God floor with no special case.
+    const up = to > from;
+    const cells = up ? [from, to] : [to, from];
+    n.style.setProperty("--roll-dur", `${dur}ms`);
+    n.style.setProperty("--roll-from", up ? "0" : "-1em");
+    n.style.setProperty("--roll-to", up ? "-1em" : "0");
+    n.innerHTML = `<span class="tier-plate__roll">${cells.map((t) => `<b>${face(t)}</b>`).join("")}</span>`;
+    // Cleared before the new track is armed. A second tap while the first roll
+    // is still running would otherwise find `is-rolled` already set, so the
+    // fresh track would render at its END offset immediately and the rAF pair
+    // below would have nothing left to transition — the number would snap.
+    n.classList.remove("is-rolled");
+    n.classList.add("is-rolling");
+    // Two frames, not one: the track has to be laid out AT the start offset
+    // before the end offset can transition from it, and a single rAF still
+    // lands inside the same style flush on WebKit.
+    requestAnimationFrame(() => requestAnimationFrame(() => n.classList.add("is-rolled")));
+  }
+
+  /**
+   * Land the whole screen on `tier`: the plate, the button's subtitle, and the
+   * base-bay panel beside the tower.
+   *
+   * The PANEL is the half that was missing. It answers "what is this floor
+   * like to fly" — target, launch price, clock, bonds, and which materials the
+   * belt deals — and it was rendered once at menu build and never touched
+   * again, so riding from Tier 5 to Tier 1 left it still describing Tier 5's
+   * bay (caught driving the real build on a phone viewport). A readout that
+   * describes a floor the car has left is worse than no readout.
+   *
+   * The extras row is carried across rather than rebuilt: it holds the
+   * developer sandbox door, which is build state and has nothing to do with
+   * which floor is selected.
+   */
+  private setSelectedTier(tier: number): void {
+    const plate = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate");
+    if (plate) plate.outerHTML = S.tierPlateHTML(tier, "menu");
+    this.setPlaySub(tier);
+    const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
+    if (!panel) return;
+    const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
+    panel.outerHTML = S.baseBayPanelHTML({ tier, best: loadBest(), extras });
+  }
+
+  /** The Deep Run button's subtitle for `tier`, or the in-flight line when it
+   *  is null. */
+  private setPlaySub(tier: number | null): void {
     const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
-    if (!plate || !sub) return;
-    if (tier === null) {
-      const n = plate.querySelector<HTMLElement>(".tier-plate__n");
-      if (n) n.textContent = "··";
-      sub.textContent = "Elevator moving…";
-      return;
-    }
-    plate.outerHTML = S.tierPlateHTML(tier, "menu");
-    sub.textContent = tier === S.GOD_TIER
-      ? "All ten marks at once · no mercy"
-      : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
+    if (!sub) return;
+    sub.textContent = tier === null
+      ? "Elevator moving…"
+      : tier === S.GOD_TIER
+        ? "All ten marks at once · no mercy"
+        : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
   }
 
   private renderOverlay(): void {
