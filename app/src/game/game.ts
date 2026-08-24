@@ -29,8 +29,9 @@ import {
   settleZoneCubes,
   wakeNear,
   type ClearResult,
+  slagBountyFor,
 } from "./lineClear";
-import { payoutMult } from "./level";
+import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, type FxEvent } from "./fx";
@@ -337,6 +338,10 @@ export class Game {
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */
   bombCharges: number;
+  /** How many charges the resupply line has already returned this bay. Counts
+   *  GRANTS, not charges held, so spending one never re-opens a grant already
+   *  paid — see level.ts's bombResupply, which is idempotent against this. */
+  bombsResupplied = 0;
   /** True when a demolition charge is ARMED: the next launch fires a bomb
    *  instead of the loaded piece, free of launch cost (see shoot()). Armed
    *  rather than fire-on-tap so the shot still goes where the player aimed —
@@ -1297,6 +1302,18 @@ export class Game {
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
       this.events.onLineClear?.(clear.lines);
       this.spawnClearFx(clear, awarded, now);
+      // A MAXED Demolition Rack returns charges as rows close. Run against the
+      // cumulative line count rather than this clear's delta so a four-line
+      // crush pays everything it earned — see level.ts's bombResupply for why
+      // the naive modulo drops grants. Idempotent, so calling it on every clear
+      // can never double-pay.
+      const owed = bombResupply(
+        this.linesTotal, this.bombsResupplied, this.level.bombResupplyLines,
+      );
+      if (owed > 0) {
+        this.bombsResupplied += owed;
+        this.bombCharges += owed;
+      }
     }
 
     // ...or when they bounce OUT before the compactor (blink away, lose points).
@@ -1567,12 +1584,18 @@ export class Game {
   /**
    * Destroy everything a volatile impact caught.
    *
-   * Deliberately pays NO salvage, which is the whole difference between this
+   * Pays NO salvage for LIVE cargo, which is the whole difference between this
    * and a demolition charge. A bomb is a tool the player aimed: it turns a dead
    * pile into funds. A volatile detonation is a hazard that went off: it turns
-   * cargo the player already landed into nothing. Paying for it would make
+   * cargo the player already landed into nothing. Paying for that would make
    * ratcheting the volatile axis an income strategy, which is the exact
    * inversion of a hazard.
+   *
+   * DEAD cargo is the one exception, and it does not weaken that rule. Slag can
+   * never complete a row however the bay is played, so removing it is not a
+   * loss being reimbursed — and the bounty only exists for a player who
+   * ratcheted a SECOND axis to put slag on the belt in the first place. Volatile
+   * alone still earns nothing at all. See lineClear.ts's slagBountyFor.
    */
   private resolveVolatile(): void {
     if (!this.pendingBlast.size) return;
@@ -1581,6 +1604,7 @@ export class Game {
     let cy = 0;
     let n = 0;
     const gone: { x: number; y: number }[] = [];
+    const razed: Cube[] = [];
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const cube = this.cubes[i];
       const b = cube.body;
@@ -1588,6 +1612,7 @@ export class Game {
       cx += b.position.x;
       cy += b.position.y;
       n += 1;
+      razed.push(cube);
       gone.push({ x: b.position.x, y: b.position.y });
       this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -1604,6 +1629,25 @@ export class Game {
         r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
       });
       this.events.onExplosion?.("volatile");
+      // Reuses the bomb's salvage toast rather than inventing a second one: it
+      // is the same statement ("that wreckage was worth something") and the
+      // player has already learned to read it. A payout they only meet in the
+      // end screen teaches nothing — the rule PILE_TIERS follows for its clock.
+      const bounty = slagBountyFor(razed, this.level.slagBounty);
+      if (bounty > 0) {
+        this.score += bounty;
+        // NOT salvagedFunds. That field is the demolition charge's trade and
+        // nothing else — its doc here, RunState's, and the end screen's all
+        // say so, and screens.ts prints it as "$N recovered by demolition".
+        // A volatile detonation is not a charge, and a run that never drafted
+        // one would otherwise settle up crediting money to a rack the player
+        // does not own. The payout still lands (score, above) and still reads
+        // at the moment it happens (the toast below); what it must not do is
+        // claim to be something else on the way out.
+        this.effects.push({
+          kind: "salvage", x: cx / n, y: cy / n - 24, amount: bounty, t0: now,
+        });
+      }
     }
   }
 

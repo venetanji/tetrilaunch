@@ -90,6 +90,65 @@ play, while blowing up a row you were two cubes from closing is a clear,
 self-inflicted loss. Both sides of the trade now exist, which is exactly what the
 old version lacked.
 
+## Slag: a bounty, and a resupply line
+
+Slag was the one material that was never anything but a loss, and `hazards.ts`
+said so out loud — "the one material with no passive counter". The Final
+Inspection pass measured
+the cost from the other side: one notch at the ladder's gentlest rate takes the
+`aim` bot from 100% to 0%, because it cannot fire the charge that is slag's only
+exit. Two different failures hid under that, and they got two different answers.
+
+**You run out of bombs.** A bay is long enough to out-last six charges — the
+Tier 6 `Slag Wall` clause opens one on 11 cubes of the stuff — and the seventh
+dead shipment had no answer at all. That is scarcity, and no payout fixes it. So
+the **maxed** Demolition Rack now returns a charge every **4 lines**, mid-bay:
+~8 charges on a clean bay instead of 6, and a long grinding bay keeps paying.
+
+The loop is circular on purpose. Resupply is earned in lines and slag is what
+stops you clearing lines, so the tier pays out for charges spent *unblocking
+rows* rather than hoarded. It will not rescue a bay that is already buried, and
+should not. It also makes that capstone a change in **kind** rather than another
+`+2`, which is the shape the track's own note was already reaching for ("a charge
+you can PLAN for beats a charge you might be dealt").
+
+**Slag has no upside.** A volatile detonation now pays **$20 per slag cube** it
+removes — `$8` of scrap metal plus a `$12` denial premium, since a slag cube is
+worth $0 as line material for its whole life *and* holds a slot in a row nothing
+can close.
+
+This looks like the payout `resolveVolatile` explicitly refuses, and the
+distinction is the whole licence for it. That refusal is about paying for a
+*detonation*: "paying for it would make ratcheting the volatile axis an income
+strategy, which is the exact inversion of a hazard." The bounty is a property of
+**slag**, not of volatile — live cargo a hazard obliterates is still a total
+loss, so a run that ratchets volatile alone earns nothing from it. The money
+exists only where the player took a **second** axis on purpose. Two ratchets,
+one build.
+
+The play was already the designed one. `lineClear.ts` names the answer to
+volatile as "deliberately chaining it into a pile that was never going to
+complete a row anyway", and a slag pile is definitionally exactly that. It just
+paid nothing.
+
+**Bombs stay at $8 on slag.** Their problem is that they run out, not that they
+underpay, and the resupply line answers that directly. Keeping the premium
+exclusive to volatile also keeps the strategy's identity: the *renewable*
+channel is the profitable one, because a bomb is capped per bay and the belt is
+not.
+
+Sized to sit between two things. A volatile lobbed into a three-slag cluster
+returns $60 against a $25 launch, so disposal is clearly worth the shot; a line
+still pays 100+ before combo, so disposal never out-earns playing the game —
+the same hierarchy the bomb's quarter-rate scrap trickle already protects. Funds
+only, no scrap: this is a bay-local relief valve, and paying scrap would turn a
+slag ratchet into a route to permanent progression.
+
+**Still to verify on device.** The bots cannot fire a charge or lob a soft
+volatile, so neither half of this is measurable in `sim/sweep.ts` — the same
+blind spot the Bond Breaker and Autoloader sit in. The numbers are reasoned, not
+calibrated.
+
 ## Payload sizes
 
 `pieceSize` drives cube count, per-cube **density** and joint **fragility**
@@ -390,7 +449,8 @@ tile now says which unit it is in.
 
 Everything is a named constant with a comment:
 
-- `level.ts` — `makeBaseLevel` formulas, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`
+- `level.ts` — `makeBaseLevel` formulas, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`,
+  `SLAG_BOUNTY`, `DEMO_RESUPPLY_LINES`
 - `upgrades.ts` — `TIER_COSTS`, per-track `apply`
 - `meta.ts` — `UNLOCKS` prices, `SALVAGE_*` weights
 - `mods.ts` — per-mod numbers

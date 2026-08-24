@@ -155,6 +155,20 @@ export interface LevelConfig {
    *  18.7) leaves only the softest lob safe where stock leaves two thirds of
    *  launches safe. finals.ts's Hair Trigger is the only thing that writes it. */
   volatileTriggerMult: number;
+  /** Funds paid per DEAD cube (one that can never count toward a line — slag)
+   *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
+   *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
+   *  SLAG_BOUNTY for how it is sized. Bombs are untouched: their problem is
+   *  that they run out, not that they underpay, and bombResupplyLines answers
+   *  that directly. */
+  slagBounty: number;
+  /** Lines per demolition charge returned mid-bay; 0 = no resupply. Written
+   *  only by the MAXED Demolition Rack (upgrades.ts), which is what turns that
+   *  capstone from another +2 into a change in kind. A bay can out-last six
+   *  charges — the Tier 6 Slag Wall clause opens one on 11 cubes of slag — and
+   *  seventh dead shipment currently has no answer at all. See level.ts's
+   *  bombResupply and game.ts's line-clear payout. */
+  bombResupplyLines: number;
   /** Magnitude cap (px/step^2) on this bay's lateral wind. Each bay rolls a
    *  steady AVERAGE wind in [-windMax, +windMax] once from the run seed (see
    *  game.ts's windAvg), then the live wind drunk-walks gently around that
@@ -661,6 +675,54 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
   return Math.min(streak, tier ? tier.payMult : Infinity);
 }
 
+/**
+ * What one slag cube pays when a volatile detonation removes it.
+ *
+ * Reads as salvagePerCube ($8) of scrap metal plus a $12 DENIAL premium. The
+ * bomb's refund is already justified as "a cube that will never complete a line
+ * is worth $0 as line material and salvagePerCube as scrap metal" — a slag cube
+ * is worth $0 as line material for its whole life AND occupies a slot in a row
+ * nothing can now close, so removing it is worth strictly more than removing a
+ * standard cube.
+ *
+ * Sized against the two things it must sit between. A volatile lobbed into a
+ * three-slag cluster returns $60 against a $25 launch, so disposal is clearly
+ * worth the shot; one line pays scorePerLine (100+) before combo, so disposal
+ * never out-earns playing the game. That is the same hierarchy the bomb's
+ * stingy quarter-rate scrap trickle already protects.
+ */
+export const SLAG_BOUNTY = 20;
+
+/** Lines per returned charge at a MAXED Demolition Rack. A clean bay clears ~8
+ *  lines, so the capstone runs ~8 charges instead of 6 and a long grinding bay
+ *  keeps paying — which is the case this exists for, since a bay can out-last
+ *  six charges long before it ends. */
+export const DEMO_RESUPPLY_LINES = 4;
+
+/**
+ * How many charges a bay still owes the player, given the lines cleared so far.
+ *
+ * Metered on CUMULATIVE lines against a running grant count rather than on each
+ * clear's delta, and that is the whole reason this is a function. A four-line
+ * clear arrives as a single event: an equality test (`linesTotal % interval ===
+ * 0`) would pay it once instead of the two it may have earned, and a delta test
+ * would miss it entirely whenever a clear stepped over the interval rather than
+ * landing on it. Expressed this way the grant is idempotent — replaying it can
+ * never double-pay — so the caller may run it after every clear without
+ * tracking which clears it has already seen.
+ *
+ * `interval` of 0 disables, which is every tier below the capstone and every
+ * bay of a run that never bought the track.
+ */
+export function bombResupply(
+  linesTotal: number,
+  alreadyGranted: number,
+  interval: number,
+): number {
+  if (interval <= 0) return 0;
+  return Math.max(0, Math.floor(linesTotal / interval) - alreadyGranted);
+}
+
 /** Bay 1's joint stretch tolerance at Mark 1, and the unit the whole ramp is
  *  stated in: bay 10 is exactly twice this (the Mark then multiplies the whole
  *  ramp — see BOND_MARK_STEP). Exported because render.ts sizes its weld
@@ -781,6 +843,8 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // Stock priming. Inert-by-default, the same stance windMax 0 and
     // autoLaunchMs 0 take.
     volatileTriggerMult: 1,
+    slagBounty: SLAG_BOUNTY,
+    bombResupplyLines: 0,
     launchPower: 1,
     windAssist: 0,
     settleAssist: 1,
