@@ -117,7 +117,7 @@ import {
 import { setRailSide } from "../src/game/layout";
 import * as S from "../src/ui/screens";
 import {
-  CHAPTERS, GUIDE_TOPICS, drillUnlocked, topicById, topicsIn,
+  CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
@@ -6215,6 +6215,38 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
 section("The guide + drills (guide.ts / drills.ts)");
 // ---------------------------------------------------------------------------
 {
+  // THE GUIDE IS PRICED FOR THE TIER BEING FLOWN.
+  //
+  // It was a module-level const over LEVEL_1 — bay 1 at Mark 1 — which was
+  // correct for exactly as long as a Mark did not change what a bay costs.
+  // #88's ladder ended that, and the screen a player opens BECAUSE they do not
+  // know the numbers spent that window telling a Tier 10 pilot that launches
+  // cost $20 and the clock runs 180s. The failure was silent in every existing
+  // check, because every existing check asks about ids, chapters and gates —
+  // none of which vary by Mark — so the thing to pin is that the COPY moves.
+  {
+    const money = (mark: number): string =>
+      guideTopics(mark).filter((t) => t.chapter === "economy")
+        .map((t) => `${t.summary}${t.body}`).join("");
+    const t1 = money(1);
+    const t10 = money(10);
+    check("the guide re-prices between Tier 1 and Tier 10", t1 !== t10);
+    // The exact figures, so a future refactor that returns a constant string
+    // cannot pass the inequality above by accident.
+    const bay1 = (m: number) => makeBaseLevel(0, m);
+    check("...and quotes the flown tier's launch cost",
+      t1.includes(`$${bay1(1).launchCost}<`) && t10.includes(`$${bay1(10).launchCost}<`));
+    check("...and its clock",
+      t1.includes(`${bay1(1).timeLimitSec} seconds`)
+      && t10.includes(`${bay1(10).timeLimitSec} seconds`));
+    check("...and its opening target",
+      t1.includes(`$${bay1(1).targetScore}<`) && t10.includes(`$${bay1(10).targetScore}<`));
+    // Ids and gates are Mark-invariant, which is what lets GUIDE_TOPICS stay a
+    // const for the coverage checks below.
+    check("ids do not vary by Mark",
+      guideTopics(1).map((t) => t.id).join() === guideTopics(10).map((t) => t.id).join());
+  }
+
   // COVERAGE. The guide's whole reason for existing is that the old briefing
   // was a SAMPLE — nine cards for a game with six materials, eleven axes and
   // seven systems. These checks are what stop it becoming one again: every

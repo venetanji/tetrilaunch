@@ -3316,7 +3316,7 @@ class App {
       // a drill can return to the row it was launched from.
       case "guide-chapter": {
         const id = el.getAttribute("data-chapter") as ChapterId | null;
-        const topics = id ? topicsIn(id) : [];
+        const topics = id ? topicsIn(id, markUnlocked(this.meta)) : [];
         if (topics.length) {
           this.guideChapter = id!;
           // Land on the chapter's first topic rather than on nothing: an empty
@@ -3329,7 +3329,7 @@ class App {
       }
       case "guide-topic": {
         const id = el.getAttribute("data-topic");
-        if (id && topicById(id)) {
+        if (id && topicById(id, markUnlocked(this.meta))) {
           this.guideTopic = id;
           this.renderOverlay();
         }
@@ -3341,7 +3341,7 @@ class App {
       // material bay two tiers before the ship can answer it teaches the
       // wrong lesson.
       case "drill": {
-        const t = topicById(el.getAttribute("data-topic") ?? "");
+        const t = topicById(el.getAttribute("data-topic") ?? "", markUnlocked(this.meta));
         if (t && drillUnlocked(t, this.meta)) this.startDrill(t);
         break;
       }

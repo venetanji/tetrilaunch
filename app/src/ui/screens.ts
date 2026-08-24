@@ -665,7 +665,10 @@ export function guideScreen(opts: {
   meta: MetaState;
 }): string {
   const tier = markUnlocked(opts.meta);
-  const topics = topicsIn(opts.chapter);
+  // Priced for the tier being flown, not for Tier 1: since #88 the target, the
+  // clock and the launch cost are all the Mark's knobs, so a catalogue built
+  // once at module load told a Tier 10 player their launches cost $20.
+  const topics = topicsIn(opts.chapter, tier);
   const topic = topics.find((t) => t.id === opts.topicId) ?? topics[0];
 
   const tabs = CHAPTERS.map((c) => {

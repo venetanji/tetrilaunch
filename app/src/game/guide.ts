@@ -1,5 +1,5 @@
 import { HAZARDS, MATERIAL_CAP, materialRate, type HazardId } from "./hazards";
-import { LEVEL_1, PILE_TIERS } from "./level";
+import { makeBaseLevel, PILE_TIERS, type LevelConfig } from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
 import { SIZE_SPEC } from "./pieces";
@@ -160,8 +160,10 @@ function systemTopics(): GuideTopic[] {
   }));
 }
 
-/** One topic per material, in ladder order (the tier that opens its axis). */
-function materialTopics(): GuideTopic[] {
+/** One topic per material, in ladder order (the tier that opens its axis).
+ *  Takes the Mark's bay 1 for the same reason buildTopics does: slag's copy
+ *  quotes the demolition refund, which is a per-bay number. */
+function materialTopics(lv: LevelConfig): GuideTopic[] {
   const spec: Array<{ m: Exclude<Material, "standard">; axis: HazardId; body: string }> = [
     {
       m: "cryo", axis: "cryo",
@@ -180,7 +182,7 @@ function materialTopics(): GuideTopic[] {
       body: `Dead cargo. A slag cube fills a slot and can <b>never</b> count, so a row holding`
         + ` one will not sell until it leaves the bay. Nothing passive removes it — a`
         + ` <b>demolition charge</b> is the answer, and refunds`
-        + ` <b>$${LEVEL_1.salvagePerCube}</b> a cube.`,
+        + ` <b>$${lv.salvagePerCube}</b> a cube.`,
     },
     {
       m: "volatile", axis: "volatile",
@@ -224,7 +226,37 @@ function materialTopics(): GuideTopic[] {
  * which is why Cargo's six materials sit in their ladder order and not in the
  * order theme.ts happens to declare them.
  */
-export const GUIDE_TOPICS: GuideTopic[] = [
+/**
+ * The catalogue, built for ONE Mark.
+ *
+ * This was a module-level const over LEVEL_1 — the ladder's first bay at Mark
+ * 1 — which was correct for exactly as long as a Mark did not change what a
+ * bay costs. #88's tier ladder ended that: targetScoreFor, timeLimitFor and
+ * launchCostFor all take the Mark now, so a const built at load time told a
+ * Tier 10 player that launches cost $20 and the clock is 180s, when their bay
+ * charges $30 and runs 144s. A guide that quotes the wrong bay is worse than
+ * one that quotes none: it is read as authority, and it is the screen a player
+ * opens precisely because they do not yet know the numbers.
+ *
+ * Memoised per Mark rather than rebuilt per render — the screen re-renders on
+ * every chapter tap, and this is ~40 template literals.
+ */
+const CATALOGUE = new Map<number, GuideTopic[]>();
+
+export function guideTopics(mark = 1): GuideTopic[] {
+  const m = Math.max(1, Math.floor(mark));
+  const hit = CATALOGUE.get(m);
+  if (hit) return hit;
+  const built = buildTopics(m);
+  CATALOGUE.set(m, built);
+  return built;
+}
+
+function buildTopics(mark: number): GuideTopic[] {
+  // Bay 1 of the Mark being flown. Every money and clock figure below reads off
+  // THIS, so the guide describes the bay the player's next launch opens.
+  const lv = makeBaseLevel(0, mark);
+  return [
   /* ---- BASICS ---------------------------------------------------------- */
   {
     id: "tutorial", chapter: "basics", tier: 1,
@@ -288,7 +320,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     id: "row", chapter: "basics", tier: 1,
     name: "Complete a row",
     summary: "A row clears only when every slot is filled by a settled, squared-up cube.",
-    body: `A row pays when <b>every one of its ${LEVEL_1.compactorMinLineCells} slots</b> holds a cube that has`
+    body: `A row pays when <b>every one of its ${lv.compactorMinLineCells} slots</b> holds a cube that has`
       + ` settled and squared up on the grid. Nearly-aligned is not aligned — which is what the press`
       + ` is for: its stroke grinds close cubes onto the slots and closes rows you could not close by hand.`
       + ` Cargo that stops <b>short of the compactor</b> never counts, and in a Deep Run it fines you.`,
@@ -319,29 +351,29 @@ export const GUIDE_TOPICS: GuideTopic[] = [
   {
     id: "funds", chapter: "economy", tier: 1,
     name: "Funds & the target",
-    summary: `Launches cost $${LEVEL_1.launchCost}, rows pay $${LEVEL_1.scorePerLine}, and the total IS the bay's target.`,
+    summary: `Launches cost $${lv.launchCost}, rows pay $${lv.scorePerLine}, and the total IS the bay's target.`,
     body: `Funds are the one number that is both your wallet and your score.`
-      + ` A launch costs <b>$${LEVEL_1.launchCost}</b>, a full row pays <b>$${LEVEL_1.scorePerLine}</b>,`
-      + ` and the bay ends the moment your funds cross its target — <b>$${LEVEL_1.targetScore}</b> in bay 1.`
-      + ` A bay opens on <b>$${LEVEL_1.startingFunds}</b>, i.e. about`
-      + ` <b>${Math.floor(LEVEL_1.startingFunds / LEVEL_1.launchCost)} shots</b>, so a row built in two or`
+      + ` A launch costs <b>$${lv.launchCost}</b>, a full row pays <b>$${lv.scorePerLine}</b>,`
+      + ` and the bay ends the moment your funds cross its target — <b>$${lv.targetScore}</b> in bay 1.`
+      + ` A bay opens on <b>$${lv.startingFunds}</b>, i.e. about`
+      + ` <b>${Math.floor(lv.startingFunds / lv.launchCost)} shots</b>, so a row built in two or`
       + ` three shots earns and a row built in six does not. That budget is the puzzle.`,
     drill: DRILLS.funds,
   },
   {
     id: "lost", chapter: "economy", tier: 1,
     name: "Lost cargo",
-    summary: `Cubes that never reach the press are fined $${LEVEL_1.penaltyPerLostPiece} each.`,
+    summary: `Cubes that never reach the press are fined $${lv.penaltyPerLostPiece} each.`,
     body: `A cube that drops short of the compaction zone, or bounces back out of it, blinks away and`
-      + ` costs you <b>$${LEVEL_1.penaltyPerLostPiece}</b> — a red −$ marks the spot.`
+      + ` costs you <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot.`
       + ` It is the same money as a third of a launch, and it is why the useful question mid-drag is`
       + ` "does this reach the zone" before "does this fit the row".`,
   },
   {
     id: "clock", chapter: "economy", tier: 1,
     name: "The clock",
-    summary: `Deep Run bays run on a countdown — ${LEVEL_1.timeLimitSec}s in bay 1. Contracts have none.`,
-    body: `A Deep Run bay gives you <b>${LEVEL_1.timeLimitSec} seconds</b> in bay 1, and the readout goes red`
+    summary: `Deep Run bays run on a countdown — ${lv.timeLimitSec}s in bay 1. Contracts have none.`,
+    body: `A Deep Run bay gives you <b>${lv.timeLimitSec} seconds</b> in bay 1, and the readout goes red`
       + ` and pulses in the last 20.`
       + ` Time pressure is what makes aiming a skill rather than a puzzle you can grind — so it is`
       + ` the exam's, and Contracts deliberately have <b>no clock at all</b>.`
@@ -352,8 +384,8 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     id: "scrap", chapter: "economy", tier: 1,
     name: "Scrap",
     summary: `Earned per line and per bay, spent on the ship at a refit stop. Dies with the run.`,
-    body: `Scrap is the RUN's currency: <b>${LEVEL_1.scrapPerLine} a line</b> and`
-      + ` <b>${LEVEL_1.scrapPerBay} a bay</b>, spent at the refit stops after bays`
+    body: `Scrap is the RUN's currency: <b>${lv.scrapPerLine} a line</b> and`
+      + ` <b>${lv.scrapPerBay} a bay</b>, spent at the refit stops after bays`
       + ` ${Array.from({ length: Math.floor(RUN_LEVELS / REFIT_EVERY) }, (_, i) => (i + 1) * REFIT_EVERY).join(", ")}`
       + ` on tiers 2 and ${MAX_TIER} of whatever systems you own.`
       + ` It is gone when the run ends, win or lose — banking scrap is not a strategy, spending it is.`,
@@ -394,7 +426,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       + ` shatter. Size is the bay's, not a per-shot choice.`,
     drill: DRILLS.sizes,
   },
-  ...materialTopics(),
+  ...materialTopics(lv),
 
   /* ---- HAZARDS --------------------------------------------------------- */
   {
@@ -478,10 +510,10 @@ export const GUIDE_TOPICS: GuideTopic[] = [
   {
     id: "demolition-charge", chapter: "rig", tier: 2,
     name: "Demolition charges",
-    summary: `Free to fire, and every cube vaporized refunds $${LEVEL_1.salvagePerCube}.`,
+    summary: `Free to fire, and every cube vaporized refunds $${lv.salvagePerCube}.`,
     body: `A charge is <b>armed</b>, then fired by your next launch instead of the loaded`
       + ` shipment. It costs no launch fee, and every cube it vaporizes refunds`
-      + ` <b>$${LEVEL_1.salvagePerCube}</b>. Blowing up a junk pile that can never close a row`
+      + ` <b>$${lv.salvagePerCube}</b>. Blowing up a junk pile that can never close a row`
       + ` is a <b>positive-value play</b>; blowing up a row you were two cubes from closing is`
       + ` not. It is also slag's only clean answer.`,
     drill: DRILLS["demolition-charge"],
@@ -529,15 +561,21 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       + ` Nothing purchasable raises a tier — which is what keeps "cleared tier 7" worth the`
       + ` same for everyone.`,
   },
-];
-
-export function topicById(id: string): GuideTopic | undefined {
-  return GUIDE_TOPICS.find((t) => t.id === id);
+  ];
 }
 
-/** Every topic in a chapter, in catalogue order. */
-export function topicsIn(chapter: ChapterId): GuideTopic[] {
-  return GUIDE_TOPICS.filter((t) => t.chapter === chapter);
+/** The Mark-1 catalogue. Ids, chapters and tier gates do not vary by Mark, so
+ *  this is what the coverage tests and the default topic id read — never what
+ *  the screen prints, which goes through guideTopics(markUnlocked(meta)). */
+export const GUIDE_TOPICS: GuideTopic[] = guideTopics(1);
+
+export function topicById(id: string, mark = 1): GuideTopic | undefined {
+  return guideTopics(mark).find((t) => t.id === id);
+}
+
+/** Every topic in a chapter, in catalogue order, priced for `mark`. */
+export function topicsIn(chapter: ChapterId, mark = 1): GuideTopic[] {
+  return guideTopics(mark).filter((t) => t.chapter === chapter);
 }
 
 /**
