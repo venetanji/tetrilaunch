@@ -42,6 +42,26 @@ import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
+/**
+ * How long an aim has to KEEP feeding the machine before the warning fires.
+ *
+ * The predicate itself is instant and correct — see Game.trajectoryStrands —
+ * but a slingshot drag sweeps the whole aim cone on its way to wherever the
+ * player is going, and the machine sits under a good part of that cone. So
+ * every single shot lit the maw red, reddened the arc and rang the muzzle for
+ * a handful of frames in passing, on the way to an aim that was never in
+ * danger. A warning that fires on almost every input is not a warning, it is
+ * a texture, and the one it was competing with is the arc the player is
+ * actually reading.
+ *
+ * 300ms is comfortably longer than a drag takes to cross the cone and well
+ * under the time anyone spends considering an aim they have settled on, so
+ * the cue now means "you are still pointed at the grinder" rather than "you
+ * passed over it". Only ACTIVATION waits: the moment the arc leaves, the
+ * warning goes with it, because a stale danger light is worse than none.
+ */
+export const STRAND_WARN_DELAY_MS = 300;
+
 export type GameStatus = "playing" | "won" | "lost";
 
 /** Why a bay ended badly. "launches" and "pieces" are both Contract-only — the
@@ -318,6 +338,25 @@ export class Game {
    * would re-walk 140 points on every read, and render reads it every frame.
    */
   trajectoryStrands = false;
+
+  /**
+   * The warning the PLAYER sees — trajectoryStrands held down for
+   * STRAND_WARN_DELAY_MS, so a drag passing over the machine never lights it.
+   *
+   * Separate from the predicate rather than debouncing it in place, and that
+   * separation is load-bearing twice over. sim/systems.ts asserts on
+   * trajectoryStrands to check the RULE (does this arc feed the grinder), and
+   * a rule that only became true 18 steps later would be untestable without
+   * threading a clock through every check. And every visual consumer — the
+   * maw red on .plant, the chute heat, the arc colour, the muzzle ring — has
+   * to agree with the others frame for frame, which they do by all reading
+   * this one latch instead of each keeping its own timer.
+   */
+  strandWarning = false;
+  /** Consecutive steps trajectoryStrands has held. Steps, not wall time: the
+   *  bay is a fixed-DT simulation and every other duration in it is counted
+   *  the same way, so a stuttering frame cannot make the warning early. */
+  private strandSteps = 0;
 
   score: number;
   combo = 0;
@@ -851,15 +890,28 @@ export class Game {
     const shredded = shredInChute(this.phys.world, this.cubes, this.constraints, rightEdge);
     if (shredded.length === 0) return;
 
+    // ONE BLAST PER CUBE, AT THE CUBE. This used to average the shredded cubes
+    // into a single explosion, which was the right call when they were being
+    // eaten one at a time by a grinder buried inside the machine. Now the
+    // surface takes the whole shipment at once (chute.ts's CHUTE_SURFACE_Y), so
+    // a piece meeting the roof should come apart ALONG it — a run of blasts
+    // across the contact, not one puff at their mean.
+    //
+    // Held just ABOVE the lip rather than at each cube's own y. The canvas
+    // draws under the DOM panel, so a blast centred where the cube actually
+    // died is a blast behind opaque chrome; lifting it a third of its radius
+    // clear puts the body of it in open field with its base tucked under the
+    // roof, which is what an impact ON a surface looks like anyway.
     let cx = 0;
     for (const cube of shredded) {
-      cx += cube.body.position.x;
+      const px = cube.body.position.x;
+      cx += px;
       this.throwChunks(cube, now);
+      this.effects.push({
+        kind: "explosion", x: px, y: CHUTE_LIP_Y - CHUTE_BLAST_R * 0.3, r: CHUTE_BLAST_R, t0: now,
+      });
     }
     cx /= shredded.length;
-    this.effects.push({
-      kind: "explosion", x: cx, y: CHUTE_LIP_Y + CHUTE_BLAST_R * 0.5, r: CHUTE_BLAST_R, t0: now,
-    });
     this.events.onExplosion?.("chute");
 
     const deducted = this.chargeLostCubes(shredded.length, now);
@@ -1266,6 +1318,20 @@ export class Game {
     }
 
     this.stepCount++;
+
+    // The strand warning's activation delay (see STRAND_WARN_DELAY_MS). Run
+    // here rather than in updateTrajectory because the count is in STEPS and
+    // this is the only thing that steps: updateTrajectory fires on aim change,
+    // which is exactly the burst of events the delay exists to sit out.
+    this.strandSteps = this.trajectoryStrands ? this.strandSteps + 1 : 0;
+    // The predicate is re-tested here, not merely counted: on a zero delay the
+    // count comparison alone reads `0 >= 0` on the very step the aim LEAVES,
+    // which latches the warning on for good. Nothing sets the delay to zero
+    // today, but a cue that survives its own cause is the kind of bug that
+    // gets found in a playtest rather than in a diff.
+    this.strandWarning =
+      this.trajectoryStrands && this.strandSteps * DT >= STRAND_WARN_DELAY_MS;
+
     // Congestion's third pressure, re-read every step because the bay floor
     // changes every step. Pushed onto the cannon rather than consulted at fire
     // time so the RELOAD BAR is honest while it fills: a penalty the player

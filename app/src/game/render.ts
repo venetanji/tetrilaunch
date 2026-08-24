@@ -1014,19 +1014,87 @@ function getBarSprite(w: number, h: number): HTMLCanvasElement {
     // glowing cap so the top edge (the "arc over" line) reads clearly
     ctx.fillStyle = "#ffd0d8";
     ctx.fillRect(x - 3, top - 4, w + 6, 6);
-    // hazard stripes (bar bottom == WORLD.height in world space, == top + h here)
+
     ctx.beginPath();
     ctx.rect(x, top, w, h);
     ctx.clip();
-    ctx.globalAlpha = 0.25;
-    ctx.strokeStyle = "#0a0a12";
-    ctx.lineWidth = 6;
-    ctx.beginPath();
+
+    // A USED MACHINE, NOT A NEW ONE. This was clean 45-degree hazard stripes at
+    // a flat alpha, which reads as fresh paint on a rental barrier — and the
+    // press is the oldest, hardest-working thing in the bay.
+    //
+    // Everything below is baked into the same per-geometry sprite as the rest
+    // of the bar, so it costs nothing per frame, and it is driven by a PRNG
+    // seeded off (w, h) rather than Math.random: one bar geometry must always
+    // bake the SAME texture, or the press would reshuffle its own rust every
+    // time the sprite cache is invalidated.
+    let seed = (Math.round(w) * 73856093) ^ (Math.round(h) * 19349663);
+    const rnd = (): number => {
+      seed = (seed * 1664525 + 1013904223) | 0;
+      return ((seed >>> 8) & 0xffffff) / 0xffffff;
+    };
+    // Snapped to a 2px grid throughout. The game is pixel-art everywhere else
+    // (the crest's cubes, the piece cells, the sparkle dots), and rust drawn at
+    // sub-pixel positions is a smudge rather than damage.
+    const snap = (v: number): number => Math.round(v / 2) * 2;
+
+    // The broken hazard run. Same 34px cadence and 45 degrees as before, but
+    // each tick is now a chain of short segments with bites missing, so the
+    // stripe reads as worn through rather than painted on.
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = "#0a0a12";
     for (let y = top - w; y < top + h; y += 34) {
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + w, y + w);
+      for (let t = 0; t < w; t += 3) {
+        if (rnd() < 0.28) continue;
+        ctx.fillRect(snap(x + t), snap(y + t), 3, 5);
+      }
     }
-    ctx.stroke();
+
+    // Grime, first: a sparse dark dither over the whole face. Without it the
+    // rust below sits as spots on a showroom finish — the bar reads glossy and
+    // the damage reads applied. Knocking the gloss back a few percent first is
+    // what makes the patches look like the same surface.
+    ctx.globalAlpha = 0.13;
+    ctx.fillStyle = "#1a0a10";
+    for (let gx = 0; gx < w; gx += 2) {
+      for (let gy = 0; gy < h; gy += 2) {
+        if (rnd() < 0.22) ctx.fillRect(x + gx, top + gy, 2, 2);
+      }
+    }
+
+    // Rust. Two tones over the red — a warm oxide and a dark pit — in blocks
+    // biased toward the bar's edges, which is where a press actually wears.
+    const patches = Math.max(24, Math.round((w * h) / 165));
+    for (let i = 0; i < patches; i++) {
+      const edge = rnd() < 0.62;
+      const bx = edge ? (rnd() < 0.5 ? x : x + w - 4) + (rnd() * 5 - 2) : x + rnd() * w;
+      const by = top + rnd() * h;
+      const bw = 2 + Math.round(rnd() * 2) * 2;
+      const bh = 2 + Math.round(rnd() * 3) * 2;
+      const oxide = rnd() < 0.55;
+      ctx.globalAlpha = oxide ? 0.18 + rnd() * 0.22 : 0.24 + rnd() * 0.28;
+      ctx.fillStyle = oxide ? "#8a4a24" : "#2a0d14";
+      ctx.fillRect(snap(bx), snap(by), bw, bh);
+    }
+
+    // GLITCH ROWS. A few scanlines that have gone wrong: a band of the bar
+    // displaced sideways and re-tinted, the way a corrupted sprite tears. Rare
+    // and short — this is a machine with a fault, not a broken renderer.
+    const glitches = Math.max(4, Math.round(h / 72));
+    for (let i = 0; i < glitches; i++) {
+      const gy = snap(top + rnd() * h);
+      const gh = 2 + Math.round(rnd() * 2) * 2;
+      const shift = (rnd() < 0.5 ? -1 : 1) * (2 + Math.round(rnd() * 2) * 2);
+      const hot = rnd() < 0.4;
+      ctx.globalAlpha = hot ? 0.7 : 0.5;
+      ctx.fillStyle = hot ? "#ff8a9c" : "#3d0f1c";
+      ctx.fillRect(snap(x + shift), gy, w, gh);
+      // The sliver the displacement leaves behind, so the tear has an edge.
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#0a0a12";
+      ctx.fillRect(shift > 0 ? x : x + w - Math.abs(shift), gy, Math.abs(shift), gh);
+    }
+
     ctx.restore();
   });
 }
@@ -1087,20 +1155,34 @@ function drawChute(
   now: number,
   rightEdge: number,
 ): void {
-  const { x0, y0, y1 } = CHUTE;
-  // The MOUTH is what gets drawn, top to floor, at whatever width this bay's
-  // press leaves it (chute.ts's chuteRightEdge — Bay Extension T3 narrows it).
-  // The throat below is internal machinery and behind the panel at every panel
-  // height; drawing it would be painting in a sealed box.
+  const { x0, y0 } = CHUTE;
+  // The MOUTH is what gets drawn, at whatever width this bay's press leaves it
+  // (chute.ts's chuteRightEdge — Bay Extension T3 narrows it). Nothing below
+  // the lip is drawn at all now: the throat is internal machinery, behind the
+  // panel at every panel height, so painting it is painting in a sealed box.
   const x1 = rightEdge;
   const w = x1 - x0;
   ctx.save();
 
-  // The recess. Barely-there on purpose: it is under the panel almost
-  // everywhere, and its job is to stop the mouth reading as open field in the
-  // gaps the panel leaves.
-  ctx.fillStyle = "rgba(4,4,10,0.55)";
-  ctx.fillRect(x0, y0, w, y1 - y0);
+  // NO RECESS WASH. There used to be a flat rgba(4,4,10,0.55) fill across the
+  // whole mouth here, to stop the maw reading as open field in the gaps the
+  // panel leaves. It is gone, because those gaps are not gaps any more: the
+  // panel's frame fractions leave a sliver down the left wall and a strip
+  // along the floor, and the crest's band strips (app.css's
+  // .plant__crest--port / --skirt) now fill both with cubes.
+  //
+  // Left in, it read as a black rectangle bleeding out of the HUD's left and
+  // bottom edges — and it genuinely was one. The wash ran to the chute rect,
+  // world x 0..624 and y 389..floor, while the panel only covers x 21..624
+  // and stops ~21px above the floor. Every pixel of that difference was flat
+  // near-black laid over the field's own grid, framed on two sides by a lit
+  // crest, which is about the most visible place on the screen to put a
+  // rectangle nobody drew on purpose.
+  //
+  // The mouth still reads: the lip bar below is the machined edge, and it is
+  // the part that was doing the work at every panel height anyway. On the
+  // HUD-less attract demo the lip is now the whole cue, which is the correct
+  // amount of maw for a screen with no machine bolted into it.
 
   // Heat rising out of the mouth while the current aim feeds it. Drawn BEFORE
   // the lip so the bar stays crisp against it, and as a linear gradient rather

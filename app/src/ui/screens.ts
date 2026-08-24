@@ -890,21 +890,40 @@ export function hudHTML(opts: {
          rather than overshoots. The canvas could never close the gap over the cap —
          the cap is DOM, painted above anything the world draws — which is
          exactly the notch this fixes. Each segment is one clip-path strip
-         whose tooth run is hand-authored irregular (no repeating background
+         whose cube run is hand-authored irregular (no repeating background
          tile), and all of them share .plant__crest so the congestion states
          (main.ts's syncHud toggles .plant--congest-*), the strand warning
-         (.plant--maw) and the music's live envelope (--crest-beat, also
-         written by syncHud) recolour, animate and pulse the whole ring at
-         once. -->
+         (.plant--maw) and the music (--crest-beat, --crest-heat and the
+         --h0..--h6 rotation, all written by syncHud) recolour, animate and
+         pulse the whole ring at once.
+
+         THE RIVETS close the corners. Every strip is its own run, phase-
+         matched to nothing, so at a turn the two runs can peak together (an
+         X of cubes across the corner) or recede together (a bare notch where
+         the ring is supposed to turn) — the two bugs the design session was
+         opened for. A cube rivet plugs each joint instead of hand-tuning
+         twelve run endpoints to phase-lock in pairs. Six of them, numbered
+         1-4, 6 and 7: there is deliberately no R5, because the shoulder/flank
+         join is not a turn (the cap's right edge is flush with the panel's,
+         so the run simply continues down the one line) and a rivet there read
+         as a stray bolt. R3/R4 sit inside .pl-pwr rather than here because
+         their offsets have to resolve against the CAP's box, not the
+         panel's. -->
     <div class="plant">
       <i class="plant__crest plant__crest--brow" aria-hidden="true"></i>
       <i class="plant__crest plant__crest--flank" aria-hidden="true"></i>
       <i class="plant__crest plant__crest--port" aria-hidden="true"></i>
       <i class="plant__crest plant__crest--skirt" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--rivet plant__crest--rivet-1" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--rivet plant__crest--rivet-2" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--rivet plant__crest--rivet-6" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--rivet plant__crest--rivet-7" aria-hidden="true"></i>
       <div class="pl-pwr" id="hud-pwr">
         <i class="plant__crest plant__crest--cap" aria-hidden="true"></i>
         <i class="plant__crest plant__crest--step" aria-hidden="true"></i>
         <i class="plant__crest plant__crest--shoulder" aria-hidden="true"></i>
+        <i class="plant__crest plant__crest--rivet plant__crest--rivet-3" aria-hidden="true"></i>
+        <i class="plant__crest plant__crest--rivet plant__crest--rivet-4" aria-hidden="true"></i>
         <span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
         <span class="pl-pwr__val" id="hud-power-val">0%</span>

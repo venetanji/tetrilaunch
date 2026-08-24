@@ -1,5 +1,5 @@
 import Matter from "matter-js";
-import { WORLD } from "./engine";
+import { CELL, WORLD } from "./engine";
 import { removeConstraintsFor, type Cube } from "./pieces";
 import { wakeNear } from "./lineClear";
 
@@ -64,34 +64,32 @@ export const CHUTE = {
 export const CHUTE_LIP_Y = CHUTE.y0;
 
 /**
- * WHERE THE GRINDER ACTUALLY IS, as opposed to where the mouth is.
+ * A WALL, NOT A HOPPER. The machine's surface IS its mouth.
  *
- * A hopper, not a wall — and this is the difference between a fix and a
- * regression. Taking the whole footprint from the mouth down would claim the
- * AIRSPACE over the machine as well as the floor of it, and shots cross that
- * airspace on their way somewhere useful: a full-power delivery at -10 degrees
- * passes (519, 398) and lands at x 941, deep in the bay and well past the
- * compactor's reach. Swallowing it would have deleted every downward shot in
- * the game to catch fumbles, which is a far bigger change than the one being
- * asked for.
+ * This used to be a plane 231px down inside the machine (CHUTE_THROAT_Y, 620),
+ * so the footprint claimed only the FLOOR of the maw and not its airspace.
+ * That was deliberate: it let a shallow full-power delivery cross the machine
+ * low — the arc passes ~(519, 398), inside the panel's box — and carry on out
+ * to x 941, well past the compactor's reach.
  *
- * Measured on the live arc across the full aim cone at four power levels
- * (-60..+60 degrees, min/30%/60%/max):
+ * The trouble is that nothing about the machine says it can be flown through.
+ * Traced frame by frame, cargo aimed into the maw entered the mouth at
+ * (223, 390) and then travelled DOWN AND ACROSS the whole body of the machine
+ * for a quarter of a second — (318, 417), (369, 500), (416, 599) — before two
+ * of its four cubes hit the grinder, with the survivors continuing right and
+ * out the far side. Behind an opaque panel that is merely invisible; through
+ * the aim-through state, which is exactly when the player is watching, it is
+ * cargo tunnelling through solid machinery.
  *
- *   deepest any USEFUL shot reaches inside the footprint   543   (-20 deg, max)
- *   shallowest cargo that COMES TO REST behind the panel   698   (on the floor)
+ * So the surface is the surface. Anything that touches it is taken there, and
+ * the skim corridor goes with it — a fly-through was never a move the machine
+ * was offering, and keeping it would have made scraping the roof a cheap way
+ * to shear the bonds off a shipment.
  *
- * 620 sits between them with ~77px of clearance either way. The margin only
- * grows with the LAUNCHER track, which flattens arcs and lifts them further
- * clear; nothing narrows it, since bay gravity is a constant 1 everywhere.
- *
- * The MOUTH is still drawn at CHUTE.y0 and every cue still fires from there
- * (render.ts's drawChute, and the explosion and "-$" this file's caller
- * spawns). That is not a fudge — it is what the machine looks like. Cargo drops
- * in at the top, the grinder is deep inside, and the quarter second between the
- * two is the piece falling down the throat.
+ * NO TUNNELLING TO GUARD AGAINST: the fastest thing in the game is a max-power
+ * launch at 28 px/step, and the region below this plane is 331px deep.
  */
-export const CHUTE_THROAT_Y = 620;
+export const CHUTE_SURFACE_Y = CHUTE.y0;
 
 /**
  * The maw's right edge for a bay whose press reaches `strandCutoffX`.
@@ -116,16 +114,15 @@ export function chuteRightEdge(strandCutoffX: number): number {
  *  enough that a piece feeding in produces a run of them. */
 export const CHUTE_BLAST_R = 34;
 
-/** Is this point in the grinder? Measured against the THROAT, not the mouth —
- *  see CHUTE_THROAT_Y for why the machine's airspace is not part of it.
+/** Is this point inside the machine? Measured against the SURFACE — see
+ *  CHUTE_SURFACE_Y for why the airspace over the maw is part of it now.
  *
- *  Centre-point containment rather than a full AABB overlap: a cube grazing the
- *  edge and carrying on is not "in the shredder", and one that is genuinely
- *  going in crosses the plane within a step or two anyway. No tunnelling risk
- *  to guard against — the fastest thing in the game is a max-power launch at
- *  28 px/step, against a throat 100px deep. */
+ *  Takes a POINT, so callers decide what they are asking about: pathStrands
+ *  passes trajectory samples (does this aim hit the machine), while
+ *  shredInChute passes each cube's bottom edge rather than its centre, so a
+ *  piece dies as it lands ON the surface instead of half-sunk into it. */
 export function inChute(x: number, y: number, rightEdge: number = CHUTE.x1): boolean {
-  return x >= CHUTE.x0 && x <= rightEdge && y >= CHUTE_THROAT_Y && y <= CHUTE.y1;
+  return x >= CHUTE.x0 && x <= rightEdge && y >= CHUTE_SURFACE_Y && y <= CHUTE.y1;
 }
 
 /**
@@ -150,7 +147,11 @@ export function shredInChute(
   for (let i = cubes.length - 1; i >= 0; i--) {
     const cube = cubes[i];
     const p = cube.body.position;
-    if (!inChute(p.x, p.y, rightEdge)) continue;
+    // The cube's BOTTOM edge against the surface, not its centre: a centre
+    // test kills the cube once it is already half-buried in the roof, and the
+    // blast then blooms out of a piece that visibly sank into solid machinery.
+    // Half a cell higher and the piece dies exactly as it touches down.
+    if (!inChute(p.x, p.y + CELL / 2, rightEdge)) continue;
     removeConstraintsFor(world, constraints, cube.body);
     Matter.Composite.remove(world, cube.body);
     cubes.splice(i, 1);

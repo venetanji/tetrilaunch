@@ -34,6 +34,7 @@
     "sim:renderperf": "tsx sim/renderperf/run.ts",
     "sim:systems": "tsx sim/systems.ts",
     "sim:patterns": "tsx sim/patterns.ts",
+    "sim:crest": "tsx sim/uifit/crest-shots.ts",
     "store:graphics": "node scripts/store-graphics.mjs",
     "store:copy": "node scripts/verify-store-copy.mjs",
     "build:teststore": "npm run typecheck && vite build --mode teststore",
