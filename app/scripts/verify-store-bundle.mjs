@@ -111,8 +111,8 @@ if (hasSandbox) {
   console.error(
     `✗ store bundle check: --allow-sandbox was passed but dist/ has no sandbox.\n` +
       `  A sandbox build with no sandbox in it is a normal build wearing the wrong\n` +
-      `  name — the six-tap gesture would do nothing on the device. Check the build\n` +
-      `  ran with \`--mode sandbox\`.`,
+      `  name — the menu's Sandbox button would never appear on the device. Check\n` +
+      `  the build ran with \`--mode sandbox\`.`,
   );
   process.exit(1);
 }

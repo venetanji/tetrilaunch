@@ -789,14 +789,23 @@ function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
  * the panel is merely bolted into it.
  *
  * Nearly all of it sits behind that panel, so the drawing budget goes almost
- * entirely on the LIP: a machined bar across the mouth with a row of intake
- * teeth, at the one edge that is visible at every panel height. The recess
- * below is a flat wash that reads through the panel's translucent aim-through
- * state and does nothing the rest of the time.
+ * entirely on the LIP: a machined bar across the mouth, at the one edge that
+ * is visible at every panel height. The recess below is a flat wash that
+ * reads through the panel's translucent aim-through state and does nothing
+ * the rest of the time.
+ *
+ * NO TEETH here any more. The intake spikes moved to the DOM plant panel
+ * (app.css's .plant__crest, mounted by screens.ts's hudHTML), because the
+ * canvas could never trace the machine's real silhouette: the PWR cap is DOM,
+ * painted over anything the world draws, so the canvas tooth run stopped dead
+ * at the cap's left edge — a notch bitten out of the machine right above the
+ * power bar. The crest also carries the states the teeth used to speak
+ * (strand-warning red via .plant--maw; congestion recolours it), while THIS
+ * function keeps the world's half of the cue — the lip bar and the rising
+ * heat — which must stay canvas because the hazard also exists on screens
+ * with no HUD at all (the attract demo).
  */
 const CHUTE_LIP_H = 11;
-const CHUTE_TOOTH_W = 26;
-const CHUTE_TOOTH_H = 13;
 /** How far the strand warning's heat rises ABOVE the lip. Above, deliberately:
  *  everything below the lip is behind an opaque panel, so a glow drawn into the
  *  maw is a warning nobody sees. This is the one band of open canvas the cue
@@ -828,7 +837,7 @@ function drawChute(
   ctx.fillRect(x0, y0, w, y1 - y0);
 
   // Heat rising out of the mouth while the current aim feeds it. Drawn BEFORE
-  // the lip so the teeth stay crisp against it, and as a linear gradient rather
+  // the lip so the bar stays crisp against it, and as a linear gradient rather
   // than shadowBlur — the value breathes every frame, so it can't be baked, and
   // a live Gaussian pass at 60Hz is exactly the cost this renderer avoids.
   if (strands) {
@@ -846,21 +855,6 @@ function drawChute(
     ctx.fillStyle = g;
     ctx.fillRect(x0, y0 - CHUTE_WARN_RISE, w, CHUTE_WARN_RISE);
   }
-
-  // Intake teeth along the lip, pointing up into the bay. Whole teeth only —
-  // a half tooth clipped at the mouth's right edge would read as a rendering
-  // seam rather than as machinery.
-  const teeth = Math.floor(w / CHUTE_TOOTH_W);
-  const inset = (w - teeth * CHUTE_TOOTH_W) / 2;
-  ctx.fillStyle = strands ? "rgba(255,45,85,0.85)" : "#2e2e4a";
-  ctx.beginPath();
-  for (let i = 0; i < teeth; i++) {
-    const tx = x0 + inset + i * CHUTE_TOOTH_W;
-    ctx.moveTo(tx, y0);
-    ctx.lineTo(tx + CHUTE_TOOTH_W / 2, y0 - CHUTE_TOOTH_H);
-    ctx.lineTo(tx + CHUTE_TOOTH_W, y0);
-  }
-  ctx.fill();
 
   // The lip bar, with the same top highlight the plant panel wears, so the two
   // read as one machine rather than as chrome sitting on scenery.

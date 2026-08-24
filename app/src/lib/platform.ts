@@ -107,12 +107,21 @@ export function isFullscreen(): boolean {
   return !!(d.fullscreenElement || d.webkitFullscreenElement);
 }
 
-/** True when neither the standard nor the WebKit-prefixed Fullscreen API is
- *  present on the root element — e.g. iPhone Safari in-browser, which never
- *  exposed `requestFullscreen` on non-video elements. The fullscreen toggle
- *  should hide itself entirely in that case rather than show a button that
- *  can never do anything. */
+/** True when the fullscreen toggle can DO anything here. Two ways to be false,
+ *  and both mean "render no fullscreen control at all" (screens.ts checks this
+ *  before mounting one, and layout.ts's rail budget follows):
+ *
+ *  - No Fullscreen API on the root element — e.g. iPhone Safari in-browser,
+ *    which never exposed `requestFullscreen` on non-video elements.
+ *  - The native shells, where API PRESENCE is a lie: Android's WebView exposes
+ *    `requestFullscreen` but the call is a no-op without a host-side
+ *    WebChromeClient handler, and the app is already edge-to-edge anyway —
+ *    the system bars are handled at the activity level (MainActivity's
+ *    immersive mode, see docs/NATIVE.md's "Fullscreen" section), so the one
+ *    thing the button could promise is already permanently true. A toggle
+ *    that can neither add nor remove anything is clutter, not a control. */
 export function fullscreenSupported(): boolean {
+  if (isNative) return false;
   const el = document.documentElement as unknown as FullscreenEl;
   return !!(el.requestFullscreen || el.webkitRequestFullscreen);
 }

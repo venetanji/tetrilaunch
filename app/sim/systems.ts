@@ -2494,6 +2494,15 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
     railSlotsFor({ bond: true, demo: true, auto: true }) === RAIL_SLOTS_MAX);
   check("fine pointers budget only fullscreen + pause",
     railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true }) === 2);
+  // Where no fullscreen toggle mounts at all (the native shells, iPhone
+  // Safari — platform.ts's fullscreenSupported), the budget must not reserve
+  // its slot: screens.ts renders no button there, and an empty slot is field
+  // width given away for nothing.
+  check("no fullscreen toggle (native shells) frees its slot",
+    railSlotsFor({ bond: false, demo: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
+    railSlotsFor({ bond: true, demo: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
+  check("a fine pointer without fullscreen budgets the pause button alone",
+    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true, fullscreen: false }) === 1);
   check("the budget clamps to the seven-slot worst case",
     (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
   check("the budget clamps above the fine-pointer floor",

@@ -8,7 +8,9 @@
  *
  * Two mechanisms, chosen per job rather than one for both:
  *
- *  - **Effects use Web Audio.** They are tiny (60 KB for all nine), they
+ *  - **Effects use Web Audio.** They are tiny (~120 KB for all thirteen
+ *    one-shots; the three congestion loops are the deliberate exception at
+ *    ~620 KB, priced in their own note below), they
  *    overlap — several cubes land in the same frame — and they must fire on the
  *    physics event with no perceptible delay. Decoding each once into an
  *    AudioBuffer and firing a throwaway BufferSource gives unlimited overlap
@@ -78,9 +80,12 @@ const FX_NAMES: FxName[] = [
  * Headroom is the constraint on how far this can go, because these all sum at
  * the destination and Web Audio hard-clips at 1.0. A bed reaches 0.84 before
  * its gain (loudness-normalised with a -1.5 dBTP ceiling) and an effect 0.71
- * (peak-normalised to -3dBFS), so at 0.75 and 0.6 a typical coincidence lands
- * near 0.98 and the worst imaginable one at 1.05. That is why bringing music
- * up meant taking effects down rather than leaving them where they were.
+ * (peak-normalised to -3dBFS), so at today's 0.55 and 0.45 a bed-plus-one-
+ * effect coincidence peaks near 0.78 (0.46 + 0.32). The swap's first draft
+ * (music 0.75, effects 0.6) put the same coincidence at 1.05 — past the
+ * ceiling — which is why bringing music up meant taking effects down rather
+ * than leaving them where they were; both then came down again by ear on the
+ * test phone (see MUSIC_GAIN's note).
  *
  * Stingers sit BELOW the bed, and matching their files to the same -15 LUFS
  * target is exactly why they have to. Equal integrated loudness is not equal
@@ -109,23 +114,25 @@ const FX_NAMES: FxName[] = [
 const FX_BUS_GAIN = 0.45;
 /** Set by ear on the test phone, not by meter. The master limiter below
  *  passes the bed through untouched (0.0001 dB of reduction over 20s of
- *  music) but Blink's makeup gain still lifts the routed path, so 0.75 read
- *  hotter out of the speaker than the constant suggests. STINGER_GAIN is a
- *  ratio of this, so the bay-clear jingle keeps its 6 dB gap for free. */
+ *  music) but Blink's makeup gain still lifts the routed path, so the first
+ *  draft's 0.75 read hotter out of the speaker than the constant suggested —
+ *  hence 0.55. STINGER_GAIN is a ratio of this, so the bay-clear jingle
+ *  keeps its 6 dB gap for free. */
 const MUSIC_GAIN = 0.55;
 /**
  * THE MASTER LIMITER — the safety net the headroom note above assumed it did
  * not need.
  *
- * That note budgets for ONE effect over the bed: 0.84 x 0.75 = 0.63 for the
- * music, 0.71 x 0.6 = 0.43 for the effect, and it calls the resulting 1.05
- * "the worst imaginable" coincidence. It is not. Twelve lines earlier the same
- * block says a launch "fires several times a second", and playFx applies no
- * voice cap at all — every call spawns a fresh BufferSource straight into the
- * bus. Two coincident effects over the bed is 0.63 + 0.43 + 0.43 = 1.48, about
- * 3.4 dB past the 1.0 where Web Audio hard-clips, and impacts arrive in bursts
- * by design (see the 60ms floor in playImpact). Nothing sat between the sum
- * and the destination, so that overage went out as distortion.
+ * That note budgets for ONE effect over the bed. It is not enough. A few
+ * lines earlier the same block says a launch "fires several times a second",
+ * and playFx applies no voice cap at all — every call spawns a fresh
+ * BufferSource straight into the bus. At today's gains, two coincident
+ * effects over the bed is 0.46 + 0.32 + 0.32 = 1.10, past the 1.0 where Web
+ * Audio hard-clips; at the louder first-draft mix this was diagnosed under
+ * (music 0.75, effects 0.6) the same burst summed to 0.63 + 0.43 + 0.43 =
+ * 1.48, about 3.4 dB over — and impacts arrive in bursts by design (see the
+ * 60ms floor in playImpact). Nothing sat between the sum and the
+ * destination, so that overage went out as distortion.
  *
  * Reported from an Android playtest as the LEVEL MUSIC breaking up while the
  * stingers stayed clean, which is exactly the signature this predicts: the bed
@@ -214,10 +221,13 @@ const MUSIC_MUFFLED_HZ = 900;
  *
  * Congestion is the one thing allowed to interfere with the bed, so this is
  * pinned to the bed's level rather than left to drift against it. The cue was
- * tuned at 0.1 through a 0.75 effects bus against a 0.45 bed; 0.21 through 0.6
- * against a 0.75 bed is the same ratio, arrived at the same way. Raising the
- * music without bringing the static with it would have quietly retired the
- * only cue that is supposed to cut through.
+ * tuned at 0.1 through a 0.75 effects bus against a 0.45 bed; 0.21 through
+ * 0.6 against a 0.75 bed was the same ratio, arrived at the same way — and
+ * the later by-ear drop to today's 0.45 bus and 0.55 bed moved both sides
+ * almost proportionally (0.21 x 0.45 / 0.55 lands within a quarter dB of
+ * that pinned ratio), so 0.21 still holds. Raising the music without
+ * bringing the static with it would have quietly retired the only cue that
+ * is supposed to cut through.
  */
 const STATIC_GAIN = 0.21;
 /** The shipped loop at the same job. Separate from STATIC_GAIN because the two
@@ -235,10 +245,11 @@ const STATIC_GAIN = 0.21;
  *  closing the lowpass over the music, clearing out the very midrange the
  *  clanks live in.
  *
- *  Headroom: a clank peak reaches 0.71 x 1.0 x 0.6 = 0.43 at the destination,
- *  against a bed at 0.63 — a hard coincidence brushes the same ~1.05 the
- *  bus-gain note above already accepts, and only at full congestion, where
- *  the filter has already pulled the bed well off that figure. If this
+ *  Headroom: a clank peak reaches 0.71 x 1.0 x 0.45 = 0.32 at the
+ *  destination, against a bed at 0.46 — a hard coincidence brushes the same
+ *  ~0.78 the bus-gain note above already accepts, and only at full
+ *  congestion, where the filter has already pulled the bed well off that
+ *  figure. If this
  *  number keeps fighting the mix, the durable fix is in prepare-audio.mjs:
  *  level the loop takes by LOUDNESS like the beds (its own doctrine for
  *  continuous audio) and bring this back to a sane fraction. */

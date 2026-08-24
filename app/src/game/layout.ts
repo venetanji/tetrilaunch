@@ -67,7 +67,11 @@ export const RAIL_MAX = 60;
  *  edge. A gutter must fit RAIL_MIN + this to count as usable. */
 const RAIL_PAD = 12;
 
-/** Buttons the rail ALWAYS carries: fullscreen, pause, rotate CCW, rotate CW.
+/** Buttons the rail carries on every loadout: fullscreen, pause, rotate CCW,
+ *  rotate CW. Fullscreen is the one conditional member — where the toggle
+ *  can't do anything (the native shells, iPhone Safari — see platform.ts's
+ *  fullscreenSupported) it isn't rendered at all, and RailLoadout.fullscreen
+ *  subtracts its slot so the budget matches the buttons actually on screen.
  *  The aim-state cancel ✕ does not add a slot: it swaps into the pause
  *  button's slot while a drag is live (see app.css's .hud--aiming rules), so
  *  the column's geometry never changes mid-gesture. */
@@ -92,11 +96,17 @@ export interface RailLoadout {
   /** Fine-pointer devices hide the game buttons entirely (app.css's
    *  `@media (pointer: fine)` rule) — only fullscreen + pause remain. */
   finePointer?: boolean;
+  /** Whether a fullscreen toggle is mounted at all. Defaults to true (the
+   *  browser case); main.ts passes platform.ts's fullscreenSupported(), which
+   *  is false in the native shells and on iPhone Safari — there screens.ts
+   *  renders no fullscreen button, so the budget must not reserve its slot. */
+  fullscreen?: boolean;
 }
 
 export function railSlotsFor(l: RailLoadout): number {
-  if (l.finePointer) return 2;
-  return RAIL_SLOTS_BASE + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.auto ? 1 : 0);
+  const fs = l.fullscreen === false ? 0 : 1;
+  if (l.finePointer) return 1 + fs;
+  return RAIL_SLOTS_BASE - 1 + fs + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.auto ? 1 : 0);
 }
 
 /** Gap between rail buttons and the slack at both ends. The CSS reads the gap
@@ -134,10 +144,9 @@ let railSide: RailSide = "right";
 export function setRailSide(s: RailSide): void {
   railSide = s;
 }
-
-export function getRailSide(): RailSide {
-  return railSide;
-}
+/* No getRailSide: the solver reads the module-local `railSide` directly and
+ * no caller outside this file ever needed it back — main.ts owns the setting
+ * and already knows what it set. */
 
 /** The largest button edge whose full column still fits `uh`. */
 function railColumnCap(uh: number): number {

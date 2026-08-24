@@ -128,7 +128,6 @@ body.crt-off #app::after { display: none; }
 .btn--ghost { background: transparent; color: var(--text-dim); border-color: var(--line); box-shadow: none; }
 .btn--ghost:active { transform: none; }
 .btn--ghost:hover { color: var(--text); border-color: var(--accent); }
-.btn--danger { background: linear-gradient(100deg, var(--danger), #ff6f8b); color: #1a0008; }
 .btn--block { width: 100%; }
 .btn--lg { font-size: 13px; padding: 18px 36px; }
 
@@ -155,10 +154,10 @@ body.crt-off #app::after { display: none; }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* JS-toggled visibility (fullscreen button on platforms without the
-   Fullscreen API) — a plain class, not the `hidden` attribute, so it isn't
-   fighting `.icon-btn`/`.btn`'s own `display` in the cascade. */
-.fs-hidden { display: none !important; }
+/* No .fs-hidden rule any more: where the Fullscreen API can't do anything
+   (the native shells, iPhone Safari) screens.ts renders no fullscreen control
+   at all — see platform.ts's fullscreenSupported — so there is nothing left
+   for a JS-toggled visibility class to hide. */
 
 /* ---------- Panels / cards ---------- */
 .panel {
@@ -508,13 +507,10 @@ body.crt-off #app::after { display: none; }
   background: linear-gradient(180deg, rgba(255,176,32,0.16), rgba(255,176,32,0.06));
 }
 .chip--cta:hover { filter: brightness(1.15); }
-.chip--combo .chip__value { color: var(--piece-o); }
-/* Timer urgency (last 20s of a bay's clock, see main.ts's syncHud). Reduced
-   motion keeps the color cue but drops the pulse. */
-.chip--danger .chip__value { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .chip--danger .chip__value { animation: none; }
-}
+/* No .chip--combo / .chip--danger any more: the old top chip bar they styled
+   was replaced by the plant panel, whose urgency treatment is
+   .pl-stat--danger below. The pulse survives — it is the ONE urgency
+   animation, shared by every danger readout. */
 @keyframes pulse-danger { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* Next-piece preview grid (see components.ts's pieceCellsHTML/beltPieceHTML)
@@ -660,8 +656,9 @@ body.crt-off #app::after { display: none; }
      pair, the controls a player's thumb is actually on, somewhere new after
      each draft (playtest: "the rotation buttons change position and it's
      annoying"). Anchored to the top, the slots the run always has are
-     positionally fixed — fullscreen, pause/✕, then ⟲ and ⟳ third and fourth —
-     and the abilities grow downward into the slack instead of shoving them.
+     positionally fixed — fullscreen (browsers only; the native shells mount
+     none — see screens.ts), pause/✕, then the ⟲ ⟳ pair — and the abilities
+     grow downward into the slack instead of shoving them.
      The solver already budgets the column from this end: railColumnCap leaves
      RAIL_EDGE (16px) of total slack, matching the 8px `top` above. */
   justify-content: flex-start;
@@ -725,7 +722,7 @@ body.crt-off #app::after { display: none; }
 }
 
 /* Rotate pair in the accent color — the primary in-game touch controls,
-   set apart from the neutral fullscreen/pause pair above them. */
+   set apart from the neutral fullscreen/pause buttons above them. */
 .rotate-btn {
   color: var(--accent);
   border-color: rgba(0, 240, 255, 0.6);
@@ -849,9 +846,9 @@ body.crt-off #app::after { display: none; }
 }
 
 /* Desktop keyboard-hint strip — replaces the touch rail entirely on
-   fine-pointer devices (mouse/trackpad). Keys mirror input.ts's bindings
-   exactly (Q/E rotate, W/S aim, A/D power, Space fire, B break bonds, drag
-   to aim). */
+   fine-pointer devices (mouse/trackpad). The keys shown are never hardcoded:
+   screens.ts's hintStripHTML renders them from game/bindings.ts's LIVE
+   table, so a rebind on the Controls screen re-labels the strip too. */
 .kbd-hint {
   display: none;
   position: absolute; left: 50%; bottom: var(--safe-b); transform: translateX(-50%);
@@ -1213,6 +1210,196 @@ body.crt-off #app::after { display: none; }
 .pl-pwr--weak .pl-pwr__val { color: var(--danger); }
 .pl-pwr--weak .pl-pwr__track::after { background: rgba(255,255,255,0.8); }
 .pl-pwr__val { font-family: var(--font-mono); font-weight: 700; font-size: max(9px, calc(13.3 * var(--fpx))); color: var(--warn); flex: none; }
+
+/* ---------- The crest: the machine's intake spikes -------------------------
+   Five clip-path strips riding the plant's exposed silhouette: the top edge
+   from the field's left wall to the PWR cap (--brow), the cap's step-up side
+   (--step), the cap's own top (--cap), its short right shoulder (--shoulder)
+   and the panel's right flank (--flank). They used to be canvas teeth on the
+   chute lip (render.ts's drawChute), which had two problems this placement
+   solves. First, the notch: the PWR cap is DOM, so the canvas could only
+   ever paint BEHIND it, and the tooth run stopped dead where the cap began —
+   a bite missing from the machine right above the power bar. Second, the
+   tile: a fixed 26px sawtooth read as a repeated pattern, not machinery.
+   Each strip's tooth run is hand-authored irregular instead — varied widths,
+   varied heights, off-centre tips, no two alike — and each strip's run is
+   different from the others'.
+
+   The strips are decoration and speak only in states the game already has.
+   Congestion recolours and rattles them and starts the sparks (main.ts's
+   syncHud toggles .plant--congest-warn/--congest-danger off the same
+   pileTier read the Launch price and render.ts's floor rows use — one rule,
+   now stated three ways: floor, price, machine). The strand warning turns
+   the whole ring the maw red (.plant--maw), which is the job the canvas
+   teeth did before. The physics mouth itself never moved: the chute's lip
+   bar and warning heat are still drawn in the world (drawChute), because
+   the hazard has to exist on screens with no HUD at all (the attract demo). */
+.plant__crest {
+  position: absolute;
+  pointer-events: none;
+  /* Tooth depth — the canvas teeth's 13 world px, on the same --fpx scale
+     everything else on the panel wears. */
+  --crest-h: max(7px, calc(13 * var(--fpx)));
+  /* The metal, lit toward the tips so the spikes read as forged, not flat. */
+  --crest-hi: #3a3a5e;
+  --crest-lo: #23233c;
+  background-image: linear-gradient(180deg, var(--crest-hi), var(--crest-lo));
+}
+/* The SPARK layer — a few uneven glint bands swept across the strip by the
+   congestion states below. It lives INSIDE the element, so the clip-path
+   keeps every glint on the teeth; off until a state raises its opacity. */
+.plant__crest::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  --spark-a: rgba(255, 214, 10, 0.95);
+  --spark-b: rgba(255, 176, 32, 0.8);
+  background-image: linear-gradient(105deg,
+    transparent 0 7%, var(--spark-a) 9% 11%,
+    transparent 13% 34%, var(--spark-b) 36% 37%,
+    transparent 39% 63%, var(--spark-a) 66% 68%,
+    transparent 70% 100%);
+  background-size: 340% 100%;
+}
+
+/* The top run, panel left to the cap's shoulder — and further: it starts at
+   the FIELD's left wall (the chute mouth is wider than the panel by the
+   21-world-px lip .plant's 1.67% left inset leaves), because that sliver of
+   lip carried teeth when the canvas drew them and losing it would shorten
+   the maw. Ends 2px under the cap, whose opaque body mounts over the seam
+   (.pl-pwr is later in the DOM). */
+.plant__crest--brow {
+  left: calc(-0.0167 * var(--field-w));
+  width: calc(29.6% + 0.0167 * var(--field-w) + 2px);
+  height: var(--crest-h);
+  bottom: calc(100% + var(--bw));
+  clip-path: polygon(0% 100%, 3% 42%, 6% 100%, 11% 6%, 15% 100%, 18% 64%,
+    22% 100%, 28% 0%, 33% 100%, 36% 52%, 40% 100%, 46% 18%, 50% 100%,
+    55% 70%, 59% 100%, 65% 8%, 71% 100%, 75% 44%, 79% 100%, 85% 26%,
+    90% 100%, 94% 58%, 100% 100%);
+}
+/* Over the PWR cap — the notch, closed. Sized against the cap's border box
+   so the run spans exactly the raised silhouette. */
+.plant__crest--cap {
+  left: calc(-1 * var(--bw));
+  right: calc(-1 * var(--bw));
+  height: var(--crest-h);
+  bottom: calc(100% + var(--bw));
+  clip-path: polygon(0% 100%, 2% 55%, 4% 100%, 8% 10%, 12% 100%, 15% 48%,
+    18% 100%, 23% 0%, 27% 100%, 30% 62%, 33% 100%, 38% 20%, 42% 100%,
+    45% 50%, 48% 100%, 52% 6%, 56% 100%, 60% 40%, 63% 100%, 68% 14%,
+    73% 100%, 76% 58%, 79% 100%, 84% 4%, 89% 100%, 92% 46%, 95% 100%,
+    98% 68%, 100% 100%);
+}
+/* The cap's two short sides, so the ring turns the step corners instead of
+   skipping them: the left step-up faces the brow, the right shoulder hands
+   the run down to the flank. Two and three teeth — all either edge is tall
+   enough to hold. */
+.plant__crest--step,
+.plant__crest--shoulder {
+  width: var(--crest-h);
+  top: calc(-1 * var(--bw));
+  bottom: 2px;
+  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
+}
+.plant__crest--step {
+  right: calc(100% + var(--bw));
+  clip-path: polygon(100% 0%, 12% 18%, 100% 38%, 55% 55%, 100% 68%, 25% 84%, 100% 100%);
+}
+.plant__crest--shoulder {
+  left: calc(100% + var(--bw));
+  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
+  clip-path: polygon(0% 0%, 74% 14%, 0% 30%, 38% 52%, 0% 66%, 88% 82%, 0% 100%);
+}
+/* The right flank, panel top to floor — the edge the bay looks at. */
+.plant__crest--flank {
+  left: calc(100% + var(--bw));
+  width: var(--crest-h);
+  top: calc(-1 * var(--bw));
+  bottom: calc(-1 * var(--bw));
+  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
+  clip-path: polygon(0% 0%, 58% 2%, 0% 5%, 96% 9%, 0% 13%, 44% 16%, 0% 19%,
+    78% 24%, 0% 29%, 30% 32%, 0% 35%, 88% 40%, 0% 45%, 52% 48%, 0% 51%,
+    100% 56%, 0% 61%, 38% 64%, 0% 67%, 70% 72%, 0% 77%, 26% 80%, 0% 83%,
+    90% 88%, 0% 93%, 48% 96%, 0% 100%);
+}
+
+/* CONGESTION — the machine under strain. Tier 1 heats the metal amber and
+   starts a slow rattle with sparks crawling the teeth; tier 2 goes the same
+   danger red as the floor rows and the Launch price, faster and harder.
+   Negative per-segment delays keep the five strips out of phase, so the ring
+   shudders like a machine rather than nodding like a metronome. */
+.plant--congest-warn .plant__crest {
+  --crest-hi: #6d4b1e;
+  --crest-lo: #33260f;
+  animation: crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest::before {
+  opacity: 1;
+  animation: crest-spark 2.1s linear infinite;
+}
+.plant--congest-danger .plant__crest {
+  --crest-hi: #7d2036;
+  --crest-lo: #38101d;
+  animation: crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest::before {
+  opacity: 1;
+  --spark-a: rgba(255, 45, 85, 0.95);
+  --spark-b: rgba(255, 128, 128, 0.85);
+  animation: crest-spark 1.15s linear infinite;
+}
+.plant__crest--cap, .plant__crest--cap::before { animation-delay: -0.53s; }
+.plant__crest--flank, .plant__crest--flank::before { animation-delay: -0.91s; }
+.plant__crest--step, .plant__crest--step::before { animation-delay: -0.27s; }
+.plant__crest--shoulder, .plant__crest--shoulder::before { animation-delay: -0.71s; }
+
+/* STRAND WARNING — the aim on screen feeds the grinder. The whole ring takes
+   the maw red the canvas teeth used to wear (drawChute still paints the lip
+   bar and the rising heat in the world; this is the panel's half of the same
+   cue). Declared after the congestion states because the live aim outranks
+   the standing condition. */
+.plant--maw .plant__crest {
+  --crest-hi: rgba(255, 45, 85, 0.92);
+  --crest-lo: #5c1225;
+}
+
+/* Irregular on purpose, like the tooth runs: uneven keyframe stops so the
+   wobble never settles into a readable loop. The rattle is the same walk at
+   twice the amplitude. */
+@keyframes crest-jiggle {
+  0%, 100% { transform: translate(0, 0); }
+  9% { transform: translate(0.5px, -0.4px); }
+  21% { transform: translate(-0.4px, 0.3px); }
+  33% { transform: translate(0.3px, 0.5px); }
+  44% { transform: translate(-0.5px, -0.2px); }
+  58% { transform: translate(0.2px, 0.4px); }
+  69% { transform: translate(-0.3px, -0.5px); }
+  82% { transform: translate(0.4px, 0.2px); }
+  91% { transform: translate(-0.2px, 0.3px); }
+}
+@keyframes crest-rattle {
+  0%, 100% { transform: translate(0, 0); }
+  9% { transform: translate(1px, -0.8px); }
+  21% { transform: translate(-0.8px, 0.6px); }
+  33% { transform: translate(0.6px, 1px); }
+  44% { transform: translate(-1px, -0.4px); }
+  58% { transform: translate(0.4px, 0.8px); }
+  69% { transform: translate(-0.6px, -1px); }
+  82% { transform: translate(0.8px, 0.4px); }
+  91% { transform: translate(-0.4px, 0.6px); }
+}
+@keyframes crest-spark {
+  from { background-position: 170% 0; }
+  to { background-position: -170% 0; }
+}
+/* The congestion STATE stays visible as the recoloured metal; only the
+   motion is asked away. Same call the pile's floor rows make: the
+   information survives, the animation does not. */
+@media (prefers-reduced-motion: reduce) {
+  .plant__crest, .plant__crest::before { animation: none; }
+}
 
 .plant__body {
   flex: 1 1 auto;
@@ -1688,7 +1875,6 @@ body.crt-off #app::after { display: none; }
   background: var(--warn); border-radius: var(--r-sm); padding: 2px 4px; box-shadow: var(--shadow-hard-sm);
 }
 .mod.k-tradeoff { border-top-color: var(--warn); }
-.mod.k-boon { border-top-color: var(--success); }
 .mod.k-bane { border-top-color: var(--danger); }
 
 /* Bond Breaker's plant-panel chip — glowing purple, tappable (reuses the
@@ -2257,23 +2443,9 @@ body.crt-off #app::after { display: none; }
 .mod-card__name { font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3); color: var(--text); }
 .mod-card__desc { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
 
-.mod-card--boon { border-color: rgba(0,255,156,0.4); }
-.mod-card--boon:hover, .mod-card--boon:focus-visible { border-color: var(--success); box-shadow: 4px 4px 0 rgba(0,255,156,0.45); }
-.mod-card--boon .mod-card__kind { color: var(--success); background: rgba(0,255,156,0.12); }
-
 .mod-card--bane { border-color: rgba(255,45,85,0.4); }
 .mod-card--bane:hover, .mod-card--bane:focus-visible { border-color: var(--danger); box-shadow: 4px 4px 0 rgba(255,45,85,0.45); }
 .mod-card--bane .mod-card__kind { color: var(--danger); background: rgba(255,45,85,0.12); }
-
-/* The unearned third slot. Deliberately inert — no data-action, dashed and
-   dimmed — so it reads as a space that will fill rather than a card to click. */
-.mod-card--locked {
-  border-style: dashed; border-color: var(--line); opacity: 0.62;
-  cursor: default; box-shadow: none;
-}
-.mod-card--locked:hover { transform: none; }
-.mod-card--locked .mod-card__kind { color: var(--text-muted); background: rgba(255,255,255,0.05); }
-.mod-card--locked .mod-card__name { color: var(--text-muted); }
 
 .mod-card--tradeoff { border-color: rgba(0,240,255,0.35); }
 .mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: 4px 4px 0 rgba(0,240,255,0.45); }
@@ -2448,19 +2620,12 @@ body.crt-off #app::after { display: none; }
 .draft__confirm .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 .draft__confirm-note { font-size: 11px; line-height: 1.35; margin: 0; }
 
-/* Owned-modifier chip row shown under the draft cards. */
-.run-mods { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-xs); color: var(--text-muted); }
-.run-mods__chip {
-  background: var(--surface-3); border: var(--bw) solid var(--line); border-radius: var(--r-pill);
-  padding: 3px 10px; font-family: var(--font-pixel); font-size: 8px; color: var(--text-dim);
-}
-
 /* The card grid is the draft modal's flexible, scrollable region (same idiom
-   as #lb-body below): it shrinks and scrolls before the header/carry chip/
-   skip button ever clip, so every choice AND the skip stay reachable on
-   short landscape-phone viewports instead of overflowing below the fold.
-   The 2px padding keeps the cards' hover translate from clipping at the
-   scroll edge. */
+   as #lb-body below): it shrinks and scrolls before the header or carry chip
+   ever clip, so every choice stays reachable on short landscape-phone
+   viewports instead of overflowing below the fold. (The draft deliberately
+   has no skip — see screens.ts's draft note.) The 2px padding keeps the
+   cards' hover translate from clipping at the scroll edge. */
 .modal--draft .draft__body { min-height: 96px; }
 @media (max-height: 520px) {
   .modal--draft { gap: 6px; }
@@ -2539,11 +2704,6 @@ body.crt-off #app::after { display: none; }
   .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
   .modal--draft .preview-stat__from { font-size: 10px; }
   .modal--draft .draft__confirm-note { font-size: 9px; }
-  /* Owned modifiers wrap to a second row once a run has 6+ of them, and that
-     second row was what pushed the card grid into scrolling. The chips carry
-     no description, so they can go small without losing anything. */
-  .run-mods { gap: 4px; font-size: 9px; }
-  .run-mods__chip { padding: 2px 7px; font-size: 7px; }
   .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
 
@@ -3095,9 +3255,10 @@ button.panel { color: var(--text); }
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-hard-sm);
 }
-.shop-card--owned { border-color: rgba(0,255,156,0.5); }
 /* Gated unlocks stay VISIBLE (dimmed) rather than hidden — a locked capstone you
-   can see is a goal; one you can't is a surprise. */
+   can see is a goal; one you can't is a surprise. (No .shop-card--owned rule:
+   owned purchases render as the .workshop__owned strip below, never as cards —
+   what you own is reference, what you can buy is the merchandise.) */
 .shop-card--gated { opacity: 0.6; }
 .shop-card__name {
   font-family: var(--font-display); font-weight: 700; font-size: var(--fs-h3);
@@ -3114,7 +3275,6 @@ button.panel { color: var(--text); }
 .shop-card__foot { min-width: 96px; display: flex; justify-content: flex-end; }
 .shop-card__foot .btn { width: 100%; }
 .shop-card__foot .btn:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-.shop-card__owned { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.06em; }
 /* The gate, in full. It WRAPS inside the price rail instead of ellipsising:
    meta.ts's unlockGates returns a LIST ("Tier 4 · Demolition Licence"), and a
    two-line clamp at 80px kept the first fragment and dropped the rest — which

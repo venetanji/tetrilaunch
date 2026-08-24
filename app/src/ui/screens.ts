@@ -268,7 +268,7 @@ export function howtoScreen(): string {
     ["05", "The compactor", `The red bar sweeps right, <b>shattering pieces into loose cubes</b> and compacting them. Cubes only vanish when they form a complete line — so don't let the stack reach the top.`],
     ["06", "Mind the bankroll", `Every launch costs <b>$${LEVEL_1.launchCost}</b>, and a full line pays out <b>$${LEVEL_1.scorePerLine}</b>. Cargo that drops out short of the compactor is <b>fined $${LEVEL_1.penaltyPerLostPiece} a cube</b> — a red −$ marks the spot. Reach <b>$${LEVEL_1.targetScore}</b> before the bankroll runs dry <b>or the clock hits zero</b>. Watch the <b>Launches</b> readout — it turns red at ${LOW_LAUNCH_WARN} or fewer, and that's when a shot has to count.`],
     ["07", "Three currencies", `<b>Funds ($)</b> pay for launches and are the bay's own target. <b>Scrap (${scrapHTML()})</b> is earned per line and spent on your ship at refit stops. <b>Salvage (${salvageHTML()})</b> is banked at tier milestones — each first-clear Contract and your first run win at a tier pays a share — and buys permanent unlocks in the Workshop.`],
-    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on six systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>. Three tiers each; they last the whole run.`],
+    ["08", "Refit the rig", `The compactor is your ship. After bays <b>3, 6 and 9</b> you dock and spend scrap on seven systems — a <b>wider bay</b>, <b>launcher coils</b> (more power and a wind stabilizer), <b>hydraulics</b>, <b>magazine</b>, <b>reactor</b>, <b>bond emitter</b>, <b>demolition rack</b>. Three tiers each; they last the whole run.`],
     ["09", "Run the gauntlet", `Ten bays deep, each with a rising target and stiffer joints. Clear one and <b>ratchet a difficulty axis</b> — you pick which of the two on offer, and it sticks for the rest of the run. The axis you are equipped for is the one that costs you nothing. Go broke or run out the clock and the run ends there.`],
   ];
   return `<div class="screen neon-backdrop">
@@ -652,11 +652,18 @@ export function hudHTML(opts: {
     launchesLeft: number;
     remaining: PieceType[];
   } | null;
+  /** Whether a fullscreen toggle can do anything here (platform.ts's
+   *  fullscreenSupported — false in the native shells, which are already
+   *  edge-to-edge, and on iPhone Safari, which has no Fullscreen API). False
+   *  renders NO fullscreen button rather than a dead one; layout.ts's
+   *  RailLoadout.fullscreen keeps the rail budget in step. Defaults to true
+   *  so the uifit harness renders the full browser rail. */
+  fullscreenSupported?: boolean;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    tier, loaded, contract,
+    tier, loaded, contract, fullscreenSupported = true,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -753,8 +760,10 @@ export function hudHTML(opts: {
         ).join("")}</span>
       </div>`;
   return `<div class="hud${contract ? " hud--contract" : ""}" id="hud">
-    <!-- button rail: ONE same-width column of four base buttons — fullscreen,
-         pause, rotate CCW/CW — plus a slot per drafted ability (Bond Breaker,
+    <!-- button rail: ONE same-width column of the base buttons — fullscreen
+         (browsers only: the native shells are already edge-to-edge, so no
+         toggle mounts there — see fullscreenSupported above), pause, rotate
+         CCW/CW — plus a slot per drafted ability (Bond Breaker,
          Demolition, Autoloader). Where it SITS is decided by the layout solver
          (game/layout.ts): in the right letterbox gutter when one is wide
          enough, in a reserved right band on near-16:9 viewports where there is
@@ -777,7 +786,7 @@ export function hudHTML(opts: {
          @media (pointer: fine) rule in app.css), per the kbd-hint strip down
          in .hud__bottom. -->
     <div class="side-rail">
-      <button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>
+      ${fullscreenSupported ? `<button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>` : ""}
       <button class="icon-btn" data-action="pause" aria-label="Pause">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
@@ -822,9 +831,26 @@ export function hudHTML(opts: {
     </div>
 
     <!-- the RECYCLING PLANT: PWR bar, the readout tiers described above, and
-         the run's build (drafted mods, ship plates, abilities). -->
+         the run's build (drafted mods, ship plates, abilities).
+
+         THE CREST — the machine's intake spikes, in the DOM rather than on
+         the canvas (they used to be render.ts's chute teeth) so they can
+         trace the panel's REAL silhouette: along the top edge, up and over
+         the raised PWR cap, and down the exposed right flank. The canvas
+         could never close the gap over the cap — the cap is DOM, painted
+         above anything the world draws — which is exactly the notch this
+         fixes. Each segment is one clip-path strip whose tooth run is
+         hand-authored irregular (no repeating background tile), and all of
+         them share .plant__crest so the congestion states (main.ts's
+         syncHud toggles .plant--congest-*) and the strand warning
+         (.plant--maw) recolour and animate the whole ring at once. -->
     <div class="plant">
-      <div class="pl-pwr" id="hud-pwr"><span class="lbl">PWR</span>
+      <i class="plant__crest plant__crest--brow" aria-hidden="true"></i>
+      <i class="plant__crest plant__crest--flank" aria-hidden="true"></i>
+      <div class="pl-pwr" id="hud-pwr">
+        <i class="plant__crest plant__crest--cap" aria-hidden="true"></i>
+        <i class="plant__crest plant__crest--step" aria-hidden="true"></i>
+        <span class="lbl">PWR</span>
         <div class="pl-pwr__track"><div class="pl-pwr__fill" id="hud-power"></div></div>
         <span class="pl-pwr__val" id="hud-power-val">0%</span>
       </div>
@@ -1271,7 +1297,7 @@ export function bayClearScreen(opts: {
 
 /**
  * REFIT STOP — the FTL layer's shop, opened after every third bay (see
- * run.ts's isRefitBay). Six systems, three tiers each, priced in scrap. Every
+ * run.ts's isRefitBay). Seven systems, three tiers each, priced in scrap. Every
  * track is always fully visible with its whole tier ladder spelled out, which
  * is deliberately the OPPOSITE of the mod draft: a draft is a hand you were
  * dealt, a refit is a plan you commit to, so the player needs to see the
@@ -1315,7 +1341,7 @@ export function refitScreen(opts: {
         : cost === null || step === null
         ? `<span class="refit-row__max">MAX</span>`
         : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
-            <span class="refit-card__arrow refit-card__arrow--${step.dir}">${icon(step.dir, 10)}</span>
+            <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
             <span class="refit-card__delta">${step.text}</span>
             <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
           </button>`;
@@ -1551,14 +1577,17 @@ export function workshopScreen(meta: MetaState): string {
   </div>`;
 }
 
-export function pauseModal(): string {
+/** `fullscreen` mirrors hudHTML's fullscreenSupported: false (the native
+ *  shells, iPhone Safari) mounts no fullscreen row at all — the app is
+ *  already edge-to-edge there, so the button would be a dead control. */
+export function pauseModal(fullscreen = true): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
       <div class="eyebrow">Paused</div>
       <h2 class="display">Take a breath</h2>
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
-        <button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>
+        ${fullscreen ? `<button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>` : ""}
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
