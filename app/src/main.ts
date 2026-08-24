@@ -2647,7 +2647,16 @@ class App {
         // Clamped through meta.ts rather than trusted: the locked rungs render
         // disabled, but the gate that decides which Tiers exist is a model
         // rule and a gate that lives only in the markup is not a gate.
-        this.tier = playableTier(this.meta, Number(el.getAttribute("data-tier")));
+        // The tower is ONE control (screens.ts's towerHTML says why: ten 44px
+        // floors is 440px against a 360px landscape viewport), so which floor
+        // was hit comes off the click's own target rather than off `el` —
+        // `el` is the tower. Falls back to the tower's own attribute, which is
+        // how the menu's small tower (no floors to hit) still resolves.
+        const hit = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-tier]");
+        this.tier = playableTier(
+          this.meta,
+          Number(hit?.getAttribute("data-tier") ?? el.getAttribute("data-tier")),
+        );
         // Patched in place on the ladder modal, re-rendered on the menu. Same
         // reasoning as refreshRefit: a full renderOverlay recreates the
         // `.panel.modal.pop` node and replays its entrance animation, so a

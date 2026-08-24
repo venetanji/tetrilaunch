@@ -343,32 +343,86 @@ export interface LadderView {
   god: LadderGod;
 }
 
-/** One rung. A `locked` rung is still a real <button> — disabled — rather than
- *  a div, so it keeps its place in the tab order and announces WHY it can't be
- *  pressed instead of silently not being a control. */
-function rungHTML(r: LadderRung, selected: number): string {
+/**
+ * THE TOWER — the ladder as a building.
+ *
+ * Ten floors rising off the ground, the capstone as a spire above them, and
+ * each floor's windows lit in proportion to the Commissions claimed at that
+ * Tier. It renders twice at two heights and is the same object both times:
+ * small, in the attract demo's bay where the wordmark plate used to sit, and
+ * tall, as the left half of the ladder modal.
+ *
+ * WHY THE WHOLE TOWER IS ONE BUTTON AND THE FLOORS ARE SPANS.
+ *
+ * The game is landscape-only at about 360 CSS px of height. Ten floors at the
+ * 44px a tap target owes is 440px, so a building whose floors are individually
+ * pressable cannot exist on the device this is for — the first build made them
+ * buttons and had to lay them out two-across in five rows, which fits and is
+ * not a building.
+ *
+ * So the TOWER carries the `data-action` and the floors carry only
+ * `data-tier`. The whole control is ~120x300 and clears the tap floor
+ * comfortably; main.ts resolves which floor was hit from the click's own
+ * target (see onClick's pick-tier). A finger still lands on the floor it
+ * aimed at — what changes is only which element is the control, and with it
+ * whether a 23px floor is a 23px tap target or part of a 300px one.
+ *
+ * Emitted top-down (Tier 10 first) because that is both the order the DOM
+ * stacks in and the order a building is read in. The ground is a real element
+ * rather than a border so it can be thicker than a hairline without the floor
+ * above inheriting the weight.
+ */
+
+/** One floor. A span, never a button — see the note above. */
+function floorHTML(r: LadderRung, selected: number): string {
+  // Windows lit = commissions claimed. A locked floor is dark whatever its
+  // tally says, which cannot currently disagree (a locked Tier has no claims)
+  // but would if a future build ever un-cleared a Tier.
+  const lit =
+    r.state === "locked" || r.total <= 0
+      ? 0
+      : Math.round((Math.min(r.claimed, r.total) / r.total) * 100);
   const on = r.tier === selected;
-  const glyph = r.state === "locked" ? "🔒" : r.state === "current" ? "◆" : "✓";
-  const cls = `rung rung--${r.state}${on ? " is-on" : ""}`;
   const label =
     r.state === "locked"
       ? `Tier ${r.tier}, locked`
-      : `Fly Tier ${r.tier}${r.state === "current" ? ", the current exam" : ", replay"}, ${r.claimed} of ${r.total} commissions`;
-  return `<button class="${cls}" ${r.state === "locked" ? "disabled" : ""} data-action="pick-tier" data-tier="${r.tier}" aria-label="${label}" aria-pressed="${on}">
-    <span class="rung__glyph" aria-hidden="true">${glyph}</span>
-    <span class="rung__n">${r.tier}</span>
-    <span class="rung__cm">${r.state === "locked" ? "—" : `${r.claimed}/${r.total}`}</span>
+      : `Tier ${r.tier}, ${r.state === "current" ? "the current exam" : "cleared"}, ${r.claimed} of ${r.total} commissions`;
+  return `<span class="tower__floor tower__floor--${r.state}${on ? " is-on" : ""}" style="--lit:${lit}%" data-tier="${r.tier}" role="option" aria-selected="${on}" aria-label="${label}"><i>${r.tier}</i><b>${r.state === "locked" ? "" : `${r.claimed}/${r.total}`}</b></span>`;
+}
+
+/**
+ * `tall` is the modal's rendering: the building gets the modal's full body
+ * height and each floor can afford its commission tally beside its number.
+ * The demo panel's copy is the same building at a tenth the height, where
+ * there is room for the number and nothing else.
+ *
+ * `action` is what a click on it does — pick a floor in the modal, open the
+ * modal from the menu. Both are `pick-tier`-shaped in the sense that both end
+ * up at ladderScreen; they differ in whether a Tier comes with the click.
+ */
+export function towerHTML(view: LadderView, tall = false): string {
+  const cleared = view.rungs.filter((r) => r.state === "cleared").length;
+  const g = view.god;
+  const floors = [...view.rungs].reverse().map((r) => floorHTML(r, view.selected)).join("");
+  const label = tall
+    ? `Tier ladder — flying Tier ${view.selected}. Tap a floor to pick it.`
+    : `Tier ladder — flying Tier ${view.selected}, ${cleared} of ${view.rungs.length} Tiers cleared${g.unlocked ? `, God Tier open with ${g.attemptsLeft} of ${g.attempts} attempts left today` : ""}`;
+  return `<button class="tower${tall ? " tower--tall" : ""}" data-action="${tall ? "pick-tier" : "ladder"}" role="listbox" aria-label="${label}">
+    <span class="tower__spire${g.unlocked ? " is-on" : ""}" aria-hidden="true">${g.unlocked ? "★" : "•"}</span>
+    ${floors}
+    <span class="tower__ground" aria-hidden="true"></span>
   </button>`;
 }
 
 /** The capstone. Locked it states its one entry condition; unlocked it is the
- *  day's card — template, attempts left, streak — and the button that flies it.
+ *  day's card — template, blurb, attempts left, streak — and the button that
+ *  flies it.
  *
- *  Attempts are shown as "2 of 3 left" rather than as a bare number because
- *  the denominator is the part that has to be legible: it is the same for
- *  every player, subscriber or not, and a board nobody believes is equal is
- *  not worth posting to (god.ts's GOD_ATTEMPTS). */
-function godRungHTML(g: LadderGod): string {
+ *  Attempts read as "2 of 3 left" rather than as a bare number because the
+ *  denominator is the part that has to be legible: it is the same for every
+ *  player, subscriber or not, and a board nobody believes is equal is not
+ *  worth posting to (god.ts's GOD_ATTEMPTS). */
+function godCardHTML(g: LadderGod): string {
   if (!g.unlocked) {
     return `<div class="rung rung--god is-locked">
       <span class="rung__glyph" aria-hidden="true">🔒</span>
@@ -378,87 +432,56 @@ function godRungHTML(g: LadderGod): string {
   }
   const out = g.attemptsLeft <= 0;
   const sub = out ? "Out of attempts — a new day lands at midnight UTC" : g.blurb;
-  const foot = `<span class="rung__godfoot">${g.attemptsLeft} of ${g.attempts} attempts left${g.streak > 0 ? ` · ${g.streak}-day streak` : ""}${g.best > 0 ? ` · best ${g.best}` : ""}</span>`;
   return `<button class="rung rung--god${out ? " is-spent" : ""}" ${out ? "disabled" : ""} data-action="god">
     <span class="rung__glyph" aria-hidden="true">★</span>
     <span class="rung__godname">God Tier · ${g.template}</span>
     <span class="rung__godsub">${sub}</span>
-    ${foot}
+    <span class="rung__godfoot">${g.attemptsLeft} of ${g.attempts} attempts left${g.streak > 0 ? ` · ${g.streak}-day streak` : ""}${g.best > 0 ? ` · best ${g.best}` : ""}</span>
   </button>`;
 }
 
-/** The rungs at full size — the CONTROL half of the ladder, as opposed to the
- *  tower's readout half. Only ladderScreen renders it, which is why it carries
- *  no heading of its own: the modal already has one, and a panel that titled
- *  itself inside a titled modal would say "Tier Ladder" twice. */
-export function ladderPanel(view: LadderView): string {
-  return `<div class="ladder">
-    <div class="ladder__rungs" role="group" aria-label="Tier ladder">
-      ${view.rungs.map((r) => rungHTML(r, view.selected)).join("")}
-    </div>
-    ${godRungHTML(view.god)}
+/** The selected floor, stated in words beside the building — which Tier, what
+ *  state, how much of its Commission set is banked. The tower can only show a
+ *  number and a fill at 23px a floor, so the reading of it goes here. */
+function selectedCardHTML(view: LadderView): string {
+  const r = view.rungs.find((x) => x.tier === view.selected) ?? view.rungs[0];
+  const state =
+    r.state === "current" ? "the current exam" : r.state === "cleared" ? "cleared — replay" : "locked";
+  return `<div class="ladder__sel">
+    ${tierPlateHTML(r.tier, "button")}
+    <span class="ladder__selbody">
+      <b id="ladder-state">${state}</b>
+      <span class="muted" id="ladder-cm">${r.claimed}/${r.total} Commissions banked</span>
+    </span>
   </div>`;
 }
 
-/**
- * THE TOWER — the ladder as a building, standing in the attract demo's bay.
+/** The ladder as its own screen — the door the tower and the Tier chip both
+ *  open, and the only place a Tier is actually picked.
  *
- * This is the menu's rendering of the ladder, and it replaces the wordmark
- * plate that used to sit in the demo panel's bottom-left corner. Ten floors
- * rising off the ground, the capstone as a spire, and each floor's windows lit
- * in proportion to the Commissions claimed at that Tier — so a save's whole
- * history reads at a glance, from the ground up, in the one part of the menu
- * that was pure decoration.
- *
- * It is a READOUT and a DOOR, not the control. Ten floors have to share the
- * demo panel's height, which on a landscape phone is about 157px — 14px a
- * floor, a quarter of the 44px a tap target owes. So the whole tower is one
- * button and it opens ladderScreen, where the rungs are full size. Trying to
- * make each floor tappable is how this ends up back in a column nobody has
- * room for.
- *
- * Emitted top-down (Tier 10 first) because that is the order the DOM stacks
- * in and the order a building is read in. The ground is the last element, and
- * it is a real element rather than a border so it can be thicker than one
- * hairline without the floor above it inheriting the weight.
- */
-export function towerHTML(view: LadderView): string {
-  const cleared = view.rungs.filter((r) => r.state === "cleared").length;
-  const g = view.god;
-  const floors = [...view.rungs]
-    .reverse()
-    .map((r) => {
-      // Windows lit = commissions claimed. A locked floor is dark whatever its
-      // tally says, which cannot currently disagree (a locked Tier has no
-      // claims) but would if a future build ever un-cleared a Tier.
-      const lit = r.state === "locked" || r.total <= 0
-        ? 0
-        : Math.round((Math.min(r.claimed, r.total) / r.total) * 100);
-      return `<span class="tower__floor tower__floor--${r.state}${r.tier === view.selected ? " is-on" : ""}" style="--lit:${lit}%"><i>${r.tier}</i></span>`;
-    })
-    .join("");
-  return `<button class="tower" data-action="ladder" aria-label="Tier ladder — flying Tier ${view.selected}, ${cleared} of ${view.rungs.length} Tiers cleared${g.unlocked ? `, God Tier open with ${g.attemptsLeft} of ${g.attempts} attempts left today` : ""}">
-    <span class="tower__spire${g.unlocked ? " is-on" : ""}" aria-hidden="true">${g.unlocked ? "★" : "•"}</span>
-    ${floors}
-    <span class="tower__ground" aria-hidden="true"></span>
-  </button>`;
-}
-
-/** The ladder as its own screen — the narrow-viewport door, opened from the
- *  menu's Tier chip. Same panel, a title and a way back. */
+ *  Laid out landscape: the building down the left at the modal's full body
+ *  height, everything you read and press down the right. That is the shape the
+ *  device is — 360px of height and plenty of width — and it is what lets the
+ *  tower stay a tower instead of folding into a grid. */
 export function ladderScreen(view: LadderView): string {
   return `<div class="screen neon-backdrop center">
     <div class="panel modal pop ladder-modal" style="width:min(560px,94vw)">
-      <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="ladder__head">
         <div style="text-align:left"><div class="eyebrow">Deep Run</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Tier Ladder</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
-      ${ladderPanel(view)}
-      <p class="ladder__note">A replay flies that Tier's own build budget, so its board stays a
-      ranking of how well the Tier was played rather than how far past it you have climbed.
-      It banks no salvage and no tier progress — what it pays is a board place and Commissions.</p>
-      <button class="btn btn--primary" data-action="play">${icon("play")}Fly Tier <span id="ladder-sel">${view.selected}</span></button>
+      <div class="ladder__body">
+        ${towerHTML(view, true)}
+        <div class="ladder__side">
+          ${selectedCardHTML(view)}
+          ${godCardHTML(view.god)}
+          <p class="ladder__note">A replay flies that Tier's own build budget, so its board stays a
+          ranking of how well the Tier was played rather than how far past it you have climbed.
+          It banks no salvage and no tier progress — what it pays is a board place and Commissions.</p>
+          <button class="btn btn--primary" data-action="play">${icon("play")}Fly Tier <span id="ladder-sel">${view.selected}</span></button>
+        </div>
+      </div>
     </div>
   </div>`;
 }

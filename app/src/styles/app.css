@@ -577,6 +577,32 @@ body.crt-off #app::after { display: none; }
   background: var(--line-strong);
 }
 
+/* The MODAL's building. Same markup, ten times the height, so the floors can
+   afford their commission tally beside the number and the number can be read
+   at arm's length. Static rather than absolute — here it is a grid cell, not
+   a thing standing in a bay. */
+.tower--tall {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+}
+.tower--tall .tower__spire { height: 18px; font-size: 14px; }
+.tower--tall .tower__floor {
+  grid-template-columns: 1fr auto;
+  display: grid;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: var(--r-sm);
+}
+.tower--tall .tower__floor i { font-size: var(--fs-sm); }
+.tower--tall .tower__floor b { font-size: 9px; font-weight: 400; opacity: 0.7; }
+.tower--tall .tower__ground { height: 5px; }
+/* The tally only exists on the tall building — at 14px a floor in the demo
+   panel there is room for the number and nothing else. */
+.tower__floor b { display: none; }
+.tower--tall .tower__floor b { display: block; }
+
 
 /* The wordmark steps aside for the tower, in BOTH demo states. It stays in the
    DOM — it is the canvas's accessible name and the fallback's headline — but
@@ -599,7 +625,26 @@ body.crt-off #app::after { display: none; }
   white-space: nowrap;
 }
 
-.ladder { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+/* ---------- The ladder modal ----------
+   Landscape: the building down the left at the body's full height, everything
+   you read and press down the right. That is the shape the device is — 360px
+   of height and plenty of width — and it is what lets the tower stay a tower.
+   The first build laid the Tiers out as ten 44px buttons, which is 440px and
+   does not fit, so it folded them two-across into five rows: a grid, not a
+   building. */
+.ladder-modal { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ladder__head { display: flex; align-items: center; justify-content: space-between; }
+.ladder__body {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: var(--sp-3);
+  /* The building sizes itself off the row, so the row has to have a height.
+     min-height, not height: on a tall viewport the side column's own content
+     is what sets it and the tower simply grows. */
+  min-height: 200px;
+  align-items: stretch;
+}
+.ladder__side { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 .ladder__note {
   font-size: var(--fs-xs);
   color: var(--text-dim);
@@ -607,28 +652,39 @@ body.crt-off #app::after { display: none; }
   margin: 0;
   text-align: left;
 }
-/* auto-fit rather than a fixed column count, and the count is what makes this
-   modal fit a phone at all. Two columns means five rows: 5x44 of rungs plus a
-   header, the capstone block, the note and the confirm button is ~466px
-   against the ~348px a landscape phone has, and it overflowed ten of thirteen
-   devices. The modal is min(560px, 94vw) wide on every one of them, so an
-   88px minimum resolves to five columns and two rows everywhere — 96px of
-   rungs instead of 252 — while still leaving each rung well over the 44px a
-   tap target owes. */
-.ladder__rungs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
-  gap: 6px;
-}
+/* Compact is a HEIGHT verdict (layout.ts), which is the budget this modal is
+   short of, so the prose is what goes. The rule it states — a replay flies its
+   own Tier's budget — is also on the Deep Run button's subtitle, so nothing is
+   only here. */
+[data-density="compact"] .ladder__note { display: none; }
 
+/* The selected floor, read in words beside the building. */
+.ladder__sel {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 9px;
+  border: var(--bw) solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, rgba(22, 22, 37, 0.9), rgba(9, 9, 18, 0.94));
+  min-width: 0;
+}
+.ladder__selbody { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ladder__selbody b { font-size: var(--fs-sm); color: var(--text); }
+.ladder__selbody .muted { font-size: var(--fs-xs); }
+
+/* The capstone card. Shares the rung box because it IS one — the eleventh
+   rung — and wears the warn colour because it is the only entry on the ladder
+   that is a different kind of game. */
 .rung {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 1px var(--sp-2);
   min-height: 44px;
-  padding: 4px 8px;
-  border: var(--bw) solid var(--line);
+  padding: 6px 9px;
+  border: var(--bw) solid var(--warn);
   border-radius: var(--r-md);
   background: linear-gradient(180deg, rgba(22, 22, 37, 0.9), rgba(9, 9, 18, 0.94));
   color: var(--text-dim);
@@ -636,54 +692,22 @@ body.crt-off #app::after { display: none; }
   text-align: left;
   cursor: pointer;
 }
-.rung__glyph { font-size: 10px; line-height: 1; opacity: 0.8; }
-.rung__n {
-  font-family: var(--font-mono);
-  font-size: var(--fs-h3);
-  color: var(--text);
-  line-height: 1;
-}
-.rung__cm { font-family: var(--font-mono); font-size: var(--fs-xs); opacity: 0.75; }
-
-.rung--cleared { border-color: var(--line-strong); }
-.rung--cleared .rung__glyph { color: var(--success); opacity: 1; }
-/* The exam reads as the live rung at a glance — it is the only one whose
-   number is the accent colour, which is the same signal the Tier chip and the
-   Deep Run plate already use for "this is the Tier you are on". */
-.rung--current { border-color: var(--accent); }
-.rung--current .rung__n, .rung--current .rung__glyph { color: var(--accent); }
-.rung--locked { opacity: 0.42; cursor: default; }
-/* Selection is a RING rather than a fill: a rung can be both the exam (accent
-   border) and the selection, and two colour treatments on one box would make
-   the pair unreadable at 44px. */
-.rung.is-on { box-shadow: 0 0 0 2px var(--accent) inset; }
-
-.rung--god {
-  grid-column: 1 / -1;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  row-gap: 1px;
-  padding: 6px 9px;
-  border-color: var(--warn);
-}
-.rung--god .rung__glyph { grid-row: 1 / -1; color: var(--warn); font-size: 13px; }
-.rung--god .rung__godname {
+.rung__glyph { grid-row: 1 / -1; color: var(--warn); font-size: 13px; line-height: 1; }
+.rung__godname {
   font-family: var(--font-display);
   font-size: var(--fs-sm);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--warn);
 }
-.rung--god .rung__godsub,
-.rung--god .rung__godfoot {
+.rung__godsub, .rung__godfoot {
   grid-column: 2;
   font-size: var(--fs-xs);
   color: var(--text-dim);
   line-height: 1.25;
 }
 .rung--god.is-locked, .rung--god.is-spent { border-color: var(--line); opacity: 0.55; cursor: default; }
-.rung--god.is-locked .rung__glyph,
-.rung--god.is-locked .rung__godname { color: var(--text-dim); }
+.rung--god.is-locked .rung__glyph, .rung--god.is-locked .rung__godname { color: var(--text-dim); }
 
 /* The Tier chip as a door. Keeps the chip's own box and gains the affordance —
    a hairline accent edge and a pointer — rather than being restyled into a
@@ -695,12 +719,6 @@ body.crt-off #app::after { display: none; }
    the main action — and says so in its own copy; the tint just stops a replay
    from looking byte-identical to the exam. */
 .btn--replay { filter: saturate(0.72); }
-
-/* Compact is a HEIGHT verdict (layout.ts), which is exactly the budget this
-   modal is short of, so the prose is what goes. The rule the panel states —
-   a replay flies its own Tier's budget — is also on the Deep Run button's
-   subtitle and in the capstone's own copy, so nothing is only here. */
-[data-density="compact"] .ladder__note { display: none; }
 
 /* A banked Commission on the end modal. Wears the salvage row's box because it
    is the same kind of statement — "this run earned you something permanent" —

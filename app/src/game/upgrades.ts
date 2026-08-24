@@ -391,6 +391,12 @@ export function loadoutLegal(tiers: UpgradeTiers, mark: number): boolean {
  * past Tier 3 its owner had climbed. So replay passes the REPLAYED Tier to
  * budgetForMark, and anything over has to come off.
  *
+ * TWO PASSES. Shed the most expensive marginal tier until the rig fits, then
+ * REFILL the remainder with the cheapest tiers it will still buy — shedding
+ * alone overshoots by up to a whole tier (measured at five of the ten Tiers),
+ * and a replay 21 points light is a quietly weaker run on a board that is
+ * supposed to be equal.
+ *
  * WHAT COMES OFF, and why it is decided here rather than left to chance: the
  * most expensive marginal tier first — TIER_COSTS rises 20/35/55, so that is
  * always a tier on whichever track currently sits highest — with ties broken
@@ -419,9 +425,10 @@ export function trimLoadout(tiers: UpgradeTiers, mark: number): UpgradeTiers {
     out[def.id] = Number.isInteger(raw) ? Math.max(0, Math.min(MAX_TIER, raw)) : 0;
   }
   const budget = budgetForMark(mark);
-  // Bounded by construction: every pass removes one tier and there are at most
-  // UPGRADES.length * MAX_TIER of them, so this cannot spin even on a budget
-  // of 0 (which trims to stock, correctly).
+
+  // PASS 1 — SHED. Bounded by construction: every pass removes one tier and
+  // there are at most UPGRADES.length * MAX_TIER of them, so this cannot spin
+  // even on a budget of 0 (which trims to stock, correctly).
   while (tiersCost(out) > budget) {
     let victim: UpgradeId | null = null;
     let victimTier = 0;
@@ -436,6 +443,41 @@ export function trimLoadout(tiers: UpgradeTiers, mark: number): UpgradeTiers {
     }
     if (!victim) break;
     out[victim] = victimTier - 1;
+  }
+
+  // PASS 2 — REFILL, and it is not a nicety. Shedding alone overshoots,
+  // because it can only drop the DEAREST tier: at Tier 3 the budget is 231 and
+  // a maxed rig sheds to 210, leaving 21 points on the table against a
+  // 20-point tier it could afford. Measured at five of the ten Tiers. A replay
+  // is supposed to fly the replayed Tier's budget, not merely to fit inside
+  // it — a rig 21 points light is a quietly weaker run on a board that is
+  // supposed to be equal, which is the exact failure the clamp exists to stop.
+  //
+  // Cheapest-first, so the remainder buys as much as it can, and ties break by
+  // UPGRADES order (the shed's reverse) so the two passes do not fight.
+  //
+  // ONLY tracks the original loadout already carried. A track at 0 means the
+  // player never installed it — that is a salvage purchase (meta.ts's
+  // INSTALLS), not a budget one — and handing a replay a system its owner
+  // never bought would make the trim a way to fly hardware you do not own.
+  for (;;) {
+    let pick: UpgradeId | null = null;
+    let pickCost = Infinity;
+    for (const def of UPGRADES) {
+      if ((tiers[def.id] ?? 0) <= 0) continue;
+      const cost = nextTierCost(out[def.id] ?? 0);
+      if (cost === null) continue;
+      // Never past what the player actually had: the refill is undoing the
+      // shed's overshoot, not building a better rig than the save holds.
+      if ((out[def.id] ?? 0) >= (tiers[def.id] ?? 0)) continue;
+      if (tiersCost(out) + cost > budget) continue;
+      if (cost < pickCost) {
+        pick = def.id;
+        pickCost = cost;
+      }
+    }
+    if (!pick) break;
+    out[pick] = (out[pick] ?? 0) + 1;
   }
   return out;
 }

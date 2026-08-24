@@ -45,19 +45,32 @@ import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
 import {
   applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
-  budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
+  budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT, trimLoadout,
+  type UpgradeTiers,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, newMeta, recordContractClear, recordRunEnd, safeLoadout,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
+  buyInstall, markBudget, nextStep, refundRetiredUnlocks, isReplayTier, playableTier,
+  type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isFinalDraft, isRefitBay, levelForRun,
-  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, foldBay, isFinalDraft, isRefitBay,
+  levelForRun, newRun, newStats, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  type BayStats, type RunState, type RunStats,
 } from "../src/game/run";
+import {
+  COMMISSIONS, claimId, claimedAtTier, commissionCountFor, commissionsForTier,
+  earnedCommissions, parseClaim,
+  CLOCKWORK_MARGIN_SEC, DEEP_POCKETS_OVERSHOOT, IRON_COLUMN_NOTCHES, TIGHT_SHIP_CUBES,
+} from "../src/game/commissions";
+import {
+  GOD_ATTEMPTS, GOD_MARK, GOD_TEMPLATES, RATION_MIN_BAY, generateGodRun, godAttemptsLeft,
+  godBoardKey, godDayIndex, godRunFor, levelForGod, modelledLaunches, newGodRecord,
+  recordGodAttempt,
+} from "../src/game/god";
 import {
   FINALS, applyFinal, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
@@ -5466,6 +5479,339 @@ section("Misfire prevention");
     // ground, so where it lands is unknown and nothing should be claimed.
     !pathStrands([{ x: 680, y: 490 }, { x: 700, y: 506 }], 780),
   );
+}
+
+
+// ---------------------------------------------------------------------------
+section("Tier replay + the build-budget clamp (meta.ts, upgrades.ts)");
+// ---------------------------------------------------------------------------
+{
+  const maxed: UpgradeTiers = {
+    bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3,
+  };
+  check("a maxed rig costs the whole ladder", tiersCost(maxed) === FULL_BUILD_COST);
+  check("...which is exactly Mark 10's budget", budgetForMark(MARK_COUNT) === FULL_BUILD_COST);
+
+  // THE load-bearing rule of replay: flying Tier N flies TIER N's budget. A
+  // Tier board only ranks skill while every rig on it has the same total
+  // power, so a rig trimmed for a replay has to fit the replayed Tier — not
+  // the player's.
+  for (let t = 1; t <= MARK_COUNT; t++) {
+    const trimmed = trimLoadout(maxed, t);
+    check(`trimLoadout fits Tier ${t}'s budget`, tiersCost(trimmed) <= budgetForMark(t),
+      `${tiersCost(trimmed)} > ${budgetForMark(t)}`);
+    check(`...and is legal at Tier ${t}`, loadoutLegal(trimmed, t));
+    // A trim that threw away more than it had to would make a replay weaker
+    // than the Tier it is replaying, which is the opposite failure and just as
+    // wrong. MAXIMAL is the honest statement of "spends the budget", not
+    // "slack < TIER_COSTS[0]": the ladder's steps are 20/35/55, so once every
+    // track the player owns is off zero the cheapest step available is 35 and
+    // a 21-point remainder is unspendable rather than wasted. What has to hold
+    // is that nothing the rig could still buy fits in what is left.
+    const slack = budgetForMark(t) - tiersCost(trimmed);
+    const steps = UPGRADES
+      .filter((d) => (maxed[d.id] ?? 0) > (trimmed[d.id] ?? 0))
+      .map((d) => nextTierCost(trimmed[d.id] ?? 0) ?? Infinity);
+    const cheapest = steps.length ? Math.min(...steps) : Infinity;
+    check(`...and spends everything Tier ${t}'s budget can buy`, slack < cheapest,
+      `${slack} left, cheapest step ${cheapest}`);
+  }
+  check("trimming is deterministic",
+    JSON.stringify(trimLoadout(maxed, 4)) === JSON.stringify(trimLoadout(maxed, 4)));
+  check("trimming never mutates its input", tiersCost(maxed) === FULL_BUILD_COST);
+  check("an already-legal rig comes back unchanged",
+    JSON.stringify(trimLoadout(newTiers(), 1)) === JSON.stringify(newTiers()));
+  // A hand-edited save must not be laundered into a legal rig by the trim.
+  const cheat = { ...newTiers(), bay: 9 } as UpgradeTiers;
+  check("an out-of-range track is clamped to MAX_TIER, not trusted",
+    (trimLoadout(cheat, MARK_COUNT).bay ?? 0) <= MAX_TIER);
+
+  const veteran: MetaState = { ...newMeta(), mark: MARK_COUNT - 1, loadout: trimLoadout(maxed, 9) };
+  check("safeLoadout at the exam is the saved rig",
+    tiersCost(safeLoadout(veteran)) === tiersCost(veteran.loadout));
+  check("safeLoadout at a replayed Tier is trimmed to it",
+    tiersCost(safeLoadout(veteran, 3)) <= budgetForMark(3));
+  check("...and is not simply dropped to stock", tiersCost(safeLoadout(veteran, 3)) > 0);
+  // safeLoadout's other branch: illegal even at the top of the ladder is a
+  // corrupt save, and corrupt fails to stock rather than being trimmed into
+  // something legal-looking.
+  const corrupt: MetaState = { ...newMeta(), mark: 0, loadout: maxed };
+  check("a rig illegal at the exam falls back to stock",
+    tiersCost(safeLoadout(corrupt, 1)) === 0);
+
+  check("playableTier clamps above the ladder", playableTier(veteran, 99) === MARK_COUNT);
+  check("playableTier clamps below 1", playableTier(veteran, 0) === 1);
+  check("playableTier survives a non-number", playableTier(veteran, NaN) === MARK_COUNT);
+  check("a lower Tier is a replay", isReplayTier(veteran, 3));
+  check("the exam is not a replay", !isReplayTier(veteran, markUnlocked(veteran)));
+
+  // The guard replay leans on and did not have to add: a win at a Mark that is
+  // not the current exam ticks nothing and pays nothing.
+  const before = { ...newMeta(), mark: 4 };
+  const replayed = recordRunEnd(before, 2, true, RUN_LEVELS);
+  check("a replay win banks no salvage", replayed.salvage === 0);
+  check("...ticks no tier progress", replayed.meta.tierRunDone === false);
+  check("...and cannot advance the Mark", replayed.meta.mark === before.mark);
+}
+
+// ---------------------------------------------------------------------------
+section("Commissions (commissions.ts, meta.ts)");
+// ---------------------------------------------------------------------------
+{
+  const ctxFor = (over: Partial<RunState> & { won?: boolean; lines?: number; funds?: number; target?: number }) => {
+    const { won = true, lines = 100, funds = 2000, target = 1700, ...runOver } = over;
+    const run: RunState = { ...newRun(1, [], 0, newTiers(), 6), ...runOver };
+    return { run, won, lines, funds, target };
+  };
+  const clean = (): RunStats => ({ ...newStats(), bays: RUN_LEVELS, shots: 30, tightestSec: 90 });
+
+  // foldBay is the ONE implementation both fold sites share (advanceRun for a
+  // cleared bay, finishRun for the deciding one), so what it does is worth
+  // pinning: sums monotonic, a running MINIMUM on the clock, and no mutation.
+  {
+    const bay: BayStats = { shots: 12, lostCubes: 3, bombsFired: 1, bondsUsed: 0, timeLeftSec: 61 };
+    const once = foldBay(newStats(), bay);
+    check("foldBay counts the bay", once.bays === 1 && once.shots === 12 && once.lostCubes === 3);
+    check("...and seeds the tightest clock", once.tightestSec === 61);
+    const twice = foldBay(once, { ...bay, timeLeftSec: 90 });
+    check("a LATER, looser bay does not loosen the tightest", twice.tightestSec === 61);
+    check("...while the sums keep climbing", twice.shots === 24 && twice.bays === 2);
+    check("a clockless bay never sets the minimum",
+      foldBay(newStats(), { ...bay, timeLeftSec: Infinity }).tightestSec === Infinity);
+    check("foldBay never mutates its input", once.bays === 1);
+    // advanceRun's default is NOT folded — "this caller isn't tracking" rather
+    // than "a bay of zeroes happened", which would pin tightestSec at 0 and
+    // fail the clock clause for every older call site.
+    const r = newRun(1, [], 0, newTiers(), 3);
+    check("advanceRun without a tally folds nothing",
+      advanceRun(r, 900, 800, 8, 26, []).stats.bays === 0);
+    check("...and with one, folds it",
+      advanceRun(r, 900, 800, 8, 26, [], r.bondCharges, 0, bay).stats.bays === 1);
+  }
+
+  check("a clause is only offered at a Tier that can pose it",
+    commissionsForTier(1).every((c) => c.minTier <= 1));
+  check("Full Manifest is absent below Mark 4",
+    !commissionsForTier(3).some((c) => c.id === "full-manifest"));
+  check("...and present from Mark 4",
+    commissionsForTier(4).some((c) => c.id === "full-manifest"));
+  check("the pool only grows with the Tier",
+    COMMISSIONS.every((_, i) =>
+      commissionCountFor(i + 1) <= commissionCountFor(Math.min(MARK_COUNT, i + 2))));
+
+  // RULE 2, and the one most likely to be lost in a refactor: a LOST run earns
+  // nothing, whatever its numbers say. Every clause below is satisfied here.
+  const spotless = ctxFor({ stats: clean(), salvagedFunds: 10_000, ratchets: { cost: 9 } });
+  check("a lost run earns nothing", earnedCommissions({ ...spotless, won: false }).length === 0);
+  check("...and the same run won earns something", earnedCommissions(spotless).length > 0);
+
+  check("Bare Hands wants a stock rig",
+    earnedCommissions(ctxFor({ stats: clean() })).includes("bare-hands"));
+  check("...and is denied to a rig that bought anything",
+    !earnedCommissions(ctxFor({ stats: clean(), tiers: { ...newTiers(), reactor: 1 } }))
+      .includes("bare-hands"));
+  check("Tight Ship counts CUBES over the wall",
+    !earnedCommissions(ctxFor({ stats: { ...clean(), lostCubes: TIGHT_SHIP_CUBES + 1 } }))
+      .includes("tight-ship"));
+  check("Cold Store is denied by one demolition charge",
+    !earnedCommissions(ctxFor({ stats: { ...clean(), bombsFired: 1 } })).includes("cold-store"));
+  check("...and by one Bond Breaker",
+    !earnedCommissions(ctxFor({ stats: { ...clean(), bondsUsed: 1 } })).includes("cold-store"));
+  check("Clockwork reads the run's TIGHTEST bay, not its last",
+    !earnedCommissions(ctxFor({ stats: { ...clean(), tightestSec: CLOCKWORK_MARGIN_SEC - 1 } }))
+      .includes("clockwork"));
+  check("...and a clockless run passes it",
+    earnedCommissions(ctxFor({ stats: { ...clean(), tightestSec: Infinity } })).includes("clockwork"));
+  check("Deep Pockets is priced on the OVERSHOOT",
+    !earnedCommissions(ctxFor({ stats: clean(), funds: 1700 + DEEP_POCKETS_OVERSHOOT - 1 }))
+      .includes("deep-pockets"));
+  check("Sharpshooter is launches per LINE",
+    !earnedCommissions(ctxFor({ stats: { ...clean(), shots: 100 }, lines: 10 }))
+      .includes("sharpshooter"));
+  check("Iron Column wants the notches on ONE axis",
+    !earnedCommissions(ctxFor({
+      stats: clean(),
+      ratchets: { cost: IRON_COLUMN_NOTCHES - 1, time: IRON_COLUMN_NOTCHES - 1 },
+    })).includes("iron-column"));
+
+  // Full Manifest scales with the Tier: every CONTENT axis the Tier offers.
+  const contentAt = (mark: number) =>
+    hazardsForMark(mark).filter((h) => h.kind === "content").map((h) => h.id);
+  for (const mark of [4, 6, 9, 10]) {
+    const all: Ratchets = {};
+    for (const id of contentAt(mark)) all[id] = 1;
+    check(`Full Manifest at Mark ${mark} wants all ${contentAt(mark).length} content axes`,
+      earnedCommissions(ctxFor({ stats: clean(), mark, ratchets: all })).includes("full-manifest"));
+    const short = { ...all };
+    delete short[contentAt(mark)[0]];
+    check(`...and one short of them fails at Mark ${mark}`,
+      !earnedCommissions(ctxFor({ stats: clean(), mark, ratchets: short })).includes("full-manifest"));
+  }
+
+  // Claim ids round-trip, and anything this build doesn't recognise is
+  // IGNORED rather than throwing inside the award path.
+  for (const def of COMMISSIONS) {
+    const id = claimId(def.id, def.minTier);
+    const back = parseClaim(id);
+    check(`${def.id} round-trips its claim id`, back?.id === def.id && back.tier === def.minTier);
+  }
+  check("a claim below its clause's floor is rejected",
+    parseClaim("full-manifest@1") === null);
+  check("a claim past the ladder is rejected", parseClaim("bare-hands@99") === null);
+  check("a retired clause id is rejected", parseClaim("nonesuch@3") === null);
+  check("a claim with no @ is rejected", parseClaim("bare-hands") === null);
+  check("claimedAtTier reads only its own Tier",
+    claimedAtTier(["bare-hands@3", "bare-hands@4"], 3).length === 1);
+
+  // THE MILESTONE RULE: an at-tier claim substitutes for a Contract, one for
+  // one, up to the tier's requirement — and never past it.
+  {
+    const m: MetaState = { ...newMeta(), mark: 5 };
+    const tier = markUnlocked(m);
+    const r = recordRunEnd(m, tier, true, RUN_LEVELS, ["bare-hands", "tight-ship"]);
+    check("two at-tier clauses tick two Contract milestones", r.meta.tierContracts === 2);
+    check("...and bank two milestone shares plus the run's",
+      r.salvage === tierMilestoneSalvage(tier) * 3);
+    check("...and both are recorded", r.claimed.length === 2);
+    // Re-flying the same clauses pays nothing: a claim is once-ever.
+    const again = recordRunEnd(r.meta, tier, true, RUN_LEVELS, ["bare-hands", "tight-ship"]);
+    check("re-flying a banked clause pays nothing", again.salvage === 0);
+    check("...and ticks nothing", again.meta.tierContracts === r.meta.tierContracts);
+  }
+  {
+    // Never past the requirement, however many clauses one run banks.
+    const m: MetaState = { ...newMeta(), mark: 5 };
+    const tier = markUnlocked(m);
+    const many = COMMISSIONS.filter((c) => c.minTier <= tier).map((c) => c.id);
+    const r = recordRunEnd(m, tier, true, RUN_LEVELS, many);
+    check("clauses past the requirement tick nothing",
+      r.completedTier === tier && r.meta.tierContracts === 0);
+    check("...and the tier pays exactly its award",
+      r.salvage === tierMilestoneSalvage(tier) * (TIER_CONTRACTS_REQUIRED + 1)
+        + (tierSalvage(tier) - tierMilestoneSalvage(tier) * (TIER_CONTRACTS_REQUIRED + 1)));
+    check("...and every clause is still RECORDED", r.meta.commissions.length === many.length);
+  }
+  {
+    // A BELOW-tier claim is recorded and pays nothing — the same anti-grind
+    // rule an off-tier Contract clear gets.
+    const m: MetaState = { ...newMeta(), mark: 5 };
+    const r = recordRunEnd(m, 2, true, RUN_LEVELS, ["bare-hands"]);
+    check("a below-tier claim is recorded", r.meta.commissions.includes("bare-hands@2"));
+    check("...and pays nothing", r.salvage === 0);
+    check("...and ticks nothing", r.meta.tierContracts === 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("God Tier dailies (god.ts)");
+// ---------------------------------------------------------------------------
+{
+  check("God Tier flies the top of the ladder", GOD_MARK === MARK_COUNT);
+  check("the day's board key names the day", godBoardKey(20_260_824) === "god:20260824");
+  // dailySeed is YYYYMMDD, so consecutive days are NOT consecutive integers —
+  // which is the whole reason streaks go through godDayIndex.
+  check("a month boundary is one day apart",
+    godDayIndex(20_260_901) - godDayIndex(20_260_831) === 1);
+  check("a year boundary is one day apart",
+    godDayIndex(20_270_101) - godDayIndex(20_261_231) === 1);
+
+  const stock = newRun(1, [], 0, newTiers(), GOD_MARK);
+  // Local, deliberately: the sweep asserts on ITS OWN findings, and reading the
+  // global `failures` would make this check fail because something earlier in
+  // the file did — which is how a green sweep gets reported as a broken
+  // generator and sends the next reader to the wrong file.
+  const before = failures;
+  let dayFailures = 0;
+  let rationLow = Infinity, rationHigh = 0, bossDays = 0, rationDays = 0;
+  const seen = new Set<string>();
+  // Two years of days. The generator is pure, so this is a complete statement
+  // about every day the game can deal, not a sample.
+  for (let d = 0; d < 730; d++) {
+    const dt = new Date(Date.UTC(2026, 0, 1) + d * 86_400_000);
+    const seed = dt.getUTCFullYear() * 10_000 + (dt.getUTCMonth() + 1) * 100 + dt.getUTCDate();
+    const day = generateGodRun(seed);
+    seen.add(day.template.id);
+    if (day.bays.some((b) => b.boss && b.index < RUN_LEVELS - 1)) bossDays++;
+    if (day.bays.some((b) => b.launchBudget > 0)) rationDays++;
+    if (day.bays.length !== RUN_LEVELS) { check(`day ${seed} has ${RUN_LEVELS} bays`, false); dayFailures++; break; }
+    if (!day.bays[RUN_LEVELS - 1].boss) { check(`day ${seed} ends on a boss`, false); dayFailures++; break; }
+    if (day.bays[0].boss || day.bays[0].launchBudget > 0) {
+      check(`day ${seed} opens structurally clean`, false); dayFailures++; break;
+    }
+    for (const b of day.bays) {
+      // ONE STRUCTURAL PRESSURE PER BAY, and a rationed bay never buys quota —
+      // the two rules that bound a ration's size (god.ts).
+      if (b.boss && b.launchBudget > 0) { check(`day ${seed} bay ${b.index + 1} stacks boss + ration`, false); break; }
+      if (b.launchBudget > 0) {
+        if (b.quota > 0) { check(`day ${seed} bay ${b.index + 1} rations AND raises quota`, false); break; }
+        if (b.index < RATION_MIN_BAY) { check(`day ${seed} rations bay ${b.index + 1}`, false); break; }
+        rationLow = Math.min(rationLow, b.launchBudget);
+        rationHigh = Math.max(rationHigh, b.launchBudget);
+      }
+      // Every bay has to be PLAYABLE on a stock rig: a press with travel, and
+      // some way for the bay to end.
+      const cfg = levelForGod({ ...stock, levelIndex: b.index }, day);
+      if (cfg.compactorOpenCells <= cfg.compactorMinLineCells) {
+        check(`day ${seed} bay ${b.index + 1} leaves the press some travel`, false); break;
+      }
+      if (cfg.timeLimitSec === 0 && cfg.launchBudget === 0) {
+        check(`day ${seed} bay ${b.index + 1} can end`, false); break;
+      }
+      // A rationed bay trades the clock for launches — both halves, never one.
+      if ((b.launchBudget > 0) !== (cfg.timeLimitSec === 0)) {
+        check(`day ${seed} bay ${b.index + 1} trades clock for launches as a pair`, false); break;
+      }
+      const mix = Object.values(cfg.materialMix).reduce((a, v) => a + v, 0);
+      if (mix > MIX_TOTAL_CAP + 1e-9) {
+        check(`day ${seed} bay ${b.index + 1} respects the material cap`, false); break;
+      }
+    }
+  }
+  check("730 days all deal ten bays, end on a boss and open clean", dayFailures === 0,
+    `${dayFailures} bad day(s)`);
+  dayFailures += failures - before;
+  check("every template is reachable", seen.size === GOD_TEMPLATES.length,
+    `${seen.size}/${GOD_TEMPLATES.length}`);
+  check("bosses land off bay 10 on some days", bossDays > 0);
+  check("rations land on some days", rationDays > 0);
+  check("a ration stays inside a playable length", rationLow >= 40 && rationHigh <= 140,
+    `${rationLow}..${rationHigh}`);
+
+  // The day is a PURE function of its seed — the whole premise of a shared
+  // board — and memoised without that changing.
+  check("the same seed deals the same day",
+    JSON.stringify(generateGodRun(20_260_824)) === JSON.stringify(generateGodRun(20_260_824)));
+  check("the cache serves the same object", godRunFor(20_260_824) === godRunFor(20_260_824));
+  check("different seeds deal different days",
+    JSON.stringify(generateGodRun(20_260_824)) !== JSON.stringify(generateGodRun(20_260_825)));
+
+  // A bay this model cannot bank is never rationed (modelledLaunches returns
+  // Infinity and the generator refuses the pressure rather than shipping it).
+  {
+    const broke = makeBaseLevel(0, GOD_MARK);
+    broke.launchCost = 1000;
+    check("an unbankable bay models as Infinity", modelledLaunches(broke) === Infinity);
+  }
+
+  // THE ATTEMPT LEDGER.
+  {
+    let rec = newGodRecord();
+    check("a fresh day has a full purse", godAttemptsLeft(rec, 20_260_824) === GOD_ATTEMPTS);
+    rec = recordGodAttempt(rec, 20_260_824, 5000, 4);
+    check("an attempt is spent", godAttemptsLeft(rec, 20_260_824) === GOD_ATTEMPTS - 1);
+    check("...and the day is counted once", rec.days === 1 && rec.streak === 1);
+    rec = recordGodAttempt(rec, 20_260_824, 9000, 7);
+    check("a second attempt on the same day is not a second day", rec.days === 1 && rec.streak === 1);
+    check("...and the best is the best of them", rec.todayBest === 9000 && rec.best === 9000);
+    check("...and the deepest bay is kept", rec.bestBay === 7);
+    rec = recordGodAttempt(rec, 20_260_825, 100, 1);
+    check("the next day continues the streak", rec.streak === 2 && rec.days === 2);
+    check("...with a fresh purse", godAttemptsLeft(rec, 20_260_825) === GOD_ATTEMPTS - 1);
+    check("...and today's best resets while the all-time best does not",
+      rec.todayBest === 100 && rec.best === 9000);
+    rec = recordGodAttempt(rec, 20_260_901, 50, 1);
+    check("a missed day resets the streak to 1", rec.streak === 1);
+  }
 }
 
 console.log(
