@@ -22,11 +22,15 @@ From `app/`:
 ```sh
 npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --mods all --carry 100
 npm run sim:perf -- --counts 50,100,150,200,300,400 --steps 600
+npm run sim:renderperf -- --counts 0,100,200,300 --frames 240
 ```
 
 (the `--` forwards flags through the npm script to the underlying `tsx`
 call; you can also invoke directly with `npx tsx sim/sweep.ts ...` /
 `npx tsx sim/perf.ts ...` from `app/`.)
+
+`perf.ts` and `renderperf/` are the two halves of one frame — physics and
+drawing — and neither is a frame on its own. A budget claim needs both.
 
 Both scripts print markdown tables to stdout and write full per-run JSON to
 `sim/results/` (gitignored — see below).
@@ -167,6 +171,27 @@ budget. Ends with a one-line verdict per variant: the largest `N` whose p95
 stays under 8ms (half the frame budget, leaving headroom for render/input on
 top of physics).
 
+### Sleep occupancy
+
+The `% asleep` column is the share of cube-steps spent sleeping across the
+timed window, and it exists to answer a question the timings cannot:
+`engine.ts` turns `enableSleeping` on against a measured on-device profile
+(narrowphase + solver over the resting pile was ~73% of the frame loop), but
+nothing showed whether the bodies in a real pile ever reach the state Matter
+skips.
+
+They do not. matter-js 0.20's `Constraint.postSolveAll` calls
+`Sleeping.set(body, false)` for every body whose `constraintImpulse` is
+non-zero that step, and a shipment is a K4 clique of six stiff distance
+joints carrying a residual impulse indefinitely. So the **loose** rows sleep
+much of their cube-steps and the **cliques** rows — the ones shaped like real
+cargo — sit at zero. The run prints a `NOTE` when they do.
+
+No fix is proposed, deliberately: every candidate (a lighter joint topology,
+retiring joints under a settled piece, zeroing small impulses) changes how
+the pile behaves under load, which is a gameplay decision rather than a perf
+one.
+
 **Judgment call:** a sufficiently large, densely packed `N` can legitimately
 trip the real game's topout/broke/time loss conditions (e.g. 400 cubes
 packed into the right half physically has to stack above the topout line at
@@ -177,9 +202,47 @@ rules, `status`/`lossReason` are forced back to `"playing"`/`null`
 immediately **after** each timed call (never inside the timed window, so it
 never affects the measurement itself).
 
+## `renderperf/` — render-cost sweep
+
+The other half of a frame. `perf.ts` times `Game.update()` in node, with no
+canvas at all; this drives the real `render()` into a real Chromium 2D
+context, on the same scene shapes (`placeLoose`/`placeCliques` mirror
+`perf.ts` exactly, so an `N` here and an `N` there mean one pile).
+
+A browser is the point rather than an inconvenience. Everything expensive
+`render.ts` does — `shadowBlur`, gradients, glyph rasterisation, `drawImage`
+of a cached sprite — is work a rasteriser does, and node has none. A pure-JS
+canvas shim would measure the JavaScript around the draw calls and nothing
+about the draw calls themselves.
+
+Three modes:
+
+- **default** — a sweep over `--counts` × `{loose, cliques}` × `{idle, busy}`
+  (busy adds the aim arc and one of every FX kind). Reports avg / p50 / p95 /
+  worst and % of frames over the 16.67ms budget.
+- **`--breakdown`** — a ladder that adds one scene layer at a time and reports
+  the delta, so a frame's cost is attributed without instrumenting `render.ts`
+  (instrumentation would have to ship in the module under test).
+- **`--snapshot`** — an FNV-1a digest of the frame plus `cargoPx`, the count of
+  device pixels that differ from the same scene with an empty cube list.
+  `--shots` writes PNGs under `sim/results/renderperf/<tag>/` so two branches
+  can be diffed pixel by pixel.
+
+**The digest mode is not a nicety.** A render optimisation that draws FEWER
+pixels is indistinguishable, to a timer, from one that draws the WRONG pixels,
+and the wrong ones are always faster — an early attempt at hand-rolling
+`drawCube`'s transform got the inverse wrong, launched every cube off-screen,
+and reported a 74% speedup. `cargoPx` catches that specific shape of mistake:
+a digest change with `cargoPx` near zero is a vanished pile.
+
+**Caveat, stated in the file too:** headless Chromium rasterises in software.
+These are before/after numbers on one machine and a ranking of draw paths, not
+a device budget. They are also worthless on a loaded machine — check the run
+is alone before trusting a delta.
+
 ## `uifit/` — does every screen fit every device?
 
-The only harness here that runs a browser. `systems.ts` checks the layout
+The only harness here that runs a browser besides `renderperf/`. `systems.ts` checks the layout
 solver's *arithmetic*; `uifit` checks what that arithmetic plus
 `src/styles/app.css` actually **lay out** in a real engine, at real device
 viewports with real landscape safe-area insets.

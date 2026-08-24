@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrade, bayMusic, RUN_LEVELS, type RunState,
+  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -30,8 +30,8 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, newTiers, nextTierCost, refitTracks, upgradeById,
-  type UpgradeId, type UpgradeTiers,
+  MAX_TIER, clearTrack, newTiers, orderRungs, orderSize, refitTracks, stageTier, upgradeById,
+  type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
   INSTALLS, UNLOCKS, buyInstall, contractClaimed, installAvailable, markUnlocked, newMeta, nextStep,
@@ -115,6 +115,26 @@ const STEP = 1000 / 60;
  *  which reads as smooth-but-briefly-slow instead of stuttering. */
 const MAX_CATCHUP_STEPS = 2;
 
+/**
+ * States whose overlay covers the canvas outright, so the field behind it is
+ * not worth drawing — see the loop()'s render gate.
+ *
+ * Membership is a fact about the MARKUP, not a preference: every screen listed
+ * here renders a `.screen.neon-backdrop` (ui/screens.ts), which is
+ * `position: absolute; inset: 0` over a background that bottoms out at an
+ * opaque `var(--bg)` (styles/tokens.css). Nothing behind one of them reaches a
+ * pixel.
+ *
+ * The modal states are deliberately NOT here. `.modal-scrim` is
+ * `rgba(4,4,10,0.72)` over a `backdrop-filter: blur(4px)` (styles/app.css), so
+ * the bay really is visible through a pause card, a draft or a run-end panel,
+ * and skipping the draw there would empty the canvas behind them.
+ */
+const COVERS_CANVAS = new Set<AppState>([
+  "splash", "menu", "howto", "settings", "controls",
+  "leaderboard", "workshop", "contracts", "sandbox",
+]);
+
 /** How long the misfire guide stays up. One pass of the corrective animation
  *  (app.css's --hint-correct-dur) plus a beat to read the end pose. The
  *  onboarding loop runs 3400ms and repeats forever, which is right for an
@@ -127,6 +147,29 @@ const MISFIRE_GUIDE_FADE_MS = 260;
  *  one of those turns an explanation into nagging. The sound still fires each
  *  time — that is the part that says "nothing was launched". */
 const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
+
+/** How long a pointer must stay pressed on a Bond Breaker trigger before the
+ *  charge is actually spent (see startBondHold).
+ *
+ *  A Bond Breaker is the run's rarest consumable — one stock granted once for
+ *  the whole ten-bay run, not a per-bay refill (run.ts's bondChargesFor) — and
+ *  both of its triggers sit on the same glass a thumb is already dragging the
+ *  slingshot across. A tap was enough to spend one, so a graze was too: a
+ *  finger reaching for ⟲ and missing, or a hand resting on the bezel, could
+ *  burn the charge the player was saving for bay 9. This is the same accident
+ *  input.ts's MIN_FIRE_RATIO gate exists for, answered the same way — the
+ *  press has to say it meant it.
+ *
+ *  1000ms is long enough that no graze survives it and short enough that a
+ *  deliberate press does not feel like a wait. Published to CSS as
+ *  `--bond-hold` when the hold starts, so the charge meter on the button and
+ *  the timer that spends the charge are the same number and cannot drift. */
+const BOND_HOLD_MS = 1000;
+/** How far a held thumb may wander outside its trigger before the hold is read
+ *  as "moved off it" and cancelled. A press on a rail button is made with the
+ *  fat part of a thumb and wobbles by a few px while it sits there; sliding
+ *  deliberately away is the escape hatch, and 24px (~4mm) separates the two. */
+const BOND_HOLD_SLOP = 24;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -168,6 +211,13 @@ class App {
    *  inspection, so the hand is exactly one at every Tier — including the
    *  capstone, where the ordinary draft asks for two notches. */
   private pendingFinal: FinalId | null = null;
+  /** Tiers STAGED at the refit stop and not yet paid for (upgrades.ts's
+   *  RefitOrder). Nothing here has touched RunState.tiers or spent a point of
+   *  scrap: Undock is the single commit (run.ts's buyUpgrades), which is what
+   *  lets the yard redraw the next bay's projected numbers under a whole build
+   *  before the player buys any of it. Same contract as pendingPicks two
+   *  screens later. Cleared on entering the stop and on committing. */
+  private refitOrder: RefitOrder = {};
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
@@ -265,6 +315,16 @@ class App {
    *  still has to stop the burst, so the listener is on window, not the
    *  button. */
   private autoPointerId: number | null = null;
+
+  /** The Bond Breaker press currently being held down, or null (see
+   *  BOND_HOLD_MS / startBondHold). `el` is the trigger being held — either of
+   *  the ability's two — so only the button under the finger animates; `rect`
+   *  is that button's box captured at press time, which is what the drift
+   *  check measures against (nothing in the HUD moves mid-press, so measuring
+   *  once is enough and keeps the move handler off getBoundingClientRect). */
+  private bondHold:
+    | { pointerId: number; el: HTMLElement; rect: DOMRect; timer: number }
+    | null = null;
 
   /** The active input family (canvas D2), set by the LAST INPUT SEEN — a
    *  touch, a keypress, or gamepad activity. Every hint surface renders from
@@ -418,6 +478,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     this.attract.stop();
+    this.clearBondHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
@@ -431,6 +492,10 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
+    // Same reasoning for a Bond Breaker mid-hold: the trigger is about to be
+    // replaced, so nothing would ever cancel the countdown, and it would spend
+    // the charge into a paused bay a second after the player left it.
+    this.clearBondHold();
     // The congestion cue belongs to the bay being PLAYED. Muted for every other
     // screen and restored on the way back in, so it cannot leak into a pause
     // modal, a draft or the menu — and cannot go missing after one.
@@ -846,20 +911,7 @@ class App {
         }
         break;
       case "refit":
-        if (g && this.run) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
-            S.refitScreen({
-              // levelIndex has already been stepped past the cleared bay by
-              // afterBayClear, so it IS the just-cleared bay's 1-based number,
-              // and makeBaseLevel(levelIndex) is the bay about to be played.
-              bayNum: this.run.levelIndex,
-              nextBayName: makeBaseLevel(this.run.levelIndex).name,
-              scrap: this.run.scrap,
-              tiers: this.run.tiers,
-              mark: this.run.mark,
-            });
-        }
+        if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.refitHTML();
         break;
       case "draft":
         if (g && this.run) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + this.draftHTML(g);
@@ -1650,6 +1702,10 @@ class App {
     );
     // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1.
+    // A fresh yard ticket every stop: an order is tentative by construction, so
+    // one that survived a bay would be scrap queued against a rig and a bankroll
+    // that have both moved since.
+    this.refitOrder = {};
     this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
@@ -1670,56 +1726,160 @@ class App {
     this.setState(won ? "won" : "lost");
   }
 
-  /** Refit stop: buy one tier of a system with the run's scrap. Re-renders the
-   *  refit screen in place so the newly-revealed next-tier price is visible
-   *  immediately. A rejected purchase (maxed, or unaffordable) is a silent
-   *  no-op — the button was already disabled, so this is belt-and-braces. */
-  private onBuyUpgrade(id: string): void {
+  /** The refit stop's markup. Built here rather than inline in renderOverlay
+   *  because refreshRefit renders it a second time, into a detached container,
+   *  to lift the live regions out — two call sites, one set of options. Same
+   *  idiom as draftHTML. */
+  private refitHTML(): string {
+    const run = this.run!;
+    // The order as the yard would actually install it. buyUpgrades is the same
+    // call Undock makes, so the projection is drawn against the run the player
+    // will really be flying rather than against a second model of the purchase
+    // — including the Bond Emitter's magazine delta, which lives in the commit
+    // and not in the tier table. A refused order (impossible from the staging
+    // rules, possible from a hand-edited attribute) projects as no change,
+    // which is exactly what it would buy.
+    const installed = buyUpgrades(run, this.refitOrder, MAX_TIER) ?? run;
+    return S.refitScreen({
+      // levelIndex has already been stepped past the cleared bay by
+      // afterBayClear, so it IS the just-cleared bay's 1-based number, and
+      // makeBaseLevel(levelIndex) is the bay about to be played.
+      bayNum: run.levelIndex,
+      nextBayName: makeBaseLevel(run.levelIndex).name,
+      scrap: run.scrap,
+      tiers: run.tiers,
+      mark: run.mark,
+      order: this.refitOrder,
+      // Both sides come from levelForRun — the real pipeline the bay is built
+      // from. The notch this bay's draft will add is deliberately not modelled:
+      // it has not been offered yet, and folding a guess into both sides would
+      // price the order against a bay nobody has chosen.
+      //
+      // NO BANKED RATCHETS, unlike the draft. Passing them pins every axis the
+      // run carries as ACTIVE, which promotes it to "core" and puts it beyond
+      // the compact grid's reach — and on a landscape phone four unmoved
+      // pressure tiles were a whole row, pushing the rows the ORDER moved off
+      // the bottom of the panel. On the draft that pin is right, because there
+      // the decision IS the pressure (preview.ts's `active`, Codex #1); here
+      // the decision is the ship, and a projection that crowds out its own
+      // answer with context has failed at the job it exists for. Left as
+      // ordinary context rows they still show wherever there is height for
+      // them and drop only at compact density, which is the existing rule
+      // doing exactly what it was written for.
+      preview: previewRows(levelForRun(run), levelForRun(installed)),
+    });
+  }
+
+  /** Refit stop: STAGE one tier of a system into the order. Nothing is bought
+   *  here — the tiers live in `refitOrder` until "refit-done" commits the lot,
+   *  which is what lets the yard redraw the next bay's projected numbers under
+   *  a whole build before a point of scrap is spent.
+   *
+   *  The staging rules themselves live in upgrades.ts's stageTier, next to the
+   *  ladder they price against and where the sim can reach them. A rejected
+   *  stage (not installed, maxed, or more than the order can still afford) is a
+   *  silent no-op — the button was already disabled, so this is the gate rather
+   *  than the feedback. */
+  private onStageUpgrade(id: string): void {
     if (this.state !== "refit" || !this.run) return;
     // Only tracks this Mark's refit actually offers (upgrades.ts's
     // refitTracks) — the screen never renders the others, so this is
     // belt-and-braces against a stale or hand-edited data-upgrade.
     if (!refitTracks(this.run.mark).some((u) => u.id === id)) return;
-    const tier = this.run.tiers[id as UpgradeId] ?? 0;
-    const cost = nextTierCost(tier);
-    if (cost === null) return;
-    const next = buyUpgrade(this.run, id as UpgradeId, cost, MAX_TIER);
+    const next = stageTier(this.run.tiers, this.refitOrder, id as UpgradeId, this.run.scrap);
     if (!next) return;
-    telemetry.refit(this.run.levelIndex + 1, this.run.scrap, id);
-    this.run = next;
+    this.refitOrder = next;
     void successHaptic();
     this.refreshRefit();
   }
 
-  /** Re-render the refit stop's card grid and scrap chip IN PLACE after a
-   *  purchase, rather than calling renderOverlay(). A full re-render recreates
-   *  the `.panel.modal.pop` node, replaying its entrance animation on every
-   *  buy — so a player working through three purchases watches the whole modal
-   *  fly in three times. Same reasoning (and same idiom) as renderBoardRows
-   *  patching #lb-body instead of re-rendering the leaderboard modal. */
+  /** Refit stop: take a track's staged tiers back off the order — the second
+   *  half of the card's one cycling button (upgrades.ts's clearTrack, which is
+   *  where the all-not-one rule and its reasoning live). */
+  private onUnstageUpgrade(id: string): void {
+    if (this.state !== "refit" || !this.run) return;
+    const next = clearTrack(this.refitOrder, id as UpgradeId);
+    if (next === this.refitOrder) return;
+    this.refitOrder = next;
+    this.refreshRefit();
+  }
+
+  /** "refit-done": INSTALL the whole order, then undock into the draft.
+   *
+   *  The one commit of the stop (run.ts's buyUpgrades), and all-or-nothing: an
+   *  order the run cannot actually pay for leaves the scrap banked rather than
+   *  part-installing a build the player never saw projected. An empty order is
+   *  the ordinary case — plenty of stops are worth walking past — so it undocks
+   *  without touching the run at all. */
+  private onRefitDone(): void {
+    if (this.state !== "refit" || !this.run) return;
+    const before = this.run;
+    if (orderSize(before.tiers, this.refitOrder) > 0) {
+      const next = buyUpgrades(before, this.refitOrder, MAX_TIER);
+      if (next) {
+        // One event per rung, each carrying the balance BEFORE that rung.
+        // telemetry.ts stores the field as `scrapBefore`, and a yard that buys
+        // six rungs at once must not report the post-batch balance for all six
+        // — that is what makes refit affordability readable after the fact ("at
+        // what balance did they stop buying?"), and a flat final figure answers
+        // it wrong for every event including a single-rung order.
+        //
+        // The sequence is upgrades.ts's orderRungs, which is the same walk
+        // buyUpgrades installs by, so the reconstruction cannot drift from the
+        // purchase: subtracting each rung's price in turn lands exactly on
+        // next.scrap.
+        let scrap = before.scrap;
+        for (const rung of orderRungs(before.tiers, this.refitOrder)) {
+          telemetry.refit(before.levelIndex + 1, scrap, rung.id);
+          scrap -= rung.cost;
+        }
+        this.run = next;
+        void successHaptic();
+      }
+    }
+    this.refitOrder = {};
+    this.setState("draft");
+  }
+
+  /** Re-render the refit stop's live regions IN PLACE after a stage, rather
+   *  than calling renderOverlay(). A full re-render recreates the
+   *  `.panel.modal.pop` node, replaying its entrance animation on every tap —
+   *  so a player assembling a three-tier order watches the whole modal fly in
+   *  three times. Same reasoning (and same idiom) as refreshDraft and
+   *  renderBoardRows patching their own live regions. */
   private refreshRefit(): void {
-    if (!this.run) return;
-    const grid = this.overlay.querySelector("#refit-grid");
-    const scrap = this.overlay.querySelector("#refit-scrap");
-    if (!grid || !scrap) return;
-    // Render the screen to a detached container and lift just the two live
-    // regions out of it — keeps one source of truth for the card markup
-    // (screens.ts's refitScreen) instead of a second copy that could drift.
+    if (!this.run || this.state !== "refit") return;
+    // The innerHTML patch destroys the node keyboard focus is sitting on —
+    // here that is the button the player just tapped, so a keyboard or D-pad
+    // flow lost its place on every staged tier (D4, and the same fix
+    // refreshDraft carries).
+    const active = document.activeElement as HTMLElement | null;
+    const btn = active?.closest("[data-upgrade]") as HTMLElement | null;
+    const focusSel = btn
+      ? `[data-action="${btn.getAttribute("data-action")}"][data-upgrade="${btn.getAttribute("data-upgrade")}"]`
+      : active?.closest('[data-action="refit-done"]')
+        ? '[data-action="refit-done"]'
+        : null;
+    // Render the screen to a detached container and lift the live regions out
+    // — keeps one source of truth for the markup (screens.ts's refitScreen)
+    // instead of a second copy that could drift.
     const tmp = document.createElement("div");
-    tmp.innerHTML = S.refitScreen({
-      bayNum: this.run.levelIndex,
-      nextBayName: makeBaseLevel(this.run.levelIndex).name,
-      scrap: this.run.scrap,
-      tiers: this.run.tiers,
-      mark: this.run.mark,
-    });
-    const freshGrid = tmp.querySelector("#refit-grid");
-    const freshScrap = tmp.querySelector("#refit-scrap");
-    if (freshGrid) grid.innerHTML = freshGrid.innerHTML;
-    // innerHTML, not textContent: the scrap readout is a drawn glyph plus a
-    // number (screens.ts's scrapHTML), and copying its text alone dropped the
-    // glyph and left a bare figure the moment a player bought anything.
-    if (freshScrap) scrap.innerHTML = freshScrap.innerHTML;
+    tmp.innerHTML = this.refitHTML();
+    for (const id of ["#refit-grid", "#refit-order", "#refit-preview", "#refit-foot"]) {
+      const live = this.overlay.querySelector(id);
+      const fresh = tmp.querySelector(id);
+      // innerHTML, not textContent: every one of these regions carries drawn
+      // glyphs (screens.ts's scrapHTML, the tier icons), and copying their text
+      // alone would leave bare figures behind.
+      if (live && fresh) live.innerHTML = fresh.innerHTML;
+    }
+    // The staged button can vanish (a track that just hit MAX loses it), so
+    // fall back to the card's undo before giving up on focus entirely.
+    const back = focusSel
+      ? this.overlay.querySelector<HTMLElement>(focusSel)
+        ?? (btn ? this.overlay.querySelector<HTMLElement>(`[data-upgrade="${btn.getAttribute("data-upgrade")}"]`) : null)
+      : null;
+    back?.focus();
   }
 
   /** Workshop: buy a permanent unlock with salvage. */
@@ -2046,16 +2206,24 @@ class App {
     }
     this.last = now;
 
-    // Not while the menu is up. `game` is never nulled — a finished run's bay
-    // is still here — so without this the menu re-painted a field nobody can
-    // see (.neon-backdrop bottoms out at an opaque var(--bg)) every frame.
-    // That was merely wasteful before; it is now actively harmful, because the
-    // menu is also when the attract demo is drawing. render.ts's sprite and
-    // background-layer caches each hold ONE viewport, so two canvases at
+    // Not while a screen is covering the canvas. `game` is never nulled — a
+    // finished run's bay is still here — so without this the app re-painted a
+    // field nobody can see, every frame, for as long as the player reads a
+    // menu.
+    //
+    // On the menu that was also actively harmful, which is why this started
+    // there: the menu is when the attract demo draws, and render.ts's sprite
+    // and background-layer caches each hold ONE viewport, so two canvases at
     // different scales alternating every frame would flush and re-bake both —
     // the whole glow-blur cost those caches exist to remove, paid twice a
     // frame, on the one screen that should be idle.
-    if (g && this.state !== "menu") {
+    //
+    // The rest of COVERS_CANVAS is the same waste without that second effect,
+    // and it is not small: sim/renderperf puts a full bay's frame at ~22ms of
+    // drawing, and the Workshop, the Contracts board and the leaderboard are
+    // exactly the screens a player sits on. Every one of them was paying it
+    // to paint pixels that an opaque `.screen.neon-backdrop` covers.
+    if (g && !COVERS_CANVAS.has(this.state)) {
       render(this.ctx, window.innerWidth, window.innerHeight, this.dpr, {
         cubes: g.cubes, constraints: g.constraints, compactor: g.compactor, cannon: g.cannon,
         trajectory: g.trajectory, now, aiming: g.aiming,
@@ -2490,8 +2658,9 @@ class App {
       // Tap-through for the bay-clear celebration — a player who has seen it
       // before shouldn't have to wait out the animation.
       case "skip-bayclear": this.afterBayClear(); break;
-      case "buy-upgrade": this.onBuyUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
-      case "refit-done": if (this.state === "refit") this.setState("draft"); break;
+      case "stage-upgrade": this.onStageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
+      case "unstage-upgrade": this.onUnstageUpgrade(el.getAttribute("data-upgrade") ?? ""); break;
+      case "refit-done": this.onRefitDone(); break;
       case "buy-unlock": this.onBuyUnlock(el.getAttribute("data-unlock") ?? ""); break;
       case "buy-install": this.onBuyInstall(el.getAttribute("data-install") ?? ""); break;
       // Only reachable in a build that rendered the button (see menuScreen),
@@ -2678,16 +2847,100 @@ class App {
       void tapHaptic();
       return;
     }
+    // The one HELD-TO-CONFIRM control: a press starts a charge meter and the
+    // charge is only spent if it fills (see BOND_HOLD_MS / startBondHold).
+    // Every pointer type, mouse included — the meter filling under the cursor
+    // is the affordance, and a mouse that fired instantly would flash it for
+    // nothing. Desktop's fast path is the B key, which stays a single press.
+    if (act === "bond") {
+      this.startBondHold(el, e.pointerId);
+      return;
+    }
     this.onGameAction(act);
   };
 
-  /** Ends an Autoloader burst on release, on the window rather than the button
-   *  so a thumb that drifts off mid-hold cannot leave the trigger stuck down. */
+  /** Ends an Autoloader burst — and cancels an unfinished Bond Breaker hold —
+   *  on release, on the window rather than the button so a thumb that drifts
+   *  off mid-hold cannot leave either trigger stuck down. Bound to
+   *  pointercancel too: a gesture the browser takes over (a system edge swipe)
+   *  must not leave a charge counting down behind a UI the player left. */
   private onGlobalPointerUp = (e: PointerEvent): void => {
+    if (this.bondHold && e.pointerId === this.bondHold.pointerId) this.clearBondHold();
     if (this.autoPointerId === null || e.pointerId !== this.autoPointerId) return;
     this.autoPointerId = null;
     this.game?.setAutoHeld(false);
   };
+
+  /** Starts the Bond Breaker's hold-to-confirm on one of its two triggers.
+   *
+   *  The charge is spent WHEN THE METER FILLS, not on the release after it:
+   *  the fill reaching the top is the moment the player is watching for, so
+   *  the field-wide shatter (and onBondBreak's thump + sound) lands with it
+   *  rather than waiting for a lift they have no reason to make. Releasing
+   *  early — or sliding the thumb off, see onBondHoldMove — drains the meter
+   *  and spends nothing.
+   *
+   *  Keyboard and gamepad deliberately do NOT hold: `B` and the pad button
+   *  fire on press, as does a keyboard activation of the button itself
+   *  (onClick's detail-0 branch). The accident this guards against is a thumb
+   *  grazing glass, which those devices cannot have — the same line input.ts
+   *  draws when it exempts the mouse from the misfire gate — and a hold
+   *  requirement on the keyboard path would only take the instant, one-key
+   *  route away from the players relying on it. */
+  private startBondHold(el: HTMLElement, pointerId: number): void {
+    this.clearBondHold();
+    // One number for the meter and the timer (see BOND_HOLD_MS).
+    el.style.setProperty("--bond-hold", `${BOND_HOLD_MS}ms`);
+    el.classList.add("bond-trigger--holding");
+    this.bondHold = {
+      pointerId,
+      el,
+      rect: el.getBoundingClientRect(),
+      timer: window.setTimeout(() => {
+        this.clearBondHold();
+        this.onGameAction("bond");
+      }, BOND_HOLD_MS),
+    };
+    window.addEventListener("pointermove", this.onBondHoldMove);
+    // The press is worth confirming on its own, before anything has happened
+    // yet: it is what tells a thumb that the hold has STARTED and is being
+    // counted. onGameAction's own tap follows a second later if it completes.
+    void tapHaptic();
+  }
+
+  /** Cancels the hold when the finger leaves the trigger it started on. A hold
+   *  the player can back out of by sliding away is the same escape hatch
+   *  input.ts gives a misfired drag — "nothing happened" has to be reachable
+   *  once the finger is already down. */
+  private onBondHoldMove = (e: PointerEvent): void => {
+    const h = this.bondHold;
+    if (!h || e.pointerId !== h.pointerId) return;
+    const r = h.rect;
+    if (
+      e.clientX < r.left - BOND_HOLD_SLOP ||
+      e.clientX > r.right + BOND_HOLD_SLOP ||
+      e.clientY < r.top - BOND_HOLD_SLOP ||
+      e.clientY > r.bottom + BOND_HOLD_SLOP
+    ) {
+      this.clearBondHold();
+    }
+  };
+
+  /** Tears a hold down — the timer, the button's meter and the move listener.
+   *  Called on release, on drift, the instant the hold completes, and whenever
+   *  play stops (setState), since a modal replacing the rail means the
+   *  pointerup that would have ended it is never coming. Idempotent. */
+  private clearBondHold(): void {
+    const h = this.bondHold;
+    if (!h) return;
+    window.clearTimeout(h.timer);
+    // Dropping the class ends the fill animation, and the base rule's
+    // transition drains the meter back down instead of blinking it away — an
+    // abandoned hold should visibly UNWIND, not just stop existing.
+    h.el.classList.remove("bond-trigger--holding");
+    this.bondHold = null;
+    window.removeEventListener("pointermove", this.onBondHoldMove);
+  }
 
   /** Drops the Autoloader trigger unconditionally — used whenever the game
    *  leaves "playing" (pause, win, loss, menu), since no pointerup is coming
@@ -2708,7 +2961,10 @@ class App {
     // and a SUCCESSFUL bomb arm still fired one. A press is worth confirming
     // even when its effect is invisible, so this is unconditional for every
     // press that lands (a disabled trigger never reaches here —
-    // onGamePointerDown drops it), and the arm's own tap goes.
+    // onGamePointerDown drops it), and the arm's own tap goes. Bond Breaker
+    // reaches this only once its hold COMPLETES, so its tap lands on the
+    // shatter rather than on the press that started counting (which got its
+    // own, in startBondHold).
     void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }

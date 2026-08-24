@@ -330,6 +330,135 @@ export function tiersCost(tiers: UpgradeTiers): number {
 }
 
 /* ---------------------------------------------------------------------------
+ * THE REFIT ORDER — what the yard has been asked to install, before a single
+ * point of scrap has changed hands.
+ *
+ * A refit stop used to spend on the tap: every button was a purchase, and a
+ * player who wanted to compare two builds had to buy one of them to see it.
+ * That is the opposite of what this stop is for. The whole reason the yard
+ * shows every track at once with its ladder spelled out — see refitScreen's
+ * note, and the draft it contrasts itself with — is that a refit is a PLAN,
+ * and a plan you cannot revise before committing is just a run of irreversible
+ * taps.
+ *
+ * So the yard now STAGES tiers into an order and Undock is the one commit (see
+ * run.ts's buyUpgrades). This type is that order: extra tiers per track, on top
+ * of whatever the ship already carries. Absent or 0 means nothing is queued
+ * there, so an empty object is an empty yard ticket and `{}` is always legal.
+ * ------------------------------------------------------------------------- */
+export type RefitOrder = Partial<Record<UpgradeId, number>>;
+
+/** The tier a track would sit at with the order installed. Clamped, so an
+ *  order hand-edited past the ladder's top reads as MAX rather than as a
+ *  fourth tier nothing implements. */
+export function orderedTier(tiers: UpgradeTiers, order: RefitOrder, id: UpgradeId): number {
+  return Math.min(MAX_TIER, (tiers[id] ?? 0) + Math.max(0, Math.floor(order[id] ?? 0)));
+}
+
+/** Every track's tier with the order installed — the loadout the yard's
+ *  projection is drawn against (see main.ts's refitHTML). */
+export function orderedTiers(tiers: UpgradeTiers, order: RefitOrder): UpgradeTiers {
+  const out = { ...tiers };
+  for (const def of UPGRADES) out[def.id] = orderedTier(tiers, order, def.id);
+  return out;
+}
+
+/** Rungs queued across every track — what the Undock button counts. Derived
+ *  from the clamped tiers rather than from the order's own numbers, so a
+ *  stale entry on a maxed track cannot inflate the count. */
+export function orderSize(tiers: UpgradeTiers, order: RefitOrder): number {
+  let n = 0;
+  for (const def of UPGRADES) {
+    n += orderedTier(tiers, order, def.id) - Math.min(MAX_TIER, tiers[def.id] ?? 0);
+  }
+  return n;
+}
+
+/** Scrap the whole order costs. Priced as the DIFFERENCE between two ladder
+ *  costs rather than by re-walking TIER_COSTS here: one ladder, priced in one
+ *  place, so the yard's running total can never disagree with what the commit
+ *  actually deducts. */
+export function orderCost(tiers: UpgradeTiers, order: RefitOrder): number {
+  return tiersCost(orderedTiers(tiers, order)) - tiersCost(tiers);
+}
+
+/**
+ * The RUNGS an order installs, in the order run.ts's buyUpgrades installs
+ * them: which track, the tier each rung climbs FROM, and what that rung costs.
+ *
+ * Exists so the commit and anything that has to narrate the commit read the
+ * same sequence off one function. main.ts's onRefitDone is the caller that
+ * makes it worth having: telemetry records a `scrapBefore` per rung, and
+ * reconstructing "the balance before each of six purchases" from a batch
+ * needs the rungs in installation order with their individual prices — which
+ * is exactly what buyUpgrades walks, and exactly the thing that would rot if
+ * it were walked twice.
+ *
+ * Clamped and price-terminated, so it enumerates only rungs that exist. It
+ * does NOT validate the order (buyUpgrades does that, strictly, before
+ * spending anything) — an order that climbs past the ladder simply has fewer
+ * rungs here than its numbers claim.
+ */
+export function orderRungs(
+  tiers: UpgradeTiers,
+  order: RefitOrder,
+): { id: UpgradeId; from: number; cost: number }[] {
+  const rungs: { id: UpgradeId; from: number; cost: number }[] = [];
+  for (const def of UPGRADES) {
+    const start = Math.min(MAX_TIER, tiers[def.id] ?? 0);
+    const want = Math.max(0, Math.floor(order[def.id] ?? 0));
+    for (let i = 0; i < want; i++) {
+      const cost = nextTierCost(start + i);
+      if (cost === null) break;
+      rungs.push({ id: def.id, from: start + i, cost });
+    }
+  }
+  return rungs;
+}
+
+/**
+ * Queue one more tier of `id`, or null when the yard cannot take it: the system
+ * is not aboard (tier 0 — a refit RAISES, it never installs; see run.ts's
+ * buyUpgrade), the track is already ordered to MAX, or the extra rung does not
+ * fit what is left of `scrap`.
+ *
+ * Affordability is checked against the WHOLE order, not against this rung
+ * alone. That is the difference a staged yard makes: with one purchase per tap
+ * the scrap was already gone by the time the next button rendered, and here it
+ * is not — so the button's disabled state has to price the queue behind it.
+ */
+export function stageTier(
+  tiers: UpgradeTiers,
+  order: RefitOrder,
+  id: UpgradeId,
+  scrap: number,
+): RefitOrder | null {
+  if ((tiers[id] ?? 0) <= 0) return null;
+  if (nextTierCost(orderedTier(tiers, order, id)) === null) return null;
+  const next: RefitOrder = { ...order, [id]: Math.max(0, Math.floor(order[id] ?? 0)) + 1 };
+  if (orderCost(tiers, next) > scrap) return null;
+  return next;
+}
+
+/**
+ * Take a track's queued rungs back off the order — ALL of them, not the last
+ * one, and that is the trap it avoids rather than a shortcut.
+ *
+ * The yard sells one control per card (the tap floor leaves room for one, and
+ * the draft's cards already settled that a single cycling button beats two).
+ * So the card's button stages while there is room and undoes once the track is
+ * ordered to MAX — and a one-rung undo there would leave a track oscillating
+ * between its top two tiers with no way back down to what the ship carries.
+ * Taking the whole track back is the escape, in one tap, from any staged state.
+ */
+export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
+  if (Math.max(0, Math.floor(order[id] ?? 0)) === 0) return order;
+  const next = { ...order };
+  delete next[id];
+  return next;
+}
+
+/* ---------------------------------------------------------------------------
  * BUILD BUDGET — the permanent, out-of-run layer (see docs/DESIGN.md).
  *
  * A Mark grants a fixed number of ladder points, spent freely across the six

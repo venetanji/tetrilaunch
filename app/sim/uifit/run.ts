@@ -63,15 +63,22 @@ const ONLY_DEVICE = opt("device");
 const ALLOWED_SCROLLERS = [
   "#lb-body",          // leaderboard rows — an unbounded list by definition
   ".workshop__shop",   // workshop stock
-  // The refit yard, added on arithmetic rather than preference. It offers seven
-  // upgrade tracks, each with a BUY button, and a button is 44px because that
-  // is the tap floor. Seven of them is 308px of button before a single label,
-  // pip or price; the modal's grid region on a 360px-tall phone is 198px. There
-  // is no layout that fits it — only shrinking the buttons back under the floor
-  // (the regression this project just fixed) or hiding purchases behind
-  // pagination. Same category as the workshop pane: a shop with more stock than
-  // screen. Packed to three columns at compact density so it scrolls as little
-  // as possible.
+  // The refit yard's SHELF, added on arithmetic rather than preference. It
+  // offers seven upgrade tracks, each with a BUY button, and a button is 44px
+  // because that is the tap floor. Seven of them is 308px of button before a
+  // single label, pip or price; the modal's shelf region on a 360px-tall phone
+  // is under 200px. There is no layout that fits it — only shrinking the
+  // buttons back under the floor (the regression this project once fixed) or
+  // hiding purchases behind pagination. Same category as the workshop pane: a
+  // shop with more stock than screen, and since the yard moved onto the
+  // Workshop's card it is that pane in every other respect too — one column of
+  // rows carrying whole sentences, scrolling rather than clamping them.
+  //
+  // NOT the projection beside it (#refit-preview). That panel has
+  // `overflow-y: auto` as a safety valve, and needing it is the defect: its
+  // job is to answer the tap the player just made, and an answer below a fold
+  // is not one. Leaving it off this list is what makes the `scrollers`
+  // assertion the alarm for a projection that outgrew its column.
   "#refit-grid",
   // NOT `.coach__body`. It was allowed here on the reasoning that when a
   // step's copy wants more than the panel's tutorial cap leaves, the card's

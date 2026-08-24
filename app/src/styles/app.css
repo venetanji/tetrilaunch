@@ -818,6 +818,79 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
+/* ---------- Bond Breaker: HOLD to fire (see main.ts's startBondHold) ----------
+   Both triggers are held, not tapped. The charge is the run's rarest
+   consumable and both buttons sit on glass a thumb is already dragging the
+   slingshot across, so a tap must not be able to spend one — main.ts's
+   BOND_HOLD_MS carries the full reasoning. This is what says so while the
+   press is counting: a charge meter fills the button from the bottom and the
+   rim tightens into a glow as it reaches the top.
+
+   The duration comes from main.ts as `--bond-hold`, never written here, so
+   the meter cannot finish at a different moment than the timer that actually
+   spends the charge (the fallback only covers the class being set without the
+   property). The two triggers wear different accents — amber on the rail,
+   violet on the plant chip — so the meter takes its colour from each button's
+   own `--bond-fill` rather than picking one and clashing with the other. The
+   chip's is a LIGHTER violet than its own `--accent-2` border on purpose: the
+   chip's ground is already a violet wash, and a meter in the same tone was
+   legible on a screenshot and not much more than that. The rail button's amber
+   needs no such lift — it fills over near-black.
+
+   `isolation` + the meter's negative z-index are what put the fill OVER the
+   button's own ground but UNDER its glyph and charge badge: a solid bar
+   painted on top would hide the very icon it is charging. The transition on
+   the base rule is the UNWIND — when main.ts drops the class the animation
+   ends and the meter drains back down, so an abandoned hold reads as
+   "nothing happened" rather than blinking out. */
+.bond-btn { --bond-fill: 255, 210, 63; }
+.mod--bb { --bond-fill: 178, 158, 255; }
+.bond-trigger {
+  isolation: isolate;
+  /* A one-second press must stay a press: no scroll, no long-press callout,
+     no text selection creeping in under the finger. (body already sets
+     touch-action/user-select globally; stated here so the hold does not
+     depend on that staying true for the whole app.) */
+  touch-action: none;
+  -webkit-touch-callout: none;
+}
+.bond-trigger::after {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  /* Brightest at the TOP — which, because the whole gradient is squeezed
+     into the scaled band, is always the meter's leading edge. It reads as a
+     wavefront climbing the button rather than a puddle rising in it, and it
+     keeps the strong end off the chip's "BOND BRK" label at the bottom. */
+  background: linear-gradient(0deg, rgba(var(--bond-fill, 255, 210, 63), 0.4), rgba(var(--bond-fill, 255, 210, 63), 0.95));
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+  opacity: 0;
+  transition: transform var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+  pointer-events: none;
+}
+.bond-trigger--holding::after { animation: bond-charge var(--bond-hold, 1000ms) linear forwards; }
+.bond-trigger--holding { animation: bond-charge-rim var(--bond-hold, 1000ms) linear forwards; }
+/* Starts at a VISIBLE sliver rather than at nothing: a graze that gets
+   nowhere still has to show that it started something and lost it, which is
+   how a player who tapped learns the button wants a hold. */
+@keyframes bond-charge {
+  from { transform: scaleY(0.08); opacity: 0.6; }
+  to { transform: scaleY(1); opacity: 0.95; }
+}
+@keyframes bond-charge-rim {
+  from { border-color: rgba(var(--bond-fill, 255, 210, 63), 0.85); box-shadow: 0 0 6px rgba(var(--bond-fill, 255, 210, 63), 0.3), var(--shadow-hard-sm); }
+  to { border-color: #fff; box-shadow: 0 0 18px 3px rgba(var(--bond-fill, 255, 210, 63), 0.9), var(--shadow-hard-sm); }
+}
+/* The meter STAYS under reduced motion — it is a progress indicator, and the
+   press it reports on cannot be understood without it. What goes is the rim
+   ramp, which is decoration, replaced by the same static outline
+   `.demo-trigger.armed` falls back to. */
+@media (prefers-reduced-motion: reduce) {
+  .bond-trigger--holding { animation: none; outline: 2px solid #fff; }
+}
+
 /* Demolition charges (see screens.ts's hudHTML / game.ts's armBomb) — hazard
    red so it reads as ordnance, not another utility. The .armed state is
    load-bearing: while armed, the next trigger pull fires a BOMB instead of the
@@ -2747,30 +2820,39 @@ body.crt-off #app::after { display: none; }
 @media (min-width: 640px) {
   .draft__body { grid-template-columns: 1.05fr 0.95fr; }
 }
-.draft__preview {
+/* THE PROJECTION PANEL (screens.ts's projectionHTML) — shared by the ratchet
+   draft, the Final Inspection and the refit yard. One panel because all three
+   ask the same question ("what does this do to the bay I am about to fly?"),
+   and a second copy of these rules is how they would drift apart. */
+.projection {
   display: flex; flex-direction: column; gap: 8px;
   text-align: left;
   padding: 10px 12px;
   border: var(--bw) solid var(--line);
   border-radius: var(--r-lg);
   background: rgba(8,8,18,0.55);
+  min-width: 0;
 }
-.draft__preview-hd {
+.projection__hd {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-dim);
 }
 /* min-width:0 because the compact tier pins this row to `white-space: nowrap`
-   (see .modal--draft .draft__preview-hd below), and a nowrap flex item takes
+   (see the .projection__hd rule at compact density below), and a nowrap flex item takes
    its minimum from the whole unbroken string — so without a floor the note
    cannot shrink and pushes itself straight out of the header instead of
    ellipsizing inside it. The Final Inspection's note is the longest copy this
    row carries, which is what made the missing floor visible; the draft's own
    note never reached it. */
-.draft__preview-note {
+.projection__note {
   color: var(--text-muted);
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* What the panel is FOR, said in the space it is waiting to fill. Only the
+   yard passes it (screens.ts's projectionHTML): a draft always has rows to
+   show, a yard with nothing staged may hold only the bay's priced five. */
+.projection__idle { margin: 0; font-size: var(--fs-sm); line-height: 1.35; }
 .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
 .preview-stat {
   display: flex; flex-direction: column; gap: 2px; min-width: 0;
@@ -2891,7 +2973,7 @@ body.crt-off #app::after { display: none; }
   .modal--draft .draft__bank .chip__value { font-size: 12px; }
   /* Kept on one line: wrapped, the projection's own header cost as much height
      as a row of stat tiles. */
-  .modal--draft .draft__preview-hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
+  .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
   .modal--draft .draft__cards { gap: 7px; }
   /* The projection is the reason the modal is worth opening, so it shrinks
      rather than scrolling away: tighter tiles, smaller labels, and a grid that
@@ -2906,7 +2988,7 @@ body.crt-off #app::after { display: none; }
     gap: var(--sp-2);
     grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   }
-  .modal--draft .draft__preview { padding: 5px 7px; gap: 4px; }
+  .projection { padding: 5px 7px; gap: 4px; }
   /* FOUR across, stated rather than solved. `auto-fit, minmax(76px, 1fr)` made
      the column count a function of a width the modal computes from vw: at
      640x360 the grid comes out 313.7px, four tracks need 4x76 + 3x4 = 316, and
@@ -2916,17 +2998,17 @@ body.crt-off #app::after { display: none; }
      flip the whole layout. A fixed count cannot be flipped by rounding, and at
      the four widths that reach compact it produces 75-90px tiles either way. */
   .modal--draft .preview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-  .modal--draft .preview-stat { padding: 2px 5px; gap: 0; }
-  .modal--draft .preview-stat__label { font-size: 8px; }
-  .modal--draft .preview-stat__long { display: none; }
-  .modal--draft .preview-stat__short { display: inline; }
+  .preview-stat { padding: 2px 5px; gap: 0; }
+  .preview-stat__label { font-size: 8px; }
+  .preview-stat__long { display: none; }
+  .preview-stat__short { display: inline; }
   /* The ACTIVE tag stands down here and lets the amber border carry the same
      fact. Four across, the tag took most of the tile's width and left the
      label as one letter — which loses the row's identity to keep a flag that
      the border was already flying. */
-  .modal--draft .preview-stat__live { display: none; }
-  .modal--draft .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
-  .modal--draft .preview-stat__from { font-size: 10px; }
+  .preview-stat__live { display: none; }
+  .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
+  .preview-stat__from { font-size: 10px; }
   .modal--draft .draft__confirm-note { font-size: 9px; }
   .refit-card__buy, .modal--draft .btn { line-height: 1; }
 }
@@ -3344,72 +3426,183 @@ button.panel { color: var(--text); }
 }
 
 /* ============================================================================
-   REFIT STOP (see screens.ts's refitScreen) — the FTL shop. Six always-visible
-   system cards with their full tier ladder, so the player can plan a build
-   rather than react to an offer.
+   REFIT STOP (see screens.ts's refitScreen) — the FTL shop, on the WORKSHOP'S
+   SHELF. One column of .shop-card rows with their whole copy, a projection
+   beside them, and Undock as the single commit.
+
+   The two-column rows this replaced fitted seven tracks on a phone by cutting
+   everything that said what a track DOES: the blurb reached the player nowhere
+   and the tier ladder lived in a title attribute, i.e. on hover, i.e. on the
+   devices this game does not ship to. The Workshop already settled that
+   argument for itself ("a shop where you cannot read what you are buying is
+   not a denser shop, it is a broken one") and this is the same shop, so it
+   reuses the same card: only the parts a refit has and an unlock does not —
+   pips, a before/after, an undo — are this screen's own.
    ========================================================================== */
 .modal--refit { text-align: left; }
-/* The title block takes the leftover width and the scrap chip stays pinned
+/* The title block takes the leftover width and the scrap box stays pinned
    right. Without `min-width: 0` the block's prose sets an intrinsic minimum
-   wide enough to push the chip onto its own line at some copy lengths — which
+   wide enough to push the box onto its own line at some copy lengths — which
    read as a layout bug that came and went depending on the next bay's name. */
 .refit__hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
 .refit__hdr > div:first-child { flex: 1 1 320px; min-width: 0; }
-/* Row form comes from .chip--inline (B3); only the flex sizing is this
-   chip's own. */
-.refit__scrap { flex: 0 0 auto; }
-/* The grid is the modal's flexible scrollable region (same idiom as #lb-body):
-   it shrinks and scrolls before the header or the Undock button ever clip, so
-   both stay reachable on a short landscape-phone viewport. */
-.refit__grid {
-  flex: 1 1 auto; min-height: 120px; overflow-y: auto; padding: 2px;
-  /* A14: two columns of ROWS, the leaderboard's own shape — stated, not
-     auto-fit, because the canvas's grammar is a two-column list at every
-     width this modal renders at. */
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;
-  align-content: start;
-}
-/* A14: the refit stop on the leaderboard scroll pattern — rows, not cards.
-   One row's grammar: glyph · name over its state line · tier pips · price
-   button (B6's words). The full tier ladder survives in `title`. */
-.refit-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: center; gap: 10px;
-  padding: 7px 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: var(--bw) solid var(--line);
+
+/* THE ORDER BOX — the yard's pinned constraint, exactly as the build budget is
+   the Workshop's. What it counts is what is LEFT after the staged order, not
+   what the run owns: the usual reason a button on this shelf is greyed out is
+   that the queue in front of it has already spent the scrap, and a running
+   total that scrolled away from the buttons it disables would be the one thing
+   this pane must not do. */
+.refit__order {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 10px;
   border-radius: var(--r-md);
+  border: var(--bw) solid var(--line);
+  background: var(--surface-2);
 }
-.refit-row--owned { border-color: rgba(0,240,255,0.45); }
-.refit-row__glyph { display: flex; color: var(--accent); flex: none; }
-.refit-row__body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.refit-row__name {
-  font-family: var(--font-display); font-weight: 700; font-size: 15px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.refit__order-label {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-muted);
 }
-/* The ship's CURRENT setting on this track — absolute, not a delta, because
-   the button beside it is the delta. */
-.refit-row__state {
-  font-size: 11px; color: var(--text-dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.refit__order-scrap { font-size: 16px; font-weight: 700; color: var(--warn); }
+/* The order's own line: how many rungs are queued and what they will cost.
+   Accent, not amber, because a staged tier is money that is still in the
+   pocket — the same "pending, not banked" the draft's notch tally wears. */
+.refit__order-spend {
+  font-family: var(--font-mono); font-size: 10px; color: var(--accent);
+  display: inline-flex; align-items: center; white-space: nowrap;
 }
-.refit-row__pips { display: flex; gap: 3px; flex: none; }
-.refit-row__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
-.refit-row__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
-.refit-row__foot { display: flex; justify-content: flex-end; min-width: 0; }
+.refit__order-spend--idle { color: var(--text-faint); font-family: var(--font-body); }
+
+/* Shelf and projection side by side, the draft modal's own split and for its
+   own reason: landscape phones are WIDE and short, so stacking would put the
+   numbers a tap is meant to move below the fold. The SHELF is the part that
+   scrolls (it is the harness's allowed scroller, #refit-grid); the projection
+   sizes to its content and must fit. */
+.refit__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+  /* STRETCH, not start. The shelf's `overflow-y: auto` is what zeroes its
+     automatic minimum size so the grid row can shrink past its content; start
+     alignment left the row sized by that content instead, and the panel wore
+     the difference. Stretched, the shelf gets the row's height and scrolls
+     inside it — which is the whole arrangement #refit-grid is allowlisted for. */
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+@media (min-width: 640px) {
+  /* The shelf takes the larger share: it is the half carrying sentences, and
+     the projection packs its tiles to whatever it is given. */
+  .refit__body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+}
+/* One column of rows, whole copy, and the pane scrolls — the Workshop's shelf
+   verbatim (see .workshop__grid for the argument). Seven tracks at the 44px tap
+   floor cannot fit a 360px-tall phone under any layout, which is why #refit-grid
+   is on sim/uifit's ALLOWED_SCROLLERS in the first place. */
+.refit__shelf {
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 120px;
+  overflow-y: auto; padding: 2px;
+}
+/* The projection column is BOUNDED, and that is a harness contract as much as a
+   layout one. Left to overflow (align-self: start, overflow visible) its last
+   row of tiles spilled silently out of the body and was painted behind the
+   Undock button — no fit violation, no clip, nothing for CI to see, because
+   nothing was actually cut. Stretched with `overflow-y: auto` it can only fail
+   LOUDLY: the tiles stay reachable on a real device, and sim/uifit's
+   `scrollers` assertion fires the moment it needs to be (this is deliberately
+   NOT on ALLOWED_SCROLLERS — the compact rules below are tuned so it never
+   scrolls, and a scroll here is the regression, not the design). */
+.refit__body .projection { align-self: stretch; min-height: 0; overflow-y: auto; }
+.refit__short { margin: 0; font-size: var(--fs-sm); }
+
+/* THE CARD. .shop-card carries the frame, the two-track row and the price rail;
+   everything below is the parts a refit has and an unlock does not.
+
+   The price track is CAPPED, which the Workshop's is not. An unlock's foot is
+   a price or a short gate line; a refit's is a whole sentence of button ("Take
+   back ×2 · +90"), and against `auto` that nowrap content took the track it
+   needed and left the body's `minmax(0, 1fr)` at 20px on the narrowest device
+   in the matrix — the description track collapsed so the button could stay
+   unabbreviated. The delta already knows how to ellipsise; the sentence does
+   not have anywhere to go. */
+.refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 190px); }
+/* The tier pips ride with the state line rather than the name: on a landscape
+   phone a name as long as "Press Hydraulics" pushed them onto a second line of
+   the name row, i.e. a line per card of the shelf to say what three dots say. */
+.refit-card__pips { display: inline-flex; gap: 3px; flex: none; align-self: center; }
+.refit-card__pips i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.refit-card__pips i.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,240,255,.9); }
+/* A QUEUED rung is a third state, not a lit one: it is paid for by an order
+   that has not been placed, so it reads as an outline the commit fills in. */
+.refit-card__pips i.queued {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--warn), 0 0 6px rgba(255,176,32,.55);
+}
+/* A staged card wears the order: amber border, amber outline pips, and an
+   amber value on its before/after. No "Staged" tag — on a landscape phone it
+   wrapped the name row onto a second line, i.e. it cost a line per staged card
+   to repeat what three other signals on the same card already said. */
+.refit-card--staged { border-color: rgba(255,176,32,0.55); background: rgba(255,176,32,0.06); }
+/* The track's own before → after. Same grammar as a projection tile (struck
+   old value, arrow, new one) because it is the same fact at a smaller scale —
+   what this one purchase does, next to what the whole order does. */
+.refit-card__step {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px;
+  font-size: var(--fs-sm); min-width: 0;
+}
+.refit-card__now { color: var(--text-dim); }
+.refit-card__from { color: var(--text-muted); text-decoration: line-through; }
+.refit-card__to-arrow { color: var(--text-dim); font-size: 11px; }
+.refit-card__to { color: var(--warn); font-weight: 700; }
+/* ONE control, cycling (see screens.ts's card note): the undo IS the buy
+   button in its other state, so it inherits the same box — and with it the
+   44px tap floor a second, smaller button could not have met. */
+.refit-card__foot { align-items: center; }
+.refit-card__undo { color: var(--warn); }
+.refit-card__undo .refit-card__price { color: var(--success); }
 /* Three parts on one row: direction, what changes, what it costs. The delta is
    the flexible one, so a long effect string ellipsises instead of pushing the
    price off the button. */
 .refit-card__buy {
   padding: 8px 10px; font-size: 10px;
   display: flex; align-items: center; gap: 6px;
+  flex: 1 1 auto; min-width: 0;
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
 .refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
+.refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+.refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
 /* B6's separator, shared by every buy button ("T2 · <scrap> 35"). */
 .price__sep { opacity: 0.55; margin: 0 2px; }
+
+/* THE YARD'S PROJECTION IS DENSER THAN THE DRAFT'S, at every size and not only
+   on a phone. The two panels carry different loads: a draft moves at most a
+   couple of rows and pins the run's banked axes, so it tops out near ten tiles
+   — a fully staged order moves TEN rows on its own and the grid runs to
+   seventeen. The draft's tile is sized for a modal that has height to spare;
+   this one has to fit seventeen of itself in the same box, so it trades a few
+   points of label and struck-value for the rows that buys. The new value keeps
+   its size throughout: it is the number the purchase is being priced by. */
+.modal--refit .preview-grid { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
+.modal--refit .preview-stat { padding: 4px 7px; }
+.modal--refit .preview-stat__label { font-size: 9px; }
+.modal--refit .preview-stat__val { font-size: 14px; }
+.modal--refit .preview-stat__from { font-size: 11px; }
+/* The display face at --fs-h1 costs an iPad 70px of header on the densest
+   modal in the app. The yard states its own name once and spends the rest of
+   its height on the shelf and the numbers. */
+.modal--refit h2 { font-size: clamp(18px, 3.4vh, 30px); }
+
+/* UNDOCK is the commit, so it wears the whole width and says what it will
+   install. The note under it is the promise staging makes — nothing has been
+   paid for yet — and it is the first thing to go on a short viewport. */
+.refit__foot { display: flex; flex-direction: column; gap: 4px; flex: 0 0 auto; }
+.refit__foot-note { margin: 0; font-size: 11px; line-height: 1.35; }
 
 /* THE CURRENCY READOUT — screens.ts's salvageHTML / scrapHTML, i.e. every scrap
    and salvage figure in the app. inline-flex rather than block, because the
@@ -3429,12 +3622,6 @@ button.panel { color: var(--text); }
      glyph inside the line it belongs to. */
   vertical-align: middle;
 }
-.refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
-.refit-row__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
-/* Tier 0: the system isn't on the ship, and no amount of scrap puts it there
-   — the row names the door that CAN (A14: never a live-looking price). */
-.refit-row__locked { font-size: 10px; color: var(--text-faint); text-align: right; line-height: 1.25; max-width: 130px; }
-.refit-row__locked b { color: var(--warn); font-weight: 600; }
 
 /* ============================================================================
    WORKSHOP (see screens.ts's workshopScreen) — the meta layer, between runs.
@@ -3875,52 +4062,116 @@ button.panel { color: var(--text); }
 .salvage-row__body span { font-size: 11px; line-height: 1.35; }
 .salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
 
-/* Short (landscape-phone) viewports: the refit grid and the salvage row are the
-   two blocks most likely to overflow, so tighten both. */
+/* Short (landscape-phone) viewports: the refit shelf and the salvage row are the
+   two blocks most likely to overflow, so tighten both.
+
+   SCOPED THROUGH .modal--refit almost throughout, and not for tidiness: the
+   `@media (max-height: 480px)` block above carries `.modal .btn { padding:
+   10px 20px }` at (0,2,0), so any bare class here loses to it at every viewport
+   where both queries match — i.e. every landscape phone, i.e. exactly the
+   viewports this block exists for. That trap has already been paid for once on
+   `.refit-card__buy`; the note there is the receipt. */
 @media (max-height: 520px) {
-  .modal--refit { gap: var(--sp-2); }
-  /* Vertical padding carries twice its weight here: every pixel is paid by
-     both rows of the grid. Horizontal padding stays — that is what keeps the
-     upgrade names off the card's edge. */
-  /* Seven rows in two columns against ~200px of grid: the row keeps its
-     shape and gives up its air — a stop the player visits every few bays
-     should need as little scrolling as the tap floor allows. */
-  .refit-row { padding: 3px 8px; gap: 7px; }
-  .refit-row__glyph .ico { width: 18px; height: 18px; }
-  .refit-row__name { font-size: 12px; }
-  .refit-row__state { font-size: 9.5px; }
-  .refit-row__pips i { width: 6px; height: 6px; }
-  /* Scoped through .modal--refit to actually WIN. As `.refit-card__buy` this
-     rule was (0,1,0) against the `.modal .btn { padding: 10px 20px }` in the
-     max-height:480 block above, which is (0,2,0) — so the padding here never
-     applied at any viewport where both queries match, i.e. every landscape
-     phone. Only the font-size landed, and the button stayed 35.5px tall.
-     That is 12px per card, 25px per grid, which is most of the second row. */
+  .modal--refit { gap: 5px; }
+  .modal--refit h2 { font-size: 17px; }
+  /* The WHOLE line goes, not just the standing sentence. "Next up: <bay>" is
+     the only part of it that changes, and the projection's own header states
+     the same bay one row lower ("CRYO VAULT — PROJECTED"), so on a 360px
+     viewport this is a line of header bought back for a row of tiles. Same
+     trade as .workshop__blurb, one step further. */
+  .modal--refit .refit__blurb { display: none; }
+  /* The order box lies DOWN here — label, balance and queue on one line
+     instead of three. It loses its air, never its numbers: the scrap left is
+     the one figure every disabled button on the shelf is explained by, and the
+     queue beside it is why that figure is not the run's. Worth ~24px of header,
+     and the header is where the projection's rows come from: the panel beside
+     the shelf is the one thing on this screen that cannot scroll, and on the
+     narrowest device in the matrix it had 2px to spare. */
+  .modal--refit .refit__order {
+    flex-direction: row; align-items: baseline; flex-wrap: nowrap;
+    gap: 8px; padding: 4px 9px;
+  }
+  /* …and the title block gives up its 320px basis so the row can sit BESIDE
+     it. .refit__hdr wraps, so a basis the narrowest viewport cannot honour
+     does not shrink the header — it pushes the order box onto a line of its
+     own and costs more than laying it flat just saved. */
+  .modal--refit .refit__hdr > div:first-child { flex-basis: 180px; }
+  .modal--refit .refit__order-scrap { font-size: 14px; }
+  .modal--refit .refit__order-spend { font-size: 9px; }
+  .modal--refit .refit__body { gap: 6px; }
+  /* The base 120px floor has to give way for the shelf to shrink into a short
+     viewport at all — without it the grid row cannot go below it and the panel
+     wears the difference. */
+  .modal--refit .refit__shelf { min-height: 0; gap: 4px; }
+  /* Rows keep their SENTENCE and give up their air, and the sentence is NOT
+     clamped — the Workshop's rule verbatim ("the description is the only thing
+     on the card that says what the purchase does, and it wraps to as many
+     lines as it needs — the pane scrolls, so the cost of a third line is a
+     third line, not a lost sentence"). Clamping it here would have given back
+     the exact thing this screen was rebuilt to buy; the shelf is an allowed
+     scroller precisely so it does not have to. */
+  .modal--refit .shop-card { padding: 4px 9px; gap: 1px 8px; border-radius: var(--r-md); }
+  /* NOWRAP, so the glyph cannot be orphaned onto a line of its own. The name
+     row is a flex container and the name itself is an anonymous item; left to
+     wrap, a card as narrow as the 640px device's put the icon on one line and
+     "Bay Extension" on the next. Nowrap lets the NAME wrap inside its own item
+     instead, which is where a two-line name belongs. */
+  .modal--refit .shop-card__name { font-size: 12px; gap: 5px; flex-wrap: nowrap; }
+  .modal--refit .projection__idle { font-size: 9.5px; }
+  .modal--refit .shop-card__name .ico { width: 11px; height: 11px; }
+  .modal--refit .shop-card__desc { font-size: 9.5px; line-height: 1.3; }
+  .modal--refit .shop-card__foot { min-width: 0; }
+  .modal--refit .shop-card__locked { font-size: 8px; max-width: 104px; }
+  .modal--refit .refit-card__pips i { width: 6px; height: 6px; }
+  .modal--refit .refit-card__step { font-size: 9.5px; gap: 4px; }
+  /* Scoped through .modal--refit to actually WIN — see this block's header for
+     what it is winning against. Left bare, only the font-size ever landed and
+     the button stayed 35.5px tall: 12px per card across the whole shelf. */
   .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; gap: 4px; }
+  /* The cap is the button's real width at this density, not a round number:
+     under it the delta starts ellipsising, and "+2 ce…" is not a delta (the
+     .refit-card__price note above is the standing rule — the price gives back
+     its air, the delta never gives up its tail). */
+  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 160px); }
   /* B6's tier prefix widened the price; on the narrow compact cards the
      price gives back its air rather than the delta giving up its tail
      ("+2 ce…" is not a delta). */
   .modal--refit .refit-card__price { gap: 2px; }
+  /* B6's tier prefix stands down here, and the price note above is what
+     sanctions it: "the price gives back its air rather than the delta giving up
+     its tail". The rung being bought is still on the card — it is what the
+     unlit pip beside the state line means — while the delta is the only thing
+     that says what the rung DOES, and "+2 ce…" says nothing. */
+  .modal--refit .refit-card__tier { display: none; }
   .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
   .modal--refit .price__sep { margin: 0 1px; }
-  /* The not-installed sentence is the DEFAULT state on a fresh rig — every
-     row a player who owns nothing sees is sized by it, so it tightens with
-     the rows. */
-  .refit-row__locked { font-size: 9px; max-width: 104px; }
-  /* Column policy and gap live in the [data-density="compact"] .refit__grid
-     rule at the bottom of this file — compact density covers every viewport
-     this height query matches (density is a height verdict at the same ~518px
-     threshold), so declarations here would be dead on arrival. This block kept
-     a fixed repeat(4) rule for a while after the density rule landed; it never
-     applied, and its rationale contradicted the density rule's in-file. Only
-     the min-height release survives, because the density rule doesn't set it:
-     the base .refit__grid's 120px floor has to give way for the grid to shrink
-     into a short viewport at all. */
-  .refit__grid { min-height: 0; }
-  /* The sentence explains the SCREEN; "Next up: <bay>" is the only part that
-     changes and the only part worth a line of a 360px viewport. Dropping it
-     buys back the row the seventh card needs. Same trade as .workshop__blurb. */
-  .refit__hint { display: none; }
+  /* Undock is the commit and stays the biggest thing on the screen, but at
+     the modal's default padding it was 50px of a 360px viewport. */
+  .modal--refit .refit__foot .btn { padding: 4px 12px; font-size: 10px; }
+  /* FOUR across, stated rather than solved — the same fixed-count reasoning
+     the draft's grid carries: a count solved from `auto-fit` is a function of a
+     width the modal computes from vw, and an engine whose text metrics differ
+     by a pixel could flip the whole layout. Four is what keeps a full order's
+     projection — every ship row moved at once, on a bay with banked axes — to
+     four rows in a column this narrow. */
+  .modal--refit .preview-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; }
+  /* Tighter than the draft's tiles, because the yard's grid is taller: a fully
+     staged order moves ten rows at once, and a moved tile is two lines where an
+     unmoved one is one. The label gives up a point and the struck old value two
+     — never the new value, which is the number the purchase is being priced by. */
+  .modal--refit .preview-stat { padding: 1px 4px; }
+  .modal--refit .preview-stat__label { font-size: 7.5px; }
+  .modal--refit .preview-stat__val { font-size: 11px; gap: 3px; line-height: 1.2; }
+  .modal--refit .preview-stat__from { font-size: 9px; }
+  .modal--refit .projection { gap: 2px; padding: 3px 5px; }
+  /* Even shares here, against 1.15/0.85 where there is width. The shelf
+     scrolls, so width it gives up costs a few wrapped words; the projection
+     does not, so width it gives up costs a whole row of tiles. */
+  .modal--refit .refit__body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  /* The promise that nothing is paid for yet is on the Undock button already
+     ("Install 3 · 90"). On a 360px-tall phone the sentence under it costs a
+     whole row of projection tiles. */
+  .refit__foot-note { display: none; }
   .salvage-row { padding: 4px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
@@ -4580,8 +4831,8 @@ button.panel { color: var(--text); }
   line-height: 1;
 }
 
-/* The refit yard's column policy is the base .refit__grid rule now (A14's
-   two-column row list at every width); density adds nothing on top. */
+/* The refit yard is ONE COLUMN of cards at every width (the Workshop's shelf —
+   see .refit__shelf); there is no column policy left for density to set. */
 
 /* ---------- Developer sandbox (ui/sandbox-screen.ts) ----------
    Only ever rendered in a build that compiled lib/sandbox.ts's gate to true, so

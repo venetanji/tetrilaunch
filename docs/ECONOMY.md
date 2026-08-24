@@ -58,6 +58,16 @@ price ladder of **20 / 35 / 55** scrap (110 for a full track).
 | **REACTOR** | +$60/120/180 float · +$15/30/45 per line | The economy track. |
 | **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
 
+**The stop is a plan, not a checkout.** Tapping a track *stages* a tier into an
+order; nothing is paid for until **Undock**, which installs the lot in one
+commit. That is what makes the stop's own claim — every track visible with its
+whole ladder, because a refit is a build you commit to — actually true: a player
+can assemble two rival builds and read what each does before spending a point of
+scrap. While an order is staged the yard prices every remaining button against
+what is *left* after it, and the projection beside the shelf redraws the next
+bay's numbers with the whole order installed (drawn from `levelForRun`, so it is
+the bay that will actually be flown).
+
 **Income sizing.** A clean bay clears ~8 lines → ~26 scrap. Stops arrive at
 roughly 78 / 156 / 234 cumulative scrap, i.e. "one track nearly maxed, or two
 opened" at the first stop. An FTL-shaped choice, not a shopping spree.
