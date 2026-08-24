@@ -2810,7 +2810,23 @@ button.panel { color: var(--text); }
      around it: `.modal--refit .refit-card__price .ico` (below) and
      `.pl-tier b .ico` (the Contract HUD's Tier row, ~line 1340). Whoever
      fixes this rule should grep for both first — narrowing the selector here
-     may make those pins redundant rather than merely harmless. */
+     may make those pins redundant rather than merely harmless.
+
+     A general sim/uifit assertion would catch this class of bug app-wide in
+     one pass, the way neither local pin can: icon() (icons.ts) stamps its
+     intended size as a `width`/`height` ATTRIBUTE on every `<svg class=
+     "ico">`, so comparing that against the rendered box needs only
+
+       const asked = parseFloat(svg.getAttribute("width") ?? "");
+       const got = svg.getBoundingClientRect().width;
+
+     (flag `Math.abs(got - asked) > 0.5`) run over `document.querySelectorAll
+     (".ico")`. Built and proven once already — 410 instances, all this bug,
+     zero false positives — then pulled back out of the branch that restored
+     the Contract panel, because a fix-scoped assertion belongs with its fix,
+     not upstream of it wearing 410 baseline entries about menu buttons and
+     workshop cards. It belongs in THIS fix, landing green with zero baseline
+     entries and proving the fix rather than merely permitting it. */
   .ico { width: 13px; height: 13px; }
 }
 

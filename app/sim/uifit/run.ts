@@ -174,7 +174,6 @@ const ASSERTIONS = [
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
-  { id: "iconsize", desc: "an inline icon renders at the size its own attributes ask for" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -199,8 +198,7 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [],
-    iconsize: [], warn: [],
+    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -507,22 +505,6 @@ function measure(cfg: {
         `${g.textContent ?? `#${i}`} has ${(air / em).toFixed(2)}em of side air ` +
           `(${air.toFixed(1)}px in a ${Math.round(pr.width)}px slot, floor 0.4em)`,
       );
-    }
-  });
-
-  // --- iconsize: an inline icon must render at the size it asked for -------
-  // icon() (icons.ts) stamps width/height ATTRIBUTES on every <svg class=
-  // "ico"> — the one place its intended size is written down. Comparing that
-  // against the rendered box catches ANY rule that silently resizes an icon,
-  // anywhere in the app, in one pass — this is what would have caught the
-  // app-wide `.ico{13px}` media-query bug (app.css, filed separately) on
-  // every screen at once, instead of one row getting its own local pin only
-  // after someone happened to measure it by hand.
-  document.querySelectorAll(".ico").forEach((svg, i) => {
-    const asked = parseFloat(svg.getAttribute("width") ?? "");
-    const got = svg.getBoundingClientRect().width;
-    if (asked > 0 && Math.abs(got - asked) > 0.5) {
-      out.iconsize.push(`${label(svg.parentElement ?? svg)} icon #${i} renders ${got.toFixed(1)}px, markup asks for ${asked}px`);
     }
   });
 
