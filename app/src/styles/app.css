@@ -1123,9 +1123,13 @@ body.crt-off #app::after { display: none; }
 .pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
 .pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
 .pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
-/* Urgency, shared by the launches counter (<= LOW_LAUNCH_WARN launches, see
-   main.ts's syncHud) and the clock (last 20s). One class, one look: both mean
-   "you are about to run out of the thing that lets you keep playing". */
+/* Urgency, shared by the supply counter and the clock (last 20s). One class,
+   one look: both mean "you are about to run out of the thing that lets you
+   keep playing". The supply threshold is per-mode, because only one of the two
+   numbers can jump: <= LOW_LAUNCH_WARN (3) for a Deep Run's launches, which is
+   an estimate of what the bankroll still buys, and <= LOW_SUPPLY_WARN (2) for a
+   Contract's budget or shipment queue, which is an exact countdown. See
+   main.ts's syncHud and screens.ts's LOW_SUPPLY_WARN. */
 .pl-stat--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
 .pl-stat--danger .lbl { color: var(--danger); }
 /* B7: the funds bar joins the ONE urgency treatment. When the launches

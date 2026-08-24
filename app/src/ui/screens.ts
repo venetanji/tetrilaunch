@@ -510,6 +510,10 @@ export function leaderboardScreen(rows: string): string {
  *      LOW_LAUNCH_WARN (3) or fewer, because that's the threshold where the
  *      correct play changes from "keep feeding the bay" to "this shot has to
  *      count". A number that changes your strategy deserves to change color.
+ *      A Contract reuses this slot for its supply (its launch budget, or a
+ *      pattern's shipment queue) and escalates one shot later, at
+ *      LOW_SUPPLY_WARN (2) — see that constant for why an exact countdown
+ *      warns later than an estimate.
  *   3. TIME                        equal-weight column beside it, already had
  *      its own red-pulse at 20s.
  *   4. RELOAD                      a bar under the readout tracking the launch
@@ -536,8 +540,32 @@ export function leaderboardScreen(rows: string): string {
  * compactor are canvas-drawn (render.ts's drawPistons) since they track the
  * compactor's live x every frame; this file only owns the DOM chrome.
  */
-/** Launches-left threshold at which the readout turns danger-red and pulses. */
+/** Launches-left threshold at which the readout turns danger-red and pulses.
+ *  Deep Run only — a Contract's supply escalates at LOW_SUPPLY_WARN. */
 export const LOW_LAUNCH_WARN = 3;
+
+/**
+ * The same urgency, one shot later, for a Contract's supply readout — its
+ * launch budget, or a pattern Contract's shipment queue (see main.ts's
+ * syncHud, which picks whichever one this Contract runs on).
+ *
+ * Deliberately BELOW LOW_LAUNCH_WARN, because the two readouts are not the
+ * same kind of number. A Deep Run's launches-left is an ESTIMATE of purchasing
+ * power — floor(funds / launchCostNow) — that can fall by more than one per
+ * shot when congestion moves the price, and can climb again when a line pays
+ * out. Its warning needs a shot of headroom to still be actionable by the time
+ * the player reacts to it. A Contract's supply is an EXACT countdown: one
+ * shot, one unit, never a jump, and the player can plan against it with
+ * certainty. That warning can wait until 2 without ever ambushing anyone.
+ *
+ * It also has to wait, because a Contract's supply starts small and this
+ * number is the entire readout. The shortest pattern queue is 4 shipments
+ * (contracts.ts's patternGoal floors at 2 lines = 16 cubes = 4 tetrominoes),
+ * so a threshold of 3 would latch the danger state after the FIRST shipment
+ * and hold it for the rest of the bay. A cue that is lit for three quarters of
+ * a mode is decoration, not a warning.
+ */
+export const LOW_SUPPLY_WARN = 2;
 
 /** The transport's direction cue: eight CSS-drawn chevrons marching toward the
  *  cannon (see app.css's .belt__arrows). Eight, and elements rather than the

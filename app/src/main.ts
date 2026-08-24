@@ -1758,9 +1758,13 @@ class App {
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
+      // The same urgency treatment the Deep Run readout gets below, one shot
+      // later: a Contract's supply is an exact countdown rather than an
+      // estimate of what the bankroll still buys, and it starts small. See
+      // screens.ts's LOW_SUPPLY_WARN for why the two thresholds differ.
       this.overlay
         .querySelector("#hud-launches-chip")
-        ?.classList.toggle("pl-stat--danger", supply <= 2);
+        ?.classList.toggle("pl-stat--danger", supply <= S.LOW_SUPPLY_WARN);
       // The remaining manifest, re-rendered only when it actually changes —
       // it's HTML (colored per piece type), so this can't go through `set`.
       if (pattern) {
