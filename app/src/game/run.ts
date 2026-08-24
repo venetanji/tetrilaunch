@@ -1,6 +1,7 @@
 import type { LevelConfig } from "./level";
 import { makeBaseLevel } from "./level";
 import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
+import { applyFinal, type FinalId } from "./finals";
 import { applyUpgrades, newTiers, type UpgradeTiers } from "./upgrades";
 
 /** Total levels in a roguelite run (see makeBaseLevel's 0..9 ladder). */
@@ -79,6 +80,15 @@ export interface RunState {
    *  what the run's leaderboard entry is filed under, so a run can't change
    *  which board it's competing on halfway through. */
   mark: number;
+  /** The Final Inspection clause accepted before the LAST bay (finals.ts), or
+   *  null for every bay before it.
+   *
+   *  Deliberately NOT a Ratchets entry, and the distinction is the whole point
+   *  of the feature: a ratchet is a permanent commitment priced by how often it
+   *  will be repeated, and at the last draft it will never be repeated. This is
+   *  a one-off clause on one bay, so it is stored as one — a single id, written
+   *  once, read only by levelForRun and only on the final bay. */
+  final: FinalId | null;
 }
 
 /** Bond Breaker charges a Bond Emitter of `tier` ships for the WHOLE run —
@@ -116,6 +126,8 @@ export function newRun(
     tiers: { ...loadout },
     unlocks: [...unlocks],
     mark,
+    // Nothing is inspected until the run reaches its last draft.
+    final: null,
   };
 }
 
@@ -125,6 +137,22 @@ export function newRun(
 export function isRefitBay(levelIndex: number): boolean {
   if (levelIndex >= RUN_LEVELS - 1) return false;
   return (levelIndex + 1) % REFIT_EVERY === 0;
+}
+
+/**
+ * True when the draft dealt after clearing bay `levelIndex` (0-based) is the
+ * run's LAST one — the Final Inspection (finals.ts) rather than the axis
+ * ratchet.
+ *
+ * `RUN_LEVELS - 2` because the offer is built at the moment the bay is won,
+ * before the run advances (main.ts), so `levelIndex` is still the bay just
+ * cleared: clearing bay 9 (index 8) is what opens the inspection on bay 10.
+ * Stated as a predicate rather than an inline comparison for the same reason
+ * hazards.ts states isMaterialDraft as one — the off-by-one here is invisible
+ * in review and glaring in play, and the sim can reach a named function.
+ */
+export function isFinalDraft(levelIndex: number): boolean {
+  return levelIndex === RUN_LEVELS - 2;
 }
 
 /**
@@ -222,6 +250,14 @@ export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
+  // The Final Inspection's clause, on the LAST bay only (finals.ts). After the
+  // ratchets for the same reason the ratchets come after the upgrades: each
+  // layer is the conditions the one below it is flown in, so a clause that
+  // scales a number scales the number the run actually arrived with — a rate
+  // cut takes a quarter of the REFITTED rate, not of the stock one. Guarded on
+  // the bay rather than on `final` being set, so a clause can never leak
+  // backwards into a replayed earlier bay.
+  if (run.levelIndex === RUN_LEVELS - 1) applyFinal(cfg, run.final);
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
   cfg.bondBreakerCharges = Math.max(0, run.bondCharges);
   return cfg;
@@ -288,6 +324,7 @@ export function advanceRun(
     tiers: { ...run.tiers },
     unlocks: [...run.unlocks],
     mark: run.mark,
+    final: run.final,
   };
 }
 

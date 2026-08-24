@@ -168,9 +168,14 @@ export function volatileBlast(
   cubes: Cube[],
   a: Matter.Body,
   b: Matter.Body,
+  /** Per-bay multiplier on the trigger speed (level.ts's volatileTriggerMult).
+   *  1 = stock, and a bay that never writes it behaves byte-identically to
+   *  before the knob existed. Below 1 the material is primed finer — see the
+   *  field's doc for why this is a multiplier rather than an absolute speed. */
+  triggerMult = 1,
 ): Cube[] {
   const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
-  if (rel < VOLATILE_TRIGGER_SPEED) return [];
+  if (rel < VOLATILE_TRIGGER_SPEED * (triggerMult > 0 ? triggerMult : 1)) return [];
   const primed = cubes.find(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );

@@ -31,7 +31,14 @@ export interface LevelConfig {
   jointBreakStretch: number;
   /** Points awarded per cleared line. */
   scorePerLine: number;
-  /** Penalty per piece that decays on the wrong side of the compactor. */
+  /** Penalty charged for cargo that decays on the wrong side of the compactor.
+   *
+   *  PER CUBE, not per piece, whatever the name says: game.ts bills
+   *  `lostCubes.length * penaltyPerLostPiece`, so a spilled tetromino costs
+   *  four times this and a spilled pentomino five. The name is kept because it
+   *  is threaded through saves, telemetry and the sim harness, but anything
+   *  that QUOTES the number to a player has to say which unit it is in (see
+   *  preview.ts's spill row). */
   penaltyPerLostPiece: number;
   /** Points needed to clear the level. */
   targetScore: number;
@@ -75,6 +82,22 @@ export interface LevelConfig {
    *  contracts.ts's salvageProfile for the other invariant (no row of it may
    *  already be complete, or the bay clears a line on frame one). */
   standingWall: number[];
+  /** What the standing wall is MADE of. "standard" — every Contract that opens
+   *  with one — is scrap that was pressed flat long before the player arrived:
+   *  it fills slots, counts for lines and is simply in the way.
+   *
+   *  A Final Inspection can open a bay on a wall of something worse
+   *  (finals.ts's Slag Wall and Ice Wall), and that is the whole reason this is
+   *  a field rather than a constant inside createStandingWall. The material
+   *  changes what the pile IS, not how it looks: slag fills a slot and can
+   *  never count, so a slag wall is rows that will not sell until a demolition
+   *  charge cuts them out; cryo is stamped unstruck, so an ice wall is rows
+   *  that count for nothing until something hits them hard enough — and that
+   *  the press will shatter, kicking their neighbours loose, if nothing does.
+   *
+   *  Read once, at bay start (pieces.ts's createStandingWall). Meaningless when
+   *  standingWall is empty, which is every ordinary bay. */
+  standingWallMaterial: Material;
   /** Hide the NEXT-shipment preview. A pattern Contract variant knob: the whole
    *  SET is still on the card, so this removes lookahead without removing
    *  information the player was promised. Never true in a Deep Run — a random
@@ -119,6 +142,19 @@ export interface LevelConfig {
    *  detonate). The economic core of the bomb: a junk pile that can never
    *  complete a line is still worth something. */
   salvagePerCube: number;
+  /** Multiplier on the impact speed that sets a VOLATILE cube off
+   *  (lineClear.ts's VOLATILE_TRIGGER_SPEED). 1 = stock, and every ordinary bay
+   *  is stock.
+   *
+   *  A multiplier rather than an absolute speed because the constant it scales
+   *  says outright that it is "only meaningful relative to" the cannon's speed
+   *  range and the world's gravity — an absolute number here would be a second
+   *  copy of that relationship, free to drift out of it. Below 1 the material
+   *  is primed finer: measured first-contact speeds run 17.3 to 30.8 across
+   *  every angle and power the cannon can produce, so 0.85 (a threshold of
+   *  18.7) leaves only the softest lob safe where stock leaves two thirds of
+   *  launches safe. finals.ts's Hair Trigger is the only thing that writes it. */
+  volatileTriggerMult: number;
   /** Funds paid per DEAD cube (one that can never count toward a line — slag)
    *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
    *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
@@ -129,7 +165,7 @@ export interface LevelConfig {
   /** Lines per demolition charge returned mid-bay; 0 = no resupply. Written
    *  only by the MAXED Demolition Rack (upgrades.ts), which is what turns that
    *  capstone from another +2 into a change in kind. A bay can out-last six
-   *  charges — PR #70's Slag Wall opens one on 11 cubes of slag — and the
+   *  charges — the Tier 6 Slag Wall clause opens one on 11 cubes of slag — and
    *  seventh dead shipment currently has no answer at all. See level.ts's
    *  bombResupply and game.ts's line-clear payout. */
   bombResupplyLines: number;
@@ -154,6 +190,21 @@ export interface LevelConfig {
    *  a learnable baseline instead of oscillating extreme-to-extreme or
    *  re-rolling every fraction of a second. Ignored when windMax is 0. */
   windGust: number;
+  /** PINNED prevailing wind, as a SIGNED FRACTION of windMax: -1 is a full
+   *  headwind at the bay's cap, +1 a full tailwind at it, 0 dead calm however
+   *  windy the bay is. null — every ordinary bay — rolls the average from the
+   *  seed the way it always has (game.ts's windAvg).
+   *
+   *  The seam a Final Inspection's wind fork runs on (finals.ts): the bay's
+   *  weather stops being a roll and becomes the thing the player CHOSE, which
+   *  is the only way a card can promise a headwind and be telling the truth.
+   *  A fraction rather than an absolute magnitude so the lock rides whatever
+   *  cap the bay actually carries — ratcheted Crosswind included — instead of
+   *  quietly capping a run that spent notches on the weather.
+   *
+   *  Ignored when windMax is 0 (the calm bays 1-3), same short-circuit the
+   *  drunk walk itself takes. */
+  windLock: number | null;
   /** Muzzle-speed multiplier from the LAUNCHER upgrade track (see
    *  upgrades.ts). 1 = stock. Scales both ends of the cannon's speed range
    *  (cannon.ts's speedMin/speedMax), so a powered launcher reaches deeper
@@ -768,6 +819,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     pieceQueue: null,
     mark: Math.max(1, Math.floor(mark)),
     standingWall: [],
+    // Meaningless while standingWall is empty, which is every Deep Run bay —
+    // named anyway so the field has one honest default rather than a hole a
+    // caller has to know to fill.
+    standingWallMaterial: "standard",
     hideNextPreview: false,
     // 1350, up from 900. The old cooldown was short enough that the reload bar
     // was almost never the thing you were waiting on — you fired, and by the
@@ -785,6 +840,9 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     materialMix: { ...NO_MATERIALS },
     bombCharges: 0,
     salvagePerCube: 8,
+    // Stock priming. Inert-by-default, the same stance windMax 0 and
+    // autoLaunchMs 0 take.
+    volatileTriggerMult: 1,
     slagBounty: SLAG_BOUNTY,
     bombResupplyLines: 0,
     launchPower: 1,
@@ -798,6 +856,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // WIND_GUST_FRACTION's doc above. windMax 0 (bays 1-3) makes this 0 too,
     // consistent with stepWind's own windMax===0 inert-wind short-circuit.
     windGust: windMax * WIND_GUST_FRACTION,
+    // Rolled, not pinned — a Final Inspection is the only thing that locks a
+    // bay's weather, and it writes this on top of a base level like every
+    // other one-off does.
+    windLock: null,
     bondBreakerCharges: 0,
     // ON. sim/pile.ts measured it, the bay now SHOWS it (render.ts's
     // congestion rows light the bay floor-up and the plant's Launch price

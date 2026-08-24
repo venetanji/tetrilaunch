@@ -552,7 +552,17 @@ export class Game {
     // different prevailing winds instead of all sharing the run seed's roll.
     this.windRng = mulberry32((seed ^ (level.id * 0x9e3779b9)) >>> 0);
     // Roll the bay's steady average in [-windMax, +windMax]; 0 stays 0 (calm).
-    this.windAvg = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
+    //
+    // The roll is DRAWN even when the bay's wind is locked (level.windLock —
+    // a Final Inspection's wind fork, see finals.ts) and then thrown away, so
+    // that the gust stream that follows sits at the same position either way.
+    // A locked bay is then the same weather TEXTURE as the one the seed would
+    // have dealt, with only its prevailing average moved — which is exactly
+    // what the card promises: the sign is the choice, not the whole climate.
+    const rolled = level.windMax === 0 ? 0 : (this.windRng() * 2 - 1) * level.windMax;
+    this.windAvg = level.windMax === 0 || level.windLock === null
+      ? rolled
+      : Math.max(-1, Math.min(1, level.windLock)) * level.windMax;
     this.windCur = this.windAvg;
     this.autoRng = mulberry32((seed ^ 0x5f356495 ^ (level.id * 0x85ebca6b)) >>> 0);
     this.bondCharges = level.bondBreakerCharges;
@@ -576,7 +586,7 @@ export class Game {
     // the aim line is drawn against the pile that is actually there, and before
     // the collision handler is registered because these cubes are placed rather
     // than launched — nothing about them is an impact.
-    this.cubes.push(...createStandingWall(this.phys.world, level.standingWall));
+    this.cubes.push(...createStandingWall(this.phys.world, level.standingWall, level.standingWallMaterial));
     this.updateTrajectory();
 
     this.onCollisionStart = (e) => {
@@ -606,7 +616,7 @@ export class Game {
         // rather than removed inline for the same reason bombs are — matter is
         // mid-solve here, and deleting bodies out from under the pair loop
         // corrupts the very iteration that found them.
-        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB);
+        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult);
         for (const c of blast) this.pendingBlast.add(c.body);
         // TAR: welds to whatever it settled against. Also deferred — adding a
         // constraint during collisionStart is the same mid-solve mutation.

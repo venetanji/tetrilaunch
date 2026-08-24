@@ -254,10 +254,11 @@ export const UPGRADES: UpgradeDef[] = [
       cfg.bombCharges += 2 * tier;
       // The capstone is a RESUPPLY LINE, not another +2. Six charges is a
       // budget for a bay, and a bay can out-last it: at two or three notches of
-      // slag, or under PR #70's Slag Wall, a seventh dead shipment arrives with
-      // nothing left to answer it. Metering the return on LINES makes the loop
-      // circular on purpose — bomb the slag, close the row, get the charge back
-      // — so the tier pays out for charges spent unblocking rather than hoarded.
+      // slag, or under the Tier 6 Slag Wall clause, a seventh dead shipment
+      // arrives with nothing left to answer it. Metering the return on LINES
+      // makes the loop circular on purpose — bomb the slag, close the row, get
+      // the charge back — so the tier pays out for charges spent unblocking
+      // rather than hoarded.
       // It will not rescue a bay that is already buried, and should not.
       if (tier >= MAX_TIER) cfg.bombResupplyLines = DEMO_RESUPPLY_LINES;
     },

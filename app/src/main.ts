@@ -2,9 +2,10 @@ import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
-  newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, baysUntilRefit, buyUpgrade,
-  bayMusic, RUN_LEVELS, type RunState,
+  newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
+  buyUpgrade, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
+import { finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
   hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
@@ -139,6 +140,17 @@ class App {
    *  ratcheted, and a player who changed their mind mid-draft could not tell
    *  which half of the choice had landed. */
   private pendingPicks: HazardId[] = [];
+  /** The two Final Inspection clauses on offer at the run's LAST draft
+   *  (finals.ts), or empty at every other draft. Non-empty is what puts the
+   *  draft into inspection mode — the two drafts share a state and a modal
+   *  shell but not a hand, and a single flag would have to agree with the hand
+   *  it describes. */
+  private pendingFinals: FinalDef[] = [];
+  /** The clause SELECTED at the inspection and not yet accepted. One id, never
+   *  a list: the two clauses are mutually exclusive readings of the same
+   *  inspection, so the hand is exactly one at every Tier — including the
+   *  capstone, where the ordinary draft asks for two notches. */
+  private pendingFinal: FinalId | null = null;
   /** Persistent meta-progression state (salvage + unlocks — see game/meta.ts).
    *  Loaded once at boot and written back on every purchase/run end. */
   private meta: MetaState = loadMeta();
@@ -581,6 +593,11 @@ class App {
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
       ratchets: this.run?.ratchets ?? {},
+      // Only on the bay the clause actually applies to (run.ts's levelForRun
+      // guards the same boundary): it is banked at the draft BEFORE that bay,
+      // and a HUD that named it any earlier would be advertising a pressure
+      // the bay on screen is not under.
+      final: this.run && this.run.levelIndex === RUN_LEVELS - 1 ? this.run.final : null,
       tiers: this.run?.tiers ?? ({} as UpgradeTiers),
       contract: this.contract
         ? {
@@ -1311,10 +1328,23 @@ class App {
         // (hazards.ts's hardestActive). That is still not "what you own" — it
         // is what you have already chosen to suffer, which is exactly what the
         // rule above is protecting.
-        this.pendingOffers = hazardOffers(
-          this.run.seed, this.run.levelIndex, this.run.mark, undefined, this.run.ratchets,
-        );
+        //
+        // Unless this is the LAST draft, which deals the Final Inspection
+        // instead (finals.ts): two clauses on the final bay, one of which the
+        // player accepts. A ratchet taken here would be a permanent commitment
+        // one bay before permanence expires, which is the whole reason the last
+        // draft deals something else.
+        if (isFinalDraft(this.run.levelIndex)) {
+          this.pendingFinals = finalsForTier(this.run.mark);
+          this.pendingOffers = [];
+        } else {
+          this.pendingFinals = [];
+          this.pendingOffers = hazardOffers(
+            this.run.seed, this.run.levelIndex, this.run.mark, undefined, this.run.ratchets,
+          );
+        }
         this.pendingPicks = [];
+        this.pendingFinal = null;
         this.setState("bayclear");
         this.bayClearTimer = window.setTimeout(() => this.afterBayClear(), S.BAY_CLEAR_MS);
       } else {
@@ -1511,12 +1541,31 @@ class App {
     this.refreshDraft();
   }
 
+  /** "pick-final": SELECT one Final Inspection clause, or clear it by tapping
+   *  the one already selected.
+   *
+   *  A plain radio group rather than hazards.ts's togglePick, because the hand
+   *  is exactly one at every Tier and the two clauses are alternatives rather
+   *  than a hand being filled — there is no "double this one" reading of an
+   *  inspection to preserve. Nothing is banked until "confirm-hazards", the
+   *  same contract the ratchet draft keeps, which is what lets the projection
+   *  redraw the final bay under each clause before the player commits. */
+  private onPickFinal(id: string): void {
+    if (!this.run || this.state !== "draft") return;
+    // Only from the hand actually dealt — a hand-edited data-final attribute
+    // must not let a player accept another Tier's clause.
+    if (!this.pendingFinals.some((f) => f.id === id)) return;
+    this.pendingFinal = this.pendingFinal === id ? null : (id as FinalId);
+    this.refreshDraft();
+  }
+
   /** The bay-clear ratchet modal's markup. Built here rather than inline in
    *  renderOverlay because refreshDraft renders it a second time, into a
    *  detached container, to lift the live regions out — two call sites, one
    *  set of options. */
   private draftHTML(g: Game): string {
     const run = this.run!;
+    if (this.pendingFinals.length) return this.finalHTML(g, run);
     return S.draftScreen({
       // levelIndex has already been stepped past the cleared bay by
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
@@ -1554,6 +1603,35 @@ class App {
     });
   }
 
+  /** The Final Inspection modal's markup — the last draft of a run (finals.ts).
+   *
+   *  Shares refreshDraft and the confirm action with the ratchet draft rather
+   *  than growing a second app state: it is the same moment in the loop (a bay
+   *  cleared, a cost accepted, the next bay begun) with a different hand, and a
+   *  parallel state would have meant a parallel copy of the focus-restoring
+   *  live-region patch below. */
+  private finalHTML(g: Game, run: RunState): string {
+    return S.finalScreen({
+      bayNum: run.levelIndex,
+      bayName: g.level.name,
+      tier: run.mark,
+      nextBayName: makeBaseLevel(run.levelIndex).name,
+      funds: g.score,
+      carry: run.carry,
+      offers: this.pendingFinals,
+      selected: this.pendingFinal,
+      // Both sides come from levelForRun, so the projection is drawn from the
+      // config the final bay is actually built from — the same rule the ratchet
+      // draft follows, and the reason a clause's effect is never modelled twice.
+      preview: previewRows(
+        levelForRun(run),
+        levelForRun({ ...run, final: this.pendingFinal }),
+        run.ratchets,
+      ),
+      scrap: run.scrap,
+    });
+  }
+
   /** Re-render the draft's live regions IN PLACE on every toggle — the cards,
    *  the projection, the confirm button and the notch tally — rather than
    *  calling renderOverlay(). A full re-render recreates `.modal-scrim` and
@@ -1572,8 +1650,11 @@ class App {
     // D-pad) flow lost its place on every single choice. Remember which
     // control held focus and put it back on the fresh copy (D4).
     const active = document.activeElement as HTMLElement | null;
-    const focusSel = active?.closest("[data-hazard]")
-      ? `[data-hazard="${active.closest("[data-hazard]")!.getAttribute("data-hazard")}"]`
+    // Both hands' cards, since the inspection reuses this patch (finalHTML).
+    const card = active?.closest("[data-hazard]") ?? active?.closest("[data-final]");
+    const attr = card?.hasAttribute("data-hazard") ? "data-hazard" : "data-final";
+    const focusSel = card
+      ? `[${attr}="${card.getAttribute(attr)}"]`
       : active?.closest('[data-action="confirm-hazards"]')
         ? '[data-action="confirm-hazards"]'
         : null;
@@ -1597,6 +1678,18 @@ class App {
    *  the markup is not a gate. */
   private onConfirmHazards(): void {
     if (!this.run || this.state !== "draft") return;
+    // The Final Inspection banks a clause instead of notches. Gated on a chosen
+    // clause for the same reason the ratchet is gated on a full hand: the pick
+    // is the mandatory price of the bay just cleared, and a gate that lives
+    // only in the markup is not a gate.
+    if (this.pendingFinals.length) {
+      if (!this.pendingFinal) return;
+      this.run = { ...this.run, final: this.pendingFinal };
+      this.pendingFinals = [];
+      this.pendingFinal = null;
+      this.startLevel();
+      return;
+    }
     if (this.pendingPicks.length < picksPerBay(this.run.mark)) return;
     this.run = { ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) };
     this.pendingPicks = [];
@@ -2080,6 +2173,9 @@ class App {
       case "restore": void this.onRestore(); break;
       case "pick-hazard":
         this.onPickHazard(el.getAttribute("data-hazard") ?? "");
+        break;
+      case "pick-final":
+        this.onPickFinal(el.getAttribute("data-final") ?? "");
         break;
       case "confirm-hazards": this.onConfirmHazards(); break;
       // Tap-through for the bay-clear celebration — a player who has seen it

@@ -93,7 +93,8 @@ old version lacked.
 ## Slag: a bounty, and a resupply line
 
 Slag was the one material that was never anything but a loss, and `hazards.ts`
-said so out loud — "the one material with no passive counter". PR #70 measured
+said so out loud — "the one material with no passive counter". The Final
+Inspection pass measured
 the cost from the other side: one notch at the ladder's gentlest rate takes the
 `aim` bot from 100% to 0%, because it cannot fire the charge that is slag's only
 exit. Two different failures hid under that, and they got two different answers.
@@ -329,6 +330,121 @@ taken by a player who has no idea yet what a notch feels like. That is the same
 reasoning that already took `TIME_NOTCH` from 20 to 5, carried the rest of the
 way.
 
+## The Final Inspection: the last choice of a run
+
+`finals.ts`. Every bay-clear but one deals the axis ratchet — pick a notch, it
+sticks for the rest of the run. That contract stops meaning anything at the last
+draft, because there is no rest of the run: a notch taken before bay 10 is a
+notch taken *for* bay 10 and nothing else, so the ratchet's whole shape (cheap
+now, ruinous by the tenth repeat) is spent on a decision that will never repeat.
+
+So the draft dealt after bay 9 deals something else: **two clauses attached to
+the final bay, one of which the player must take.** Three properties.
+
+**It is the Tier's own exam.** A Tier opens exactly one new hazard axis and the
+Workshop sells exactly the system that makes it cheap; the inspection asks that
+pairing as a question. Tier 1 taught the money axes and sold the Reactor, so its
+final bay is about money. Tier 2 taught the wind and sold the Launcher, so its
+final bay is weather. The card names the system, once, on the last screen where
+knowing it can still change anything.
+
+| Tier | System | Clause | …or |
+|---|---|---|---|
+| 1 | Reactor Output | **Rush Order** — quota +$800 | **Rate Cut** — every line pays 20% less |
+| 2 | Launcher Coils | **Head Gale** — a dead-steady gale into the muzzle, at the cap | **Tail Gale** — a gale dead astern, at the cap, gusting 3× |
+| 3 | Press / Bay | **Double Shift** — the press runs at 2× | **Tight Gauge** — the bay gives up 2 open cells |
+| 4 | Bay Extension | **Cold Chain** — 22% of the belt frozen | **Ice Wall** — the bay opens on 11 cubes of unthawed salvage |
+| 5 | Bond Emitter | **Rebar Run** — 32% of the belt rigid | **Cold Weld** — nothing in the bay comes apart on its own |
+| 6 | Demolition Rack | **Slag Run** — 17% of the belt dead | **Slag Wall** — the bay opens on 11 cubes of somebody else's slag |
+| 7 | Bay Extension | **Powder Run** — 27% of the belt volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
+| 8 | Demolition Rack | **Tar Run** — 18% of the belt tar | **Fouled Bay** — 12% tar, congestion bites 12 cubes earlier |
+| 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
+| 10 | Bond Emitter | **Dead Weight** — every shipment a pentomino, +50% a launch | **Short Measure** — every shipment a domino, −40% a launch |
+
+**Both clauses are equally bad, and bad differently.** That is what makes it a
+choice rather than a toll, and it is the part that had to be measured. The unit
+is *extra lines the final bay demands*, and Tier 1 is the clean case: a flat
+quota raise costs a fixed amount of revenue, so its price in lines falls as your
+rate rises; a percentage cut costs a share of everything you earn, so its price
+falls faster. The two **cross**, and the crossing is parked at the mid-track
+Reactor — which is what a bay-10 rig typically carries. Below it take the flat
+raise, above it take the percentage. The right answer is a direct readout of how
+good your rate actually is.
+
+The owner's original sketch was +$1000 against −25%. Both moved: at $1000 the
+percentage wins at every rig and the crossing falls off the bottom of the table,
+which is a pair with a right answer, i.e. not a pair.
+
+**Neither is a lose button.** Every clause is floored the way `Shift Cut` is
+floored, for the reason `hazards.ts` gives — an axis that can reach an
+unplayable bay is a lose button, not a difficulty knob — and harder here,
+because this fires on the run's last bay where a dead bay costs the whole run.
+`sim/systems.ts` builds the worst arrival it can (every axis the Tier deals,
+ratcheted as deep as a run can take it) and asserts the resulting bay still has
+a clock, a press stroke, a payable line and cargo to build rows out of.
+
+### What the measurement could and could not settle
+
+Two instruments: `contracts.ts`'s own launch-budget model (exact for money,
+cargo size, line width and materials; blind to physics) and the `aim` bot at 20
+seeds a cell. The full table lives in `finals.ts`'s header.
+
+**Six of the twenty clauses measured at or above the bay they are meant to make
+harder.** That looks like six broken cards. It is not — sorted by what each
+clause takes away, all twenty fall into three groups with no exceptions:
+
+| What the clause takes away | Clauses | Bot |
+|---|---|---|
+| **Cubes that can reach a line** | every material clause, plus Cold Weld and Dead Weight | −15 to −70 |
+| **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, Short Measure | free or better |
+
+The third group is the finding. The bot does not plan a row — it solves an angle
+and fires on every cooldown — so a clause that shrinks the space of *good*
+placements costs it nothing, while one that shrinks the space of *legal* ones
+sometimes helps. `Tight Gauge` is the proof: a narrower bay took its conversion
+from 4.30 shots per line to 2.87, because a nearer open stop packs the pile
+tighter, which is the metric the bot is implicitly optimising.
+
+So the table is **a measurement of the harness, not of those six clauses**: this
+bot prices cubes-into-lines and money, and is blind to placement quality by
+construction. It is equally not evidence that they *are* costs — nothing here,
+and nothing else in the repo, measures how hard a bay is to plan. That gap is
+what a device playtest fills, and it is where those six clauses live.
+
+Two consequences are already in the numbers:
+
+- **Material rates are set against the ladder, not the bot.** One notch of slag
+  or cryo at `materialRate(1) = 0.07` — a rate the shipped game deals routinely
+  — takes the bot from 100% to 0%. A 0% row says nothing about the number, so
+  no rate a card QUOTES exceeds what `materialRate` reaches at six notches
+  (`MATERIAL_CAP`, 0.32). The rate actually delivered can sit above it: a
+  clause floors its material at the card's rate and then adds a notch on top,
+  bounded by `FINAL_MATERIAL_CAP` (0.4) — see `finals.ts`'s `schedule`.
+- **The bot's cadence is not a human's** — the same limit `PILE_TIERS` learned
+  the hard way. `Fouled Bay` is priced in exactly that currency.
+
+Two corrections fell out of the pricing and are worth stating on their own.
+
+`applyFinal` runs *after* `applyRatchets`, which is where `MIX_TOTAL_CAP` is
+enforced — so a material clause landing on an already-full belt pushed it to
+0.78 against a cap of 0.55. It now re-caps, holding the clause's own material at
+the rate its card quotes and taking the reduction from the ratcheted ones.
+
+Because that rate is a floor rather than a quantity, the six material cards
+read **"at least N%"**. A run carrying two Slag notches meets `Slag Wall`'s 8%
+card with a belt at 12%: the design is deliberate — a mandatory cost the
+player's own earlier choices could pre-pay is not a cost — but a bare number
+would be wrong on exactly the arrivals where it matters. `sim/systems.ts` pins
+it: a clause whose delivered rate can exceed its own clean-bay rate must say so
+on its face.
+
+`penaltyPerLostPiece` is charged **per cube**, not per piece
+(`lost = lostCubes.length`), so a spilled tetromino costs four times the number
+the field is named for and a spilled pentomino five. The field keeps its name —
+it is threaded through saves, telemetry and the harness — but the projection
+tile now says which unit it is in.
+
 ## Tuning
 
 Everything is a named constant with a comment:
@@ -342,6 +458,8 @@ Everything is a named constant with a comment:
 - `run.ts` — `REFIT_EVERY`
 - `level.ts` — `PILE_TIERS` (congestion thresholds and penalties)
 - `hazards.ts` — `TIME_LADDER`, `COST_LADDER`
+- `finals.ts` — `FINALS` (the Final Inspection's twenty clauses, one pair per
+  Tier), `RUSH_ORDER_QUOTA`, `RATE_CUT`, `SALVAGE_PROFILE`, `FOULED_ALLOWANCE`
 
 `npm run sim:balance` sweeps bays × bots × mods; `npm run sim:pile` sweeps the
 congestion tax (and `--census` alone answers "how full is a bay actually"). Two caveats it can't see past:
