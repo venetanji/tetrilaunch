@@ -1230,6 +1230,9 @@ body.crt-off #app::after { display: none; }
 .pl-notch__ax { flex: none; }
 .pl-notch__ax.k-bane { color: var(--danger); }
 .pl-notch__ax.k-tradeoff { color: var(--warn); }
+/* The Final Inspection's clause on the last bay — same violet as its card, so
+   the thing the player signed for and the thing biting them are one colour. */
+.pl-notch__ax.k-final { color: var(--accent-2); }
 .pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
 .pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
@@ -2125,6 +2128,18 @@ body.crt-off #app::after { display: none; }
 .mod-card--tradeoff:hover, .mod-card--tradeoff:focus-visible { border-color: var(--accent); box-shadow: 4px 4px 0 rgba(0,240,255,0.45); }
 .mod-card--tradeoff .mod-card__kind { color: var(--accent); background: rgba(0,240,255,0.12); }
 
+/* FINAL INSPECTION clause (game/finals.ts). Its own colour rather than
+   borrowing bane's red or tradeoff's cyan: the last draft of a run is neither
+   a material nor an axis, and the two clauses on it are alternatives of equal
+   weight — colouring one of them "danger" would put a thumb on a scale the
+   whole feature exists to keep level. --accent-2 violet is the colour nothing
+   else in the run uses, which is the right thing for the one card a run deals
+   once, and it stays clear of the amber the plant panel's notch line already
+   spends on number axes. */
+.mod-card--final { border-color: rgba(122,92,255,0.45); }
+.mod-card--final:hover, .mod-card--final:focus-visible { border-color: var(--accent-2); box-shadow: 4px 4px 0 rgba(122,92,255,0.45); }
+.mod-card--final .mod-card__kind { color: var(--accent-2); background: rgba(122,92,255,0.14); }
+
 /* SELECTED, not taken. The draft toggles a tentative hand and commits on a
    separate button (screens.ts's draftScreen), so a picked card has to hold a
    loud, persistent state — hover's 2px lift is not it, and without a state the
@@ -2142,6 +2157,11 @@ body.crt-off #app::after { display: none; }
   background: linear-gradient(180deg, rgba(255,45,85,0.16), rgba(12,12,24,0.97));
   box-shadow: 4px 4px 0 rgba(255,45,85,0.5), inset 0 0 0 1px rgba(255,45,85,0.35);
 }
+.mod-card--picked.mod-card--final {
+  border-color: var(--accent-2);
+  background: linear-gradient(180deg, rgba(122,92,255,0.18), rgba(12,12,24,0.97));
+  box-shadow: 4px 4px 0 rgba(122,92,255,0.5), inset 0 0 0 1px rgba(122,92,255,0.35);
+}
 /* The card's footer says what the NEXT tap does, which is not the same on a
    selected card as on an empty one. Pinned to the bottom so the two cards'
    footers line up however long their descriptions run. */
@@ -2153,6 +2173,7 @@ body.crt-off #app::after { display: none; }
 }
 .mod-card--picked .mod-card__pick { color: var(--accent); }
 .mod-card--picked.mod-card--bane .mod-card__pick { color: var(--danger); }
+.mod-card--picked.mod-card--final .mod-card__pick { color: var(--accent-2); }
 .mod-card__mark { font-size: 10px; }
 /* Pending notches on the tally chip: banked and selected are different facts,
    so the chip adds "+1" rather than quietly counting up. */
@@ -2192,7 +2213,17 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--text-dim);
 }
-.draft__preview-note { color: var(--text-muted); }
+/* min-width:0 because the compact tier pins this row to `white-space: nowrap`
+   (see .modal--draft .draft__preview-hd below), and a nowrap flex item takes
+   its minimum from the whole unbroken string — so without a floor the note
+   cannot shrink and pushes itself straight out of the header instead of
+   ellipsizing inside it. The Final Inspection's note is the longest copy this
+   row carries, which is what made the missing floor visible; the draft's own
+   note never reached it. */
+.draft__preview-note {
+  color: var(--text-muted);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+}
 .preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 8px; }
 .preview-stat {
   display: flex; flex-direction: column; gap: 2px; min-width: 0;

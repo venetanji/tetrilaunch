@@ -6,6 +6,7 @@ import {
   PENTA_SHAPES,
   PIECE_COLORS,
   MATERIAL_SPEC,
+  shipmentColor,
   type Material,
   type PieceSize,
   type PieceType,
@@ -184,11 +185,20 @@ export const JOINT_DAMPING = 0.3;
  * Cubes for a bay's SALVAGE WALL — the pile a Contract variant opens with
  * (level.ts's standingWall), already settled on the slot grid.
  *
- * Loose cubes, deliberately: no joints, no piece type, no material. A standing
- * wall is scrap that was pressed flat long before the player arrived, so
- * shattering it means nothing and no shipment ever "delivered" it. That also
- * makes it exactly what lineClear.ts wants — one settled, aligned, countable
- * cube per slot — with no press stroke needed to square it first.
+ * Loose cubes, deliberately: no joints and no piece type. A standing wall is
+ * scrap that was pressed flat long before the player arrived, so shattering it
+ * means nothing and no shipment ever "delivered" it. That also makes it exactly
+ * what lineClear.ts wants — one settled, aligned cube per slot — with no press
+ * stroke needed to square it first.
+ *
+ * It DOES have a material (level.ts's standingWallMaterial), and that is the
+ * one thing about a wall that is not cosmetic. `struck` is stamped from the
+ * material's own rule rather than hardcoded true, so a wall of something that
+ * needs striking (cryo) opens the bay owing the player a hit on every cube of
+ * it, while a wall of something that can never count (slag) opens the bay with
+ * rows that will not sell until a demolition charge cuts them out. Standard —
+ * every Contract that opens with a wall — is stamped struck and behaves exactly
+ * as it always did.
  *
  * `standing[k]` is how many cells of slot column k are filled, counted up from
  * the floor, with k measured from the wall outward: the same index
@@ -198,6 +208,7 @@ export const JOINT_DAMPING = 0.3;
 export function createStandingWall(
   world: Matter.World,
   standing: readonly number[],
+  material: Material = "standard",
 ): Cube[] {
   const cubes: Cube[] = [];
   standing.forEach((height, k) => {
@@ -224,10 +235,16 @@ export function createStandingWall(
         // shape is a square, so a wall cube rendered from its type reads as the
         // single block it is rather than a fragment of something larger.
         type: "O",
-        color: PIECE_COLORS.O,
+        // The material overrides the type's colour where it has one (theme.ts's
+        // shipmentColor), which is the whole point: a slag wall has to read as
+        // dead metal from across the bay, exactly as a slag shipment does.
+        color: shipmentColor("O", material),
         blinkStart: null,
-        material: "standard",
-        struck: true,
+        material,
+        // From the material's own rule rather than a flat true: a wall of ice
+        // opens the bay unstruck and therefore counting for nothing, which is
+        // the entire cost of that clause.
+        struck: !MATERIAL_SPEC[material].needsStrike,
       });
     }
   });

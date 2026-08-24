@@ -21,7 +21,8 @@ import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import type { UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
-import { levelForRun, newRun } from "../../src/game/run";
+import { finalsForTier } from "../../src/game/finals";
+import { levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { dailyContracts } from "../../src/game/contracts";
 
 const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
@@ -68,6 +69,39 @@ function draft(selected: HazardId[]): string {
     ),
     scrap: 340,
     baysToRefit: 2,
+  });
+}
+
+/** The FINAL INSPECTION (game/finals.ts) — the run's last draft.
+ *
+ *  Tier 10 deliberately: its clauses carry the longest copy in the table and
+ *  its projection is the widest the screen can produce, because the pair moves
+ *  cargo size and the launch price at once on a bay that already has four
+ *  banked axes pinned ACTIVE. A screen that fits this fits every other Tier's.
+ */
+function inspection(selected: string | null): string {
+  const run = {
+    ...newRun(20_260_815, [], 400, undefined, 10),
+    levelIndex: RUN_LEVELS - 1,
+    carry: 120,
+    scrap: 340,
+    ratchets: HUD_BASE.ratchets,
+  };
+  return S.finalScreen({
+    bayNum: 9,
+    bayName: "Gravity Well",
+    tier: 10,
+    nextBayName: "Compactor Core",
+    funds: 1_820,
+    carry: 120,
+    offers: finalsForTier(10),
+    selected,
+    preview: previewRows(
+      levelForRun(run),
+      levelForRun({ ...run, final: selected as never }),
+      HUD_BASE.ratchets,
+    ),
+    scrap: 340,
   });
 }
 
@@ -380,6 +414,12 @@ export const SCREENS: Record<string, () => string> = {
   // two-pick hand moves the most rows at once. Measured as its own screen so a
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
+
+  // The Final Inspection, both states, for the same reason the draft ships
+  // both: accepting a clause grows a struck-through old value on every row it
+  // moves, and the Tier-10 pair moves the most rows of any pair.
+  inspection: () => inspection(null),
+  "inspection-signed": () => inspection("dead-weight"),
 
   // The tutorial, EVERY step. It used to be the two extremes — step 0 (plant
   // fully collapsed) and step 3 (most of the readout revealed) — on the

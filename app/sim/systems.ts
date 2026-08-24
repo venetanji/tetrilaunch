@@ -25,7 +25,7 @@ import {
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
-  materialRate, totalNotches, MATERIAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
+  materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
   type HazardId, type Ratchets,
 } from "../src/game/hazards";
@@ -53,9 +53,12 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isRefitBay, levelForRun, newRun,
-  CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isFinalDraft, isRefitBay, levelForRun,
+  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
+import {
+  FINALS, applyFinal, finalById, finalsForTier, type FinalId,
+} from "../src/game/finals";
 import {
   dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
@@ -4277,6 +4280,437 @@ section("Escalating hazard ladders (hazards.ts TIME_LADDER / COST_LADDER)");
   const manyCuts = applyRatchets(base, { time: 12 });
   check("the clock floor still holds at depth", manyCuts.timeLimitSec === 45,
     String(manyCuts.timeLimitSec));
+}
+
+// ---------------------------------------------------------------------------
+section("Final Inspection: the run's last draft (finals.ts, run.ts)");
+{
+  // EVERY Tier deals a pair. A Tier with no pair falls back to the table's top
+  // rung rather than dealing nothing (finalsForTier), which is the right
+  // behaviour for a Tier ABOVE the ladder and a silent hole for one inside it —
+  // so the hole is checked here rather than discovered on a player's last bay.
+  let everyTierPaired = true;
+  const missing: number[] = [];
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    if (!FINALS.some((f) => f.tier === tier)) {
+      everyTierPaired = false;
+      missing.push(tier);
+    }
+  }
+  check("every Tier 1..MARK_COUNT has its own pair in the table",
+    everyTierPaired, `missing: ${missing.join(", ")}`);
+
+  let handsWellFormed = true;
+  const illFormed: string[] = [];
+  for (let tier = 1; tier <= MARK_COUNT; tier++) {
+    const hand = finalsForTier(tier);
+    // Exactly two, and two DIFFERENT clauses: the whole feature is a fork, and
+    // a hand of one (or of the same card twice) is a toll with a card frame
+    // around it.
+    if (hand.length !== 2 || hand[0].id === hand[1].id) {
+      handsWellFormed = false;
+      illFormed.push(`tier ${tier}: ${hand.map((f) => f.id).join(",") || "empty"}`);
+    }
+  }
+  check("every Tier deals exactly two distinct clauses", handsWellFormed, illFormed.join(" · "));
+
+  const ids = FINALS.map((f) => f.id);
+  check("clause ids are unique", new Set(ids).size === ids.length);
+  check("every clause resolves by id", ids.every((id) => finalById(id)?.id === id));
+  check("an unknown id resolves to nothing", finalById("no-such-clause") === undefined);
+
+  // Card copy carries its own number, the same rule every HazardDef.desc
+  // follows: the player is accepting a cost sight-unseen on the run's LAST bay,
+  // where a vague card turns a deliberate trade into a guess. A clause whose
+  // effect is a direction rather than a size (the wind pair) says so in words.
+  const vague = FINALS.filter((f) => !/\d/.test(f.desc) && !/\b(full|pinned|nothing|never)\b/i.test(f.desc));
+  check("every clause states its own size", vague.length === 0, vague.map((f) => f.id).join(", "));
+
+  // The boundary. The offer is built at the moment a bay is WON, before the run
+  // advances, so the index is the bay just cleared: clearing bay 9 (index 8)
+  // opens the inspection and nothing else does.
+  const finalDrafts = Array.from({ length: RUN_LEVELS }, (_, i) => i).filter(isFinalDraft);
+  check("exactly one draft in a run is the inspection",
+    finalDrafts.length === 1 && finalDrafts[0] === RUN_LEVELS - 2, finalDrafts.join(","));
+
+  // The clause lands on the LAST bay and on no other. A run carrying a clause
+  // must play bays 1-9 exactly as a run without one — otherwise a replayed
+  // earlier bay (Restart Bay) would silently inherit the final bay's terms.
+  {
+    let leaks = 0;
+    for (const clause of FINALS) {
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: i };
+        const withClause = levelForRun({ ...run, final: clause.id });
+        const without = levelForRun(run);
+        if (JSON.stringify(withClause) !== JSON.stringify(without)) leaks += 1;
+      }
+    }
+    check("no clause touches any bay but the last", leaks === 0, `${leaks} leak(s)`);
+  }
+
+  // …and it DOES land there. A clause that changed nothing would be a free
+  // pick, which is the one thing an inspection may never be.
+  {
+    const inert: string[] = [];
+    for (const clause of FINALS) {
+      const run = {
+        ...newRun(7, [], 0, newTiers(), clause.tier),
+        levelIndex: RUN_LEVELS - 1,
+      };
+      const before = levelForRun(run);
+      const after = levelForRun({ ...run, final: clause.id });
+      if (JSON.stringify(before) === JSON.stringify(after)) inert.push(clause.id);
+    }
+    check("every clause actually changes the final bay", inert.length === 0, inert.join(", "));
+  }
+
+  // A pair whose two clauses produce the SAME bay is not a choice.
+  {
+    const same: string[] = [];
+    for (let tier = 1; tier <= MARK_COUNT; tier++) {
+      const [a, b] = finalsForTier(tier);
+      const run = { ...newRun(7, [], 0, newTiers(), tier), levelIndex: RUN_LEVELS - 1 };
+      if (JSON.stringify(levelForRun({ ...run, final: a.id }))
+        === JSON.stringify(levelForRun({ ...run, final: b.id }))) same.push(`tier ${tier}`);
+    }
+    check("a pair's two clauses build different bays", same.length === 0, same.join(", "));
+  }
+
+  check("no clause is a no-op on a null id", (() => {
+    const cfg = makeBaseLevel(9, 1);
+    const before = JSON.stringify(cfg);
+    applyFinal(cfg, null);
+    // Unknown ids are ignored for the same forward-compatibility reason
+    // applyRatchets ignores unknown axes — a renamed clause must not throw on
+    // a run's last bay.
+    applyFinal(cfg, "not-a-clause" as FinalId);
+    return JSON.stringify(cfg) === before;
+  })());
+
+  // NOT A LOSE BUTTON. hazards.ts floors Shift Cut at 45s because "an axis that
+  // can reach an unplayable bay is not a difficulty knob, it is a lose button",
+  // and the rule binds harder here: this fires on the run's last bay, where a
+  // dead bay costs the whole run rather than one notch. Checked on the WORST
+  // realistic arrival — every ratchet the Tier can deal, taken as deep as a run
+  // can take it — rather than on a clean base, because a clause that is safe
+  // alone and fatal on top of nine notches is still fatal.
+  {
+    const broken: string[] = [];
+    // TWO arrivals per clause, because the obvious one is not the worst one.
+    //
+    // Round-robin over every axis the Tier deals is the arrival that looks
+    // adversarial, and for the material clauses it is the GENEROUS one: it
+    // ratchets the clause's own material too, which the clause then overwrites
+    // rather than stacks on. The real worst case pours every notch into the
+    // materials the clause does NOT write, so applyRatchets caps a full belt
+    // and the clause lands on top of it. Measured before applyFinal re-capped:
+    // that arrival took Powder Run to 0.78 of the belt while this check, run
+    // on the round-robin alone, passed at 0.55. A worst-case assertion that
+    // does not construct the worst case is not an assertion.
+    const arrivals = (clause: (typeof FINALS)[number]): Ratchets[] => {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      const pour = (axes: typeof HAZARDS): Ratchets => {
+        const r: Ratchets = {};
+        if (!axes.length) return r;
+        for (let n = 0; n < notches; n++) {
+          const a = axes[n % axes.length];
+          r[a.id] = (r[a.id] ?? 0) + 1;
+        }
+        return r;
+      };
+      const pool = hazardsForMark(clause.tier);
+      // Which material the clause writes, read off a clean bay rather than
+      // declared: a clause that grows a second material later is covered
+      // without anyone remembering to update a list here.
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      // The second pour is CONTENT AXES ONLY, minus the clause's own material.
+      // Including the number axes would spread the notches so thin that the
+      // belt never fills, which is exactly how the first version of this check
+      // passed while Powder Run was reaching 0.78 — the pour has to be able to
+      // reach the cap before the clause is asked to push past it.
+      return [
+        pour(pool),
+        pour(pool.filter((h) => h.kind === "content" && !own.includes(h.material!))),
+      ];
+    };
+    for (const clause of FINALS) {
+     for (const ratchets of arrivals(clause)) {
+      const run = {
+        ...newRun(7, [], 0, newTiers(), clause.tier),
+        levelIndex: RUN_LEVELS - 1,
+        ratchets,
+        final: clause.id,
+      };
+      const cfg = levelForRun(run);
+      const why: string[] = [];
+      if (!(cfg.targetScore > 0)) why.push("target <= 0");
+      if (!(cfg.scorePerLine > 0)) why.push("pays nothing per line");
+      if (!(cfg.startingFunds >= cfg.launchCost)) why.push("cannot afford one launch");
+      if (!(cfg.timeLimitSec >= 45)) why.push(`clock ${cfg.timeLimitSec}s`);
+      // compactor.ts's floor: at equality the two stops share an X and the bar
+      // has zero travel — it never moves again while still counting strokes.
+      if (!(cfg.compactorOpenCells > cfg.compactorMinLineCells)) why.push("press has no stroke");
+      if (!(cfg.compactorSpeed > 0)) why.push("press stopped");
+      if (!Number.isFinite(cfg.windLock ?? 0) || Math.abs(cfg.windLock ?? 0) > 1) why.push("wind lock out of range");
+      // Every shipment a hazard, at any ratchet depth, is not a hard bay — it
+      // is one with no cargo to build rows out of. Asserted against hazards.ts's
+      // OWN cap rather than a looser number of this file's invention: the
+      // ratchet mix is held to 0.55 and a clause may not route around it (see
+      // applyFinal's re-cap). A tolerance, not equality, because the scaling is
+      // floating point.
+      const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
+      if (mix > MIX_TOTAL_CAP + 1e-9) why.push(`materials sum ${mix.toFixed(3)}`);
+      if (why.length) broken.push(`${clause.id}: ${why.join(", ")}`);
+     }
+    }
+    check("no clause can build an unplayable final bay", broken.length === 0, broken.join(" · "));
+
+    // …and the re-cap takes its reduction from the RATCHETED materials, never
+    // from the clause's own. FinalDef.desc prints that rate as a promise the
+    // player accepted one screen ago; scaling it would make the card lie about
+    // the bay it just sold them.
+    const lied: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] < clean.materialMix[k] - 1e-9) {
+            lied.push(`${clause.id}:${k} ${clean.materialMix[k].toFixed(2)}->${full.materialMix[k].toFixed(2)}`);
+          }
+        }
+      }
+    }
+    check("the re-cap never scales the rate a clause's card quotes",
+      lied.length === 0, lied.join(", "));
+
+    // ...and where the arriving ratchet pushes the belt PAST the card's rate,
+    // the card has to say so. schedule() floors a material at the quoted rate
+    // and then adds a notch on top, so a run carrying two Slag notches meets
+    // Slag Wall's "8%" card with a belt at 12%. That is the design — a
+    // mandatory cost the player's own earlier choices could pre-pay is not a
+    // cost — but it makes a bare number on the card wrong on exactly the
+    // arrivals it matters for. "At least" is what makes it true on all of them.
+    const bare: string[] = [];
+    for (const clause of FINALS) {
+      const clean = levelForRun({
+        ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+      });
+      const own = (Object.keys(clean.materialMix) as Array<keyof typeof clean.materialMix>)
+        .filter((k) => clean.materialMix[k] > 0);
+      if (!own.length) continue;
+      let overshoots = false;
+      for (const ratchets of arrivals(clause)) {
+        const full = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1, ratchets, final: clause.id,
+        });
+        for (const k of own) {
+          if (full.materialMix[k] > clean.materialMix[k] + 1e-9) overshoots = true;
+        }
+      }
+      if (overshoots && !/at least/i.test(clause.desc)) bare.push(clause.id);
+    }
+    check("a clause that can outrun its own card says \"at least\" on it",
+      bare.length === 0, bare.join(", "));
+  }
+
+  // The wind pair's seam. A locked bay must actually blow the way its card
+  // says, at the cap, rather than rolling — and an UNLOCKED bay must keep
+  // rolling exactly as it always did.
+  {
+    const cfg = makeBaseLevel(9, 1);
+    const rolled = new Game(cfg, {}, 4242).windAverage;
+    const head = new Game({ ...cfg, windLock: -1 }, {}, 4242).windAverage;
+    const tail = new Game({ ...cfg, windLock: 1 }, {}, 4242).windAverage;
+    check("a locked headwind sits at the bay's cap, against",
+      Math.abs(head + cfg.windMax) < 1e-9, String(head));
+    check("a locked tailwind sits at the bay's cap, behind",
+      Math.abs(tail - cfg.windMax) < 1e-9, String(tail));
+    check("an unlocked bay still rolls", Math.abs(rolled) < cfg.windMax && rolled !== head && rolled !== tail,
+      String(rolled));
+    // A calm bay stays calm however the clause is written — bays 1-3 carry
+    // windMax 0 and the lock rides the cap, so it has nothing to multiply.
+    const calm = makeBaseLevel(0, 1);
+    check("a lock cannot conjure wind out of a calm bay",
+      new Game({ ...calm, windLock: -1 }, {}, 1).windAverage === 0);
+  }
+
+  // The projection has to SHOW every clause, or the player is signing blind.
+  // preview.ts drops a row nothing moved, so a clause whose only effect is on a
+  // field with no row is invisible on the one screen built to price it.
+  {
+    const unseen: string[] = [];
+    for (const clause of FINALS) {
+      const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
+      const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+      if (!rows.some((r) => r.changed)) unseen.push(clause.id);
+    }
+    check("every clause moves at least one projected number", unseen.length === 0, unseen.join(", "));
+
+    // …and at least one of those rows has to read as a COST.
+    //
+    // Moving a number is not enough, and a review round proved it: the Bonds
+    // row carried higherIsWorse: false, so Cold Weld — one half of a mandatory
+    // pair — projected its unbreakable bay entirely in the "better" tone and
+    // read as the free choice in a fork that is supposed to have none. The
+    // clause was correct, the number was correct, and the screen still told the
+    // player the opposite of the truth.
+    //
+    // Some rows going GREEN is fine and deliberate: Short Measure genuinely
+    // makes a launch cheaper, and Dead Weight genuinely buys a bigger payload.
+    // What no clause may do is project a bay that costs nothing anywhere.
+    const painless: string[] = [];
+    for (const clause of FINALS) {
+      const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
+      const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+      if (!rows.some((r) => r.tone === "worse")) painless.push(clause.id);
+    }
+    check("every clause projects at least one row as a cost",
+      painless.length === 0, painless.join(", "));
+
+    // …and it must still move one on a DEEP arrival, not just a clean bay.
+    //
+    // Found in review, and the clean-bay check above is exactly what missed it:
+    // Tight Gauge clamps at compactor.ts's stroke floor, and three Sweeper
+    // notches reach that floor before the inspection is dealt, so a MANDATORY
+    // cost the player picked over Double Shift changed nothing at all. Every
+    // clause is re-checked here against the deepest ratchet its own Tier can
+    // deal on each axis in turn — a clause that can be silently eaten by a
+    // ratchet the player already took is not a cost, and nothing about the
+    // clean bay reveals it.
+    const eaten: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const rows = previewRows(levelForRun(run), levelForRun({ ...run, final: clause.id }));
+        if (!rows.some((r) => r.changed)) eaten.push(`${clause.id} under ${axis.id}x${notches}`);
+      }
+    }
+    check("no ratchet can silently eat a clause", eaten.length === 0, eaten.join(", "));
+
+    // A clause may never REFUND a material the run already ratcheted deeper
+    // than the clause asks for. Also found in review: every material clause
+    // used to assign its rate outright, so at six cryo notches a Tier-4 bay
+    // entered the inspection at 0.32 and Cold Chain — whose apply does nothing
+    // else — took it to 0.22, making the mandatory final cost strictly easier.
+    // finals.ts's schedule() is the floor that fixes it.
+    //
+    // Read per material against the arrival, not off the total: the re-cap
+    // legitimately scales OTHER materials down to make room for the clause's
+    // own (rebar-run on a cryo-ratcheted bay moves 0.32 cryo to 0.23 while the
+    // belt goes 0.32 -> 0.55 overall), so the total is allowed to rise and a
+    // non-clause material is allowed to fall. What is never allowed is the
+    // clause's own material coming out lower than it went in.
+    const refunded: string[] = [];
+    for (const clause of FINALS) {
+      const notches = (RUN_LEVELS - 1) * picksPerBay(clause.tier);
+      for (const axis of hazardsForMark(clause.tier)) {
+        if (axis.kind !== "content") continue;
+        const mat = axis.material!;
+        const run = {
+          ...newRun(7, [], 0, newTiers(), clause.tier),
+          levelIndex: RUN_LEVELS - 1,
+          ratchets: { [axis.id]: notches } as Ratchets,
+        };
+        const before = levelForRun(run);
+        const after = levelForRun({ ...run, final: clause.id });
+        // Only the material this clause SCHEDULES is held; the rest may be
+        // scaled by the re-cap, which is the cap doing its job.
+        const clean = levelForRun({
+          ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
+        });
+        if (clean.materialMix[mat] <= 0) continue;
+        if (after.materialMix[mat] < before.materialMix[mat] - 1e-9) {
+          refunded.push(`${clause.id} cut ${mat} ${before.materialMix[mat].toFixed(2)}->${after.materialMix[mat].toFixed(2)}`);
+        }
+      }
+    }
+    check("no clause refunds a material the run ratcheted deeper",
+      refunded.length === 0, refunded.join(", "));
+  }
+
+  // advanceRun must carry the clause. It is banked at the last draft and read
+  // on the bay after it, so a step that dropped it would quietly refund the
+  // player's choice.
+  {
+    const run = { ...newRun(7, [], 0, newTiers(), 1), levelIndex: 8, final: "rate-cut" as FinalId };
+    check("advanceRun carries the accepted clause",
+      advanceRun(run, 100, 100, 0, 0).final === "rate-cut");
+  }
+
+  // COLD WELD MEANS IT, on a rig that bought the Seam Splitter.
+  //
+  // Found by review, not by the checks above: pieces.ts restates a FINITE base
+  // for a weakened type when the bay's own stretch is not finite (Infinity x
+  // 0.7 is still Infinity, so the passive would otherwise be a no-op on an
+  // unbreakable bay). That fallback is right for the capstone format, which the
+  // ladder imposes — and wrong here, where the player signed a card that says
+  // nothing comes apart. Left alone, a Bond Emitter t2/t3 rig flew Cold Weld
+  // with S and Z splitting at 1.54, the most fragile thing in the bay, under a
+  // card and a projection tile that both said "unbreakable".
+  //
+  // Asserted through createTetrisPiece rather than off the config, because the
+  // stamp on the constraint is what updateBreakableJoints actually reads — a
+  // config check would have passed while the bay still shattered.
+  {
+    const stampOf = (cfg: LevelConfig, type: PieceType): number => {
+      const w = Matter.Engine.create().world;
+      const p = createTetrisPiece(
+        w, 200, 200, 0, { x: 0, y: 0 }, type, cfg.jointStiffness, cfg.pieceSize,
+        cfg.jointBreakStretch, "standard",
+        { types: cfg.weakBondTypes, mult: cfg.weakBondMult },
+      );
+      return (p.constraints[0] as unknown as { breakStretch: number }).breakStretch;
+    };
+    const run = {
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, 5),
+      levelIndex: RUN_LEVELS - 1,
+      final: "cold-weld" as FinalId,
+    };
+    const cfg = levelForRun(run);
+    check("Cold Weld stands the Seam Splitter down",
+      cfg.weakBondTypes.length === 0 && cfg.weakBondMult === 1,
+      `${cfg.weakBondTypes.join(",")} x${cfg.weakBondMult}`);
+    check("...so every shape it ships really is unbreakable",
+      PIECE_TYPES.every((t) => stampOf(cfg, t) === Infinity),
+      PIECE_TYPES.filter((t) => stampOf(cfg, t) !== Infinity).join(", "));
+    // The fallback is untouched where it belongs: the CAPSTONE bay is
+    // unbreakable because the ladder made it so, and the passive the player
+    // paid for still survives that.
+    const capstone = levelForRun({
+      ...newRun(7, [], 0, { ...newTiers(), bonds: 3 }, UNBREAKABLE_MARK),
+      levelIndex: RUN_LEVELS - 1,
+    });
+    check("the capstone's own unbreakable bay still honours the Seam Splitter",
+      Number.isFinite(stampOf(capstone, "S")) && stampOf(capstone, "T") === Infinity,
+      `S ${stampOf(capstone, "S")} / T ${stampOf(capstone, "T")}`);
+  }
+
+  // Every clause names a real ship system, and the copy on the card resolves.
+  {
+    const orphans = FINALS.filter((f) => !UPGRADES.some((u) => u.id === f.system));
+    check("every clause names a real ship system", orphans.length === 0,
+      orphans.map((f) => `${f.id} -> ${f.system}`).join(", "));
+  }
 }
 
 // ---------------------------------------------------------------------------
