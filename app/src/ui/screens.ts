@@ -227,6 +227,7 @@ export function menuScreen(
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
+    <div class="build-tag" aria-hidden="true">${import.meta.env.VITE_BUILD_ID as string}</div>
   </div>`;
 }
 
