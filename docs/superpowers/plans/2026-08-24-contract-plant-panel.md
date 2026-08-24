@@ -636,7 +636,7 @@ through the end of the comment) with:
    which is not one number and cannot be matched by one: it is leftover space,
    so it lands anywhere from 4.3px (iPhone 13 mini, where the readout nearly
    fills the box) to 16.8px (iPhone 16 Pro Max) at the SAME density. 18 --fpx
-   gives 9px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
+   gives 8px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
    inside that range on every device in the matrix, and even, which the
    distributed gap is not. The per-row margins go with it: they were nudges on
    top of a distributed gap, and on an explicit one they only make the rhythm
@@ -737,12 +737,13 @@ generator can produce, so the row that scrolls is measured scrolling:
         remaining: [],
         // Two-digit. The column is label-dominated at one and two digits
         // ("LOST" measures 17.797px against 18px for two mono digits at the
-        // compact floor), so this is the widest state below three digits —
-        // and three is unreachable in a bay whose launch budget caps the
-        // cubes that can be fired.
+        // compact floor), so this is the widest state below three digits.
+        // Three digits IS reachable — the worst lines Contract fires 176 cubes
+        // — but it is a degenerate near-total-loss run and is not what this
+        // fixture is for; sim/systems.ts proves the column against "999".
         lost: 14,
-        // Three complications is the cap (contracts.ts's maxComplications at
-        // tier 9+), and this is the longest set of notes the generator emits —
+        // Three complications is the cap (contracts.ts's maxComplications
+        // reaches 3 at tier 6, not 9), and this is the longest set of notes —
         // 52 chars, measured across 400 seeds x tiers 1-12.
         conditions: "volatile shipments · tight launch budget · crosswind",
         progress: PROGRESS,
@@ -956,7 +957,7 @@ Spec coverage, section by section:
 | Spec section | Task |
 | --- | --- |
 | 1. Height — swap the two rules | 5 |
-| 1. Height — harness bound unchanged | 6 step 6 |
+| 1. Height — harness bound made two-sided | 6 step 6a |
 | 2. `Lost` column, lines only | 2 |
 | 2. No danger treatment | 2 step 1 (assertion), step 4 (rationale) |
 | 2. Why pattern gets nothing here | 2 step 1 (assertion) |
@@ -1022,3 +1023,33 @@ actually built:
   landing all three fields in Task 2 is that `screens.ts` is touched once
   instead of twice — not, as an earlier dispatch claimed, that it keeps every
   intermediate commit green. It does not.
+- **After Task 6 ran the harness for the first time.** Task 6 as written was a
+  fixture feed and a lower bound. What it actually became was the branch's
+  largest task, because the harness had been THROWING since Task 3 and was
+  hiding 36 real violations. None of the following was planned:
+  - **The fixtures modelled a Contract the app cannot produce.** They inherited
+    `HUD_BASE`'s ability flags, so `.pl-mods` rendered in the harness and never
+    in the game (6 `plant` + 4 `draghint` violations on the tablets), and
+    `railLoadoutFor` fed the layout solver a 7-slot rail against the real 4 —
+    which on the iPhone 13 mini moved `--field-h` 271px to 335px. Every height
+    decision on this branch had been calibrated against the wrong field on the
+    tightest device in the matrix.
+  - **A regression shipped and was caught before merge.** The 26 `inkline`
+    violations on `.pl-tier` were "fixed" with a new
+    `--pixel-optical-drop-centered` token calibrated against a broken
+    instrument: `capMid`'s baseline probe is blockified inside a
+    `align-items: center` flex container and returns the flex line's centre.
+    Two independent measurements showed the new value put the row 2.25-4.28px
+    out where the `-0.195em` it replaced had it at 0.02px. Reverted; the token
+    is gone. `capMid` now measures such containers through a wrapper, and
+    `.pl-tier` reads 0.006-0.016px on all 13 devices.
+  - **An `iconsize` assertion was written, proven, and pulled back out.** It
+    surfaced 410 pre-existing violations of a global `.ico { width: 13px }`
+    missing its `.menu` scope. Baselining them here would have collided with the
+    session fixing that bug, so the assertion was handed over through a
+    back-pointer at the offending rule instead.
+- **Process lesson worth keeping.** Four separate rounds on this branch ended in
+  a comment that asserted something the code did not do, and one round shipped a
+  measurement calibrated against an instrument that could not see the thing it
+  measured. What caught both classes every time was re-deriving a number rather
+  than reusing the one in the brief — including the numbers this plan supplied.

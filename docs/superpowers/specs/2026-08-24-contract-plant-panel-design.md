@@ -73,14 +73,20 @@ because the template names `meta` and `mods` rows a Contract does not render;
 It is a flex column at every density, which is the whole reason one rule
 suffices. Nothing should re-template it as a grid to accommodate the new rows.
 
-The `plant` assertion in `sim/uifit/run.ts` is a one-sided upper bound:
+The `plant` assertion in `sim/uifit/run.ts` WAS a one-sided upper bound:
 
 ```js
 if (h > design + 1) out.plant.push(...)
 ```
 
-A panel restored to exactly `0.4296 * --field-h` passes it unchanged. This is
-the same reason the assertion did not catch the shrink in the first place.
+A panel restored to exactly `0.4296 * --field-h` passes that unchanged — which
+is also the reason it never caught the shrink. Nothing held the other side, so a
+regression re-shrinking the Contract panel would have passed on all 13 devices,
+and `sim/systems.ts` cannot see CSS at all. The assertion is two-sided now: the
+lower bound reads the unconditional `0.4296` rather than the `design` variable,
+which is `0.52 * fh` on a coached screen and would otherwise demand a panel 21%
+taller than the stylesheet asks for. Proven to fire on all 13 devices when
+`min-height: 0` is put back.
 
 ### 2. `Lost` — a third readout column, lines Contracts only
 
@@ -177,9 +183,10 @@ conditions as its value.
 
 The row is never empty, so it is never a different height between one card and
 the next — but not because of the `clean bay` fallback, which is unreachable.
-`budgetForTier` never returns below 2, `wind` costs 2 and is the one
-complication in the loop with no `continue` gate, and `maxComplications` is
-always at least 1, so `notes` always receives an entry. Measured at 0
+`budgetForTier` never returns below 2, `wind` and `tightLaunches` cost 2 each
+and are the two complications in the loop with no option-specific `continue`
+gate (only `material` and `micro` have one), and `maxComplications` is always at
+least 1, so `notes` always receives an entry. Measured at 0
 occurrences in 72,000 generated lines Contracts. The fallback stays as a guard
 against a future budget or gating change; the row's constant height rests on
 the generator, not on it. The Bay row cannot render the word "clean" today.
@@ -240,8 +247,21 @@ difference and the reason the row needed `align-items: center` rather than
   `lost`, `conditions` and `progress` fields.
 - `app/src/main.ts` — `hudOpts` supplies the three new values; `syncHud` writes
   `#hud-lost` live. `Bay` and `Tier` are fixed for a bay and need no sync.
+- `app/src/lib/telemetry.ts` — `BayRecord.lostPieces` gains the note that it
+  counts CUBES, not pieces. That is where both `endBay` call sites, the
+  persisted schema and `sim/playtest.ts`'s independent copy of the record shape
+  all converge.
 - `app/sim/uifit/fixtures.ts` — `hud-contract` and `hud-contract-lines` gain the
-  new fields, so all 13 devices measure the rows.
+  new fields, so all 13 devices measure the rows. They also stop inheriting
+  `HUD_BASE`'s ability flags, which had them rendering a Build row the app never
+  shows and feeding the layout solver a 7-slot rail against the real 4.
+- `app/sim/uifit/run.ts` — the `plant` lower bound, the two new `inkline`
+  entries, and a `capMid` that measures flex-centred containers through a
+  wrapper instead of silently returning the flex line's centre.
+- `app/sim/systems.ts` — markup assertions for every row and column above.
+- `app/src/styles/tokens.css` — untouched in the end. A
+  `--pixel-optical-drop-centered` token was added mid-branch and removed again;
+  see the amendment note in the plan.
 
 ## Verification
 
