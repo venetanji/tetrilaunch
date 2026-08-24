@@ -147,6 +147,9 @@ interface TimingResult {
   p95Ms: number;
   worstMs: number;
   overBudgetPct: number;
+  /** Share of cube-steps spent asleep across the timed window — see the
+   *  SLEEP OCCUPANCY note above timeVariant. */
+  sleepingPct: number;
 }
 
 function buildGame(variant: "loose" | "cliques", n: number): Game {
@@ -174,6 +177,30 @@ function forcePlaying(g: Game): void {
   }
 }
 
+/**
+ * SLEEP OCCUPANCY — is engine.ts's enableSleeping actually doing anything?
+ *
+ * engine.ts turns sleeping on against a measured on-device profile: narrowphase
+ * plus solver over the RESTING pile was ~73% of the frame loop, and Matter skips
+ * both for sleeping pairs. That reasoning is sound and the switch is correctly
+ * set. What neither it nor this harness could previously see is whether the
+ * bodies in a REAL pile ever reach the sleeping state to be skipped.
+ *
+ * They do not, and it is structural rather than a tuning problem.
+ * matter-js 0.20's Constraint.postSolveAll (node_modules/matter-js/src/
+ * constraint/Constraint.js) walks every body and calls `Sleeping.set(body,
+ * false)` for any whose constraintImpulse is non-zero on that step. A shipment
+ * is a K4 clique of six stiff distance joints (pieces.ts's createTetrisPiece),
+ * which carries a residual impulse indefinitely, so every jointed cube is woken
+ * again on the step after it falls asleep.
+ *
+ * This column is what makes that visible instead of theoretical: run it and the
+ * "loose" rows sleep most of their cube-steps while the "cliques" rows — the
+ * ones shaped like real cargo — sit at or near zero. Nothing here proposes a
+ * fix; every candidate (a lighter joint topology, retiring joints under a
+ * settled piece, zeroing small impulses) changes how the pile behaves, which is
+ * a gameplay decision and not a perf one.
+ */
 function timeVariant(variant: "loose" | "cliques", n: number, steps: number): TimingResult {
   const g = buildGame(variant, n);
   let now = 0;
@@ -185,6 +212,8 @@ function timeVariant(variant: "loose" | "cliques", n: number, steps: number): Ti
   }
 
   const durations: number[] = new Array(steps);
+  let sleeping = 0;
+  let cubeSteps = 0;
   for (let i = 0; i < steps; i++) {
     now += DT;
     const t0 = process.hrtime.bigint();
@@ -192,6 +221,12 @@ function timeVariant(variant: "loose" | "cliques", n: number, steps: number): Ti
     const t1 = process.hrtime.bigint();
     forcePlaying(g);
     durations[i] = Number(t1 - t0) / 1e6;
+    // Counted OUTSIDE the timed window, like forcePlaying, so the measurement
+    // never pays for the measuring.
+    for (const c of g.cubes) {
+      cubeSteps += 1;
+      if (c.body.isSleeping) sleeping += 1;
+    }
   }
   g.destroy();
 
@@ -201,7 +236,10 @@ function timeVariant(variant: "loose" | "cliques", n: number, steps: number): Ti
   const worstMs = sorted[sorted.length - 1];
   const overBudgetPct = (durations.filter((d) => d > FRAME_BUDGET_MS).length / durations.length) * 100;
 
-  return { variant, n, avgMs, p95Ms, worstMs, overBudgetPct };
+  return {
+    variant, n, avgMs, p95Ms, worstMs, overBudgetPct,
+    sleepingPct: cubeSteps ? (sleeping / cubeSteps) * 100 : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,15 +258,29 @@ function main(): void {
     }
   }
 
-  console.log("| Variant | N | Avg ms | p95 ms | Worst ms | % over 16.67ms |");
-  console.log("|---|---|---|---|---|---|");
+  console.log("| Variant | N | Avg ms | p95 ms | Worst ms | % over 16.67ms | % asleep |");
+  console.log("|---|---|---|---|---|---|---|");
   for (const r of results) {
     console.log(
       `| ${r.variant} | ${r.n} | ${r.avgMs.toFixed(3)} | ${r.p95Ms.toFixed(3)} | ` +
-        `${r.worstMs.toFixed(3)} | ${r.overBudgetPct.toFixed(1)}% |`,
+        `${r.worstMs.toFixed(3)} | ${r.overBudgetPct.toFixed(1)}% | ` +
+        `${r.sleepingPct.toFixed(1)}% |`,
     );
   }
   console.log();
+
+  // The whole point of the column — say it in the output rather than leaving it
+  // to be noticed in a table.
+  const cliqueSleep = results
+    .filter((r) => r.variant === "cliques")
+    .reduce((worst, r) => Math.min(worst, r.sleepingPct), 100);
+  if (cliqueSleep < 5) {
+    console.log(
+      `NOTE: jointed cargo sleeps ${cliqueSleep.toFixed(1)}% of its cube-steps — ` +
+        `engine.ts's enableSleeping is effectively inert for real shipments. ` +
+        `See the SLEEP OCCUPANCY note above timeVariant.`,
+    );
+  }
 
   for (const variant of ["loose", "cliques"] as const) {
     const ok = results.filter((r) => r.variant === variant && r.p95Ms < 8).map((r) => r.n);
