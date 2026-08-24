@@ -19,10 +19,10 @@ import type { PieceType } from "../../src/game/theme";
 import { LEVEL_1 } from "../../src/game/level";
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import type { UpgradeTiers } from "../../src/game/upgrades";
+import { MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
-import { levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
+import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { dailyContracts } from "../../src/game/contracts";
 
 const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
@@ -102,6 +102,32 @@ function inspection(selected: string | null): string {
       HUD_BASE.ratchets,
     ),
     scrap: 340,
+  });
+}
+
+/** The refit yard at a given staged order. `buyUpgrades` builds the "after"
+ *  side exactly as main.ts's refitHTML does — the same call Undock makes — so
+ *  the harness measures the real number of projection rows an order can grow
+ *  rather than a hand-written guess at them. */
+function refit(order: RefitOrder): string {
+  const run = {
+    ...newRun(20_260_815, [], 400, HUD_BASE.tiers as UpgradeTiers, 6),
+    levelIndex: 6,
+    carry: 120,
+    scrap: 340,
+    ratchets: HUD_BASE.ratchets,
+  };
+  return S.refitScreen({
+    bayNum: 6,
+    nextBayName: "Cryo Vault",
+    scrap: run.scrap,
+    tiers: run.tiers,
+    mark: 6,
+    order,
+    // No banked ratchets — main.ts's refitHTML passes none, and the reason it
+    // does is a layout one, so a fixture that passed them would measure a
+    // screen the app never renders.
+    preview: previewRows(levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run)),
   });
 }
 
@@ -462,8 +488,18 @@ export const SCREENS: Record<string, () => string> = {
       bayNum: 7, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 96,
     }),
 
-  refit: () =>
-    S.refitScreen({ bayNum: 6, nextBayName: "Cryo Vault", scrap: 340, tiers: HUD_BASE.tiers, mark: 6 }),
+  refit: () => refit({}),
+  // The yard with an ORDER STAGED is the taller state, for the same reason
+  // "draft-picked" is: every staged rung grows a struck-through old value on
+  // its card AND a moved tile on the projection.
+  //
+  // And this is the WHOLE yard staged: every rung HUD_BASE's rig can still
+  // climb, which comes to 325 of its 340 scrap — i.e. the largest order a
+  // player at this stop can actually place. Seventeen projection tiles, ten of
+  // them moved, on a bay that already has four banked axes pinned ACTIVE. The
+  // one track it cannot stage is the Demolition Rack, which is not installed,
+  // so the fixture also holds the shelf's longest foot copy throughout.
+  "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
 
   draft: () => draft([]),
   // The draft with a notch SELECTED is the taller state — the projection grows

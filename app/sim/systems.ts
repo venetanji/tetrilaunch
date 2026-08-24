@@ -44,7 +44,9 @@ import {
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
 import {
-  applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, MAX_TIER, TIER_COSTS, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, refitTracks, tiersCost, upgradeById,
+  clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
+  MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
 import {
@@ -55,7 +57,7 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
-  advanceRun, bayMusic, bondChargesFor, buyUpgrade, isFinalDraft, isRefitBay, levelForRun,
+  advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
@@ -605,15 +607,86 @@ section("Installs — what salvage buys (meta.ts)");
     installedShop.includes("✓ Installed") &&
       !installedShop.includes(`data-install="reactor"`));
 
+  // The yard renders on the WORKSHOP'S CARD now, description and all — the
+  // whole reason the screen moved (screens.ts's refitScreen). A refit row that
+  // states only a name and a number is the shop the Workshop already refused
+  // to be, so this pins the sentence rather than the layout.
+  const yard = (over: Partial<Parameters<typeof refitScreen>[0]> = {}): string => refitScreen({
+    bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 },
+    mark: 2, order: {}, preview: [], ...over,
+  });
+  const buyButtons = (html: string): string[] => html.match(/<button[^>]*refit-card__buy[^>]*>/g) ?? [];
+  const oneUp = yard();
+  check("the yard sells from the Workshop's card",
+    (oneUp.match(/class="shop-card refit-card/g) ?? []).length === UPGRADES.length,
+    String((oneUp.match(/class="shop-card refit-card/g) ?? []).length));
+  check("every track's own sentence reaches the player",
+    UPGRADES.every((u) => oneUp.includes(u.blurb)),
+    UPGRADES.filter((u) => !oneUp.includes(u.blurb)).map((u) => u.id).join(","));
+
   // Refit prices tiers 2-3 only. Tier 0 used to render a live 20-scrap button
   // that tapped to nothing once run.ts stopped letting scrap install.
-  // Mark 2 here so the full six-card menu renders — Mark 1's focused stop is
+  // Mark 2 here so the full seven-card menu renders — Mark 1's focused stop is
   // pinned separately below.
-  const stockRefit = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: newTiers(), mark: 2 });
+  const stockRefit = yard({ tiers: newTiers() });
   check("an uninstalled track shows no refit button",
     stockRefit.includes("Not installed") && !stockRefit.includes(`data-upgrade="reactor"`));
-  const oneUp = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 2 });
   check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
+
+  // STAGING, not buying. Every button on this shelf queues a tier into an
+  // order that Undock commits (run.ts's buyUpgrades); a button that spent on
+  // the tap is the screen this one replaced.
+  check("a track's button stages rather than buys",
+    oneUp.includes(`data-action="stage-upgrade" data-upgrade="reactor"`) &&
+      !oneUp.includes(`data-action="buy-upgrade"`));
+  const staged = yard({ order: { reactor: 1 } });
+  check("a staged track offers the tier ABOVE the one queued",
+    staged.includes(`T3<span class="price__sep">·</span>`),
+    staged.includes("T2<span") ? "still offering T2" : "no price");
+  // ONE CYCLING BUTTON per card: it stages while the track has room, and turns
+  // into the way out once it cannot. Two controls is what the 44px tap floor
+  // cannot afford across a seven-card shelf.
+  check("a card carries exactly one control",
+    (staged.match(/refit-card__buy/g) ?? []).length === buyButtons(staged).length);
+  check("a track with room left keeps offering the next rung",
+    staged.includes(`data-action="stage-upgrade" data-upgrade="reactor"`));
+  check("a staged track shows what the order does to it",
+    staged.includes(upgradeById("reactor")!.current(1)) &&
+      staged.includes(upgradeById("reactor")!.current(2)));
+  check("the order names its own price on the commit",
+    staged.includes("Install 1") && staged.includes(`>${TIER_COSTS[1]}<`),
+    staged.includes("Install 1") ? "price missing" : "count missing");
+  check("an empty order undocks without a price", yard().includes("Undock →"));
+  // The four regions main.ts's refreshRefit lifts out of a detached render on
+  // every stage. It addresses them by id, so a rename here does not break the
+  // build — it silently stops that part of the screen updating: the scrap
+  // total keeps its old number, or the projection stops redrawing under the
+  // taps it exists to answer.
+  for (const id of ["refit-grid", "refit-order", "refit-preview", "refit-foot"]) {
+    check(`the yard mounts #${id} for the in-place patch`, oneUp.includes(`id="${id}"`));
+  }
+  // The scrap readout counts what is LEFT to stage against, not what the run
+  // owns: every button on the shelf prices itself against the queue in front
+  // of it, and a total that ignored the order would disable nothing.
+  check("the order box spends the scrap the order has claimed",
+    yard({ scrap: 100, order: { reactor: 1 } }).includes(`>${100 - TIER_COSTS[1]}<`));
+  const pair = { ...newTiers(), reactor: 1, bay: 1 };
+  const flushShelf = yard({ tiers: pair, scrap: TIER_COSTS[1] });
+  const spentShelf = yard({ tiers: pair, scrap: TIER_COSTS[1], order: { reactor: 1 } });
+  check("the shelf is live while the scrap is unspoken for",
+    buyButtons(flushShelf).some((b) => !b.includes("disabled")));
+  // "the rest of the shelf": every track the order has NOT staged. A staged
+  // track never goes dead — its button turns into the way out instead, because
+  // a disabled button on a staged track is an order the player cannot undo.
+  check("an order that eats the scrap disables the rest of the shelf",
+    buyButtons(spentShelf).filter((b) => b.includes("stage-upgrade") && !b.includes("unstage")).length > 0 &&
+      buyButtons(spentShelf)
+        .filter((b) => b.includes("stage-upgrade") && !b.includes("unstage"))
+        .every((b) => b.includes("disabled")),
+    buyButtons(spentShelf).join(" | "));
+  check("…but a staged track always offers its way out",
+    spentShelf.includes(`data-action="unstage-upgrade" data-upgrade="reactor"`) &&
+      !buyButtons(spentShelf).some((b) => b.includes("unstage") && b.includes("disabled")));
 
   // MARK-1 FOCUS: the first tier's refit stops offer only Reactor Output —
   // the run tuning assumes its three tiers get built (upgrades.ts's
@@ -621,9 +694,10 @@ section("Installs — what salvage buys (meta.ts)");
   check("refitTracks(1) offers only the reactor",
     refitTracks(1).length === 1 && refitTracks(1)[0].id === "reactor");
   check("refitTracks(2) opens the full yard", refitTracks(2).length === UPGRADES.length);
-  const mark1 = refitScreen({ bayNum: 3, nextBayName: "X", scrap: 999, tiers: { ...newTiers(), reactor: 1 }, mark: 1 });
-  check("a Tier-1 stop renders exactly one row",
-    (mark1.match(/refit-row__name/g) ?? []).length === 1 && mark1.includes(`data-upgrade="reactor"`));
+  const mark1 = yard({ mark: 1 });
+  check("a Tier-1 stop renders exactly one card",
+    (mark1.match(/class="shop-card refit-card/g) ?? []).length === 1 &&
+      mark1.includes(`data-upgrade="reactor"`));
   check("a Tier-1 stop says why the yard is short", mark1.includes("opens at Tier 2"));
 }
 
@@ -1736,6 +1810,178 @@ section("Refit cadence + run economy (run.ts)");
   check("a notch lands on top of the refitted ship, not a stock one",
     withShip.windMax > shipOnly.windMax && withShip.launchPower === shipOnly.launchPower,
     `${withShip.windMax} vs ${shipOnly.windMax}`);
+}
+
+// ---------------------------------------------------------------------------
+section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The yard STAGES and Undock commits. The whole value of that is that an
+  // order can be revised, so the order model has to behave like one: every tap
+  // moves it, every tap is reversible, and nothing is spent until the commit.
+  const rig: UpgradeTiers = { ...newTiers(), reactor: 1, bay: 2, bonds: 1 };
+  const T = TIER_COSTS;
+
+  check("an empty order costs nothing and stages nothing",
+    orderCost(rig, {}) === 0 && orderSize(rig, {}) === 0);
+  const one = stageTier(rig, {}, "reactor", 999)!;
+  check("staging queues a rung", orderSize(rig, one) === 1 && orderedTier(rig, one, "reactor") === 2);
+  check("a staged rung is priced off the shared ladder", orderCost(rig, one) === T[1]);
+  const two = stageTier(rig, one, "reactor", 999)!;
+  check("the same track stages again", orderedTier(rig, two, "reactor") === MAX_TIER);
+  check("a two-rung order costs both rungs", orderCost(rig, two) === T[1] + T[2]);
+  check("a maxed track refuses another rung", stageTier(rig, two, "reactor", 999) === null);
+  // Tier 0 is a system that is not aboard, not a cheaper first rung — the same
+  // rule buyUpgrade enforces, asserted here so the button is disabled for the
+  // reason the commit would refuse it.
+  check("an uninstalled track cannot be staged", stageTier(rig, {}, "demolition", 999) === null);
+
+  // AFFORDABILITY IS AGAINST THE WHOLE ORDER. With one purchase per tap the
+  // scrap was already gone by the time the next button rendered; staged, it is
+  // not, so each rung has to price itself against the queue in front of it.
+  check("a rung that fits alone is refused behind a queue that spent the scrap",
+    stageTier(rig, {}, "reactor", T[1]) !== null &&
+      stageTier(rig, stageTier(rig, {}, "reactor", T[1])!, "bay", T[1]) === null);
+  check("staging never mutates the order it was given", (() => {
+    const o: RefitOrder = { reactor: 1 };
+    stageTier(rig, o, "bay", 999);
+    clearTrack(o, "reactor");
+    return JSON.stringify(o) === '{"reactor":1}';
+  })());
+  // ALL of a track's rungs, not the last one. The card carries one cycling
+  // button (the tap floor leaves room for one), so it stages while the track
+  // has room and undoes at MAX — and a one-rung undo there would leave the
+  // track oscillating between its top two tiers with no way back down.
+  check("undoing takes the whole track back off the order",
+    JSON.stringify(clearTrack(two, "reactor")) === "{}" &&
+      JSON.stringify(clearTrack(one, "reactor")) === "{}");
+  check("undoing leaves the rest of the order alone",
+    JSON.stringify(clearTrack({ reactor: 2, bay: 1 }, "reactor")) === '{"bay":1}');
+  check("undoing a track that is not staged is a no-op",
+    clearTrack(one, "bay") === one);
+
+  // A hand-edited order must not read as a fourth tier nothing implements.
+  check("an over-ordered track clamps at MAX",
+    orderedTier(rig, { reactor: 9 }, "reactor") === MAX_TIER &&
+      orderedTiers(rig, { reactor: 9 }).reactor === MAX_TIER);
+
+  // THE RUNGS, in installation order. buyUpgrades walks these to install and
+  // main.ts walks the same list to reconstruct the per-rung `scrapBefore` its
+  // telemetry records, so the two cannot disagree about what was bought at
+  // what balance.
+  const rungs = orderRungs(rig, { bay: 1, reactor: 2 });
+  check("rungs come back in UPGRADES order, not the order's key order",
+    rungs.map((r) => r.id).join(",") === "bay,reactor,reactor",
+    rungs.map((r) => r.id).join(","));
+  check("each rung names the tier it climbs FROM",
+    rungs.map((r) => r.from).join(",") === "2,1,2",
+    rungs.map((r) => r.from).join(","));
+  check("each rung is priced at that tier's rung of the ladder",
+    rungs.map((r) => r.cost).join(",") === [T[2], T[1], T[2]].join(","),
+    rungs.map((r) => r.cost).join(","));
+  check("the rungs' prices sum to what the order costs",
+    rungs.reduce((a, r) => a + r.cost, 0) === orderCost(rig, { bay: 1, reactor: 2 }));
+  check("an order past the ladder's top enumerates only the rungs that exist",
+    orderRungs(rig, { reactor: 9 }).length === MAX_TIER - 1);
+  check("an empty order has no rungs", orderRungs(rig, {}).length === 0);
+  // The reconstruction main.ts performs: start at the run's balance, subtract
+  // each rung in turn. It has to land exactly on what the commit deducted, or
+  // the telemetry's `scrapBefore` series is describing a different purchase.
+  check("walking the rungs from the opening balance lands on the commit's", (() => {
+    const start = { ...newRun(9, [], 0, rig, 6), scrap: 300 };
+    const o: RefitOrder = { bay: 1, reactor: 2 };
+    let scrap = start.scrap;
+    const before: number[] = [];
+    for (const r of orderRungs(start.tiers, o)) { before.push(scrap); scrap -= r.cost; }
+    return scrap === buyUpgrades(start, o, MAX_TIER)!.scrap
+      && before[0] === 300 && before.length === 3
+      && before.every((b, i) => i === 0 || b < before[i - 1]);
+  })());
+
+  // THE COMMIT. All or nothing: a half-installed order would spend real scrap
+  // on a build the player never saw projected, which is the surprise staging
+  // exists to remove.
+  const docked = { ...newRun(4, [], 0, rig, 6), scrap: 200 };
+  const order: RefitOrder = { reactor: 1, bay: 1 };
+  const undocked = buyUpgrades(docked, order, MAX_TIER)!;
+  check("undocking installs every staged rung",
+    undocked.tiers.reactor === 2 && undocked.tiers.bay === MAX_TIER);
+  check("undocking deducts exactly what the order quoted",
+    undocked.scrap === 200 - orderCost(rig, order) && orderCost(rig, order) === T[1] + T[2]);
+  check("undocking does not mutate the run it was given",
+    docked.scrap === 200 && docked.tiers.reactor === 1);
+  check("an empty order changes nothing", (() => {
+    const same = buyUpgrades(docked, {}, MAX_TIER)!;
+    return same.scrap === 200 && JSON.stringify(same.tiers) === JSON.stringify(rig);
+  })());
+  check("an order the run cannot pay for is refused whole",
+    buyUpgrades({ ...docked, scrap: T[1] }, { reactor: 1, bay: 1 }, MAX_TIER) === null);
+  check("an order naming an uninstalled system is refused whole",
+    buyUpgrades(docked, { reactor: 1, demolition: 1 }, MAX_TIER) === null);
+  check("an order climbing past MAX is refused whole",
+    buyUpgrades(docked, { reactor: 9 }, MAX_TIER) === null);
+  // The Bond Emitter's magazine delta lives in buyUpgrade, so a batched commit
+  // has to go through it rather than writing tiers directly — otherwise the
+  // one track whose purchase issues a consumable would stop issuing it.
+  check("a staged emitter still issues its charge",
+    buyUpgrades({ ...docked, bondCharges: 0 }, { bonds: 1 }, MAX_TIER)!.bondCharges === 1);
+
+  // THE PROJECTION. Every refit track has to move at least one number on it:
+  // a shop where a purchase projects nothing teaches that the purchase does
+  // nothing, and three tracks used to do exactly that.
+  const stopped = { ...newRun(4, [], 0, {
+    bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
+  }, 6), levelIndex: 6, scrap: 999 };
+  for (const u of UPGRADES) {
+    const after = buyUpgrades(stopped, { [u.id]: 1 }, MAX_TIER)!;
+    const rows = previewRows(levelForRun(stopped), levelForRun(after)).filter((r) => r.changed);
+    check(`the yard projects what ${u.id} buys`, rows.length > 0,
+      "nothing moved");
+    // At least one, not every one: a track is allowed to be a trade-off (see
+    // the hydraulics check below), but a purchase that buys nothing the player
+    // can read as a gain is one the yard should not be selling.
+    check(`${u.id} buys at least one visible improvement`,
+      rows.some((r) => r.tone === "better"),
+      rows.map((r) => `${r.id}:${r.tone}`).join(","));
+  }
+  // PRESS HYDRAULICS IS A TRADE-OFF, and the projection says so. The track
+  // raises settle assist (the improvement it is sold on) and stroke speed
+  // together — and stroke speed is the very number the Sweeper Detail notch
+  // ratchets as PRESSURE (hazards.ts), so the same field cannot be an
+  // improvement here and a cost there. Shown honestly rather than recoloured:
+  // a faster press really does give a near-line less time to close, and a
+  // projection that hid that to keep a purchase all-green would be the lying
+  // projection preview.ts exists to prevent.
+  const pressRows = previewRows(levelForRun(stopped),
+    levelForRun(buyUpgrades(stopped, { hydraulics: 1 }, MAX_TIER)!)).filter((r) => r.changed);
+  check("hydraulics projects its assist as the gain",
+    pressRows.some((r) => r.id === "assist" && r.tone === "better"));
+  check("…and its faster stroke as the cost the sweeper notch calls one",
+    pressRows.some((r) => r.id === "sweeper" && r.tone === "worse"));
+
+  // The capstone is a resupply LINE rather than another +2 charges, so a
+  // projection that only counted charges would show tier 3 buying tier 2.
+  const rackTop = { ...stopped, tiers: { ...stopped.tiers, demolition: 2 } };
+  check("the demolition capstone projects its resupply line",
+    previewRows(levelForRun(rackTop), levelForRun(buyUpgrades(rackTop, { demolition: 1 }, MAX_TIER)!))
+      .some((r) => r.id === "resupply" && r.changed));
+  // Same rule the draft's rows follow: a dense grid packs these three across a
+  // phone's projection column, and a label that does not survive that names
+  // nothing.
+  const shipRows = previewRows(levelForRun(stopped),
+    levelForRun(buyUpgrades(stopped, {
+      bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
+    }, MAX_TIER)!));
+  check("every ship row carries a dense-grid label that fits one",
+    shipRows.every((r) => r.short.length > 0 && r.short.length <= r.label.length && r.short.length <= 11),
+    shipRows.filter((r) => r.short.length > 11 || r.short.length > r.label.length).map((r) => r.short).join(","));
+  // …and they stay OFF the ratchet draft, where no axis touches them: the rows
+  // were added for the yard, and a permanent tile per ship stat would be one
+  // more thing for a landscape phone to pack four across for nothing.
+  const quiet = previewRows(levelForRun(stopped), levelForRun(stopped));
+  check("the ship's own rows are silent when nothing moves them",
+    !quiet.some((r) => ["power", "stabilizer", "reload", "breakers", "seams", "bombs", "resupply"].includes(r.id)),
+    quiet.map((r) => r.id).join(","));
 }
 
 // ---------------------------------------------------------------------------

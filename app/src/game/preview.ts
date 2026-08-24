@@ -242,6 +242,67 @@ const FIELDS: Field[] = [
     id: "prime", label: "Volatile priming", short: "Priming",
     read: (c) => c.volatileTriggerMult, fmt: (v) => `${Math.round(v * 100)}%`, higherIsWorse: false,
   },
+  // ---------------------------------------------------------------------
+  // THE SHIP'S OWN SPEC (upgrades.ts) — the rows the REFIT YARD moves.
+  //
+  // The yard draws this same projection against a staged order (screens.ts's
+  // refitScreen), and without these rows three of its seven tracks — Launcher
+  // Coils, Loader Magazine, Demolition Rack — moved nothing on it at all. A
+  // projection that goes blank on a purchase teaches the player that the
+  // purchase does nothing, which is worse than showing no projection.
+  //
+  // None of them is `always` and none carries a showWhen, so they cost the
+  // ratchet draft and the Final Inspection exactly nothing: no ratchet axis
+  // touches any of these fields, and the one clause that does (Cold Weld,
+  // which stands the Seam Splitter down) is a clause the seams row exists to
+  // stop signing blind.
+  // ---------------------------------------------------------------------
+  {
+    id: "power", label: "Muzzle power", short: "Power",
+    read: (c) => c.launchPower, fmt: (v) => `${Math.round(v * 100)}%`, higherIsWorse: false,
+  },
+  {
+    // The stabilizer, not the weather: how much of whatever the bay is blowing
+    // the coils cancel outright (level.ts's windAssist).
+    id: "stabilizer", label: "Wind stabilizer", short: "Wind cut",
+    read: (c) => c.windAssist, fmt: rate, higherIsWorse: false,
+  },
+  {
+    id: "reload", label: "Reload", short: "Reload",
+    read: (c) => c.cooldownMs, fmt: (v) => `${(v / 1000).toFixed(2)}s`, higherIsWorse: true,
+  },
+  {
+    // What is actually LEFT in the magazine, not what the tier grants: run.ts's
+    // levelForRun overwrites the config's charges with RunState.bondCharges, so
+    // a refit projects the delta the emitter issues on top of what the run has
+    // already spent — which is the number the player is buying.
+    id: "breakers", label: "Bond breakers", short: "Breakers",
+    read: (c) => c.bondBreakerCharges, fmt: int, higherIsWorse: false,
+  },
+  {
+    // THE SEAM SPLITTER (upgrades.ts, bonds tiers 2-3): S and Z ship with
+    // weakened joints. Read as "how much weaker", because weakBondMult is a
+    // multiplier that falls as the passive gets stronger and a bare 0.70 reads
+    // backwards. Guarded on the type list, since a mult with nothing to apply
+    // to is not a passive the ship has.
+    id: "seams", label: "S/Z seams", short: "Seams",
+    read: (c) => (c.weakBondTypes.length ? c.weakBondMult : 1),
+    fmt: (v) => (v >= 1 ? "stock" : `${Math.round((1 - v) * 100)}% weaker`),
+    higherIsWorse: true,
+  },
+  {
+    id: "bombs", label: "Demolition charges", short: "Charges",
+    read: (c) => c.bombCharges, fmt: int, higherIsWorse: false,
+  },
+  {
+    // The Demolition Rack's capstone is a resupply LINE rather than more
+    // charges, so a projection that only counted charges would show its third
+    // tier buying the same +2 the second one did.
+    id: "resupply", label: "Charge resupply", short: "Resupply",
+    read: (c) => c.bombResupplyLines,
+    fmt: (v) => (v > 0 ? `+1 / ${Math.round(v)} lines` : "none"),
+    higherIsWorse: false,
+  },
   // The content axes, in ladder order, labelled off their own HazardDef so a
   // new material is still one table row in hazards.ts and nothing here.
   ...HAZARDS.filter((h) => h.material).map((h): Field => ({

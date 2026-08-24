@@ -8,8 +8,9 @@ import {
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
-  MAX_TIER, UPGRADES, budgetForMark, nextTierCost, refitTracks, tiersCost, upgradeById,
-  type UpgradeTiers,
+  MAX_TIER, UPGRADES, budgetForMark, nextTierCost, orderCost, orderSize, orderedTier,
+  refitTracks, tiersCost, upgradeById,
+  type RefitOrder, type UpgradeTiers,
 } from "../game/upgrades";
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
@@ -1430,8 +1431,30 @@ export function bayClearScreen(opts: {
  * dealt, a refit is a plan you commit to, so the player needs to see the
  * long-term shape of each track to plan toward one.
  *
- * Cards stay mounted after a purchase (main.ts re-renders in place) so buying
- * tier 1 and immediately seeing tier 2's price is one continuous read.
+ * THE WORKSHOP'S SHELF, and for the Workshop's reason. This screen used to run
+ * two columns of one-line rows whose only copy was the track's NAME and its
+ * current setting — the sentence saying what a system actually does lived in
+ * `blurb` and reached the player nowhere, and the whole tier ladder lived in a
+ * `title` attribute, i.e. on hover, i.e. on the devices this game does not
+ * ship to. A shop where you cannot read what you are buying is not a denser
+ * shop; the Workshop settled that argument for itself and this is the same
+ * shop. So: one column of `.shop-card` rows, whole copy, and the shelf scrolls
+ * (it is already one of the harness's allowed scrollers).
+ *
+ * TAPPING STAGES, UNDOCKING BUYS. Every button used to be a purchase, which
+ * made a "plan you commit to" a run of irreversible taps — to compare two
+ * builds you had to buy one. Now a tap queues a tier into a REFIT ORDER
+ * (upgrades.ts's RefitOrder), the order is free to revise, and Undock is the
+ * one commit (run.ts's buyUpgrades).
+ *
+ * That is also what makes the projection worth drawing. Each card carries its
+ * own before → after on the track it sells, and the panel beside the shelf
+ * carries the whole ship's: every number the order moves, from the same
+ * levelForRun pipeline the next bay is actually built from (preview.ts), so
+ * the player prices the order in the bay's own units before paying for it.
+ * Same panel, same tiles and same grammar as the ratchet draft two screens
+ * later — the yard and the draft are the run's two commitment screens, and
+ * they should read as one thing.
  */
 export function refitScreen(opts: {
   bayNum: number;
@@ -1441,69 +1464,137 @@ export function refitScreen(opts: {
   /** The run's Mark — Mark 1 stops offer only Reactor Output (see
    *  upgrades.ts's refitTracks for the tuning rationale). */
   mark: number;
+  /** Tiers STAGED but not yet paid for. Tentative: nothing here has touched
+   *  RunState.tiers or spent a point of scrap until Undock commits it. */
+  order: RefitOrder;
+  /** The next bay as the ship stands vs. with the whole order installed — see
+   *  preview.ts. Rendered live, so this is what makes staging worth having. */
+  preview: PreviewRow[];
 }): string {
-  // A14: ROWS on the leaderboard's scroll pattern, not cards. The grammar per
-  // row: glyph · name over its state line · tier pips · the price button (in
-  // B6's "T2 · <scrap> 35" words — the yard spends SCRAP, so the glyph on the
-  // button is the cut plate, never the Workshop's salvage arcs). An
-  // uninstalled track says where it IS bought —
-  // the Workshop — instead of wearing a live-looking price, and the full
-  // ladder survives in `title` for where hover exists.
   const tracks = refitTracks(opts.mark);
+  const staged = orderSize(opts.tiers, opts.order);
+  const spend = orderCost(opts.tiers, opts.order);
+  /** What is left to stage AGAINST, not what the run still owns: the order has
+   *  not been paid for, so the scrap is still in the pocket — but every button
+   *  on the shelf has to price itself against the queue in front of it. */
+  const left = opts.scrap - spend;
+
   const cards = tracks.map((u) => {
-    const tier = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
+    const owned = Math.min(MAX_TIER, opts.tiers[u.id] ?? 0);
+    const tier = orderedTier(opts.tiers, opts.order, u.id);
+    const queued = tier - owned;
     const cost = nextTierCost(tier);
-    const affordable = cost !== null && opts.scrap >= cost;
+    // Pips read the ORDER: owned rungs are lit, queued ones pulse, and the
+    // rest are dark. The card has to show the tier the projection beside it is
+    // currently drawing, which is the staged one and not the paid one.
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
-      `<i class="${i < tier ? "on" : ""}"></i>`,
+      `<i class="${i < owned ? "on" : i < tier ? "queued" : ""}"></i>`,
     ).join("");
-    // The button carries the whole purchase: which way the number moves, by how
-    // much, and what it costs (B6's grammar for the price).
     const step = cost === null ? null : u.step(tier);
-    // Tier 0 is NOT INSTALLED, and refit cannot install (run.ts's buyUpgrade
-    // refuses it): a system is bought once, with salvage, in the Workshop.
-    const btn =
-      tier === 0
-        ? `<span class="refit-row__locked">Not installed — buy it in the <b>Workshop</b></span>`
-        : cost === null || step === null
-        ? `<span class="refit-row__max">MAX</span>`
-        : `<button class="btn btn--primary refit-card__buy" data-action="buy-upgrade" data-upgrade="${u.id}"${affordable ? "" : " disabled"}>
-            <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
-            <span class="refit-card__delta">${step.text}</span>
-            <span class="refit-card__price">T${tier + 1}<span class="price__sep">·</span>${icon("scrap", 11)}${cost}</span>
-          </button>`;
+    // ONE CONTROL PER CARD, cycling — the draft's own idiom for the same
+    // problem (its cards fill the hand while there is room and edit it once it
+    // is full). Two controls is what the tap floor cannot afford: at 44px a
+    // second button per row costs a card's worth of height across the shelf,
+    // on the screen that already needs a scroller to hold seven of them.
+    //
+    // So the button STAGES while the track has room and takes the track back
+    // once it is ordered to MAX — and it stays live when the order has spent
+    // the scrap but this track has rungs queued, because a disabled button on
+    // a staged track is an order the player cannot undo.
+    const canStage = cost !== null && step !== null && left >= cost;
+    const undo = queued > 0 && !canStage;
+    const buy =
+      owned === 0
+        ? `<span class="shop-card__locked">Not installed — buy it in the <b>Workshop</b></span>`
+        : undo
+          ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}">
+              <span class="refit-card__arrow">${icon("close", 10)}</span>
+              <span class="refit-card__delta">Undo${queued > 1 ? ` ×${queued}` : ""}</span>
+              <span class="refit-card__price">+${icon("scrap", 11)}${orderCost(opts.tiers, { [u.id]: queued })}</span>
+            </button>`
+          : cost === null || step === null
+            ? `<span class="refit-card__max">MAX</span>`
+            : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"${canStage ? "" : " disabled"}>
+                <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
+                <span class="refit-card__delta">${step.text}</span>
+                <span class="refit-card__price"><span class="refit-card__tier">T${tier + 1}<span class="price__sep">·</span></span>${icon("scrap", 11)}${cost}</span>
+              </button>`;
+    // The track's OWN before/after — absolute on both sides, because "+2 cells"
+    // is only legible next to the number it moves. Unstaged, the card states
+    // what the ship carries today and nothing more.
+    const state = queued > 0
+      ? `<span class="refit-card__from">${u.current(owned)}</span><span class="refit-card__to-arrow">→</span><span class="refit-card__to">${u.current(tier)}</span>`
+      : `<span class="refit-card__now">${u.current(owned)}</span>`;
+    // The ladder still ships in `title` for where hover exists, but it is no
+    // longer the only place it is written down: the card's own copy and its
+    // before/after carry the tiers a player can actually reach from here.
     const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
-    return `<div class="refit-row${tier > 0 ? " refit-row--owned" : ""}" title="${u.name} — ${ladder}">
-      <span class="refit-row__glyph">${icon(u.id as IconName, 26)}</span>
-      <div class="refit-row__body">
-        <span class="refit-row__name">${u.name}</span>
-        <span class="refit-row__state">${u.current(tier)}</span>
+    return `<div class="shop-card refit-card${queued > 0 ? " refit-card--staged" : ""}${owned === 0 ? " shop-card--gated" : ""}" title="${u.name} — ${ladder}">
+      <div class="shop-card__body">
+        <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
+        <p class="shop-card__desc">${u.blurb}</p>
+        <div class="refit-card__step"><span class="refit-card__pips">${pips}</span>${state}</div>
       </div>
-      <span class="refit-row__pips">${pips}</span>
-      <div class="refit-row__foot">${btn}</div>
+      <div class="shop-card__foot refit-card__foot">${buy}</div>
     </div>`;
   }).join("");
 
+  // The scrap box is the yard's pinned constraint, exactly as the build budget
+  // is the Workshop's: the usual reason a button on this shelf is greyed out is
+  // that the ORDER has already spent the scrap, and a running total that
+  // scrolled away from the cards it disables would be the one thing this pane
+  // must not do. A readout and nothing else — clearing the order is each card's
+  // own button (a "clear all" here would be a second control competing for the
+  // tap floor with the one the cards already carry).
+  const order = `<div class="refit__order" id="refit-order">
+    <span class="refit__order-label">scrap to spend</span>
+    <span class="refit__order-scrap">${scrapHTML(left, 16)}</span>
+    <span class="refit__order-spend${staged > 0 ? "" : " refit__order-spend--idle"}">${
+      staged > 0
+        ? `${staged} staged<span class="price__sep">·</span>${scrapHTML(spend, 11)}`
+        : "nothing staged"
+    }</span>
+  </div>`;
+
   return `<div class="modal-scrim" id="scrim">
-    <div class="panel modal modal--refit pop" style="width:min(900px,96vw)">
+    <div class="panel modal modal--refit pop" style="width:min(940px,96vw)">
       <div class="refit__hdr">
         <div style="text-align:left">
           <div class="eyebrow">Refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
-          <p class="muted" style="margin:0"><span class="refit__hint">The compactor rig is your ship. Spend scrap; it lasts the run. </span>Next up: ${opts.nextBayName}.</p>
+          <p class="muted refit__blurb" style="margin:0">The compactor rig is your ship. Stage what you want; Undock installs the lot. Next up: ${opts.nextBayName}.</p>
         </div>
-        <div class="chip chip--inline refit__scrap">
-          <div class="chip__label">Scrap</div>
-          <div class="chip__value" style="color:var(--warn)" id="refit-scrap">${scrapHTML(opts.scrap, 16)}</div>
-        </div>
+        ${order}
       </div>
-      <div class="refit__grid" id="refit-grid" data-scroll>${cards}</div>
-      ${
-        tracks.length < UPGRADES.length
-          ? `<p class="muted" style="margin:0;font-size:var(--fs-sm)">Tier 1 refits focus the reactor — the rest of the yard opens at Tier 2.</p>`
-          : ""
-      }
-      <button class="btn btn--primary" data-action="refit-done">Undock →</button>
+      <div class="refit__body">
+        <div class="refit__shelf" id="refit-grid" data-scroll>
+          ${cards}
+          ${
+            tracks.length < UPGRADES.length
+              ? `<p class="muted refit__short">Tier 1 refits focus the reactor — the rest of the yard opens at Tier 2.</p>`
+              : ""
+          }
+        </div>
+        ${projectionHTML(
+          "refit-preview",
+          `${opts.nextBayName} — projected`,
+          staged > 0 ? `+${staged} staged` : "as it stands",
+          opts.preview,
+          staged > 0 ? "" : "Stage a refit and this redraws with what it does to the bay.",
+        )}
+      </div>
+      <div class="refit__foot" id="refit-foot">
+        <button class="btn btn--primary btn--block" data-action="refit-done">${
+          staged > 0
+            ? `Install ${staged}<span class="price__sep">·</span>${scrapHTML(spend, 11)} — undock →`
+            : "Undock →"
+        }</button>
+        <p class="refit__foot-note muted">${
+          staged > 0
+            ? "Nothing is paid for until you undock — undo the order and the scrap stays banked."
+            : "Tap a system to stage a tier. Nothing is paid for until you undock."
+        }</p>
+      </div>
     </div>
   </div>`;
 }
@@ -1760,6 +1851,41 @@ function previewGridHTML(rows: PreviewRow[]): string {
 }
 
 /**
+ * THE PROJECTION PANEL — a titled block of before/after tiles.
+ *
+ * Shared by the three screens that ask the player to commit to a change and
+ * then show them the numbers it moves: the ratchet draft, the Final Inspection
+ * and the refit yard. One panel for all three because they ask the same
+ * question ("what does this do to the bay I am about to fly?"), and because a
+ * second copy of this markup is how they would eventually disagree about which
+ * rows a phone drops.
+ *
+ * aria-live on the panel itself: the projection is the ANSWER to tapping a
+ * card, and a screen-reader user who tapped one gets nothing back otherwise.
+ */
+function projectionHTML(
+  id: string,
+  title: string,
+  note: string,
+  rows: PreviewRow[],
+  /** Shown under the grid when the screen has nothing selected yet — the yard
+   *  uses it, the draft does not. A refit is the one of the three where an
+   *  empty selection can leave the panel holding only the bay's priced five,
+   *  and a half-empty box with no explanation reads as a screen that failed to
+   *  load rather than one waiting for a tap. */
+  idleHint = "",
+): string {
+  return `<div class="projection" id="${id}" aria-live="polite">
+    <div class="projection__hd">
+      <span>${title}</span>
+      <span class="projection__note">${note}</span>
+    </div>
+    <div class="preview-grid">${previewGridHTML(rows)}</div>
+    ${idleHint ? `<p class="projection__idle muted">${idleHint}</p>` : ""}
+  </div>`;
+}
+
+/**
  * Ratchet modal shown between bays: freezes the just-cleared field behind a
  * scrim and asks which difficulty axis hardens for the rest of the run.
  *
@@ -1860,7 +1986,6 @@ export function draftScreen(opts: {
       </button>`;
     })
     .join("");
-  const stats = previewGridHTML(opts.preview);
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
@@ -1888,15 +2013,12 @@ export function draftScreen(opts: {
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
-        <!-- aria-live: the projection is the ANSWER to tapping a card, and a
-             screen-reader user who tapped one gets nothing back otherwise. -->
-        <div class="draft__preview" id="draft-preview" aria-live="polite">
-          <div class="draft__preview-hd">
-            <span>${opts.nextBayName} — projected</span>
-            <span class="draft__preview-note">${pending > 0 ? "with your selection" : "as it stands"}</span>
-          </div>
-          <div class="preview-grid">${stats}</div>
-        </div>
+        ${projectionHTML(
+          "draft-preview",
+          `${opts.nextBayName} — projected`,
+          pending > 0 ? "with your selection" : "as it stands",
+          opts.preview,
+        )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
@@ -1965,7 +2087,6 @@ export function finalScreen(opts: {
       </button>`;
     })
     .join("");
-  const stats = previewGridHTML(opts.preview);
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
       <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
@@ -1987,13 +2108,12 @@ export function finalScreen(opts: {
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
-        <div class="draft__preview" id="draft-preview" aria-live="polite">
-          <div class="draft__preview-hd">
-            <span>${opts.nextBayName} — projected</span>
-            <span class="draft__preview-note">${ready ? "with the clause" : "as it stands"}</span>
-          </div>
-          <div class="preview-grid">${stats}</div>
-        </div>
+        ${projectionHTML(
+          "draft-preview",
+          `${opts.nextBayName} — projected`,
+          ready ? "with the clause" : "as it stands",
+          opts.preview,
+        )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
