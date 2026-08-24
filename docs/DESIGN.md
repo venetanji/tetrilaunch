@@ -280,24 +280,32 @@ modes are merely parallel and Contracts degrade into a currency chore.
 ### The tier ladder — what a Mark actually demands
 
 Three knobs state a tier's opening terms (`level.ts`'s `targetScoreFor`,
-`timeLimitFor`, `launchCostFor`). They extend the old flat bay — $800, 150s, $25
-a shot, identical at every Mark — in **both** directions: the bottom of the
-ladder is a genuinely gentler bay than the game has ever shipped, and the top
-asks for meaningfully more.
+`timeLimitFor`, `launchCostFor`). They extend the old bay — which opened at $800
+on a 150s clock at $25 a shot, identically at every Mark — in **both**
+directions: the bottom of the ladder is a genuinely gentler bay than the game has
+ever shipped, and the top asks for meaningfully more. The ladder's own per-bay
+climb (`TARGET_PER_BAY`) rides on top and the tier steepens it a little.
 
-| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch |
-|---|---|---|---|---|
-| 1 | $600 → $780 | +$20 | 180s | $20 |
-| 3 | $640 → $856 | +$24 | 172s | $22 |
-| 6 | $700 → $970 | +$30 | 160s | $26 |
-| 10 | $780 → $1122 | +$38 | 144s | $30 |
+| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
+|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
+| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
+| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
+| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
 
 Read it as the tier's *terms*, not its difficulty: the calibration above still
-holds that a bigger bar mostly buys duration. What the curve buys is the other
-half of a ladder — a tier that means something numerically before a single
-hazard is drafted, and a first bay a new player can actually clear. The clock and
-the launch cost are properties of the tier and hold for the whole run; only the
-target steps per bay, and the tier sets how steeply.
+holds that a bigger bar mostly buys duration, and what makes a bay bite is the
+tight purse and the ratchet. What the curve buys is the other half of a ladder —
+a tier that means something numerically before a single hazard is drafted, and a
+first bay a new player can actually clear. The clock and the launch cost are
+properties of the tier and hold for the whole run; the target steps per bay, and
+the tier sets both where it starts and how steeply it climbs.
+
+The float is derived, not fixed: it is always `LAUNCH_BUDGET_SHOTS` (eight)
+launches' worth, so every tier opens with the same runway LENGTH and only its
+price moves. Pinning the dollar figure instead would have handed Tier 1 ten
+launches and Tier 10 six — silently moving the one number the purse was tuned
+to.
 
 **Measured** (`npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --notches spread`, aim bot,
 bays 1/4/7/10, carry $150). `--notches spread` is new and is why these numbers mean something: it
@@ -306,18 +314,23 @@ that Mark's number axes), instead of measuring a bare ladder no run is ever play
 
 | Mark | budget | bar | best build | run clear | verdict |
 |---|---|---|---|---|---|
-| 1 | 77 | $600/180s | economy | 9% | just short |
-| 3 | 231 | $640/172s | economy | 19% | just short |
-| 6 | 462 | $700/160s | spread | 33% | just short |
-| 8 | 616 | $740/152s | economy | 5% | just short |
-| 10 | 770 | $780/144s | economy | 1% | too hard |
+| 1 | 77 | $600/180s | economy | 1% | too hard |
+| 3 | 231 | $640/172s | economy | 33% | just short |
+| 6 | 462 | $700/160s | economy | 16% | just short |
+| 8 | 616 | $740/152s | economy | 3% | just short |
+| 10 | 770 | $780/144s | economy | 0% | IMPOSSIBLE |
 
-Four of five rungs land inside the criterion band (2–35%), which the flat ladder did not: without
-the ratchet modelled the same sweep reads *FREE* (100%) at Marks 3 and 6. Mark 10 at 1% sits just
-under the band, and every one of the harness's caveats pushes that number down rather than up — the
-bots never fire a Bond Breaker or a bomb, MAGAZINE is excluded from the archetypes (so the "full"
-rig spends 550 of 770), and a spread ratchet is the *unprepared* hand, not what a player who drafted
-for their build would take. Treat it as "hard, needs a human pass", not as a wall.
+Three of five rungs land inside the criterion band (2–35%). The two that don't are the ends, and
+they fail for opposite reasons. **Mark 1 is budget-starved, not over-asked**: 77 ladder points buy
+`LCH1 RCT1` and nothing else, so the rung below Mark 3 reads harder than the rung above it — the
+budget curve, not the tier ladder, is what to move if that inversion matters. **Mark 10 at 0%** is
+where every one of the harness's caveats bites hardest, and all of them push the number down rather
+than up: the bots never fire a Bond Breaker or a bomb, MAGAZINE is excluded from the archetypes (so
+the "full" rig spends 550 of 770), and a spread ratchet is the *unprepared* hand, not what a player
+who drafted for their build would take. Treat both ends as "needs a human pass", not as walls — and
+note that without the ratchet modelled at all the same sweep still reads *FREE* at the middle Marks,
+which is the finding that matters: a run's difficulty lives in the purse and the ratchet, not in the
+bar the tier states.
 
 Two consequences worth stating:
 
@@ -325,10 +338,9 @@ Two consequences worth stating:
   bay). So a higher tier is more lines, not richer lines — which is exactly why
   the leaderboard is now **per tier** (`main.ts`'s `boardTier`, posted under the
   run's own Mark): a shared board would have ranked the ladder, not the play.
-- **The hazard notches stay flat** (`hazards.ts`: $300 / $5 / 20s at every
-  Mark). A notch therefore bites relatively harder at the bottom, which the
-  tier's own relief — more clock, cheaper shots — is what pays for. Open call for
-  the play pass.
+- **The notch ladders already slide with the Mark** (`hazards.ts`'s
+  `ladderStart`), so the tier states the bar and the ratchet states what
+  hardening it costs — two curves that compose rather than one doing both jobs.
 
 ### What actually gets harder
 
