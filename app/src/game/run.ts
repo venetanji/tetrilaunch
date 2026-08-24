@@ -290,9 +290,11 @@ export function levelForRun(run: RunState): LevelConfig {
  *  timed Bond Breaker flattening the whole field into multi-lines) banked
  *  enough overshoot to clear the next bay — sometimes the next TWO — on
  *  autopilot, which removed the puzzle entirely. Capped at roughly one clean
- *  line's gross payout, so a bay opened on a full carry starts at $350 against
- *  a target of $800 or more: a real head start, and still four-fifths of a bay
- *  left to actually play. A strong bay buys tempo — never the next bay. */
+ *  line's gross payout, so a bay opened on a full carry starts on the tier's
+ *  float plus the cap — $310 at Tier 1, $390 at Tier 10 — against a bay-2
+ *  target of $700 to $898: a real head start, and still four-fifths of a bay
+ *  left to actually play — the $150 cap is a fifth of Tier 1's bay-2 target and
+ *  a sixth of Tier 10's. A strong bay buys tempo — never the next bay. */
 export const CARRY_CAP = 150;
 
 /** Advance to the next level after one ends: carry becomes the overshoot

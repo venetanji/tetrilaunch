@@ -1,19 +1,35 @@
 # Tetrilaunch simulation harness
 
 Headless tools that drive the real `Game` class (from `../src/game`) outside
-the browser, to answer three questions:
+the browser. The three questions the first tools here were built to answer:
 
-1. Which drafted modifiers (`mods.ts`) make a bay easier or harder?
+1. Which hazard ratchets and ship systems make a bay easier or harder?
+   (`sweep.ts` still sweeps `mods.ts` variants as a difficulty vocabulary, but
+   the game no longer drafts them.)
 2. Does a naive "aim at the middle and keep firing" bot clear the early
    bays — and with what margin?
 3. How does per-frame physics cost scale with the number of cubes on the
    field?
 
-This directory lives **outside** `app/src/`, so it is invisible to
-`tsc`/`vite` (`app/tsconfig.json` only includes `src`, `capacitor.config.ts`,
-`vite.config.ts`) — `npm run build` never sees it. It's run directly with
-[`tsx`](https://github.com/privatenumber/tsx) (transpile + run, no build
-step, no type-checking gate — a typo here can't break the shipped build).
+Everything after those three arrived as one specific number a design argument
+needed and could not remember, and each has its own section below: the Mark
+ladder (`marks.ts`), the congestion tax (`pile.ts` and `pile-metrics.ts`),
+whether the non-physics systems are wired up at all (`systems.ts`), whether a
+pattern Contract can actually be built (`patterns.ts`), what a human's session
+looks like next to a bot's (`playtest.ts`), and whether every screen fits every
+device (`uifit/`). `bots.ts`, `runner.ts` and `ratchet-model.ts` are shared
+parts rather than CLIs.
+
+This directory lives **outside** `app/src/`, so the app's own build never
+bundles it (`app/tsconfig.json` only includes `src`, `capacitor.config.ts`,
+`vite.config.ts`), and it's run directly with
+[`tsx`](https://github.com/privatenumber/tsx) — transpile + run, no build step.
+It is not unchecked, though: `npm run typecheck` makes a second pass over
+`sim/` through `tsconfig.sim.json`, which is a separate project rather than
+another `include` entry because the harness needs Node's globals and folding
+those into the base config would hand them to `src/` too, where a stray
+`process.env` would typecheck happily and die in the browser. `npm run build`
+gates on that pass, so a type error here does fail the shipped build.
 
 ## Running
 
@@ -69,6 +85,14 @@ shot. Presets:
   rotation strategy — the existence proof that re-aiming beats the wind
   where every fixed-aim preset above must not (see `level.ts`'s
   `windMax`/`windPeriodSec` and `game.ts`'s `windNow`).
+- `patient` — `aim` plus the one rule the congestion tax exists to teach: do
+  not fire into a bay that is already over the threshold (`AimOpts`'s
+  `congestionAware`). It is only interesting *against* `aim` on the same
+  seeds — the gap between the two is the tax's whole design claim, which is
+  why `pile.ts` runs the pair.
+- `impatient` — `aim` minus its restraint: fires on every cooldown, funds
+  permitting. The harness's model of "spam pieces and let gravity do the
+  rest", and the other end of that same paired comparison.
 
 No lookahead, no trajectory awareness — these approximate "hold roughly the
 same aim and keep firing," not a strong player.
@@ -109,8 +133,8 @@ target); a larger value models a run that's been overshooting comfortably.
 Only produced when `--mods` isn't `none`. `--mods` is a two-level grammar:
 comma separates independent **variants**, and within one variant, a
 `+`-joined group (e.g. `half+overclock`) stacks those mods together into a
-single variant, applied via `applyMods(base, [id1, id2, ...])` — exactly
-like drafting more than one modifier in a real run. `--mods
+single variant, applied via `applyMods(base, [id1, id2, ...])` — exactly the
+way the retired modifier draft stacked two picks. `--mods
 half+overclock,premium` is two variants: `[half, overclock]` stacked, and
 `[premium]` alone. `--mods all` still expands to one variant per mod (no
 stacking) — every `ModDef` in `mods.ts`, unstacked. Every id in every group
@@ -148,10 +172,186 @@ check is a standing tripwire on that assumption, not a one-off.
 
 ### Defaults
 
-`--bays 1,2,3`, `--seeds 5`, `--bots` = all four presets. `--mods` has no
-single obvious literal default (it's a three-way switch: `all|none|list`),
-so it defaults to `all` — modifier balance is this tool's headline purpose.
-Pass `--mods none` for a baseline-only run. `--carry` defaults to `100`.
+`--bays 1,2,3`, `--seeds 5`, `--bots` = all eleven presets (every key of
+`BOTS`, not a shortlist). `--mods` has no single obvious literal default (it's
+a three-way switch: `all|none|list`), so it defaults to `all` — which dates
+from when modifier balance was this tool's headline purpose. The game no longer
+drafts modifiers (`hazards.ts`'s axis ratchet replaced them, and nothing in
+`app/src` imports `mods.ts` except `mulberry32`), so what the mods table is now
+is a difficulty VOCABULARY: it still says how much a given change to a bay is
+worth, which is what makes it useful for pricing a hazard notch, but no
+`ModDef` in it reaches a player. Pass `--mods none` for a baseline-only run.
+`--carry` defaults to `100`.
+
+## `marks.ts` — Mark calibration
+
+The sweep the Mark ladder cannot be tuned without. It builds a rig with the
+FULL Mark-N upgrade budget (`budgetForMark`, spent several different ways by
+`ARCHETYPES`), flies it at the sim bot's competence on that Mark's own bays,
+and asks the one question `docs/DESIGN.md` states the ladder in terms of: does
+the best build at a Mark fall JUST SHORT?
+
+```sh
+npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --ratchets spread
+```
+
+- clears comfortably → the Mark is free, and every board above it is easier
+  than the one below
+- can't clear at all → the Mark is impossible, however well played
+- falls just short → correct: the gap is what player skill fills
+
+The headline column is the implied RUN clear rate, not the per-bay win rate. A
+run must take all ten bays, so 90% a bay is only ~35% of runs, and the per-bay
+figure reads far more forgiving than the ladder actually is.
+
+`--ratchets` (`--notches`, the spelling the flag first shipped under, is
+accepted as a legacy alias, and `--ratchets` wins if both are passed; every
+other spelling is on its own, because `argv.indexOf` is an exact match, so a
+misspelt flag is matched by nothing and silently leaves the default in place)
+picks what the rig is flown against. `none` is stock bays, which measures the
+SHIP. `spread` models what a Deep Run actually forces: one ratchet pick per
+cleared bay, two at the capstone Mark, spread round-robin over the number axes
+the Mark deals — see `ratchet-model.ts` below. Only `spread` prices the ladder
+a player meets.
+
+`aim` is the default bot because it is the strongest one here; calibrating
+against a weak bot would read every Mark as impossible and drag the whole
+ladder down to trivial. Two caveats bias every number here PESSIMISTIC, and
+both are inherited from the bots: they never fire Bond Breaker or Demolition,
+so those tracks measure as worthless and bomb-carrying builds are undersold,
+and they hold an arc rather than reading the pile. A human clears bays these
+bots lose.
+
+## `pile.ts` — congestion-tax sweep
+
+The three questions `level.ts`'s `PILE_TIERS` cannot be tuned without.
+
+```sh
+npm run sim:pile -- --census --seeds 16
+npm run sim:pile -- --bays 1,3,5,8,10 --marks 1,3,5 --bots aim,patient
+```
+
+1. **Census** (`--census`, and printed first in every run). How many cubes does
+   a bay actually hold, moment to moment, with no tax applied at all? Whether
+   the proposed 32 and 48 thresholds mean "a bay you let get away from you" or
+   "every bay after the first minute" is a measurement, not a judgement call:
+   if a clean bot sits over 32 for most of its shots, the tax is not an
+   anti-spam rule, it is a flat rate rise with extra steps. This is the run
+   `docs/ECONOMY.md` quotes its field sizes from.
+2. **Bite.** With the tax on, what fraction of shots pay it, how much money and
+   clock it actually takes, and whether the bay still resolves.
+3. **Counter-play** — the one every other sweep in this directory structurally
+   cannot answer, because each bot fires the moment cooldown and funds allow,
+   so any cost on firing reads to it as pure loss. `patient` is `aim` plus a
+   single rule (do not fire while the bay is over the threshold), and the gap
+   between the two IS the design's claim: if `patient` beats `aim` under the
+   tax, the tax teaches something; if both just lose, it is a difficulty knob
+   wearing a lesson's clothes.
+
+Every variant runs against an `off` baseline on the same seeds, so each row is
+a paired comparison rather than an absolute number.
+
+## `pile-metrics.ts` — which congestion METRIC?
+
+The census came back with an uncomfortable answer, and an uncomfortable answer
+about a threshold may mean the METRIC is wrong rather than the number. The
+suspicion this script tests: total cube count is dominated by the SETTLED PILE,
+and the settled pile is not spam — it is the game. Rows only sell when the
+press closes on a full one, so a player doing everything right still sits on a
+deep pile, and a tax on that is a rate rise.
+
+```sh
+npx tsx sim/pile-metrics.ts --bays 1,5,10 --seeds 6
+```
+
+So it measures five candidate readings at every shot — `total` (what
+`PILE_TIERS` reads today), `settled` (cubes at rest, the pile proper), `moving`
+(the direct signature of firing again before the bay has resolved), `outside`
+(cargo on the launcher side of the compactor face, the signature of firing
+wildly) and `inflight` — for a clean bot and a spam bot on the same seeds, and
+asks of each how far apart the two distributions are. Separation is reported as
+the fraction of SPAM shots a threshold would tax when that threshold is set to
+tax only 10% of CLEAN shots. The 10% is arbitrary but fixed across metrics,
+which is what makes the column comparable: it asks every metric to be equally
+gentle on good play and then scores it on how much bad play it still catches.
+
+## `systems.ts` — systems smoke test
+
+Both `npm test` and `npm run sim:systems` are this file. It drives the
+NON-physics systems headlessly — piece sizes, ship upgrades, refit stops, the
+scrap/salvage economy, the hazard ratchet and its Fibonacci ladders, demolition
+charges, the layout solver — and asserts the invariants that would otherwise
+only be checked by playing. Deliberately not a balance sweep (that's `sweep.ts`)
+and not a perf test (`perf.ts`): it answers "are these systems wired up
+correctly and do their numbers compose the way the design says", which is the
+class of bug a balance sweep passes straight over. It is also the cheapest
+guard the numbers in `docs/` have: it imports the real constants
+(`TARGET_BASE`, `LAUNCH_COST_BASE`, `COST_LADDER`, `TIME_LADDER` and the rest)
+and asserts on what they compose to, so a re-shaped ladder fails here in
+seconds rather than in a doc nobody re-derived.
+
+## `patterns.ts` — pattern Contract audit
+
+`systems.ts` asserts the invariants that must hold on every build; this is the
+other half — a sweep that MEASURES how the pattern generator behaves across the
+whole space it can emit, so the numbers behind those invariants can be
+re-derived rather than remembered.
+
+```sh
+npm run sim:patterns
+npm run sim:patterns -- --seeds 3000 --tiers 5,6,7 --orders 200
+```
+
+It exists because "provably feasible" turned out to have two meanings and the
+generator only guaranteed the weaker one. `tiling.ts` proves the inventory
+PACKS the goal rectangle; it says nothing about whether those pieces, arriving
+one at a time in a shuffled order into a bay with gravity, can be assembled
+into that packing — and that is the question the player is actually asked. The
+columns are `packs` (tiling's guarantee), `drop%` (the share of arrival orders
+finishable landing each shipment straight down: the strict reading, and how a
+player reasons about the bay) and `tuck%` (the share finishable if a shipment
+may come to rest in any pocket it fits: the generous reading, an upper bound on
+what the arc, the tumbling and the press's sideways shove can buy).
+
+## `playtest.ts` — a human's session, not a bot's
+
+```sh
+npx tsx sim/playtest.ts path/to/tetrilaunch-playtest-*.json
+```
+
+Reads a session exported by `lib/telemetry.ts` (`__playtest.download()` in the
+browser console) and prints the numbers no sweep here can produce, because they
+all depend on how a human actually plays. The first one is the reason the file
+exists: **is a human ever cooldown-bound?** The bots fire the instant the
+cooldown clears, so MAGAZINE reads to them as pure throughput and a full rig
+LOSES to a stock one by bankrupting itself firing — but if a human's aim time
+routinely exceeds the cooldown, the cooldown never binds and the track is worth
+nothing to them either, which would be a real finding about something we sell.
+Then: a human's shots-per-line, which sets the whole economy and which every
+balance number derived from the bots inherits the bots' badness at; whether the
+clock binds at all; how close to broke a bay really came, which an
+end-of-bay total hides; the abilities the bots never use; and the compactor
+window, which a shot count cannot see because "aim time" is two behaviours —
+aiming, and waiting for the bar — wearing one number.
+
+## `ratchet-model.ts` — the difficulty model the sweeps share
+
+Not a CLI, and deliberately not in `src/game`. `marks.ts` and `pile.ts` both
+need "the ratchets a Mark-M run is carrying by the time it reaches bay B", and
+in the real game there is no such thing: ratchets are DRAFTED, so this is a
+model of an average run, and a model is exactly the kind of thing that must not
+leak into the game's own rules. It lives in its own file because two sims need
+it and a difficulty model copied into two places is how a sweep ends up
+describing a game that no longer exists.
+
+It is what makes `--marks` mean more than the tier ladder alone. `makeBaseLevel`
+already moves the bay's target, clock, launch cost and bond strength with the
+Mark, but a run at bay 5 is also carrying four bays' worth of notches, and
+without a model the sweep would fly a Mark-10 bay that nobody had ever
+ratcheted. Content axes are excluded: every hand holds at least two number axes
+(`hazards.ts`), so content is always dodgeable, and the bots own no answer to a
+material — including them would measure "bots cannot play slag" rather than the
+ladder.
 
 ## `perf.ts` — physics step-cost sweep
 
@@ -288,7 +488,7 @@ the product rule *"no vertical scrolling except the leaderboard rows and the
 workshop pane"* is written down, and a third entry cannot appear without
 someone editing that list on purpose.
 
-Four of them are about content that is **present, unclipped, inside the
+Five of them are about content that is **present, unclipped, inside the
 viewport and still not on screen** — the class of defect the fit/overflow
 assertions are structurally blind to, because nothing about it overflows
 anything:
@@ -302,17 +502,27 @@ anything:
 | `kbdhint`  | the desktop key-hint strip anchored to the viewport rather than to the solved field — 42px off centre and up to 69px adrift below it on an ordinary laptop window, while looking perfect on ultrawide |
 
 When adding one, reintroduce the defect it guards and confirm the assertion
-**fails** before trusting it — every one of the four above was proven that way,
+**fails** before trusting it — every one of the five above was proven that way,
 and the numbers quoted in their comments are what the failing run reported.
 
-**What the baseline currently holds.** All 25 entries are the one
-`Web · 800x600 window` row — a browser window dragged genuinely small. They are
-real (a `.draft__body` that needs 200px more height than it has, menu chips
-whose labels spill their cells, the bond/demo chips 1px under the 44px floor,
-badges 0.01em under their air floor), and they are the honest cost of adding
+**What the baseline currently holds.** 139 entries, measured across 19 devices
+x 60 screens (re-run at this commit). 110 of them are one defect wearing ten
+device names: #86's tier tower stacks eleven floors — ten Marks plus God — down
+a landscape phone, and every `.tower__floor` button comes out between 23px and
+32px tall against the 44px tap floor, on every handset row x every menu
+fixture. (`.tower__sub`, Tier S's plate under the slab, fails with it at 26px
+on the fixtures that show it.) It is baselined rather than fixed because
+eleven 44px floors need 484px of column and no handset row here is that tall,
+so what closes it is a decision about the tower rather than a padding value.
+
+The remaining 29 are the one `Web · 800x600 window` row — a browser window
+dragged genuinely small. They are real (a `.draft__body` that needs up to 230px
+more height than it has, `#refit-preview` scrolling behind the fold, the
+bond/demo chips 1px under the tap floor at 47x43, badges 0.01em under their air
+floor, and the tower again at 38-42px), and they are the honest cost of adding
 the row: it is also the only row narrow enough to prove the hint strip's width
-bound, and a bound nothing tests is not a bound. Every other device row,
-including the five larger web rows, is clean.
+bound, and a bound nothing tests is not a bound. Eight rows are clean — the
+three tablet rows and the five larger web rows.
 
 **The baseline.** `uifit/baseline.json` records the violations that exist
 today, keyed `device|screen|assertion`. A run fails on violations NOT in it,
@@ -328,7 +538,17 @@ shifts the baseline for reasons that have nothing to do with the app.
 **Chromium is not WKWebView.** The `--engine=webkit` run is the closest cheap
 proxy for iOS and skips cleanly (exit 0, with a message) when the browser
 binary is absent, because claiming iOS coverage we do not have would be worse
-than not running it.
+than not running it. It asserts against its own `baseline.webkit.json`: every
+number in a baseline entry is a text-measurement result of one engine's
+rasteriser, so a WebKit run judged against the Chromium-recorded file could
+never be green even with nothing wrong. The engine has to be part of the key,
+and a file per engine is that key.
+
+`uifit/crest-shots.ts` (`npm run sim:crest`) borrows this harness — real
+`app.css`, real `hudHTML`, real layout vars — to shoot the plant panel at a few
+values of `--crest-heat` and the `--h0..--h6` rotation, so the audio colour path
+can be eyeballed without a soundtrack or a gesture. It asserts nothing and is
+not part of `npm test`; it just makes pictures.
 
 ## Extending
 

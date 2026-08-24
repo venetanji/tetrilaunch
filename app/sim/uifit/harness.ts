@@ -89,7 +89,7 @@ function publishLayout(): void {
   // Unitless twin of --fpx, for the rules that need the field scale as a
   // multiplier (app.css's drag-hint pull). Published here as well as in main.ts
   // because a fixture that falls back to the default measures one fixed scale
-  // on all 13 devices — which is exactly the per-device drift this harness is
+  // on all 19 devices — which is exactly the per-device drift this harness is
   // supposed to be looking for.
   rs.setProperty("--fscale", String(l.scale));
   rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);

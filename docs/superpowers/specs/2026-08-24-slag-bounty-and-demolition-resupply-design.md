@@ -65,8 +65,10 @@ a line is worth $0 as line material and salvagePerCube as scrap metal". A slag
 cube is worth $0 as line material *always*, and additionally denies the row it
 sits in — so its removal is worth strictly more than a standard cube's.
 
-Sizing: a volatile lobbed into a 3-slag cluster returns $60 against a $25
-launch. A line still pays `scorePerLine` (100+) before combo. Farming slag
+Sizing: a volatile lobbed into a 3-slag cluster returns $60 against a launch
+that costs $20 at Tier 1 and $30 at Tier 10 (`launchCostFor`), so disposal is
+clearly worth the shot at either end of the ladder. A line still pays
+`scorePerLine` (100+) before combo. Farming slag
 therefore never beats clearing lines, which is the hierarchy `game.ts:1685-1687`
 already protects for the bomb's scrap trickle.
 

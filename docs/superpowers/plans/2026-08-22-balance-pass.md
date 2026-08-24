@@ -100,10 +100,12 @@ rule, it is a flat rate rise with extra steps.** That would mean raising the
 thresholds, not tuning the multipliers.
 
 Known counter-evidence to weigh against the census: a stock bay 1 has
-$200 at $25 a launch = 8 shots × 4 cubes = **exactly 32** — one cube short of
-ever triggering tier 1 without line-clear income. Tier 1 may currently be
-unreachable in bay 1 and trivially reachable in bay 10. Both ends are wrong;
-find where it actually bites.
+$160 at $20 a launch = 8 shots × 4 cubes = **exactly 32** — one cube short of
+ever triggering tier 1 without line-clear income, and because the float is now
+derived from `LAUNCH_BUDGET_SHOTS` rather than named in dollars, it is eight
+shots at EVERY tier, so the 32-cube arithmetic holds the whole way up the ladder.
+Tier 1 may currently be unreachable in bay 1 and trivially reachable in bay 10.
+Both ends are wrong; find where it actually bites.
 
 ### 3.3 Bite and survivability
 

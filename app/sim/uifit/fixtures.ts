@@ -785,7 +785,9 @@ function endModal(won: boolean, sandbox = false): string {
     // 0 here would measure a foot line that never grew the segment at all.
     // Worth knowing what this does and does not buy — the foot WRAPS, so no
     // amount of text in it trips a violation on its own (verified by stretching
-    // the segment to a full sentence: still 0 across all 13 devices). What the
+    // the segment to a full sentence: still 0 across all 13 devices the matrix
+    // held when that check was run — devices.ts's DEVICES is 19 rows now, and
+    // the six added since have not been put through the same stretch). What the
     // value buys is the row at its real height, which is what the fit,
     // offscreen and tap assertions measure the rest of the modal against.
     salvagedFunds: 12_480,

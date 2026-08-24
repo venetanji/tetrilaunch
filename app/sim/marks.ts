@@ -63,8 +63,14 @@ import { runBay } from "./runner";
  *     that refusal is what this harness was measuring the consequences of: the
  *     best build at every Mark from 3 to 10 came out as the same 100-point rig
  *     against a budget climbing to 770, because 140 points was the whole
- *     reachable space. With the Workshop selling tier 2, the budget is the
- *     binding constraint again and this function has to spend it.
+ *     reachable space. With the Workshop selling tier 2 the ceiling is 385,
+ *     so the budget binds again — but only through Mark 3. Measured across the
+ *     ladder this function spends 75/77, 150/154, 205/231, then 275 flat
+ *     against 308, 385, 462, 539, 616, 693 and 770. Above Mark 3 the binding
+ *     constraint is not the budget but the PRIORITY ORDER: each of the four
+ *     orders names five tracks, and five at tier 2 is 275. The headroom above
+ *     that is real and unmodelled — a property of the calibration vocabulary
+ *     rather than of the game.
  *  2. Scrap refits at the stops after bays 3, 6 and 9 (run.ts's
  *     REFIT_EVERY/isRefitBay), which deepen INSTALLED tracks only
  *     (run.ts's buyUpgrade refuses tier 0) out of scrap earned in-run.
@@ -124,7 +130,7 @@ function spendScrap(
   return bank;
 }
 
-/** The rig as it stands ENTERING `bay` (1-based): the tier-1 loadout plus
+/** The rig as it stands ENTERING `bay` (1-based): the Workshop loadout plus
  *  every refit stop the run has already passed, each spending the scrap
  *  banked since the last one. */
 function tiersForBay(
@@ -276,8 +282,8 @@ function evaluate(
   let wins = 0;
   let total = 0;
   for (const bay of bays) {
-    // The rig as the run actually holds it AT this bay — tier-1 loadout for
-    // bays 1-3, plus every refit stop already passed (see tiersForBay).
+    // The rig as the run actually holds it AT this bay — the Workshop loadout
+    // for bays 1-3, plus every refit stop already passed (see tiersForBay).
     const tiers = build(mark, bay);
     let bayWins = 0;
     let bayTotal = 0;

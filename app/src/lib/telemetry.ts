@@ -4,9 +4,11 @@
  * Exists to answer what the sim harness structurally cannot. sim/marks.ts
  * showed the bots are a ceilinged instrument: they fire the instant the
  * cooldown clears, never use Bond Breaker or Demolition, and can't pace
- * spending — so a full 660-point rig LOSES to a stock one purely because
- * MAGAZINE makes the bot bankrupt itself. Every question that turns on how a
- * human actually plays has to be measured on a human.
+ * spending — so a full rig LOSES to a stock one purely because MAGAZINE makes
+ * the bot bankrupt itself (measured on the six-track, 660-point rig of the day;
+ * Demolition made it a seventh track and upgrades.ts's FULL_BUILD_COST 770,
+ * which changes the price of that rig and not the finding). Every question that
+ * turns on how a human actually plays has to be measured on a human.
  *
  * The headline question this is built around: **is a human ever cooldown-bound?**
  * The bots' aim time is 0 by construction, so MAGAZINE reads to them as pure

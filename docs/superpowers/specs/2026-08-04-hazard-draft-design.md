@@ -3,11 +3,15 @@
 **Date:** 2026-08-04
 **Status:** built on branch `claude/system-design-review-58ay1b`.
 **Superseded in part (2026-08-24) by the tier ladder** — see `docs/ECONOMY.md`
-and `level.ts`'s tier-ladder note. The ratchet, its notch sizes and everything
-below about the draft still stand; what changed is the sentence "a Mark no
-longer moves any number on the ladder". A Mark now states the bay's opening
-terms (target, clock, launch cost) on an explicit per-tier curve, once at run
-start, instead of a per-bay ramp nobody could read. Per-bay auto-scaling did
+and `level.ts`'s tier-ladder note. What stands is that higher Marks add axes
+rather than steepening the ratchet's SHAPE, and everything below about the draft
+itself. The notch SIZES do not: cost and time climb Fibonacci ladders
+(`COST_LADDER`/`TIME_LADDER`) entered one rung higher per two Marks
+(`ladderStart`), so a first Shift Cut costs 1s at Mark 1 and 8s at Mark 10, and
+the target axis is retired from the offer. What also changed is the sentence "a
+Mark no longer moves any number on the ladder". A Mark now states the bay's
+opening terms (target, clock, launch cost) on an explicit per-tier curve, once at
+run start, instead of a per-bay ramp nobody could read. Per-bay auto-scaling did
 NOT come back: only the target steps per bay, by an amount the tier sets.
 Sub-projects 2 and 3 of `2026-08-02-systems-and-hazards-design.md`, which is the
 architecture this document implements. Phase 1 (the systems layer) shipped on
@@ -25,12 +29,12 @@ stays moved for the rest of the run. There is no skip.
 the half that makes the ratchet mean anything — if the ladder kept hardening on
 its own, a notch would be a rounding error on top of it.
 
-| axis | before | after |
-|---|---|---|
-| `targetScore` | `800 + 150*i` | flat 800; **+300 per notch** |
-| `launchCost` | `25 + 2*i` | flat 25; **+5 per notch** |
-| `timeLimitSec` | `150 + 10*i` (relief) | flat 150; **−20s per notch**, floored at 45 |
-| `MARK_TARGET_STEP` | 0.18 | **0** |
+| axis | before (2026-08-04) | after, as specced | shipped today (2026-08-24) |
+|---|---|---|---|
+| `targetScore` | `800 + 150*i` | flat 800; **+300 per notch** | `TARGET_BASE` 600 + 20(t−1) on bay 1, then 100 + 2(t−1) a bay; the notch axis is RETIRED from the offer |
+| `launchCost` | `25 + 2*i` | flat 25; **+5 per notch** | $20 → $30 by tier, flat in-run; notches climb `COST_LADDER` from `ladderStart(mark)`, so a first Fuel Levy is **$1** at Mark 1 and **$5** at Mark 10 |
+| `timeLimitSec` | `150 + 10*i` (relief) | flat 150; **−20s per notch**, floored at 45 | 180s → 144s by tier; notches climb `TIME_LADDER` 1,2,3,5,8,13 at `ladderStart(mark)` — of this row, only “floored at 45” survives |
+| `MARK_TARGET_STEP` | 0.18 | **0** | constant deleted; a Mark moves the target EXPLICITLY now (`TARGET_PER_TIER` 20, `TARGET_PER_BAY_PER_TIER` 2) rather than through a multiplier |
 
 That last row is the one with a measurement behind it. `level.ts`'s calibration
 note already recorded that three sweeps over the step returned byte-identical
@@ -46,20 +50,30 @@ So a Mark no longer moves any number on the ladder. It is a statement about
 
 | Mark | axis it opens |
 |---|---|
-| 1 | quota · fuel levy · shift cut (the three base numbers together) |
+| 1 | fuel levy · shift cut — quota is RETIRED from the offer (`RETIRED_AXES`), so Mark 1 deals a two-card hand and the quota ramp is `level.ts`'s `TARGET_PER_BAY` |
 | 2 | crosswind |
 | 3 | sweeper (faster press, tighter bay) |
-| 4 | slag |
-| 5 | cryo |
-| 6 | rebar |
+| 4 | cryo |
+| 5 | rebar |
+| 6 | slag |
 | 7 | volatile |
 | 8 | tar |
 | 9 | magnetic |
 | 10 | capstone — no new axis; **two** ratchets per bay |
 
-Mark 1 opens three at once because a first rung offering one card is not a
-draft. Every rung from 2 to 9 adds exactly one axis, which is asserted rather
-than assumed — the ladder currently cannot claim a single no-op rung.
+Mark 1 was specced to open three at once because a first rung offering one card
+is not a draft; the shipped rung opens two, because the quota axis was retired
+from the offer once the tier ladder took over the target ramp, and two cards is
+still a draft. Every rung from 2 to 9 adds exactly one axis, which is asserted
+rather than assumed — the ladder currently cannot claim a single no-op rung.
+
+The material rungs above are the SHIPPED order. As specced this document put
+slag at 4, cryo at 5 and rebar at 6; a playtest on 2026-08-08 reversed it,
+because slag is the one material with no passive counter — a dead cube leaves
+the field by Demolition or not at all — while cryo thaws and rebar merely
+refuses to split. The two survivable-bare-handed materials became the
+introduction and slag now waits two rungs for the player's rack to be real
+(`hazards.ts`, the note above its material rows).
 
 ### Two rails the model needed and did not have
 
@@ -164,7 +178,17 @@ harden every bay, so ~18 axis-steps across a run against the ratchet's 9, making
 a notch about double a per-bay step. The architecture already names this as the
 single most likely thing to need a play pass, and nothing here changes that.
 
-**Marks 6-9 have no counter systems of their own.** Rebar, volatile and tar are
+Those three numbers did not survive the play pass — see the shipped column of
+the table above — but the finding did: the notch sizes are STILL unplayed. What
+has been measured since is only the ladders' *entry point*, not their rungs.
+`ladderStart`'s note records the sweep that rejected a full-Mark slide (0%
+run-clear from Mark 5 up, `sim/marks.ts --ratchets spread`) and settled on one
+rung per two Marks; nobody has measured whether 1,1,2,3,5,8 and 1,2,3,5,8,13 are
+the right rungs to be sliding.
+
+**Marks 5 and 7-9 have no counter systems of their own** (written as 6-9, before
+the 2026-08-08 reversal moved rebar down to 5 and slag — which Demolition
+answers — up to 6). Rebar, volatile and tar are
 answered by tracks that already exist (Bond Emitter, Press Hydraulics,
 Demolition Rack) rather than by new ones. Whether those answers are *good enough*
 to make the notch worth taking is a play question, not a code one.

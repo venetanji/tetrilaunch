@@ -159,21 +159,23 @@ gravity, and whatever is already stacked down there.
 Fill a row and the compactor takes it. Miss, and it sweeps anyway.
 
 DEEP RUN
-Ten bays, one run. Every stop drafts a new modifier onto your rig, and every
-modifier changes how the next bay plays. Push your luck or bank what you have.
+Ten bays, one run. Every stop makes you harden one difficulty axis for the rest
+of the run — and the last one offers two clauses for the final bay and lets you
+pick your poison.
 
 CONTRACTS
 Short, sharp challenges with fixed objectives. Retry as often as you like —
 these are for learning a technique, not for grinding.
 
 WORKSHOP
-Salvage from every run buys permanent unlocks. Rig strength is capped per Mark,
-and only beating a Mark raises the ceiling, so the leaderboard stays honest.
+Salvage from clearing a tier's Contracts and beating its Deep Run buys permanent
+unlocks. Rig strength is capped per Mark, and only beating a Mark raises the
+ceiling, so the leaderboard stays honest.
 
 WHAT MAKES IT DIFFERENT
 • Real physics — pieces tumble, settle, and knock each other loose
 • Aim is a skill, not a menu; the arc is yours to read
-• Modifiers that genuinely change the run, not just the numbers
+• A hazard ratchet every bay — you choose which axis hardens, never whether
 • Built for landscape, on phone and tablet
 • Plays offline. No account, no sign-up, no ads
 

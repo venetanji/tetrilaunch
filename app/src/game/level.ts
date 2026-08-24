@@ -313,9 +313,11 @@ export interface LevelConfig {
 // Launch Bay (i=0) a perfect 8-cube line costs 2 shots ($40) for a $100 payout,
 // so a precise player nets $60/line and grows; at the measured ~2.9
 // launches/line (contracts.ts's PLANNING_EFFICIENCY note) the same line nets
-// $42, and a single piece bounced out of the bay (-$25) erases most of it. So
-// volume does not pay for itself and precision does, which is the puzzle the
-// mode is supposed to be.
+// $42, and a single piece bounced out of the bay erases more than two of
+// those lines: the $25 is billed PER CUBE (game.ts bills lostCubes.length *
+// penaltyPerLostPiece, and see the field's own doc above), so one spilled
+// tetromino is -$100 at bay 1. So volume does not pay for itself and precision
+// does, which is the puzzle the mode is supposed to be.
 //
 // The float was cut rather than the launch priced up, deliberately: a dearer
 // shot taxes the precise player exactly as hard as the careless one, where a
@@ -361,7 +363,7 @@ const LEVEL_NAMES = [
  * (hazards.ts), which a run is forced to take a notch of after every bay.
  *
  * Every number is a named constant because a play pass will edit them first,
- * and sim/marks.ts sweeps them (--notches spread models the ratchet a run
+ * and sim/marks.ts sweeps them (--ratchets spread models the ratchet a run
  * actually carries; without it the ladder alone reads FREE at mid Marks, which
  * is the finding, not a bug).
  * ------------------------------------------------------------------------ */
@@ -461,12 +463,16 @@ export function startingFundsFor(mark = 1): number {
   return LAUNCH_BUDGET_SHOTS * launchCostFor(mark);
 }
 
-/** What a tier asks of you, as the three numbers the menu quotes before you
- *  accept it: the FIRST bay's funding target, the shift length and the price of
- *  a shot. A tier the player can't read before pressing Play is just a number
- *  next to the word "Tier", so this exists to be printed (see ui/screens.ts's
- *  menuScreen and howtoScreen) rather than to be played — the bay itself is
- *  always makeBaseLevel's whole config. */
+/** What a tier asks of you, as the three numbers a menu has to quote before
+ *  you accept it: the FIRST bay's funding target, the shift length and the
+ *  price of a shot. A tier the player can't read before pressing Play is just a
+ *  number next to the word "Tier", so this exists to be printed rather than to
+ *  be played — the bay itself is always makeBaseLevel's whole config. Nothing
+ *  in ui/ prints it today, though: the menu's recap panel reads the same three
+ *  knobs straight off the bay (screens.ts's baseBayPanelHTML over baseBayFor),
+ *  and this function's only caller is sim/systems.ts's ladder assertions. Two
+ *  statements of one ladder is one too many, and the screens' copy is the one
+ *  that has to be right. */
 export function tierDemands(mark = 1): {
   tier: number;
   targetScore: number;
@@ -606,7 +612,12 @@ export const SCRAP_PER_BAY = 10;
  *    per line, a competent player reaches ANY target given time. Three separate
  *    sweeps over 0.06-0.38 returned byte-identical win rates.
  *  - The CLOCK doesn't bind either. Cutting bay 10's limit to 35% of stock (84s)
- *    still gave 3/3 wins — runs finish in 41-67s against limits of 150-240s.
+ *    still gave 3/3 wins — runs finished in 41-67s against limits of 150-240s.
+ *    Those limits are the PRE-LADDER ones, measured before #88 on the old
+ *    150s + 10s/bay clock, which no longer exists: the clock is TIME_BASE 180s
+ *    at Tier 1 down to 144s at Tier 10 and FLAT inside a run. The finding
+ *    survives the change — 144s is still more than twice the longest run
+ *    measured — but the numbers are history, not the shipped bay.
  *  - SPEED was actively harmful and is now 0. A faster sweep pushes pieces out
  *    before they settle, so the lost-piece penalty drains the bankroll: at bay 5
  *    the same rig went from 3/3 wins to 1/3 (both losses "broke") with speed
@@ -721,8 +732,10 @@ export const NO_MATERIALS: MaterialMix = {
  * What the same pass measured about the COMPONENTS still holds and one
  * change stays: tier 1 charges 1.25x rather than the original 1.5x. The
  * cost axis is the BANKRUPTCY vector in the thin-margin bays (bay 1 nets
- * ~$27.5/line, so a fee that compounds into broke ends the bay
- * unrecoverably where clock/reload/combo pressure does not — measured:
+ * $42/line at Tier 1 and $13 at Tier 10, since the tier prices the shot and
+ * not the row — 100 - 2.9 * launchCostFor(mark) at the measured ~2.9
+ * launches/line — so a fee that compounds into broke ends the bay
+ * unrecoverably where clock/reload/combo pressure does not; measured:
  * money-only variants turned careful play's losses into bankruptcies at
  * every threshold tried). At 1.25x the fee still fires often at 32/48 —
  * which is the point: visible, frequent, survivable — and tier 2 keeps the
@@ -824,9 +837,10 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
  * standard cube.
  *
  * Sized against the two things it must sit between. A volatile lobbed into a
- * three-slag cluster returns $60 against a $25 launch, so disposal is clearly
- * worth the shot; one line pays scorePerLine (100+) before combo, so disposal
- * never out-earns playing the game. That is the same hierarchy the bomb's
+ * three-slag cluster returns $60 against a launch that costs $20 at Tier 1 and
+ * $30 at Tier 10, so disposal is clearly worth the shot; one line pays
+ * scorePerLine (100+) before combo, so disposal never out-earns playing the
+ * game. That is the same hierarchy the bomb's
  * stingy quarter-rate scrap trickle already protects.
  */
 export const SLAG_BOUNTY = 20;
@@ -1024,16 +1038,18 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
 /** The 10-bay base ladder AT TIER 1 (before any ship upgrades or ratchets — see
  *  run.ts's levelForRun).
  *
- *  There used to be a `LEVEL_1` alias beside this that the howto and menu copy
- *  quoted their numbers from. It is gone rather than updated: with the tier
- *  ladder, a bare "level 1" config silently means TIER 1's level 1, so copy
- *  built from it would have been true for a new player and wrong for everyone
- *  above them. The screens that quote numbers now build the bay for the tier
- *  they are describing (ui/screens.ts's howtoScreen, tierDemands). */
+ *  The `LEVEL_1` alias below is what the howto and menu copy used to quote
+ *  their numbers from, and nothing quotes it any more: with the tier ladder, a
+ *  bare "level 1" config silently means TIER 1's level 1, so copy built from it
+ *  is true for a new player and wrong for everyone above them. The screens that
+ *  quote numbers build the bay for the tier they are describing instead —
+ *  ui/screens.ts's baseBayPanelHTML reads it off baseBayFor, and guide.ts
+ *  rebuilds its whole catalogue per Mark from makeBaseLevel(0, mark). */
 export const LEVELS: LevelConfig[] = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i));
 
-// UI references LEVEL_1 today (pre-run-mode howto/menu copy); keep it as an
-// alias for the ladder's first entry rather than a second source of truth.
+// Nothing in app/src or app/sim imports LEVEL_1 any more; it is kept as an
+// alias for the ladder's first entry rather than a second source of truth, and
+// anything reaching for it is really asking for the bay at a MARK.
 export const LEVEL_1: LevelConfig = LEVELS[0];
 
 /* ---------------------------------------------------------------------------

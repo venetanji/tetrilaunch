@@ -171,7 +171,11 @@ export function notchTotal(ladder: readonly number[], n: number, startAt = 0): n
  * grows only linearly. At Mark 10 the first Shift Cut cost rung 9 = 89s —
  * an instant 45s clock floor, the exact "lose button" the floor note below
  * says an axis must never be — and bay 10's round-robin toll reached
- * $923/launch on a $200 float.
+ * $923/launch on a $200 float. (That float is the flat pre-#88 one, which no
+ * longer exists: startingFundsFor derives it from LAUNCH_BUDGET_SHOTS now, so
+ * Mark 10 opens on $240. It does not rescue the number — a $923 launch is
+ * more than four times the $200 it was measured against, and still nearly
+ * four times the $240 that replaced it.)
  *
  * At (mark - 1) / 2 the first notch's price grows LINEARLY with the Mark
  * (1,1,2,2,3,3,5,5,8,8 seconds across Marks 1-10), matching the linear
@@ -182,9 +186,15 @@ export function ladderStart(mark: number): number {
   return Math.max(0, Math.floor((Math.floor(mark) - 1) / 2));
 }
 
-/** The FIRST rung of each ladder — what one notch costs a player who has never
- *  taken that axis before. Kept as named constants because card copy and docs
- *  quote them, but neither axis is linear any more. */
+/** Rung 0 of each ladder — what one notch costs at Marks 1-2, where
+ *  ladderStart is still 0. NOT what a first notch costs in general: a run
+ *  enters the ladder at ladderStart(mark), one rung higher per two Marks, so a
+ *  player who has never taken the axis before pays $1 for a first Fuel Levy at
+ *  Mark 1 and $5 at Mark 10, and 1s for a first Shift Cut at Mark 1 and 8s at
+ *  Mark 10. Kept as named constants because card copy and docs quote them —
+ *  anything that quotes them to a player has to say which Mark it is quoting,
+ *  which the Fuel Levy and Shift Cut `desc` below currently do not — and
+ *  neither axis is linear any more. */
 export const COST_NOTCH = COST_LADDER[0];
 export const TIME_NOTCH = TIME_LADDER[0];
 

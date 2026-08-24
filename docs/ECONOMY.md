@@ -63,7 +63,7 @@ Three things this deliberately does **not** touch:
 |---|---|---|---|
 | **Funds `$`** | one bay | line payouts, bomb salvage | launches. Also the bay's own target. |
 | **Scrap `♻`** | one run | 2/line, 10/bay cleared | ship upgrades at refit stops |
-| **Salvage** | forever | every finished run, win or lose | permanent unlocks in the Workshop |
+| **Salvage** | forever | tier milestones — each of the tier's three first-clear Contracts, and its Deep Run win | permanent installs and unlocks in the Workshop |
 
 They are deliberately **not** interchangeable. Funds are operating budget, scrap
 is capital, salvage is R&D. Banking a huge surplus never buys upgrades, and a
@@ -74,17 +74,18 @@ money".
 ## The ship (FTL layer)
 
 The compactor rig **is** the ship: fixed stock size, refitted with scrap at
-**refit stops after bays 3, 6 and 9**. Six systems, three tiers each, one shared
-price ladder of **20 / 35 / 55** scrap (110 for a full track).
+**refit stops after bays 3, 6 and 9**. Seven systems, three tiers each, one
+shared price ladder of **20 / 35 / 55** scrap (110 for a full track).
 
 | Track | Tiers | What it's for |
 |---|---|---|
-| **BAY** | +2 / +4 / +6 open cells (→18) | The "extend to 18" lever, and now the only one — the draft's old Wide Bay offer is gone, so width is earned capital rather than a roll. Buys **room only**: `compactorSpeedFor` scales the bar's speed with its span, so a wider bay no longer stretches the press cycle. It used to — T3 took the cycle from 4.4s to 11.1s while the card advertised nothing but space, which made the most expensive purchase in the track a stealth *difficulty cut*. |
+| **BAY** | +2 / +4 / +6 open cells (→18) · +4 / +8 / +12 cubes before congestion | The "extend to 18" lever, and now the only one — the draft's old Wide Bay offer is gone, so width is earned capital rather than a roll. Buys **room and congestion headroom**: `pileAllowance` rises +4 a tier and lifts *every* knee, so the first tax moves from 32 cubes to 44 at T3. On the room half, `compactorSpeedFor` scales the bar's speed with its span, so a wider bay no longer stretches the press cycle. It used to — T3 took the cycle from 4.4s to 11.1s while the card advertised nothing but space, which made the most expensive purchase in the track a stealth *difficulty cut*. |
 | **LAUNCHER** | +6/12/18% muzzle speed · 20/40/60% wind cancelled | **The wind answer.** More speed to throw through a headwind, plus a stabilizer that cancels part of it outright. |
 | **HYDRAULICS** | ×1.6/2.2/2.8 settle assist · +8/16/24% stroke | Turns "nearly a line" into a payout. The upgrade for builds that land loose cubes. |
 | **MAGAZINE** | −15/30/45% cooldown | Tempo. |
 | **REACTOR** | +$60/120/180 float · +$15/30/45 per line | The economy track. |
 | **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
+| **DEMOLITION** | +2/4/6 charges per bay · T3 also returns +1 charge every 4 lines | Slag's only clean answer, and the salvage tool that gives a dead pile a price. |
 
 **The stop is a plan, not a checkout.** Tapping a track *stages* a tier into an
 order; nothing is paid for until **Undock**, which installs the lot in one
@@ -96,21 +97,32 @@ what is *left* after it, and the projection beside the shelf redraws the next
 bay's numbers with the whole order installed (drawn from `levelForRun`, so it is
 the bay that will actually be flown).
 
-**Income sizing.** A clean bay clears ~8 lines → ~26 scrap. Stops arrive at
-roughly 78 / 156 / 234 cumulative scrap, i.e. "one track nearly maxed, or two
-opened" at the first stop. An FTL-shaped choice, not a shopping spree.
+**Income sizing.** A won bay clears ~12 lines → ~35 scrap (measured with
+`sim/sweep.ts --bays 1,4,7,10 --seeds 4 --bots aim --mark 1`: won bays of 6–23
+lines, mean 12.4). Stops arrive at roughly 105 / 210 / 315 cumulative scrap. A
+refit only RAISES a track the Workshop already installed — `run.ts`'s
+`buyUpgrade` refuses a tier-0 one — so the first stop buys "two owned tracks to
+tier 2, or one to tier 3", never a new system. An FTL-shaped choice, not a
+shopping spree.
 
-**Upgrades vs. mods** are different in kind, and both exist on purpose:
+**Upgrades vs. ratchets** are different in kind, and both exist on purpose:
 
-- A **mod** is a hand you were *dealt* — three seeded offers every bay, often a
-  trade-off, sometimes a bane, and you don't pick which three you see.
+- A **ratchet notch** is a hand you were *dealt* — two seeded axes at every
+  bay-clear but the last (`hazards.ts`'s `hazardOffers`, count = 2; the draft
+  after bay 9 deals the Final Inspection instead), and you don't pick which two
+  you see. You take one, or two at the capstone (`picksPerBay`), and it sticks
+  for the rest of the run. Unlike the mod draft it replaced it is never a
+  trade-off: a notch is pure cost, and the compensation is bought in the
+  Workshop.
 - An **upgrade** is capital you *chose* to spend from a fully-visible menu with a
   known price. Nothing in a track is a downside; the cost is the opportunity cost
   of the scrap.
 
-Application order is fixed in `run.ts`'s `levelForRun`: **upgrades, then mods**.
-A contract's multipliers compound on top of whatever ship you refitted, which is
-the intended reading ("this contract applies to the ship you're flying").
+Application order is fixed in `run.ts`'s `levelForRun`: **upgrades, then
+ratchets, then the Final Inspection's clause on bay 10**. A notch compounds on
+top of whatever ship you refitted. The carry is added dead last so it is never
+scaled by either — cash in hand, not a rate — and the bond magazine is written
+last for the same reason.
 
 ## Bombs, made legible
 
@@ -176,9 +188,10 @@ channel is the profitable one, because a bomb is capped per bay and the belt is
 not.
 
 Sized to sit between two things. A volatile lobbed into a three-slag cluster
-returns $60 against a $25 launch, so disposal is clearly worth the shot; a line
-still pays 100+ before combo, so disposal never out-earns playing the game —
-the same hierarchy the bomb's quarter-rate scrap trickle already protects. Funds
+returns $60 against a launch that costs $20 at Tier 1 and $30 at Tier 10, so
+disposal is clearly worth the shot; a line still pays 100+ before combo, so
+disposal never out-earns playing the game — the same hierarchy the bomb's
+quarter-rate scrap trickle already protects. Funds
 only, no scrap: this is a bay-local relief valve, and paying scrap would turn a
 slag ratchet into a route to permanent progression.
 
@@ -211,10 +224,18 @@ they were launched with.
 
 ## The Autoloader (micro endgame)
 
-Gated behind the `auto` salvage unlock **and** owning Micro Shipments this run.
-**Hold** the rail trigger (or `F`) and the cannon fires every 420ms at a ±9°
-spread around wherever you are pointing, at half launch cost, with a random
-rotation. Fast, cheap, probabilistic — explicitly not trying to be a good player.
+**Status: built, but currently UNREACHABLE in a shipped run.** The only thing
+that writes `autoLaunchMs` is the retired modifier draft (`mods.ts`'s
+autoloader, gated on the retired `auto` and `micro` unlocks), and `levelForRun`
+never calls `applyMods` — so `stepAutoLaunch` returns immediately and the HUD
+never shows the trigger. What follows is the record of the mechanic, not of a
+live feature.
+
+It was gated behind the `auto` salvage unlock **and** owning Micro Shipments
+that run. **Hold** the rail trigger (or `F`) and the cannon fires every 420ms at
+a ±9° spread around wherever you are pointing, at half launch cost, with a
+random rotation. Fast, cheap, probabilistic — explicitly not trying to be a good
+player.
 
 It only works on top of the build it belongs to: cheap enough payloads to survive
 the waste, and Bond Breakers (or Hydraulics) to flatten what it piles up.
@@ -241,9 +262,13 @@ once-ever first clear, only at the current tier, and only for the first three,
 so replaying can't farm the currency. (An earlier per-run formula —
 `3 + 5×bays + …` — is long gone; this section used to quote it.)
 
-Unlocks add **options**, never flat stat bumps: a new modifier enters the draft
-pool, a new consumable exists, the wind gets surveyed. That constraint keeps a
-veteran's run harder-won rather than merely bigger-numbered.
+Unlocks add **options**, never flat stat bumps: the bay's wind gets surveyed
+before you launch, the first refit stop opens with 30 scrap already banked.
+(Those two are the whole live shelf. The other eight entries in `meta.ts`'s
+`UNLOCKS` sold a card into the retired modifier draft and are refunded on load.
+Demolition and the Bond Emitter are ship systems bought through `INSTALLS`; the
+bulk and micro shipment sizes are Deep Run finals clauses now.) That constraint
+keeps a veteran's run harder-won rather than merely bigger-numbered.
 
 ## Congestion: pricing the spam endgame
 
@@ -287,10 +312,11 @@ Three findings, in descending order of how much they should change the design.
 **1. The first-guess thresholds were far too tight.** 32 and 48 cubes was pitched
 as "four lines' worth of cargo loose on the field, then six", which sounds like a
 bay you have let get away from you. Measured (`--census`, `aim` bot, 5 bays ×
-16 seeds), the median untaxed field holds ~24 cubes and the p90 is ~65 — and
-**58% of a clean bot's shots would pay tier 1, 29% tier 2**. At those numbers the
-tax is not an anti-spam rule; it is a rate rise with extra steps, and the win
-rates agree: careful play fell from 73% to 49%.
+16 seeds, re-run on the shipped Tier 1 ladder), the median untaxed field holds
+~25 cubes and the p90 is ~47 — and **34% of a clean bot's shots would pay tier
+1, 10% tier 2**. At those numbers the tax is not an anti-spam rule; it is a rate
+rise with extra steps, and the win rates agree: careful play falls from 84%
+untaxed to 71% under `stock`.
 
 **2. No field-state metric identifies a spammer.** `sim/pile-metrics.ts` tested
 five readings — total cubes, settled cubes, moving cubes, cubes outside the
@@ -308,7 +334,8 @@ whoever hears it, and stopping is exactly the behaviour the design wants.
 
 **3. Money is the wrong axis; the clock is the right one.** Isolating the two
 halves at the original thresholds (N=80 per cell, baseline 73% careful / 48%
-spam):
+spam — measured BEFORE #88 on the flat $800 / 150s / $25 / $200 bay, which no
+longer exists):
 
 | Tax | careful | spam | gap |
 |---|---|---|---|
@@ -323,11 +350,23 @@ and it does that to the careful player as readily as the reckless one — so it
 into a time loss, which still lets the bay settle what is in the air, and it
 falls hardest on whoever fired the most shots.
 
+**Re-measured after #88, the rates do not survive.** Tier 1 opens at $600 / 180s
+/ $20 / $160 instead (`level.ts`'s `TARGET_BASE`, `TIME_BASE`,
+`LAUNCH_COST_BASE`, `LAUNCH_BUDGET_SHOTS`), and re-running the same sweep there
+at N=80 gives an untaxed baseline of **84% careful / 81% spam** — a gap of 3,
+not 25. Every win rate in this section's tables is a record of a bay that no
+longer exists. The mechanism is what to keep; the arithmetic on top of it
+inverts, because on the Tier 1 bay the shipped `stock` ladder now *widens* the
+gap the money-only row used to compress (71% careful / 60% spam under
+`stock` — `level.ts`'s `PILE_TIERS`, whose cost multiplier is only one of
+its four axes alongside reload, payout and a zero clock, so it is not the
+"money only" row above re-run).
+
 ### Where the sim landed (superseded on device — see the status note)
 
 Move the thresholds, keep the penalties. At **48 and 64 cubes** with the
-originally-specced ×1.5/×2 and 2s/5s, the tax fires on 23%/17% of careful shots
-instead of 58%/29%, and:
+originally-specced ×1.5/×2 and 2s/5s, the tax fires on 13% of careful shots
+(about 6% tier 1, 7% tier 2) instead of 34%/10%, and:
 
 | | careful | spam | gap |
 |---|---|---|---|
@@ -335,8 +374,11 @@ instead of 58%/29%, and:
 | 48/64, ×1.5/×2, 2s/5s | 70% | 39% | **31** |
 
 Careful play gives up 3 points, spam gives up 9, and the spread between them
-widens. The careful bot also converts better under the tax than without it
-(3.9 shots per line against 4.2) — waiting for the bay to drain means the shot
+widens. (Pre-#88 rates again, but the direction is the one thing that did
+survive the ladder: re-run on the Tier 1 bay at the same N=80, careful goes 84%
+→ 80% and spam 81% → 73%, so the spread goes 3 → 7.) The careful bot also
+converts better under the tax than without it (3.9 shots per line against 4.2)
+— waiting for the bay to drain means the shot
 lands on a settled pile that can actually complete a row, which was true before
 the tax existed and is the thing the tax gets the player to notice.
 
@@ -394,12 +436,15 @@ now, ruinous by the tenth repeat) is spent on a decision that will never repeat.
 So the draft dealt after bay 9 deals something else: **two clauses attached to
 the final bay, one of which the player must take.** Three properties.
 
-**It is the Tier's own exam.** A Tier opens exactly one new hazard axis and the
-Workshop sells exactly the system that makes it cheap; the inspection asks that
-pairing as a question. Tier 1 taught the money axes and sold the Reactor, so its
-final bay is about money. Tier 2 taught the wind and sold the Launcher, so its
-final bay is weather. The card names the system, once, on the last screen where
-knowing it can still change anything.
+**It is the Tier's own exam.** Each Tier from 2 to 9 opens exactly one new
+hazard axis, and the Workshop stocks the system that makes it cheap; the
+inspection asks that pairing as a question. The two ends are special: Tier 1
+opens the base number axes together — dealing Fuel Levy and Shift Cut — and
+Tier 10 opens no new axis at all, asking two notches a bay instead. Tier 1
+taught the money axes and sold the Reactor, so its final bay is about money.
+Tier 2 taught the wind and sold the Launcher, so its final bay is weather. The
+card names the system, once, on the last screen where knowing it can still
+change anything.
 
 | Tier | System | Clause | …or |
 |---|---|---|---|
@@ -414,19 +459,32 @@ knowing it can still change anything.
 | 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
 | 10 | Bond Emitter | **Dead Weight** — every shipment a pentomino, +50% a launch | **Short Measure** — every shipment a domino, −40% a launch |
 
-**Both clauses are equally bad, and bad differently.** That is what makes it a
-choice rather than a toll, and it is the part that had to be measured. The unit
-is *extra lines the final bay demands*, and Tier 1 is the clean case: a flat
-quota raise costs a fixed amount of revenue, so its price in lines falls as your
-rate rises; a percentage cut costs a share of everything you earn, so its price
-falls faster. The two **cross**, and the crossing is parked at the mid-track
-Reactor — which is what a bay-10 rig typically carries. Below it take the flat
-raise, above it take the percentage. The right answer is a direct readout of how
-good your rate actually is.
+**Both clauses are meant to be equally bad, and bad differently.** That is what
+makes it a choice rather than a toll, and it is the part that had to be
+measured. The unit is *extra lines the final bay demands*, and Tier 1 is the
+clean case: a flat quota raise costs a fixed amount of revenue, so its price in
+lines falls as your rate rises; a percentage cut costs a share of everything you
+earn, so its price falls faster. The design wants the two to **cross** inside
+the band of rigs that actually reach bay 10, so that the clause a player should
+take is a direct readout of how good their rate actually is.
+
+**On the shipped ladder they do not cross.** Re-deriving `finals.ts`'s own model
+on Tier 1's bay 10 — a $1500 target, $190 a line, $20 a launch, a $160 float
+plus run.ts's $150 carry, so at ~2.9 launches per line a line nets $132 and the
+bay needs 9.0 lines — prices Rush Order at **+5.7 / +4.6 / +4.2** lines against
+Rate Cut's **+3.6 / +2.5 / +2.1**, across stock / Reactor 2 / Reactor 3. The
+flat raise is the dearer poison at *every* rig, and the two never converge: at
+the precision printed here the gap holds at 2.1 lines across stock, Reactor 2
+and Reactor 3 alike, so no rig that reaches bay 10 flips the answer.
+`RUSH_ORDER_QUOTA` must be re-sized against the tier being flown before this
+pair can be claimed to have a crossing at all. (It was already gone before #88:
+the pre-#88 table in `finals.ts`'s header only reproduces at a 25% cut, and
+`RATE_CUT` is 0.2.)
 
 The owner's original sketch was +$1000 against −25%. Both moved: at $1000 the
 percentage wins at every rig and the crossing falls off the bottom of the table,
-which is a pair with a right answer, i.e. not a pair.
+which is a pair with a right answer, i.e. not a pair — which is exactly the
+shape the numbers above now measure at $750 on Tier 1, one ladder later.
 
 **Neither is a lose button.** Every clause is floored the way `Shift Cut` is
 floored, for the reason `hazards.ts` gives — an axis that can reach an
@@ -508,10 +566,11 @@ Everything is a named constant with a comment:
   `makeBaseLevel`, `SCRAP_PER_LINE`, `SCRAP_PER_BAY`, `SLAG_BOUNTY`,
   `DEMO_RESUPPLY_LINES`
 - `upgrades.ts` — `TIER_COSTS`, per-track `apply`
-- `meta.ts` — `UNLOCKS` prices, `SALVAGE_*` weights
-- `mods.ts` — per-mod numbers
+- `meta.ts` — `UNLOCKS` and `INSTALLS` prices, `TIER_SALVAGE_BASE` /
+  `TIER_SALVAGE_PER_TIER`, `TIER_CONTRACTS_REQUIRED`
 - `pieces.ts` — `SIZE_SPEC`
-- `run.ts` — `REFIT_EVERY`
+- `run.ts` — `CARRY_CAP` (how much of a cleared bay's surplus reaches the next
+  bay's float), `REFIT_EVERY`, `SCORE_PER_BAY` / `SCORE_PER_LINE`
 - `level.ts` — `PILE_TIERS` (congestion thresholds and penalties)
 - `hazards.ts` — `TIME_LADDER`, `COST_LADDER`
 - `finals.ts` — `FINALS` (the Final Inspection's twenty clauses, one pair per

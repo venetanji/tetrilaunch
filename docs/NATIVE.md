@@ -35,8 +35,8 @@ must also hold in the browser — and a browser fix ships to native on the next
 **`app/android/` is gitignored; `app/ios/` is committed.** They're treated
 differently on purpose. Android stays a derived artifact — `npx cap add
 android` regenerates it from `capacitor.config.ts` plus the installed plugins,
-so CI rebuilding it from scratch every run is a feature (it proves `cap add`
-still works from a clean checkout).
+so CI rebuilding it from scratch on every run that goes as far as an APK is a
+feature (it proves `cap add` still works from a clean checkout).
 
 Android *does* now need several edits the CLI doesn't own (see
 [Fullscreen](#fullscreen-the-system-bars-are-not-capacitors-problem) below), but
@@ -137,11 +137,18 @@ app/android/app/build/outputs/apk/debug/app-debug.apk
 
 ## CI
 
-`.github/workflows/android.yml` builds a debug APK on pushes touching `app/`
-and on manual dispatch, and uploads it as a workflow artifact. It runs
-`npm run test` (the systems smoke test) and `tsc` first, so a broken build never
-gets as far as Gradle. Nothing is signed and nothing is published — that's
-deliberate, see below.
+`.github/workflows/android.yml` runs the cheap gates — `npm run build:native`
+(typecheck plus the web bundle), `npm run test` (the systems smoke test) and
+`npm run verify:store` — on every push to `main` or `staging` and on every pull
+request touching `app/`, so a broken build never gets as far as Gradle. It goes
+on through `cap add` to a debug APK, and uploads it as a workflow artifact, only
+on `main`, a published release, or a manual dispatch (`BUILD_APK` in the
+workflow gates every Gradle-side step on that one condition). The Gradle half is
+rationed because every run re-resolves the whole AGP tree from Maven Central,
+which answers a busy repo with 429s — a red check nobody can act on teaches
+people to ignore red checks — and because the cheap gates catch nearly
+everything the APK step would. If you want an APK for a branch, dispatch it by
+hand. Nothing is signed and nothing is published — that's deliberate, see below.
 
 ## What's still needed for the stores
 
@@ -153,7 +160,7 @@ than half-implemented:
    `app/android/` is regenerated). It reads `android/keystore.properties`, and
    if that file is absent it simply doesn't define a signing config — so
    `assembleDebug` still works on a machine with no key, which is what lets CI
-   build debug on every push without touching a secret. See
+   build the debug APK without touching a secret. See
    [Release signing](#release-signing) below for the keystore and the secrets.
 2. **iOS signing** — done manually in Xcode today (automatic signing, pick your
    team; the full walkthrough is in [docs/ios.md](ios.md)). Automating it needs

@@ -25,8 +25,9 @@ staging today.
 
 **The call between "harder or pay less": harder.** Contract pay is not a free
 knob — staging's salvage economy was just re-derived to flat 60/tier
-(`meta.ts`'s `TIER_SALVAGE_PER_TIER = 0` note: 600 of income against a ~460
-shelf, and the 15-salvage milestone IS the on-ramp install). Cutting pay
+(`meta.ts`'s `TIER_SALVAGE_PER_TIER = 0` note: 600 of income against a 445
+shelf — INSTALLS' seven systems at 300 plus the two live unlocks at 145 — and
+the 15-salvage milestone IS the on-ramp install). Cutting pay
 re-breaks the on-ramp the 2026-08-09 deadlock proved the economy cannot do
 without. Difficulty has a dedicated, provable seam instead: the feasibility
 model in `contracts.ts` prices every launch budget in closed form, so

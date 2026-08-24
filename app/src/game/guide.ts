@@ -32,7 +32,8 @@ import { DRILLS, type DrillSpec } from "./drills";
  *
  * Nowhere new, wherever there is already a home. A ship system's line is
  * upgrades.ts's `blurb`, an axis's line is its HazardDef `desc`, a number is
- * read off LEVEL_1 or the constant that defines it. The repo's rule is that a
+ * read off the FLOWN Mark's bay 1 (buildTopics' `lv`) or the constant that
+ * defines it. The repo's rule is that a
  * system's copy lives in exactly one place; a guide that paraphrased those
  * tables would be a second place, and the two would drift the first time a
  * price moved.

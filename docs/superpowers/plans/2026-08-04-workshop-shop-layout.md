@@ -10,6 +10,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-04-workshop-shop-layout-design.md`
 
+**Superseded in part (2026-08-24): the tab bar this plan builds has been
+REVERTED.** Task 2 below, the `shop-tab` action, the `workshopTab` field and the
+one-pane-at-a-time shop are all gone; the Workshop is one shelf carrying systems
+and options together, with the budget readout in the fixed `.workshop__aside`
+column rather than on the deleted tab bar. `sim/systems.ts` now asserts the
+opposite of what Task 2's checks asserted — "the Workshop has no tab bar" — so a
+worker following this plan task-by-task would be re-implementing a reverted
+design. Task 1's ten unlock glyphs and Task 3's row card did ship and still
+stand; Task 3's tab-bar rules went with Task 2.
+
 ---
 
 ## One departure from the spec

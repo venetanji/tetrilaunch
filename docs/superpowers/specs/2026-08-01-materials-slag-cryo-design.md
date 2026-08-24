@@ -2,6 +2,12 @@
 
 **Date:** 2026-08-01
 **Status:** approved, shipped
+**Superseded in part (2026-08-24) by the hazard draft** (`hazards.ts`,
+`docs/superpowers/specs/2026-08-04-hazard-draft-design.md`): the introduction
+SCHEDULE below is retired — `materialMixFor` is gone, and a material now reaches
+the belt only where the player ratchets its content axis — and Contracts ship one
+priced material rather than none. The materials themselves stand, and so does
+everything below about what a slag or a cryo cube DOES.
 
 ## Why this, and why now
 
@@ -81,46 +87,83 @@ hitting it. That is the sequencing the design asks for, and it is also what
 makes the cold-press failure reachable — the player who ignores the cube is the
 one it punishes.
 
-## Introduction schedule
+## Introduction schedule — RETIRED (2026-08-24)
 
-`materialMixFor(bay, mark)` is a per-shipment probability, not a fixed count per
-bay: the player must not be able to count slag off and conclude the rest of the
-bay is clean, and the preview already tells them what is actually coming.
+**This section shipped on 2026-08-01 and has since been retired whole.**
+`materialMixFor(bay, mark)` was a per-shipment probability ramp — slag from
+Mark 2, cryo from Mark 3, each with a base rate, a per-bay step and a cap — and
+it was a probability rather than a fixed count per bay so the player could not
+count slag off and conclude the rest of the bay was clean. The function is gone;
+`level.ts` keeps a RETIRED note where it stood. Every bay now ships
+`NO_MATERIALS`, and a material reaches the belt only when the player ratchets
+its content axis in the between-bay draft.
 
-| material | first Mark | first bay | base | step/bay | cap |
-|---|---|---|---|---|---|
-| slag | 2 | 4 | 0.05 | +0.01 | 0.12 |
-| cryo | 3 | 3 | 0.06 | +0.012 | 0.16 |
+The reason is the design's rather than a refactor's. Under a schedule the ladder
+inflicted a material on a player who might own no answer to it — which is the
+same bug the hazard draft was built to fix, in its other half. Now the material
+and the decision to face it are the same act, and the Workshop system that
+answers it is the reason a player would take that notch at all.
 
-**Mark 1 is entirely clean**, at every bay. A player's first rung has to be the
-game as it has always played, or the baseline they learn on is not the baseline.
-Bay 1 is clean at every Mark, so a run always opens with a few shipments of
-rhythm before the bay starts arguing.
+What replaced the ramp is `hazards.ts`. A ratcheted axis ships its material at
+`materialRate(notches)`: 0.07 at the first notch, +0.05 for each one after,
+capped per material at 0.32 (`MATERIAL_CAP`). The combined mix is then scaled
+DOWN proportionally if it would pass `MIX_TOTAL_CAP` (0.55), so a clear majority
+of shipments stay standard even at maximum ratchet and the player's relative
+emphasis survives the clamp. Mark gating did not disappear with the schedule, it
+moved to the ladder's rungs: **cryo 4, rebar 5, slag 6, volatile 7, tar 8,
+magnetic 9**.
 
-Slag is rarer and capped lower than cryo for a reason that is not cosmetic:
-**cryo is recoverable and slag is not**. A slag cube in the wrong slot costs a
-charge or a penalty, so its rate is the one that can quietly make a bay
-unwinnable.
+Two of this section's claims outlived the mechanism that made them true.
+**Mark 1 is still entirely clean**, because the first content axis is four rungs
+up the ladder — a player's first rung has to be the game as it has always
+played, or the baseline they learn on is not the baseline. And **bay 1 is still
+clean at every Mark**, now because a run opens with no notches at all
+(`newRun`'s empty `ratchets`) rather than because a schedule said so, so a run
+still opens with a few shipments of rhythm before the bay starts arguing.
 
-Measured at bay 10 / Mark 10 over 6000 rolls: slag 0.1097 against a configured
-0.11, cryo 0.146 against 0.144.
+The ordering reason also outlived it, and got sharper: **cryo is recoverable and
+slag is not**. A slag cube in the wrong slot costs a charge or a penalty, so its
+rate is the one that can quietly make a bay unwinnable. Under the schedule that
+bought slag a lower rate and a lower cap than cryo; under the ratchet it buys
+slag two rungs of delay, so it arrives behind the materials a bare-handed player
+can survive (playtest call, 2026-08-08).
 
-## Contracts get no materials — and that is a feasibility guarantee
+## Contracts ship exactly one material, priced into the budget
 
-`levelForContract` sets `materialMix` to `NO_MATERIALS` **explicitly**, not by
-inheritance. Inheriting it is true only by accident (contracts build at Mark 1,
-below every material's `firstMark`) and would silently stop being true the day a
-Contract is generated at a Mark.
+**Updated 2026-08-24.** As written, this section said Contracts get no materials
+at all and that the feasibility guarantee depended on it. Half of that survives.
 
-Both Contract kinds derive their limit from a model that assumes every launched
-cube *can* reach a completed row: a pattern queue tiles the goal exactly, and
-`launchesFor` prices a lines budget off cubes-needed ÷ efficiency. Slag
-satisfies neither. Dropping it into either would reintroduce exactly the defect
-class that once made **35% of generated Contracts unwinnable**.
+`levelForContract` still sets `materialMix` to `NO_MATERIALS` **explicitly**,
+not by inheritance, and for exactly the reason given here: inheriting a clean mix
+is true only by accident (contracts build at Mark 1, below every material's rung)
+and would silently stop being true the day a Contract is generated at a Mark.
+What changed is the line immediately after it — the Contract's own material is
+then written back in, at the rate its launch budget was computed against.
 
-Materials reach Contracts when the budget model accounts for them. DESIGN.md's
-"in both pools" is therefore deferred, not dropped, and a test pins the
-guarantee in the meantime.
+Both Contract kinds still derive their limit from a model that assumes every
+launched cube *can* reach a completed row: a pattern queue tiles the goal
+exactly, and `launchesFor` prices a lines budget off cubes-needed ÷ efficiency.
+The guarantee is now kept by PRICING the material instead of banning it.
+`contractEfficiency` discounts the planning efficiency by that material's
+expected waste (`MATERIAL_WASTE`), and `sim/systems.ts` asserts feasibility
+against the same function the generator priced with — the whole guarantee is
+that these are one formula, not two copies.
+
+**Slag is the exception, and it is structural rather than policy.** A slag cube
+can never count toward a line (`theme.ts`'s `countsForLines`), so no budget
+priced on "cubes that can reach a row" can be honest about it — which is why
+`ContractMaterial` is `Exclude<Material, "standard" | "slag">` and the exclusion
+lives in the type. Dropping it into either kind would reintroduce exactly the
+defect class that once made **35% of generated Contracts unwinnable**.
+
+Pattern Contracts are narrower still. Their belt carries the material at rate 1
+rather than as a per-shipment roll — a variant that ships rebar ships rebar, and
+a probability would make "nothing shatters" true of only most of the bay, which
+is a different and much worse promise than the card's — so only **rebar and
+magnetic** are eligible there; the other four would un-prove the tiling.
+
+DESIGN.md's "in both pools" is therefore delivered rather than deferred, for
+every material whose cubes can count.
 
 ## Readability
 

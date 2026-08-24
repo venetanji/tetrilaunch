@@ -59,7 +59,9 @@ const VARIANTS: Variant[] = [
   // The proposal exactly as specced: 4 lines' worth, then 6.
   { name: "stock", tiers: PILE_TIERS, allowance: 0 },
   // Money only — isolates how much of any effect is the funds multiplier
-  // rather than the clock. Against a $25 launch this is +$13/+$25 a shot.
+  // rather than the clock. Against Tier 1's $20 launch this is +$5/+$20 a shot;
+  // against Tier 10's $30 it is +$8/+$30 (game.ts's launchCostNow rounds, so
+  // the 1.25 tier bills $38 rather than $37.50).
   { name: "cash-only", tiers: PILE_TIERS.map((t) => ({ ...t, clockSec: 0, payMult: Infinity })), allowance: 0 },
   // Clock only — the other half. Spam stops costing money and starts costing
   // the one resource a fat bankroll cannot buy back.
@@ -85,12 +87,21 @@ const VARIANTS: Variant[] = [
     allowance: 0,
   },
   // CANDIDATES — the shape the first two sweeps pointed at. Measured at N=80
-  // per cell: against an untaxed baseline of 73% (aim) / 48% (impatient), the
-  // money multiplier hurt careful play as much as spam (49% / 35%) because a
-  // funds tax turns into BANKRUPTCY, which ends a bay early and unrecoverably.
-  // The clock tax did not: it converts into time losses, which still let the
-  // bay settle what is in the air. So these keep the clock and drop or soften
-  // the multiplier, at the looser thresholds the census argued for.
+  // per cell BEFORE #88, on the flat $800/150s/$25 bay that no longer exists:
+  // against an untaxed baseline of 73% (aim) / 48% (impatient), the money
+  // multiplier hurt careful play as much as spam (49% / 35%) because a funds
+  // tax turns into BANKRUPTCY, which ends a bay early and unrecoverably. The
+  // clock tax did not: it converts into time losses, which still let the bay
+  // settle what is in the air. So these keep the clock and drop or soften the
+  // multiplier, at the looser thresholds the census argued for.
+  //
+  // Re-run at the same N=80 on Tier 1's bay, that untaxed baseline is 84% (aim)
+  // / 81% (impatient), and `stock` takes careful play to 71%. The premise these
+  // rows were chosen under has therefore moved: the careful/spam gap is 3 points
+  // untaxed now, not 25, so the reason to prefer a clock tax cannot be read off
+  // the old cells any more.
+  // TODO: re-measure cash-only and clock-only on the tier ladder before the
+  // 49% / 35% split is quoted as anything but history.
   { name: "cand-clock", tiers: [
     { cubes: 48, costMult: 1, clockSec: 2, reloadMult: 1, payMult: Infinity },
     { cubes: 64, costMult: 1, clockSec: 5, reloadMult: 1, payMult: Infinity },
@@ -185,12 +196,15 @@ const variants = variantNames.map((n) => {
 // ---------------------------------------------------------------------------
 
 function levelFor(bay: number, variant: Variant, mark: number): LevelConfig {
-  // makeBaseLevel(bay, mark) sets `cfg.mark` and changes NOTHING else — the
-  // Mark's difficulty is carried entirely by the ratchets a run is forced to
-  // draft and by the loadout budget, neither of which a bare base level has.
-  // So a --marks sweep has to apply the stack itself or it compares a level
-  // with itself; ratchet-model.ts is the same model marks.ts prices the ladder
-  // with. The LOADOUT half is deliberately not modelled here: this file asks
+  // makeBaseLevel(bay, mark) moves the bay's OPENING TERMS with the Mark —
+  // targetScore, startingFunds, launchCost and timeLimitSec — plus the bond
+  // ramp (jointBreakStretch, and the UNBREAKABLE_MARK capstone at bay 10).
+  // What it does NOT carry is the Mark's CONTENT: the ratchets a run is forced
+  // to draft and the loadout budget, neither of which a bare base level has.
+  // So a --marks sweep has to apply the stack itself or it measures the tier's
+  // price list and none of the difficulty that list was sized against;
+  // ratchet-model.ts is the same model marks.ts prices the ladder with. The
+  // LOADOUT half is deliberately not modelled here: this file asks
   // whether the congestion rule teaches something, and handing the bots a
   // Mark-appropriate ship would fold "can they afford the answer" into an
   // answer about the tax. Read these rows as an UNUPGRADED run at that Mark —

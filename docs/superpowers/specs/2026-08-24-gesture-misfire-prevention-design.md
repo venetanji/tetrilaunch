@@ -114,7 +114,7 @@ destroyed immediately, with an explosion and a visible `−$`.
 
 ```
 CHUTE          = { x0: 0, x1: 624, y0: 389, y1: WORLD.height }   // the MOUTH
-CHUTE_THROAT_Y = 620                                             // the GRINDER
+CHUTE_THROAT_Y = 620                                             // the GRINDER — DELETED, see below
 ```
 
 Derived from `.plant`'s own CSS frame fractions (left 1.67%, width 47.08%,
@@ -123,7 +123,23 @@ bottom 2.97%, height 42.96% of the field). `render.ts`'s `PISTON_BARREL_X` now
 drift. Extended to the left wall and the floor so nothing survives in the 21px
 lips the panel leaves.
 
-### A hopper, not a wall
+### A hopper, not a wall — REVERTED (2026-08-24)
+
+> **The shipped model is the opposite of this section: a wall, not a hopper.**
+> `CHUTE_THROAT_Y` is deleted and `CHUTE_SURFACE_Y = CHUTE.y0` stands in its
+> place — the machine's surface IS its mouth, and anything that touches it is
+> taken there. What reversed the call was not new physics but a frame-by-frame
+> trace: cargo aimed into the maw entered at (223, 390) and then travelled DOWN
+> AND ACROSS the whole body of the machine for a quarter of a second — (318,
+> 417), (369, 500), (416, 599) — before two of its four cubes reached the
+> grinder, with the survivors carrying on right and out the far side. Behind an
+> opaque panel that is merely invisible; through the aim-through state, which is
+> exactly when the player is watching, it is cargo tunnelling through solid
+> machinery. Nothing about the machine says it can be flown through, so the
+> fly-through went, and the skim corridor with it — scraping the roof would
+> otherwise have been a cheap way to shear the bonds off a shipment. `chute.ts`'s
+> header carries the full reasoning. What follows is the record of the design
+> that was reversed, including the measurement that chose 620.
 
 **Claiming the whole footprint from the mouth down was wrong, and the sim caught
 it.** That takes the AIRSPACE over the machine as well as the floor of it, and
@@ -345,6 +361,16 @@ its subject was broken**, not merely to pass:
 | the floor sits inside a thumb's reach; a tap reports 0, not the previous pull | floor → 0.9, and reinstating the stale-power read → fail |
 | a steep weak aim strands; the warning reads the compactor's own cutoff | stubbing `pathStrands`, detaching the cutoff → fail |
 | the chute's mouth and lip match `.plant`'s CSS fractions | perturbing **either side** → fail |
+
+The second row is superseded in part. Its proof method is unreproducible — "the
+throat back at the mouth" is where the throat now IS, and `CHUTE_THROAT_Y` went
+with the hopper when it was reverted on 2026-08-24 — so those five failures
+cannot be re-provoked. Of the row's two claims, only the flat-delivery half
+changed, and it was INVERTED rather than deleted: `sim/systems.ts:5944-5973` now
+asserts that an aim which clips the machine IS warned against, that nothing comes
+out the far side, and that the whole shipment is taken. The deepest-useful-arc
+half still stands, as "a good shot never enters the chute" / "...and is still on
+the field" (`sim/systems.ts:5940-5941`). The other five rows hold as written.
 
 The last one parses `app.css` — necessarily a string check, since this harness
 has no browser. It catches the two numbers drifting apart, which is the failure

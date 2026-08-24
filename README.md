@@ -16,9 +16,11 @@ clears them away.
 *Contracts* are the opposite by design: short, free to fail, endlessly retryable.
 
 - **Deep Run is 10 bays** (levels) of rising difficulty — stiffer joints, a faster
-  compactor, pricier launches, a tighter clock. Each bay has its own **funding
-  target** and **countdown**; bank the target before the clock or the bankroll
-  runs out.
+  compactor, a heavier **funding target** every bay. The **countdown** and the
+  price of a shot are the **Mark's** knobs, not the bay's: both are set before
+  you launch and stay flat all ten bays (only a difficulty axis you ratchet
+  yourself moves them mid-run). Bank each bay's target before the clock or the
+  bankroll runs out.
 - **Ten Marks** are the difficulty ladder over Deep Run. Each one states harder
   terms — the opening bay's funding target climbs from **$600 to $780** (and the
   per-bay climb steepens with it, so a run ends at **$1500** at Tier 1 and
@@ -38,22 +40,23 @@ clears them away.
 - **Three currencies, three horizons** (see [docs/ECONOMY.md](docs/ECONOMY.md)):
   - **Funds `$`** last one bay. They pay for launches and *are* the bay's target.
   - **Scrap `♻`** lasts one run (2/line, 10/bay). Spent on the **ship**.
-  - **Salvage** is forever, paid out at the end of **every** run — win or lose —
-    and spent in the **Workshop** on permanent unlocks.
+  - **Salvage** is forever, banked in equal **15-salvage milestones** — each of
+    the current tier's first three Contract clears, plus that tier's Deep Run
+    win, a flat **60 per tier** — and spent in the **Workshop** on permanent
+    unlocks.
 - **The compactor is your ship.** After bays **3, 6 and 9** you dock at a
-  **refit stop** and spend scrap on six systems, three tiers each: **Bay
+  **refit stop** and spend scrap on seven systems, three tiers each: **Bay
   Extension** (12→18 open cells), **Launcher Coils** (muzzle power + a wind
   stabilizer), **Press Hydraulics**, **Loader Magazine**, **Reactor Output**,
-  **Bond Emitter**. Upgrades last the whole run.
-- **Draft a modifier after every bay** — **2 seeded offers** (or skip), and a
-  **third slot once you've cleared 5 daily Contracts**. Twelve mods: Overclock,
-  Sturdy/Micro/Bulk Shipments, Demolition Charges, Autoloader, Overtime, Premium
-  Contracts, Short Lines, Ballast Load, Bond Breaker, Rapid Loader. Most need a
-  **Workshop unlock before they can be OFFERED** — salvage buys the option, never
-  the mod, so the draft still deals you a real choice. Four stay free (Overtime,
-  Premium Contracts, Ballast Load, Rapid Loader) so a first run isn't an empty
-  one. Mods **stack for the rest of the run**, and compound on top of whatever
-  ship you refitted.
+  **Bond Emitter**, **Demolition Rack**. Upgrades last the whole run.
+- **Ratchet an axis after every bay** — the between-bay draft deals **2 hazard
+  cards** and you must take one (two at Mark 10, `picksPerBay`). There is **no
+  skip**: a notch is pure cost — a tighter clock, a dearer shot, a new material
+  on the belt — and it sticks for the rest of the run. The reward is bought in
+  the **Workshop** and is implicit: a system never deletes a hazard, it makes
+  one specific hazard cheap for you. The last draft (after bay 9) deals a
+  **Final Inspection** instead: two clauses on the final bay, one of which you
+  accept (`finals.ts`).
 - **How to Play is a catalogue, not a briefing.** Every material, axis, ship
   system, currency and mode has its own entry (`src/game/guide.ts`), and most of
   them have a **drill** attached — a mock bay with no clock and no bankroll that
@@ -132,8 +135,11 @@ app/                      Capacitor + Vite + TypeScript web app
     layout      viewport/aspect-ratio solver (wide | snug | tall + safe areas)
     level       per-bay tunables (the 10-bay ladder)
     upgrades    ship upgrade tracks bought with scrap at refit stops
-    mods        drafted modifier pool
-    run         one run's state: carry, scrap, tiers, mods
+    hazards     the between-bay draft: one difficulty axis ratcheted per bay,
+                plus the material schedule
+    finals      the last bay's Final Inspection clauses
+    mods        RETIRED modifier table — app/src uses it only for mulberry32
+    run         one run's state: carry, scrap, tiers, ratchets, mark, final
     meta        salvage + permanent unlocks (persists across runs)
     guide       the knowledge catalogue behind How to Play — one row per rule,
                 the tier it opens at, and the drill that teaches it
@@ -141,8 +147,9 @@ app/                      Capacitor + Vite + TypeScript web app
                 on the belt, and nothing banked either way
   src/ui/                 screens + components (menu, HUD, bay-clear, refit,
                           draft, workshop, pause, end, settings, leaderboard)
-  src/lib/                api (leaderboard: two boards, Deep Run + Tier S),
-                          store (settings/name/meta/per-board best),
+  src/lib/                api (leaderboard: one board per Tier, plus Tier S),
+                          store (settings/name/meta/best — one for the ladder,
+                          one for Tier S),
                           platform (orientation/haptics/safe-area),
                           purchases (RevenueCat: entitlement, paywall, restore),
                           devmode (the Tier S gesture — ships),
@@ -297,9 +304,12 @@ npm run android:apk       # build + verify + sync + assembleDebug -> installable
 ```
 
 `app/android/` is gitignored and regenerated from `capacitor.config.ts` by
-`cap add`; CI (`.github/workflows/android.yml`) builds a debug APK on every push
-touching `app/`, which keeps that regeneration honest. **`app/ios/` is committed**
-— see [docs/ios.md](docs/ios.md).
+`cap add`; CI (`.github/workflows/android.yml`) runs the cheap gates — typecheck
+plus web build, the systems smoke test and `verify:store` — on every push to
+`main` or `staging` and on every pull request touching `app/`, and goes all the
+way through `cap add` to a debug APK only on `main`, a published release, or a
+manual dispatch, which is what keeps that regeneration honest. **`app/ios/` is
+committed** — see [docs/ios.md](docs/ios.md).
 
 Orientation is locked to landscape at runtime via
 `@capacitor/screen-orientation` (and declared landscape-only in the iOS
@@ -311,7 +321,7 @@ solver (`src/game/layout.ts`).
 ```bash
 cd app
 npm run test          # systems smoke test (economy, upgrades, sizes, layout, Tier S)
-npm run test:uifit    # every screen x 13 devices: fit, tap floor, scroll, clipping
+npm run test:uifit    # every screen x 19 devices: fit, tap floor, scroll, clipping
 npm run verify:store  # asserts the RevenueCat SDK survived into dist/ — and that
                       # the save-editing dev cheats did NOT
 npm run sim:balance   # bays x bots x mods win-rate sweep
@@ -327,23 +337,29 @@ The neon-arcade design system lives in `design/` as self-contained HTML preview 
 
 ## 🗺️ Dev plan
 
-**Shipped.** The roguelite core (a 10-bay `makeBaseLevel(i)` ladder, a stacking
-modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus the
+**Shipped.** The roguelite core (a 10-bay `makeBaseLevel(i)` ladder, a between-bay
+hazard ratchet, per-bay time limits, bankroll carry-over, line-clear FX) plus the
 **refit phase**:
 
 - **Three-currency economy** — funds (bay) / scrap (run) / salvage (forever). See
   [docs/ECONOMY.md](docs/ECONOMY.md) for the full rationale.
-- **Ship upgrades** — six tracks × three tiers, bought with scrap at refit stops
+- **Ship upgrades** — seven tracks × three tiers, bought with scrap at refit stops
   after bays 3/6/9 (`upgrades.ts`). Launcher Coils are the sanctioned answer to
   an unwinnable headwind bay; Bay Extension makes "extend to 18" earned capital.
-- **Meta-progression** — every finished run pays salvage, win or lose, spent in
-  the Workshop on unlocks that add *options* rather than stat bumps (`meta.ts`).
+- **Meta-progression** — salvage arrives in tier milestones (three at-tier
+  Contract first-clears plus the tier's Deep Run win, 15 each), spent in the
+  Workshop on installs and unlocks that add *options* rather than stat bumps
+  (`meta.ts`).
 - **Bombs with an economic argument** — armed consumables, free to fire, refund
   per cube vaporized.
 - **Three payload sizes** — micro dominoes / tetrominoes / bulk pentominoes,
   differing in weight and rigidity as well as shape, with the Autoloader as the
   micro build's endgame — a **held** trigger (`⚡`/`F`) at 420ms, so volume is
   something you commit to for a burst rather than a mode you switch on.
+- **7-bag shuffle** — `pieceSequence: null` now deals a seeded bag of all seven
+  types in `Cannon`, which bounds every type's wait at 12 and replays a
+  restarted bay's exact deal. It replaced the fixed I,O,T,L,J,S,Z rotation that
+  made the first minute of every run play out identically.
 - **Contracts** — the short, generated, retryable half. Three a day from a shared
   seed, budgeted in launches rather than strokes so thinking is free. **Pattern
   Contracts** hand you an exact inventory and demand zero waste; a backtracking
@@ -369,8 +385,11 @@ modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus th
 Next steps:
 
 1. **Playtest the refit balance.** `TIER_COSTS` (20/35/55) against
-   `SCRAP_PER_LINE`/`SCRAP_PER_BAY` (2/10) is a first guess: it lands the player
-   at ~78 scrap by the first stop, i.e. one track nearly maxed or two opened.
+   `SCRAP_PER_LINE`/`SCRAP_PER_BAY` (2/10) is a first guess: measured with the
+   aim bot at Mark 1 a won bay clears ~13 lines → ~36 scrap, so the first stop
+   arrives at ~108 scrap — and because a refit only *raises* tracks the Workshop
+   already installed (`run.ts`'s `buyUpgrade` refuses a tier-0 track), that is
+   two owned tracks to tier 2, or one to tier 3, never a new system.
    Tune until each stop is a real dilemma. The sweep can't measure this — the
    bots never use abilities, and they never hold the Autoloader trigger, so both
    read as a clean 0 delta.
@@ -385,18 +404,18 @@ Next steps:
    [docs/DESIGN.md](docs/DESIGN.md#materials--the-content-engine); the older
    wishlist here (gravity flips, a second mini-compactor, golden cubes) is
    superseded by it.
-4. **Daily seed for Deep Run** — Contracts already share one; give the run itself
-   a `RunState.seed` so everyone drafts the same offers, with a per-seed board.
-5. **7-bag shuffle** — `pieceSequence: null` is reserved for it in `LevelConfig`;
-   implement the bag in `Cannon`, seeded from the run.
-6. **Audio gaps** — the sixteen effects (the volatile blast now has its own
+4. **Daily seed for Deep Run** — Contracts already share one, and the run itself
+   already carries a `RunState.seed` (`run.ts`, set by `newRun`). What is left is
+   deriving that seed from a shared daily value so everyone is dealt the same
+   ratchet hand, with a per-seed board.
+5. **Audio gaps** — the sixteen effects (the volatile blast now has its own
    `playExplosion` reading), four stingers, the congestion loops and the Deep
    Run's per-bay music ladder are all wired (`lib/audio.ts`; `bayMusic` in
    `game/run.ts` is which bed covers which bay). Still silent: the payout and
    the salvage refund.
-7. **Run history & boards** — the D1 schema keys scores by `level`; everything
-   posts to the single run board today. Add bays-reached and a board switcher.
-8. **More juice** — screen shake on detonation, combo streak banner, draft-card
+6. **Run history** — scores are keyed by `mark` (`0002_tier_boards.sql`), one
+   list per Tier plus −1 for Tier S. Still to add: bays-reached on the row.
+7. **More juice** — screen shake on detonation, combo streak banner, draft-card
    flip-in, refit-purchase clunk. `fx.ts` is the seam.
 
 ## 📄 License

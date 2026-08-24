@@ -8,8 +8,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 /* Mirrors app/src/ui/screens.ts workshopScreen + app.css .workshop / .shop-card.
-   The meta-progression store: spends SALVAGE (paid out by every finished run,
-   win or lose) on the ship you start every run with.
+   The meta-progression store: spends SALVAGE (banked in tier milestones — 15
+   for each of a tier's three first-clear Contracts and 15 for its Deep Run
+   win) on the ship you start every run with.
 
    The shop is TABBED — Systems and Options are two lists of the same kind of
    decision, and only the active one is in the DOM. This file is the OPTIONS
@@ -147,7 +148,7 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
       <div>
         <div class="eyebrow">Between runs</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Workshop</h2>
-        <p class="muted workshop__blurb" style="margin:0">Every run pays salvage — even the ones that end badly. Spend it on options you didn't have before.</p>
+        <p class="muted workshop__blurb" style="margin:0">Tier milestones pay salvage — each first-clear Contract and run win banks a share. Spend it on options you didn't have before.</p>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
         <div class="chip"><div class="chip__label">Salvage</div><div class="chip__value" style="color:var(--warn)">♻ 60</div></div>

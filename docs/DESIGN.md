@@ -86,18 +86,23 @@ and it is the build the Contracts half is least able to teach.
 
 ### What Contracts cannot teach
 
-Two of the six tracks are invisible without a clock and a bankroll:
+Two of the seven tracks are invisible without a clock and a bankroll:
 
 - **Reactor** — no launch cost means the economy track does nothing.
 - **Magazine** — no clock means faster reload buys less waiting, not more
   throughput against a limit.
 
-So Contracts exercise the spatial half of the rig (bay, hydraulics, bonds,
-launcher) and leave the tempo/economy half untested. That's a feature for Deep
-Run's status as a real exam, but it has a direct consequence: **a player spends
-part of their budget with no information to go on**, and their first attempt at a
-new Mark is partly reconnaissance. That is fine for a roguelite — FTL works the
-same way — but it is the argument that settles free respec (see Settled).
+That was the argument this doc was written on, and the code has never made it
+true: `levelForContract` never calls `applyUpgrades` and `startContract` sets
+`this.run = null`, so **Contracts exercise NO part of the rig today** — the
+spatial half (bay, hydraulics, bonds, launcher, demolition) is as untested as the
+tempo/economy half, and a Contract is played on a stock bay whatever the Workshop
+has installed. That is deliberate, and it strengthens Deep Run's status as a real
+exam, but it makes the consequence larger than the two-track version was: **a
+player spends their ENTIRE budget with no information to go on**, and their first
+attempt at a new Mark is reconnaissance end to end. That is fine for a roguelite
+— FTL works the same way — but it is the argument that settles free respec (see
+Settled).
 
 Contracts are where you *build* the rig. Deep Run is where you find out whether
 the rig you built is good enough. Neither mode is the "real" game.
@@ -113,18 +118,22 @@ the rig you built is good enough. Neither mode is the "real" game.
 The critical property: **Deep Run is a gate, not a treadmill.** You don't grind
 into the next Mark, you beat your way into it. A tier completes only when both
 halves are done at that tier — the Deep Run beaten *and* three of its Contracts
-cleared — and completion is also the only salvage payout (the per-run and
-per-contract trickles were retired after the 2026-08-08 playtest made the
-unlock tree trivial). Contracts count once each, so they add a second
-requirement, never an alternative route: no amount of Contract play skips the
-run. That's what makes a Mark N clear mean the same thing for every player who
-has one.
+cleared — and the tier's salvage arrives as **milestones**, not as one payout at
+completion: each of the three at-tier first-clear Contracts and the Deep Run win
+banks an equal share (a flat 60 a tier, split four ways, so 15 each at every
+Mark) the moment it lands, and completion pays only the rounding remainder —
+zero at every tier on the current numbers — while raising the Mark. What the
+2026-08-08 playtest fixed survives the re-timing: a Contract pays only on its
+once-ever first clear, only at the current tier, and only for the first three.
+Contracts count once each, so they add a second requirement, never an
+alternative route: no amount of Contract play skips the run. That's what makes a
+Mark N clear mean the same thing for every player who has one.
 
 ## The build budget — the integrity rule
 
 This is the load-bearing rule of the whole design, so it goes first.
 
-> **Mark N grants a fixed upgrade budget, spent freely across the six tracks.
+> **Mark N grants a fixed upgrade budget, spent freely across the seven tracks.
 > Contracts unlock what you may spend it *on*. Only completing tier N — its
 > Deep Run beaten and three of its Contracts cleared — raises the budget.**
 
@@ -150,12 +159,14 @@ There are only two escapes, and one is bad:
 
 ### How it works
 
-`MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so six
-tracks fully maxed is **660 points**. The Mark sets how many of those you get.
-First-pass: Mark 1 ≈ 66 (one track to tier 2, or three opened at tier 1), scaling
-to 660 at Mark 10 — the arc from "you can afford one system" to "you can afford
-everything" *is* the ladder, which is FTL's own shape. One number per Mark, no
-second cap to reason about.
+`MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so
+seven tracks fully maxed is **770 points** (`FULL_BUILD_COST`, derived from
+`UPGRADES.length` rather than written down, so adding a track can never leave the
+budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 77
+(three tracks opened at tier 1, or one to tier 2 with a second opened alongside),
+scaling to 770 at Mark 10 — the arc from "you can afford one system" to "you can
+afford everything" *is* the ladder, which is FTL's own shape. One number per
+Mark, no second cap to reason about.
 
 What it buys:
 
@@ -229,7 +240,7 @@ That reorders the build plan: materials stop being step 4 and become the thing
 the Mark ladder is actually made of. It also means the ladder can't be finally
 tuned until they exist, and that the bot has a ceiling as an instrument — it
 cannot use Bond Breaker, Demolition, or tempo, so a track like MAGAZINE is
-invisible to it (a full 660 rig loses to a stock one purely because the bot
+invisible to it (a full 770 rig loses to a stock one purely because the bot
 fires on cooldown and goes broke). Human playtesting is not optional here.
 
 ## Rigs as FTL ships
@@ -241,7 +252,7 @@ it's a different set of problems.
 
 | Rig | Identity | Trade |
 |---|---|---|
-| **Standard Hauler** | balanced, all six tracks available | the tutorial rig |
+| **Standard Hauler** | balanced, all seven tracks available | the tutorial rig |
 | **Scrapper** | starts with Demolition; bombs refund more | weak launcher — plays the salvage economy |
 | **Overpressure** | huge hydraulics and settle assist | brutal cooldown; few shots, each flattens |
 | **Swarm** | micro payloads native, fast cooldown | can't run bulk; Bond Breaker dependent |
@@ -307,8 +318,8 @@ price moves. Pinning the dollar figure instead would have handed Tier 1 ten
 launches and Tier 10 six — silently moving the one number the purse was tuned
 to.
 
-**Measured** (`npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --notches spread`, aim bot,
-bays 1/4/7/10, carry $150). `--notches spread` is new and is why these numbers mean something: it
+**Measured** (`npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --ratchets spread`, aim bot,
+bays 1/4/7/10, carry $150). `--ratchets spread` is new and is why these numbers mean something: it
 models the ratchet the mode actually forces (`picksPerBay(mark) x` cleared bays, round-robin over
 that Mark's number axes), instead of measuring a bare ladder no run is ever played on.
 
@@ -777,16 +788,17 @@ down when judges ask where it goes next.
   the mode's character is easy, positive and replayable.
 - **Deep Run keeps both the clock and the bankroll.** Time pressure is what makes
   aiming a skill rather than a solved problem, so it's the exam's core test.
-- **The budget respecs for free.** Contracts can't exercise the reactor or
-  magazine tracks, so part of the budget is always spent without information;
-  charging for a correction would punish a decision the player had no way to
-  make well.
+- **The budget respecs for free.** Contracts apply no upgrades at all
+  (`levelForContract`), so the *whole* budget is spent without information —
+  not just the reactor and magazine tracks a clockless, costless bay was always
+  going to hide; charging for a correction would punish a decision the player
+  had no way to make well.
 
 ## Open questions
 
 - **How many Marks?** Ten is a placeholder that rhymes with the ten bays. The
   real answer depends on how long a Mark takes to beat, which needs playtesting.
-- **How does the budget curve?** Linear 66/Mark to 660 is the first pass. A curve
+- **How does the budget curve?** Linear 77/Mark to 770 is the first pass. A curve
   that front-loads early Marks would make the first few feel snappier at the cost
   of a flatter endgame.
 - **Contract currency: salvage, or a fourth currency?** Reusing salvage keeps the

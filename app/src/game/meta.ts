@@ -254,7 +254,9 @@ export function refundRetiredUnlocks(meta: MetaState): MetaState {
  */
 export interface InstallDef {
   id: UpgradeId;
-  /** Salvage price. One-time; an install never stacks — tiers 2-3 cost scrap. */
+  /** Salvage price, charged per rung. The Workshop sells tier 1 (the install)
+   *  and tier 2 (the uprate) at this same number — see uprateCost — while
+   *  tier 3 stays the refit stop's scrap. */
   cost: number;
   /** Marks that must already have been BEATEN — the spec ladder's Mark minus
    *  one, since `meta.mark` counts clears rather than the Mark being flown.

@@ -6,9 +6,11 @@ on branch `systems-layer`; the hazard draft and material counters are unbuilt.
 **Superseded in part (2026-08-24) by the tier ladder** (`docs/ECONOMY.md`,
 `level.ts`): "a Mark's numbers stop moving" no longer holds. A Mark states the
 bay's opening terms — target, clock and launch cost — on an explicit per-tier
-curve set once at run start. What this document says about the ratchet stands:
-higher Marks still add axes rather than steepening notches, and the notch sizes
-are the same at every Mark.
+curve set once at run start. What stands is that higher Marks add axes rather
+than steepening the ratchet's SHAPE. The notch SIZES do not: cost and time climb
+Fibonacci ladders (`COST_LADDER`/`TIME_LADDER`) entered one rung higher per two
+Marks (`ladderStart`), so a first Shift Cut costs 1s at Mark 1 and 8s at Mark 10,
+and the target axis is retired from the offer entirely.
 See `docs/superpowers/plans/2026-08-02-systems-layer.md` for what phase 1
 actually landed, including three departures from this document's numbers.
 
@@ -81,47 +83,66 @@ cost +3, target +3.
 Higher Marks do not make the ratchet steeper. They **add axes to the offer**.
 
 This replaces per-bay auto-scaling rather than stacking on top of it.
-`makeBaseLevel` currently hardens all three of these every bay on its own:
+`makeBaseLevel` hardened all three of these every bay on its own when this was
+written:
 
-| axis | today | under this design |
-|---|---|---|
-| `targetScore` | `800 + 150*i` | flat at 800; **+300 per notch** |
-| `launchCost` | `25 + 2*i` | flat at 25; **+5 per notch** |
-| `timeLimitSec` | `150 + 10*i` (relief) | flat at 150; **−20s per notch** |
+| axis | before this design (2026-08-02) | under this design (proposed) | shipped today (2026-08-24) |
+|---|---|---|---|
+| `targetScore` | `800 + 150*i` | flat at 800; **+300 per notch** | `TARGET_BASE` 600 + 20(t−1) on bay 1, then 100 + 2(t−1) a bay; the notch axis is RETIRED from the offer |
+| `launchCost` | `25 + 2*i` | flat at 25; **+5 per notch** | $20 → $30 by tier, flat in-run; notches climb `COST_LADDER` 1,1,2,3,5,8 entered at `ladderStart(mark)` |
+| `timeLimitSec` | `150 + 10*i` (relief) | flat at 150; **−20s per notch** | 180s → 144s by tier; notches climb `TIME_LADDER` 1,2,3,5,8,13 at `ladderStart(mark)`, floored at 45 |
 
 Notch sizes are sized to hold roughly today's bay-10 pressure: today two of three
 axes harden every bay (time is relief), so ~18 axis-steps across a run; the
 ratchet gives 9. Notches are therefore about double a current per-bay step. This
 is a first guess and the single most likely thing to need a play pass.
 
+None of the middle column's six numbers survived. The flat per-notch step became
+a Fibonacci ladder whose entry rung slides with the Mark (`hazards.ts`'s
+`notchTotal`/`ladderStart` — the SLIDE is the half that was measured, see its
+note), and the bay's opening terms became the TIER's to set rather than a number
+a card sells. The third column is what `level.ts` and `hazards.ts` ship as of
+2026-08-24; the rung sizes themselves are still unplayed.
+
 ### The Mark ladder becomes the tool ladder
 
 | Mark | new axis on offer | new system to install |
 |---|---|---|
-| 1 | time · launch cost · target $ | **Reactor** (`scorePerLine`), **Launcher** (`launchPower`) |
+| 1 | time · launch cost — target $ is RETIRED from the offer (`RETIRED_AXES`), so Mark 1 deals a two-card hand; the quota ramp is `level.ts`'s `TARGET_PER_BAY` now. The `HazardDef` is retired, not deleted, so notches already banked still resolve. | **Reactor** (`scorePerLine`), **Launcher** (`launchPower`) |
 | 2 | crosswind | **Stabilizer** (`windAssist`, split out of Launcher) |
 | 3 | sweeper — faster press, tighter bay | **Bay** (open cells), **Hydraulics** (`compactorSpeed`) |
-| 4 | **slag** | **Demolition** (exists as a mod today) |
-| 5 | **cryo** | none, deliberately — see below |
-| 6 | rebar | undesigned — the material comes first |
+| 4 | **cryo** | none, deliberately — see below |
+| 5 | rebar | undesigned — the material comes first |
+| 6 | **slag** | **Demolition** (a mod when this was written; a refit track, `upgrades.ts`'s `demolition`, since) |
 | 7 | volatile | undesigned |
 | 8 | tar | undesigned |
 | 9 | magnetic | undesigned |
 | 10 | capstone — no new axis; the offer becomes **two** ratchets per bay | none |
 
-Every rung now means something, which the ladder currently cannot claim. Marks
-6–9 are the four unbuilt materials from the design table, each arriving with its
-own answer rather than as scheduled probability. Their counters cannot be
-specified before the materials are, and are deliberately left blank rather than
-guessed at.
+Every rung now means something, which the ladder currently cannot claim. Marks 5
+and 7–9 are the materials that were still unbuilt when this was written — rebar,
+volatile, tar and magnetic — each arriving with its own answer rather than as
+scheduled probability. Their counters cannot be specified before the materials
+are, and are deliberately left blank rather than guessed at. (This paragraph was
+written as “Marks 6–9” against the pre-reversal order below; phase 3 has since
+built all six materials — `hazards.ts`'s `contentAxis` rows.)
 
 **Not every material needs a system, and cryo is the proof.** Cryo is the rung
 that *teaches what a hazard is*: it arrives before any material has an answer,
 it is recoverable by playing well rather than by shopping, and its cost — a
 second shipment spent striking it — is paid in the verb the player already has.
-Giving it a tool would delete it; the sequencing cost IS the material. So Mark 5
+Giving it a tool would delete it; the sequencing cost IS the material. So Mark 4
 is the rung where the player learns that a hazard is something you absorb, which
-is what makes Mark 4's Demolition legible as a *choice* rather than a tax.
+is what makes Mark 6's Demolition legible as a *choice* rather than a tax.
+
+**Reversed on 2026-08-08 (playtest); the Marks above are the shipped ones.** As
+written this document put slag at 4 and cryo at 5. The argument survives intact
+but runs the other way round: slag is the one material with NO passive counter —
+a dead cube leaves the field by Demolition or not at all, so a bay that ratchets
+slag with an empty rack is quietly unwinnable — while cryo thaws and rebar merely
+refuses to split, and both are survivable bare-handed. So cryo and rebar are the
+introduction, and slag waits two rungs for the player's rack to be real
+(`hazards.ts`, the note above its material rows).
 
 **A Mark's numbers stop moving.** If Marks add axes rather than steepen them,
 then `MARK_TARGET_STEP` and every other per-Mark multiplier goes to zero and

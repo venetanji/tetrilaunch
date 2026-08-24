@@ -278,7 +278,7 @@ export function newTiers(): UpgradeTiers {
  * economy on, and the reactor IS the economy track — the tuning assumes its
  * three tiers get built across the run's three stops (playtest call,
  * 2026-08-09: a stock rig can't reliably finish the Mark-1 run without
- * them). A first-run player shown six systems spreads thin scrap across all
+ * them). A first-run player shown seven systems spreads thin scrap across all
  * of them and builds none; one card makes the stop a purchase instead of a
  * dilemma, and pairs with the Workshop on-ramp (meta.ts's INSTALLS — the
  * 15-salvage Reactor install is what makes the card raisable at all, since
@@ -461,7 +461,7 @@ export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
 /* ---------------------------------------------------------------------------
  * BUILD BUDGET — the permanent, out-of-run layer (see docs/DESIGN.md).
  *
- * A Mark grants a fixed number of ladder points, spent freely across the six
+ * A Mark grants a fixed number of ladder points, spent freely across the seven
  * tracks. This is deliberately a budget on the TOTAL rather than a cap on each
  * track's tier, and the difference is the whole point: a per-track cap
  * normalizes the MAXIMUM rig, not the actual one, so two players at the same

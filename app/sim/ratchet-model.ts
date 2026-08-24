@@ -9,9 +9,11 @@
  * It lives in its own file because two sims need it and a difficulty model
  * copied into two places is how a sweep ends up describing a game that no
  * longer exists. marks.ts prices the Mark ladder with it; pile.ts uses it so
- * that `--marks` means something — makeBaseLevel(bay, mark) sets `cfg.mark` and
- * NOTHING else, so a sweep that only passes the mark through to the base level
- * is comparing a level with itself.
+ * that `--marks` means something — makeBaseLevel(bay, mark) moves the Mark's
+ * opening terms (targetScore, startingFunds, launchCost, timeLimitSec) and the
+ * bond ramp, but deals none of the Mark's hazards, so a sweep that only passes
+ * the mark through to the base level is comparing two price lists rather than
+ * two difficulties.
  */
 import { hazardsForMark, picksPerBay, type Ratchets } from "../src/game/hazards";
 
@@ -24,8 +26,12 @@ import { hazardsForMark, picksPerBay, type Ratchets } from "../src/game/hazards"
  * answer to a material, so including them would measure "bots cannot play
  * slag" rather than the ladder.
  *
- * The slid Fibonacci ladders (notchTotal's startAt = mark - 1) are what this
- * exists to price: at Mark M the first cost/time notch lands M-1 rungs up.
+ * The slid Fibonacci ladders are what this exists to price, and the slide is
+ * hazards.ts's ladderStart — floor((mark-1)/2), one rung per TWO Marks, not
+ * per Mark. The per-Mark slide this model was first written against is the one
+ * marks.ts rejected with it: it measured every Mark from 5 up at 0% run-clear,
+ * because a linear build budget cannot answer an exponential table entered at
+ * exponential heights.
  */
 export function spreadRatchets(mark: number, bay: number): Ratchets {
   const axes = hazardsForMark(mark).filter((h) => h.kind === "number").map((h) => h.id);

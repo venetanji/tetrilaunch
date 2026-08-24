@@ -1,6 +1,17 @@
 # Workshop Shop Layout — Tabbed Rows
 
 **Status:** designed, not implemented. Branch `systems-layer` at `65c8415`.
+**Superseded in part (2026-08-24): the Workshop has NO tab bar.** The tab half of
+this design was built and has since been reverted — Systems and Options are one
+shelf again, and `sim/systems.ts` asserts both halves of that ("the Workshop has
+no tab bar", "the shelf carries systems and options together"). The property
+worth holding turned out to be the mirror image of the one below: every
+purchasable thing is in the markup at once, so neither kind can go missing behind
+a click. The budget readout this document re-homes onto the tab bar now rides in
+the fixed `.workshop__aside` column instead. The row card, the glyphs on Options
+cards, and the 792x360 measurement that motivated them all still stand. Read
+change 2 and everything downstream of it as the record of a design that was tried
+and reversed, not as the shipped layout.
 
 **Goal:** The Workshop's shop scrolls 3.6 screens on a landscape phone. Make the
 thing the player came to buy visible without scrolling, and give the ten option
