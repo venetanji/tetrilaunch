@@ -15,6 +15,7 @@
 import { VARIANTS, type ContractVariant } from "./contracts";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type UpgradeTiers } from "./upgrades";
 import { newRun, RUN_LEVELS, type RunState } from "./run";
+import { finalsForTier, type FinalDef, type FinalId } from "./finals";
 import { hazardsForMark, type HazardDef, type HazardId, type Ratchets } from "./hazards";
 import { NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
@@ -56,6 +57,24 @@ export interface SandboxState {
    * that drafted its way there.
    */
   ratchets: Ratchets;
+  /**
+   * The Final Inspection clause forced onto the last bay (finals.ts), or null
+   * for the bay the ladder would deal.
+   *
+   * The same complaint the ratchets above answer, one bay further on and one
+   * degree worse. A clause is dealt by clearing bay 9 (run.ts's isFinalDraft),
+   * so the only way to see one was to play a whole run correctly and then be
+   * offered the half of the pair you were not trying to test — and the pair is
+   * the Tier's own exam, the single most Tier-specific thing in the game. Ten
+   * Tiers times two clauses is twenty bays that between them could only be
+   * reached by twenty complete runs.
+   *
+   * Stored as one id rather than a Ratchets entry for the reason run.ts states
+   * on RunState.final: it is a one-off clause on one bay, not a rate. And it
+   * only bites where levelForRun applies it — bay 10 — which is why setting one
+   * from the screen also parks the target there (main.ts's sbx-final).
+   */
+  final: FinalId | null;
 }
 
 /** Notches one axis may be pushed to from this screen.
@@ -139,11 +158,35 @@ export function newSandbox(): SandboxState {
     // Same argument: an un-notched bay is what the ladder deals, so that is
     // what the screen opens on.
     ratchets: {},
+    // And the last bay opens as the ladder's own: the inspection is a thing you
+    // go looking for, not a condition the screen starts you under.
+    final: null,
   };
 }
 
 export const SANDBOX_TIERS = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
 export const SANDBOX_BAYS = Array.from({ length: RUN_LEVELS }, (_, i) => i + 1);
+
+/** The bay a Final Inspection clause is flown on. RUN_LEVELS, not a literal 10,
+ *  and derived here rather than at the two call sites so the screen and the
+ *  action handler cannot disagree about which bay "the last one" is. */
+export const SANDBOX_FINAL_BAY = RUN_LEVELS;
+
+/** The two clauses `tier` can be examined on (finals.ts), for the screen's
+ *  Inspection row. A pass-through, exactly as sandboxVariants and sandboxAxes
+ *  are: the sandbox asks this module what a rung offers, and this module asks
+ *  the table — so a clause added to FINALS reaches the screen with no edit. */
+export function sandboxFinals(tier: number): FinalDef[] {
+  return finalsForTier(clampTier(tier));
+}
+
+/** True when `id` is one of the clauses `tier` actually offers. The screen only
+ *  ever draws the current rung's pair, so a selection left over from another
+ *  rung would be in force with nothing lit to say so — main.ts clears it
+ *  through this when the Mark moves. */
+export function finalFitsTier(id: FinalId | null, tier: number): boolean {
+  return id === null || sandboxFinals(tier).some((f) => f.id === id);
+}
 
 /** Every upgrade track at full tier — the "maxed rig" button. */
 export function maxedTiers(): UpgradeTiers {
@@ -218,6 +261,12 @@ export function sandboxRunFor(s: SandboxState, unlocks: string[] = []): RunState
     // from six bays that were never played would make it a different bay.
     levelIndex: Math.max(0, Math.min(RUN_LEVELS - 1, bay - 1)),
     ratchets: { ...s.ratchets },
+    // Carried unconditionally, and it is levelForRun that decides whether it
+    // means anything: it applies the clause on bay 10 and nowhere else, guarded
+    // on the bay rather than on the field being set. So a clause left selected
+    // while the target is walked back to bay 3 is inert rather than wrong, and
+    // the screen never has to clear it to stay honest.
+    final: s.final,
     sandbox: true,
   };
 }

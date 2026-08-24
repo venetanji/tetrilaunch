@@ -45,9 +45,13 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   // The God floor wears the SAME plate, not a badge of its own — it is a floor
   // of the same tower, and the ladder having one face is the whole point of
   // this component. Only the two parts' contents change, plus a tint class.
+  // Tier S joined them on the same terms when it became a floor: an "S" in the
+  // number slot, which is why that slot is sized in `ch` rather than by digit.
   const god = tier === GOD_TIER;
-  const label = god ? "God tier" : `Tier ${tier}`;
-  return `<span class="tier-plate tier-plate--${size}${god ? " tier-plate--god" : ""}" aria-label="${label}"><span class="tier-plate__lbl">${god ? "God" : "Tier"}</span><span class="tier-plate__n">${god ? "★" : tier}</span></span>`;
+  const sbx = tier === SANDBOX_TIER;
+  const label = god ? "God tier" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
+  const tint = god ? " tier-plate--god" : sbx ? " tier-plate--sbx" : "";
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${god ? "God" : "Tier"}</span><span class="tier-plate__n">${god ? "★" : sbx ? "S" : tier}</span></span>`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -135,52 +139,67 @@ export function splashScreen(): string {
 export const GOD_TIER = MARK_COUNT + 1;
 
 /**
- * TIER S — the sandbox, and the one floor the elevator does not serve.
+ * TIER S — the sandbox, and the floor above the roof.
  *
- * NEGATIVE, and that is the whole design in one number. Every other floor is a
- * rung: it has a position in the shaft, the car rides to it, and picking it
- * changes what the Deep Run button will fly. S is none of those things. It is
- * a door in the basement wall that opens a different screen, so it is given an
- * id that can never be mistaken for a Mark, can never be produced by clamping
- * one, and can never index the shaft.
+ * NEGATIVE, and it stays negative even though the car now rides here. Every
+ * other floor's id IS its rung: the number is a Mark, `towerIndexOf` turns it
+ * into a shaft position, and clamping any integer lands on a real one. S is not
+ * a rung — it is not part of the climb, it earns no salvage and it files to its
+ * own board — so it keeps an id that can never be mistaken for a Mark and can
+ * never be produced by clamping one. What changed is only where it is DRAWN.
  *
- * It is drawn BELOW the base slab rather than as a twelfth floor inside the
- * shaft, for two reasons that happen to agree. The honest one: the ten Marks
- * plus God are the ladder, and a sandbox rung inside it would say the sandbox
- * is part of the climb, which is the exact thing that must not be true if the
- * mode is to be safe to ship. The mechanical one: the shaft's floors are
- * `flex: 1 1 0`, so a twelfth would take every floor from 44px to 40px at the
- * cap the tower was sized against (see app.css's --tower-floors note) and cost
- * every tablet the tap floor the whole screen is built to clear.
+ * It used to be a plate under the base slab: a door in the basement wall, with
+ * the elevator deactivated for it. That plate is gone, and the beacon on the
+ * headhouse is the floor now (towerHeadHTML). Three things went wrong with the
+ * basement door and the roof fixes all three.
+ *
+ *  - It was a SECOND control for a mode that already had one. The beacon is how
+ *    Tier S is found; once found, the beacon was inert and a new button
+ *    appeared somewhere else to be pressed instead. The thing you tapped to
+ *    open the door was not the door.
+ *  - It behaved unlike every other floor. Picking a Mark parks the car and
+ *    re-quotes the Deep Run button; picking S skipped straight to another
+ *    screen. One tower, two rules for tapping a thing in it.
+ *  - It cost the shaft real height on the phones that had the least of it. The
+ *    plate is 44px where the height exists and 26px where it does not, and on a
+ *    landscape phone every pixel of it came out of the action rail beside the
+ *    tower (see the note that was on .tower--sub).
+ *
+ * On the roof it is none of those. The lamp that opens the mode is the floor
+ * the mode lives on, it is picked and parked exactly like a Mark, and it takes
+ * its space from the gap ABOVE the shaft that the headhouse already occupied —
+ * so the eleven floors below it keep every pixel of the 44px arithmetic.
  */
 export const SANDBOX_TIER = -1;
 
 /** How many floors the shaft holds: the Marks, plus God on the roof. Tier S is
- *  deliberately NOT counted — it is not in the shaft (see SANDBOX_TIER). */
+ *  deliberately NOT counted — it is drawn above the shaft's own box, in the
+ *  headhouse, and takes no height from the floors (see SANDBOX_TIER). */
 export const TOWER_FLOORS = MARK_COUNT + 1;
 
 export interface TowerState {
   /** The highest Mark the player may fly (meta.ts's markUnlocked). */
   unlocked: number;
-  /** The floor the car is parked on — a Mark, or GOD_TIER. Never SANDBOX_TIER:
-   *  the car cannot go there. */
+  /** The floor the car is parked on — a Mark, GOD_TIER, or SANDBOX_TIER once
+   *  the beacon has been found. */
   selected: number;
   /** Whether the God floor is open (the whole ladder beaten). */
   god: boolean;
-  /** Whether Tier S is drawn under the tower (lib/store.ts's Settings.devMode,
-   *  flipped by the beacon gesture — see lib/devmode.ts). Absent reads as off,
-   *  so every caller that predates the mode renders the tower it always did. */
+  /** Whether Tier S is a floor at all (lib/store.ts's Settings.devMode, set by
+   *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
+   *  caller that predates the mode renders the tower it always did. */
   sandbox?: boolean;
 }
 
 /** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
  *  calls it again before a run starts.
  *
- *  Tier S is false here whether or not the mode is open, and that is not an
- *  oversight: "open" and "rideable" are different questions, and S is a door,
- *  not a floor. sandboxOpen() below answers the other one. */
+ *  Tier S now answers this question like any other floor — it is open exactly
+ *  when the mode is. It used to be false here unconditionally, back when it was
+ *  a basement door the elevator did not serve; the door is gone and the roof is
+ *  a floor, so the two questions that used to be separate are one again. */
 export function tierOpen(state: TowerState, tier: number): boolean {
-  if (tier === SANDBOX_TIER) return false;
+  if (tier === SANDBOX_TIER) return sandboxOpen(state);
   return tier === GOD_TIER ? state.god : tier >= 1 && tier <= state.unlocked;
 }
 
@@ -193,10 +212,14 @@ export function sandboxOpen(state: TowerState): boolean {
  *  position is this one number (app.css does the arithmetic from --tower-idx),
  *  so the travel animation is a single custom property to write.
  *
- *  Only ever called for a floor `tierOpen` accepted, which is what keeps
- *  SANDBOX_TIER out of it — it has no index, and clamping it into one would
- *  park the car on Mark 10. */
+ *  MINUS ONE for Tier S — above God, which is 0. The CAR never uses it: the
+ *  lift does not serve the roof, and tierTowerHTML parks it at the top of the
+ *  shaft and switches it off instead. What does use it is everything that needs
+ *  the roof ORDERED against the ladder: towerTravelMs (how long the trip takes)
+ *  and the plate roll's direction, both of which have to know that S is above
+ *  Mark 10 and not, as its raw id would suggest, below Mark 1. */
 export function towerIndexOf(tier: number): number {
+  if (tier === SANDBOX_TIER) return -1;
   return tier === GOD_TIER ? 0 : MARK_COUNT - tier + 1;
 }
 
@@ -237,60 +260,78 @@ function floorHTML(state: TowerState, tier: number): string {
 }
 
 /**
- * The headhouse and its beacon.
+ * The headhouse and its beacon — the lock, and then the floor it unlocks.
  *
- * The motor room every real lift has on its roof, and — until now — the one
- * piece of the drawing that was pure signage. It is now also the way into
- * Tier S: nine taps on the beacon (lib/devmode.ts), which is a thing nobody
- * does by accident and anybody can be told in one sentence.
+ * The motor room every real lift has on its roof, and it does two jobs in
+ * sequence, never both at once.
  *
- * A `<button>`, because it is pressable and B1 says a pressable thing is a
- * button — but deliberately OUT of the accessibility tree and out of the tab
- * order. An assistive-technology user tabbing the home screen should not meet
- * an unlabelled control whose only honest label would give the secret away,
- * and a keyboard user has no way to perform a nine-tap gesture anyway. The
- * mode is reachable without it once found: Settings carries the same toggle,
- * with a real label, for everyone.
+ * CLOSED, it is the lock. Nine taps on the beacon (lib/devmode.ts) open Tier S:
+ * a thing nobody does by accident and anybody can be told in one sentence. In
+ * this state it is deliberately OUT of the accessibility tree and out of the
+ * tab order — an assistive-technology user tabbing the home screen should not
+ * meet an unlabelled control whose only honest label would give the secret
+ * away, and a keyboard user has no way to perform a nine-tap gesture anyway.
+ *
+ * OPEN, it is Tier S's selection: same `pick-tier` action and same `data-tier`
+ * every rung in the shaft carries, so one tap picks it exactly as a tap on Mark
+ * 7 picks that. It joins the a11y tree at that point, with a real label, and the
+ * taps stop counting, because the streak has nothing left to open.
+ *
+ * IT LOOKS THE SAME IN BOTH STATES, and that is the point rather than an economy
+ * of effort. The mode is a secret — nine taps is the whole design of finding it
+ * — so the roof does not grow a plate, a letter or a highlight once it opens.
+ * Anyone who has not performed the gesture is looking at a lamp on a roof, which
+ * is what it was before and what it stays. What changes is the LAMP, and only
+ * when the mode is selected: it blinks bigger and brighter, and the building
+ * below it goes dark (see .tower--off). The one visible difference is a state
+ * you can only reach by having already found it.
+ *
+ * ONE-WAY. Nine taps SET the mode; they do not toggle it. A gesture whose
+ * meaning inverts once performed is a trap — the tap that opens the door is the
+ * tap that closes it, and after the door becomes a floor those taps are
+ * selections, so a tenth through eighteenth tap would have silently torn the
+ * floor out from under the car. Turning it back off is Settings' job, where the
+ * control has a label saying what it does.
  */
-function towerHeadHTML(): string {
-  return `<button class="tower__head" type="button" data-action="tower-beacon"
-    aria-hidden="true" tabindex="-1"><i></i><b></b><i></i></button>`;
-}
-
-/**
- * Tier S's plate, under the tower's slab.
- *
- * Reads as a basement door rather than as a floor: it sits below the base, it
- * is wider than the shaft is tall at that point, and it carries a hazard
- * stripe instead of windows. Nothing about it should suggest the car can get
- * there — the elevator has no call button for this floor, and pressing it
- * opens a screen rather than moving anything.
- */
-function sandboxFloorHTML(): string {
-  return `<button class="tower__sub" type="button" data-action="pick-tier"
-    data-tier="${SANDBOX_TIER}"
-    aria-label="Tier S — sandbox. Practice any Mark, bay or Contract. Scores are kept on a separate board.">
-    <span class="tower__sub-n">S</span>
-    <span class="tower__sub-txt">Sandbox</span>
-    <span class="tower__sub-hz" aria-hidden="true"></span>
-  </button>`;
+function towerHeadHTML(state: TowerState): string {
+  const open = sandboxOpen(state);
+  const lamps = `<i></i><b></b><i></i>`;
+  if (!open) {
+    return `<button class="tower__head" type="button" data-action="tower-beacon"
+      aria-hidden="true" tabindex="-1">${lamps}</button>`;
+  }
+  const sel = state.selected === SANDBOX_TIER;
+  return `<button class="tower__head tower__head--floor${sel ? " is-selected" : ""}" type="button"
+    data-action="pick-tier" data-tier="${SANDBOX_TIER}" aria-pressed="${sel}"
+    aria-label="Tier S — sandbox. Any Mark, any bay, any Contract. Scores are kept on a separate board."
+    >${lamps}</button>`;
 }
 
 export function tierTowerHTML(state: TowerState): string {
   // Roof first, ground floor last.
   const floors: string[] = [];
   for (let t = GOD_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
-  const idx = towerIndexOf(state.selected);
-  const sub = sandboxOpen(state) ? sandboxFloorHTML() : "";
-  return `<div class="tower${sub ? " tower--sub" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
+  // THE LIFT DOES NOT SERVE THE ROOF. Picking Tier S shuts the building down:
+  // the car goes dark where it stands and the beacon takes over, blinking
+  // bigger and brighter. It is not a floor the elevator reaches, and animating
+  // a car up into the motor room would say it is — the tower is the LADDER, and
+  // the one selection that is not a rung of it should read as the ladder
+  // switching off rather than as an eleventh stop on it.
+  //
+  // So the car's index is never SANDBOX_TIER's. It parks at the top of the
+  // shaft and powers down, which is also the honest answer to "where is the car
+  // when the building is off": wherever it last was, and on a first render that
+  // is as far up as it goes.
+  const off = state.selected === SANDBOX_TIER;
+  const idx = towerIndexOf(off ? GOD_TIER : state.selected);
+  return `<div class="tower${off ? " tower--off" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}">
-      ${towerHeadHTML()}
+      ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
       <div class="tower__car" aria-hidden="true"><span></span></div>
       ${floors.join("")}
     </div>
     <div class="tower__base" aria-hidden="true"></div>
-    ${sub}
   </div>`;
 }
 
@@ -316,11 +357,18 @@ function statCellHTML(name: IconName, label: string, value: string, tint: string
 /** The six material axes in ladder order, lit once the selected Mark deals
  *  them. Not a static list: it is hazards.ts's own content axes, so a material
  *  added or re-gated there shows up here with no edit. */
-function beltLadderHTML(mark: number): string {
+function beltLadderHTML(mark: number, unknown = false): string {
   const content = HAZARDS.filter((h) => h.kind === "content" && h.material);
   const glyphs = content
     .map((h) => {
-      const live = h.mark <= mark;
+      // Tier S lights the whole belt rather than withholding it. The four stat
+      // tiles take a "?" because a number has a "?" the same height as itself;
+      // a material glyph does not, and a row of question marks where the icons
+      // go is TALLER than the icons — the panel visibly changed height as the
+      // car reached the roof. Every material is reachable from Tier S anyway
+      // (the belt selector offers all six and a parade of all six at once), so
+      // "all of them" is not a placeholder here, it is the honest answer.
+      const live = unknown || h.mark <= mark;
       const title = live
         ? `${h.name} — dealt from Tier ${h.mark}`
         : `${h.name} — unlocks at Tier ${h.mark}`;
@@ -337,17 +385,64 @@ function beltLadderHTML(mark: number): string {
   return `<div class="bay-belt">
     <span class="bay-belt__lbl">Belt</span>
     <span class="bay-belt__mats">${glyphs}</span>
-    <span class="bay-belt__count">${live}/${content.length}${picks > 1 ? ` · ${picks} picks` : ""}</span>
+    <span class="bay-belt__count">${
+      unknown
+        ? "set on launch"
+        : `${live}/${content.length}${picks > 1 ? ` · ${picks} picks` : ""}`
+    }</span>
+  </div>`;
+}
+
+/**
+ * The panel with nothing to say — Tier S parked.
+ *
+ * Every number on this panel is a QUOTE: it is what the ladder will deal on the
+ * floor the car is parked on, derived from the same tables the bay is built
+ * from so it cannot promise a bay that will not arrive. Tier S deals nothing
+ * until the level-select screen has been through: the Mark, the bay, the rig,
+ * the belt and the axes are all still unchosen, and there are ten Marks' worth
+ * of answers behind that button.
+ *
+ * So the panel does not guess, and it does not go blank either. It prints the
+ * one honest answer — not known yet — in the shape the four numbers already
+ * occupy, so the column does not resize when the tower switches over and the
+ * player can see it is the same readout with the values withheld. The glyphs
+ * jitter because a static "?" reads as a value that failed to load; a moving
+ * one reads as a machine that has not been told yet.
+ *
+ * THE BELT IS THE EXCEPTION, and it is a layout fact rather than a preference:
+ * a "?" is the height of the number it replaces, but it is TALLER than a 13px
+ * material glyph, so a row of six of them grew the panel and the whole column
+ * wobbled as the selection changed. The belt lights all six instead — which is
+ * also true, since Tier S can deal any material and a parade of all of them.
+ */
+function unknownBayPanelHTML(best: number, extras: string): string {
+  const cell = (name: IconName, label: string, tint: string): string =>
+    statCellHTML(name, label, `<span class="bay-stat__q">?</span>`, tint);
+  return `<div class="panel base-bay base-bay--unknown" aria-label="Tier S — set on the level select">
+    <div class="base-bay__head">
+      <div class="base-bay__best">Best ${best || "—"}</div>
+    </div>
+    <div class="base-bay__grid">
+      ${cell("reactor", "Target", "var(--accent)")}
+      ${cell("launcher", "Launch", "var(--warn)")}
+      ${cell("clock", "Clock", "var(--text)")}
+      ${cell("bonds", "Bonds", "var(--piece-t)")}
+    </div>
+    ${beltLadderHTML(MARK_COUNT, true)}
+    <div class="base-bay__extras">${extras}</div>
   </div>`;
 }
 
 export function baseBayPanelHTML(opts: {
-  /** The floor the panel is describing — a Mark, or GOD_TIER. */
+  /** The floor the panel is describing — a Mark, GOD_TIER, or SANDBOX_TIER. */
   tier: number;
   best: number;
   /** The entitlement chips, if this build has any. */
   extras?: string;
 }): string {
+  // Tier S quotes nothing, because nothing is chosen yet — see above.
+  if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
   const god = opts.tier === GOD_TIER;
   // God flies the top of the ladder, so it reads off MARK_COUNT's bays — the
   // floor is a different CONTRACT, not a different bay table.
@@ -391,7 +486,8 @@ export function baseBayPanelHTML(opts: {
  *  reach), the LADDER, and the LOOP (the recap of the parked floor, then the
  *  three things you can launch into). The entitlement entry is a shelf row —
  *  the demo taking How to Play's job is what freed it one. Tier S is not a row
- *  anywhere: it has its own plate under the tower (#90). */
+ *  anywhere: it is the tower's top floor, and the primary button flies whatever
+ *  floor the car is parked on. */
 export function menuScreen(
   best: number,
   salvage = 0,
@@ -421,13 +517,15 @@ export function menuScreen(
   // they carry ids rather than being found by shape.
   const sel = twr.selected;
   const godSel = sel === GOD_TIER;
+  const sbxSel = sel === SANDBOX_TIER;
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
-  // #90 then deleted the sandbox chip, because Tier S has a door of its own
-  // under the tower and a second entry to one screen on one screen is how a
-  // menu stops feeling owned. The panel keeps its optional `extras` slot for
-  // the next thing that genuinely has nowhere else to go.
+  // #90 then deleted the sandbox chip, because a second entry to one screen on
+  // one screen is how a menu stops feeling owned — and the entry that survived
+  // has since become the tower's top floor rather than a plate under it. The
+  // panel keeps its optional `extras` slot for the next thing that genuinely
+  // has nowhere else to go.
   return `<div class="screen neon-backdrop">
     <div class="menu split">
       <div class="menu__brand">
@@ -501,13 +599,23 @@ export function menuScreen(
              offer in LIVE numbers (A3), the Deep Run button carries the tier
              plate (A1 — the plate takes the icon slot), and exactly one
              button ever wears the NEXT STEP badge (meta.ts's nextStep). -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${guide?.step === "run" ? " btn--next" : ""}" data-action="play" id="menu-play">${
+        <!-- ONE button, two faces. With Tier S parked it says Sandbox and opens
+             the level select; on every other floor it says Deep Run and flies
+             it. Not a second button that appears beside this one: the column is
+             three rows in every build and at every entitlement state (see
+             below), and the whole point of putting S in the tower is that the
+             floor you park on is what the primary action does. main.ts rewrites
+             the label in place while the car travels, so both faces carry ids
+             rather than being found by shape. -->
+        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${guide?.step === "run" && !sbxSel ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
-        }<span class="btn__txt">Deep Run<span class="btn__sub" id="menu-play-sub">${
-          godSel
-            ? "All ten marks at once · no mercy"
-            : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
-        }</span></span>${guide?.step === "run" ? nextBadgeHTML() : ""}</button>
+        }<span class="btn__txt"><span id="menu-play-ttl">${sbxSel ? "Sandbox" : "Deep Run"}</span><span class="btn__sub" id="menu-play-sub">${
+          sbxSel
+            ? "Any Mark, bay or Contract · own board"
+            : godSel
+              ? "All ten marks at once · no mercy"
+              : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
+        }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
