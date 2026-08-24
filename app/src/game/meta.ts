@@ -300,14 +300,46 @@ export function installById(id: string): InstallDef | undefined {
   return INSTALLS.find((i) => i.id === id);
 }
 
-/** True when `def` can be bought right now: its Mark is beaten, it isn't
- *  already installed, and tier 1 of it still fits the Mark's build budget.
+/**
+ * How far the WORKSHOP can raise a track. Tier 3 stays exclusive to in-run
+ * scrap at a refit stop.
+ *
+ * The cap is what keeps two systems from collapsing into one. Salvage buys the
+ * rig you START with; scrap buys the rig you BUILD during a run; and if the
+ * Workshop could sell tier 3 there would be nothing left for the refit stop to
+ * offer a maxed player, which is a screen the run visits three times.
+ */
+export const UPRATE_MAX_TIER = 2;
+
+/** What raising `id` from its current tier costs in salvage.
+ *
+ *  The same number as the install, at every rung. Not a discount and not an
+ *  escalator: an install and an uprate are the same purchase — a permanent
+ *  tier of a permanent system — and the thing that makes one harder to afford
+ *  than the other is the build budget, not a second price table nobody can see.
+ *  It also keeps the arithmetic checkable by hand: the shelf is exactly twice
+ *  the installs (300 -> 600) plus the two live unlocks. */
+export function uprateCost(def: InstallDef): number {
+  return def.cost;
+}
+
+/** True when `def` can be bought right now: its Mark is beaten, the Workshop
+ *  can still raise it, and the next tier fits the Mark's build budget.
  *  Deliberately does NOT check salvage — the Workshop renders a card the player
  *  simply can't afford yet as a disabled price button, which reads differently
- *  from a gated one. */
+ *  from a gated one.
+ *
+ *  This used to reject any track already owned, and that one line is what made
+ *  the build budget inert. `budgetForMark` runs 77 -> 770, but a loadout capped
+ *  at tier 1 of seven tracks tops out at 140 points — under budgetForMark(2) —
+ *  so the budget bound at Mark 1 and never again, and 630 of Mark 10's 770
+ *  points could not be spent by any sequence of purchases. DESIGN.md's arc
+ *  "from you can afford one system to you can afford everything" ended at Mark
+ *  2. Selling tier 2 restores it: seven tracks at tier 2 is 7 x 55 = 385 points
+ *  = exactly budgetForMark(5), so the gate is real for Marks 1 through 5. */
 export function installAvailable(meta: MetaState, def: InstallDef): boolean {
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) return false;
-  if ((meta.loadout[def.id] ?? 0) > 0) return false;
+  if ((meta.loadout[def.id] ?? 0) >= UPRATE_MAX_TIER) return false;
   return buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) !== null;
 }
 
@@ -326,7 +358,10 @@ export function installGates(meta: MetaState, def: InstallDef): string[] {
     // the player has to REACH, which is the Mark to beat plus one.
     out.push(`Tier ${def.requiresMark + 1}`);
   }
-  if ((meta.loadout[def.id] ?? 0) === 0 &&
+  // The budget gate applies to an UPRATE as much as to a first install — it is
+  // the rung that does not fit, whichever rung it is — so this asks the same
+  // question installAvailable does rather than only asking it of tier 0.
+  if ((meta.loadout[def.id] ?? 0) < UPRATE_MAX_TIER &&
       buyLoadoutTier(meta.loadout, def.id, markUnlocked(meta)) === null) {
     out.push(`build budget ${tiersCost(meta.loadout)}/${markBudget(meta)}`);
   }
@@ -334,8 +369,9 @@ export function installGates(meta: MetaState, def: InstallDef): string[] {
 }
 
 /**
- * Buy an install: charge salvage and set the track to tier 1. Returns null when
- * gated, already owned, unaffordable, or over budget. Never mutates.
+ * Buy an install, or uprate one already owned: charge salvage and raise the
+ * track one tier, up to UPRATE_MAX_TIER. Returns null when gated, already at
+ * the Workshop's cap, unaffordable, or over budget. Never mutates.
  *
  * The budget charge goes through `buyLoadoutTier` rather than being re-derived
  * here, so the Workshop cannot be a second, laxer door into the same loadout
@@ -345,10 +381,16 @@ export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
   const def = installById(id);
   if (!def) return null;
   if (!installAvailable(meta, def)) return null;
-  if (meta.salvage < def.cost) return null;
+  const cost = uprateCost(def);
+  if (meta.salvage < cost) return null;
+  // buyLoadoutTier is still the only thing that decides whether the purchase
+  // FITS: it re-runs tiersCost against budgetForMark and returns null over
+  // budget, so no salvage path can put a rig on the field that the Mark does
+  // not pay for. That is the whole of "a Mark is won, never bought" — nothing
+  // here touches meta.mark, and safeLoadout re-validates at run start.
   const loadout = buyLoadoutTier(meta.loadout, id, markUnlocked(meta));
   if (!loadout) return null;
-  return { ...meta, salvage: meta.salvage - def.cost, loadout };
+  return { ...meta, salvage: meta.salvage - cost, loadout };
 }
 
 export interface MetaState {

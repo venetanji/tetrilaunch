@@ -3,7 +3,7 @@
 //
 //   npx tsx sim/marks.ts [--marks 1,5,10] [--bays 1,4,7,10] [--seeds 3]
 //     [--bots aim] [--carry 150] [--target-mult 1.2] [--speed-step 0.04]
-//     [--notches none|spread]
+//     [--ratchets none|spread]
 //
 // Answers the one question the Mark ladder can't be tuned without
 // (docs/DESIGN.md): does a rig built with the FULL Mark-N budget, played at the
@@ -37,7 +37,7 @@ import {
   applyUpgrades, budgetForMark, MARK_COUNT, newTiers, nextTierCost, tiersCost,
   UPGRADES, type UpgradeId, type UpgradeTiers,
 } from "../src/game/upgrades";
-import { installById } from "../src/game/meta";
+import { installById, UPRATE_MAX_TIER } from "../src/game/meta";
 import { REFIT_EVERY, RUN_LEVELS } from "../src/game/run";
 import { BOTS } from "./bots";
 import { spreadRatchets } from "./ratchet-model";
@@ -55,10 +55,16 @@ import { runBay } from "./runner";
 /**
  * The tiers a run can actually HOLD at `bay` are two purchases, not one:
  *
- *  1. The Workshop loadout — tier 1 only, per track. buyInstall refuses a
- *     track already at tier 1 ("an install never stacks" — meta.ts), gated
- *     by requiresMark and capped by the Mark's build budget. This is the
- *     whole rig for bays 1-3.
+ *  1. The Workshop loadout — up to UPRATE_MAX_TIER per track (meta.ts), gated
+ *     by requiresMark and capped by the Mark's build budget. This is the whole
+ *     rig for bays 1-3.
+ *
+ *     It was tier 1 ONLY here, quoting buyInstall's old refusal to stack, and
+ *     that refusal is what this harness was measuring the consequences of: the
+ *     best build at every Mark from 3 to 10 came out as the same 100-point rig
+ *     against a budget climbing to 770, because 140 points was the whole
+ *     reachable space. With the Workshop selling tier 2, the budget is the
+ *     binding constraint again and this function has to spend it.
  *  2. Scrap refits at the stops after bays 3, 6 and 9 (run.ts's
  *     REFIT_EVERY/isRefitBay), which deepen INSTALLED tracks only
  *     (run.ts's buyUpgrade refuses tier 0) out of scrap earned in-run.
@@ -74,14 +80,23 @@ import { runBay } from "./runner";
  */
 const SCRAP_PER_CLEARED_BAY = 8 * SCRAP_PER_LINE + SCRAP_PER_BAY;
 
-/** Workshop phase: tier 1 in priority order, requiresMark-gated and
- *  budget-capped. */
+/** Workshop phase: breadth first, then depth — tier 1 across the priority
+ *  order, then tier 2 across it, each rung requiresMark-gated and budget-capped.
+ *
+ *  Breadth before depth because that is the purchase a player can actually make
+ *  first: an install opens a system, an uprate deepens one they already own, so
+ *  no amount of salvage reaches tier 2 of a track before tier 1 of it. Buying
+ *  depth-first here would model a rig with a Mark-1 budget spent on one maxed
+ *  track, which the Workshop will not sell. */
 function loadoutFor(order: UpgradeId[], mark: number): UpgradeTiers {
   const tiers = newTiers();
-  for (const id of ownableTracks(order, mark)) {
-    const next = { ...tiers, [id]: 1 };
-    if (tiersCost(next) > budgetForMark(mark)) continue;
-    tiers[id] = 1;
+  for (let tier = 1; tier <= UPRATE_MAX_TIER; tier++) {
+    for (const id of ownableTracks(order, mark)) {
+      if ((tiers[id] ?? 0) !== tier - 1) continue;
+      const next = { ...tiers, [id]: tier };
+      if (tiersCost(next) > budgetForMark(mark)) continue;
+      tiers[id] = tier;
+    }
   }
   return tiers;
 }
@@ -127,21 +142,34 @@ function tiersForBay(
 }
 
 /**
- * MAGAZINE is excluded from every build here, and that needs justifying.
+ * MAGAZINE and DEMOLITION are both excluded from every build here, and that
+ * needs justifying.
  *
  * The bots fire whenever the cooldown allows, so a shorter cooldown just makes
- * them spend faster. Measured on bay 5 at Mark 1 over 4 seeds: a stock rig wins
- * 3/4, a full 660-point rig wins 0/4, and dropping ONLY magazine from that full
- * rig restores it to 3/4. The full rig even clears more lines (8.8 vs 6.5) — it
- * goes broke anyway, because spraying onto a pile that hasn't settled costs more
- * shots per line. A human spends tempo selectively and gains from it; the bot
- * cannot, so for this harness the track reads as a self-inflicted wound.
+ * them spend faster. Measured on 2026-07-30, on bay 5 at Mark 1 over 4 seeds:
+ * a stock rig wins 3/4, a full 660-point rig wins 0/4, and dropping ONLY
+ * magazine from that full rig restores it to 3/4. The full rig even clears more
+ * lines (8.8 vs 6.5) — it goes broke anyway, because spraying onto a pile that
+ * hasn't settled costs more shots per line. A human spends tempo selectively and
+ * gains from it; the bot cannot, so for this harness the track reads as a
+ * self-inflicted wound. (Those rates are a record of a rig and a bay that no
+ * longer exist: 660 points was the whole ladder before DEMOLITION became a
+ * seventh track, and bay 5 at Mark 1 then meant a $1400 target on a 190s clock
+ * at $33 a shot off a $250 float — the per-bay ramp that predates both the flat
+ * $800/150s/$25 bay and #88's tier ladder. The conclusion is what survives, not
+ * the percentages.)
+ *
+ * DEMOLITION is out for the neighbouring reason, the one the header caveat
+ * already names: no bot here ever fires a charge, so every point spent on the
+ * track buys the sim nothing at all.
  *
  * Consequence for anything measured here: these builds top out at 550 of the
- * 660-point ladder, so a Mark's difficulty is being judged against a rig missing
- * one track. That biases the result toward "too hard" — a human who spends
- * tempo well will find a calibrated Mark easier than the number suggests.
- * MAGAZINE's real value needs human playtesting; the sim cannot see it.
+ * 770-point ladder (UPGRADES is seven tracks now, so FULL_BUILD_COST is
+ * 7 x 110), so a Mark's difficulty is being judged against a rig missing TWO
+ * tracks. That biases the result toward "too hard" — a human who spends tempo
+ * well, or who opens a jammed bay with a charge, will find a calibrated Mark
+ * easier than the number suggests. What those two tracks are really worth needs
+ * human playtesting; the sim cannot see it.
  */
 const CALIBRATION_TRACKS: UpgradeId[] = ["reactor", "hydraulics", "bay", "launcher", "bonds"];
 
@@ -210,11 +238,22 @@ const speedStep = parseFloat(get("--speed-step") ?? String(MARK_SPEED_STEP));
 // holds at least two number axes (hazards.ts) so content is always dodgeable
 // — and because these bots own no answer to a material, which would measure
 // "bots can't play slag", not the ladder. The slid Fibonacci ladders
-// (notchTotal's startAt = mark - 1) are exactly what this mode exists to
-// price: at Mark M the first cost/time notch lands M-1 rungs up.
-const ratchetMode = (get("--ratchets") ?? "none") as "none" | "spread";
+// (notchTotal's startAt = hazards.ts's ladderStart(mark) = floor((mark-1)/2))
+// are exactly what this mode exists to price: at Mark M the first cost/time
+// notch lands one rung up per TWO Marks. The full-Mark slide the flag was first
+// written against is the one this harness REJECTED — it measured every Mark
+// from 5 up at 0% run-clear, which is why ladderStart halves it (hazards.ts).
+//
+// --notches is accepted as an alias and must stay accepted: the flag was
+// published under that spelling (docs/DESIGN.md, level.ts), and `get` matches
+// argv exactly, so the old name would otherwise fall through to the "none"
+// default with no error — silently running the mode that prints FREE where the
+// published table says "just short".
+const ratchetFlag = !argv.includes("--ratchets") && argv.includes("--notches")
+  ? "--notches" : "--ratchets";
+const ratchetMode = (get(ratchetFlag) ?? "none") as "none" | "spread";
 if (ratchetMode !== "none" && ratchetMode !== "spread") {
-  console.error(`Unknown --ratchets "${ratchetMode}" — available: none, spread`);
+  console.error(`Unknown ${ratchetFlag} "${ratchetMode}" — available: none, spread`);
   process.exit(1);
 }
 
@@ -255,8 +294,9 @@ function evaluate(
         // mark (not 1) so the bay is built on the TIER LADDER (level.ts): the
         // opening target, the clock and the launch cost all read the Mark, and
         // so does cfg.mark, which the ratchet ladders need (notchTotal starts
-        // at mark - 1). --target-mult then scales the tier's own target for a
-        // candidate sweep; MARK_SPEED_STEP stays 0, so nothing else moves.
+        // at ladderStart(mark), one rung up per two Marks). --target-mult then
+        // scales the tier's own target for a candidate sweep; MARK_SPEED_STEP
+        // stays 0, so nothing else moves.
         let cfg = makeBaseLevel(bay - 1, mark);
         const marksAbove = mark - 1;
         cfg.targetScore = Math.round(cfg.targetScore * targetMult);

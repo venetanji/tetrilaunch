@@ -1132,15 +1132,24 @@ export class Game {
     if (this.piecesLeft <= 0 && !this.bombArmed) return false;
     if (!this.cannon.canShoot(now)) return false;
 
-    // An armed demolition charge fires FREE — it's a consumable, already paid
-    // for when it was drafted, so the funds check is skipped entirely for it.
-    // That's the whole economic fix: the old bomb burned a full-price launch
-    // and returned nothing, so it was never the right call at any funds level.
+    // A demolition charge costs a launch, like everything else that leaves the
+    // muzzle. It used to fire FREE, which was the right fix for the wrong
+    // problem: the old bomb burned a full-price launch and returned nothing, so
+    // it was never worth firing — and the answer to that was the $8-a-cube
+    // refund and the slag bounty, both of which shipped. With those in, "free"
+    // made the charge the game's THIRD INCOME CHANNEL rather than a tool: a
+    // maxed rack was worth roughly $480-670 a bay against a Tier 5 opening
+    // target of $680, measured, with no matching sink anywhere in the economy.
+    //
+    // It stays comfortably positive where it should be — $8n against a $20-$30
+    // launch breaks even at three cubes, and nobody fires a charge at fewer
+    // than three — so blowing a junk pile is still the play. What it stops
+    // being is a way to print money by aiming at nothing.
     const firingBomb = this.bombArmed && this.bombCharges > 0;
     // Congestion is priced HERE, on the shot (see level.ts's PILE_TIERS): the
     // quote the HUD showed and the amount deducted below are the same number.
     const cost = this.launchCostNow;
-    if (!firingBomb && this.score < cost) return false;
+    if (this.score < cost) return false;
 
     // Captured BEFORE markShot/markCooldown move the cannon's clock forward.
     // lastShot starts at a large negative sentinel, so a bay's first shot has
@@ -1167,6 +1176,10 @@ export class Game {
     if (firingBomb) {
       this.bombCharges -= 1;
       this.bombArmed = false;
+      // Charged like any other shot now — see the note at the funds check.
+      // NOT burnCongestionClock(): the congestion tax prices a shot that ADDS
+      // to the pile, and this one is about to take cubes out of it.
+      this.score -= cost;
       this.spawnBomb();
       // Cooldown-only: the queued piece stays loaded for the next real shot.
       this.cannon.markCooldown(now);

@@ -13,9 +13,10 @@ import {
   type RefitOrder, type UpgradeTiers,
 } from "../game/upgrades";
 import {
-  UNLOCKS, unlockAvailable, unlockGates, INSTALLS, installAvailable, installGates,
-  installById, markBudget, markUnlocked, tierMilestoneSalvage, tierProgressFor,
-  type MetaState, type NextStepId, type TierProgress,
+  UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
+  installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
+  tierProgressFor, uprateCost,
+  type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
 import {
@@ -2235,26 +2236,39 @@ export function workshopScreen(meta: MetaState): string {
   // A11: the ONE next-step card — the cheapest system the player can both
   // reach and afford right now carries the badge and the warm border, so the
   // shelf answers "which of these should I buy" instead of just listing.
-  const nextId = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
-    .filter((i) => installAvailable(meta, i) && meta.salvage >= i.cost)
-    .sort((a, b) => a.cost - b.cost)[0]?.id;
-  const installCards = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) === 0)
+  // The shelf carries a track until the WORKSHOP is done with it, not until it
+  // is owned: tier 1 is the install, tier 2 the uprate, and tier 3 belongs to
+  // the refit stop's scrap. A card that vanished the moment a track was bought
+  // is what left budgetForMark with nothing to gate — 140 points of reachable
+  // loadout against a budget that climbs to 770.
+  const onShelf = (i: InstallDef): boolean => (meta.loadout[i.id] ?? 0) < UPRATE_MAX_TIER;
+  const nextId = INSTALLS.filter(onShelf)
+    .filter((i) => installAvailable(meta, i) && meta.salvage >= uprateCost(i))
+    .sort((a, b) => uprateCost(a) - uprateCost(b))[0]?.id;
+  const installCards = INSTALLS.filter(onShelf)
     .map((i) => {
       const def = upgradeById(i.id)!;
+      const owned = meta.loadout[i.id] ?? 0;
+      const next = owned + 1;
+      const cost = uprateCost(i);
       const available = installAvailable(meta, i);
-      const affordable = meta.salvage >= i.cost;
+      const affordable = meta.salvage >= cost;
       const gates = installGates(meta, i);
-      // B6: one price grammar — "T1 · <salvage> 15". An install is tier 1 of a
-      // track by definition, and the button says so in the same words the refit
-      // yard's buy buttons use for tiers 2 and 3 — with the one difference that
-      // matters, the currency glyph: this purchase is salvage, that one scrap.
+      // B6: one price grammar — "T1 · <salvage> 15", and now "T2 · 15" for the
+      // same track's second rung. The button says which tier it buys in the
+      // same words the refit yard's buy buttons use, with the one difference
+      // that matters: this purchase is salvage, that one scrap.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T${next}<span class="price__sep">·</span>${icon("salvage", 11)}${cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
         <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
-        <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+        <p class="shop-card__desc">${def.blurb} ${
+          owned === 0
+            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.`
+            : `Owned at tier ${owned}. Tier ${MAX_TIER} is scrap, at a refit stop.`
+        }</p>
       </div>
       <div class="shop-card__foot">${foot}</div>
     </div>`;

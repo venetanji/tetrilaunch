@@ -57,7 +57,8 @@ import {
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
-  buyInstall, markBudget, nextStep, refundRetiredUnlocks, type InstallDef, type MetaState,
+  buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
@@ -632,7 +633,33 @@ section("Installs — what salvage buys (meta.ts)");
     bought?.salvage === 100 - installById("reactor")!.cost, String(bought?.salvage));
   check("an install the player cannot afford is refused",
     buyInstall(freshMeta({ salvage: 5 }), "reactor") === null);
-  check("installing twice is refused", buyInstall(bought!, "reactor") === null);
+  // The Workshop sells TWO rungs now (meta.ts's UPRATE_MAX_TIER). This check
+  // used to assert that a second purchase was refused; that refusal is exactly
+  // what made budgetForMark inert, so what is pinned instead is the new cap.
+  const uprated = buyInstall({ ...bought!, salvage: 100 }, "reactor");
+  check("the Workshop uprates an owned track to tier 2", uprated?.loadout.reactor === 2);
+  check("an uprate costs the same as the install",
+    uprated?.salvage === 100 - installById("reactor")!.cost, String(uprated?.salvage));
+  check("a third rung is refused — tier 3 is the refit stop's scrap",
+    buyInstall({ ...uprated!, salvage: 1000 }, "reactor") === null);
+  // The rule the whole loadout system rests on: salvage may not buy a rig the
+  // Mark does not pay for. Seven tracks at tier 2 is 385 points; a Mark-1
+  // budget is 77, so the seventh uprate must be refused for BUDGET, not price.
+  {
+    const rich = freshMeta({ salvage: 100_000 });
+    let m: MetaState = rich;
+    let bought7 = 0;
+    for (const i of INSTALLS) {
+      for (let t = 0; t < 2; t++) {
+        const next = buyInstall(m, i.id);
+        if (next) { m = next; bought7++; }
+      }
+    }
+    check("unlimited salvage cannot outspend a Mark-1 build budget",
+      tiersCost(m.loadout) <= markBudget(m), `${tiersCost(m.loadout)}/${markBudget(m)}`);
+    check("...and the budget, not the price, is what stopped it", bought7 < 14);
+    check("a Mark never moves on a purchase", m.mark === rich.mark);
+  }
   const before = freshMeta({ salvage: 100 });
   buyInstall(before, "reactor");
   check("buyInstall never mutates its input",
@@ -758,10 +785,14 @@ section("Installs — what salvage buys (meta.ts)");
   const brokeShop = workshopScreen(freshMeta({ salvage: 0 }));
   check("an install the player cannot afford is offered but disabled",
     brokeShop.includes(`data-action="buy-install"`) && brokeShop.includes("disabled"));
-  const installedShop = workshopScreen(freshMeta({ loadout: { ...newTiers(), reactor: 1 } }));
-  check("an installed system leaves the shelf for the strip",
-    installedShop.includes("✓ Installed") &&
-      !installedShop.includes(`data-install="reactor"`));
+  const installedShop = workshopScreen(
+    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: 1 } }));
+  check("an owned track stays on the shelf, offering its next tier",
+    installedShop.includes(`data-install="reactor"`) && installedShop.includes("T2"));
+  const maxedShop = workshopScreen(
+    freshMeta({ salvage: 500, loadout: { ...newTiers(), reactor: UPRATE_MAX_TIER } }));
+  check("a track at the Workshop's cap leaves the shelf for the strip",
+    maxedShop.includes("✓ Installed") && !maxedShop.includes(`data-install="reactor"`));
 
   // The yard renders on the WORKSHOP'S CARD now, description and all — the
   // whole reason the screen moved (screens.ts's refitScreen). A refit row that
@@ -2540,12 +2571,19 @@ section("Demolition charges + settle window (game.ts)");
   g.armBomb();
   check("arming again disarms", !g.bombArmed && g.bombCharges === 2);
 
-  // Firing an armed charge costs no funds — the economic fix.
+  // A charge costs a launch, like everything else that leaves the muzzle.
+  // It used to fire free, which — once the $8-a-cube refund and the $20 slag
+  // bounty shipped — made a maxed rack an income source rather than a tool
+  // (~$480-670 a bay against a Tier 5 opening target of $680, measured).
   g.armBomb();
   const fundsBefore = g.score;
   let now = 5000;
   check("the armed charge fires", g.shoot(now));
-  check("firing a charge costs no funds", g.score === fundsBefore, `${g.score} vs ${fundsBefore}`);
+  check("firing a charge costs a launch",
+    g.score === fundsBefore - cfg.launchCost, `${g.score} vs ${fundsBefore - cfg.launchCost}`);
+  check("...and it stays worth firing at three cubes or more",
+    3 * cfg.salvagePerCube > cfg.launchCost,
+    `${3 * cfg.salvagePerCube} vs ${cfg.launchCost}`);
   check("firing consumes a charge", g.bombCharges === 1, String(g.bombCharges));
   check("firing disarms", !g.bombArmed);
 
