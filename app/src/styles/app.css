@@ -191,6 +191,25 @@ body.crt-off #app::after { display: none; }
 }
 .screen > * { min-height: 0; }
 
+/* Which commit a debug build is. Absolutely positioned and out of the flex
+   flow on purpose — every screen's column budget here is measured to the
+   pixel (see the menu's six-button comment above), and this must never be
+   the thing that pushes a button past a floor. */
+.build-tag {
+  position: absolute;
+  /* calc(spacing + inset), matching the corner-anchored controls above —
+     --hud-pad alone (the .screen padding) is not safe-area-aware, so on a
+     notched landscape phone the tag would otherwise sit inside the cutout. */
+  right: calc(var(--sp-2) + var(--inset-r));
+  bottom: calc(var(--sp-1) + var(--inset-b));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* THE scroll opt-in. sim/uifit's `scrollers` assertion enforces the allowlist
    (#lb-body, .workshop__shop, #refit-grid — plus the coach card's give-way
    body, which scrolls without the attribute); an entry beyond it fails the

@@ -1,5 +1,24 @@
+import { execSync } from "node:child_process";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+
+// A local debug APK always reports versionCode=1/versionName=1.0 — Capacitor's
+// generated build.gradle never bumps it, and signing.gradle only overrides it
+// for a release build (see android/signing.gradle). That leaves no way to tell
+// which commit is actually installed on a test device, so the short SHA gets
+// baked in as a compile-time constant instead and shown on the menu screen.
+function buildId(): string {
+  try {
+    const sha = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    // Otherwise two builds with different uncommitted edits show the same
+    // tag as HEAD's clean commit — exactly the "which build is this"
+    // confusion this feature exists to kill, just one step removed.
+    const dirty = execSync("git status --porcelain", { encoding: "utf8" }).trim().length > 0;
+    return dirty ? `${sha}-dirty` : sha;
+  } catch {
+    return "dev";
+  }
+}
 
 // Landscape, fullscreen, installable PWA. Capacitor consumes the same dist/ —
 // but WITHOUT the service worker, which is what `--mode native` selects.
@@ -29,6 +48,9 @@ const NATIVE_MODES = new Set(["native", "teststore", "sandbox"]);
 
 export default defineConfig(({ mode }) => ({
   base: "./",
+  define: {
+    "import.meta.env.VITE_BUILD_ID": JSON.stringify(buildId()),
+  },
   build: {
     outDir: "dist",
     target: "es2020",
