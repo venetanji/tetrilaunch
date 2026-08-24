@@ -2851,7 +2851,19 @@ button.panel { color: var(--text); }
      phone, and every pixel here is one the brand column also wants. */
   .btn { padding: 7px 14px; font-size: 10px; }
   .btn--lg { font-size: 11px; padding: 9px 18px; }
-  .ico { width: 13px; height: 13px; }
+  /* Scoped to .menu, and it has to be. `.ico` carries no size of its own: the
+     base rule sets flex/display only, and every glyph's box comes from the
+     width/height ATTRIBUTES icons.ts writes per call site. A presentation
+     attribute loses to ANY author rule at any specificity, so unscoped this
+     did not shrink the menu's glyphs — it overwrote the size of every icon in
+     the app, on every screen, at every viewport a phone can produce (ten of
+     the thirteen rows in sim/uifit/devices.ts are 460px or shorter in
+     landscape; only the tablets escape). The side rail's 22px controls, the
+     18px back buttons and the 16px currency glyphs all collapsed to 13px,
+     while the 10px glyphs set inline in prose GREW to it. Measured at 792x360:
+     227 of 240 glyphs mis-sized, against 35 — all of them deliberate — one
+     pixel above this query. Same trap as the `.refit-card__buy` note below. */
+  .menu .ico { width: 13px; height: 13px; }
 }
 
 /* ============================================================================
