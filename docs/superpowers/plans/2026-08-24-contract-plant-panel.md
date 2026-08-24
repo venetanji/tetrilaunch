@@ -622,11 +622,13 @@ through the end of the comment) with:
    of the panel and left a hand's width of nothing above it. Top-aligning them
    fixes that WITHOUT giving up the footprint, which is what releasing
    `min-height` did and should not have: the panel is BOTTOM-anchored, so a
-   shorter panel does not sit lower in the same box — its top edge moves. Two
-   Contracts on one board put it 17px apart and a Deep Run 85px away, so the
-   readout had to be re-found per mode and per card. The leftover height is one
-   band of air at the bottom now, and the panel starts in the same place in
-   every mode.
+   shorter panel does not sit lower in the same box — its top edge moves.
+   Measured at 792x360 compact just before this rule landed: a Deep Run bay's
+   panel is 154.6px tall with its top edge at y=194.7, a pattern Contract 125.1
+   at y=224.2, a lines Contract 108.1 at y=241.2. So the readout had to be
+   re-found 17px away between two Contracts on the SAME board, and 46px away
+   between a Contract and a run. The leftover height is one band of air at the
+   bottom now, and the panel starts in the same place in every mode.
 
    The gap is stated rather than distributed for the same reason it was before:
    `space-between` was what put air between the rows, and flex-start distributes

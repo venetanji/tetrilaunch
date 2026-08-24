@@ -1262,8 +1262,9 @@ class App {
       if (s !== "won" && s !== "lost") return;
       telemetry.endBay({
         result: s, reason: g.lossReason, secs: g.elapsedMs / 1000,
-        // `lostPieces` is a misnomer — it counts CUBES (Game.lostTotal), not
-        // tetrominoes — and now doubles as the Contract HUD's "Lost" column.
+        // This call fires for both Contract kinds, but the HUD only has a
+        // "Lost" column (screens.ts's hudHTML) on a "lines" one — see
+        // BayRecord.lostPieces for what the field actually counts.
         lines: g.linesTotal, lostPieces: g.lostTotal, endScore: g.score,
       });
       telemetry.endRun(s === "won", 0);
@@ -1768,11 +1769,14 @@ class App {
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
-      // Only on a lines Contract — the element does not exist on a pattern one
-      // (screens.ts's hudHTML), and `set` no-ops on a missing node anyway. The
-      // other two Contract rows are fixed for the length of a bay and are
-      // rendered once.
-      set("#hud-lost", String(g.lostTotal));
+      // Gated on `pattern`, matching #hud-queue's and #hud-time's own gates
+      // below: a pattern Contract has no #hud-lost element (screens.ts's
+      // hudHTML), and gating explicitly — rather than trusting `set`'s
+      // silent no-op on a missing node — keeps a typo'd selector or a
+      // markup regression from reading as "pattern bay, nothing to do
+      // here". The other two Contract rows (conditions, tier progress) are
+      // rendered by hudHTML and never patched here.
+      if (!pattern) set("#hud-lost", String(g.lostTotal));
       this.overlay
         .querySelector("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= 2);

@@ -962,8 +962,10 @@ export function hudHTML(opts: {
           // why its value can never overflow.
           //
           // `id="hud-tier"` exists to anchor tests, not to sync: the value is
-          // static for the length of a bay (above), so nothing in main.ts
-          // ever looks it up.
+          // static while the bay plays (above). Its one legitimate change —
+          // tier progress advancing on a first clear — lands via
+          // contract-end's own fresh hudHTML() render, not a live patch, so
+          // main.ts still never looks the id up.
           contract
             ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b id="hud-tier">${contract.progress.contracts}/${contract.progress.needed}${salvageHTML(contract.progress.milestone, 9)}</b></div>`
             : ""

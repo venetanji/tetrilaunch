@@ -69,6 +69,9 @@ export interface BayRecord {
   reason: string | null;
   secs: number;
   lines: number;
+  /** Despite the name, counts lost CUBES (Game.lostTotal), not pieces: one
+   *  increment per lost cube (lineClear.ts's updateBlinking), whatever the
+   *  piece size. */
   lostPieces: number;
   endScore: number;
 }

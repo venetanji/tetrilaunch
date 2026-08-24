@@ -212,10 +212,21 @@ Both kinds, top-aligned in the restored 154.6px box:
 | `.pl-notch` Bay  | yes   | yes     |
 | `.pl-tier`       | yes   | yes     |
 
-Roughly 110px of content in a 154.6px box on the shorter kind (four rows, three
-gaps of 11.1px, 14.9px of compact vertical padding). The remainder is deliberate
-air at the bottom of a panel whose top edge no longer moves between a Deep Run,
-a pattern Contract and a lines Contract.
+Measured in the running app at 792x360 compact once all three rows had landed
+and before the height rule was restored: a lines Contract stands at 108.1px and
+a pattern one at 125.1px, against the Deep Run's 154.6px. The estimate above was
+110px for the shorter kind, so the arithmetic held.
+
+The remainder is deliberate air at the bottom of a panel whose top edge no
+longer moves. Before the restoration the three states put that edge at y=241.2
+(lines), y=224.2 (pattern) and y=194.7 (run) — 17px apart between two Contracts
+on the SAME board, and 46px between a Contract and a run.
+
+One row came in taller than estimated: `.pl-tier` measures 13px against the 8px
+a `.pl-notch`-shaped row costs, because the salvage glyph is a hard 9px against
+6px text. That is the largest single contributor to the two kinds' remaining
+difference and the reason the row needed `align-items: center` rather than
+`baseline` — see the note on `.pl-tier b`.
 
 ## Touchpoints
 
