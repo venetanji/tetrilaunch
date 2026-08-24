@@ -237,12 +237,45 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
  * purchased is visible as the thing it actually is, more green rows.
  *
  * Behind everything: this is floor light, not a HUD overlay. It draws inside
- * the world clip after the cached backdrop and before the compactor, so cargo,
- * the press and the cannon all sit on top of it.
+ * the world clip after the backdrop and before the compactor, so cargo, the
+ * press and the cannon all sit on top of it.
+ *
+ * WHERE IT DRAWS FROM, and why it moved. Up to 18 of these bands cover the
+ * full width of the field, so painting them live meant blending roughly a
+ * whole canvas of translucent device pixels every frame: measured on
+ * sim/renderperf at N=300, 11.1ms of a 31.4ms frame — second only to the cargo
+ * itself, and more than the backdrop, press, cannon, seams, arc and effects
+ * put together. Baking the strips into sprites and stamping them changed
+ * nothing, which is the useful result: the cost is fill rate, not the
+ * gradients, and the only way to stop paying it every frame is to stop
+ * painting it every frame.
+ *
+ * So it paints into the background layer instead, at the end of that bake —
+ * the same place in the z-order it occupied when it ran live, because it ran
+ * first, immediately after that layer was blitted. The layer already covers
+ * every device pixel and is already stamped once per frame, so these rows now
+ * cost nothing between changes. What makes that safe is that the state is
+ * coarse: congestionRows moves `lit` one row per line's worth of cubes, so the
+ * layer re-bakes when the pile crosses a multiple of a line and not otherwise.
  */
-function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
+interface CongestionRows {
+  lit: number;
+  warnRow: number;
+  dangerRow: number;
+}
+
+/**
+ * How many floor rows are lit, and where the two tiers start biting. Split out
+ * of the drawing so the background layer can key its cache on it — see
+ * getBackgroundLayer, which is where these rows are actually painted now.
+ *
+ * `lit` moves in steps of one row per `perLine` cubes, which is what makes
+ * baking them viable: the state only changes when the pile crosses a multiple
+ * of a line, a few times a second at worst, not every frame.
+ */
+function congestionRows(scene: Scene): CongestionRows | null {
   const tiers = scene.level.pileTiers;
-  if (!tiers.length || !scene.cubes.length) return;
+  if (!tiers.length || !scene.cubes.length) return null;
   const perLine = Math.max(1, scene.level.compactorMinLineCells);
   const allowance = scene.level.pileAllowance;
   const maxRows = Math.floor(WORLD.height / CELL);
@@ -252,8 +285,15 @@ function drawCongestionRows(ctx: CanvasRenderingContext2D, scene: Scene): void {
   // and the row holding it is that count divided by a line.
   const rowFor = (t: { cubes: number }): number =>
     Math.floor((t.cubes + allowance) / perLine);
-  const warnRow = tiers[0] ? rowFor(tiers[0]) : Infinity;
-  const dangerRow = tiers[1] ? rowFor(tiers[1]) : Infinity;
+  return {
+    lit,
+    warnRow: tiers[0] ? rowFor(tiers[0]) : Infinity,
+    dangerRow: tiers[1] ? rowFor(tiers[1]) : Infinity,
+  };
+}
+
+function drawCongestionRows(ctx: CanvasRenderingContext2D, rows: CongestionRows): void {
+  const { lit, warnRow, dangerRow } = rows;
 
   ctx.save();
   for (let r = 0; r < lit; r++) {
@@ -290,11 +330,12 @@ export function render(
   const vp = viewport ?? computeViewport(cssW, cssH);
   syncSpriteScale(vp.scale * dpr);
 
-  // Backdrop, field gradient, grid and wall glow are static per viewport —
-  // blit the cached opaque layer instead of re-painting them (no clearRect
-  // needed underneath, the layer covers every device pixel).
+  // Backdrop, field gradient, grid, wall glow AND the congestion floor are
+  // static between changes of pile height — blit the cached opaque layer
+  // instead of re-painting them (no clearRect needed underneath, the layer
+  // covers every device pixel).
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp), 0, 0);
+  ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
   // Clip to the world rect
@@ -303,7 +344,6 @@ export function render(
   ctx.rect(0, 0, WORLD.width, WORLD.height);
   ctx.clip();
 
-  drawCongestionRows(ctx, scene);
   // The plant's intake, under everything: cargo falling in has to draw OVER
   // the mouth it is falling into, and the arc has to draw over both.
   drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
@@ -642,12 +682,14 @@ function getBackgroundLayer(
   cssH: number,
   dpr: number,
   vp: Viewport,
+  rows: CongestionRows | null,
 ): HTMLCanvasElement {
   // Same Math.floor sizing as main.ts's onResize gives the live canvas, so
   // the layer maps 1:1 onto it.
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
-  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}`;
+  const key = `${w}x${h}|${vp.scale}|${vp.ox}|${vp.oy}|` +
+    (rows ? `${rows.lit}:${rows.warnRow}:${rows.dangerRow}` : "-");
   if (bgLayer && bgLayerKey === key) return bgLayer;
 
   if (!bgLayer) bgLayer = document.createElement("canvas");
@@ -663,6 +705,9 @@ function getBackgroundLayer(
   bctx.clip();
   drawBackground(bctx);
   drawWalls(bctx);
+  // Over the walls' glow and under everything else, which is exactly where
+  // this used to run when it ran live — see the note above drawCongestionRows.
+  if (rows) drawCongestionRows(bctx, rows);
   bctx.restore();
   bgLayerKey = key;
   return bgLayer;
