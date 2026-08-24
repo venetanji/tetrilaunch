@@ -110,6 +110,8 @@ async function main(): Promise<void> {
       cold,
       hot,
       browBg: brow ? getComputedStyle(brow).backgroundImage.slice(0, 220) : "(missing)",
+      // The pixel sparks: must resolve to the compactor's own red.
+      browSparks: brow ? getComputedStyle(brow, "::after").backgroundImage.slice(0, 200) : "(missing)",
       rivets: document.querySelectorAll(".plant__crest--rivet").length,
       strips: document.querySelectorAll(".plant__crest").length,
     };
