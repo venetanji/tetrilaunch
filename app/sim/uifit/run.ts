@@ -633,21 +633,43 @@ function measure(cfg: {
       wrapper.textContent = text;
       el.replaceChild(wrapper, textNode);
       baseline = baselineOf(wrapper);
+      // Sampled WHILE the wrapper is still in place, not just before/after:
+      // a wrapper that perturbs the row's layout during measurement and
+      // restores cleanly afterwards would pass a before/after-only check,
+      // and that failure mode is not hypothetical — it is exactly what
+      // wrapping the whole element instead of just its text does (see this
+      // function's comment above: it visibly narrows the box while wrapped,
+      // even though the DOM is restored correctly after). The reading taken
+      // one line above, `baselineOf(wrapper)`, happens inside this same
+      // window, so THIS is the check that can actually invalidate it.
+      const duringEl = el.getBoundingClientRect();
+      const duringRow = row?.getBoundingClientRect();
       wrapper.replaceWith(textNode);
-      // Proved, not assumed: the swap-and-restore must leave `el` (and the
-      // row it sits in) exactly where they were, or this reading is
-      // measuring a layout the row never actually has.
       const afterEl = el.getBoundingClientRect();
       const afterRow = row?.getBoundingClientRect();
       const moved = (a: DOMRect, b: DOMRect): boolean =>
         Math.abs(a.top - b.top) > 0.01 || Math.abs(a.left - b.left) > 0.01
         || Math.abs(a.width - b.width) > 0.01 || Math.abs(a.height - b.height) > 0.01;
       if (
+        moved(beforeEl, duringEl)
+        || (beforeRow && duringRow && moved(beforeRow, duringRow))
+      ) {
+        throw new Error(
+          `capMid wrapper fallback perturbed ${label(el)}'s geometry WHILE measuring — the `
+            + `reading is not trustworthy even though the DOM will be restored: `
+            + `element ${JSON.stringify(beforeEl)} -> ${JSON.stringify(duringEl)}, `
+            + `row ${JSON.stringify(beforeRow)} -> ${JSON.stringify(duringRow)}.`,
+        );
+      }
+      // A second, separate check: proves the swap-and-restore itself left
+      // `el` (and its row) exactly where they were, catching a broken
+      // restoration even on a wrapper that measured cleanly.
+      if (
         moved(beforeEl, afterEl)
         || (beforeRow && afterRow && moved(beforeRow, afterRow))
       ) {
         throw new Error(
-          `capMid wrapper fallback left ${label(el)}'s geometry changed: `
+          `capMid wrapper fallback left ${label(el)}'s geometry changed after restoring: `
             + `element ${JSON.stringify(beforeEl)} -> ${JSON.stringify(afterEl)}, `
             + `row ${JSON.stringify(beforeRow)} -> ${JSON.stringify(afterRow)}.`,
         );

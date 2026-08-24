@@ -1128,14 +1128,7 @@ body.crt-off #app::after { display: none; }
    prices some waste in (contracts.ts's PLANNING_EFFICIENCY and SLACK, via
    contractEfficiency/launchesFor), so a lost cube spends that margin
    rather than crossing a threshold where the correct play changes. */
-/* Two columns, when a pairing puts two on screen, need to read as SEPARATE
-   numbers — at a glance "0" and "2:23" side by side can otherwise scan as
-   one figure. A hairline rule and real padding between them does that
-   without adding another label. */
-.pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
-.pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
-.pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
-/* LOST does not get a matching min-width, and measuring says it does not
+/* No `min-width` on `.pl-lost`, deliberately: measuring says it does not
    need one. sim/systems.ts's own budget prices "Lost" against a flat
    per-glyph average (4 glyphs at 3.6px each, ~14px total) and would call a
    two-digit value the column's new floor — but that average undershoots
@@ -1147,6 +1140,13 @@ body.crt-off #app::after { display: none; }
    mono digit) — but that width is already covered: sim/systems.ts's own
    column-width proof for this row tests exactly that case ("999") and
    finds it still fits inside TIME's column. */
+/* Two columns, when a pairing puts two on screen, need to read as SEPARATE
+   numbers — at a glance "0" and "2:23" side by side can otherwise scan as
+   one figure. A hairline rule and real padding between them does that
+   without adding another label. */
+.pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
+.pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
+.pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
 /* Urgency, shared by the launches counter and the clock (last 20s) — though
    "the launches counter" is two different thresholds, not the same one read
    twice: <= LOW_LAUNCH_WARN (3) on a Deep Run, <= 2 on a Contract (main.ts's
@@ -1292,7 +1292,8 @@ body.crt-off #app::after { display: none; }
    (`.ico`, this file), and a block box has no baseline of its own: inside a
    `baseline`-aligned flex row it sits ON the text baseline and grows the
    line box by its own height, the same bug `.currency` documents and fixes
-   for itself below (~line 2900 at the time of writing). Measured at this
+   for itself below (grep for it rather than trust a line number here — this
+   one had already drifted onto an unrelated rule once). Measured at this
    row's compact floor (6px type, 9px icon): a `baseline`-aligned `.pl-tier b`
    stands 19px against a 16px text-only reference — 3px of overflow in a
    panel written to a height cap. `align-items: center` alone closes it
@@ -1389,9 +1390,11 @@ body.crt-off #app::after { display: none; }
    panel instead of being spread down it. `.plant__body` uses
    `justify-content: space-between`, which barely shows on a Deep Run — five
    rows, one of them `.pl-mods` at 32-57px, leave only 4.3-16.8px to spread —
-   and moves a lot on a Contract: with no `.pl-mods` row, four (lines) or five
-   (pattern) rows leave 54.5px over, and `space-between` splits that across
-   EVERY gap between rows, not into one band above the last. Top-aligning them
+   and moves a lot on a Contract: with no `.pl-mods` row, four rows (lines)
+   leave 46.5px over the panel's content (154.6 - 108.1) and five (pattern,
+   strictly one row more, so strictly less left over) leave 29.5px
+   (154.6 - 125.1) — and `space-between` splits whichever it is across EVERY
+   gap between rows, not into one band above the last. Top-aligning them
    fixes that WITHOUT giving up the footprint, which is
    what releasing `min-height` did and should not have: the panel is
    BOTTOM-anchored, so a shorter panel does not sit lower in the same box — its
@@ -2804,9 +2807,12 @@ button.panel { color: var(--text); }
   .btn { padding: 7px 14px; font-size: 10px; }
   .btn--lg { font-size: 11px; padding: 9px 18px; }
   /* Unscoped — matches every `.ico` on every screen at this viewport height,
-     not just the menu's, which is a defect (filed separately, not fixed
-     here: it reaches every icon size in the app, not just this row). Two
-     places already had to pin a specific icon back to its real size to work
+     not just the menu's, which is a defect reaching every icon size in the
+     app, not just this row. Left deliberately unfixed in this branch, which
+     is scoped to the Contract panel; there is no tracked issue beyond what
+     is written here — this comment, and the pin list it names, is the whole
+     handover for whoever picks the global fix up next. Two places already
+     had to pin a specific icon back to its real size to work
      around it: `.modal--refit .refit-card__price .ico` (below) and
      `.pl-tier b .ico` (the Contract HUD's Tier row, ~line 1340). Whoever
      fixes this rule should grep for both first — narrowing the selector here

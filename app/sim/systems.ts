@@ -2865,6 +2865,15 @@ section("HUD readout widths (the $1000+ wrap regression)");
    *  an 8-glyph heading fits a phone column in one face and not the other. */
   const UI_ADV = 0.45;
 
+  /** Each stat column is as wide as the WIDER of its pixel-font label and its
+   *  mono value — the label is what dominates at small scales, and missing
+   *  that is what made the original budget wrong. Hoisted here, with the
+   *  scale factors as explicit parameters rather than a closure, because
+   *  fundsBudget below and the Lost-column check further down both need the
+   *  same formula and are not nested inside one another. */
+  const col = (label: string, value: string, lblAdv: number, statLbl: number, statVal: number, statPad: number) =>
+    Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
+
   /** Width the funds line needs vs. the width its column actually gets. */
   function fundsBudget(viewportW: number, viewportH: number, funds: number, target: number) {
     const l = computeLayout(viewportW, viewportH);
@@ -2883,13 +2892,8 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const statVal = mx(STAT_VAL_MIN, STAT_VAL_FPX);
     const statPad = mx(STAT_PAD_MIN, STAT_PAD_FPX);
 
-    // Each stat column is as wide as the WIDER of its pixel-font label and its
-    // mono value — the label is what dominates at small scales, and missing that
-    // is what made the original budget wrong.
-    const col = (label: string, value: string) =>
-      Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
-    const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)));
-    const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+    const launchesCol = col("LAUNCHES", String(Math.floor(funds / 25)), lblAdv, statLbl, statVal, statPad);
+    const timeCol = col("TIME", "0:00", lblAdv, statLbl, statVal, statPad) + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 
     const gaps = 2 * mx(READ_GAP_MIN, READ_GAP_FPX);
     const available = content - launchesCol - timeCol - gaps;
@@ -2935,18 +2939,28 @@ section("HUD readout widths (the $1000+ wrap regression)");
   // Goal + Launches + Lost). The two extra columns are not the risk: goal
   // never leaves single digits (contracts.ts's lines-goal formula tops out at
   // 3 + 2 + 4 = 9) where a Deep Run target runs to 4 figures, and a Contract's
-  // launch budget tops out at 69 (launchesFor at goal 9, tiny pieces, no
-  // material — the branch that beats std+material's worse efficiency), well
-  // inside the 3-digit launchesCol the loop above already proves fits. LOST is
-  // the one column nothing has priced: same label length as TIME ("LOST" /
-  // "TIME", 4 glyphs) but built from `col`'s own max(), so its width can never
-  // exceed TIME's as long as its value string is no longer than "0:00" — and a
-  // lines Contract cannot lose more cubes than it ever ships (launches ×
-  // cubes/piece), which is at most 200 at this same worst case. "999" is a
-  // deliberately generous stand-in for that, not the real ceiling.
-  const col = (label: string, value: string, lblAdv: number, statLbl: number, statVal: number, statPad: number) =>
-    Math.max(label.length * lblAdv * statLbl, value.length * MONO_ADV * statVal) + statPad;
-  for (const [name, w, h] of VIEWPORTS) {
+  // launch budget tops out at 44 (launchesFor at goal 9, std pieces, volatile
+  // material at its rate cap, tight launch budget — the same worst-case
+  // branch sim/uifit/fixtures.ts's hud-contract-lines fixture derives 176
+  // from, ~line 401: 44 launches x 4 cubes/piece), well inside the 3-digit
+  // launchesCol the loop above already proves fits. LOST is the one column
+  // nothing has priced: same label length as TIME ("LOST" / "TIME", 4
+  // glyphs), and a lines Contract cannot lose more cubes than that same
+  // worst case ever ships (176), so "999" is a deliberately generous
+  // stand-in for the value string, not the real ceiling.
+  //
+  // The check below guards that ASSUMED value width, not the DOM: it never
+  // reads screens.ts's actual markup, so renaming the LOST label there would
+  // not fail it. It is also a SINGLE assertion rather than one per viewport,
+  // on purpose — `col`'s formula makes the label term identical for LOST and
+  // TIME (same 4 glyphs) and the value term strictly smaller for LOST ("999"
+  // is 3 characters against "0:00"'s 4), so max(label, value) for LOST can
+  // never exceed the same for TIME, for every scale factor computeLayout can
+  // produce — it holds by construction, not by measurement. The viewport
+  // below is arbitrary; six of them were six copies of one arithmetic fact,
+  // which is not six times the coverage.
+  {
+    const [name, w, h] = VIEWPORTS[0];
     const l = computeLayout(w, h);
     const fpx = l.fw / 1280;
     const mx = (min: number, scaled: number) => Math.max(min, scaled * fpx);
@@ -2959,7 +2973,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
     const timeCol = col("TIME", "0:00", lblAdv, statLbl, statVal, statPad) + margin;
     const lostCol = col("LOST", "999", lblAdv, statLbl, statVal, statPad) + margin;
     check(
-      `${name}: a lines Contract's Lost column fits inside the room Time already proved`,
+      `${name}: a lines Contract's assumed Lost width fits inside Time's (holds for every viewport by construction)`,
       lostCol <= timeCol,
       `lostCol ${lostCol.toFixed(1)}px vs timeCol ${timeCol.toFixed(1)}px`,
     );
