@@ -1172,23 +1172,30 @@ export function hintStripHTML(
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const sep = `<span class="kbd-hint__sep">·</span>`;
   const parts: string[] = [];
+  /* Each hint is wrapped as ONE element below, which is layout, not markup
+     tidiness: .kbd-hint is a flex container, so every loose text node between
+     two chips ("/" , " rotate") was its own anonymous flex item and got the
+     container's gap injected around it. That both spelled the hints wrong
+     ("Q / E rotate") and padded a full loadout's strip out to 951px, wider
+     than a 900px window. Grouped, a wrap can only break BETWEEN hints. */
+  const part = (inner: string) => parts.push(`<span class="kbd-hint__part">${inner}</span>`);
   if (profile === "gamepad") {
-    parts.push(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
-    parts.push(`${kbd("Stick")} aim + power`);
-    parts.push(`${kbd(padLabel(padFor("fire")))} fire`);
-    if (owned.bond) parts.push(`${kbd(padLabel(padFor("bond")))} break bonds`);
-    if (owned.demo) parts.push(`${kbd(padLabel(padFor("demo")))} arm charge`);
-    if (owned.auto) parts.push(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
-    parts.push(`${kbd(padLabel(padFor("pause")))} pause`);
+    part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
+    part(`${kbd("Stick")} aim + power`);
+    part(`${kbd(padLabel(padFor("fire")))} fire`);
+    if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
+    if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
+    part(`${kbd(padLabel(padFor("pause")))} pause`);
   } else {
-    parts.push(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
-    parts.push(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
-    parts.push(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
-    parts.push(`${kbd(keyLabel(keyFor("fire")))} fire`);
-    if (owned.bond) parts.push(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
-    if (owned.demo) parts.push(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
-    if (owned.auto) parts.push(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
-    parts.push("drag to aim");
+    part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
+    part(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);
+    part(`${kbd(keyLabel(keyFor("powerDown")))}/${kbd(keyLabel(keyFor("powerUp")))} power`);
+    part(`${kbd(keyLabel(keyFor("fire")))} fire`);
+    if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
+    if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
+    part("drag to aim");
   }
   return `<div class="kbd-hint" aria-hidden="true">${parts.join(`\n        ${sep}\n        `)}</div>`;
 }

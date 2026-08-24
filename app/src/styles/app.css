@@ -734,8 +734,18 @@ body.crt-off #app::after { display: none; }
   );
 }
 /* In the tall layout the kbd-hint would collide with the rail strip; the rail
-   is the control surface there, so the hint moves above the field instead. */
-:root[data-layout="tall"] .kbd-hint { bottom: auto; top: 2px; }
+   is the control surface there, so the hint moves above the field instead.
+   ABOVE THE FIELD, not at the top of the window: `top: 2px` put it against the
+   viewport edge, which on a 1100x900 window is 138px clear of the field it
+   labels (and on a 1024x768 iPad with a pad connected, 84px). Anchoring by
+   `bottom` rather than `top` is deliberate — the strip may take a second row on
+   a narrow window, and it has to grow UP into the empty band, not down over the
+   field. --gutter-b + --field-h is the distance from the viewport's bottom edge
+   to the field's TOP edge, so this reads "2px above the field". */
+:root[data-layout="tall"] .kbd-hint {
+  top: auto;
+  bottom: calc(var(--gutter-b, 0px) + var(--field-h, 0px) + 2px);
+}
 
 /* Left-handed mirror (Controls → touch): the CSS half of layout.ts's
    setRailSide — the column centres in the LEFT gutter off the same solved
@@ -952,11 +962,50 @@ body.crt-off #app::after { display: none; }
    table, so a rebind on the Controls screen re-labels the strip too. */
 .kbd-hint {
   display: none;
-  position: absolute; left: 50%; bottom: var(--safe-b); transform: translateX(-50%);
+  position: absolute;
+  /* Centred on the FIELD, not the viewport. These are two different points:
+     in "snug" the solver RESERVES a right band and refits the world into what
+     is left, so the field starts at --field-x and is --field-w wide while the
+     viewport is --gutter-r wider. `left: 50%` therefore sat the strip half the
+     reserved band to the RIGHT of the machine it labels — a constant 42px at
+     every 16:9/16:10 desktop window (measured: 1280x720, 1366x768, 1440x900,
+     1512x945, 1920x1080 all solve to snug with an 84px band). It looked
+     correct on ultrawide only because "wide" has equal gutters, which is
+     exactly what made the error hard to pin down. Anchor to the field and the
+     strip is centred in every mode by construction. */
+  left: calc(var(--field-x, 0px) + var(--field-w, 100vw) / 2);
+  bottom: var(--safe-b);
+  transform: translateX(-50%);
   align-items: center; gap: var(--sp-2);
   font-size: var(--fs-xs); letter-spacing: var(--tracking-wide); color: var(--text-muted);
-  white-space: nowrap; pointer-events: none;
+  pointer-events: none;
+  /* The strip is as long as the loadout makes it — a run holding Bond Breaker,
+     Demolition and the Autoloader shows eight hints — and it used to be
+     `white-space: nowrap` on an unbounded box, so on a narrow window it simply
+     ran off BOTH edges (measured 951px of strip in a 900px window: 25px lost
+     off the left, 25px off the right, with no scrollbar and nothing to say
+     content was missing). Bounded by the FIELD, so it also never reaches under
+     the reserved rail band, and allowed to take a second row rather than be
+     clipped. nowrap moves DOWN to the part, so a break can only ever fall
+     between two hints, never inside "Q/E rotate". */
+  flex-wrap: wrap; justify-content: center;
+  row-gap: var(--sp-1);
+  /* max-content, or the box shrink-to-fits into `containing block - left` and
+     wraps early: absolutely positioned with `left` set and `right: auto`, the
+     available width is only what lies to the RIGHT of the anchor, which at
+     1280x720 is 682px of a 1196px field. The translateX(-50%) that re-centres
+     it is a transform and buys the layout nothing. `nowrap` used to hide this
+     by overflowing instead; now that a wrap is allowed, the intrinsic width has
+     to be asked for explicitly and clamped afterwards. */
+  width: max-content;
+  max-width: calc(var(--field-w, 100vw) - var(--sp-4));
 }
+/* One hint = one flex item. Without this every text node between the chips was
+   its own anonymous flex item, so the container's gap was injected around the
+   "/" too ("Q / E rotate" instead of "Q/E rotate") and padded the strip out by
+   ~180px it did not need. Inline inside, so the chips and their connecting
+   text lay out as the sentence they are. */
+.kbd-hint__part { white-space: nowrap; }
 .kbd-hint__sep { opacity: 0.4; }
 /* A gamepad player sees the strip whatever the pointer type (D2): the pad is
    the control surface, and the rail's touch buttons say nothing about it. */
@@ -974,12 +1023,23 @@ body.crt-off #app::after { display: none; }
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
     display: flex;
-    /* Dropped into the slim strip BELOW the plant's bottom edge (the plant
-       stops at 97% of the field's height) and centered under the plant —
-       the one bottom lane clear of the panel, the compactor bar's sweep
-       and the pile at every window aspect; reads as the machine's footer
-       plaque. In letterboxed windows this lands in the bottom band. */
-    bottom: 2px;
+    /* Sat in the slim lane at the FOOT OF THE FIELD — the plant panel stops at
+       97% of the field's height, so the bottom ~3% is the one lane clear of the
+       panel, the compactor bar's sweep and the pile at every window aspect. It
+       reads as the machine's footer plaque, which only works if it is attached
+       to the machine.
+
+       This was `bottom: 2px`, i.e. 2px above the VIEWPORT. Those agree only
+       when the field reaches the bottom of the window (--gutter-b: 0), which is
+       the "wide" case and nothing else. Everywhere the world is letterboxed the
+       strip detached and floated in the black band below the field — 22px adrift
+       at 1280x720 and 1920x1080, 67px at 1440x900, 69px at 1512x945 (the stock
+       14" MacBook window), where the plant's bottom edge is at y=850 and the
+       strip was drawn at y=919 with nothing in between. --gutter-b IS the space
+       below the field, published by main.ts's onResize off the same solved
+       layout, so this now means "2px above the field's bottom edge" in every
+       mode and collapses to the old value on ultrawide. */
+    bottom: calc(var(--gutter-b, 0px) + 2px);
   }
 }
 
