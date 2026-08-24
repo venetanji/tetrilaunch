@@ -811,6 +811,42 @@ section("Contracts (contracts.ts)");
   check("Deep Run bays draw from an endless bag", deep.pieceQueue === null);
 }
 
+// `conditions` is what the PLANT panel shows and `brief` is what the CARD
+// shows. They are the same string on a lines Contract and differ by the
+// shipment-count prefix on a pattern one, which the panel already states as
+// its Shipments column and its manifest row. Pinned in both directions: the
+// card must not change, and the panel must not repeat itself.
+{
+  const lines = generateContract(20260824, 6, 0);
+  check("a lines Contract's conditions are its brief",
+    lines.kind === "lines" && lines.conditions === lines.brief,
+    `${lines.kind}: ${lines.conditions} / ${lines.brief}`);
+  check("a lines Contract states conditions, never empty",
+    lines.conditions.length > 0, lines.conditions);
+
+  const pattern = generateContract(20260824, 6, PATTERN_SLOT);
+  check("a pattern Contract's brief is its shipment count plus its conditions",
+    pattern.brief === `${pattern.queue.length} shipments · ${pattern.conditions}`,
+    `${pattern.brief} !== ${pattern.queue.length} shipments · ${pattern.conditions}`);
+  check("a pattern Contract's conditions do not repeat the shipment count",
+    !pattern.conditions.includes("shipments"), pattern.conditions);
+
+  // Every variant, not just the one today's seed rolled: the tail is a switch
+  // and a case that forgot to drop the prefix would pass on one draw.
+  for (const v of VARIANTS) {
+    const c = generateContract(20260824, 9, PATTERN_SLOT, v.id);
+    check(`variant ${v.id} splits brief into count + conditions`,
+      c.brief === `${c.queue.length} shipments · ${c.conditions}`,
+      `${c.brief} / ${c.conditions}`);
+    // brief is built FROM conditions (one local, one interpolation), so the
+    // check above is a syntactic identity — it would still pass if a case
+    // re-added the prefix into conditions itself, doubling it on the card.
+    // This is the check that actually catches that.
+    check(`variant ${v.id} states no shipment count`,
+      !c.conditions.includes("shipments"), c.conditions);
+  }
+}
+
 // ---------------------------------------------------------------------------
 section("Pattern Contracts (contracts.ts)");
 // ---------------------------------------------------------------------------
@@ -833,11 +869,24 @@ section("Pattern Contracts (contracts.ts)");
   const stdShipments = new Map<number, number[]>();
   let tinyEverMultiShape = false;
   let tinyBelowMinTier = false;
+  let everConditionsNamedShipments = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
         if (c.kind !== "pattern") continue;
         patterns += 1;
+        // The forced-variant loop above only ever sees a tier-9 std queue with
+        // a surviving salvage wall, so it never exercises patternConditions's
+        // tiny → "dominoes" branch. This sweep already walks every tier and 40
+        // seeds per tier for exactness, so it is where that branch actually
+        // gets checked. A degraded salvage needs no check of its own:
+        // generatePatternContract (not patternConditions) falls back to
+        // variantSpec("plain") when the wall doesn't survive, so conditions
+        // takes the same `default` case "plain" already hits 185 times over
+        // this same range — and the degrade is too rare for this range to see
+        // regardless (0 of 50 salvage attempts here; ~0.4%, 2 of 492, at 400
+        // seeds/tier).
+        if (c.conditions.includes("shipments")) everConditionsNamedShipments = true;
         // Exactness is measured against the CONTRACT's own region, not the
         // ladder's: a "short" variant is sized to 6-cell lines, and a "salvage"
         // one is short by exactly the wall the bay opens with. Both would read
@@ -897,6 +946,11 @@ section("Pattern Contracts (contracts.ts)");
   check("pattern Contracts are always calm", !everWindy);
   check("pattern Contracts carry no launch budget", !everBudgeted);
   check("low tiers draw only the flat-settling shapes", !everOffPool);
+  // conditions is what the plant panel renders verbatim; the panel already
+  // states the shipment count as its own readout column and its own manifest
+  // row, so no pattern Contract's conditions may say it a third time.
+  check("no pattern Contract's conditions names the shipment count",
+    !everConditionsNamedShipments);
 
   // Difficulty is the number of DIFFERENT shapes in one Contract, so the ladder
   // has to actually climb — a generator that always found a single-shape tiling
@@ -2529,6 +2583,118 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   setRailSlots(RAIL_SLOTS_MAX);
 }
 
+section("Contract plant panel (screens.ts hudHTML)");
+// The Contract plant panel's three additions. A Contract has no clock, so the
+// third readout column renders empty — on a LINES Contract it carries cubes
+// lost instead. Not on a pattern one: SPARE_SHIPMENTS is 0, so the margin is 0
+// on frame one and one stranded cube ends the attempt — it never even reaches
+// 1, because cubesAvailable stops counting a cube the moment it starts
+// blinking (lineClear.ts's markLostPieces), so objectiveUnreachable fires
+// 1.4s before lostTotal increments, and the bay is called 0.4s before that.
+{
+  const base = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: { bomb: false, type: "L" as const, quarterTurns: 1, empty: false, hidden: false, material: "standard" as const },
+    tier: null, target: 800, score: 200, launchCost: 0, bayNum: 1,
+    timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  };
+  const progress = { tier: 1, runDone: false, contracts: 0, needed: 3, award: 45, milestone: 15 };
+  const linesHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Foundry Overrun", kind: "lines", goal: 5, lines: 2, launchesLeft: 9,
+      remaining: [], lost: 7, conditions: "crosswind · cryo shipments", progress,
+    },
+  });
+  // A clean stretch — nothing stranded yet — is the common opening reading for
+  // every lines Contract, and this panel already has a rule against permanent
+  // zeroes (the COMBO/LAUNCH COST/SCRAP row above dropped out of Contracts for
+  // exactly that). Lost is not permanent: it moves the moment a shipment
+  // strands. Pinned so a future "blank until the first loss" change has to be
+  // deliberate, not a silent side effect of some unrelated edit.
+  const linesZeroHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Cargo Bay Reroute", kind: "lines", goal: 6, lines: 0, launchesLeft: 11,
+      remaining: [], lost: 0, conditions: "no complications", progress,
+    },
+  });
+  const patternHud = hudHTML({
+    ...base,
+    contract: {
+      name: "Cold Storage Backlog", kind: "pattern", goal: 4, lines: 1, launchesLeft: 6,
+      remaining: ["I", "O", "T"], lost: 0, conditions: "3 shapes, no waste", progress,
+    },
+  });
+
+  // Anchored to the element it proves rather than a bare ">7<" — 7 happens to
+  // be unique across this fixture's other numbers, but that's a fact about the
+  // fixture, not the markup, and a regression coupling to it should not read
+  // as "ok" for the wrong reason.
+  check("a lines Contract fills the empty clock column with cubes lost",
+    linesHud.includes('id="hud-lost">7<'));
+  check("...and still renders it at zero — Lost moves, unlike Combo/Scrap",
+    linesZeroHud.includes('id="hud-lost">0<'));
+  check("a pattern Contract does not — its margin is 0 by construction",
+    !patternHud.includes('id="hud-lost"'));
+  check("neither Contract renders a clock",
+    !linesHud.includes('id="hud-time"') && !patternHud.includes('id="hud-time"'));
+  check("Lost reads after Launches, not before",
+    linesHud.indexOf("pl-launches") < linesHud.indexOf("pl-lost"));
+  // Order-independent: a regression that writes class="pl-stat pl-stat--danger
+  // pl-lost" (danger before the marker class) is exactly as wrong as one that
+  // writes it after, and the check has to catch both.
+  check("cubes lost takes no danger treatment — there is no threshold",
+    !/<div class="(?=[^"]*\bpl-lost\b)(?=[^"]*\bpl-stat--danger\b)[^"]*">/.test(linesHud));
+
+  check("a Contract states the bay's conditions in the panel",
+    linesHud.includes('id="hud-conditions"') && linesHud.includes("crosswind · cryo shipments"));
+  // The comment on this row argues at length that conditions can never be
+  // empty (budgetForTier / the two ungated complications / patternConditions
+  // always returning a literal) — argued, but until now never actually
+  // pinned. `conditions: ""` would still satisfy the check above (`includes`
+  // finds the id regardless of what's inside the tag), so this closes the gap
+  // the argument opened: an empty tag reads `id="hud-conditions"></b>`.
+  check("...and the row can never render with an empty value",
+    !linesHud.includes('id="hud-conditions"></b>'));
+  check("a pattern Contract states its variant's conditions",
+    patternHud.includes("3 shapes, no waste"));
+  // "Tier 1" is a prefix of "Tier 10" and "0/3" is a bare substring either
+  // could appear as, coincidentally, in unrelated markup — the same objection
+  // the Lost check raises above about a bare `>7<`. Anchored on the label's
+  // own closing tag (rules out the "Tier 10" prefix) and on `id="hud-tier"`
+  // (rules out "0/3" turning up elsewhere).
+  check("a Contract states the tier the clear counts toward, unambiguously",
+    linesHud.includes('class="pl-tier"') && linesHud.includes('<span class="lbl">Tier 1</span>'));
+  // The milestone salvage — the number that actually answers "why is this bay
+  // worth playing" — had no assertion at all: every check above still passes
+  // with `${icon("salvage", 9)} ${contract.progress.milestone}` deleted
+  // outright. Anchored to id="hud-tier" for the same reason as above, and
+  // covers three things at once: the count (0/3), that it is immediately
+  // followed by the salvageHTML currency span (no stray whitespace text node
+  // between them — `.pl-tier b` already has a `gap`), and that the milestone
+  // (15) closes the tag. Not coupled to icon()'s SVG internals: `>15` anchors
+  // on the ">" that ends WHATEVER the icon renders, not its path data.
+  check("...the clear count, the reward glyph and the milestone salvage, in order and with no stray whitespace",
+    linesHud.includes('id="hud-tier">0/3<span class="currency">') && linesHud.includes('>15</span></b>'));
+  // Order was unchecked: swapping the Bay and Tier blocks (or the manifest
+  // row and either of them) left every check above green. This file already
+  // has the idiom two sections up (Lost after Launches) — same idea here.
+  check("the Bay conditions row reads before the Tier row",
+    linesHud.indexOf('id="hud-conditions"') < linesHud.indexOf('id="hud-tier"'));
+  check("on a pattern Contract, the manifest reads before both",
+    patternHud.indexOf('id="hud-queue"') < patternHud.indexOf('id="hud-conditions"') &&
+      patternHud.indexOf('id="hud-conditions"') < patternHud.indexOf('id="hud-tier"'));
+  check("a Deep Run bay renders neither row — it has notches instead",
+    (() => {
+      const run = hudHTML({ ...base, contract: null, timeLimitSec: 150, timeLeftMs: 90_000 });
+      return !run.includes('id="hud-conditions"') && !run.includes('class="pl-tier"')
+        && run.includes('id="hud-notches"');
+    })());
+}
+
 // ---------------------------------------------------------------------------
 section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
 // ---------------------------------------------------------------------------
@@ -2786,6 +2952,14 @@ section("HUD readout widths (the $1000+ wrap regression)");
     // or it proves the case that happens not to be the tight one.
     const launchesCol = col("SHIPMENTS", String(Math.floor(funds / 25)));
     const timeCol = col("TIME", "0:00") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
+    // A LINES Contract renders a third column where a Deep Run puts its clock
+    // (screens.ts's hudHTML). It cannot be the binding one: "LOST" and "TIME"
+    // are both 4 glyphs, so the label term is identical, and its widest value
+    // ("999", the degenerate near-total-loss case) is shorter than "0:00" — so
+    // lostCol <= timeCol holds by construction at every viewport. Returned so
+    // the check below reads the same numbers this budget does rather than
+    // re-deriving them from a second copy of the model.
+    const lostCol = col("LOST", "999") + mx(STAT_MARGIN_MIN, STAT_MARGIN_FPX);
 
     const gaps = 2 * mx(READ_GAP_MIN, READ_GAP_FPX);
     const available = content - launchesCol - timeCol - gaps;
@@ -2798,7 +2972,7 @@ section("HUD readout widths (the $1000+ wrap regression)");
       MONO_ADV * fundsFs +
       tgtStr.length * MONO_ADV * fundsFs * TGT_EM;
 
-    return { available, needed, slack: available - needed, mode: l.mode };
+    return { available, needed, slack: available - needed, mode: l.mode, timeCol, lostCol };
   }
 
   // Every viewport class, at the worst realistic bankroll/target pairing. The
@@ -2824,6 +2998,41 @@ section("HUD readout widths (the $1000+ wrap regression)");
         `needs ${b.needed.toFixed(0)}px, has ${b.available.toFixed(0)}px (short ${(-b.slack).toFixed(0)}px)`,
       );
     }
+  }
+
+  // fundsBudget only ever models the DEEP RUN column set (Funds/Target +
+  // Launches + Time) — it knows nothing about a lines Contract's row (Lines/
+  // Goal + Launches + Lost). The two extra columns are not the risk: goal
+  // never leaves single digits (contracts.ts's lines-goal formula tops out at
+  // 3 + 2 + 4 = 9) where a Deep Run target runs to 4 figures, and a Contract's
+  // launch budget tops out at 44 (launchesFor at goal 9, std pieces, volatile
+  // material at its rate cap, tight launch budget — the same worst-case
+  // branch sim/uifit/fixtures.ts's hud-contract-lines fixture derives 176
+  // from, ~line 401: 44 launches x 4 cubes/piece), well inside the 3-digit
+  // launchesCol the loop above already proves fits. LOST is the one column
+  // nothing has priced: same label length as TIME ("LOST" / "TIME", 4
+  // glyphs), and a lines Contract cannot lose more cubes than that same
+  // worst case ever ships (176), so "999" is a deliberately generous
+  // stand-in for the value string, not the real ceiling.
+  //
+  // The check below guards that ASSUMED value width, not the DOM: it never
+  // reads screens.ts's actual markup, so renaming the LOST label there would
+  // not fail it. It is also a SINGLE assertion rather than one per viewport,
+  // on purpose — `col`'s formula makes the label term identical for LOST and
+  // TIME (same 4 glyphs) and the value term strictly smaller for LOST ("999"
+  // is 3 characters against "0:00"'s 4), so max(label, value) for LOST can
+  // never exceed the same for TIME, for every scale factor computeLayout can
+  // produce — it holds by construction, not by measurement. The viewport
+  // below is arbitrary; six of them were six copies of one arithmetic fact,
+  // which is not six times the coverage.
+  {
+    const [name, w, h] = VIEWPORTS[0];
+    const { timeCol, lostCol } = fundsBudget(w, h, 1_259, 1_700);
+    check(
+      `${name}: a lines Contract's assumed Lost width fits inside Time's (holds for every viewport by construction)`,
+      lostCol <= timeCol,
+      `lostCol ${lostCol.toFixed(1)}px vs timeCol ${timeCol.toFixed(1)}px`,
+    );
   }
 }
 

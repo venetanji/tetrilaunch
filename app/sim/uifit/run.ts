@@ -471,6 +471,15 @@ function measure(cfg: {
   // `.hud[data-coach] .plant` max-height rule — so THAT cap is the design box
   // the assertion holds the panel to on the coach screens. Same number, one
   // source of truth in the stylesheet, read here rather than re-derived.
+  //
+  // Both directions matter. The upper bound alone only ever catches a panel
+  // that grew; a rule that SHRINKS it back — `.hud--contract .plant { min-
+  // height: 0 }` reappearing, or any future rule with the same effect — passes
+  // every device here and would only ever be caught by a human reading the
+  // real app, which is not a repeatable gate. `.plant`'s own `min-height:
+  // calc(0.4296 * var(--field-h))` is unconditional in app.css — there is no
+  // `.hud--contract` override on it — so 0.4296 is the floor on every screen,
+  // Contract or Deep Run, coached or not.
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
@@ -481,6 +490,13 @@ function measure(cfg: {
       out.plant.push(
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
+    }
+    // NOT `design`: on a coached screen `design` is 0.52 * fh, the tutorial's
+    // MAX layered on top of the same 0.4296 floor (app.css never replaces the
+    // floor for that screen, only adds a ceiling above it) — reusing it here
+    // would demand a coached panel 21% taller than the stylesheet asks for.
+    if (h < 0.4296 * fh - 1) {
+      out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(0.4296 * fh)}px footprint`);
     }
   }
 
@@ -584,14 +600,138 @@ function measure(cfg: {
   // What has to agree is where the two faces put a plain cap, which is a
   // property of the faces and not of the tally. H has no round overshoot in
   // either of them.
+  //
+  // The baseline probe is UNSAFE on a flex or grid container whose items are
+  // not baseline-aligned, and this is not a corner case worth a silent wrong
+  // answer. Appending an inline-block child to `el` only reads the true line
+  // box's baseline if `el` lays that child out as an ordinary inline box — a
+  // flex/grid container BLOCKIFIES it into an item instead (confirmed via
+  // getComputedStyle: an inline-block probe's computed display reads "block"
+  // the moment it is appended into one), and `vertical-align` has no effect
+  // on a flex/grid item, so `align-items` decides where it lands instead of
+  // the text underneath it.
+  // Under `baseline` that item is a no-own-baseline participant, and the flex
+  // baseline-alignment algorithm places its margin edge ON the line's real
+  // shared baseline (the same edge the classic inline-block trick relies on)
+  // — confirmed empirically against `.pl-notch b` (flex, baseline): the probe
+  // lands somewhere between the box's top and bottom, tracking the real text.
+  // Under any OTHER align-items the probe is simply centred (or start/end
+  // aligned) on the box's own cross-axis, with no relationship to the ink at
+  // all — confirmed against `.pl-tier b` (flex, center): the probe's position
+  // was bit-identical to the box's geometric centre, regardless of content.
+  // Silently returning that centre as "the baseline" is how `.pl-tier`
+  // shipped a confidently-wrong -1.98px to -4.49px reading, and how a since-
+  // reverted fix then shipped an equally confident wrong number in the other
+  // direction.
+  //
+  // The fix is a FALLBACK, not a wider silence: isolate the value's own text
+  // in a plain wrapper that re-establishes ordinary flow (capMid's own
+  // comment below has the mechanics and the proof it does not disturb the
+  // row), and only give up — loudly, by throwing — when even that cannot
+  // find something to measure. A caller that genuinely cannot see a row's
+  // real ink still has to know that, not be handed a plausible-looking lie;
+  // it just needs a real fallback tried first, or the one row this branch
+  // added and mis-aligned ships with no automated guard at all.
   const PROBE_PX = 1000;
-  const capMid = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
-    if (!(el.textContent ?? "").trim()) return null;
+  // The classic trick, isolated: append an empty inline-block probe and read
+  // where its bottom margin edge lands. Correct whenever `container` lays its
+  // children out in ORDINARY flow — whether that is `el` itself (the common
+  // case) or, via the wrapper fallback below, a stand-in that re-establishes
+  // ordinary flow for content a flex/grid container would otherwise blockify.
+  const baselineOf = (container: Element): number => {
     const probe = document.createElement("span");
     probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
-    el.appendChild(probe);
-    const baseline = probe.getBoundingClientRect().bottom;
+    container.appendChild(probe);
+    const y = probe.getBoundingClientRect().bottom;
     probe.remove();
+    return y;
+  };
+  const capMid = (el: Element, cvs: CanvasRenderingContext2D): number | null => {
+    if (!(el.textContent ?? "").trim()) return null;
+    const cs0 = getComputedStyle(el);
+    const unsafe = (cs0.display === "flex" || cs0.display === "inline-flex"
+      || cs0.display === "grid" || cs0.display === "inline-grid")
+      && cs0.alignItems !== "baseline";
+    let baseline: number;
+    if (!unsafe) {
+      baseline = baselineOf(el);
+    } else {
+      // FALLBACK for the shape the plain probe cannot read (see the header
+      // comment above): isolate `el`'s own direct text in a plain
+      // `display:inline-block` wrapper. Blockification only touches a
+      // flex/grid container's DIRECT children, so the probe — appended
+      // inside THIS wrapper rather than inside `el` — sees an ordinary
+      // inline formatting context again and reads the real ink.
+      //
+      // Wraps ONLY the text, never the whole element: wrapping the icon
+      // too re-flows it through ordinary inline rules instead of the flex
+      // ones that actually size it, which measurably MOVES the reading
+      // (confirmed against `.pl-tier b`: -0.33px off this method, against
+      // 0.02px wrapping the text alone — a different answer, not a noisier
+      // one) and visibly narrows the box while wrapped, even though it is
+      // restored correctly after. An element with no direct text node has
+      // nothing this fallback can isolate, so it falls through to the throw
+      // below rather than guessing.
+      const textNode = [...el.childNodes].find(
+        (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim(),
+      );
+      if (!textNode) {
+        throw new Error(
+          `capMid cannot measure ${label(el)}: ${cs0.display} with align-items:${cs0.alignItems}, `
+            + `and no direct text node to isolate in a wrapper.`,
+        );
+      }
+      const text = textNode.textContent ?? "";
+      const row = el.parentElement;
+      const beforeEl = el.getBoundingClientRect();
+      const beforeRow = row?.getBoundingClientRect();
+      const wrapper = document.createElement("span");
+      wrapper.style.cssText = "display:inline-block";
+      wrapper.textContent = text;
+      el.replaceChild(wrapper, textNode);
+      baseline = baselineOf(wrapper);
+      // Sampled WHILE the wrapper is still in place, not just before/after:
+      // a wrapper that perturbs the row's layout during measurement and
+      // restores cleanly afterwards would pass a before/after-only check,
+      // and that failure mode is not hypothetical — it is exactly what
+      // wrapping the whole element instead of just its text does (see this
+      // function's comment above: it visibly narrows the box while wrapped,
+      // even though the DOM is restored correctly after). The reading taken
+      // one line above, `baselineOf(wrapper)`, happens inside this same
+      // window, so THIS is the check that can actually invalidate it.
+      const duringEl = el.getBoundingClientRect();
+      const duringRow = row?.getBoundingClientRect();
+      wrapper.replaceWith(textNode);
+      const afterEl = el.getBoundingClientRect();
+      const afterRow = row?.getBoundingClientRect();
+      const moved = (a: DOMRect, b: DOMRect): boolean =>
+        Math.abs(a.top - b.top) > 0.01 || Math.abs(a.left - b.left) > 0.01
+        || Math.abs(a.width - b.width) > 0.01 || Math.abs(a.height - b.height) > 0.01;
+      if (
+        moved(beforeEl, duringEl)
+        || (beforeRow && duringRow && moved(beforeRow, duringRow))
+      ) {
+        throw new Error(
+          `capMid wrapper fallback perturbed ${label(el)}'s geometry WHILE measuring — the `
+            + `reading is not trustworthy even though the DOM will be restored: `
+            + `element ${JSON.stringify(beforeEl)} -> ${JSON.stringify(duringEl)}, `
+            + `row ${JSON.stringify(beforeRow)} -> ${JSON.stringify(duringRow)}.`,
+        );
+      }
+      // A second, separate check: proves the swap-and-restore itself left
+      // `el` (and its row) exactly where they were, catching a broken
+      // restoration even on a wrapper that measured cleanly.
+      if (
+        moved(beforeEl, afterEl)
+        || (beforeRow && afterRow && moved(beforeRow, afterRow))
+      ) {
+        throw new Error(
+          `capMid wrapper fallback left ${label(el)}'s geometry changed after restoring: `
+            + `element ${JSON.stringify(beforeEl)} -> ${JSON.stringify(afterEl)}, `
+            + `row ${JSON.stringify(beforeRow)} -> ${JSON.stringify(afterRow)}.`,
+        );
+      }
+    }
     const cs = getComputedStyle(el);
     const size = parseFloat(cs.fontSize);
     if (!(size > 0)) return null;
@@ -604,21 +744,47 @@ function measure(cfg: {
   };
   const cvs = document.createElement("canvas").getContext("2d");
   if (cvs) {
-    // [row, label, value] — the panel's two mixed-typeface rows. Listed rather
+    // [row, label, value] — the panel's mixed-typeface rows. Listed rather
     // than discovered: a rule that hunted for font-family changes would also
     // find the deliberate ones (the funds figure UNDER its label, the PWR cap's
     // centre-aligned readout) and have to carry exceptions for them.
+    //
+    // `.pl-notch` is two different rows depending on the class alone: Deep
+    // Run's Notches tally (value is a `.pl-notch__ax` chip run) and a
+    // Contract's Bay-conditions line (value is a plain `<b>`, no chips at
+    // all — screens.ts's hudHTML). One unscoped `.pl-notch` entry can only
+    // ever match whichever the CURRENT fixture rendered, and on a Contract
+    // fixture that used to mean matching the Bay row while still asking for
+    // `.pl-notch__ax` — `row.querySelector(lblSel)` found the label,
+    // `row.querySelector(valSel)` found nothing, and `if (!lbl || !val)
+    // return;` below silently skipped the row rather than failing loud. Two
+    // scoped entries instead, one per actual shape.
     ([
-      [".pl-notch", ".lbl", ".pl-notch__ax"],
+      [".hud:not(.hud--contract) .pl-notch", ".lbl", ".pl-notch__ax"],
+      [".hud--contract .pl-notch", ".lbl", "b"],
       [".pl-queue", ".lbl", "b"],
+      [".pl-tier", ".lbl", "b"],
     ] as [string, string, string][]).forEach(([rowSel, lblSel, valSel]) => {
       const row = document.querySelector(rowSel);
       if (!row) return;
       const lbl = row.querySelector(lblSel);
       const val = row.querySelector(valSel);
       if (!lbl || !val) return;
-      const a = capMid(lbl, cvs);
-      const b = capMid(val, cvs);
+      // capMid THROWS rather than returning a number for a shape it cannot
+      // trust (see its own comment) — caught here, once per row, so one
+      // unmeasurable entry does not abort every other screen's run. Printed
+      // as a warning rather than silently dropped: a row this assertion
+      // cannot see is a coverage gap, not a pass, and the report says so on
+      // every run rather than once.
+      let a: number | null;
+      let b: number | null;
+      try {
+        a = capMid(lbl, cvs);
+        b = capMid(val, cvs);
+      } catch (err) {
+        out.warn.push(`inkline cannot verify ${rowSel}: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
       if (a === null || b === null) return;
       // Half a pixel: below that the difference is rasterisation, not layout.
       if (Math.abs(b - a) > 0.5) {
@@ -951,7 +1117,11 @@ if (grown.length) {
 }
 
 if (warnings.length) {
-  console.log(`⚠ ${warnings.length} ellipsis truncation(s) — deliberate unless they aren't:`);
+  // Two unrelated kinds share this channel now: an ellipsis/line-clamp is a
+  // deliberate design decision worth a skim, and an "inkline cannot verify"
+  // entry is a coverage gap worth fixing or baselining — each message states
+  // its own kind, so the header stays generic rather than naming just one.
+  console.log(`⚠ ${warnings.length} warning(s) — see each line for its kind:`);
   for (const w of warnings.slice(0, 10)) console.log(`    ${w}`);
   if (warnings.length > 10) console.log(`    …and ${warnings.length - 10} more`);
   console.log("");

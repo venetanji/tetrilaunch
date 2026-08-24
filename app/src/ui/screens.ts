@@ -651,6 +651,33 @@ export function hudHTML(opts: {
     lines: number;
     launchesLeft: number;
     remaining: PieceType[];
+    /** Cubes that bounced out before the compactor (Game.lostTotal). Rendered
+     *  as the third readout column on a LINES Contract. The space isn't empty
+     *  before this: with no third .pl-stat, .pl-funds (flex: 1 1 auto) simply
+     *  grows to fill it, so a Contract currently spends that width on a longer
+     *  Lines/Goal bar (app.css's .pl-funds/.pl-goal). Adding Lost costs that
+     *  bar a THIRD flex item, not just a column — .pl-read's own gap (app.css)
+     *  is paid twice for three items where two paid once, so the bar's real
+     *  loss is the column plus that extra gap: about 36px at the tightest
+     *  phone the ui-fit harness models. What's left over still beats a Deep
+     *  Run: the bar ends up roughly 18px longer than a Deep Run's Funds/Target
+     *  bar at the same viewport (both pay the same two-gap cost there, so the
+     *  gap cancels out of THAT comparison), because LOST's column is narrower
+     *  than TIME's (sim/systems.ts proves it: same 4-glyph label, a shorter
+     *  value).
+     *
+     *  Not rendered on a pattern Contract: SPARE_SHIPMENTS is 0, so the margin
+     *  is 0 on frame one and one stranded cube ends the attempt. It never even
+     *  reaches 1 — cubesAvailable stops counting a cube the moment it starts
+     *  blinking (lineClear.ts's markLostPieces), so objectiveUnreachable fires
+     *  1.4s before lostTotal increments, and the bay is called 0.4s before
+     *  that. A column that reads 0 for a whole attempt is not a readout. */
+    lost: number;
+    /** The bay's complications, one line (Contract.conditions). The board card
+     *  states these and the bay used to forget them. */
+    conditions: string;
+    /** Tier standing, for the row that says why this clear is worth having. */
+    progress: TierProgress;
   } | null;
 }): string {
   const {
@@ -850,7 +877,12 @@ export function hudHTML(opts: {
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">${contract.kind === "pattern" ? "Shipments" : "Launches"}</div>
             <div class="v" id="hud-launches">${contract.launchesLeft}</div>
-          </div>`
+          </div>
+          ${
+            contract.kind === "lines"
+              ? `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
+              : ""
+          }`
               : `<div class="pl-funds">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
@@ -919,6 +951,61 @@ export function hudHTML(opts: {
             : `<div class="pl-notch"><span class="lbl">Notches</span><b id="hud-notches">${runNotchTallyHTML(ratchets, opts.final ?? null)}</b></div>`
         }
         ${
+          // The bay's own complications — the Contract analogue of the notch
+          // line above, and the same row shape for the same reason: a list
+          // whose length the panel does not control belongs on a row that can
+          // scroll its tail. The board card states these and the bay used to
+          // forget them the moment it started.
+          //
+          // Rendered on EVERY Contract, so the row is at the same height on
+          // every card, and neither kind can leave it empty. On a LINES
+          // Contract that is budgetForTier (never below 2) plus wind and
+          // tightLaunches — 2 points each, and the two complications with no
+          // option-specific gate, unlike material and micro — so the notes
+          // list always gets at least one entry (0 empties across 72,000
+          // generated Contracts: contracts.ts's own measurement for its
+          // "clean bay" fallback, which guards a future budget or gating
+          // change and is not a state this row renders today). On a PATTERN
+          // Contract, patternConditions is a switch whose every case,
+          // default included, returns a literal string — no branch falls
+          // through empty.
+          //
+          // NOT `.pl-mods`: that row is display:none at compact density and
+          // never renders in a Contract at all. levelForContract never calls
+          // applyUpgrades, so bondBreakerCharges/bombCharges stay at
+          // makeBaseLevel's zero (only levelForRun's applyUpgrades raises
+          // them), which leaves bondChip and demoChip empty too — and
+          // hudOpts hands a Contract `tiers: {}` on top of that. Conditions
+          // placed on that row would be invisible on every phone.
+          contract
+            ? `<div class="pl-notch"><span class="lbl">Bay</span><b id="hud-conditions">${contract.conditions}</b></div>`
+            : ""
+        }
+        ${
+          // Why this bay is worth playing. The board states the deal — tier,
+          // clears needed, salvage a first clear banks — and the bay dropped
+          // it. Static for the length of an attempt, which is why it is a line
+          // and not a readout column.
+          //
+          // `salvageHTML`, not a bare `icon("salvage", 9)` + interpolated
+          // number: every other salvage figure in the app goes through it
+          // (screens.ts:58), and writing this one out by hand also left a
+          // literal space either side of the icon — a stray text-node flex
+          // item next to a `gap` that already spaces the row (app.css's
+          // `.pl-tier b`). See app.css's `.pl-tier` comment for the actual
+          // rendering bug this row had (align-items, not this wrapper) and
+          // why its value can never overflow.
+          //
+          // `id="hud-tier"` exists to anchor tests, not to sync: the value is
+          // static while the bay plays (above). Its one legitimate change —
+          // tier progress advancing on a first clear — lands via
+          // contract-end's own fresh hudHTML() render, not a live patch, so
+          // main.ts still never looks the id up.
+          contract
+            ? `<div class="pl-tier"><span class="lbl">Tier ${contract.progress.tier}</span><b id="hud-tier">${contract.progress.contracts}/${contract.progress.needed}${salvageHTML(contract.progress.milestone, 9)}</b></div>`
+            : ""
+        }
+        ${
           // Build row: ABILITY chips first, then the ship rack. The rack is
           // seven fixed slots and all seven fit without scrolling on every
           // device (components.ts's shipPlatesHTML, and the harness's "rack"
@@ -930,20 +1017,28 @@ export function hudHTML(opts: {
           // legible size, and a notch behind a scroll is a notch the player
           // does not know they took.
           //
-          // In a CONTRACT the rack is gone and the chips are the whole row.
+          // In a CONTRACT this row never renders at all, on any device — not
+          // "the rack is gone and the chips are the whole row", a state that
+          // cannot occur (see the Bay row's NOT `.pl-mods` note above).
+          // Written as `plates || bondChip || demoChip` rather than
+          // `contract ? "" : ...` anyway, because that condition is the real
+          // reason the row disappears, checked directly instead of assumed
+          // from the mode: `plates` is `""` on a Contract by construction
+          // (`contract ? "" : shipPlatesHTML(tiers)`), and `bondChip`/
+          // `demoChip` are always empty there too — main.ts's hudOpts derives
+          // `bondBreakerOwned`/`demoOwned` from `g.bondCharges`/
+          // `g.level.bombCharges`, and `levelForContract` (contracts.ts)
+          // never calls `applyUpgrades`, so both sit at `makeBaseLevel`'s zero
+          // default; only `levelForRun`'s `applyUpgrades` ever raises them.
           // Fixed slots earn their place in a Deep Run, where a refit lights a
-          // plate exactly where the player is already looking — but main.ts's
-          // hudOpts hands a Contract `tiers: {}` every time, so there those
-          // seven boxes are empty by construction and can never do that job.
-          // The abilities can: they come off the Contract's own level config,
-          // and they are the modifiers a Contract actually carries. When it
-          // carries none the row does not render at all rather than leaving a
-          // lone BUILD tag labelling nothing.
+          // plate exactly where the player is already looking; a Contract's
+          // own level config carries no ability that could ever light this
+          // row the same way, today.
           //
-          // On a PHONE it never renders: the chips are hidden at compact
-          // density (the rail carries the same triggers, counts included), so
-          // app.css drops the whole row there rather than leave its padding
-          // behind. The row is a desktop/tablet readout in a Contract.
+          // On a PHONE, Deep Run's build row hides a second, independent way:
+          // the chips are hidden at compact density (the rail carries the
+          // same triggers, counts included), so app.css drops the whole row
+          // there rather than leave its padding behind.
           plates || bondChip || demoChip
             ? `<div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>

@@ -74,7 +74,11 @@ export interface BayRecord {
    *  pieceSize (tiny 2, std 4, bulk 5), so this over a shot count is not a
    *  fraction of shots; sim/playtest.ts once reported it as one and printed
    *  106%. The name predates the cube-wise penalty and is now frozen: it is a
-   *  key in sessions already persisted to localStorage. */
+   *  key in sessions already persisted to localStorage.
+   *
+   *  Also the Contract HUD's "Lost" column now (screens.ts's hudHTML), which
+   *  is the first time this number is player-visible — so the units matter to
+   *  anyone reconciling a session export against what was on screen. */
   lostPieces: number;
   endScore: number;
 }

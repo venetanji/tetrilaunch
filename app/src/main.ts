@@ -643,6 +643,14 @@ class App {
                   ? 0
                   : g.launchesLeft,
             remaining: g.piecesRemaining,
+            // Cubes off the deck. On a lines Contract this is the launch
+            // budget quietly draining — launchesFor priced the bay against
+            // PLANNING_EFFICIENCY, and every cube lost is that margin being
+            // spent. The panel renders it on lines Contracts only; see
+            // screens.ts's hudHTML for why a pattern bay cannot use it.
+            lost: g.lostTotal,
+            conditions: this.contract.conditions,
+            progress: tierProgressFor(this.meta),
           }
         : null,
     };
@@ -1455,6 +1463,9 @@ class App {
       if (s !== "won" && s !== "lost") return;
       telemetry.endBay({
         result: s, reason: g.lossReason, secs: g.elapsedMs / 1000,
+        // This call fires for both Contract kinds, but the HUD only has a
+        // "Lost" column (screens.ts's hudHTML) on a "lines" one — see
+        // BayRecord.lostPieces for what the field actually counts.
         lines: g.linesTotal, lostPieces: g.lostTotal, endScore: g.score,
       });
       telemetry.endRun(s === "won", 0);
@@ -2036,6 +2047,14 @@ class App {
       const supply = pattern ? g.piecesLeft : g.launchesLeft;
       set("#hud-score", String(g.linesTotal));
       set("#hud-launches", String(supply === Infinity ? 0 : supply));
+      // Gated on `pattern`, matching #hud-queue's and #hud-time's own gates
+      // below: a pattern Contract has no #hud-lost element (screens.ts's
+      // hudHTML), and gating explicitly — rather than trusting `set`'s
+      // silent no-op on a missing node — keeps a typo'd selector or a
+      // markup regression from reading as "pattern bay, nothing to do
+      // here". The other two Contract rows (conditions, tier progress) are
+      // rendered by hudHTML and never patched here.
+      if (!pattern) set("#hud-lost", String(g.lostTotal));
       // The same urgency treatment the Deep Run readout gets below, one shot
       // later: a Contract's supply is an exact countdown rather than an
       // estimate of what the bankroll still buys, and it starts small. See

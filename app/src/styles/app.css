@@ -1262,11 +1262,35 @@ body.crt-off #app::after { display: none; }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
 .pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
 
-/* Tier-2 stat columns (launches, time) — same size and weight as each other so
-   neither reads as more important than the other; both escalate the same way. */
-/* The two tier-2 columns need to read as SEPARATE numbers — at a glance
-   "0" and "2:23" side by side can otherwise scan as one figure. A hairline rule
-   and real padding between them does that without adding another label. */
+/* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
+   always, paired with a second column that depends on the mode: time on a
+   Deep Run, lost on a lines Contract (screens.ts's hudHTML). A pattern
+   Contract renders launches alone, with no partner column at all. Same size
+   and weight in every pairing, so neither column reads as more important
+   than the other. Launches and time both carry the danger escalation
+   (`.pl-stat--danger`, main.ts's syncHud); Lost deliberately never does —
+   its total (game.ts's lostTotal) reaches only telemetry and this readout
+   (main.ts:613, 1268, 1303, 1779), never a gameplay branch, because there
+   is nothing for it to gate: a lines Contract's launch budget already
+   prices some waste in (contracts.ts's PLANNING_EFFICIENCY and SLACK, via
+   contractEfficiency/launchesFor), so a lost cube spends that margin
+   rather than crossing a threshold where the correct play changes. */
+/* No `min-width` on `.pl-lost`, deliberately: measuring says it does not
+   need one. sim/systems.ts's own budget prices "Lost" against a flat
+   per-glyph average (4 glyphs at 3.6px each, ~14px total) and would call a
+   two-digit value the column's new floor — but that average undershoots
+   what Rajdhani actually draws for these four letters: on-device at
+   792x360 compact, swapping #hud-lost's text finds the column at 25.8px
+   through one digit and 26.0px through two, a 0.2px difference. The real
+   label is already as wide as a two-digit value, so there is no jump here
+   for a min-width to fix. Three digits does move it (35px, +9px, one more
+   mono digit) — but that width is already covered: sim/systems.ts's own
+   column-width proof for this row tests exactly that case ("999") and
+   finds it still fits inside TIME's column. */
+/* Two columns, when a pairing puts two on screen, need to read as SEPARATE
+   numbers — at a glance "0" and "2:23" side by side can otherwise scan as
+   one figure. A hairline rule and real padding between them does that
+   without adding another label. */
 .pl-stat { flex: none; text-align: right; padding-left: max(6px, calc(14 * var(--fpx))); }
 .pl-stat + .pl-stat { margin-left: max(5px, calc(10 * var(--fpx))); border-left: 1px solid var(--line); }
 .pl-stat .v { font-family: var(--font-mono); font-weight: 700; font-size: max(15px, calc(30 * var(--fpx))); color: var(--text); line-height: 1; margin-top: 3px; white-space: nowrap; }
@@ -1276,7 +1300,13 @@ body.crt-off #app::after { display: none; }
    numbers can jump: <= LOW_LAUNCH_WARN (3) for a Deep Run's launches, which is
    an estimate of what the bankroll still buys, and <= LOW_SUPPLY_WARN (2) for a
    Contract's budget or shipment queue, which is an exact countdown. See
-   main.ts's syncHud and screens.ts's LOW_SUPPLY_WARN. */
+   main.ts's syncHud and screens.ts's LOW_SUPPLY_WARN.
+
+   The Contract's Lost column is the one .pl-stat that never takes this class.
+   It has no threshold to cross: the launch budget already prices waste in
+   (contracts.ts's PLANNING_EFFICIENCY and SLACK), and Game.lostTotal has no
+   gameplay consumer at all — every reader is telemetry, the end modal, or the
+   HUD string — so there is no count at which anything happens. */
 .pl-stat--danger .v { color: var(--danger); animation: pulse-danger 1s var(--ease) infinite; }
 .pl-stat--danger .lbl { color: var(--danger); }
 /* B7: the funds bar joins the ONE urgency treatment. When the launches
@@ -1328,18 +1358,27 @@ body.crt-off #app::after { display: none; }
   text-shadow: 0 0 6px rgba(255, 45, 85, 0.9);
 }
 
-/* The pattern Contract's remaining manifest — its OWN row under the meta
-   line, never inline in it: the tally is the widest thing the panel can hold
-   (six piece types × "I×3"), and inline it wrapped the meta line two or
-   three deep, which is what pushed the panel past its design box on the
-   tightest inset device. A row scrolls its tail; a wrapped line only grows. */
-.pl-queue {
+/* Three rows share one shell — label on the left in pixel type, mono value on
+   the right, `align-items: baseline` lining the row up on an edge (see the
+   optical correction below), one row-gap rhythm. This was the SAME ten
+   declarations three times over, byte-identical on .pl-queue, .pl-notch and
+   .pl-tier (compared below their own rules once each was written). Hoisted
+   here instead: change the row shape once, not in three places that can
+   drift apart. What is left on each class below is only what makes it that
+   particular row — the manifest tally, the notch tally, or the tier line. */
+.pl-queue, .pl-notch, .pl-tier {
   margin-top: 2px;
   display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
   font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
   letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
   min-width: 0;
 }
+
+/* The pattern Contract's remaining manifest — its OWN row under the meta
+   line, never inline in it: the tally is the widest thing the panel can hold
+   (six piece types × "I×3"), and inline it wrapped the meta line two or
+   three deep, which is what pushed the panel past its design box on the
+   tightest inset device. A row scrolls its tail; a wrapped line only grows. */
 .pl-queue b {
   font-family: var(--font-mono); font-weight: 700;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
@@ -1360,13 +1399,6 @@ body.crt-off #app::after { display: none; }
    The line costs ~9px against the 18.6px of free height the panel had inside
    its design box on the tightest device in the matrix, so it is paid for out
    of air the panel was already spreading between its rows, not out of the box. */
-.pl-notch {
-  margin-top: 2px;
-  display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
-  font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
-  min-width: 0;
-}
 .pl-notch b {
   display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700;
@@ -1388,7 +1420,74 @@ body.crt-off #app::after { display: none; }
 .pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
 
-/* ---------- The two rows that put a MONO value beside a PIXEL label --------
+/* The tier line — the same label-plus-mono-value shell as .pl-notch and
+   .pl-queue above, so it inherits their optical correction below rather than
+   restating it. Its own class only because its value differs from both in
+   two ways.
+
+   First: it is a fixed fact for the length of a bay, not a list, so no
+   scrolling tail (`.pl-notch b` / `.pl-queue b`'s `overflow-x: auto`) — this
+   is deliberate, not an oversight, because the value cannot overflow. Every
+   part of it is bounded: `progress.tier` never exceeds MARK_COUNT (10 —
+   meta.ts's `markUnlocked` clamps to `Math.min(MARK_COUNT, meta.mark + 1)`);
+   `progress.contracts` never exceeds `progress.needed`, itself the constant
+   TIER_CONTRACTS_REQUIRED (3 — `tierProgressFor` reports
+   `Math.min(meta.tierContracts, TIER_CONTRACTS_REQUIRED)`); and
+   `progress.milestone` is not merely bounded but FLAT at 15 on every tier —
+   `tierMilestoneSalvage(t) = floor(tierSalvage(t) / 4)`,
+   `tierSalvage(t) = TIER_SALVAGE_BASE + (t-1) * TIER_SALVAGE_PER_TIER`, and
+   TIER_SALVAGE_PER_TIER is 0 (meta.ts), so tierSalvage is the flat 60 at
+   every tier and the floor is a flat 15. The widest this row's label+value
+   can ever read is "Tier 10" beside "3/3" + the salvage glyph + "15" —
+   measured at this row's own floor styling with the real self-hosted fonts:
+   82.9px of content against the 209px content-box the narrowest device in
+   the matrix gives the whole panel (app.css's ship-rack comment above,
+   "the narrowest panel's 209px"). 2.5x headroom; `overflow-x: auto` here
+   would be dead code.
+
+   Second: `align-items: center`, not `baseline` like the two rows above —
+   this one is NOT optional. `icon()` (icons.ts) emits a `display:block` SVG
+   (`.ico`, this file), and a block box has no baseline of its own: inside a
+   `baseline`-aligned flex row it sits ON the text baseline and grows the
+   line box by its own height, the same bug `.currency` documents and fixes
+   for itself below (grep for it rather than trust a line number here — this
+   one had already drifted onto an unrelated rule once). Measured at this
+   row's compact floor (6px type, 9px icon): a `baseline`-aligned `.pl-tier b`
+   stands 19px against a 16px text-only reference — 3px of overflow in a
+   panel written to a height cap. `align-items: center` alone closes it
+   (16.5px, the remaining half-pixel being the icon's own 9px against an 8px
+   text glyph, not a bug). Routing the number through `salvageHTML`
+   (screens.ts) instead of a bare `icon()` call does NOT fix this by itself —
+   confirmed by measuring both ways under `align-items: baseline` (19px
+   either way): `.currency`'s own `align-items: center` governs only ITS
+   children, and it presents no baseline of its own either, so it inflates an
+   ancestor `baseline` row exactly as a bare SVG does. `salvageHTML` is used
+   here anyway, for the glyph-plus-number idiom every other salvage figure in
+   the app uses — but `align-items: center` on THIS rule is what actually
+   fixes the overflow.
+
+   `color: var(--warn)` on the whole value, not just the salvage glyph and
+   number: warm is the salvage colour everywhere else in the app (screens.ts's
+   salvageHTML/`.currency`), so it is right for those two — but it also
+   colours "3/3", a clear count that is not itself a currency. Deliberate: the
+   row states one idea, progress toward a payout, and splitting the fraction
+   into a differently-coloured half would read as two facts sharing a line
+   rather than one. `.lbl` (the pixel "Tier N" text, from the hoisted shell
+   above) stays `--text-muted`; only the row's payoff half takes the colour
+   that says "this is what you're playing for".
+
+   The "9px icon" this section measures against is what `salvageHTML(…, 9)`
+   asks for and now what renders. It briefly was not: the menu's
+   short-viewport `.ico { 13px }` was unscoped, so it overrode every glyph in
+   the app on every phone, and this row carried a local pin to undo it. That
+   rule is scoped to `.menu` now, so the pin is gone and 9px is simply true. */
+.pl-tier b {
+  display: flex; align-items: center; gap: max(3px, calc(5 * var(--fpx)));
+  font-family: var(--font-mono); font-weight: 700; color: var(--warn);
+  white-space: nowrap; min-width: 0;
+}
+
+/* ---------- The three rows that put a MONO value beside a PIXEL label ------
    `align-items: baseline` lines these rows up on an edge Press Start 2P does
    not draw on, and even correcting for that is not enough: the two faces draw
    caps of different heights, so meeting on a shared FOOT still leaves the
@@ -1403,11 +1502,25 @@ body.crt-off #app::after { display: none; }
    `position: relative` and not a margin: the correction is optical, and the
    panel's height budget is measured to the row box. Nothing may move.
 
-   Held by sim/uifit's `inkline` assertion, which compares where the two
-   typefaces actually put ink rather than where their baselines are — no other
-   assertion can see this, since the row does not overflow, wrap, clip or
-   scroll while it is wrong. */
-.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+   `.pl-tier b` takes the SAME correction as the other two, on the reasoning
+   that it is the same two typefaces meeting the same way — but sim/uifit's
+   `inkline` assertion cannot confirm that for this row the way it can for
+   `.pl-notch b`/`.pl-queue b`. `.pl-tier b` is `align-items: center`, not
+   `baseline` (its own rule above — load-bearing, stops the fixed salvage
+   glyph inflating the line box), and the harness's probe technique cannot
+   read a centred flex item's baseline at all: appending an inline-block probe
+   blockifies it into a flex item too, and `align-items: center` reports the
+   BOX's cross-axis centre, not any text-relative position. See run.ts's
+   `capMid` for the guard that refuses to measure this shape rather than
+   silently returning that centre as if it meant something. This rule was
+   confirmed correct by re-measuring with a technique the broken probe cannot
+   corrupt — temporarily isolating the value's text in its own inline-block so
+   it stops being a flex item and the classic baseline trick applies again —
+   which read within 0.016px of perfect on every device in the matrix, cross-
+   checked against an independent canvas-metrics-plus-Range-rect calculation
+   that never calls `capMid` at all. Two people, measuring separately by
+   different methods, agree on both the direction and the magnitude. */
+.pl-notch b, .pl-queue b, .pl-tier b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting
@@ -1420,36 +1533,57 @@ body.crt-off #app::after { display: none; }
    that row's share of the gap for nothing — the same defect the retired title
    row left behind, in the same two templates.
 
-   What IS here is the other half of that: a Contract's panel is SHORTER, not
-   emptier. `.plant`'s min-height is the mockup's footprint and `.plant__body`
-   spreads its rows across whatever it gets (`justify-content: space-between`) — which is right for a Deep Run's
-   five rows and wrong for a Contract's three or four, where it pushed the
-   manifest to the floor of the panel and left a hand's width of nothing above
-   it. Releasing the floor lets the panel hug what it actually has to say.
-   `height: auto` and the BOTTOM anchor were already there for the opposite
-   case (a readout that outgrows the box), so shrinking costs no new geometry:
-   the panel keeps its bottom-left corner and gives the difference back to the
-   field. The `plant` assertion is an upper bound, so a shorter panel passes
-   it.
+   What IS here is the other half of that: a Contract's rows hug the TOP of the
+   panel instead of being spread down it. `.plant__body` uses
+   `justify-content: space-between`, which barely shows on a Deep Run — five
+   rows, one of them `.pl-mods` at 32-57px, leave only 4.3-16.8px to spread —
+   and moves a lot on a Contract: with no `.pl-mods` row, four rows (lines)
+   leave 46.5px over the panel's content (154.6 - 108.1) and five (pattern,
+   strictly one row more, so strictly less left over) leave 29.5px
+   (154.6 - 125.1) — and `space-between` splits whichever it is across EVERY
+   gap between rows, not into one band above the last. Top-aligning them
+   fixes that WITHOUT giving up the footprint, which is
+   what releasing `min-height` did and should not have: the panel is
+   BOTTOM-anchored, so a shorter panel does not sit lower in the same box — its
+   top edge moves. Measured at 792x360 compact just before this rule landed: a
+   Deep Run bay's panel is 154.6px tall with its top edge at y=194.7, a pattern
+   Contract 125.1 at y=224.2, a lines Contract 108.1 at y=241.2. So the readout
+   had to be re-found 17px away between two Contracts on the SAME board, and
+   46px away between a Contract and a run. The leftover height is one band of
+   air at the bottom now, and the panel starts in the same place in every mode.
+   That reliability closes a latent bug too: the drag-hint's anchor (its `top`
+   property, above) computes the panel's top edge from this same 0.4296 —
+   there is a `[data-coach]` override for the one other case where the
+   panel's height changes, but there was never a `.hud--contract` one, so
+   under the old rule it was over-clearing a shorter Contract panel by
+   30-46px, which the harness's `draghint` assertion (it only catches the
+   gesture dipping UNDER the panel) could not see.
 
-   The gap has to be stated once the floor is gone, because `space-between` was
-   what put air between the rows and a hugging panel has none to distribute.
-   18 --fpx is chosen against what the Deep Run panel actually spreads to,
+   The gap is stated rather than distributed for the same reason it was before:
+   `space-between` was what put air between the rows, and flex-start distributes
+   none. 18 --fpx is chosen against what the Deep Run panel actually spreads to,
    which is not one number and cannot be matched by one: it is leftover space,
    so it lands anywhere from 4.3px (iPhone 13 mini, where the readout nearly
    fills the box) to 16.8px (iPhone 16 Pro Max) at the SAME density. 18 --fpx
-   gives 9px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
+   gives 8px on the budget phone, 10px on a Pixel 7 and 19px on an iPad Pro —
    inside that range on every device in the matrix, and even, which the
    distributed gap is not. The per-row margins go with it: they were nudges on
    top of a distributed gap, and on an explicit one they only make the rhythm
-   uneven again. */
-.hud--contract .plant { min-height: 0; }
+   uneven again.
+
+   `justify-content` reaches this panel at every density. Deep Run's
+   `.plant__body` becomes a named-area grid at compact, where it would be inert
+   — but a Contract already opts out of that grid further down, because the
+   template names `meta` and `mods` rows a Contract does not render. It is a
+   flex column at every density, which is why one rule suffices. Do not
+   re-template it as a grid to fit the rows above. */
+.hud--contract .plant__body { justify-content: flex-start; }
 /* `.hud.hud--contract` for the WEIGHT, not the meaning — both classes are on
    the same element. The compact section further down sets this same gap at
    (0,2,0) and, being later, would win the tie against a plain
    `.hud--contract .plant__body`. */
 .hud.hud--contract .plant__body { gap: max(8px, calc(18 * var(--fpx))); }
-.hud--contract :is(.pl-load, .pl-queue) { margin-top: 0; }
+.hud--contract :is(.pl-load, .pl-queue, .pl-notch, .pl-tier) { margin-top: 0; }
 
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
@@ -1603,10 +1737,15 @@ body.crt-off #app::after { display: none; }
      unwrapping the meta line gives back the 12px the second line cost. The
      panel measures 154.7px tall either way. */
   grid-template-columns: minmax(0, 1fr);
-  /* `notch` is named here and NOT in either contract template: the notch line
-     renders only in Deep Run (screens.ts's hudHTML), and a named row costs its
-     share of the row gap even when nothing renders into it — the same trap the
-     retired title row left behind in exactly these templates. */
+  /* `notch` is named here for Deep Run's Notches row (screens.ts's hudHTML) to
+     land in — a named row costs its share of the row gap even when nothing
+     renders into it, the same trap the retired title row left behind in
+     exactly these templates. Not named in a contract template because there
+     is no such template: a Contract's own `.pl-notch` row (the Bay
+     conditions line) shares the class and would inherit this exact grid-area
+     if it ever sat inside this grid, but it never does — Contract opts out
+     via `display: flex` below at compact, and nothing re-templates it at
+     regular/roomy either. */
   grid-template-areas:
     "read"
     "load"
@@ -1625,14 +1764,21 @@ body.crt-off #app::after { display: none; }
 [data-density="compact"] .pl-mods { grid-area: mods; }
 /* Contract mode opts OUT of the grid entirely, at every density, and keeps the
    compact gap. The grid above exists to give Deep Run's five rows an explicit
-   template; a Contract renders three or four, all full-width, all in DOM
+   template; a Contract renders four or five, all full-width, all in DOM
    order, and a template for that is just a list of the rows flex would lay out
    anyway — one that has to be kept in step with which of them render.
-   It could not be, either: `notch` and `meta` are named in the base template
-   and neither exists in a Contract, so a Contract inheriting it would pay two
-   rows' worth of gap for nothing. (This scope used to carry a 0.8/1.2 column
-   split, justified by a measurement of the meta line WITHOUT its "Launch $N"
-   span. There is no meta line here at all now.) */
+   It could not be, either: two of the five named areas are still empty on a
+   Contract that inherits this template, just not the same two any more.
+   `notch` now fills — a Contract's own `.pl-notch` row (the Bay conditions
+   line) would land there, same class, same grid-area. `mods` takes its old
+   place: `.pl-mods` never renders in a Contract at all (`plates || bondChip
+   || demoChip` are all falsy there — see the Build row's comment, and the Bay
+   row's NOT `.pl-mods` note, in screens.ts), so that area would be empty too.
+   `meta` still is, same as always. A Contract inheriting the base template
+   would still pay two rows' worth of gap for nothing — `meta` and `mods` now,
+   not `notch` and `meta`. (This scope used to carry a 0.8/1.2 column split,
+   justified by a measurement of the meta line WITHOUT its "Launch $N" span.
+   There is no meta line here at all now.) */
 [data-density="compact"] .hud--contract .plant__body { display: flex; }
 /* And at compact a Contract has no build row at all. The ability chips are
    hidden at this density (the rail is the touch control surface and carries

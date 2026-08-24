@@ -359,7 +359,30 @@ export const SCREENS: Record<string, () => string> = {
       // Run's to carry. Inheriting HUD_BASE's six bought tracks measured a
       // state the app cannot produce — and now that the rack does not render in
       // a Contract at all, it would have measured nothing while claiming to.
+      //
+      // The identical trap caught the five fields below. levelForContract
+      // (contracts.ts) builds off makeBaseLevel and never writes
+      // bondBreakerCharges, bombCharges or autoLaunchMs, so they stay at
+      // makeBaseLevel's literal 0 for every Contract; Game's constructor
+      // copies them straight through (`this.bondCharges = level.
+      // bondBreakerCharges`, `this.bombCharges = level.bombCharges`), and
+      // hudOpts derives bondBreakerOwned/demoOwned/autoloaderOwned from
+      // exactly those zeros (g.bondCharges > 0, g.level.bombCharges > 0,
+      // g.level.autoLaunchMs > 0 — all false). Inheriting HUD_BASE's
+      // true/2/true/true/3 measured a build no Contract can carry: with
+      // `plates` already "" (screens.ts, contract mode never renders the
+      // rack), bondChip and demoChip were the only things keeping `plates ||
+      // bondChip || demoChip` truthy, so `.pl-mods` rendered a row the real
+      // app never shows on a Contract screen. Silent on all 10 compact
+      // devices, where `.hud--contract .pl-mods` is `display: none`
+      // regardless (app.css) — but real on the three roomy tablets, where
+      // nothing hides it, and it was the entire `plant`/`draghint` overflow.
       tiers: {} as UpgradeTiers,
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -368,14 +391,19 @@ export const SCREENS: Record<string, () => string> = {
         lines: 1,
         launchesLeft: 6,
         remaining: ["I", "O", "T", "L", "J", "S"] as PieceType[],
+        lost: 0,
+        // The variant tail alone (contracts.ts's patternConditions) — the
+        // shipment count is the Shipments column and the manifest row.
+        conditions: "6 shapes, no waste",
+        progress: PROGRESS,
       },
     }),
 
   // The OTHER Contract kind, and the SHORTEST state the plant panel has: a
-  // lines Contract renders no manifest row, so the panel is readout, reload and
-  // the ability chips — two rows on a phone, where the chips are the rail's job
-  // and the row goes with them. Worth its own screen because it is the case the
-  // contract grid template used to get wrong. That template named a `queue`
+  // lines Contract renders no manifest row, so the panel is readout, reload,
+  // conditions and tier — four rows, in the restored footprint, with the
+  // remainder as air at the bottom. Worth its own screen because it is the case
+  // every height change here is aimed at. That template named a `queue`
   // area unconditionally and this kind renders nothing into it, so the panel
   // paid a row's share of the gap for an empty band; nothing in the harness
   // could see it, because a gap is not an overflow, a wrap or a clip. There is
@@ -385,6 +413,15 @@ export const SCREENS: Record<string, () => string> = {
       ...HUD_BASE,
       ratchets: {} as Ratchets,
       tiers: {} as UpgradeTiers,
+      // The ability flags go for the same reason as `tiers` above (see
+      // hud-contract's comment): levelForContract never grants bond, demo or
+      // autoloader charges, so all five stay at the zero/false a live
+      // Contract actually renders with.
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Foundry Overrun",
@@ -393,6 +430,24 @@ export const SCREENS: Record<string, () => string> = {
         lines: 2,
         launchesLeft: 9,
         remaining: [],
+        // Two digits, which is already enough to tip the column past its
+        // label: "LOST" is 17.797px against 18px for two mono digits at the
+        // compact floor. Three digits is not structurally impossible —
+        // lostTotal counts every cube that misses the compactor over a whole
+        // attempt, uncapped by anything but the launch budget, and the
+        // generator's own worst lines Contract (tier 12, std pieces, volatile
+        // material, tight launch budget: 44 launches x 4 cubes) allows up to
+        // 176 fired, so a run that loses nearly all of them clears three
+        // digits. That is a degenerate run rather than a wider Contract, and
+        // it goes untested here — two digits is the state a Contract in
+        // progress actually shows.
+        lost: 14,
+        // Three complications is the cap (contracts.ts's maxComplications
+        // hits 3 at tier 6 and stays there for every tier after — not tier
+        // 9), and this is the longest set of notes the generator emits — 52
+        // chars, measured across 400 seeds x tiers 1-12.
+        conditions: "volatile shipments · tight launch budget · crosswind",
+        progress: PROGRESS,
       },
     }),
 
@@ -500,12 +555,47 @@ function endModal(won: boolean): string {
 export const SCREEN_IDS = Object.keys(SCREENS);
 
 /** The rail loadout each screen renders, mirroring what main.ts's hudOpts
- *  feeds the layout solver (layout.ts's railSlotsFor). Screens built on
- *  HUD_BASE carry all three abilities — the seven-slot worst case — and
+ *  feeds the layout solver (layout.ts's railSlotsFor). Deep Run screens built
+ *  on HUD_BASE carry all three abilities — the seven-slot worst case — and
  *  screens with no HUD have no rail, so they get the base budget. `hud-stock`
  *  falls through to NO_RAIL on purpose rather than by omission: it is a rig
  *  that owns no abilities, so the rail it renders is the base one. The harness
- *  applies this BEFORE publishing the layout, exactly like the app. */
+ *  applies this BEFORE publishing the layout, exactly like the app.
+ *
+ *  The two Contract screens fall through to NO_RAIL for the identical reason
+ *  `hud-stock` does. HUD_LOADOUT reads HUD_BASE.bondBreakerOwned/demoOwned/
+ *  autoloaderOwned directly — the same three fields the hud-contract fixture's
+ *  own comment already corrected to false in the hudHTML() opts, because
+ *  levelForContract never grants any of them. This mapping is a SEPARATE
+ *  reader of the same HUD_BASE data and was not corrected with it, so both
+ *  Contract screens kept handing the layout solver a Deep-Run-worst-case
+ *  seven-slot rail — a state main.ts's hudOpts (bond: g.bondCharges > 0, demo:
+ *  g.level.bombCharges > 0, auto: g.level.autoLaunchMs > 0, all false for a
+ *  Contract) never produces.
+ *
+ *  Not a rounding error: railColumnCap (layout.ts) divides the usable column
+ *  height by railSlots, and computeLayout's `columnFits` check is a MODE
+ *  switch, not a scale factor — seven slots that don't fit the column at all
+ *  fail it and fall back to a bottom band, which is subtracted from the field
+ *  before --field-h is set. On the tightest device in the matrix that is
+ *  exactly what was happening: iPhone 13 mini's `mode` was "tall" (bottom
+ *  band) at seven slots and "snug" (side band) at the real four, taking
+ *  --field-h from 271.00px to 335.25px and the plant's design floor from
+ *  116.42px to 144.02px — measured with sim/uifit's own harness, both
+ *  Contract screens, both before and after this fix. Every other device in
+ *  the matrix is MODE-unaffected (`columnFits` was already true at seven
+ *  slots, so none of them fell to the bottom-band branch either way) — but
+ *  not fully unaffected: railColumnCap still shrinks as railSlots grows, so
+ *  nine of the other twelve (every phone; the three tablets are already
+ *  clamped at RAIL_MAX=60 regardless of slot count) had their rail buttons
+ *  quietly undersized too, from 44-52.43px up to the real four-slot 60px cap
+ *  — measured the same way, `hud` (seven slots) against `hud-contract` (four)
+ *  at the same device and insets. That is exactly why `plant`/`draghint`/
+ *  `rail` stayed green the whole time this was wrong: none of the three
+ *  measures a rail button's own size, only whether it overlaps the field —
+ *  and nothing here overflowed a box either; the box itself was the wrong
+ *  size, or, on those nine, comfortably inside a box sized for buttons
+ *  smaller than the ones the real Contract actually renders. */
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
   demo: HUD_BASE.demoOwned,
@@ -513,8 +603,7 @@ const HUD_LOADOUT = {
 };
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
-  return id === "hud" || id === "hud-rich" || id === "hud-contract"
-    || id === "hud-contract-lines" || id === "hud-notched"
+  return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;

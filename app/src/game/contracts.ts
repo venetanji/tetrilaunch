@@ -250,6 +250,13 @@ export interface Contract {
   standing: number[];
   /** One-line brief shown on the card. */
   brief: string;
+  /** The complications alone — what the bay imposes, with nothing the plant
+   *  panel already states beside it. `brief` is this plus whatever the CARD
+   *  needs and the panel does not: on a pattern Contract, the shipment count
+   *  (the panel has it as a readout column and as a manifest row). Split so the
+   *  HUD does not have to do string surgery on a generated sentence, and so the
+   *  card cannot change when the panel does. */
+  conditions: string;
 }
 
 /* -------------------------------------------------------------------------
@@ -291,6 +298,19 @@ export function budgetForTier(tier: number): number {
 
 /** Cost of each complication, in difficulty-budget points. */
 const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
+
+/** A lines Contract's complications. "clean bay" rather than an empty string
+ *  is a guard, not a live case: budgetForTier never returns below 2, wind and
+ *  tightLaunches cost 2 each and carry no option-specific `continue` gate
+ *  (material and micro do), and maxComplications is always at least 1 — so
+ *  one of the two ungated options is always both affordable and roomed for.
+ *  Measured at 0 "clean bay" results across 72,000 generated lines Contracts
+ *  (tiers 1-12, 3000 seeds each, both daily lines slots). Kept so the plant
+ *  panel's conditions row can never collapse to nothing if a future budget or
+ *  gating change opens a path to zero complications. */
+function linesConditions(notes: readonly string[]): string {
+  return notes.length ? notes.join(" · ") : "clean bay";
+}
 
 /**
  * Bay names — flavour only, and deliberately none of them a RULE.
@@ -792,6 +812,7 @@ function generatePatternContract(
   }
   const shapes = new Set(queue).size;
   const material = spec.material;
+  const conditions = patternConditions(spec, queue, shapes, size, standing);
   return {
     id: `${seed}-${tier}-${slot}`,
     slot,
@@ -819,20 +840,27 @@ function generatePatternContract(
     variant: spec.id,
     lineCells,
     standing,
-    brief: patternBrief(spec, queue, shapes, size, standing),
+    brief: `${queue.length} shipments · ${conditions}`,
+    conditions,
   };
 }
 
 /**
- * The one line on the card. Every variant has to say the thing that makes it
- * different, because a player who cannot restate a Contract in their own words
- * before firing has been handed a surprise rather than a puzzle.
+ * The complications a pattern variant imposes — the tail of the card's brief,
+ * and verbatim what the plant panel shows. Every variant has to say the thing
+ * that makes it different, because a player who cannot restate a Contract in
+ * their own words before firing has been handed a surprise rather than a
+ * puzzle.
+ *
+ * No case may name the shipment count. generatePatternContract prefixes it
+ * once for the card, and the panel states it as its own column and again on
+ * the manifest row — a case that added it back would say it twice on the card
+ * and a third time in the bay.
  */
-function patternBrief(
+function patternConditions(
   spec: VariantSpec, queue: readonly PieceType[], shapes: number,
   size: PieceSize, standing: readonly number[],
 ): string {
-  const n = `${queue.length} shipments`;
   // Std calls out the SHAPE count, because that (not the shipment count) is what
   // makes one tetromino pattern harder than another. Tiny has exactly one shape
   // by construction, so "1 shape" there would read as a bug rather than a
@@ -847,20 +875,20 @@ function patternBrief(
       // field. patternSize keeps this variant on tetrominoes, and this is the
       // second lock on the same door.
       return size === "tiny"
-        ? `${n} · ${cargo}, no waste`
-        : `${n} · all ${queue[0] ?? "I"}, no waste`;
+        ? `${cargo}, no waste`
+        : `all ${queue[0] ?? "I"}, no waste`;
     case "short":
-      return `${n} · ${spec.lineCells}-cell lines, no waste`;
+      return `${spec.lineCells}-cell lines, no waste`;
     case "rebar":
-      return `${n} · rebar, nothing shatters, no waste`;
+      return `rebar, nothing shatters, no waste`;
     case "salvage":
-      return `${n} · ${standing.reduce((a, h) => a + h, 0)} cubes already down, no waste`;
+      return `${standing.reduce((a, h) => a + h, 0)} cubes already down, no waste`;
     case "blind":
-      return `${n} · ${cargo}, no preview, no waste`;
+      return `${cargo}, no preview, no waste`;
     case "guided":
-      return `${n} · magnetic, self-squaring, no waste`;
+      return `magnetic, self-squaring, no waste`;
     default:
-      return `${n} · ${cargo}, no waste`;
+      return `${cargo}, no waste`;
   }
 }
 
@@ -979,6 +1007,7 @@ export function generateContract(
   const launches = launchesFor(
     goal, SIZE_SPEC[pieceSize].cubes, slack, contractEfficiency(material, materialRate),
   );
+  const conditions = linesConditions(notes);
 
   return {
     id: `${seed}-${tier}-${slot}`,
@@ -1001,7 +1030,8 @@ export function generateContract(
     variant: "plain",
     lineCells: lineCellsForTier(tier),
     standing: [],
-    brief: notes.length ? notes.join(" · ") : "clean bay",
+    brief: conditions,
+    conditions,
   };
 }
 
