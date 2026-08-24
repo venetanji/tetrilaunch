@@ -68,7 +68,8 @@ Deep Run number and a Contract number to keep in sync.
 `.plant__body` becomes a named-area grid at compact, where `justify-content`
 would be inert — but a Contract already opts out of that grid
 (`[data-density="compact"] .hud--contract .plant__body { display: flex }`,
-because the template names `notch` and `meta` rows a Contract does not render).
+because the template names `meta` and `mods` rows a Contract does not render;
+`notch` was the second of that pair until the `Bay` row above took the class).
 It is a flex column at every density, which is the whole reason one rule
 suffices. Nothing should re-template it as a grid to accommodate the new rows.
 

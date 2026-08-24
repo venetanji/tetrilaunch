@@ -701,6 +701,7 @@ git commit -m "Contract HUD: top-align the rows, keep the footprint"
 
 **Files:**
 - Modify: `app/sim/uifit/fixtures.ts`
+- Modify: `app/sim/uifit/run.ts` (Step 6a — the lower bound)
 
 - [ ] **Step 1: Confirm the harness is red for the right reason**
 
@@ -823,6 +824,42 @@ so it stops silently no-opping on a Contract screen (the Bay row has no
 `.pl-notch__ax` child, so the probe bailed). Confirm those entries are present
 and actually producing measurements rather than returning early; an inkline
 entry that no-ops looks identical to one that passes.
+
+- [ ] **Step 6a: Give the `plant` assertion a LOWER bound**
+
+This is the guard the whole plan is missing, and without it Task 5's work ships
+unprotected. `sim/uifit/run.ts` asserts only one side:
+
+```js
+if (h > design + 1) out.plant.push(...)
+```
+
+So a regression that re-SHRINKS the Contract panel — re-adding
+`.hud--contract .plant { min-height: 0 }`, or any future rule with the same
+effect — passes on all 13 devices. `sim/systems.ts` cannot see CSS at all, and
+Task 7 is a manual read that will not be repeated. The one thing this plan
+exists to make safe currently has nothing holding it.
+
+Add the other side in the same block:
+
+```js
+if (h < 0.4296 * fh - 1) {
+  out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(0.4296 * fh)}px footprint`);
+}
+```
+
+This is safe on every screen, not just the Contract ones: `.plant`'s
+`min-height: calc(0.4296 * var(--field-h))` is unconditional, and the
+tutorial's `0.52` is a MAX, not a floor. Confirm both of those before adding it.
+
+Note the existing upper bound uses `design`, which is `0.52 * fh` on a coached
+screen — the lower bound must NOT reuse that variable, or a coached screen
+would demand a panel 21% taller than the stylesheet asks for. Use the
+unconditional `0.4296` figure.
+
+Then prove the guard bites: temporarily re-add `min-height: 0` for Contracts,
+confirm `plant` fails on `hud-contract` and `hud-contract-lines`, and revert.
+An assertion nobody has seen fail is not yet a guard.
 
 - [ ] **Step 6b: Report the measured height even when green**
 
