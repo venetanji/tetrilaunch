@@ -9,7 +9,12 @@ import { VitePWA } from "vite-plugin-pwa";
 // baked in as a compile-time constant instead and shown on the menu screen.
 function buildId(): string {
   try {
-    return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    const sha = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    // Otherwise two builds with different uncommitted edits show the same
+    // tag as HEAD's clean commit — exactly the "which build is this"
+    // confusion this feature exists to kill, just one step removed.
+    const dirty = execSync("git status --porcelain", { encoding: "utf8" }).trim().length > 0;
+    return dirty ? `${sha}-dirty` : sha;
   } catch {
     return "dev";
   }

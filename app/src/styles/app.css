@@ -197,8 +197,11 @@ body.crt-off #app::after { display: none; }
    the thing that pushes a button past a floor. */
 .build-tag {
   position: absolute;
-  right: var(--sp-2);
-  bottom: var(--sp-1);
+  /* calc(spacing + inset), matching the corner-anchored controls above —
+     --hud-pad alone (the .screen padding) is not safe-area-aware, so on a
+     notched landscape phone the tag would otherwise sit inside the cutout. */
+  right: calc(var(--sp-2) + var(--inset-r));
+  bottom: calc(var(--sp-1) + var(--inset-b));
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-faint);
