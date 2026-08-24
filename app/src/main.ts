@@ -198,6 +198,18 @@ class App {
   private crestBeat = 0;
   private crestPeak = 0.05;
   private crestBeatShown = -1;
+  /** The crest's COLOUR drive (see syncHud) — the slow half of the same tap
+   *  the beat comes off. crestHeat is how hot app.css's ramp is mixed (0..1,
+   *  a ~1s follower, so it tracks how loud the passage is rather than the
+   *  hits inside it); crestFlow is a phase whose whole steps rotate
+   *  --h0..--h6 through that ramp, which is what makes the colour bands walk
+   *  the run. Both keep a "last written" so a steady passage costs nothing,
+   *  and crestHeat starts at the same 0.45 app.css rests at so the first
+   *  frames of a bay do not lurch up from dead cold. */
+  private crestHeat = 0.45;
+  private crestHeatShown = -1;
+  private crestFlow = 0;
+  private crestStepShown = -1;
   /** Cached once: the beat is decoration in motion, so it is never driven
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
@@ -2095,8 +2107,11 @@ class App {
       plant.classList.toggle("plant--congest-danger", crestTier >= 1);
       plant.classList.toggle("plant--maw", g.trajectoryStrands);
       // THE BEAT — the crest breathes with the soundtrack (app.css's
-      // --crest-beat brightness). musicLevel is the raw RMS off the audio
-      // graph's tap; everything that makes it read as a PULSE happens here:
+      // --crest-beat brightness and cube depth). One tap, three signals, split
+      // by timescale below: the beat is the transient, --crest-heat is the
+      // passage's loudness driving the palette, and the --h0..--h6 rotation is
+      // the rate the colour walks the run. musicLevel is the raw RMS off the
+      // audio graph's tap; everything that makes it read as a PULSE happens here:
       // normalised against its own decaying peak (so every bed uses the full
       // range regardless of mastering), scaled up as the bay congests (the
       // machine beats harder, on top of the tier recolour), and shaped by a
@@ -2113,6 +2128,39 @@ class App {
         if (q !== this.crestBeatShown) {
           this.crestBeatShown = q;
           plant.style.setProperty("--crest-beat", String(q));
+        }
+        // THE HEAT — the same envelope on a much slower follower (~1s here
+        // against the beat's ~2 frames). Loudness rather than transients, so
+        // it answers "how hard is this machine running", and that is the
+        // question the PALETTE should be answering: app.css mixes every rung
+        // of the crest's heat ramp toward cold metal by this one number, so a
+        // quiet passage cools the whole ring and a loud one brings it up to
+        // full molten colour. Quantised at 1/20, coarser than the beat: a
+        // colour mix that moved every frame would repaint seven strips for a
+        // difference nobody can see.
+        this.crestHeat += (target - this.crestHeat) * 0.02;
+        const h = Math.round(this.crestHeat * 20) / 20;
+        if (h !== this.crestHeatShown) {
+          this.crestHeatShown = h;
+          plant.style.setProperty("--crest-heat", String(h));
+        }
+        // THE MARCH — a phase advanced at a rate set by the live level, so
+        // the colour bands walk the run faster the louder the track gets and
+        // stand still in silence. A phase accumulator rather than onset
+        // detection on purpose: nothing to threshold per bed, nothing to get
+        // stuck on, and a bed with no transients in it still moves.
+        //
+        // What rotates is the MAPPING, not the palette — --h<i> is pointed at
+        // a different rung of the ramp, and the rungs themselves stay where
+        // app.css put them. That is what lets the congestion tiers swap the
+        // whole palette underneath without this code knowing they exist.
+        this.crestFlow = (this.crestFlow + target * 0.06) % 7;
+        const step = Math.floor(this.crestFlow);
+        if (step !== this.crestStepShown) {
+          this.crestStepShown = step;
+          for (let i = 0; i < 7; i++) {
+            plant.style.setProperty(`--h${i}`, `var(--ramp-${(i + step) % 7})`);
+          }
         }
       }
     }

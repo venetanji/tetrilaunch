@@ -1217,8 +1217,11 @@ body.crt-off #app::after { display: none; }
 .pl-pwr--weak .pl-pwr__track::after { background: rgba(255,255,255,0.8); }
 .pl-pwr__val { font-family: var(--font-mono); font-weight: 700; font-size: max(9px, calc(13.3 * var(--fpx))); color: var(--warn); flex: none; }
 
-/* ---------- The crest: the machine's intake spikes -------------------------
-   Seven clip-path strips riding the plant's exposed silhouette: the top edge
+/* ---------- The crest: the machine's intake ------------------------------
+   Seven clip-path strips (plus six corner rivets, further down) riding the
+   plant's exposed silhouette. Each strip is a contiguous run of cargo cubes
+   whose colour comes from the audio-driven heat ramp defined just below and
+   whose per-cell depth churns on its own cube-* keyframes: the top edge
    up to the PWR cap (--brow), the cap's step-up side
    (--step), the cap's own top (--cap), its short right shoulder (--shoulder),
    the panel's right flank (--flank) — plus the two BANDS the panel's frame
@@ -1246,12 +1249,98 @@ body.crt-off #app::after { display: none; }
    teeth did before. The physics mouth itself never moved: the chute's lip
    bar and warning heat are still drawn in the world (drawChute), because
    the hazard has to exist on screens with no HUD at all (the attract demo). */
+/* ---------- The heat ramp, and what the music does to it -------------------
+   Every cube in every run below paints from one of seven rungs, --h0..--h6,
+   and this is where those rungs come from. Three layers, all declared on
+   .plant so syncHud has ONE element to write and the whole ring inherits:
+
+     --cell-0..--cell-6   the palette itself, cold steel up to white-hot. The
+                          congestion states swap this out (below) and nothing
+                          else about the ramp has to change.
+     --ramp-0..--ramp-6   that palette after the music has had it — each rung
+                          mixed toward --crest-cold by --crest-heat.
+     --h0..--h6           which rung each cube actually paints with. syncHud
+                          rotates this mapping, so the bands march the run.
+
+   TWO SIGNALS, not one. lib/audio.ts's musicLevel is tapped once per drawn
+   frame by main.ts's syncHud and split by timescale, because loudness and
+   rhythm are different things and want different jobs:
+
+     --crest-heat   the SLOW half — the normalised envelope through a ~1s
+                    follower, 0..1. It reads as how hard the machine is
+                    running, so it drives the PALETTE: a quiet passage cools
+                    the ring toward dead metal, a loud one brings it up to
+                    full molten colour.
+     --h0..--h6     the FAST half — a phase accumulated at a rate set by the
+                    live level, stepping the rotation one rung at a time. It
+                    reads as the beat, so it drives the bands' TRAVEL: the
+                    louder the track, the faster colour walks the run.
+
+   (--crest-beat, the third, is the existing per-frame transient. It keeps
+   the two jobs it already had — brightness, and --crest-h's depth — so the
+   snap of a hit composes with the colour rather than competing with it.)
+
+   The 0.45 default is a resting state, not a placeholder. With no audio
+   graph yet, with music switched off, or under prefers-reduced-motion —
+   all cases where syncHud writes none of this — the ring holds the design's
+   warm ramp instead of sitting at dead cold. Same doctrine the congestion
+   tiers already follow: the picture survives, only the motion is asked
+   away. */
+.plant {
+  --crest-heat: 0.45;
+  --crest-cold: #262640;
+  --cell-0: #2b2b47;      /* cold steel */
+  --cell-1: #3d2f3a;      /* cooling    */
+  --cell-2: #6d2f14;      /* dark ember */
+  --cell-3: #b3480d;      /* ember      */
+  --cell-4: #e07a10;      /* molten     */
+  --cell-5: var(--warn);  /* hot amber  */
+  --cell-6: #ffe089;      /* white-hot  */
+  /* Unmixed fallback — the palette at full heat. Overridden immediately
+     below anywhere color-mix() exists. */
+  --ramp-0: var(--cell-0); --ramp-1: var(--cell-1); --ramp-2: var(--cell-2);
+  --ramp-3: var(--cell-3); --ramp-4: var(--cell-4); --ramp-5: var(--cell-5);
+  --ramp-6: var(--cell-6);
+  /* Identity mapping. syncHud rewrites these inline, and inline beats a
+     stylesheet rule, so the rotation needs no !important and no extra class. */
+  --h0: var(--ramp-0); --h1: var(--ramp-1); --h2: var(--ramp-2);
+  --h3: var(--ramp-3); --h4: var(--ramp-4); --h5: var(--ramp-5);
+  --h6: var(--ramp-6);
+}
+/* The mix is progressive enhancement, gated as a whole block rather than
+   written as per-rung fallback pairs, and that is load-bearing: a custom
+   property accepts ANY token stream, so an unsupported color-mix() would be
+   ACCEPTED here, win the cascade, and only fail later at substitution —
+   taking every background-image that references it down to nothing. Gated,
+   a browser without color-mix simply keeps the static ramp above: the
+   design's own picture, just not a reactive one.
+
+   oklab because this ramp crosses from blue-grey steel to orange, and the
+   sRGB path through that crossing goes muddy in the middle.
+
+   The 30% floor is what keeps the run reading as CUBES at silence — the
+   rungs desaturate toward each other but never collapse into one flat bar,
+   which is the whole reason the crest is cells rather than a band. */
+@supports (color: color-mix(in oklab, #000, #fff 50%)) {
+  .plant {
+    --ramp-0: color-mix(in oklab, var(--crest-cold), var(--cell-0) calc(30% + var(--crest-heat) * 70%));
+    --ramp-1: color-mix(in oklab, var(--crest-cold), var(--cell-1) calc(30% + var(--crest-heat) * 70%));
+    --ramp-2: color-mix(in oklab, var(--crest-cold), var(--cell-2) calc(30% + var(--crest-heat) * 70%));
+    --ramp-3: color-mix(in oklab, var(--crest-cold), var(--cell-3) calc(30% + var(--crest-heat) * 70%));
+    --ramp-4: color-mix(in oklab, var(--crest-cold), var(--cell-4) calc(30% + var(--crest-heat) * 70%));
+    --ramp-5: color-mix(in oklab, var(--crest-cold), var(--cell-5) calc(30% + var(--crest-heat) * 70%));
+    --ramp-6: color-mix(in oklab, var(--crest-cold), var(--cell-6) calc(30% + var(--crest-heat) * 70%));
+  }
+}
 .plant__crest {
   position: absolute;
   pointer-events: none;
   /* Tooth depth — the canvas teeth's 13 world px, on the same --fpx scale
-     everything else on the panel wears. */
-  --crest-h: max(7px, calc(13 * var(--fpx)));
+     everything else on the panel wears, now breathing with the live music
+     envelope (--crest-beat, 0..1, written onto .plant every frame by
+     main.ts's syncHud) so the cubes themselves grow and shrink on the beat,
+     not just brighten. */
+  --crest-h: max(7px, calc(13 * var(--fpx) * (1 + var(--crest-beat, 0) * 0.9)));
   /* WHERE THE FIELD ACTUALLY ENDS, for the two band strips. Not the field
      rect: render.ts's drawWalls strokes the glowing wall along world inset 2
      at lineWidth 4, so the wall occupies the first FOUR world px of the field
@@ -1273,7 +1362,11 @@ body.crt-off #app::after { display: none; }
      in main.ts, so a congested bay doesn't just recolour — it beats harder.
      Never set under prefers-reduced-motion (main.ts checks), so the var
      stays 0 and this line is inert there. */
-  filter: brightness(calc(1 + var(--crest-beat, 0) * 0.7));
+  /* Saturation rides the SLOW signal next to brightness's fast one, so a
+     loud passage does not just light the metal up, it makes the colour
+     itself commit. Below 1 at rest, so a silent ring reads as cooled stock. */
+  filter: brightness(calc(1 + var(--crest-beat, 0) * 0.7))
+          saturate(calc(0.8 + var(--crest-heat) * 0.5));
 }
 /* The SPARK layer — a few uneven glint bands swept across the strip by the
    congestion states below. It lives INSIDE the element, so the clip-path
@@ -1292,22 +1385,170 @@ body.crt-off #app::after { display: none; }
     transparent 70% 100%);
   background-size: 340% 100%;
 }
+/* PIXEL SPARKS — embers thrown off the heated cells, the same read as the
+   explosion debris: single-pixel dots from white-hot down to ember, popping on
+   HARD (steps, no fade) so they land as pixels rather than glow, staggered per
+   strip by the delays below so the ring crackles asynchronously instead of
+   flashing as one. Ambient at every state, unlike ::before's congestion-only
+   sweep — a working intake throws sparks. */
+.plant__crest::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle, var(--warn) 0 1px, transparent 1.4px);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  animation: pixel-sparkle 5.2s steps(2, jump-none) infinite;
+}
+@keyframes pixel-sparkle {
+  0%, 100% { opacity: 0; }
+  3% { opacity: 1; } 5% { opacity: 0; }
+  54% { opacity: 0.7; } 56% { opacity: 0; }
+}
+/* The rate IS the readout: a strained machine throws more sparks. */
+.plant--congest-warn .plant__crest::after { animation-duration: 2.4s; }
+.plant--congest-danger .plant__crest::after,
+.plant--maw .plant__crest::after { animation-duration: 1.3s; }
+.plant__crest--brow::after { animation-delay: -0.15s; }
+.plant__crest--cap::after { animation-delay: -0.5s; }
+.plant__crest--step::after { animation-delay: -0.3s; }
+.plant__crest--shoulder::after { animation-delay: -0.8s; }
+.plant__crest--flank::after { animation-delay: -1.1s; }
+.plant__crest--port::after { animation-delay: -1.6s; }
+.plant__crest--skirt::after { animation-delay: -2.0s; }
+.plant__crest--rivet::after { animation-delay: -0.9s; }
+.plant__crest--brow::after {
+  background-image:
+    radial-gradient(circle at 95.89% 72.01%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 25.66% 63.64%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 68.59% 63.46%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 69.43% 12.71%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 61.82% 51.31%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 73% 21.77%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 64.67% 46.72%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 70.87% 56.23%, #fff 0 1px, transparent 1.4px);
+}
+.plant__crest--cap::after {
+  background-image:
+    radial-gradient(circle at 86.18% 54.72%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 38.65% 29.27%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 67.22% 11.15%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 10.84% 54.97%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 76.54% 12.94%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 37.01% 25.91%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 34.37% 64.01%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 73.85% 78.1%, #fff 0 1px, transparent 1.4px);
+}
+.plant__crest--step::after {
+  background-image:
+    radial-gradient(circle at 76.47% 37.43%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 51.63% 74.9%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 34.18% 44.24%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 18.06% 15.89%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 80.18% 13.92%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 73.78% 56.83%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 13.02% 59.71%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 17.23% 21.32%, #e07a10 0 1px, transparent 1.4px);
+}
+.plant__crest--shoulder::after {
+  background-image:
+    radial-gradient(circle at 66.76% 20.14%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 79.13% 73.54%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 85.26% 73.65%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 20.74% 58.23%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 8.15% 14.61%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 33.9% 87.72%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 62.82% 82.36%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 75.6% 80.81%, #e07a10 0 1px, transparent 1.4px);
+}
+.plant__crest--flank::after {
+  background-image:
+    radial-gradient(circle at 57.04% 82.84%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 10.48% 84.75%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 10.85% 71.21%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 37.37% 46.08%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 18.92% 57.86%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 58.19% 69.38%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 29.45% 20.44%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 49.87% 27.53%, var(--warn) 0 1px, transparent 1.4px);
+}
+.plant__crest--port::after {
+  background-image:
+    radial-gradient(circle at 47.33% 65.55%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 10.64% 38.86%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 23.06% 77.17%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 63.16% 65.6%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 84.77% 37.56%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 30.9% 34.79%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 53.06% 26.17%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 64.84% 43.3%, var(--warn) 0 1px, transparent 1.4px);
+}
+.plant__crest--skirt::after {
+  background-image:
+    radial-gradient(circle at 37.62% 48.26%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 94.89% 55.31%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 92.83% 80.14%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 84.11% 42.02%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 62.39% 13.13%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 21.98% 53.97%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 42.97% 82.59%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 19.34% 13.17%, var(--warn) 0 1px, transparent 1.4px);
+}
+.plant__crest--rivet::after {
+  background-image:
+    radial-gradient(circle at 27.91% 30.97%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 74.31% 51.22%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 42.32% 78.58%, #ffe089 0 1px, transparent 1.4px),
+    radial-gradient(circle at 81.71% 44.93%, #e07a10 0 1px, transparent 1.4px),
+    radial-gradient(circle at 70.39% 37.17%, var(--warn) 0 1px, transparent 1.4px),
+    radial-gradient(circle at 86.42% 11.43%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 63.21% 71.61%, #fff 0 1px, transparent 1.4px),
+    radial-gradient(circle at 80.63% 87.09%, #e07a10 0 1px, transparent 1.4px);
+}
+/* Each strip scatters its own eight sparks — a shared set read as a pattern
+   on the long runs, and the coordinates have to be INSIDE each gradient (a
+   percentage background-position cannot move a full-size gradient layer). */
+@media (prefers-reduced-motion: reduce) {
+  .plant__crest::after { animation: none; opacity: 0; }
+}
 
 /* The top run, the panel's own left corner to the cap's shoulder. It stops AT
    the corner rather than running on to the field wall: past the corner the
-   teeth would float over the port band below, and a run that turns the corner
+   cells would float over the port band below, and a run that turns the corner
    (brow up, port left) reads as a machine's edge where an overshoot reads as
    two patterns colliding. Ends 2px under the cap, whose opaque body mounts
-   over the seam (.pl-pwr is later in the DOM). */
+   over the seam (.pl-pwr is later in the DOM).
+
+   THE CUBES. One contiguous run, no gaps between cells — the crest IS cargo,
+   so it is drawn as the same square cells the belt and the piece preview use
+   (components.ts's pieceCellsHTML) in the same seven piece colours
+   (tokens.css's --piece-*). Every strip carries its OWN cell count, chosen so
+   a cell is about as wide as it is deep at any field scale — a shared count
+   would stretch the cap's cells into bars and squash the step's into slivers.
+   Two motions run at once: each cell's height steps up and down on its own
+   schedule (cube-*, steps() so cubes SNAP between sizes like blocks rather
+   than sliding like liquid), and the colour bands march along the run
+   (flow-*), the same direction cue the belt's chevrons use. Height is scaled
+   on top of that by the live music envelope through --crest-h, so the run
+   also breathes with the soundtrack. */
 .plant__crest--brow {
   left: calc(-1 * var(--bw));
   width: calc(29.6% + var(--bw) + 2px);
   height: var(--crest-h);
   bottom: calc(100% + var(--bw));
-  clip-path: polygon(0% 100%, 3% 42%, 6% 100%, 11% 6%, 15% 100%, 18% 64%,
-    22% 100%, 28% 0%, 33% 100%, 36% 52%, 40% 100%, 46% 18%, 50% 100%,
-    55% 70%, 59% 100%, 65% 8%, 71% 100%, 75% 44%, 79% 100%, 85% 26%,
-    90% 100%, 94% 58%, 100% 100%);
+  background-image: repeating-linear-gradient(90deg, var(--h6) 0% 7.69%, var(--h0) 7.69% 15.38%, var(--h3) 15.38% 23.08%, var(--h6) 23.08% 30.77%, var(--h2) 30.77% 38.46%, var(--h1) 38.46% 46.15%, var(--h6) 46.15% 53.85%, var(--h4) 53.85% 61.54%, var(--h2) 61.54% 69.23%, var(--h1) 69.23% 76.92%, var(--h0) 76.92% 84.62%, var(--h1) 84.62% 92.31%, var(--h3) 92.31% 100%);
+  clip-path: polygon(0% 100%, 0% 40%, 7.69% 40%, 7.69% 28%, 15.38% 28%, 15.38% 12%, 23.08% 12%, 23.08% 3%, 30.77% 3%, 30.77% 48%, 38.46% 48%, 38.46% 21%, 46.15% 21%, 46.15% 36%, 53.85% 36%, 53.85% 42%, 61.54% 42%, 61.54% 5%, 69.23% 5%, 69.23% 50%, 76.92% 50%, 76.92% 13%, 84.62% 13%, 84.62% 54%, 92.31% 54%, 92.31% 22%, 100% 22%, 100% 100%);
+  animation: cube-brow 3.2s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* Over the PWR cap — the notch, closed. Sized against the cap's border box
    so the run spans exactly the raised silhouette. */
@@ -1316,55 +1557,52 @@ body.crt-off #app::after { display: none; }
   right: calc(-1 * var(--bw));
   height: var(--crest-h);
   bottom: calc(100% + var(--bw));
-  clip-path: polygon(0% 100%, 2% 55%, 4% 100%, 8% 10%, 12% 100%, 15% 48%,
-    18% 100%, 23% 0%, 27% 100%, 30% 62%, 33% 100%, 38% 20%, 42% 100%,
-    45% 50%, 48% 100%, 52% 6%, 56% 100%, 60% 40%, 63% 100%, 68% 14%,
-    73% 100%, 76% 58%, 79% 100%, 84% 4%, 89% 100%, 92% 46%, 95% 100%,
-    98% 68%, 100% 100%);
+  background-image: repeating-linear-gradient(90deg, var(--h0) 0% 3.13%, var(--h4) 3.13% 6.25%, var(--h6) 6.25% 9.38%, var(--h0) 9.38% 12.5%, var(--h1) 12.5% 15.63%, var(--h2) 15.63% 18.75%, var(--h6) 18.75% 21.88%, var(--h0) 21.88% 25%, var(--h1) 25% 28.13%, var(--h3) 28.13% 31.25%, var(--h6) 31.25% 34.38%, var(--h5) 34.38% 37.5%, var(--h6) 37.5% 40.63%, var(--h2) 40.63% 43.75%, var(--h1) 43.75% 46.88%, var(--h3) 46.88% 50%, var(--h1) 50% 53.13%, var(--h3) 53.13% 56.25%, var(--h0) 56.25% 59.38%, var(--h4) 59.38% 62.5%, var(--h6) 62.5% 65.63%, var(--h1) 65.63% 68.75%, var(--h6) 68.75% 71.88%, var(--h0) 71.88% 75%, var(--h2) 75% 78.13%, var(--h5) 78.13% 81.25%, var(--h4) 81.25% 84.38%, var(--h2) 84.38% 87.5%, var(--h4) 87.5% 90.63%, var(--h0) 90.63% 93.75%, var(--h4) 93.75% 96.88%, var(--h5) 96.88% 100%);
+  clip-path: polygon(0% 100%, 0% 53%, 3.13% 53%, 3.13% 5%, 6.25% 5%, 6.25% 47%, 9.38% 47%, 9.38% 20%, 12.5% 20%, 12.5% 13%, 15.63% 13%, 15.63% 23%, 18.75% 23%, 18.75% 7%, 21.88% 7%, 21.88% 19%, 25% 19%, 25% 29%, 28.13% 29%, 28.13% 48%, 31.25% 48%, 31.25% 27%, 34.38% 27%, 34.38% 47%, 37.5% 47%, 37.5% 49%, 40.63% 49%, 40.63% 1%, 43.75% 1%, 43.75% 4%, 46.88% 4%, 46.88% 17%, 50% 17%, 50% 19%, 53.13% 19%, 53.13% 18%, 56.25% 18%, 56.25% 12%, 59.38% 12%, 59.38% 18%, 62.5% 18%, 62.5% 43%, 65.63% 43%, 65.63% 14%, 68.75% 14%, 68.75% 23%, 71.88% 23%, 71.88% 33%, 75% 33%, 75% 12%, 78.13% 12%, 78.13% 6%, 81.25% 6%, 81.25% 32%, 84.38% 32%, 84.38% 26%, 87.5% 26%, 87.5% 41%, 90.63% 41%, 90.63% 39%, 93.75% 39%, 93.75% 9%, 96.88% 9%, 96.88% 33%, 100% 33%, 100% 100%);
+  animation: cube-cap 3.6s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* The cap's two short sides, so the ring turns the step corners instead of
    skipping them: the left step-up faces the brow, the right shoulder hands
-   the run down to the flank. Two and three teeth — all either edge is tall
-   enough to hold. */
+   the run down to the flank. Two cells — all either edge is deep enough to
+   hold at a square aspect. */
 .plant__crest--step,
 .plant__crest--shoulder {
   width: var(--crest-h);
   top: calc(-1 * var(--bw));
   bottom: 2px;
+  animation: cube-shoulder 3s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--step {
   right: calc(100% + var(--bw));
-  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
-  clip-path: polygon(100% 0%, 12% 18%, 100% 38%, 55% 55%, 100% 68%, 25% 84%, 100% 100%);
+  background-image: repeating-linear-gradient(180deg, var(--h6) 0% 50%, var(--h4) 50% 100%);
+  clip-path: polygon(100% 0%, 11% 0%, 11% 50%, 38% 50%, 38% 100%, 100% 100%);
+  animation: cube-step 2.8s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--shoulder {
   left: calc(100% + var(--bw));
-  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
-  clip-path: polygon(0% 0%, 74% 14%, 0% 30%, 38% 52%, 0% 66%, 88% 82%, 0% 100%);
+  background-image: repeating-linear-gradient(180deg, var(--h5) 0% 50%, var(--h0) 50% 100%);
+  clip-path: polygon(0% 0%, 76% 0%, 76% 50%, 85% 50%, 85% 100%, 0% 100%);
 }
 /* The right flank, panel top to panel bottom — the edge the bay looks at.
-   It stops at the panel's own corners: teeth running on below the machine
-   (or above it) read as pattern spilling past the silhouette, not as the
-   silhouette. */
+   It stops at the panel's own corners: cells running on below the machine
+   (or above it) read as pattern spilling past the silhouette. */
 .plant__crest--flank {
   left: calc(100% + var(--bw));
   width: var(--crest-h);
   top: calc(-1 * var(--bw));
   bottom: calc(-1 * var(--bw));
-  background-image: linear-gradient(270deg, var(--crest-hi), var(--crest-lo));
-  clip-path: polygon(0% 0%, 58% 2%, 0% 5%, 96% 9%, 0% 13%, 44% 16%, 0% 19%,
-    78% 24%, 0% 29%, 30% 32%, 0% 35%, 88% 40%, 0% 45%, 52% 48%, 0% 51%,
-    100% 56%, 0% 61%, 38% 64%, 0% 67%, 70% 72%, 0% 77%, 26% 80%, 0% 83%,
-    90% 88%, 0% 93%, 48% 96%, 0% 100%);
+  background-image: repeating-linear-gradient(180deg, var(--h1) 0% 4.35%, var(--h4) 4.35% 8.7%, var(--h5) 8.7% 13.04%, var(--h4) 13.04% 17.39%, var(--h5) 17.39% 21.74%, var(--h2) 21.74% 26.09%, var(--h4) 26.09% 30.43%, var(--h5) 30.43% 34.78%, var(--h4) 34.78% 39.13%, var(--h1) 39.13% 43.48%, var(--h0) 43.48% 47.83%, var(--h6) 47.83% 52.17%, var(--h0) 52.17% 56.52%, var(--h1) 56.52% 60.87%, var(--h2) 60.87% 65.22%, var(--h6) 65.22% 69.57%, var(--h4) 69.57% 73.91%, var(--h3) 73.91% 78.26%, var(--h2) 78.26% 82.61%, var(--h4) 82.61% 86.96%, var(--h3) 86.96% 91.3%, var(--h5) 91.3% 95.65%, var(--h1) 95.65% 100%);
+  clip-path: polygon(0% 0%, 63% 0%, 63% 4.35%, 52% 4.35%, 52% 8.7%, 89% 8.7%, 89% 13.04%, 71% 13.04%, 71% 17.39%, 90% 17.39%, 90% 21.74%, 55% 21.74%, 55% 26.09%, 54% 26.09%, 54% 30.43%, 74% 30.43%, 74% 34.78%, 73% 34.78%, 73% 39.13%, 67% 39.13%, 67% 43.48%, 51% 43.48%, 51% 47.83%, 83% 47.83%, 83% 52.17%, 91% 52.17%, 91% 56.52%, 59% 56.52%, 59% 60.87%, 57% 60.87%, 57% 65.22%, 76% 65.22%, 76% 69.57%, 54% 69.57%, 54% 73.91%, 83% 73.91%, 83% 78.26%, 96% 78.26%, 96% 82.61%, 64% 82.61%, 64% 86.96%, 68% 86.96%, 68% 91.3%, 96% 91.3%, 96% 95.65%, 91% 95.65%, 91% 100%, 0% 100%);
+  animation: cube-flank 3.4s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 /* THE BANDS. The panel's frame fractions leave two slivers of bare backdrop
    between the machine and the field border — 1.67% of the field's width down
    the left wall, 2.97% of its height under the panel — and the crest fills
-   both, teeth rooted on the panel and reaching for the border. Sized by the
-   band, not by --crest-h, so the tallest tips land exactly on the border at
-   every scale. Both strips overhang the maw (the chute mouth starts at the
-   left wall), which is the point: cargo dropping down the left sliver falls
-   in BETWEEN teeth, into a machine that visibly wants it. */
+   both, cells rooted on the panel and reaching for the border. Sized by the
+   band, not by --crest-h, so the tallest cells land on the border at every
+   scale. Both strips overhang the maw (the chute mouth starts at the left
+   wall), which is the point: cargo dropping down the left sliver falls in
+   BETWEEN cells, into a machine that visibly wants it. */
 .plant__crest--port {
   /* -bw on top of the band width: offsets resolve against the panel's
      PADDING box, which sits a border inside the frame fractions the band is
@@ -1374,23 +1612,68 @@ body.crt-off #app::after { display: none; }
   width: calc(0.0167 * var(--field-w) - var(--crest-wall));
   top: 0;
   bottom: calc(-1 * var(--bw));
-  background-image: linear-gradient(90deg, var(--crest-hi), var(--crest-lo));
-  clip-path: polygon(100% 0%, 30% 3%, 100% 7%, 4% 12%, 100% 15%, 52% 19%,
-    100% 24%, 12% 28%, 100% 31%, 66% 36%, 100% 41%, 0% 46%, 100% 50%,
-    42% 54%, 100% 57%, 20% 62%, 100% 67%, 74% 71%, 100% 74%, 8% 79%,
-    100% 84%, 48% 88%, 100% 91%, 28% 96%, 100% 100%);
+  background-image: repeating-linear-gradient(180deg, var(--h0) 0% 6.67%, var(--h4) 6.67% 13.33%, var(--h6) 13.33% 20%, var(--h5) 20% 26.67%, var(--h2) 26.67% 33.33%, var(--h4) 33.33% 40%, var(--h6) 40% 46.67%, var(--h5) 46.67% 53.33%, var(--h2) 53.33% 60%, var(--h4) 60% 66.67%, var(--h1) 66.67% 73.33%, var(--h6) 73.33% 80%, var(--h4) 80% 86.67%, var(--h1) 86.67% 93.33%, var(--h3) 93.33% 100%);
+  clip-path: polygon(100% 0%, 50% 0%, 50% 6.67%, 25% 6.67%, 25% 13.33%, 46% 13.33%, 46% 20%, 53% 20%, 53% 26.67%, 6% 26.67%, 6% 33.33%, 39% 33.33%, 39% 40%, 28% 40%, 28% 46.67%, 37% 46.67%, 37% 53.33%, 30% 53.33%, 30% 60%, 16% 60%, 16% 66.67%, 10% 66.67%, 10% 73.33%, 2% 73.33%, 2% 80%, 5% 80%, 5% 86.67%, 50% 86.67%, 50% 93.33%, 27% 93.33%, 27% 100%, 100% 100%);
+  animation: cube-port 3.8s cubic-bezier(.37, 0, .63, 1) infinite;
 }
 .plant__crest--skirt {
-  left: calc(-0.0167 * var(--field-w) - var(--bw) + var(--crest-wall));
+  left: calc(-1 * var(--bw));
   right: calc(-1 * var(--bw));
   top: calc(100% + var(--bw));
   height: calc(0.0297 * var(--field-h) - var(--crest-wall));
-  background-image: linear-gradient(0deg, var(--crest-hi), var(--crest-lo));
-  clip-path: polygon(0% 0%, 3% 88%, 6% 0%, 10% 100%, 14% 0%, 17% 52%,
-    21% 0%, 26% 96%, 31% 0%, 34% 66%, 38% 0%, 43% 100%, 48% 0%, 52% 44%,
-    56% 0%, 61% 92%, 66% 0%, 70% 58%, 74% 0%, 79% 100%, 84% 0%, 88% 70%,
-    92% 0%, 96% 90%, 100% 0%);
+  background-image: repeating-linear-gradient(90deg, var(--h4) 0% 3.57%, var(--h1) 3.57% 7.14%, var(--h4) 7.14% 10.71%, var(--h3) 10.71% 14.29%, var(--h5) 14.29% 17.86%, var(--h0) 17.86% 21.43%, var(--h6) 21.43% 25%, var(--h1) 25% 28.57%, var(--h5) 28.57% 32.14%, var(--h3) 32.14% 35.71%, var(--h6) 35.71% 39.29%, var(--h2) 39.29% 42.86%, var(--h5) 42.86% 46.43%, var(--h4) 46.43% 50%, var(--h2) 50% 53.57%, var(--h6) 53.57% 57.14%, var(--h2) 57.14% 60.71%, var(--h0) 60.71% 64.29%, var(--h4) 64.29% 67.86%, var(--h2) 67.86% 71.43%, var(--h3) 71.43% 75%, var(--h0) 75% 78.57%, var(--h4) 78.57% 82.14%, var(--h0) 82.14% 85.71%, var(--h4) 85.71% 89.29%, var(--h2) 89.29% 92.86%, var(--h3) 92.86% 96.43%, var(--h1) 96.43% 100%);
+  clip-path: polygon(0% 0%, 0% 92%, 3.57% 92%, 3.57% 97%, 7.14% 97%, 7.14% 74%, 10.71% 74%, 10.71% 84%, 14.29% 84%, 14.29% 80%, 17.86% 80%, 17.86% 48%, 21.43% 48%, 21.43% 45%, 25% 45%, 25% 99%, 28.57% 99%, 28.57% 98%, 32.14% 98%, 32.14% 72%, 35.71% 72%, 35.71% 52%, 39.29% 52%, 39.29% 100%, 42.86% 100%, 42.86% 83%, 46.43% 83%, 46.43% 92%, 50% 92%, 50% 60%, 53.57% 60%, 53.57% 56%, 57.14% 56%, 57.14% 90%, 60.71% 90%, 60.71% 78%, 64.29% 78%, 64.29% 72%, 67.86% 72%, 67.86% 50%, 71.43% 50%, 71.43% 82%, 75% 82%, 75% 91%, 78.57% 91%, 78.57% 78%, 82.14% 78%, 82.14% 74%, 85.71% 74%, 85.71% 94%, 89.29% 94%, 89.29% 61%, 92.86% 61%, 92.86% 75%, 96.43% 75%, 96.43% 50%, 100% 50%, 100% 0%);
+  animation: cube-skirt 4s cubic-bezier(.37, 0, .63, 1) infinite;
 }
+
+/* ---------- Corner rivets — where two independent tooth runs turn a corner
+   ----------
+   Every strip above is its OWN hand-authored zigzag, phase-matched to
+   nothing. At the six points where two runs meet (port/brow, brow/step,
+   step/cap, cap/shoulder, shoulder/flank, port/skirt) that independence
+   shows: both runs can peak at once, and two teeth pointing in perpendicular
+   directions read as an X right at the corner; or both can recede at once,
+   and the ring shows a bare notch exactly where it's supposed to turn. Either
+   way it's the one place the eye is already looking, because it's a corner.
+
+   Rather than hand-tune twelve zigzag endpoints to phase-lock in pairs (and
+   re-tune them every time a run's teeth change), a small diamond rivet plugs
+   each joint outright. It shares the `.plant__crest` class — same metal
+   gradient, same --crest-beat pulse, same congestion recolour/jiggle/rattle
+   — so it reads as a bolt holding the ring together at the seam, not a patch
+   dropped on top of one. */
+.plant__crest--rivet {
+  /* Off the ramp's middle rungs, not the base --crest-hi/--crest-lo steel:
+     a bolt that stayed cold blue while the run either side of it climbed to
+     molten would read as the one piece of the ring the music forgot. Two
+     rungs apart, so it still reads as hardware among the cargo. */
+  background-image: linear-gradient(180deg, var(--h4), var(--h2));
+  width: calc(0.62 * var(--crest-h));
+  height: calc(0.62 * var(--crest-h));
+  margin: calc(-0.31 * var(--crest-h));
+  /* A plain cube, not a diamond — matches the square teeth around it instead
+     of standing out as a different shape at the seam. */
+  z-index: 1;
+}
+/* R1 — port x brow: the panel's own top-left corner. */
+.plant__crest--rivet-1 { left: calc(-1 * var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.15s; }
+/* R2 — brow x step: the top run meets the PWR cap's riser. */
+.plant__crest--rivet-2 { left: calc(29.6% + 2px); top: calc(-1 * var(--bw)); animation-delay: -0.35s; }
+/* NO rivet where the shoulder hands off to the flank. That join is not a
+   turn: the cap's right edge is flush with the panel's, so the shoulder and
+   the flank are the SAME vertical line and the run simply continues down it.
+   A rivet there read as a stray bolt floating over the notch. */
+/* R6 — port x skirt: the panel's own bottom-left corner, where the wall band
+   turns under the machine. */
+.plant__crest--rivet-6 { left: calc(-1 * var(--bw)); top: calc(100% + var(--bw)); animation-delay: -0.25s; }
+/* R7 — flank x skirt: the panel's own bottom-right corner, the turn the ring
+   was missing entirely. */
+.plant__crest--rivet-7 { left: calc(100% + var(--bw)); top: calc(100% + var(--bw)); animation-delay: -1.0s; }
+/* R3/R4 live in the PWR cap's own coordinate space — mounted inside .pl-pwr
+   alongside --cap/--step/--shoulder (see screens.ts's hudHTML), not inside
+   .plant, so their left/top resolve against the cap's box, not the panel's. */
+.pl-pwr .plant__crest--rivet-3 { left: calc(-1 * var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.6s; }
+.pl-pwr .plant__crest--rivet-4 { left: calc(100% + var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.8s; }
 
 /* CONGESTION — the machine under strain. Tier 1 heats the metal amber and
    starts a slow rattle with sparks crawling the teeth; tier 2 goes the same
@@ -1400,7 +1683,6 @@ body.crt-off #app::after { display: none; }
 .plant--congest-warn .plant__crest {
   --crest-hi: #6d4b1e;
   --crest-lo: #33260f;
-  animation: crest-jiggle 1.15s linear infinite;
 }
 .plant--congest-warn .plant__crest::before {
   opacity: 1;
@@ -1409,13 +1691,90 @@ body.crt-off #app::after { display: none; }
 .plant--congest-danger .plant__crest {
   --crest-hi: #7d2036;
   --crest-lo: #38101d;
-  animation: crest-rattle 0.62s linear infinite;
 }
 .plant--congest-danger .plant__crest::before {
   opacity: 1;
   --spark-a: rgba(255, 45, 85, 0.95);
   --spark-b: rgba(255, 128, 128, 0.85);
   animation: crest-spark 1.15s linear infinite;
+}
+/* THE CARGO PALETTE GIVES WAY. A machine under strain must not read as
+   cheerful cargo, so the rungs re-anchor onto the state's metal — the same
+   amber and red the floor rows and the Launch price wear.
+
+   Re-anchoring --cell-* rather than painting the flat --crest-hi/--crest-lo
+   gradient straight over each run keeps two things a flat override throws
+   away: the cubes stay individually legible instead of melting back into
+   one bar, and the music keeps driving the colour in exactly the states
+   where the machine is most alive. Only the palette moves here — the mix,
+   the rotation and both audio signals are untouched, so a congested bay
+   beats and marches like any other, in its own colour.
+
+   Nine rungs' worth of hand-picked hex rather than a filter on the cargo
+   set: hue-rotating cyan and green into "amber" lands on mud, and the two
+   tiers have to match --warn and --danger exactly, because the floor rows
+   and the price are saying the same thing at the same moment. */
+.plant--congest-warn {
+  --crest-cold: #2a2213;
+  --cell-0: #33260f; --cell-1: #45320f; --cell-2: #5e4212;
+  --cell-3: #7f5716; --cell-4: #a5711b; --cell-5: #d69a2c; --cell-6: #ffdf9b;
+}
+.plant--congest-danger {
+  --crest-cold: #2a1018;
+  --cell-0: #38101d; --cell-1: #4d1626; --cell-2: #6c1c2e;
+  --cell-3: #94243c; --cell-4: #c62d4a; --cell-5: var(--danger); --cell-6: #ff9fb2;
+}
+/* `animation` is ONE property, so a state that adds the shudder has to
+   restate each strip's own cube churn or the shorthand silently drops it —
+   and the churn is per strip now (different cell counts, different keyframes),
+   which is why this is a rule per strip rather than one on .plant__crest. */
+.plant--congest-warn .plant__crest--brow {
+  animation: cube-brow 3.2s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--cap {
+  animation: cube-cap 3.6s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--step {
+  animation: cube-step 2.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--shoulder {
+  animation: cube-shoulder 3s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--flank {
+  animation: cube-flank 3.4s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--port {
+  animation: cube-port 3.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--skirt {
+  animation: cube-skirt 4s cubic-bezier(.37, 0, .63, 1) infinite, crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-warn .plant__crest--rivet {
+  animation: crest-jiggle 1.15s linear infinite;
+}
+.plant--congest-danger .plant__crest--brow {
+  animation: cube-brow 2.1s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--cap {
+  animation: cube-cap 2.3s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--step {
+  animation: cube-step 1.8s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--shoulder {
+  animation: cube-shoulder 2.0s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--flank {
+  animation: cube-flank 2.2s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--port {
+  animation: cube-port 2.5s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--skirt {
+  animation: cube-skirt 2.6s cubic-bezier(.37, 0, .63, 1) infinite, crest-rattle 0.62s linear infinite;
+}
+.plant--congest-danger .plant__crest--rivet {
+  animation: crest-rattle 0.62s linear infinite;
 }
 .plant__crest--cap, .plant__crest--cap::before { animation-delay: -0.53s; }
 .plant__crest--flank, .plant__crest--flank::before { animation-delay: -0.91s; }
@@ -1432,6 +1791,15 @@ body.crt-off #app::after { display: none; }
 .plant--maw .plant__crest {
   --crest-hi: rgba(255, 45, 85, 0.92);
   --crest-lo: #5c1225;
+}
+/* The maw's palette, on .plant rather than .plant__crest for the same reason
+   the tiers are: --cell-* is what the ramp mixes from, and the ramp lives on
+   .plant. Declared after the congestion tiers — same specificity, so order is
+   what makes the live aim outrank the standing condition. */
+.plant--maw {
+  --crest-cold: #2c0a14;
+  --cell-0: #5c1225; --cell-1: #75162c; --cell-2: #921b35;
+  --cell-3: #b52240; --cell-4: #dc294c; --cell-5: var(--danger); --cell-6: #ffc2cd;
 }
 
 /* Irregular on purpose, like the tooth runs: uneven keyframe stops so the
@@ -1458,6 +1826,55 @@ body.crt-off #app::after { display: none; }
   69% { transform: translate(-0.6px, -1px); }
   82% { transform: translate(0.8px, 0.4px); }
   91% { transform: translate(-0.4px, 0.6px); }
+}
+@keyframes cube-brow {
+  0% { clip-path: polygon(0% 100%, 0% 38%, 7.69% 38%, 7.69% 7%, 15.38% 7%, 15.38% 9%, 23.08% 9%, 23.08% 31%, 30.77% 31%, 30.77% 29%, 38.46% 29%, 38.46% 9%, 46.15% 9%, 46.15% 6%, 53.85% 6%, 53.85% 32%, 61.54% 32%, 61.54% 41%, 69.23% 41%, 69.23% 4%, 76.92% 4%, 76.92% 23%, 84.62% 23%, 84.62% 45%, 92.31% 45%, 92.31% 36%, 100% 36%, 100% 100%); }
+  25% { clip-path: polygon(0% 100%, 0% 22%, 7.69% 22%, 7.69% 42%, 15.38% 42%, 15.38% 18%, 23.08% 18%, 23.08% 44%, 30.77% 44%, 30.77% 34%, 38.46% 34%, 38.46% 27%, 46.15% 27%, 46.15% 22%, 53.85% 22%, 53.85% 27%, 61.54% 27%, 61.54% 7%, 69.23% 7%, 69.23% 36%, 76.92% 36%, 76.92% 34%, 84.62% 34%, 84.62% 1%, 92.31% 1%, 92.31% 43%, 100% 43%, 100% 100%); }
+  50% { clip-path: polygon(0% 100%, 0% 38%, 7.69% 38%, 7.69% 16%, 15.38% 16%, 15.38% 20%, 23.08% 20%, 23.08% 18%, 30.77% 18%, 30.77% 26%, 38.46% 26%, 38.46% 14%, 46.15% 14%, 46.15% 6%, 53.85% 6%, 53.85% 19%, 61.54% 19%, 61.54% 16%, 69.23% 16%, 69.23% 22%, 76.92% 22%, 76.92% 24%, 84.62% 24%, 84.62% 20%, 92.31% 20%, 92.31% 11%, 100% 11%, 100% 100%); }
+  75% { clip-path: polygon(0% 100%, 0% 34%, 7.69% 34%, 7.69% 18%, 15.38% 18%, 15.38% 23%, 23.08% 23%, 23.08% 19%, 30.77% 19%, 30.77% 6%, 38.46% 6%, 38.46% 42%, 46.15% 42%, 46.15% 32%, 53.85% 32%, 53.85% 41%, 61.54% 41%, 61.54% 30%, 69.23% 30%, 69.23% 28%, 76.92% 28%, 76.92% 12%, 84.62% 12%, 84.62% 24%, 92.31% 24%, 92.31% 2%, 100% 2%, 100% 100%); }
+  100% { clip-path: polygon(0% 100%, 0% 38%, 7.69% 38%, 7.69% 7%, 15.38% 7%, 15.38% 9%, 23.08% 9%, 23.08% 31%, 30.77% 31%, 30.77% 29%, 38.46% 29%, 38.46% 9%, 46.15% 9%, 46.15% 6%, 53.85% 6%, 53.85% 32%, 61.54% 32%, 61.54% 41%, 69.23% 41%, 69.23% 4%, 76.92% 4%, 76.92% 23%, 84.62% 23%, 84.62% 45%, 92.31% 45%, 92.31% 36%, 100% 36%, 100% 100%); }
+}
+@keyframes cube-cap {
+  0% { clip-path: polygon(0% 100%, 0% 38%, 3.13% 38%, 3.13% 12%, 6.25% 12%, 6.25% 24%, 9.38% 24%, 9.38% 44%, 12.5% 44%, 12.5% 21%, 15.63% 21%, 15.63% 10%, 18.75% 10%, 18.75% 27%, 21.88% 27%, 21.88% 22%, 25% 22%, 25% 30%, 28.13% 30%, 28.13% 16%, 31.25% 16%, 31.25% 32%, 34.38% 32%, 34.38% 9%, 37.5% 9%, 37.5% 13%, 40.63% 13%, 40.63% 3%, 43.75% 3%, 43.75% 17%, 46.88% 17%, 46.88% 23%, 50% 23%, 50% 7%, 53.13% 7%, 53.13% 15%, 56.25% 15%, 56.25% 35%, 59.38% 35%, 59.38% 23%, 62.5% 23%, 62.5% 38%, 65.63% 38%, 65.63% 37%, 68.75% 37%, 68.75% 39%, 71.88% 39%, 71.88% 35%, 75% 35%, 75% 2%, 78.13% 2%, 78.13% 34%, 81.25% 34%, 81.25% 27%, 84.38% 27%, 84.38% 37%, 87.5% 37%, 87.5% 36%, 90.63% 36%, 90.63% 29%, 93.75% 29%, 93.75% 19%, 96.88% 19%, 96.88% 13%, 100% 13%, 100% 100%); }
+  25% { clip-path: polygon(0% 100%, 0% 33%, 3.13% 33%, 3.13% 35%, 6.25% 35%, 6.25% 43%, 9.38% 43%, 9.38% 1%, 12.5% 1%, 12.5% 22%, 15.63% 22%, 15.63% 37%, 18.75% 37%, 18.75% 31%, 21.88% 31%, 21.88% 10%, 25% 10%, 25% 41%, 28.13% 41%, 28.13% 2%, 31.25% 2%, 31.25% 35%, 34.38% 35%, 34.38% 37%, 37.5% 37%, 37.5% 12%, 40.63% 12%, 40.63% 43%, 43.75% 43%, 43.75% 33%, 46.88% 33%, 46.88% 21%, 50% 21%, 50% 8%, 53.13% 8%, 53.13% 11%, 56.25% 11%, 56.25% 8%, 59.38% 8%, 59.38% 4%, 62.5% 4%, 62.5% 2%, 65.63% 2%, 65.63% 36%, 68.75% 36%, 68.75% 17%, 71.88% 17%, 71.88% 35%, 75% 35%, 75% 25%, 78.13% 25%, 78.13% 17%, 81.25% 17%, 81.25% 2%, 84.38% 2%, 84.38% 42%, 87.5% 42%, 87.5% 25%, 90.63% 25%, 90.63% 44%, 93.75% 44%, 93.75% 42%, 96.88% 42%, 96.88% 28%, 100% 28%, 100% 100%); }
+  50% { clip-path: polygon(0% 100%, 0% 20%, 3.13% 20%, 3.13% 10%, 6.25% 10%, 6.25% 0%, 9.38% 0%, 9.38% 32%, 12.5% 32%, 12.5% 13%, 15.63% 13%, 15.63% 30%, 18.75% 30%, 18.75% 7%, 21.88% 7%, 21.88% 30%, 25% 30%, 25% 5%, 28.13% 5%, 28.13% 12%, 31.25% 12%, 31.25% 1%, 34.38% 1%, 34.38% 1%, 37.5% 1%, 37.5% 1%, 40.63% 1%, 40.63% 27%, 43.75% 27%, 43.75% 18%, 46.88% 18%, 46.88% 5%, 50% 5%, 50% 5%, 53.13% 5%, 53.13% 17%, 56.25% 17%, 56.25% 6%, 59.38% 6%, 59.38% 44%, 62.5% 44%, 62.5% 12%, 65.63% 12%, 65.63% 7%, 68.75% 7%, 68.75% 27%, 71.88% 27%, 71.88% 20%, 75% 20%, 75% 6%, 78.13% 6%, 78.13% 42%, 81.25% 42%, 81.25% 3%, 84.38% 3%, 84.38% 43%, 87.5% 43%, 87.5% 29%, 90.63% 29%, 90.63% 1%, 93.75% 1%, 93.75% 19%, 96.88% 19%, 96.88% 13%, 100% 13%, 100% 100%); }
+  75% { clip-path: polygon(0% 100%, 0% 12%, 3.13% 12%, 3.13% 45%, 6.25% 45%, 6.25% 33%, 9.38% 33%, 9.38% 28%, 12.5% 28%, 12.5% 40%, 15.63% 40%, 15.63% 37%, 18.75% 37%, 18.75% 12%, 21.88% 12%, 21.88% 43%, 25% 43%, 25% 20%, 28.13% 20%, 28.13% 37%, 31.25% 37%, 31.25% 24%, 34.38% 24%, 34.38% 28%, 37.5% 28%, 37.5% 29%, 40.63% 29%, 40.63% 13%, 43.75% 13%, 43.75% 39%, 46.88% 39%, 46.88% 32%, 50% 32%, 50% 9%, 53.13% 9%, 53.13% 34%, 56.25% 34%, 56.25% 43%, 59.38% 43%, 59.38% 17%, 62.5% 17%, 62.5% 29%, 65.63% 29%, 65.63% 31%, 68.75% 31%, 68.75% 6%, 71.88% 6%, 71.88% 37%, 75% 37%, 75% 15%, 78.13% 15%, 78.13% 19%, 81.25% 19%, 81.25% 13%, 84.38% 13%, 84.38% 21%, 87.5% 21%, 87.5% 24%, 90.63% 24%, 90.63% 38%, 93.75% 38%, 93.75% 17%, 96.88% 17%, 96.88% 7%, 100% 7%, 100% 100%); }
+  100% { clip-path: polygon(0% 100%, 0% 38%, 3.13% 38%, 3.13% 12%, 6.25% 12%, 6.25% 24%, 9.38% 24%, 9.38% 44%, 12.5% 44%, 12.5% 21%, 15.63% 21%, 15.63% 10%, 18.75% 10%, 18.75% 27%, 21.88% 27%, 21.88% 22%, 25% 22%, 25% 30%, 28.13% 30%, 28.13% 16%, 31.25% 16%, 31.25% 32%, 34.38% 32%, 34.38% 9%, 37.5% 9%, 37.5% 13%, 40.63% 13%, 40.63% 3%, 43.75% 3%, 43.75% 17%, 46.88% 17%, 46.88% 23%, 50% 23%, 50% 7%, 53.13% 7%, 53.13% 15%, 56.25% 15%, 56.25% 35%, 59.38% 35%, 59.38% 23%, 62.5% 23%, 62.5% 38%, 65.63% 38%, 65.63% 37%, 68.75% 37%, 68.75% 39%, 71.88% 39%, 71.88% 35%, 75% 35%, 75% 2%, 78.13% 2%, 78.13% 34%, 81.25% 34%, 81.25% 27%, 84.38% 27%, 84.38% 37%, 87.5% 37%, 87.5% 36%, 90.63% 36%, 90.63% 29%, 93.75% 29%, 93.75% 19%, 96.88% 19%, 96.88% 13%, 100% 13%, 100% 100%); }
+}
+@keyframes cube-step {
+  0% { clip-path: polygon(100% 0%, 38% 0%, 38% 50%, 18% 50%, 18% 100%, 100% 100%); }
+  25% { clip-path: polygon(100% 0%, 19% 0%, 19% 50%, 19% 50%, 19% 100%, 100% 100%); }
+  50% { clip-path: polygon(100% 0%, 21% 0%, 21% 50%, 34% 50%, 34% 100%, 100% 100%); }
+  75% { clip-path: polygon(100% 0%, 35% 0%, 35% 50%, 17% 50%, 17% 100%, 100% 100%); }
+  100% { clip-path: polygon(100% 0%, 38% 0%, 38% 50%, 18% 50%, 18% 100%, 100% 100%); }
+}
+@keyframes cube-shoulder {
+  0% { clip-path: polygon(0% 0%, 62% 0%, 62% 50%, 77% 50%, 77% 100%, 0% 100%); }
+  25% { clip-path: polygon(0% 0%, 66% 0%, 66% 50%, 73% 50%, 73% 100%, 0% 100%); }
+  50% { clip-path: polygon(0% 0%, 77% 0%, 77% 50%, 70% 50%, 70% 100%, 0% 100%); }
+  75% { clip-path: polygon(0% 0%, 80% 0%, 80% 50%, 80% 50%, 80% 100%, 0% 100%); }
+  100% { clip-path: polygon(0% 0%, 62% 0%, 62% 50%, 77% 50%, 77% 100%, 0% 100%); }
+}
+@keyframes cube-flank {
+  0% { clip-path: polygon(0% 0%, 62% 0%, 62% 4.35%, 72% 4.35%, 72% 8.7%, 71% 8.7%, 71% 13.04%, 98% 13.04%, 98% 17.39%, 77% 17.39%, 77% 21.74%, 76% 21.74%, 76% 26.09%, 65% 26.09%, 65% 30.43%, 92% 30.43%, 92% 34.78%, 59% 34.78%, 59% 39.13%, 93% 39.13%, 93% 43.48%, 78% 43.48%, 78% 47.83%, 91% 47.83%, 91% 52.17%, 59% 52.17%, 59% 56.52%, 69% 56.52%, 69% 60.87%, 94% 60.87%, 94% 65.22%, 99% 65.22%, 99% 69.57%, 57% 69.57%, 57% 73.91%, 87% 73.91%, 87% 78.26%, 95% 78.26%, 95% 82.61%, 66% 82.61%, 66% 86.96%, 99% 86.96%, 99% 91.3%, 60% 91.3%, 60% 95.65%, 87% 95.65%, 87% 100%, 0% 100%); }
+  25% { clip-path: polygon(0% 0%, 96% 0%, 96% 4.35%, 63% 4.35%, 63% 8.7%, 72% 8.7%, 72% 13.04%, 79% 13.04%, 79% 17.39%, 60% 17.39%, 60% 21.74%, 95% 21.74%, 95% 26.09%, 64% 26.09%, 64% 30.43%, 93% 30.43%, 93% 34.78%, 95% 34.78%, 95% 39.13%, 82% 39.13%, 82% 43.48%, 92% 43.48%, 92% 47.83%, 80% 47.83%, 80% 52.17%, 88% 52.17%, 88% 56.52%, 57% 56.52%, 57% 60.87%, 93% 60.87%, 93% 65.22%, 91% 65.22%, 91% 69.57%, 79% 69.57%, 79% 73.91%, 60% 73.91%, 60% 78.26%, 93% 78.26%, 93% 82.61%, 56% 82.61%, 56% 86.96%, 78% 86.96%, 78% 91.3%, 92% 91.3%, 92% 95.65%, 60% 95.65%, 60% 100%, 0% 100%); }
+  50% { clip-path: polygon(0% 0%, 71% 0%, 71% 4.35%, 75% 4.35%, 75% 8.7%, 86% 8.7%, 86% 13.04%, 99% 13.04%, 99% 17.39%, 79% 17.39%, 79% 21.74%, 63% 21.74%, 63% 26.09%, 55% 26.09%, 55% 30.43%, 87% 30.43%, 87% 34.78%, 69% 34.78%, 69% 39.13%, 97% 39.13%, 97% 43.48%, 100% 43.48%, 100% 47.83%, 60% 47.83%, 60% 52.17%, 97% 52.17%, 97% 56.52%, 76% 56.52%, 76% 60.87%, 92% 60.87%, 92% 65.22%, 71% 65.22%, 71% 69.57%, 76% 69.57%, 76% 73.91%, 80% 73.91%, 80% 78.26%, 66% 78.26%, 66% 82.61%, 63% 82.61%, 63% 86.96%, 71% 86.96%, 71% 91.3%, 83% 91.3%, 83% 95.65%, 96% 95.65%, 96% 100%, 0% 100%); }
+  75% { clip-path: polygon(0% 0%, 79% 0%, 79% 4.35%, 83% 4.35%, 83% 8.7%, 90% 8.7%, 90% 13.04%, 92% 13.04%, 92% 17.39%, 56% 17.39%, 56% 21.74%, 79% 21.74%, 79% 26.09%, 67% 26.09%, 67% 30.43%, 94% 30.43%, 94% 34.78%, 100% 34.78%, 100% 39.13%, 66% 39.13%, 66% 43.48%, 70% 43.48%, 70% 47.83%, 65% 47.83%, 65% 52.17%, 73% 52.17%, 73% 56.52%, 86% 56.52%, 86% 60.87%, 65% 60.87%, 65% 65.22%, 56% 65.22%, 56% 69.57%, 72% 69.57%, 72% 73.91%, 76% 73.91%, 76% 78.26%, 73% 78.26%, 73% 82.61%, 82% 82.61%, 82% 86.96%, 74% 86.96%, 74% 91.3%, 73% 91.3%, 73% 95.65%, 79% 95.65%, 79% 100%, 0% 100%); }
+  100% { clip-path: polygon(0% 0%, 62% 0%, 62% 4.35%, 72% 4.35%, 72% 8.7%, 71% 8.7%, 71% 13.04%, 98% 13.04%, 98% 17.39%, 77% 17.39%, 77% 21.74%, 76% 21.74%, 76% 26.09%, 65% 26.09%, 65% 30.43%, 92% 30.43%, 92% 34.78%, 59% 34.78%, 59% 39.13%, 93% 39.13%, 93% 43.48%, 78% 43.48%, 78% 47.83%, 91% 47.83%, 91% 52.17%, 59% 52.17%, 59% 56.52%, 69% 56.52%, 69% 60.87%, 94% 60.87%, 94% 65.22%, 99% 65.22%, 99% 69.57%, 57% 69.57%, 57% 73.91%, 87% 73.91%, 87% 78.26%, 95% 78.26%, 95% 82.61%, 66% 82.61%, 66% 86.96%, 99% 86.96%, 99% 91.3%, 60% 91.3%, 60% 95.65%, 87% 95.65%, 87% 100%, 0% 100%); }
+}
+@keyframes cube-port {
+  0% { clip-path: polygon(100% 0%, 38% 0%, 38% 6.67%, 34% 6.67%, 34% 13.33%, 45% 13.33%, 45% 20%, 10% 20%, 10% 26.67%, 4% 26.67%, 4% 33.33%, 32% 33.33%, 32% 40%, 8% 40%, 8% 46.67%, 32% 46.67%, 32% 53.33%, 24% 53.33%, 24% 60%, 2% 60%, 2% 66.67%, 22% 66.67%, 22% 73.33%, 19% 73.33%, 19% 80%, 30% 80%, 30% 86.67%, 0% 86.67%, 0% 93.33%, 34% 93.33%, 34% 100%, 100% 100%); }
+  25% { clip-path: polygon(100% 0%, 22% 0%, 22% 6.67%, 11% 6.67%, 11% 13.33%, 10% 13.33%, 10% 20%, 39% 20%, 39% 26.67%, 36% 26.67%, 36% 33.33%, 8% 33.33%, 8% 40%, 16% 40%, 16% 46.67%, 44% 46.67%, 44% 53.33%, 28% 53.33%, 28% 60%, 2% 60%, 2% 66.67%, 32% 66.67%, 32% 73.33%, 15% 73.33%, 15% 80%, 28% 80%, 28% 86.67%, 12% 86.67%, 12% 93.33%, 1% 93.33%, 1% 100%, 100% 100%); }
+  50% { clip-path: polygon(100% 0%, 43% 0%, 43% 6.67%, 17% 6.67%, 17% 13.33%, 40% 13.33%, 40% 20%, 6% 20%, 6% 26.67%, 43% 26.67%, 43% 33.33%, 23% 33.33%, 23% 40%, 22% 40%, 22% 46.67%, 37% 46.67%, 37% 53.33%, 16% 53.33%, 16% 60%, 14% 60%, 14% 66.67%, 31% 66.67%, 31% 73.33%, 29% 73.33%, 29% 80%, 16% 80%, 16% 86.67%, 32% 86.67%, 32% 93.33%, 37% 93.33%, 37% 100%, 100% 100%); }
+  75% { clip-path: polygon(100% 0%, 1% 0%, 1% 6.67%, 45% 6.67%, 45% 13.33%, 42% 13.33%, 42% 20%, 24% 20%, 24% 26.67%, 11% 26.67%, 11% 33.33%, 45% 33.33%, 45% 40%, 15% 40%, 15% 46.67%, 22% 46.67%, 22% 53.33%, 27% 53.33%, 27% 60%, 2% 60%, 2% 66.67%, 44% 66.67%, 44% 73.33%, 17% 73.33%, 17% 80%, 34% 80%, 34% 86.67%, 13% 86.67%, 13% 93.33%, 6% 93.33%, 6% 100%, 100% 100%); }
+  100% { clip-path: polygon(100% 0%, 38% 0%, 38% 6.67%, 34% 6.67%, 34% 13.33%, 45% 13.33%, 45% 20%, 10% 20%, 10% 26.67%, 4% 26.67%, 4% 33.33%, 32% 33.33%, 32% 40%, 8% 40%, 8% 46.67%, 32% 46.67%, 32% 53.33%, 24% 53.33%, 24% 60%, 2% 60%, 2% 66.67%, 22% 66.67%, 22% 73.33%, 19% 73.33%, 19% 80%, 30% 80%, 30% 86.67%, 0% 86.67%, 0% 93.33%, 34% 93.33%, 34% 100%, 100% 100%); }
+}
+@keyframes cube-skirt {
+  0% { clip-path: polygon(0% 0%, 0% 62%, 3.57% 62%, 3.57% 61%, 7.14% 61%, 7.14% 60%, 10.71% 60%, 10.71% 70%, 14.29% 70%, 14.29% 75%, 17.86% 75%, 17.86% 76%, 21.43% 76%, 21.43% 59%, 25% 59%, 25% 95%, 28.57% 95%, 28.57% 89%, 32.14% 89%, 32.14% 86%, 35.71% 86%, 35.71% 90%, 39.29% 90%, 39.29% 93%, 42.86% 93%, 42.86% 94%, 46.43% 94%, 46.43% 73%, 50% 73%, 50% 77%, 53.57% 77%, 53.57% 62%, 57.14% 62%, 57.14% 78%, 60.71% 78%, 60.71% 76%, 64.29% 76%, 64.29% 98%, 67.86% 98%, 67.86% 90%, 71.43% 90%, 71.43% 84%, 75% 84%, 75% 85%, 78.57% 85%, 78.57% 68%, 82.14% 68%, 82.14% 98%, 85.71% 98%, 85.71% 61%, 89.29% 61%, 89.29% 88%, 92.86% 88%, 92.86% 75%, 96.43% 75%, 96.43% 77%, 100% 77%, 100% 0%); }
+  25% { clip-path: polygon(0% 0%, 0% 68%, 3.57% 68%, 3.57% 57%, 7.14% 57%, 7.14% 88%, 10.71% 88%, 10.71% 76%, 14.29% 76%, 14.29% 78%, 17.86% 78%, 17.86% 95%, 21.43% 95%, 21.43% 86%, 25% 86%, 25% 61%, 28.57% 61%, 28.57% 92%, 32.14% 92%, 32.14% 89%, 35.71% 89%, 35.71% 63%, 39.29% 63%, 39.29% 62%, 42.86% 62%, 42.86% 56%, 46.43% 56%, 46.43% 99%, 50% 99%, 50% 97%, 53.57% 97%, 53.57% 91%, 57.14% 91%, 57.14% 84%, 60.71% 84%, 60.71% 99%, 64.29% 99%, 64.29% 78%, 67.86% 78%, 67.86% 87%, 71.43% 87%, 71.43% 59%, 75% 59%, 75% 96%, 78.57% 96%, 78.57% 71%, 82.14% 71%, 82.14% 69%, 85.71% 69%, 85.71% 90%, 89.29% 90%, 89.29% 73%, 92.86% 73%, 92.86% 99%, 96.43% 99%, 96.43% 66%, 100% 66%, 100% 0%); }
+  50% { clip-path: polygon(0% 0%, 0% 89%, 3.57% 89%, 3.57% 98%, 7.14% 98%, 7.14% 84%, 10.71% 84%, 10.71% 55%, 14.29% 55%, 14.29% 98%, 17.86% 98%, 17.86% 99%, 21.43% 99%, 21.43% 72%, 25% 72%, 25% 95%, 28.57% 95%, 28.57% 57%, 32.14% 57%, 32.14% 83%, 35.71% 83%, 35.71% 59%, 39.29% 59%, 39.29% 93%, 42.86% 93%, 42.86% 80%, 46.43% 80%, 46.43% 56%, 50% 56%, 50% 56%, 53.57% 56%, 53.57% 71%, 57.14% 71%, 57.14% 74%, 60.71% 74%, 60.71% 96%, 64.29% 96%, 64.29% 97%, 67.86% 97%, 67.86% 91%, 71.43% 91%, 71.43% 97%, 75% 97%, 75% 96%, 78.57% 96%, 78.57% 99%, 82.14% 99%, 82.14% 61%, 85.71% 61%, 85.71% 85%, 89.29% 85%, 89.29% 97%, 92.86% 97%, 92.86% 73%, 96.43% 73%, 96.43% 85%, 100% 85%, 100% 0%); }
+  75% { clip-path: polygon(0% 0%, 0% 59%, 3.57% 59%, 3.57% 62%, 7.14% 62%, 7.14% 89%, 10.71% 89%, 10.71% 95%, 14.29% 95%, 14.29% 94%, 17.86% 94%, 17.86% 79%, 21.43% 79%, 21.43% 66%, 25% 66%, 25% 76%, 28.57% 76%, 28.57% 59%, 32.14% 59%, 32.14% 91%, 35.71% 91%, 35.71% 67%, 39.29% 67%, 39.29% 67%, 42.86% 67%, 42.86% 66%, 46.43% 66%, 46.43% 55%, 50% 55%, 50% 79%, 53.57% 79%, 53.57% 79%, 57.14% 79%, 57.14% 81%, 60.71% 81%, 60.71% 64%, 64.29% 64%, 64.29% 92%, 67.86% 92%, 67.86% 56%, 71.43% 56%, 71.43% 97%, 75% 97%, 75% 64%, 78.57% 64%, 78.57% 66%, 82.14% 66%, 82.14% 61%, 85.71% 61%, 85.71% 75%, 89.29% 75%, 89.29% 91%, 92.86% 91%, 92.86% 56%, 96.43% 56%, 96.43% 84%, 100% 84%, 100% 0%); }
+  100% { clip-path: polygon(0% 0%, 0% 62%, 3.57% 62%, 3.57% 61%, 7.14% 61%, 7.14% 60%, 10.71% 60%, 10.71% 70%, 14.29% 70%, 14.29% 75%, 17.86% 75%, 17.86% 76%, 21.43% 76%, 21.43% 59%, 25% 59%, 25% 95%, 28.57% 95%, 28.57% 89%, 32.14% 89%, 32.14% 86%, 35.71% 86%, 35.71% 90%, 39.29% 90%, 39.29% 93%, 42.86% 93%, 42.86% 94%, 46.43% 94%, 46.43% 73%, 50% 73%, 50% 77%, 53.57% 77%, 53.57% 62%, 57.14% 62%, 57.14% 78%, 60.71% 78%, 60.71% 76%, 64.29% 76%, 64.29% 98%, 67.86% 98%, 67.86% 90%, 71.43% 90%, 71.43% 84%, 75% 84%, 75% 85%, 78.57% 85%, 78.57% 68%, 82.14% 68%, 82.14% 98%, 85.71% 98%, 85.71% 61%, 89.29% 61%, 89.29% 88%, 92.86% 88%, 92.86% 75%, 96.43% 75%, 96.43% 77%, 100% 77%, 100% 0%); }
 }
 @keyframes crest-spark {
   from { background-position: 170% 0; }
