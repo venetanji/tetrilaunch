@@ -198,6 +198,11 @@
      .drag-hint rules) */
   --hint-ease: cubic-bezier(0.65, 0, 0.35, 1); /* press/drag/release motion curve */
   --hint-loop-dur: 3400ms; /* one full press-drag-hold-release-pause cycle */
+  /* The same cycle run as a CORRECTION after a misfire (app.css's
+     .drag-hint--at). Faster than the onboarding loop and played once: it is
+     answering a gesture the player made half a second ago, and it reads as a
+     nudge at this speed where the full 3400ms reads as a lesson restarting. */
+  --hint-correct-dur: 1500ms;
   --hint-show-dur: var(--dur-slow); /* fade when main.ts shows/hides the hint overlay */
 }
 

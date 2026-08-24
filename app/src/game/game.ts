@@ -1,6 +1,9 @@
 import Matter from "matter-js";
 import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
 import { Cannon, predictTrajectory } from "./cannon";
+import {
+  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
+} from "./chute";
 import { Compactor } from "./compactor";
 import {
   createStandingWall,
@@ -34,7 +37,7 @@ import {
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
-import { FX_TTL, type FxEvent } from "./fx";
+import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
 import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
@@ -125,7 +128,7 @@ export interface GameEvents {
    *  visuals already ride the FxEvent queue; this is the same moment offered
    *  to the ear. One call per blast, not per cube — a volatile chain in one
    *  step aggregates into a single event exactly like its explosion visual. */
-  onExplosion?: (kind: "bomb" | "volatile") => void;
+  onExplosion?: (kind: "bomb" | "volatile" | "chute") => void;
   /** Fired when armBomb actually changes the armed state — never on a refused
    *  call — with the new state. Every input path converges on armBomb (HUD
    *  button, keyboard, gamepad), so a cue wired here covers all three without
@@ -304,6 +307,17 @@ export class Game {
   cubes: Cube[] = [];
   constraints: Matter.Constraint[] = [];
   trajectory: Matter.Vector[] = [];
+  /**
+   * True when the arc above ends somewhere the bay can never use — down the
+   * intake chute, or short of the compactor's furthest reach. Drives the
+   * canvas strand warning (render.ts): red arc, red muzzle ring, and the maw
+   * lighting up.
+   *
+   * A FIELD written by updateTrajectory rather than a getter, because it is a
+   * property of the arc and the arc only changes when the aim does — a getter
+   * would re-walk 140 points on every read, and render reads it every frame.
+   */
+  trajectoryStrands = false;
 
   score: number;
   combo = 0;
@@ -778,6 +792,84 @@ export class Game {
   }
 
   /**
+   * Price cargo the bay lost, whichever way it went — blinked out short of the
+   * compactor, or fed into the intake chute.
+   *
+   * Extracted so those two paths cannot drift. They are the same event
+   * economically (cargo the player paid to launch and will never get a line
+   * out of) and they were only ever going to be told apart by their FX, so the
+   * accounting lives in one place and each caller spawns its own.
+   *
+   * Returns what ACTUALLY left the bankroll, which is not always the nominal
+   * charge: the balance floors at 0, and a "−$100" toast over a $30 bankroll
+   * would be the HUD contradicting itself. Callers skip their toast on 0 — a
+   * Contract prices a lost piece at nothing, and a $0 penalty would teach a
+   * rule that isn't there.
+   */
+  private chargeLostCubes(n: number, _now: number): number {
+    this.combo = 0;
+    this.lostTotal += n;
+    const deducted = Math.min(this.score, n * this.level.penaltyPerLostPiece);
+    this.score -= deducted;
+    this.events.onPieceLost?.(n);
+    return deducted;
+  }
+
+  /**
+   * Feed whatever has entered the recycling plant's intake through it (see
+   * chute.ts for why the maw exists and why its rect is authored rather than
+   * measured).
+   *
+   * The FX split follows detonate's: debris PER CUBE, where each cube stood, so
+   * you can read the shape of what you lost — but ONE explosion and one sound
+   * for the batch, because a shipment going in is one event and four of them in
+   * a step would be a wall.
+   *
+   * The "−$" is the exception, and it is the entire point of the mechanic: it
+   * spawns on the chute's LIP rather than at the cubes, because the cubes are
+   * behind the plant panel and a penalty toast rendered behind an opaque panel
+   * is how this was invisible in the first place.
+   */
+  private shredChute(now: number): void {
+    // Bombs first: one that flies in goes off rather than being quietly eaten.
+    // Routed through the normal detonation queue, so it gets the bomb's own
+    // blast and sound — a demolition charge exploding is a demolition charge
+    // exploding, wherever it happened to land. It vaporizes nothing (the maw is
+    // kept empty by this very method), so the cost is the charge and no more.
+    const rightEdge = chuteRightEdge(this.strandCutoffX);
+    for (const bomb of this.liveBombs) {
+      const p = bomb.body.position;
+      if (inChute(p.x, p.y, rightEdge)) this.pendingDetonations.add(bomb.body);
+    }
+
+    const shredded = shredInChute(this.phys.world, this.cubes, this.constraints, rightEdge);
+    if (shredded.length === 0) return;
+
+    let cx = 0;
+    for (const cube of shredded) {
+      cx += cube.body.position.x;
+      this.throwChunks(cube, now);
+    }
+    cx /= shredded.length;
+    this.effects.push({
+      kind: "explosion", x: cx, y: CHUTE_LIP_Y + CHUTE_BLAST_R * 0.5, r: CHUTE_BLAST_R, t0: now,
+    });
+    this.events.onExplosion?.("chute");
+
+    const deducted = this.chargeLostCubes(shredded.length, now);
+    if (deducted > 0) {
+      // Spawned a full SINK above the lip, not 20px above it. The toast
+      // travels PENALTY_SINK_PX down over its life, and the plant panel's top
+      // edge is CHUTE_LIP_Y — so the old anchor put the number in clear air
+      // for its first third and behind an opaque panel for the rest, which is
+      // the exact failure the lip constant was introduced to avoid.
+      this.effects.push({
+        kind: "penalty", x: cx, y: CHUTE_LIP_Y - 20 - PENALTY_SINK_PX, amount: deducted, t0: now,
+      });
+    }
+  }
+
+  /**
    * Bond Breaker special ability (charged by the Bond Emitter track — see
    * run.ts's bondChargesFor for the run-scoped magazine): shatter EVERY joint on
    * the field at once, turning all pieces into loose cubes. With nothing
@@ -947,6 +1039,17 @@ export class Game {
       140,
       () => wind,
     );
+    this.trajectoryStrands = pathStrands(this.trajectory, this.strandCutoffX);
+  }
+
+  /**
+   * The leftmost x a cube can settle at and still be reachable, i.e. the
+   * boundary lineClear's markLostPieces strands cargo across. Taken from the
+   * compactor's own open stop, so the warning drawn on the arc and the penalty
+   * charged on landing are one number and cannot drift apart.
+   */
+  get strandCutoffX(): number {
+    return this.compactor.strandCutoffX;
   }
 
   /** `auto` marks a shot the Autoloader trigger fired rather than the player's
@@ -1316,19 +1419,17 @@ export class Game {
       }
     }
 
+    // Cargo fed into the recycling plant's intake goes IMMEDIATELY (chute.ts).
+    // Before the blink path below, deliberately: everything inside the maw is
+    // already left of the strand cutoff, so running markLostPieces first would
+    // sentence the same cubes to a 1.4s blink they are not going to serve.
+    this.shredChute(now);
+
     // ...or when they bounce OUT before the compactor (blink away, lose points).
     markLostPieces(this.cubes, this.compactor, now);
     const lostCubes = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
-    const lost = lostCubes.length;
-    if (lost > 0) {
-      this.combo = 0;
-      this.lostTotal += lost;
-      // Deducted, not nominal: the bankroll floors at 0, and the FX below must
-      // show the number that actually left it — a "−$100" over a $30 bankroll
-      // would be the HUD contradicting itself.
-      const deducted = Math.min(this.score, lost * this.level.penaltyPerLostPiece);
-      this.score -= deducted;
-      this.events.onPieceLost?.(lost);
+    if (lostCubes.length > 0) {
+      const deducted = this.chargeLostCubes(lostCubes.length, now);
       // The expense twin of spawnClearFx's payout: one "−$" at the cluster's
       // centroid, where the cubes just blinked away. A penalty the player only
       // ever met in the end screen's tally read as a hidden rule (playtest,
@@ -1336,7 +1437,7 @@ export class Game {
       // Skipped when nothing was deducted (Contracts price a lost piece at 0,
       // and a $0 penalty toast would teach a rule that isn't there).
       if (deducted > 0) {
-        const meanX = lostCubes.reduce((s, c) => s + c.x, 0) / lost;
+        const meanX = lostCubes.reduce((s, c) => s + c.x, 0) / lostCubes.length;
         const minY = Math.min(...lostCubes.map((c) => c.y));
         this.effects.push({ kind: "penalty", x: meanX, y: minY - 20, amount: deducted, t0: now });
       }

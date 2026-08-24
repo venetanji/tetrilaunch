@@ -502,10 +502,18 @@ export function playBondBreak(): void {
  *  half the radius (VOLATILE_BLAST_CELLS against BOMB_BLAST_R) — so it plays
  *  smaller, pitched up and pulled back, rather than shipping a second file to
  *  say a smaller version of the same thing. */
-export function playExplosion(kind: "bomb" | "volatile"): void {
-  playFx("explosion", kind === "bomb"
-    ? { rate: 0.96 + Math.random() * 0.08 }
-    : { rate: 1.18 + Math.random() * 0.08, gain: 0.7 });
+export function playExplosion(kind: "bomb" | "volatile" | "chute"): void {
+  // One sample, three readings. A bomb is the reference; a volatile pop is
+  // pitched up and quieter (a hazard going off, not ordnance); the intake chute
+  // is pitched DOWN and quieter still, which turns the same bang into a dull
+  // crunch — a shredder swallowing cargo rather than an explosion. Rate and
+  // gain rather than a fourth asset deliberately: this is a mistake being
+  // acknowledged, and it should not out-announce a demolition charge.
+  if (kind === "bomb") return playFx("explosion", { rate: 0.96 + Math.random() * 0.08 });
+  if (kind === "volatile") {
+    return playFx("explosion", { rate: 1.18 + Math.random() * 0.08, gain: 0.7 });
+  }
+  playFx("explosion", { rate: 0.66 + Math.random() * 0.06, gain: 0.62 });
 }
 
 /** Menu taps. Quiet on purpose — a click is confirmation, not an event — and
