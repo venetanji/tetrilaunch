@@ -2071,7 +2071,7 @@ class App {
         windAverage: this.meta.unlocks.includes("survey") ? g.windAverage : null,
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
-        strandWarning: g.trajectoryStrands,
+        strandWarning: g.strandWarning,
       });
     } else if (!g) {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2105,7 +2105,7 @@ class App {
       const crestTier = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
       plant.classList.toggle("plant--congest-warn", crestTier === 0);
       plant.classList.toggle("plant--congest-danger", crestTier >= 1);
-      plant.classList.toggle("plant--maw", g.trajectoryStrands);
+      plant.classList.toggle("plant--maw", g.strandWarning);
       // THE BEAT — the crest breathes with the soundtrack (app.css's
       // --crest-beat brightness and cube depth). One tap, three signals, split
       // by timescale below: the beat is the transient, --crest-heat is the

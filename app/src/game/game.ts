@@ -42,6 +42,26 @@ import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
 
+/**
+ * How long an aim has to KEEP feeding the machine before the warning fires.
+ *
+ * The predicate itself is instant and correct — see Game.trajectoryStrands —
+ * but a slingshot drag sweeps the whole aim cone on its way to wherever the
+ * player is going, and the machine sits under a good part of that cone. So
+ * every single shot lit the maw red, reddened the arc and rang the muzzle for
+ * a handful of frames in passing, on the way to an aim that was never in
+ * danger. A warning that fires on almost every input is not a warning, it is
+ * a texture, and the one it was competing with is the arc the player is
+ * actually reading.
+ *
+ * 300ms is comfortably longer than a drag takes to cross the cone and well
+ * under the time anyone spends considering an aim they have settled on, so
+ * the cue now means "you are still pointed at the grinder" rather than "you
+ * passed over it". Only ACTIVATION waits: the moment the arc leaves, the
+ * warning goes with it, because a stale danger light is worse than none.
+ */
+export const STRAND_WARN_DELAY_MS = 300;
+
 export type GameStatus = "playing" | "won" | "lost";
 
 /** Why a bay ended badly. "launches" and "pieces" are both Contract-only — the
@@ -318,6 +338,25 @@ export class Game {
    * would re-walk 140 points on every read, and render reads it every frame.
    */
   trajectoryStrands = false;
+
+  /**
+   * The warning the PLAYER sees — trajectoryStrands held down for
+   * STRAND_WARN_DELAY_MS, so a drag passing over the machine never lights it.
+   *
+   * Separate from the predicate rather than debouncing it in place, and that
+   * separation is load-bearing twice over. sim/systems.ts asserts on
+   * trajectoryStrands to check the RULE (does this arc feed the grinder), and
+   * a rule that only became true 18 steps later would be untestable without
+   * threading a clock through every check. And every visual consumer — the
+   * maw red on .plant, the chute heat, the arc colour, the muzzle ring — has
+   * to agree with the others frame for frame, which they do by all reading
+   * this one latch instead of each keeping its own timer.
+   */
+  strandWarning = false;
+  /** Consecutive steps trajectoryStrands has held. Steps, not wall time: the
+   *  bay is a fixed-DT simulation and every other duration in it is counted
+   *  the same way, so a stuttering frame cannot make the warning early. */
+  private strandSteps = 0;
 
   score: number;
   combo = 0;
@@ -1279,6 +1318,20 @@ export class Game {
     }
 
     this.stepCount++;
+
+    // The strand warning's activation delay (see STRAND_WARN_DELAY_MS). Run
+    // here rather than in updateTrajectory because the count is in STEPS and
+    // this is the only thing that steps: updateTrajectory fires on aim change,
+    // which is exactly the burst of events the delay exists to sit out.
+    this.strandSteps = this.trajectoryStrands ? this.strandSteps + 1 : 0;
+    // The predicate is re-tested here, not merely counted: on a zero delay the
+    // count comparison alone reads `0 >= 0` on the very step the aim LEAVES,
+    // which latches the warning on for good. Nothing sets the delay to zero
+    // today, but a cue that survives its own cause is the kind of bug that
+    // gets found in a playtest rather than in a diff.
+    this.strandWarning =
+      this.trajectoryStrands && this.strandSteps * DT >= STRAND_WARN_DELAY_MS;
+
     // Congestion's third pressure, re-read every step because the bay floor
     // changes every step. Pushed onto the cannon rather than consulted at fire
     // time so the RELOAD BAR is honest while it fills: a penalty the player

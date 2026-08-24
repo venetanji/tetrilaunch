@@ -16,7 +16,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import Matter from "matter-js";
-import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER } from "../src/game/game";
+import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS } from "../src/game/game";
 import {
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
   PILE_TIERS, TARGET_PER_BAY, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
@@ -5414,6 +5414,43 @@ section("Misfire prevention");
     g.cannon.power = g.cannon.speedMax;
     g.updateTrajectory();
     check("a strong lofted aim is not flagged", !g.trajectoryStrands);
+  }
+
+  {
+    // THE ACTIVATION DELAY. The predicate is instant, but a slingshot drag
+    // sweeps the whole aim cone and the machine sits under a good part of it,
+    // so the raw flag flickers true in passing on very nearly every shot. What
+    // the player SEES waits STRAND_WARN_DELAY_MS of continuous danger.
+    //
+    // Asserted against the constant rather than against 300, so retuning the
+    // feel moves this check with it instead of breaking it.
+    const g = new Game(makeBaseLevel(0), {}, 21);
+    g.cannon.angle = -Math.PI / 4;
+    g.cannon.power = g.cannon.speedMin;
+    g.updateTrajectory();
+    check("a stranding aim trips the predicate at once", g.trajectoryStrands);
+
+    // One step of danger BEFORE asking. Reading strandWarning straight off a
+    // fresh Game would pass on the field's initialiser rather than on the
+    // delay, which is a check that cannot fail — the whole point of stepping
+    // once here is that a zero delay makes the next line go red.
+    const steps = Math.ceil(STRAND_WARN_DELAY_MS / DT);
+    g.update(DT);
+    check("...but the warning the player sees does not", !g.strandWarning);
+    for (let i = 2; i < steps; i++) g.update(i * DT);
+    check("...and is still quiet one step short of the delay", !g.strandWarning,
+      `${steps - 1} of ${steps} steps`);
+    g.update(steps * DT);
+    check("...then fires on the step that crosses it", g.strandWarning);
+
+    // Only ACTIVATION waits. A stale danger light is worse than none, so
+    // leaving the cone has to clear it on the very next step.
+    g.cannon.angle = Math.PI / 5;
+    g.cannon.power = g.cannon.speedMax;
+    g.updateTrajectory();
+    check("...and an aim that leaves clears it immediately", !g.trajectoryStrands);
+    g.update((steps + 1) * DT);
+    check("...with no fade-out on the latch", !g.strandWarning);
 
     // The cutoff the warning uses and the one markLostPieces punishes on have to
     // be the SAME number, or the arc goes red where nothing is charged (or

@@ -315,7 +315,7 @@ export class AttractDemo {
       windAverage: null,
       reload: g.cannon.reloadRatio(cycle.clock),
       settling: g.settling,
-      strandWarning: g.trajectoryStrands,
+      strandWarning: g.strandWarning,
     }, fitViewport(w, h));
 
     if (cycle.clock < cycle.fadeUntil) {
