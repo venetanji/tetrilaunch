@@ -138,9 +138,10 @@ From the repo root:
 ```bash
 npm install                       # wrangler + workers-types
 npm run build                     # builds app/dist
-npm run db:migrate                # apply migrations to the remote D1 database
-npx wrangler dev --local          # run worker + assets + local D1 at :8787
-npm run deploy                    # build + wrangler deploy
+npm run dev:worker                # worker + assets + local D1 at :8787 (staging env)
+npm run db:migrate                # apply migrations to the LIVE D1
+npm run db:migrate:staging        # ...or to the staging one
+npm run deploy                    # build + wrangler deploy --env="" (production)
 ```
 
 The Worker serves the built app and exposes:
@@ -153,19 +154,46 @@ D1 database: `tetrilaunch-leaderboard` (id in `wrangler.jsonc`). Schema in
 
 ### Deploy strategy
 
-The app and the leaderboard Worker deploy independently — the Worker code rarely changes,
-so it should not rebuild on every game commit:
+**The Worker is the site.** `wrangler.jsonc` binds `tetrilaunch.com` and
+`www.tetrilaunch.com` to it as custom domains and serves `app/dist` through the `ASSETS`
+binding, with `run_worker_first: ["/api/*"]`. So the app and the Worker do **not** deploy
+independently any more: a game commit changes `app/dist`, and `app/dist` is shipped by
+`wrangler deploy`. Nothing reaches the live site until that command runs.
 
-- **App — Cloudflare Pages (auto, every branch).** The `tetrilaunch` Pages project builds
-  each branch into its own preview URL (and `main` into the Pages production URL).
-  Project settings: **root directory `app`**, build command **`npm run build`**, output
-  **`dist`**. Nothing else is required: on a `*.pages.dev` host the app calls the
-  production Worker API cross-origin (the Worker's `/api` responses are CORS-open), so
-  every preview shares the live leaderboard.
-- **Leaderboard Worker — manual, rare.** Turn **off** auto-deploy (Workers Builds) for the
-  Worker in the Cloudflare dash. Deploy it with `npm run deploy` from the repo root only
-  when `app/worker/`, `wrangler.jsonc`, or `migrations/` change (schema changes:
-  `npm run db:migrate` first).
+(This section used to describe the opposite — Cloudflare Pages building every branch and
+serving production, with the Worker deployed "rarely", only when `app/worker/` changed.
+That was true before the apex moved onto the Worker and false afterwards, and following it
+would deploy a release to a Pages URL nobody visits while `tetrilaunch.com` kept serving
+the previous build. Pages branch previews may still exist and are still useful for looking
+at layout, but they have no Worker behind them: `/api/scores` on a `*.pages.dev` host
+answers the SPA fallback, i.e. `text/html`, not JSON.)
+
+Three environments, and the difference between them is the DATABASE, not the URL:
+
+| | serves | D1 | deployed by |
+|---|---|---|---|
+| **production** | `tetrilaunch.com`, `www.` | `tetrilaunch-leaderboard` | `npm run deploy`, by hand |
+| **staging** | `tetrilaunch-staging.*.workers.dev` | `tetrilaunch-leaderboard-preview` | `.github/workflows/staging.yml`, on every push to `staging` |
+| **local** | `:8787` | local (miniflare) | `npm run dev:worker` |
+
+**Releasing to production** — from the repo root, deliberately, by a person:
+
+```bash
+git checkout main && git merge --ff-only staging
+npm run db:migrate       # ONLY if migrations/ gained a file; applies to the live D1
+npm run deploy           # build + wrangler deploy --env=""
+```
+
+`--env=""` is not decoration. With more than one environment defined, a bare
+`wrangler deploy` warns that no target was named and falls back to the top level; naming it
+means the release command cannot start resolving somewhere else after a wrangler upgrade.
+
+**The staging environment needs `CLOUDFLARE_API_TOKEN`** in *Settings → Secrets → Actions*
+(scopes: Workers Scripts:Edit, D1:Edit). Without it `staging.yml` fails at its token guard,
+which is what every run of it has done so far — so there is currently no deployed staging
+Worker, and anything reviewed on a `*.pages.dev` URL was the SPA with no API behind it.
+`staging.yml` deliberately does not run migrations; apply them with
+`npm run db:migrate:staging` when a schema change is what you actually intend.
 
 ### Native (iOS / Android)
 
