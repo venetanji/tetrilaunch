@@ -515,9 +515,18 @@ body.crt-off #app::after { display: none; }
 
 /* Next-piece preview grid (see components.ts's pieceCellsHTML/beltPieceHTML)
    — the actual colored-cube shape, reused by the conveyor belt (1d layout)
-   and the how-to-play piece gallery. */
-.next__grid { width: 28px; height: 28px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr); gap: 1px; }
-.next__cell { border-radius: 1px; }
+   and the how-to-play piece gallery.
+
+   Now ONE <svg> rather than a grid of 16 cell divs — see components.ts's
+   pieceCellsHTML for why (the material badge has to sit on the tile without
+   adding a box uifit would measure, and a two-tone cell is a rect in a rect).
+   The element keeps the same name and the same 28px footprint, so every rule
+   scoped to it below — including the belt's own sizing — is unchanged. */
+.next__grid { width: 28px; height: 28px; display: block; overflow: visible; }
+/* Standalone material glyph (components.ts's materialIconHTML) — menus, shop
+   rows, hazard cards. Sized by its caller; this only keeps it on the text
+   baseline it sits next to. */
+.mat-icon { display: inline-block; vertical-align: -0.18em; flex: none; }
 
 /* ---------- MATERIAL TELEGRAPH ------------------------------------------
    A non-standard shipment's preview breathes a glow in its own colour (see

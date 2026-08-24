@@ -75,6 +75,7 @@ import {
   pieceCells, SIZE_SPEC, createStandingWall, createTetrisPiece,
   updateBreakableJoints, breakJointsInBand, WEAK_BOND_UNBREAKABLE_BASE,
 } from "../src/game/pieces";
+import { applySandboxMaterials, SANDBOX_MATERIALS } from "../src/game/sandbox";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -89,7 +90,10 @@ import {
   setSafeAreaInsets,
   UI_SCALE_MIN,
 } from "../src/game/layout";
-import { PIECE_TYPES, MATERIALS, MATERIAL_SPEC, type PieceSize } from "../src/game/theme";
+import {
+  BAY_GLYPH_MATERIALS, glyphInk, MATERIAL_GLYPH, MATERIALS, MATERIAL_SPEC,
+  PIECE_COLORS, PIECE_TYPES, type PieceSize,
+} from "../src/game/theme";
 import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
@@ -117,6 +121,68 @@ function check(name: string, cond: boolean, detail = ""): void {
 
 function section(title: string): void {
   console.log(`\n${title}`);
+}
+
+/**
+ * CIEDE2000 distance between two "#rrggbb" colours.
+ *
+ * Here rather than in src/ because it is a TEST instrument: nothing the game
+ * draws needs to measure a colour difference at runtime, and a palette check
+ * that imported its own yardstick from the thing it is checking would be able to
+ * pass by changing the yardstick.
+ *
+ * Plain Euclidean RGB distance would not do. It rates rebar's old #ff8a1f
+ * against the L shipment's #ff8a00 as 31 units apart — a number that sounds like
+ * a difference — while a human sees one colour. dE00 rates the same pair at 2.0,
+ * which is what the eye reports, and that is the whole reason for the arithmetic
+ * below.
+ */
+function deltaE00(hexA: string, hexB: string): number {
+  const lab = (hex: string): [number, number, number] => {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (c: number): number => {
+      const v = c / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    const r = lin((n >> 16) & 255), g = lin((n >> 8) & 255), b = lin(n & 255);
+    const f = (t: number): number => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    const x = f((r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047);
+    const y = f(r * 0.2126 + g * 0.7152 + b * 0.0722);
+    const z = f((r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  };
+  const [L1, a1, b1] = lab(hexA);
+  const [L2, a2, b2] = lab(hexB);
+  const rad = Math.PI / 180, deg = 180 / Math.PI;
+  const C1 = Math.hypot(a1, b1), C2 = Math.hypot(a2, b2), Cb = (C1 + C2) / 2;
+  const G = 0.5 * (1 - Math.sqrt(Cb ** 7 / (Cb ** 7 + 25 ** 7)));
+  const A1 = (1 + G) * a1, A2 = (1 + G) * a2;
+  const Cp1 = Math.hypot(A1, b1), Cp2 = Math.hypot(A2, b2);
+  let h1 = Math.atan2(b1, A1) * deg; if (h1 < 0) h1 += 360;
+  let h2 = Math.atan2(b2, A2) * deg; if (h2 < 0) h2 += 360;
+  const dL = L2 - L1, dC = Cp2 - Cp1;
+  let dh = 0;
+  if (Cp1 * Cp2 !== 0) {
+    dh = h2 - h1;
+    if (dh > 180) dh -= 360; else if (dh < -180) dh += 360;
+  }
+  const dH = 2 * Math.sqrt(Cp1 * Cp2) * Math.sin((dh / 2) * rad);
+  const Lb = (L1 + L2) / 2, Cpb = (Cp1 + Cp2) / 2;
+  let hb: number;
+  if (Cp1 * Cp2 === 0) hb = h1 + h2;
+  else {
+    hb = (h1 + h2) / 2;
+    if (Math.abs(h1 - h2) > 180) hb += h1 + h2 < 360 ? 180 : -180;
+  }
+  const T = 1 - 0.17 * Math.cos((hb - 30) * rad) + 0.24 * Math.cos(2 * hb * rad)
+    + 0.32 * Math.cos((3 * hb + 6) * rad) - 0.20 * Math.cos((4 * hb - 63) * rad);
+  const Sl = 1 + (0.015 * (Lb - 50) ** 2) / Math.sqrt(20 + (Lb - 50) ** 2);
+  const Sc = 1 + 0.045 * Cpb, Sh = 1 + 0.015 * Cpb * T;
+  const Rt = -2 * Math.sqrt(Cpb ** 7 / (Cpb ** 7 + 25 ** 7))
+    * Math.sin(2 * (30 * Math.exp(-(((hb - 275) / 25) ** 2))) * rad);
+  return Math.sqrt(
+    (dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3726,9 +3792,55 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("every material the mix can roll has a spec",
     MATERIALS.every((m) => MATERIAL_SPEC[m] !== undefined)
       && MATERIALS.length === Object.keys(MATERIAL_SPEC).length);
-  check("every non-standard material is visually distinct",
-    new Set(MATERIALS.map((m) => MATERIAL_SPEC[m].color)).size === MATERIALS.length,
-    MATERIALS.map((m) => MATERIAL_SPEC[m].color).join(","));
+  // VISUAL DISTINCTNESS. This check used to compare the colours as STRINGS, and
+  // it passed for months while rebar sat at a CIEDE2000 distance of 2.0 from the
+  // L shipment's own colour — two different hex literals, one colour to the eye,
+  // and a player reporting they could not tell a rigid shipment from an ordinary
+  // one. Set-of-strings is not a distinctness test; it is a typo test.
+  //
+  // So the floor is perceptual, and it is measured against the PIECE colours too
+  // — a material is worn by every shape, so "distinct from the other materials"
+  // was never the whole question. dE00 10 is deliberately modest: it is roughly
+  // "clearly not the same swatch", not "comfortably distinguishable", because
+  // the palette provably cannot deliver the latter (theme.ts's MATERIAL_GLYPH)
+  // and a threshold nothing can pass is a threshold that gets deleted.
+  {
+    const swatches: Array<[string, string]> = [
+      ...MATERIALS.filter((m) => m !== "standard")
+        .map((m) => [m, MATERIAL_SPEC[m].color!] as [string, string]),
+      ...PIECE_TYPES.map((t) => [`piece-${t}`, PIECE_COLORS[t]] as [string, string]),
+    ];
+    let worst = Infinity;
+    let worstPair = "";
+    for (let i = 0; i < swatches.length; i++) {
+      for (let j = i + 1; j < swatches.length; j++) {
+        const d = deltaE00(swatches[i][1], swatches[j][1]);
+        if (d < worst) { worst = d; worstPair = `${swatches[i][0]}/${swatches[j][0]}`; }
+      }
+    }
+    check("no two swatches on the field are the same colour",
+      worst >= 10, `closest pair ${worstPair} at dE00 ${worst.toFixed(1)}`);
+  }
+  // The glyphs are what actually carry a material now, so they get the same
+  // treatment the colours failed: every one present, and every one different.
+  check("every non-standard material has a glyph",
+    MATERIALS.filter((m) => m !== "standard")
+      .every((m) => MATERIAL_GLYPH[m as Exclude<Material, "standard">]?.d.length > 0));
+  check("no two materials share a glyph",
+    new Set(Object.values(MATERIAL_GLYPH).map((g) => g.d)).size
+      === Object.keys(MATERIAL_GLYPH).length);
+  // The bay-glyph list is a SUBSET of the materials that have glyphs, and it
+  // deliberately excludes the two whose bay treatment is already correct — see
+  // theme.ts's BAY_GLYPH_MATERIALS for the "do you still decide about this cube
+  // after it lands" test that picks them.
+  check("bay glyphs are drawn only for materials that have one",
+    BAY_GLYPH_MATERIALS.every((m) => m !== "standard"
+      && MATERIAL_GLYPH[m as Exclude<Material, "standard">] !== undefined));
+  check("magnetic and cryo carry no bay glyph",
+    !BAY_GLYPH_MATERIALS.includes("magnetic") && !BAY_GLYPH_MATERIALS.includes("cryo"));
+  // Ink has to flip, or the mark is invisible on the material it is marking.
+  check("glyph ink flips with the material's luminance",
+    glyphInk(MATERIAL_SPEC.tar.color!) !== glyphInk(MATERIAL_SPEC.volatile.color!));
   // A material with no rule flag at all is indistinguishable from standard once
   // it is on the field, which makes it a colour swap rather than content.
   check("every non-standard material carries a rule, not just a colour",
@@ -4441,6 +4553,64 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("Sandbox material parade survives size normalization (sandbox.ts)");
+// ---------------------------------------------------------------------------
+{
+  // rollMaterial is SIZE-NORMALIZED — it scales every probability by
+  // std-cubes/own-cubes so dead cubes per LAUNCH stay constant across size
+  // classes. The sandbox asks for a mix of SHIPMENTS, so it has to divide that
+  // back out. Without the correction the screen quietly lied in both
+  // directions, and only away from the standard size class, which is exactly
+  // where nobody looks.
+  const SIZES = ["tiny", "std", "bulk"] as const;
+  const ROLLS = 4000;
+
+  /** Materials actually produced by a real Cannon over ROLLS shipments. */
+  function parade(size: (typeof SIZES)[number], choice: Parameters<typeof applySandboxMaterials>[1]) {
+    const cfg = applySandboxMaterials({ ...makeBaseLevel(1), pieceSize: size }, choice);
+    const cannon = new Cannon(cfg, 12345);
+    const seen = new Map<Material, number>();
+    for (let i = 0; i < ROLLS; i++) {
+      seen.set(cannon.currentMaterial, (seen.get(cannon.currentMaterial) ?? 0) + 1);
+      cannon.markShot(i * 1000);
+    }
+    return seen;
+  }
+
+  for (const size of SIZES) {
+    // ---- one material means ONE material -----------------------------------
+    // The reported symptom: a Bulk bay set to a single material still rolled
+    // 20% standard, because 1 x (4/5) left a fifth of the range falling through
+    // the end of the walk.
+    const solo = parade(size, "slag");
+    check(
+      `a ${size} bay set to one material launches only that material`,
+      solo.get("slag") === ROLLS,
+      `slag ${solo.get("slag") ?? 0}/${ROLLS}, standard ${solo.get("standard") ?? 0}`,
+    );
+
+    // ---- ALL means all of them ---------------------------------------------
+    // The other direction: on Micro the scaled probabilities ran past cumulative
+    // 1.0 partway through the walk, so the tail of MATERIAL_ROLL_ORDER could
+    // never be reached — the parade silently dropped materials.
+    const all = parade(size, "all");
+    const missing = SANDBOX_MATERIALS.filter((m) => !all.get(m));
+    check(
+      `a ${size} bay set to ALL launches every material`,
+      missing.length === 0,
+      missing.length ? `never appeared: ${missing.join(", ")}` : "",
+    );
+    // The deliberate sliver: something plain has to walk past, or there is
+    // nothing to compare a material against.
+    check(
+      `...and still lets an ordinary shipment through to compare against`,
+      (all.get("standard") ?? 0) > 0,
+      `standard ${all.get("standard") ?? 0}/${ROLLS}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

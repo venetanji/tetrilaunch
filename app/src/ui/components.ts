@@ -1,4 +1,5 @@
 import {
+  glyphInk, MATERIAL_GLYPH, MATERIAL_SPEC, PIECE_COLORS,
   shipmentAura, shipmentColor, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
@@ -60,6 +61,7 @@ export function pieceCellsHTML(
 ): string {
   const shape = pieceCells(type, size);
   const color = shipmentColor(type, material);
+  const shapeColor = PIECE_COLORS[type];
   const turns = ((quarterTurns % 4) + 4) % 4;
   const rotated = shape.map((cell) => {
     let c = cell;
@@ -68,17 +70,56 @@ export function pieceCellsHTML(
   });
   const centered = recenterInBox(rotated);
   const filled = new Set(centered.map(([x, y]) => `${x},${y}`));
+  // The tile is ONE <svg> rather than seventeen divs. Three reasons, in order of
+  // how much they cost to get wrong:
+  //
+  //  1. The material badge below has to sit ON the tile without adding a BOX.
+  //     app.css's mat-aura note already worked this out for the glow — a
+  //     ::before/::after would be a new box inside the belt tile, which
+  //     sim/uifit's `clipped` and `offscreen` assertions measure and correctly
+  //     object to. An SVG child is painted, not laid out, so the tile keeps the
+  //     exact one-box footprint uifit has a baseline for.
+  //  2. A two-tone cell is a rect inside a rect. In divs that is 32 elements and
+  //     a nested flexbox; here it is two <rect>s.
+  //  3. It scales. The belt renders this at up to 58px and the how-to gallery at
+  //     28px, and a vector tile is sharp at both without a second stylesheet.
+  //
+  // The viewBox is deliberately 28 units wide — the tile's own CSS px size — so
+  // `gap` keeps meaning exactly what it meant when these were grid cells, and no
+  // caller has to be re-tuned.
+  const cw = (28 - gap * 3) / 4;
   let cells = "";
   for (let y = 0; y < 4; y++) {
     for (let x = 0; x < 4; x++) {
-      const on = filled.has(`${x},${y}`);
-      cells += `<div class="next__cell" style="${
-        on
-          ? `background:${color};box-shadow:0 0 6px ${color};`
-          : "background:rgba(255,255,255,0.03);"
-      }"></div>`;
+      const X = x * (cw + gap);
+      const Y = y * (cw + gap);
+      if (!filled.has(`${x},${y}`)) {
+        cells += `<rect x="${X}" y="${Y}" width="${cw}" height="${cw}" rx="1"`
+          + ` fill="rgba(255,255,255,0.03)"/>`;
+        continue;
+      }
+      // TWO-TONE, the same split the bay cubes use (render.ts's getCubeSprite):
+      // the shipment's own colour frames the material's. On a standard shipment
+      // the two are the same colour and this collapses to the plain cell it has
+      // always drawn — which is the signal, not a shortcut: solid means
+      // ordinary, framed means there is something to think about.
+      cells += `<rect x="${X}" y="${Y}" width="${cw}" height="${cw}" rx="1"`
+        + ` fill="${shapeColor}"/>`;
+      if (color !== shapeColor) {
+        const i = cw * 0.22;
+        cells += `<rect x="${X + i}" y="${Y + i}" width="${cw - i * 2}"`
+          + ` height="${cw - i * 2}" rx="0.6" fill="${color}"/>`;
+      }
     }
   }
+  // MATERIAL BADGE. At tile size the two-tone inner square is under 2 units
+  // across, so it is a hint and nothing more — the badge is what actually
+  // identifies the material here, and it is the same glyph the bay cube and the
+  // menus draw (theme.ts's MATERIAL_GLYPH). Drawn last so it sits over the
+  // cells, and filled with the material's AURA rather than its colour so tar and
+  // slag are legible against the near-black backdrop instead of being two dark
+  // smudges.
+  const badge = material === "standard" ? "" : materialBadgeSVG(type, material);
   // MATERIAL TELEGRAPH. The tile already carries the material as a colour, and
   // a colour is enough to IDENTIFY a shipment and not enough to make anyone
   // look at one: slag is dead grey and cryo is a pale wash, and both read as
@@ -94,9 +135,63 @@ export function pieceCellsHTML(
   // Standard shipments get nothing, here and on the how-to gallery's tiles,
   // which pass no material at all: a tile that always pulses says nothing.
   const attrs = material === "standard"
-    ? ` style="gap:${gap}px"`
-    : ` data-material="${material}" style="gap:${gap}px;--mat-c:${shipmentAura(type, material)}"`;
-  return `<div class="next__grid"${attrs}>${cells}</div>`;
+    ? ""
+    : ` data-material="${material}" style="--mat-c:${shipmentAura(type, material)}"`;
+  return `<svg class="next__grid" viewBox="0 0 28 28"${attrs}>${cells}${badge}</svg>`;
+}
+
+/** Badge geometry, in the 28-unit tile viewBox. Bottom-right because that is the
+ *  corner the L, J and S shapes least often reach, and because the belt's
+ *  chevrons march in from the left — a badge on that side would be read as part
+ *  of the transport rather than as part of the cargo. */
+const BADGE_R = 7.2;
+const BADGE_C = 28 - BADGE_R - 0.4;
+/** The glyph box inside the badge. Fits inside a 7.2 radius with room for the
+ *  keyline, and stays above the ~1px stroke floor at the 28px how-to size. */
+const BADGE_GLYPH = 12.6;
+
+/** The material badge on its own, in tile coordinates. Split out because the
+ *  muzzle ghost and the menus want the same mark from the same source — a glyph
+ *  drawn twice is a glyph that drifts. */
+function materialBadgeSVG(type: PieceType, material: Material): string {
+  const fill = shipmentAura(type, material);
+  const o = BADGE_C - BADGE_GLYPH / 2;
+  return `<circle cx="${BADGE_C}" cy="${BADGE_C}" r="${BADGE_R}" fill="${fill}"/>`
+    + `<circle cx="${BADGE_C}" cy="${BADGE_C}" r="${BADGE_R}" fill="none"`
+    + ` stroke="#07070f" stroke-width="1.4"/>`
+    + glyphSVG(material, o, BADGE_GLYPH, glyphInk(fill));
+}
+
+/** One material glyph as SVG, scaled from theme.ts's 24-unit authoring box into
+ *  a `size`-wide square at (o, o). Mirrors render.ts's drawMaterialGlyph — same
+ *  path data, same 24x24 origin, so the canvas and the DOM cannot disagree. */
+function glyphSVG(material: Material, o: number, size: number, ink: string): string {
+  const g = MATERIAL_GLYPH[material as Exclude<Material, "standard">];
+  if (!g) return "";
+  const s = size / 24;
+  const paint = g.stroke === 0
+    ? `fill="${ink}"`
+    : `fill="none" stroke="${ink}" stroke-width="${g.stroke}"`
+      + ` stroke-linecap="round" stroke-linejoin="round"`;
+  return `<g transform="translate(${o} ${o}) scale(${s})"><path d="${g.d}" ${paint}/></g>`;
+}
+
+/**
+ * A material's icon, standalone and at any size — for menus, Workshop rows,
+ * hazard cards and anywhere else a material is named rather than previewed.
+ *
+ * This is the reason the glyphs are authored as path data in theme.ts rather
+ * than drawn inline at each surface: the mark a player learns on the belt is the
+ * same mark that identifies the counter they are buying in the shop, byte for
+ * byte. `standard` has no icon and returns empty — the absence IS its identity.
+ */
+export function materialIconHTML(material: Material, px = 20): string {
+  if (material === "standard") return "";
+  const color = shipmentAura("O", material);
+  return `<svg class="mat-icon" width="${px}" height="${px}" viewBox="0 0 24 24"`
+    + ` role="img" aria-label="${MATERIAL_SPEC[material].name}">`
+    + glyphSVG(material, 0, 24, color)
+    + `</svg>`;
 }
 
 /** Belt-mounted next-piece preview (1d recycling-plant layout — see

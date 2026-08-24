@@ -13,8 +13,10 @@
  */
 import { SANDBOX_MARKER } from "../lib/sandbox";
 import {
-  SANDBOX_BAYS, SANDBOX_TIERS, sandboxVariants, type SandboxState,
+  SANDBOX_BAYS, SANDBOX_MATERIALS, SANDBOX_TIERS, sandboxVariants, type SandboxState,
 } from "../game/sandbox";
+import { MATERIAL_SPEC } from "../game/theme";
+import { materialIconHTML } from "./components";
 import { generateContract, PATTERN_SLOT, variantSpec } from "../game/contracts";
 import { MAX_TIER, UPGRADES } from "../game/upgrades";
 import type { MetaState } from "../game/meta";
@@ -102,6 +104,16 @@ export function sandboxScreen(s: SandboxState, meta: MetaState): string {
           value: `bay${b}`,
           text: `Bay ${b}`,
           on: s.target.kind === "bay" && s.target.bay === b,
+        })),
+      ])}
+
+      ${chipRow("Material", "sbx-material", "material", [
+        { value: "mix", text: "Ladder mix", on: s.material === "mix" },
+        { value: "all", text: "ALL (parade)", on: s.material === "all" },
+        ...SANDBOX_MATERIALS.map((m) => ({
+          value: m,
+          text: `${materialIconHTML(m, 14)} ${MATERIAL_SPEC[m].name}`,
+          on: s.material === m,
         })),
       ])}
 

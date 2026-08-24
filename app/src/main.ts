@@ -43,7 +43,10 @@ import {
   PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import { SANDBOX } from "./lib/sandbox";
-import { maxedTiers, newSandbox, type SandboxState } from "./game/sandbox";
+import {
+  applySandboxMaterials, maxedTiers, newSandbox,
+  type SandboxMaterial, type SandboxState,
+} from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
 import { render } from "./game/render";
 import { shipmentColor } from "./game/theme";
@@ -1133,6 +1136,9 @@ class App {
     // remaining magazine (RunState.bondCharges) — a consumable, not a per-bay
     // refill — so the config arrives complete and nothing is patched here.
     const cfg = levelForRun(this.run);
+    // Sandbox material override, and nothing in a shipped build: SANDBOX folds
+    // to false there and the call goes with it (lib/sandbox.ts).
+    if (SANDBOX) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
@@ -1509,6 +1515,8 @@ class App {
     // its steps (funds, target) don't exist here.
     this.tutorialStep = null;
     const cfg = levelForContract(c);
+    // As in startLevel: sandbox only, folded away everywhere else.
+    if (SANDBOX) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
         telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
@@ -2697,6 +2705,10 @@ class App {
           kind: "pattern",
           variant: (el.getAttribute("data-variant") ?? "plain") as ContractVariant,
         };
+        break;
+      case "sbx-material":
+        this.sandbox.material =
+          (el.getAttribute("data-material") ?? "mix") as SandboxMaterial;
         break;
       case "sbx-target": {
         const v = el.getAttribute("data-target") ?? "lines";

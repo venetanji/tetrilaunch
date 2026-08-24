@@ -31,6 +31,11 @@ export interface Cube {
    *  materials that don't need striking, so the line-clear check can read this
    *  one field without also re-deriving the material's rules. */
   struck: boolean;
+  /** Does this cube draw the shape-colour frame around its material (render.ts's
+   *  getCubeSprite)? Undefined means yes — only createStandingWall opts out,
+   *  because it assigns `type` for looks rather than from a real shipment, and a
+   *  frame drawn from that type would assert an identity the cube never had. */
+  framed?: boolean;
 }
 
 export interface Piece {
@@ -245,6 +250,10 @@ export function createStandingWall(
         // opens the bay unstruck and therefore counting for nothing, which is
         // the entire cost of that clause.
         struck: !MATERIAL_SPEC[material].needsStrike,
+        // No shape-colour frame: the "O" above is a look, not a shipment, so
+        // framing this cube in O-yellow would advertise an identity it does not
+        // have. A slag wall stays wholly slag-coloured, as it always has.
+        framed: false,
       });
     }
   });
