@@ -330,14 +330,19 @@ export const SCREENS: Record<string, () => string> = {
         lines: 1,
         launchesLeft: 6,
         remaining: ["I", "O", "T", "L", "J", "S"] as PieceType[],
+        lost: 0,
+        // The variant tail alone (contracts.ts's patternConditions) — the
+        // shipment count is the Shipments column and the manifest row.
+        conditions: "6 shapes, no waste",
+        progress: PROGRESS,
       },
     }),
 
   // The OTHER Contract kind, and the SHORTEST state the plant panel has: a
-  // lines Contract renders no manifest row, so the panel is readout, reload and
-  // the ability chips — two rows on a phone, where the chips are the rail's job
-  // and the row goes with them. Worth its own screen because it is the case the
-  // contract grid template used to get wrong. That template named a `queue`
+  // lines Contract renders no manifest row, so the panel is readout, reload,
+  // conditions and tier — four rows, in the restored footprint, with the
+  // remainder as air at the bottom. Worth its own screen because it is the case
+  // every height change here is aimed at. That template named a `queue`
   // area unconditionally and this kind renders nothing into it, so the panel
   // paid a row's share of the gap for an empty band; nothing in the harness
   // could see it, because a gap is not an overflow, a wrap or a clip. There is
@@ -355,6 +360,24 @@ export const SCREENS: Record<string, () => string> = {
         lines: 2,
         launchesLeft: 9,
         remaining: [],
+        // Two digits, which is already enough to tip the column past its
+        // label: "LOST" is 17.797px against 18px for two mono digits at the
+        // compact floor. Three digits is not structurally impossible —
+        // lostTotal counts every cube that misses the compactor over a whole
+        // attempt, uncapped by anything but the launch budget, and the
+        // generator's own worst lines Contract (tier 12, std pieces, volatile
+        // material, tight launch budget: 44 launches x 4 cubes) allows up to
+        // 176 fired, so a run that loses nearly all of them clears three
+        // digits. That is a degenerate run rather than a wider Contract, and
+        // it goes untested here — two digits is the state a Contract in
+        // progress actually shows.
+        lost: 14,
+        // Three complications is the cap (contracts.ts's maxComplications
+        // hits 3 at tier 6 and stays there for every tier after — not tier
+        // 9), and this is the longest set of notes the generator emits — 52
+        // chars, measured across 400 seeds x tiers 1-12.
+        conditions: "volatile shipments · tight launch budget · crosswind",
+        progress: PROGRESS,
       },
     }),
 

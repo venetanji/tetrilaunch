@@ -414,6 +414,15 @@ function measure(cfg: {
   // `.hud[data-coach] .plant` max-height rule — so THAT cap is the design box
   // the assertion holds the panel to on the coach screens. Same number, one
   // source of truth in the stylesheet, read here rather than re-derived.
+  //
+  // Both directions matter. The upper bound alone only ever catches a panel
+  // that grew; a rule that SHRINKS it back — `.hud--contract .plant { min-
+  // height: 0 }` reappearing, or any future rule with the same effect — passes
+  // every device here and would only ever be caught by a human reading the
+  // real app, which is not a repeatable gate. `.plant`'s own `min-height:
+  // calc(0.4296 * var(--field-h))` is unconditional in app.css — there is no
+  // `.hud--contract` override on it — so 0.4296 is the floor on every screen,
+  // Contract or Deep Run, coached or not.
   const plant = document.querySelector(".plant");
   if (plant) {
     const fh = cssPx("--field-h");
@@ -424,6 +433,13 @@ function measure(cfg: {
       out.plant.push(
         `${Math.round(h)}px vs design ${Math.round(design)}px (${((h / fh) * 100).toFixed(0)}% of field height)`,
       );
+    }
+    // NOT `design`: on a coached screen `design` is 0.52 * fh, the tutorial's
+    // MAX layered on top of the same 0.4296 floor (app.css never replaces the
+    // floor for that screen, only adds a ceiling above it) — reusing it here
+    // would demand a coached panel 21% taller than the stylesheet asks for.
+    if (h < 0.4296 * fh - 1) {
+      out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(0.4296 * fh)}px footprint`);
     }
   }
 
