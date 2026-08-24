@@ -223,7 +223,7 @@ const STEPS_PER_SEC = 1000 / DT;
  *  revert. Tuned to ~5s so the wind is close to constant across one shot's
  *  ~1.5-2.5s flight (see updateTrajectory's doc — the preview literally
  *  assumes this) while still drifting noticeably over a whole bay (bays run
- *  150s+).
+ *  144-180s before any Shift Cut notch — see level.ts's tier ladder).
  *
  *  PREVIOUSLY this constant didn't exist: WIND_REVERT was hand-set to a bare
  *  per-step 0.05 with no stated unit. Applied once per physics step at the

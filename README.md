@@ -19,11 +19,15 @@ clears them away.
   compactor, pricier launches, a tighter clock. Each bay has its own **funding
   target** and **countdown**; bank the target before the clock or the bankroll
   runs out.
-- **Ten Marks** are the difficulty ladder over Deep Run. Each one hands you a
-  larger **build budget** to spend on the ship before you launch, and the Mark you
-  may attempt is always **one above your best clear**. Nothing purchasable raises
-  it — a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth
-  the same for everyone.
+- **Ten Marks** are the difficulty ladder over Deep Run. Each one states harder
+  terms — the funding target climbs from **$600 to $780** on the opening bay (and
+  climbs faster inside the run, +$20 a bay at Tier 1 against +$38 at Tier 10),
+  the shift shortens **180s → 144s**, a shot costs **$20 → $30** — and hands you a
+  larger **build budget** to spend on the ship to meet them. The Mark you may
+  attempt is always **one above your best clear**. Nothing purchasable raises it —
+  a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth the
+  same for everyone. **Every Mark keeps its own leaderboard**, so a heavier tier
+  can't out-score a lighter one.
 - **Three daily Contracts** — one bay, **no clock, no launch cost**, failing costs
   nothing and you can retry forever. What replaces time and money pressure is a
   **launch budget**: N shipments to hit the goal. One of the three is a **pattern
@@ -246,7 +250,8 @@ modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   tiler (`tiling.ts`) *proves* the queue fills the goal before the Contract ships,
   because the one failure this mode can't survive is an unwinnable puzzle.
 - **The Mark ladder** — ten difficulty steps over Deep Run, each with its own
-  build budget, each raised only by beating the one below. Calibrated with a
+  bay terms (target, clock, launch cost), its own build budget and its own
+  leaderboard, each raised only by beating the one below. Calibrated with a
   headless harness (`sim/`), which is also how we learned the ladder's original
   knobs weren't difficulty at all.
 - **Playtest telemetry** — opt-in, per-origin, recording what the sim bots

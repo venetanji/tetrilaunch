@@ -101,7 +101,8 @@ interface Session {
   runs: RunRecord[];
 }
 
-/** Funds are sampled rather than logged per change: a bay is 150-240s and the
+/** Funds are sampled rather than logged per change: a bay is 144-180s (the
+ *  tier ladder's clock, before any Shift Cut notch) and the
  *  value moves on every shot and every clear, which would bloat the export for
  *  a curve nobody reads at that resolution. */
 const SAMPLE_MS = 1000;

@@ -79,7 +79,7 @@ For each `(bay, bot)` pair, across `--seeds` reproducible seeds:
 
 | Column | Meaning |
 |---|---|
-| Bay | 1-based bay number (`makeBaseLevel(bay-1)`) |
+| Bay | 1-based bay number (`makeBaseLevel(bay-1, mark)` — see `--mark`) |
 | Bot | bot preset name |
 | N | number of seeds run |
 | WinRate | fraction of seeds that reached `targetScore` |
@@ -88,10 +88,15 @@ For each `(bay, bot)` pair, across `--seeds` reproducible seeds:
 | MeanLines | mean lines cleared, all runs |
 | Losses | breakdown of non-win outcomes: `topout` (stacked to the ceiling), `broke` (out of funds and nothing left to rescue it), `time` (clock ran out), `cap` (hit the sweep's own step cap while still "playing" — a safety net, should be rare) |
 
-Each bay is its own economy now (`targetScore`, `launchCost`, and
-`scorePerLine` are all per-bay, not cumulative — see `level.ts`'s economy
-balance note), and only the SURPLUS a real run banked above the just-cleared
-bay's target carries forward (`run.ts`'s `advanceRun`/`levelForRun`,
+Every sweep runs at ONE tier (`--mark`, default 1). The tier ladder
+(`level.ts`) sets `targetScore`, `timeLimitSec` and `launchCost` per Mark —
+$600/180s/$20 at Tier 1 through $780/144s/$30 at Tier 10 — so two sweeps only
+compare at the same Mark, and the header banner prints it.
+
+Each bay is its own economy (`targetScore`, `launchCost`, and `scorePerLine`
+are all per-bay, not cumulative — see `level.ts`'s economy balance note; only
+the target also steps per bay, by an amount the tier sets), and only the
+SURPLUS a real run banked above the just-cleared bay's target carries forward (`run.ts`'s `advanceRun`/`levelForRun`,
 `RunState.carry`), not the whole ending score. The sweep doesn't play a full
 run end-to-end, so it can't compute a real per-seed surplus; instead, bays 2+
 start with `startingFunds` bumped by a flat `--carry` amount (default `100`,

@@ -16,7 +16,12 @@ import * as S from "../../src/ui/screens";
 import type { ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
-import { LEVEL_1 } from "../../src/game/level";
+import { makeBaseLevel } from "../../src/game/level";
+
+/** Tier 1's first bay — the numbers a fixture should show, now that the tier
+ *  ladder means "the bay" is a function of the Mark being flown (level.ts).
+ *  Was the BAY_1 alias, which could only ever describe one tier. */
+const BAY_1 = makeBaseLevel(0);
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
 import { MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
@@ -207,19 +212,19 @@ const GUIDE = {
 };
 
 /** A first-bay HUD as the tutorial actually meets it: stock rig, no abilities,
- *  bay 1's real numbers (LEVEL_1). The coach only ever runs on bay 1 of a
+ *  bay 1's real numbers (BAY_1). The coach only ever runs on bay 1 of a
  *  fresh player's Deep Run, so measuring it over HUD_BASE would price a rail
  *  and a mods row the first session cannot have. */
 const HUD_TUTORIAL = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
   loaded: { bomb: false, type: "L" as PieceType, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
   tier: 1,
-  target: LEVEL_1.targetScore,
-  score: LEVEL_1.startingFunds,
-  launchCost: LEVEL_1.launchCost,
+  target: BAY_1.targetScore,
+  score: BAY_1.startingFunds,
+  launchCost: BAY_1.launchCost,
   bayNum: 1,
-  timeLimitSec: LEVEL_1.timeLimitSec,
-  timeLeftMs: LEVEL_1.timeLimitSec * 1000,
+  timeLimitSec: BAY_1.timeLimitSec,
+  timeLeftMs: BAY_1.timeLimitSec * 1000,
   pieceSize: "std" as const,
   bondBreakerOwned: false,
   bondCharges: 0,
@@ -523,14 +528,14 @@ export const SCREENS: Record<string, () => string> = {
   // already taking their rows). Every step ships to every first-session
   // player and each is read once, in one glance; there is no reason for the
   // harness to see half of them. Four fixtures, one per card.
-  coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, LEVEL_1)),
-  "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, LEVEL_1)),
-  "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, LEVEL_1)),
-  "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, LEVEL_1)),
+  coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, BAY_1)),
+  "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, BAY_1)),
+  "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, BAY_1)),
+  "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, BAY_1)),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>
-    S.hudHTML({ ...HUD_TUTORIAL, contract: null }) + S.coachFailHTML("broke", LEVEL_1, LEVEL_1.name),
+    S.hudHTML({ ...HUD_TUTORIAL, contract: null }) + S.coachFailHTML("broke", BAY_1, BAY_1.name),
 
   // The one PORTRAIT screen: run.ts swaps the device's axes for it. `show` is
   // main.ts's toggle; without it the guard is display:none and measures as
@@ -561,6 +566,8 @@ export const SCREENS: Record<string, () => string> = {
 
 function endModal(won: boolean): string {
   return S.endModal({
+    // The board a run posts to is its own Mark (main.ts's boardTier).
+    boardTier: 1,
     won,
     score: 98_760,
     lines: 240,

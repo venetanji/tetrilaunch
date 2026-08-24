@@ -19,7 +19,10 @@ import Matter from "matter-js";
 import { Game, AUTO_SPREAD_RAD, AUTO_POWER_JITTER, STRAND_WARN_DELAY_MS } from "../src/game/game";
 import {
   makeBaseLevel, payoutMult, BASE_BREAK_STRETCH, BOND_MARK_STEP, COMBO_STEP,
-  PILE_TIERS, TARGET_PER_BAY, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
+  LAUNCH_COST_BASE, LAUNCH_COST_TOP, TARGET_BASE, TARGET_PER_BAY,
+  TARGET_PER_BAY_PER_TIER, TARGET_PER_TIER, TIER_COUNT, TIME_BASE, TIME_PER_TIER,
+  tierDemands,
+  PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
@@ -391,21 +394,54 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("markUnlocked starts at 1", markUnlocked(newMeta()) === 1);
   check("markUnlocked holds at the top", markUnlocked({ ...newMeta(), mark: MARK_COUNT }) === MARK_COUNT);
 
-  // The ladder must raise the floor and the bar TOGETHER. Mark 1 is stock, so
-  // every tuned constant in makeBaseLevel survives at the bottom.
-  check(
-    "Mark 1 is byte-identical to the stock ladder",
-    JSON.stringify(makeBaseLevel(4, 1)) === JSON.stringify(makeBaseLevel(4)),
-  );
-  // A Mark no longer raises the bar at all — MARK_TARGET_STEP is 0 and the
-  // three base axes are flat. This used to assert the opposite, and the
-  // inversion IS the hazard draft: difficulty comes from which axes the player
-  // ratchets, not from numbers the ladder moves behind their back.
-  let barFlat = true;
+  // The ladder must raise the floor and the bar TOGETHER: a Mark hands out a
+  // bigger build budget (upgrades.ts's budgetForMark) and the tier ladder
+  // (level.ts) is the matching rise in what a bay demands.
+  check("the mark parameter defaults to 1",
+    JSON.stringify(makeBaseLevel(4, 1)) === JSON.stringify(makeBaseLevel(4)));
+  check("level.ts's tier count matches the Mark ladder", TIER_COUNT === MARK_COUNT);
+
+  // The three knobs a tier states, at both ends of the ladder. Written as
+  // literals rather than re-derived from the constants: these numbers ARE the
+  // design decision, and a test that recomputes the formula would agree with any
+  // formula at all.
+  const t1 = tierDemands(1);
+  const top = tierDemands(MARK_COUNT);
+  check("Tier 1 opens at $600, 180s, $20 a shot",
+    t1.targetScore === 600 && t1.timeLimitSec === 180 && t1.launchCost === 20,
+    `$${t1.targetScore}/${t1.timeLimitSec}s/$${t1.launchCost}`);
+  check("the top tier opens at $780, 144s, $30 a shot",
+    top.targetScore === 780 && top.timeLimitSec === 144 && top.launchCost === 30,
+    `$${top.targetScore}/${top.timeLimitSec}s/$${top.launchCost}`);
+  check("the last bay of a run climbs from $780 at Tier 1 to $1122 at the top",
+    makeBaseLevel(9, 1).targetScore === 780 && makeBaseLevel(9, MARK_COUNT).targetScore === 1122,
+    `${makeBaseLevel(9, 1).targetScore}/${makeBaseLevel(9, MARK_COUNT).targetScore}`);
+
+  // Every rung has to move, or a tier is a no-op the player still paid for.
+  let barRises = true;
+  let stepRises = true;
   for (let m = 2; m <= MARK_COUNT; m++) {
-    if (makeBaseLevel(0, m).targetScore !== makeBaseLevel(0, m - 1).targetScore) barFlat = false;
+    const lo = makeBaseLevel(0, m - 1);
+    const hi = makeBaseLevel(0, m);
+    if (hi.targetScore - lo.targetScore !== TARGET_PER_TIER) barRises = false;
+    if (hi.timeLimitSec - lo.timeLimitSec !== -TIME_PER_TIER) barRises = false;
+    if (hi.launchCost < lo.launchCost) barRises = false;
+    const step = makeBaseLevel(1, m).targetScore - hi.targetScore;
+    if (step !== TARGET_PER_BAY + TARGET_PER_BAY_PER_TIER * (m - 1)) stepRises = false;
   }
-  check("a Mark does not move the bay's target", barFlat);
+  check("each tier raises the target and shortens the clock by exactly one step", barRises);
+  check("each tier steepens the per-bay target climb", stepRises);
+  check("the tier ladder's endpoints match its named constants",
+    t1.targetScore === TARGET_BASE && t1.timeLimitSec === TIME_BASE
+      && t1.launchCost === LAUNCH_COST_BASE && top.launchCost === LAUNCH_COST_TOP
+      && top.targetScore === TARGET_BASE + TARGET_PER_TIER * (MARK_COUNT - 1));
+
+  // A hand-edited save (or a sim caller) must never be able to walk the curve
+  // off either end — level.ts's tierOf clamps, and nothing else does.
+  check("the curve refuses to extrapolate past the ladder",
+    JSON.stringify(makeBaseLevel(0, 0)) === JSON.stringify(makeBaseLevel(0, 1))
+      && JSON.stringify(makeBaseLevel(0, 9999)) === JSON.stringify(makeBaseLevel(0, MARK_COUNT)));
+
   // Compactor speed is deliberately Mark-invariant (MARK_SPEED_STEP is 0).
   // sim/marks.ts measured it as an erratic bankruptcy tax rather than a
   // difficulty ramp: a faster sweep pushes pieces out before they settle, and
@@ -415,12 +451,25 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "compactor speed does not scale with Mark",
     makeBaseLevel(0, MARK_COUNT).compactorSpeed === makeBaseLevel(0, 1).compactorSpeed,
   );
-  // Deliberately NOT scaled — these would compound with the target into a cliff.
+  // The loss penalty stays on the BAY index (25 + 2i) and out of the tier
+  // ladder: three knobs state a tier's terms, and a fourth that also punishes
+  // sloppy play harder would compound with them into a cliff.
   check(
-    "launch cost and loss penalty are Mark-invariant",
-    makeBaseLevel(5, MARK_COUNT).launchCost === makeBaseLevel(5, 1).launchCost &&
-      makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
+    "the loss penalty is Mark-invariant",
+    makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
   );
+  // The scope check, and the one that catches the likeliest way to get this
+  // wrong: keying the curve off the BAY index `i` (which carries every other
+  // ramp in makeBaseLevel) instead of off the mark. Exactly three fields may
+  // differ between the bottom and the top of the ladder.
+  const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
+  const highBay = makeBaseLevel(5, MARK_COUNT) as unknown as Record<string, unknown>;
+  const moved = Object.keys(lowBay)
+    .filter((k) => JSON.stringify(lowBay[k]) !== JSON.stringify(highBay[k]))
+    .sort()
+    .join(",");
+  check("a tier moves exactly the three demand knobs and nothing else",
+    moved === "launchCost,targetScore,timeLimitSec", moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
   // BOND_MARK_STEP) — content rather than demand: stronger bonds change how
@@ -481,9 +530,23 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "the loadout survives into the level config",
     levelForRun(loaded).launchPower > makeBaseLevel(0, 3).launchPower,
   );
+  // Both halves matter. The equality proves levelForRun threads the mark; the
+  // INEQUALITY proves it threads THE RUN'S mark rather than a constant — before
+  // the tier ladder every Mark scored the same target, so the equality alone
+  // passed no matter what levelForRun did with the number.
   check(
     "levelForRun uses the run's Mark",
-    levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore === makeBaseLevel(0, 4).targetScore,
+    levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore === makeBaseLevel(0, 4).targetScore
+      && levelForRun(newRun(9, [], 0, newTiers(), 4)).targetScore !== makeBaseLevel(0, 7).targetScore,
+  );
+  // The whole run, not just its first bay: a later bay must read that bay's
+  // rung of the tier's own per-bay climb.
+  const deepRun = { ...newRun(9, [], 0, newTiers(), 7), levelIndex: 5 };
+  check(
+    "levelForRun climbs the tier's per-bay target",
+    levelForRun(deepRun).targetScore === makeBaseLevel(5, 7).targetScore
+      && levelForRun(deepRun).targetScore > levelForRun(newRun(9, [], 0, newTiers(), 7)).targetScore,
+    `${levelForRun(deepRun).targetScore}`,
   );
   check("advanceRun carries the Mark", advanceRun(loaded, 900, 800, 8, 26, []).mark === 3);
   const source = { ...newTiers(), bay: 1 };
@@ -919,6 +982,10 @@ section("Contracts (contracts.ts)");
   // mode silently stops being the relaxed half.
   for (const c of dailyContracts(5, 20260730)) {
     const cfg = levelForContract(c);
+    // The three knobs the TIER ladder moves are also the three a Contract must
+    // not carry (see levelForContract). Contracts pass their tier as the BAY
+    // INDEX with the mark left at 1, so a curve keyed off `i` instead of `mark`
+    // would reach them — these are the checks that would catch it.
     check(`${c.name}: no launch cost`, cfg.launchCost === 0);
     check(`${c.name}: no clock`, cfg.timeLimitSec === 0);
     check(`${c.name}: line objective set`, cfg.objectiveLines === c.goal);
@@ -3470,11 +3537,12 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
 
   // The three base economies: the target climbs every bay on its own (that
   // ramp IS the ladder's difficulty now that the purse is the constraint —
-  // see level.ts's targetScoreFor note), while launch cost and the clock stay
-  // flat so the pressure comes from the quota rising against the same money.
+  // see level.ts's targetScoreFor note), from an opening the TIER sets, while
+  // launch cost and the clock stay flat inside a run so the pressure comes
+  // from the quota rising against the same money.
   const bays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, 1));
   check("the funding target rises every bay",
-    bays.every((b, i) => b.targetScore === 800 + TARGET_PER_BAY * i),
+    bays.every((b, i) => b.targetScore === TARGET_BASE + TARGET_PER_BAY * i),
     `${bays.map((b) => b.targetScore).join(",")}`);
   check("the rise is strictly positive",
     TARGET_PER_BAY > 0 && bays[1].targetScore > bays[0].targetScore);
@@ -3514,12 +3582,24 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("windGust is windMax * WIND_GUST_FRACTION on every bay",
     bays.every((b) => b.windGust === b.windMax * WIND_GUST_FRACTION),
     `${bays[3].windGust} at bay 4, ${bays[9].windGust} at bay 10`);
-  // A Mark no longer moves any of the ladder's numbers — it only changes which
-  // hazards and systems exist.
-  check("a Mark changes no number on the base ladder",
+  const topBays = Array.from({ length: 10 }, (_, i) => makeBaseLevel(i, MARK_COUNT));
+  check("a higher tier climbs faster inside the run than a lower one",
+    topBays[9].targetScore - topBays[0].targetScore > bays[9].targetScore - bays[0].targetScore,
+    `${topBays[9].targetScore - topBays[0].targetScore} vs ${bays[9].targetScore - bays[0].targetScore}`);
+  // The mistake budget is a SHOT count, not a dollar figure, so it has to hold
+  // at every tier — not just at the Mark-1 bays the float check above walks.
+  check("every tier's float buys the same tight launch budget",
+    Array.from({ length: MARK_COUNT }, (_, m) => makeBaseLevel(0, m + 1))
+      .every((b) => b.startingFunds >= 7 * b.launchCost && b.startingFunds <= 9 * b.launchCost),
+    Array.from({ length: MARK_COUNT }, (_, m) => {
+      const b = makeBaseLevel(0, m + 1);
+      return `${Math.round(b.startingFunds / b.launchCost)}`;
+    }).join(","));
+  // What a Mark still does NOT move: the press tempo. It is the one knob
+  // sim/marks.ts measured as actively harmful (see level.ts's calibration note).
+  check("a Mark changes no press tempo on the base ladder",
     Array.from({ length: MARK_COUNT }, (_, m) => makeBaseLevel(5, m + 1))
-      .every((b) => b.targetScore === makeBaseLevel(5, 1).targetScore
-        && b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
+      .every((b) => b.compactorSpeed === makeBaseLevel(5, 1).compactorSpeed));
 
   // ---- The ladder: every Mark means something -----------------------------
   // Mark 1's rung is the two base numbers the draft may still deal. The third,

@@ -220,9 +220,10 @@ already outgrown the demand.
 
 So the section above is right about the *criterion* and wrong about the *lever*.
 Mark difficulty has to come from **content** — materials and hazards that change
-what the rig must DO — not from scaling what a bay asks for. `MARK_TARGET_STEP`
-stays at a modest 0.18 so a Mark isn't visibly identical to the one below, and is
-explicitly not to be tuned as if it controlled difficulty.
+what the rig must DO — not from scaling what a bay asks for. The old
+`MARK_TARGET_STEP` multiplier is gone; what a tier demands is now an explicit
+curve (see below) that is deliberately **not** to be tuned as if it controlled
+difficulty.
 
 That reorders the build plan: materials stop being step 4 and become the thing
 the Mark ladder is actually made of. It also means the ladder can't be finally
@@ -265,7 +266,8 @@ A Mark is a difficulty tier of Deep Run *and* a content gate. Each one:
 2. **Unlocks the next Contract tier.**
 3. **Adds one material or hazard to both content pools.** An option, never a
    stat — the constraint `meta.ts` already commits to, extended to the ladder.
-4. **Raises Deep Run's base difficulty *and* the build budget together.**
+4. **Raises Deep Run's base difficulty *and* the build budget together** — the
+   tier ladder below states the bar, `budgetForMark` states the rig.
 
 Point 4 is what keeps the ladder honest: a Mark raises the floor and the bar at
 once, so a Mark 9 player isn't posting inflated numbers, they're playing a harder
@@ -275,9 +277,62 @@ game with a better rig.
 material Mark N's Deep Run will throw at you. Without that relationship the two
 modes are merely parallel and Contracts degrade into a currency chore.
 
+### The tier ladder — what a Mark actually demands
+
+Three knobs state a tier's opening terms (`level.ts`'s `targetScoreFor`,
+`timeLimitFor`, `launchCostFor`). They extend the old flat bay — $800, 150s, $25
+a shot, identical at every Mark — in **both** directions: the bottom of the
+ladder is a genuinely gentler bay than the game has ever shipped, and the top
+asks for meaningfully more.
+
+| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch |
+|---|---|---|---|---|
+| 1 | $600 → $780 | +$20 | 180s | $20 |
+| 3 | $640 → $856 | +$24 | 172s | $22 |
+| 6 | $700 → $970 | +$30 | 160s | $26 |
+| 10 | $780 → $1122 | +$38 | 144s | $30 |
+
+Read it as the tier's *terms*, not its difficulty: the calibration above still
+holds that a bigger bar mostly buys duration. What the curve buys is the other
+half of a ladder — a tier that means something numerically before a single
+hazard is drafted, and a first bay a new player can actually clear. The clock and
+the launch cost are properties of the tier and hold for the whole run; only the
+target steps per bay, and the tier sets how steeply.
+
+**Measured** (`npx tsx sim/marks.ts --marks 1,3,6,8,10 --seeds 5 --notches spread`, aim bot,
+bays 1/4/7/10, carry $150). `--notches spread` is new and is why these numbers mean something: it
+models the ratchet the mode actually forces (`picksPerBay(mark) x` cleared bays, round-robin over
+that Mark's number axes), instead of measuring a bare ladder no run is ever played on.
+
+| Mark | budget | bar | best build | run clear | verdict |
+|---|---|---|---|---|---|
+| 1 | 77 | $600/180s | economy | 9% | just short |
+| 3 | 231 | $640/172s | economy | 19% | just short |
+| 6 | 462 | $700/160s | spread | 33% | just short |
+| 8 | 616 | $740/152s | economy | 5% | just short |
+| 10 | 770 | $780/144s | economy | 1% | too hard |
+
+Four of five rungs land inside the criterion band (2–35%), which the flat ladder did not: without
+the ratchet modelled the same sweep reads *FREE* (100%) at Marks 3 and 6. Mark 10 at 1% sits just
+under the band, and every one of the harness's caveats pushes that number down rather than up — the
+bots never fire a Bond Breaker or a bomb, MAGAZINE is excluded from the archetypes (so the "full"
+rig spends 550 of 770), and a spread ratchet is the *unprepared* hand, not what a player who drafted
+for their build would take. Treat it as "hard, needs a human pass", not as a wall.
+
+Two consequences worth stating:
+
+- **`scorePerLine` is deliberately *not* tier-scaled** (it still ramps +$10 a
+  bay). So a higher tier is more lines, not richer lines — which is exactly why
+  the leaderboard is now **per tier** (`main.ts`'s `boardTier`, posted under the
+  run's own Mark): a shared board would have ranked the ladder, not the play.
+- **The hazard notches stay flat** (`hazards.ts`: $300 / $5 / 20s at every
+  Mark). A notch therefore bites relatively harder at the bottom, which the
+  tier's own relief — more clock, cheaper shots — is what pays for. Open call for
+  the play pass.
+
 ### What actually gets harder
 
-Beyond the existing `makeBaseLevel(i)` ramp:
+Beyond the tier ladder above and the existing `makeBaseLevel(i)` ramp:
 
 - **Compactor tempo** — faster sweeps, shorter dwell.
 - **Tolerance** — `compactorMinLineCells` rises, slot alignment narrows.

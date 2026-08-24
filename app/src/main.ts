@@ -300,6 +300,11 @@ class App {
   private lastNext: string | null = null;
   private lastNextId: string | null = null;
   private cachedBoard: ScoreEntry[] = [];
+  /** Which tier's board `cachedBoard` holds (0 = nothing fetched yet). Boards
+   *  are per tier now, so the cache has to remember WHICH one it is or a run
+   *  ending at a new Mark would render the previous tier's rows for the moment
+   *  before the fetch lands — under the new tier's heading. */
+  private cachedBoardTier = 0;
   private submitted = false;
 
   /** Finger-drag onboarding hint (see ui/screens.ts's dragHintHTML) — a 15s
@@ -892,7 +897,7 @@ class App {
             });
         }
         break;
-      case "howto": this.overlay.innerHTML = S.howtoScreen(); break;
+      case "howto": this.overlay.innerHTML = S.howtoScreen(markUnlocked(this.meta)); break;
       case "settings":
         this.overlay.innerHTML = S.settingsScreen(this.settings, this.storeState(), hapticsSupported());
         break;
@@ -907,6 +912,7 @@ class App {
       case "leaderboard":
         this.overlay.innerHTML = S.leaderboardScreen(
           S.leaderboardRowsHTML(S.fullBoard(this.cachedBoard)),
+          this.boardTier(),
         );
         break;
       case "playing":
@@ -991,6 +997,7 @@ class App {
               // it has to be added here, exactly as scrapEarned above.
               salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
               tiers: this.run.tiers,
+              boardTier: this.run.mark,
             });
         }
         break;
@@ -1775,7 +1782,7 @@ class App {
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       scrap: run.scrap,
       tiers: run.tiers,
       mark: run.mark,
@@ -2005,7 +2012,7 @@ class App {
       bayNum: run.levelIndex,
       bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really
@@ -2047,7 +2054,7 @@ class App {
       bayNum: run.levelIndex,
       bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex).name,
+      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       carry: run.carry,
       offers: this.pendingFinals,
@@ -2194,10 +2201,34 @@ class App {
     body.innerHTML = S.leaderboardRowsHTML(rows, highlight);
   }
 
+  /** Which board to read and post to: EVERY TIER KEEPS ITS OWN.
+   *
+   *  The `level` column the API is keyed on (worker/index.ts) now carries the
+   *  run's MARK, which is what run.ts's RunState.mark always claimed a run was
+   *  "filed under" and what the code did not actually do — every run posted to
+   *  board 1. It matters now that the tier ladder exists (level.ts's
+   *  targetScoreFor): a Tier 10 run banks more lines against a heavier target
+   *  than a Tier 1 run can, and finalRunScore counts lines, so one shared list
+   *  would rank the tier rather than the play. Rows written before this change
+   *  were all flown on the flat ladder and all landed on board 1, which is why
+   *  Tier 1 keeps that id rather than the boards being renumbered around them.
+   *
+   *  Outside a run (the menu's Leaderboard entry) the board shown is the tier
+   *  the next Deep Run would fly — the same number the menu's Tier chip and the
+   *  Deep Run button quote. */
+  private boardTier(): number {
+    return this.run?.mark ?? markUnlocked(this.meta);
+  }
+
   private async refreshBoard(): Promise<void> {
-    // The D1 board is the single RUN board for now — level is always 1
-    // regardless of which bay the run ended on.
-    this.cachedBoard = await fetchLeaderboard(1, 10);
+    const tier = this.boardTier();
+    // Drop rows belonging to a different board BEFORE the await, so the render
+    // that follows this call shows an empty board rather than another tier's.
+    if (tier !== this.cachedBoardTier) {
+      this.cachedBoard = [];
+      this.cachedBoardTier = tier;
+    }
+    this.cachedBoard = await fetchLeaderboard(tier, 10);
     // won/lost highlight the player's own just-played name; the standalone
     // leaderboard screen doesn't (matches renderOverlay's existing per-state
     // leaderboardRowsHTML args).
@@ -3124,8 +3155,10 @@ class App {
     const row = this.overlay.querySelector("#submit-row");
     row?.classList.add("done");
     const lines = (this.run?.linesTotal ?? 0) + g.linesTotal;
-    const res = await submitScore(name, this.finalScore(g, this.state === "won"), 1, lines);
-    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(1, 10));
+    const tier = this.boardTier();
+    const res = await submitScore(name, this.finalScore(g, this.state === "won"), tier, lines);
+    this.cachedBoard = res?.scores ?? (await fetchLeaderboard(tier, 10));
+    this.cachedBoardTier = tier;
     this.renderBoardRows(name);
     void successHaptic();
   }

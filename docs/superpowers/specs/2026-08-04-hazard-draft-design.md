@@ -2,6 +2,13 @@
 
 **Date:** 2026-08-04
 **Status:** built on branch `claude/system-design-review-58ay1b`.
+**Superseded in part (2026-08-24) by the tier ladder** — see `docs/ECONOMY.md`
+and `level.ts`'s tier-ladder note. The ratchet, its notch sizes and everything
+below about the draft still stand; what changed is the sentence "a Mark no
+longer moves any number on the ladder". A Mark now states the bay's opening
+terms (target, clock, launch cost) on an explicit per-tier curve, once at run
+start, instead of a per-bay ramp nobody could read. Per-bay auto-scaling did
+NOT come back: only the target steps per bay, by an amount the tier sets.
 Sub-projects 2 and 3 of `2026-08-02-systems-and-hazards-design.md`, which is the
 architecture this document implements. Phase 1 (the systems layer) shipped on
 `systems-layer`.
