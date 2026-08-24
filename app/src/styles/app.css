@@ -434,6 +434,17 @@ body.crt-off #app::after { display: none; }
 
 .menu__actions { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; justify-self: end; }
 
+/* Positioned against .screen (not .menu), so it sits in the padding `--hud-pad`
+   already reserves rather than spending any of .menu's own flex budget. */
+.build-tag {
+  position: absolute; left: var(--hud-pad); bottom: var(--hud-pad);
+  font-size: var(--fs-chip-label-c);
+  color: var(--text-dim);
+  opacity: 0.4;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ---------- HUD ---------- */
 /* Field rect published by main.ts's onResize (the canvas's letterboxed world
    viewport, in CSS px). --fpx is one WORLD pixel at the current scale —

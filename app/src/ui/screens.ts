@@ -19,6 +19,7 @@ import {
 import { DAILY_COUNT } from "../game/contracts";
 import type { Settings } from "../lib/store";
 import type { ScoreEntry } from "../lib/api";
+import { APP_VERSION, APP_COMMIT } from "../lib/version";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
@@ -226,6 +227,12 @@ export function menuScreen(
         <button class="btn btn--ghost btn--block" data-action="settings">${icon("settings")}Settings</button>
       </div>
     </div>
+    <!-- Out of flow on purpose: every pixel inside .menu is already budgeted
+         (see the six-button note above), so a build tag that took a flex slot
+         would risk the same overflow this file spends most of its comments
+         avoiding. Pinned to the screen's own padded corner instead, inert to
+         touch so it can never eat the drag-to-aim gesture underneath it. -->
+    <div class="build-tag" aria-hidden="true">v${APP_VERSION} · ${APP_COMMIT}</div>
   </div>`;
 }
 

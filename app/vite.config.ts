@@ -1,5 +1,24 @@
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+
+const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf-8"));
+
+// Short commit hash of the build, for the on-screen build tag (ui/screens.ts's
+// menuScreen). Falls back to "dev" rather than failing the build — a source
+// tarball or a shallow CI checkout with no .git is still a valid thing to
+// build, just not one that can name its own commit.
+function commitHash(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { cwd: fileURLToPath(new URL(".", import.meta.url)) })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
 
 // Landscape, fullscreen, installable PWA. Capacitor consumes the same dist/ —
 // but WITHOUT the service worker, which is what `--mode native` selects.
@@ -29,6 +48,10 @@ const NATIVE_MODES = new Set(["native", "teststore", "sandbox"]);
 
 export default defineConfig(({ mode }) => ({
   base: "./",
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_COMMIT__: JSON.stringify(commitHash()),
+  },
   build: {
     outDir: "dist",
     target: "es2020",
