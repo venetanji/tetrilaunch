@@ -245,6 +245,16 @@ export const COMMISSIONS: CommissionDef[] = [
     // The first content axis opens at Mark 4 (hazards.ts's cryo). Below that
     // the clause has an empty set to satisfy and would claim itself on any
     // won run, which is rule 3's exact failure mode.
+    //
+    // ACHIEVABILITY is the thing this clause had to be checked for and the
+    // only one in the pool that did, because it is the only clause whose
+    // satisfaction depends on what the game DEALS rather than on how the
+    // player plays. It was 18% at Mark 9 — a lottery, not an achievement, and
+    // worse, one the player could fly eight bays under before losing to the
+    // shuffle. That is fixed in the DRAFT (hazards.ts's FRESH MATERIALS note),
+    // where it was a progression bug in its own right; the clause is now
+    // reachable in 88% of Mark-9 deals and 97-100% everywhere else, which is
+    // "mostly on you, occasionally the deal says no" rather than a coin flip.
     minTier: 4,
     check: (c) => {
       const content = hazardsForMark(c.run.mark).filter((h) => h.kind === "content");

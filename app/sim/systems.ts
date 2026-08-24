@@ -5814,6 +5814,117 @@ section("God Tier dailies (god.ts)");
   }
 }
 
+
+// ---------------------------------------------------------------------------
+section("Fresh materials in the draft (hazards.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The content seat prefers a material the run has NOT met. Pinned because it
+  // is a progression rule with a measurement behind it (see the FRESH
+  // MATERIALS note) and because the thing it fixes — a Mark whose later
+  // materials barely appear — is invisible without a sweep.
+  const contentOf = (mark: number) =>
+    hazardsForMark(mark).filter((h) => h.kind === "content").map((h) => h.id);
+
+  for (const mark of [7, 9, 10]) {
+    const all = contentOf(mark);
+    // With every material but the last already ratcheted, any content card the
+    // draft deals must be that last one.
+    const nearly: Ratchets = {};
+    for (const id of all.slice(0, -1)) nearly[id] = 1;
+    const last = all[all.length - 1];
+    let hands = 0;
+    let missed = 0;
+    for (let s = 0; s < 400; s++) {
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        if (isFinalDraft(i)) continue;
+        const content = hazardOffers(s * 7919, i, mark, undefined, nearly)
+          .filter((h) => h.kind === "content");
+        if (!content.length) continue;
+        hands += 1;
+        // A materials-only bay deals TWO, so its second card is necessarily a
+        // repeat when only one material is unmet — the rule is that the unmet
+        // one is THERE, not that it is alone.
+        if (!content.some((h) => h.id === last)) missed += 1;
+      }
+    }
+    check(`Mark ${mark}: any hand dealing a material deals the unmet one`,
+      missed === 0, `${missed}/${hands}`);
+    check(`...and materials are still dealt at all`, hands > 0);
+  }
+
+  // A run that has met EVERYTHING still gets material cards — the preference
+  // is a preference, not a filter, and a hand that silently lost its content
+  // seat would read as the axis having been retired.
+  {
+    const all: Ratchets = {};
+    for (const id of contentOf(9)) all[id] = 2;
+    let dealt = 0;
+    for (let s = 0; s < 400; s++) {
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        if (isFinalDraft(i)) continue;
+        dealt += hazardOffers(s * 7919, i, 9, undefined, all).filter((h) => h.kind === "content").length;
+      }
+    }
+    check("a run that has met every material still sees material cards", dealt > 0);
+  }
+
+  // THE RULE THE PREFERENCE MUST NOT BREAK: at most one content axis per
+  // ordinary hand, and a hand never shorter than the picks it demands.
+  for (const mark of [4, 6, 9, 10]) {
+    let bad = 0;
+    let short = 0;
+    for (let s = 0; s < 300; s++) {
+      const ratchets: Ratchets = {};
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        if (isFinalDraft(i)) continue;
+        const hand = hazardOffers(s * 104_729, i, mark, undefined, ratchets);
+        if (hand.length < picksPerBay(mark)) short += 1;
+        if (!isMaterialDraft(i) && hand.filter((h) => h.kind === "content").length > 1) bad += 1;
+        // Walk the run forward so later hands see a real ratchet state.
+        const take = hand[0];
+        if (take) ratchets[take.id] = (ratchets[take.id] ?? 0) + 1;
+      }
+    }
+    check(`Mark ${mark}: at most one material per ordinary hand`, bad === 0, `${bad}`);
+    check(`Mark ${mark}: a hand is never shorter than its picks`, short === 0, `${short}`);
+  }
+
+  // ACHIEVABILITY, swept: a player spending every pick on new materials must
+  // be able to collect the whole set most of the time, or Full Manifest is a
+  // lottery. 18% at Mark 9 before the fix; the floor below is set under the
+  // measured 88% so a re-tune has room without the check going green on a
+  // broken deal.
+  for (const mark of [6, 8, 9, 10]) {
+    const need = contentOf(mark).length;
+    const picks = picksPerBay(mark);
+    let wins = 0;
+    const SEEDS = 400;
+    for (let s = 0; s < SEEDS; s++) {
+      const seed = (s * 2_654_435_761) >>> 0;
+      const taken = new Set<HazardId>();
+      const ratchets: Ratchets = {};
+      for (let i = 0; i < RUN_LEVELS - 1; i++) {
+        if (isFinalDraft(i)) continue;
+        const hand = hazardOffers(seed, i, mark, undefined, ratchets);
+        for (let p = 0; p < picks; p++) {
+          const pick =
+            hand.find((h) => h.kind === "content" && !taken.has(h.id)) ??
+            hand.find((h) => h.kind === "content") ??
+            hand[0];
+          if (!pick) break;
+          if (pick.kind === "content") taken.add(pick.id);
+          ratchets[pick.id] = (ratchets[pick.id] ?? 0) + 1;
+        }
+      }
+      if (taken.size >= need) wins += 1;
+    }
+    const rate = (wins / SEEDS) * 100;
+    check(`Mark ${mark}: Full Manifest is reachable in most deals`, rate >= 80,
+      `${rate.toFixed(0)}%`);
+  }
+}
+
 console.log(
   failures === 0
     ? "\nAll systems checks passed."

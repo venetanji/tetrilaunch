@@ -222,13 +222,68 @@ hazard draft.
 | **Deep Pockets** | 1 | end the run holding a large float |
 | **Full Sweep** | 1 | clear all ten bays — the completion clause, so Tier 1 has one |
 
-"Full Manifest" is the user's *max out materials in a run*, written so it scales
-with the Tier rather than needing one clause per material count: at Tier 4 that
-is one content axis, at Tier 9 it is six, and both are the same sentence.
+"Full Manifest" is *max out materials in a run*, written so it scales with the
+Tier rather than needing one clause per material count: at Tier 4 that is one
+content axis, at Tier 9 it is six, and both are the same sentence.
 
 The numbers behind "a handful", "enough" and "a set margin" live in
 `commissions.ts` as named constants and are a **first pass**. They are the most
 likely thing here to need a play pass, and they are the cheapest to move.
+
+### Full Manifest was unwinnable, and finding out fixed a bigger thing
+
+Full Manifest is the only clause whose satisfaction depends on what the game
+**deals** rather than on how the player plays, so it is the only one that had
+to be checked for achievability. Swept over 5,000 seeded runs with a player
+spending *every single pick* hunting new materials:
+
+| Mark | runs that could collect the whole set |
+|---|---|
+| 6 | 95% |
+| 7 | 73% |
+| 8 | 43% |
+| 9 | **18%** |
+| 10 | 34% |
+
+At Mark 9 the clause was a lottery, and a cruel one: you would fly eight bays
+under a self-imposed constraint and lose the claim to a shuffle, with no way to
+know mid-run that it had already gone.
+
+The cause was not the clause. `hazardOffers` deals **at most one content axis
+per hand** — a good rule, and the reason materials do not arrive as a pile-on —
+but it picked which one at random, so a Mark-9 run kept being offered cryo for
+the fourth time while three of its six materials never appeared at all. That is
+a **progression** bug in its own right, and a bigger one than the achievement:
+`DESIGN.md`'s promise is that "Marks add axes rather than steepen them — a Mark
+is a statement about which hazards and systems exist", and a Mark whose later
+materials show up in one run in five is not making that statement.
+
+The fix is one preference: **the content seat prefers a material the run has
+not met.** It picks the seat's occupant, never adds a seat, so the
+one-per-hand rule is untouched. What it displaces is worth less than what it
+adds — the Fibonacci ladders are what make repeating a *number* axis a real
+build, and the content axes have no such ladder, so a second cryo card is the
+same substance at a slightly higher rate.
+
+Measured after, on a player taking a card **at random** rather than hunting:
+
+| Mark | materials met, before → after | Full Manifest reachable, before → after |
+|---|---|---|
+| 8 | 3.3 of 5 → 4.3 of 5 | 43% → 97% |
+| 9 | 3.6 of 6 → 4.7 of 6 | 18% → 88% |
+| 10 | 4.6 of 6 → 5.8 of 6 | 34% → 100% |
+
+One thing the first attempt got wrong and is worth keeping written down: it also
+**forced** the chosen material into any hand the shuffle had filled with
+numbers. That put a material in every hand of every run — content-free hands
+went from 3.0 a run at Mark 4 to zero — which turns "what hardens next?" into
+"which material?" and deletes the two-numbers hand entirely. The preference
+decides *which* material the seat holds; whether a hand has one at all is still
+the shuffle's to say.
+
+Mark 9 sits at 88% rather than 100% because it is the one rung with six
+materials and only eight picks (Mark 10 gets two picks a bay). That is
+"occasionally the deal says no", which an achievement can carry; 18% was not.
 
 ## 3. God Tier — the eleventh rung
 

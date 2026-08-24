@@ -540,21 +540,81 @@ export function hazardOffers(
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
 
+  /* FRESH MATERIALS — which material the one content card is.
+   *
+   * The hand still holds at most one content axis and the shuffle still
+   * decides the rest; the only thing this changes is WHICH material fills that
+   * seat, preferring one the run has not met.
+   *
+   * It is a progression fix, and the commission that made it visible is the
+   * smaller half of it. The ladder's own promise is that "Marks add axes
+   * rather than steepen them — a Mark is a statement about which hazards and
+   * systems exist", and the deal was not keeping it. Measured over 5,000
+   * seeded runs:
+   *
+   *   materials a run MEETS, taking a card at random     before -> after
+   *     Mark 8   3.3 of 5 (67%)  ->  4.3 of 5 (85%)
+   *     Mark 9   3.6 of 6 (60%)  ->  4.7 of 6 (79%)
+   *     Mark 10  4.6 of 6 (76%)  ->  5.8 of 6 (97%)
+   *
+   *   runs that CAN collect every one, playing for it     before -> after
+   *     Mark 8    43%  ->  97%
+   *     Mark 9    18%  ->  88%
+   *     Mark 10   34%  ->  100%
+   *
+   * A Mark 9 whose sixth material showed up in fewer than one run in five —
+   * even for a player spending every single pick hunting it — was not making
+   * a statement about which hazards exist. It was hiding half of them.
+   *
+   * The repeats it displaces are worth less than the freshness. The Fibonacci
+   * ladders are what make repeating a NUMBER axis a real build — every notch
+   * affordable against the last and brutal against the one before — and the
+   * content axes have no such ladder: materialRate is base + notch x n against
+   * a cap, so a second cryo card is the same substance at a slightly higher
+   * rate. A material the player has not met is strictly the more interesting
+   * card, which is the whole match-3 argument the content axes exist on.
+   *
+   * The one-content-per-hand rule is untouched: this picks the seat's
+   * occupant, never adds a seat.
+   */
+  const contentCard =
+    shuffled.find((h) => h.kind === "content" && (ratchets[h.id] ?? 0) === 0) ??
+    shuffled.find((h) => h.kind === "content") ??
+    null;
+
   const picked: HazardDef[] = [];
   let tookContent = false;
   for (const h of shuffled) {
     if (picked.length >= want) break;
     if (h.kind === "content") {
-      if (tookContent) continue;
+      // Only the chosen material may take the content seat; every other
+      // content axis is skipped exactly as a second one always was.
+      if (tookContent || h !== contentCard) continue;
       tookContent = true;
     }
     picked.push(h);
   }
+  // The chosen material is NOT forced into a hand the shuffle filled with
+  // numbers, and that restraint is the difference between fixing the deal and
+  // replacing it. Seating it whenever it lost the shuffle put a material in
+  // every single hand of every run — content-free hands went from 3.0 a run at
+  // Mark 4 to zero — which turns "what hardens next?" into "which material?"
+  // and deletes the two-numbers hand entirely. The preference decides WHICH
+  // material the content seat holds; whether the hand has one at all is still
+  // the shuffle's to say.
   // The one-content rule can starve a hand at a high Mark, where content axes
   // outnumber numbers. Backfill in ladder order rather than leaving a short
   // offer, since a short offer is indistinguishable to the player from a bug.
   if (picked.length < want) {
-    for (const h of shuffled) {
+    // Fresh-first here too. The backfill is where a SECOND content axis can
+    // legitimately enter a hand, and one that grabbed a repeat while the
+    // unmet material sat later in the shuffle would undo the preference on
+    // exactly the high Marks that need it most — starving is common at Mark 9
+    // and 10, where six content axes outnumber four number ones.
+    const rest = contentCard
+      ? [contentCard, ...shuffled.filter((h) => h !== contentCard)]
+      : shuffled;
+    for (const h of rest) {
       if (picked.length >= want) break;
       if (!picked.includes(h)) picked.push(h);
     }
@@ -610,7 +670,16 @@ function materialHand(
   // the capstone Mark picksPerBay is 2 against a hand of 2, so a capstone player
   // takes both — slag included. That is a real edge of this feature rather than
   // a bug in it, and sim/systems.ts pins it so it cannot change unnoticed.
-  return shuffled.slice(0, want).sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
+  // FRESH FIRST — a stable partition, not a re-shuffle, so the stream still
+  // decides the order within each half and a restarted run deals the same
+  // hand. See the FRESH MATERIALS note on hazardOffers for the argument;
+  // here it does most of the work, because these two bays are the only ones
+  // that deal two materials at once.
+  const fresh = shuffled.filter((h) => (ratchets[h.id] ?? 0) === 0);
+  const repeat = shuffled.filter((h) => (ratchets[h.id] ?? 0) > 0);
+  return [...fresh, ...repeat]
+    .slice(0, want)
+    .sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
 }
 
 /**
