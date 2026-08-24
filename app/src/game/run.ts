@@ -89,6 +89,88 @@ export interface RunState {
    *  a one-off clause on one bay, so it is stored as one — a single id, written
    *  once, read only by levelForRun and only on the final bay. */
   final: FinalId | null;
+  /** What the run has DONE so far — the tally COMMISSIONS are checked against
+   *  (commissions.ts). See the RUN STATS note below for why it lives on the
+   *  run rather than being re-read off the Game at the end. */
+  stats: RunStats;
+}
+
+/* -------------------------------------------------------------------------
+ * RUN STATS — what the run DID, as opposed to what it has.
+ *
+ * Everything else on RunState is a stock the run spends (carry, scrap,
+ * bondCharges) or a condition it is flown under (ratchets, tiers, final).
+ * This is neither: it is the tally a COMMISSION is checked against at run end
+ * (commissions.ts), and it exists because most of what a commission wants to
+ * know is destroyed the moment a bay is torn down. `Game` counts shots, lost
+ * cubes and the clock, and then main.ts builds a fresh Game for the next bay
+ * and every one of those counters resets.
+ *
+ * So the run folds each bay's tally in as the bay is banked. Two callers, one
+ * implementation (foldBay): advanceRun folds a CLEARED bay, and the run-end
+ * path folds the LAST bay — the one that won or lost the run, which never
+ * reaches advanceRun and on a loss never would. A commission checked against
+ * stats that silently dropped the deciding bay would be checkable and wrong,
+ * which is worse than not checkable.
+ * ---------------------------------------------------------------------- */
+
+/** One bay's contribution, read off `Game` the moment the bay stops. */
+export interface BayStats {
+  /** Game.shotsFired — pieces AND bombs, which is the unit the launch budget
+   *  is denominated in, so a launches-per-line clause prices the same thing
+   *  the Contract budget does. */
+  shots: number;
+  /** Game.lostTotal — CUBES over the wall, not pieces (see level.ts's
+   *  penaltyPerLostPiece, which is billed per cube for the same reason). */
+  lostCubes: number;
+  /** Demolition charges actually fired this bay. Derived by the caller rather
+   *  than read off a field, because `Game.bombCharges` is a REMAINING stock
+   *  that the resupply line tops back up mid-bay (game.ts's bombsResupplied) —
+   *  a difference of two snapshots would under-count every resupplied charge. */
+  bombsFired: number;
+  /** Bond Breaker charges fired this bay. Same derivation, no resupply to
+   *  worry about: the magazine is granted once per RUN (see bondChargesFor). */
+  bondsUsed: number;
+  /** Seconds left on the shift clock when the bay stopped. Infinity on a bay
+   *  with no clock (Contracts, and any Deep Run bay whose timeLimitSec is 0) —
+   *  Infinity rather than 0 because `tightestSec` is a MINIMUM, and a bay that
+   *  cannot run out of time must never be the one that sets the tightest
+   *  margin. */
+  timeLeftSec: number;
+}
+
+/** The run's running tally. Every field is monotonic except `tightestSec`,
+ *  which is a running minimum. */
+export interface RunStats {
+  /** Bays folded in so far — the denominator for anything per-bay, and the
+   *  guard that stops an empty run reading as a perfect one. */
+  bays: number;
+  shots: number;
+  lostCubes: number;
+  bombsFired: number;
+  bondsUsed: number;
+  /** Smallest `timeLeftSec` any folded bay ended with; Infinity while no
+   *  clocked bay has been folded. */
+  tightestSec: number;
+}
+
+export function newStats(): RunStats {
+  return { bays: 0, shots: 0, lostCubes: 0, bombsFired: 0, bondsUsed: 0, tightestSec: Infinity };
+}
+
+/** Fold one bay's tally into the run's. Pure — returns a new RunStats and
+ *  never mutates either argument, the same contract advanceRun keeps, so a
+ *  caller can fold speculatively (the end screen previews which commissions a
+ *  run would claim before the player commits to ending it). */
+export function foldBay(stats: RunStats, bay: BayStats): RunStats {
+  return {
+    bays: stats.bays + 1,
+    shots: stats.shots + Math.max(0, Math.floor(bay.shots)),
+    lostCubes: stats.lostCubes + Math.max(0, Math.floor(bay.lostCubes)),
+    bombsFired: stats.bombsFired + Math.max(0, Math.floor(bay.bombsFired)),
+    bondsUsed: stats.bondsUsed + Math.max(0, Math.floor(bay.bondsUsed)),
+    tightestSec: Math.min(stats.tightestSec, Math.max(0, bay.timeLeftSec)),
+  };
 }
 
 /** Bond Breaker charges a Bond Emitter of `tier` ships for the WHOLE run —
@@ -128,6 +210,7 @@ export function newRun(
     mark,
     // Nothing is inspected until the run reaches its last draft.
     final: null,
+    stats: newStats(),
   };
 }
 
@@ -296,6 +379,10 @@ export const CARRY_CAP = 150;
  *  stock, so a caller that forgets it under-reports a single bay, where
  *  defaulting to the running total would re-count every bay before it.
  *
+ *  `bayStats` is the just-cleared bay's commission tally (see RunStats). It
+ *  defaults to null — NOT folded — rather than to a zeroed tally: see the
+ *  field's note below for why a zero fold is worse than no fold.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -306,6 +393,7 @@ export function advanceRun(
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
   salvagedFunds = 0,
+  bayStats: BayStats | null = null,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -325,6 +413,12 @@ export function advanceRun(
     unlocks: [...run.unlocks],
     mark: run.mark,
     final: run.final,
+    // Defaults to null — "this caller isn't tracking commissions" — rather
+    // than to a zeroed BayStats, and the distinction matters: a zeroed fold
+    // would bump `bays` and pin `tightestSec` at 0, quietly failing the
+    // clock clause for every sim harness and every older call site. Not
+    // folding is the honest no-op; folding zeroes is a lie about a bay.
+    stats: bayStats ? foldBay(run.stats, bayStats) : run.stats,
   };
 }
 

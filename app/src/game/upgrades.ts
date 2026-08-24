@@ -380,6 +380,66 @@ export function loadoutLegal(tiers: UpgradeTiers, mark: number): boolean {
   return tiersCost(tiers) <= budgetForMark(mark);
 }
 
+/**
+ * The nearest LEGAL loadout at `mark` that is a subset of `tiers` — what a rig
+ * built at a high Mark flies when it is taken back down the ladder to REPLAY a
+ * cleared Tier (docs/LONGEVITY.md).
+ *
+ * The clamp is not optional and not a nicety. A Tier board only ranks skill
+ * because every rig at that Tier has identical total power (see the BUILD
+ * BUDGET note above); a 660-point rig on a Tier-3 board would rank how far
+ * past Tier 3 its owner had climbed. So replay passes the REPLAYED Tier to
+ * budgetForMark, and anything over has to come off.
+ *
+ * WHAT COMES OFF, and why it is decided here rather than left to chance: the
+ * most expensive marginal tier first — TIER_COSTS rises 20/35/55, so that is
+ * always a tier on whichever track currently sits highest — with ties broken
+ * by REVERSE UPGRADES order, so the tracks the list opens with (bay, launcher,
+ * hydraulics: the spatial core) survive longest and the late additions go
+ * first. Both halves of that rule are arbitrary in the sense that some other
+ * rule would also be defensible; neither is arbitrary in the sense that
+ * matters, which is that the same loadout at the same Tier always trims to the
+ * same rig, on every device, for every player.
+ *
+ * This is a STOPGAP with a named successor. The loadout screen
+ * (docs/DESIGN.md's build-order item 5) is where a player picks their own rig
+ * for the Tier they are about to fly, and the day it exists this function
+ * becomes the sensible default it opens on rather than the whole answer.
+ *
+ * Returns a copy; never mutates `tiers`. Already-legal input is returned
+ * unchanged (a copy of it), so the caller can trim unconditionally.
+ */
+export function trimLoadout(tiers: UpgradeTiers, mark: number): UpgradeTiers {
+  const out: UpgradeTiers = { ...tiers };
+  // Clamp first: an out-of-range track (a hand-edited save, a tier from a
+  // build with a higher MAX_TIER) has to be brought into the ladder before its
+  // cost means anything, or the loop below could never price it down.
+  for (const def of UPGRADES) {
+    const raw = out[def.id] ?? 0;
+    out[def.id] = Number.isInteger(raw) ? Math.max(0, Math.min(MAX_TIER, raw)) : 0;
+  }
+  const budget = budgetForMark(mark);
+  // Bounded by construction: every pass removes one tier and there are at most
+  // UPGRADES.length * MAX_TIER of them, so this cannot spin even on a budget
+  // of 0 (which trims to stock, correctly).
+  while (tiersCost(out) > budget) {
+    let victim: UpgradeId | null = null;
+    let victimTier = 0;
+    for (const def of UPGRADES) {
+      const tier = out[def.id] ?? 0;
+      // >= rather than >, walking UPGRADES forward: the LAST track at the
+      // winning height wins the tie, which is the reverse-order rule above.
+      if (tier > 0 && tier >= victimTier) {
+        victim = def.id;
+        victimTier = tier;
+      }
+    }
+    if (!victim) break;
+    out[victim] = victimTier - 1;
+  }
+  return out;
+}
+
 /** Buy one tier of `id` against the budget, or null when it can't be bought —
  *  maxed, or the next tier doesn't fit what's left. Mirrors run.ts's
  *  buyUpgrade so the loadout screen and the refit screen can render a disabled

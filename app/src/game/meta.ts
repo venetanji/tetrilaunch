@@ -33,9 +33,11 @@
  */
 
 import {
-  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
+  budgetForMark,
+  trimLoadout, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
+import { claimId, type CommissionId } from "./commissions";
 
 export { MARK_COUNT };
 
@@ -386,13 +388,21 @@ export interface MetaState {
    *  Contract once keeps the subscription buying throughput rather than power,
    *  and leaves replaying a cleared Contract as free practice. */
   claimedContracts: string[];
+  /** COMMISSION claims, as `clause@tier` strings (commissions.ts's claimId).
+   *
+   *  A (clause, Tier) PAIR, never a bare clause — that pairing is what gives
+   *  every cleared Tier ten things left to do and is the whole reason replay
+   *  is worth having (docs/LONGEVITY.md). Once-ever, exactly like
+   *  claimedContracts, and for the same monetization reason: a claim can tick
+   *  a tier milestone, so a re-claimable one would be a salvage tap. */
+  commissions: string[];
 }
 
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
-    loadout: newTiers(), claimedContracts: [],
+    loadout: newTiers(), claimedContracts: [], commissions: [],
   };
 }
 
@@ -407,12 +417,60 @@ export function markBudget(meta: MetaState): number {
   return budgetForMark(markUnlocked(meta));
 }
 
-/** The loadout to actually fly, with an illegal one (a stale save from before a
- *  re-price, or a hand-edited localStorage entry) falling back to stock rather
- *  than being flown as-is. Cheating the budget is the one thing that would make
- *  a Mark clear mean nothing, so it's checked at the point of use. */
-export function safeLoadout(meta: MetaState): UpgradeTiers {
-  return loadoutLegal(meta.loadout, markUnlocked(meta)) ? { ...meta.loadout } : newTiers();
+/* -------------------------------------------------------------------------
+ * WHICH TIER IS BEING FLOWN
+ *
+ * Two different questions the code used to answer with one number, and
+ * conflating them is what made a cleared Tier unreachable:
+ *
+ *   markUnlocked(meta)  the TOP of the ladder — the exam, the one Tier whose
+ *                       clear can advance the Mark.
+ *   playableTier(...)   the tier the player CHOSE to fly, anywhere from 1 to
+ *                       the top.
+ *
+ * Everything that awards (recordRunEnd's tier tick, salvage) keys on the
+ * first; everything that builds the run (the level ladder, the build budget,
+ * the board it posts to) keys on the second. See docs/LONGEVITY.md.
+ * ---------------------------------------------------------------------- */
+
+/** `tier` clamped to something this save may actually fly: 1..markUnlocked.
+ *  Total, so a stale selection saved before the Mark moved (or a hand-edited
+ *  one) resolves to a legal Tier instead of being rejected at the door. */
+export function playableTier(meta: MetaState, tier: number): number {
+  const top = markUnlocked(meta);
+  if (!Number.isFinite(tier)) return top;
+  return Math.max(1, Math.min(top, Math.floor(tier)));
+}
+
+/** True when flying `tier` is a REPLAY — a Tier already beaten, below the
+ *  exam. A replay ticks no tier progress and pays no salvage (recordRunEnd's
+ *  runMark guard already saw to that); what it pays is a board place and
+ *  commissions. */
+export function isReplayTier(meta: MetaState, tier: number): boolean {
+  return playableTier(meta, tier) < markUnlocked(meta);
+}
+
+/** The loadout to actually fly at `tier`, with an illegal one (a stale save
+ *  from before a re-price, a hand-edited localStorage entry) falling back to
+ *  stock rather than being flown as-is. Cheating the budget is the one thing
+ *  that would make a Mark clear mean nothing, so it's checked at the point of
+ *  use.
+ *
+ *  `tier` defaults to the exam, which is what every caller wanted while the
+ *  exam was the only flyable Tier. A REPLAY passes the replayed Tier, and the
+ *  rig is trimmed to THAT Tier's budget (upgrades.ts's trimLoadout) rather
+ *  than dropped to stock — a Tier-3 replay should fly a Tier-3 rig, which is
+ *  198 points, not zero. */
+export function safeLoadout(meta: MetaState, tier = markUnlocked(meta)): UpgradeTiers {
+  const t = playableTier(meta, tier);
+  if (loadoutLegal(meta.loadout, t)) return { ...meta.loadout };
+  // Over budget at t but legal at the top of the ladder = an ordinary replay,
+  // so trim. Illegal at the top too = a corrupt or hand-edited save, so drop
+  // to stock: trimming a save nobody trusts would launder it into a legal rig
+  // instead of refusing it.
+  return loadoutLegal(meta.loadout, markUnlocked(meta))
+    ? trimLoadout(meta.loadout, t)
+    : newTiers();
 }
 
 /* -------------------------------------------------------------------------
@@ -524,21 +582,67 @@ function advanceTier(meta: MetaState): TierResult {
  * milestone's salvage share — once per tier, on the false→true edge, so
  * re-winning an already-ticked half pays nothing. `runMark` must be the Mark
  * the run was flown at (RunState.mark) — a stale save replaying an
- * already-beaten Mark cannot tick the current tier.
+ * already-beaten Mark cannot tick the current tier, which is exactly the
+ * guard Tier REPLAY needs and the reason replay cost nothing to make safe.
+ *
+ * `earned` is what the run's clauses came to (commissions.ts's
+ * earnedCommissions). It is handled HERE rather than in a second recorder
+ * called afterwards, and that is not tidiness: both halves can complete the
+ * tier, and advanceTier resets the counters and moves the Mark. Two calls
+ * means the second one is evaluated against a tier the first may already have
+ * advanced past, so a commission flown at Tier 4 could be banked as `@5` or
+ * silently stop counting. One snapshot, one advanceTier, one exit.
+ *
+ * The COMMISSION MILESTONE RULE, stated once (docs/LONGEVITY.md argues it):
+ * a commission claimed at the tier currently being flown counts as one of the
+ * tier's TIER_CONTRACTS_REQUIRED Contract milestones and pays the same share.
+ * It does not ADD a requirement — the ladder stays three milestones deep — it
+ * opens a second route through the one that exists, and the route it opens is
+ * the one that is NOT daily-capped, so it is worth everything to a free
+ * player and nothing to a subscriber. Below the flown tier a claim is banked
+ * for the record and pays nothing at all, which is the identical anti-grind
+ * rule an off-tier Contract clear already gets.
  */
-export function recordRunEnd(meta: MetaState, runMark: number, won: boolean, bayReached: number): TierResult {
+export function recordRunEnd(
+  meta: MetaState,
+  runMark: number,
+  won: boolean,
+  bayReached: number,
+  earned: readonly CommissionId[] = [],
+): TierResult & { claimed: string[] } {
   const tier = markUnlocked(meta);
-  const newlyDone = !meta.tierRunDone && won && runMark === tier;
-  const share = newlyDone ? tierMilestoneSalvage(tier) : 0;
+  const atTier = runMark === tier;
+  const newlyDone = !meta.tierRunDone && won && atTier;
+  let share = newlyDone ? tierMilestoneSalvage(tier) : 0;
+  let contracts = meta.tierContracts;
+
+  const commissions = [...meta.commissions];
+  const claimed: string[] = [];
+  for (const id of earned) {
+    const claim = claimId(id, runMark);
+    if (commissions.includes(claim)) continue;
+    commissions.push(claim);
+    claimed.push(claim);
+    // Only at the flown tier, and only while milestones remain — the same two
+    // conditions recordContractClear applies, so an Unlimited player's deep
+    // board and a clause-hunter's fifth commission tick the same nothing.
+    if (atTier && contracts < TIER_CONTRACTS_REQUIRED) {
+      contracts += 1;
+      share += tierMilestoneSalvage(tier);
+    }
+  }
+
   const next: MetaState = {
     ...meta,
     runs: meta.runs + 1,
     bestBay: Math.max(meta.bestBay, bayReached),
     salvage: meta.salvage + share,
     tierRunDone: meta.tierRunDone || newlyDone,
+    tierContracts: contracts,
+    commissions,
   };
   const result = advanceTier(next);
-  return { ...result, salvage: result.salvage + share };
+  return { ...result, salvage: result.salvage + share, claimed };
 }
 
 /**

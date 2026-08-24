@@ -106,6 +106,14 @@ export function loadMeta(): MetaState {
     // rather than throw inside the award path on the first Contract win.
     if (!Array.isArray(meta.claimedContracts)) meta.claimedContracts = [];
     meta.claimedContracts = meta.claimedContracts.filter((c): c is string => typeof c === "string");
+    // Commission claims (game/commissions.ts's `clause@tier`). Same fail-closed
+    // read: a claim can tick a tier milestone, so a corrupt entry must load as
+    // "not claimed" rather than throw inside recordRunEnd's award path. Entries
+    // this build doesn't recognise are LEFT IN rather than dropped — parseClaim
+    // ignores them at every read site, and dropping them here would quietly
+    // delete a claim belonging to a clause a later build restores.
+    if (!Array.isArray(meta.commissions)) meta.commissions = [];
+    meta.commissions = meta.commissions.filter((c): c is string => typeof c === "string");
     meta.salvage = Number.isFinite(meta.salvage) ? Math.max(0, Math.floor(meta.salvage)) : 0;
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;
