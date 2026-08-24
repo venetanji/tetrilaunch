@@ -734,8 +734,11 @@ generator can produce, so the row that scrolls is measured scrolling:
 
 ```ts
         remaining: [],
-        // Two-digit, because a lines Contract can lose a lot of cubes and the
-        // column is sized off its label at phone scale.
+        // Two-digit. The column is label-dominated at one and two digits
+        // ("LOST" measures 17.797px against 18px for two mono digits at the
+        // compact floor), so this is the widest state below three digits —
+        // and three is unreachable in a bay whose launch budget caps the
+        // cubes that can be fired.
         lost: 14,
         // Three complications is the cap (contracts.ts's maxComplications at
         // tier 9+), and this is the longest set of notes the generator emits —
@@ -786,14 +789,22 @@ npm run test:uifit
 
 Expected: green.
 
-Task 2's review did the arithmetic on where a failure would come from, which is
-worth knowing before you start bisecting: at the compact floor a Deep Run's
-`timeCol` is `max(4·0.45·8, 4·0.6·15) + 6 + 5` = 47px, and a lines Contract's
-`lostCol` is `max(14.4, 18) + 6 + 5` = 29px, same gap count. So a lines
-Contract's `.pl-read` is ~18px ROOMIER than the Deep Run row the width budget
+Where a failure would come from, worth knowing before you start bisecting: the
+Lost column is not the suspect. Measured against the repo's own font files at
+792x360 compact — not modelled — `.pl-lost` is 25.8px at one digit, 26.0px at
+two and 35.0px at three, against a Deep Run `timeCol` whose value alone
+("2:23", 4 mono digits at 9.0px) is 36px. Same gap count either way. So a lines
+Contract's `.pl-read` has MORE room than the Deep Run row the width budget
 already proves fits `$24680 / 2150`. A `plant` or `twocol` violation on
-`hud-contract-lines` therefore almost certainly comes from the Task 3 rows, not
-from the Lost column. Re-derive before relying on it.
+`hud-contract-lines` almost certainly comes from the Task 3 rows.
+
+Do not re-derive those from `sim/systems.ts`'s `col()` — it is known wrong here.
+Its `UI_ADV = 0.45` flat per-glyph average models "LOST" at 14.4px against
+17.797px measured and "LAUNCHES" at 28.8px against 38.109px, and because
+`fundsBudget` SUBTRACTS the stat columns, undershooting a label inflates the
+room it thinks is available. That is a pre-existing harness defect, filed
+separately; it is called out here only so nobody re-derives a wrong number from
+it mid-task.
 
 If `plant` fails on a device, the panel has grown PAST
 `0.4296 * --field-h` — that means the new rows do not fit on that device, which
