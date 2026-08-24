@@ -1315,14 +1315,31 @@ body.crt-off #app::after { display: none; }
    into a differently-coloured half would read as two facts sharing a line
    rather than one. `.lbl` (the pixel "Tier N" text, from the hoisted shell
    above) stays `--text-muted`; only the row's payoff half takes the colour
-   that says "this is what you're playing for". */
+   that says "this is what you're playing for".
+
+   The "9px icon" this section measures against is NOT what an unscoped rule
+   elsewhere on this sheet ships by default — see the `.pl-tier b .ico` rule
+   just below for why a local pin is what makes 9px true here at all. */
 .pl-tier b {
   display: flex; align-items: center; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700; color: var(--warn);
   white-space: nowrap; min-width: 0;
 }
+/* Pins the salvage glyph back to the 9px salvageHTML(..., 9) actually asks
+   for. Needed because `@media (max-height: 460px) { .ico { width: 13px;
+   height: 13px; } }` (this file, the menu's short-viewport rule) is scoped to
+   a VIEWPORT HEIGHT, not to `.menu` — so on every phone in the device matrix
+   (every one is <=460px tall in landscape) it silently overrides EVERY `.ico`
+   on EVERY screen, this one included, to 13px regardless of what size the
+   markup asked for. That is a defect with a much wider reach than this row —
+   it is not fixed here, only worked around locally, the same way
+   `.modal--refit .refit-card__price .ico` already had to. Confirmed
+   empirically: `getBoundingClientRect()` on this glyph reports 13x13 without
+   this rule, 9x9 with it, on every device 460px tall or under in the uifit
+   matrix; the three tablets (all >460px tall) were never affected. */
+.pl-tier b .ico { width: 9px; height: 9px; }
 
-/* ---------- The two rows that put a MONO value beside a PIXEL label --------
+/* ---------- The two BASELINE rows share one correction ---------------------
    `align-items: baseline` lines these rows up on an edge Press Start 2P does
    not draw on, and even correcting for that is not enough: the two faces draw
    caps of different heights, so meeting on a shared FOOT still leaves the
@@ -1340,8 +1357,28 @@ body.crt-off #app::after { display: none; }
    Held by sim/uifit's `inkline` assertion, which compares where the two
    typefaces actually put ink rather than where their baselines are — no other
    assertion can see this, since the row does not overflow, wrap, clip or
-   scroll while it is wrong. */
-.pl-notch b, .pl-queue b, .pl-tier b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+   scroll while it is wrong.
+
+   NOT `.pl-tier b`, even though it is the same pixel-label-beside-mono-value
+   shape. That row is `align-items: center` (its own rule above), not
+   `baseline` — forced there to stop its fixed 9px salvage glyph inflating the
+   line box, which means it has no baseline-participating child and
+   contributes a SYNTHESIZED baseline (its own bottom margin edge) to
+   `.pl-tier`'s outer `align-items: baseline`, not a text baseline. This
+   correction was measured against two BASELINE text runs, LIFTING the mono
+   run to meet the pixel label; `.pl-tier b`'s synthesized baseline already
+   sits ABOVE where it needs to be (the 9px glyph, still taller than the 6px
+   type floor even correctly sized, centers the text above the box's bottom
+   edge), so the same lift only pushes it further wrong — measured -1.98px to
+   -4.49px against the 0.5px tolerance, versus -0.83px to -2.27px with no
+   correction at all (both fail; the direction that fixes this row is DOWN,
+   not up). See `--pixel-optical-drop-centered` below for `.pl-tier b`'s own,
+   separately measured, oppositely-signed correction. */
+.pl-notch b, .pl-queue b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+/* `.pl-tier b`'s own correction, for the reason the note above gives. Sign is
+   POSITIVE (shifts down), not negative like the rule above — this row's
+   error runs the opposite direction. */
+.pl-tier b { position: relative; top: var(--pixel-optical-drop-centered); }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting

@@ -321,7 +321,30 @@ export const SCREENS: Record<string, () => string> = {
       // Run's to carry. Inheriting HUD_BASE's six bought tracks measured a
       // state the app cannot produce — and now that the rack does not render in
       // a Contract at all, it would have measured nothing while claiming to.
+      //
+      // The identical trap caught the five fields below. levelForContract
+      // (contracts.ts) builds off makeBaseLevel and never writes
+      // bondBreakerCharges, bombCharges or autoLaunchMs, so they stay at
+      // makeBaseLevel's literal 0 for every Contract; Game's constructor
+      // copies them straight through (`this.bondCharges = level.
+      // bondBreakerCharges`, `this.bombCharges = level.bombCharges`), and
+      // hudOpts derives bondBreakerOwned/demoOwned/autoloaderOwned from
+      // exactly those zeros (g.bondCharges > 0, g.level.bombCharges > 0,
+      // g.level.autoLaunchMs > 0 — all false). Inheriting HUD_BASE's
+      // true/2/true/true/3 measured a build no Contract can carry: with
+      // `plates` already "" (screens.ts, contract mode never renders the
+      // rack), bondChip and demoChip were the only things keeping `plates ||
+      // bondChip || demoChip` truthy, so `.pl-mods` rendered a row the real
+      // app never shows on a Contract screen. Silent on all 9 compact
+      // devices, where `.hud--contract .pl-mods` is `display: none`
+      // regardless (app.css) — but real on the three roomy tablets, where
+      // nothing hides it, and it was the entire `plant`/`draghint` overflow.
       tiers: {} as UpgradeTiers,
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -352,6 +375,15 @@ export const SCREENS: Record<string, () => string> = {
       ...HUD_BASE,
       ratchets: {} as Ratchets,
       tiers: {} as UpgradeTiers,
+      // The ability flags go for the same reason as `tiers` above (see
+      // hud-contract's comment): levelForContract never grants bond, demo or
+      // autoloader charges, so all five stay at the zero/false a live
+      // Contract actually renders with.
+      bondBreakerOwned: false,
+      bondCharges: 0,
+      demoOwned: false,
+      autoloaderOwned: false,
+      bombCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Foundry Overrun",
