@@ -79,13 +79,20 @@ if (leaked) {
   process.exit(1);
 }
 
-// The DEVELOPER SANDBOX (src/lib/sandbox.ts) is gated on an inlined build mode,
-// so in any other mode its constant folds to false and the minifier drops the
-// screen. That is the mechanism, and a mechanism is not a promise: a refactor
-// that reads the flag through a function, or a bundler setting that stops
-// folding, would ship a cheat menu that can rewrite the player's save. So the
-// sandbox carries a marker that exists only on its own code path, and a bundle
-// carrying it is not shippable — whatever the tree-shake was supposed to do.
+// The DEVELOPER CHEATS (src/lib/sandbox-cheats.ts) are gated on an inlined
+// build mode, so in any other mode its constant folds to false and the
+// minifier drops the module. That is the mechanism, and a mechanism is not a
+// promise: a refactor that reads the flag through a function, or a bundler
+// setting that stops folding, would ship a menu that can rewrite the player's
+// save. So the cheats carry a marker that exists only on their own code path,
+// and a bundle carrying it is not shippable — whatever the tree-shake was
+// supposed to do.
+//
+// NOT the sandbox MODE. Tier S — the level-select screen, the practice runs
+// and their separate leaderboard — ships in every build on purpose (see
+// src/lib/devmode.ts). It cannot pay salvage, advance a tier or touch the Deep
+// Run board, which is what makes it a game mode rather than a cheat. What this
+// check guards is the four buttons that edit the save directly.
 //
 //   node scripts/verify-store-bundle.mjs --allow-sandbox
 //
@@ -96,9 +103,9 @@ const hasSandbox = bundle.includes(SANDBOX_MARKER);
 
 if (hasSandbox && !allowSandbox) {
   console.error(
-    `✗ store bundle check: the DEVELOPER SANDBOX is in dist/.\n` +
-      `  It can set any Mark, grant salvage, max the rig and wipe the save, and it\n` +
-      `  puts a Sandbox button on the main menu. This bundle must not ship.\n` +
+    `✗ store bundle check: the DEVELOPER CHEATS are in dist/.\n` +
+      `  They can set any Mark, grant salvage, max the rig and wipe the save, from a\n` +
+      `  row on the Tier S screen. This bundle must not ship.\n` +
       `  Build with \`npm run build:native\` for anything shippable. If this IS a\n` +
       `  deliberate sandbox build, run the check with --allow-sandbox.`,
   );
@@ -109,10 +116,10 @@ if (hasSandbox) {
   console.log(`✓ store bundle check: sandbox present, allowed explicitly — NOT SHIPPABLE`);
 } else if (allowSandbox) {
   console.error(
-    `✗ store bundle check: --allow-sandbox was passed but dist/ has no sandbox.\n` +
-      `  A sandbox build with no sandbox in it is a normal build wearing the wrong\n` +
-      `  name — the menu's Sandbox button would never appear on the device. Check\n` +
-      `  the build ran with \`--mode sandbox\`.`,
+    `✗ store bundle check: --allow-sandbox was passed but dist/ has no cheats.\n` +
+      `  A sandbox build with no cheats in it is a normal build wearing the wrong\n` +
+      `  name — Tier S would open on the device, but its save-editing row would\n` +
+      `  never appear. Check the build ran with \`--mode sandbox\`.`,
   );
   process.exit(1);
 }

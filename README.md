@@ -84,6 +84,34 @@ Landscape only. The field is authored at 1280×720 and **letterboxed by a layout
 solver** that adapts to the viewport's aspect ratio and safe-area insets — see
 [docs/NATIVE.md](docs/NATIVE.md#display-what-the-layout-solver-does-and-why-native-needed-it).
 
+## 🅢 Tier S — the sandbox
+
+A practice mode, under the tower rather than on it. Tap the beacon on the
+headhouse — the blinking lamp on the tower's roof — **nine times in a row** and
+a basement floor appears below the building's slab. The elevator does not serve
+it; tapping it opens a level-select screen instead.
+
+From there: any Mark 1-10, any of the ten bays started cold, any Contract
+variant, any rig from stock to maxed, any belt (one material, or a parade of all
+six), and any difficulty axis pre-ratcheted up to three notches — states a real
+run can only reach by drafting its way there across six correct bays.
+
+It is a **game mode, not a cheat menu**, and the difference is enforced:
+
+- No salvage, no tier progress, no mark on the ladder — `RunState.sandbox` makes
+  `finishRun` skip `recordRunEnd` entirely, and a Tier S Contract never reaches
+  `recordContractClear`.
+- Scores go to **their own leaderboard** (`BOARD_SANDBOX`), with its own personal
+  best. A run started on bay 9 at Mark 10 on a rig nobody paid for can never
+  place against an honest one.
+- The gesture toggles, and Settings carries the same switch once found.
+
+The **save-editing tools** (set the Mark, grant salvage, unlock everything, wipe)
+are a different thing and stay behind the build gate they always had: they live
+in `src/lib/sandbox-cheats.ts`, are reached only through `if (SANDBOX)`, and
+`npm run verify:store` fails any bundle their marker string appears in. Build one
+with `npm run build:sandbox` / `npm run android:apk:sandbox`.
+
 ## 🧱 Architecture
 
 ```
@@ -98,9 +126,13 @@ app/                      Capacitor + Vite + TypeScript web app
     meta        salvage + permanent unlocks (persists across runs)
   src/ui/                 screens + components (menu, HUD, bay-clear, refit,
                           draft, workshop, pause, end, settings, leaderboard)
-  src/lib/                api (leaderboard), store (settings/name/meta),
+  src/lib/                api (leaderboard: two boards, Deep Run + Tier S),
+                          store (settings/name/meta/per-board best),
                           platform (orientation/haptics/safe-area),
-                          purchases (RevenueCat: entitlement, paywall, restore)
+                          purchases (RevenueCat: entitlement, paywall, restore),
+                          devmode (the Tier S gesture — ships),
+                          sandbox + sandbox-cheats (the save-editing dev tools —
+                          build-gated, and grepped out of dist by verify:store)
   src/styles/tokens.css   design tokens — single source of truth (mirrors design/foundations)
   sim/                    headless harnesses: sweep (balance), perf (physics
                           cost), systems (systems smoke test — npm run test)
@@ -208,8 +240,10 @@ solver (`src/game/layout.ts`).
 
 ```bash
 cd app
-npm run test          # systems smoke test (economy, upgrades, sizes, layout)
-npm run verify:store  # asserts the RevenueCat SDK survived into dist/
+npm run test          # systems smoke test (economy, upgrades, sizes, layout, Tier S)
+npm run test:uifit    # every screen x 13 devices: fit, tap floor, scroll, clipping
+npm run verify:store  # asserts the RevenueCat SDK survived into dist/ — and that
+                      # the save-editing dev cheats did NOT
 npm run sim:balance   # bays x bots x mods win-rate sweep
 npm run sim:perf      # physics step cost vs. cube count
 ```

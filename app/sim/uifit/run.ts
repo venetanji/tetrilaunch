@@ -96,6 +96,31 @@ const ALLOWED_SCROLLERS = [
   // landscape phone has under the header, tabs and Done. Same category as
   // the workshop pane: a list with more stock than screen.
   "#controls-grid",
+  // Tier S's columns (ui/sandbox-screen.ts). Added on the same arithmetic as
+  // #controls-grid and the workshop pane, not on preference.
+  //
+  // The mode's control surface is 25 chips in its densest column at the
+  // capstone Mark — seven rig tracks, eight belt choices, ten difficulty axes
+  // — and every one of them is 44px because that is the tap floor. Three
+  // columns of a 640px phone give each pane about 180px of width, which packs
+  // two named chips to a row, so that column is ~530px of content in the
+  // ~250px a 360px-tall landscape phone has under the header. There is no
+  // layout that fits it: only chips under the tap floor (the regression this
+  // project has already fixed twice) or hiding half the settings behind a
+  // disclosure, on the one screen whose entire purpose is comparing its own
+  // settings against each other.
+  //
+  // What the layout DOES buy is that the scrolling is per-column rather than
+  // per-page: folding this to one column on a landscape phone — the obvious
+  // reading of "narrow" — produced a single 744px scroll instead of three
+  // short ones, which is why the collapse is keyed on height (see app.css's
+  // .sbx__cols media queries).
+  ".sbx-col",
+  // The briefing INSIDE that column, which scrolls separately so the launch
+  // button stays pinned to the bottom of the pane. 62px on the smallest phone,
+  // and the alternative is a launch button that scrolls out of reach on the
+  // screen whose one forward action it is.
+  ".sbx-brief",
 ];
 
 /**
@@ -286,6 +311,22 @@ function measure(cfg: {
   // names. Today every carrier happens to be a <button> or a role-bearing div,
   // but that is coincidence, and the floor has to hold for whatever the
   // dispatcher can actually reach.
+  //
+  // ONE EXEMPTION, and it is stated as a rule rather than as a name: an element
+  // that is BOTH aria-hidden and out of the tab order is not an exposed
+  // control. WCAG 2.5.5 is about targets a user is directed to; something no
+  // screen reader announces and no Tab reaches is not one of those, whatever
+  // a pointer can do to it.
+  //
+  // Today the only such element is the tower's headhouse beacon — the nine-tap
+  // gesture that opens Tier S (src/lib/devmode.ts) — and its size is a design
+  // requirement rather than a shortfall. It sits in the 19px band above the
+  // shaft, on a tower that fills its whole row on a phone; a 44px target there
+  // would have to grow into the row above it or down over the God floor, where
+  // it would swallow taps meant for the ladder's top rung. And an easter egg
+  // with a large, discoverable hit area is not one. The mode is reachable
+  // without the gesture — Settings carries the same toggle, with a real label,
+  // at the full 44px — so nothing is gated behind a target anyone must hit.
   const seenTap = new Set<string>();
   document
     .querySelectorAll(
@@ -293,6 +334,7 @@ function measure(cfg: {
         " [data-action], [data-game], [data-toggle]",
     )
     .forEach((el) => {
+      if (el.getAttribute("aria-hidden") === "true" && el.getAttribute("tabindex") === "-1") return;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
       if (r.height >= 43.5 && r.width >= 43.5) return;

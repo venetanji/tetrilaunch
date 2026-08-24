@@ -1,20 +1,21 @@
 /**
- * SANDBOX STATE — what the developer screen is currently set to launch.
+ * TIER S STATE — what the sandbox screen is currently set to launch.
  *
  * Kept out of ui/ because it is a model, not a view: main.ts reads it to build
- * a Game, sim/ can construct one to reproduce whatever a device session hit, and
- * the screen is only one way of editing it. See lib/sandbox.ts for the build
- * gate and why this ships nowhere.
+ * a run, sim/ can construct one to reproduce whatever a device session hit, and
+ * the screen is only one way of editing it. See lib/devmode.ts for what ships
+ * (the MODE) and lib/sandbox.ts for what does not (the save-editing CHEATS).
  *
  * Deliberately NOT persisted. A sandbox setting that survived a reload would be
  * indistinguishable from a bug in the real game the next time the app opened —
  * "why is my save at Mark 9" is not a question worth ever having to answer.
- * Everything here resets to the defaults on launch; what the sandbox writes into
- * the actual save (see main.ts's applySandboxRig) is deliberate and explicit.
+ * Everything here resets to the defaults on launch; what the dev cheats write
+ * into the actual save is deliberate, explicit, and build-gated.
  */
 import { VARIANTS, type ContractVariant } from "./contracts";
 import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type UpgradeTiers } from "./upgrades";
-import { RUN_LEVELS } from "./run";
+import { newRun, RUN_LEVELS, type RunState } from "./run";
+import { hazardsForMark, type HazardDef, type HazardId, type Ratchets } from "./hazards";
 import { NO_MATERIALS, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { MATERIALS, type Material } from "./theme";
@@ -42,7 +43,28 @@ export interface SandboxState {
   tiers: UpgradeTiers;
   /** What the bay is allowed to ship — see SandboxMaterial. */
   material: SandboxMaterial;
+  /**
+   * Difficulty axes pre-ratcheted onto the bay (hazards.ts).
+   *
+   * The single biggest thing the old screen could not reach. A ratchet is
+   * taken at a BETWEEN-BAY DRAFT, so the only way to see a bay with three
+   * notches of wind on it was to play six bays correctly and be dealt wind
+   * three times — which is to say it was untestable, and unpractisable, which
+   * are the same complaint from two directions. Setting them directly is the
+   * whole point of a sandbox: `levelForRun` applies `run.ratchets` on every
+   * bay it builds, so a run handed a pre-notched table plays exactly as one
+   * that drafted its way there.
+   */
+  ratchets: Ratchets;
 }
+
+/** Notches one axis may be pushed to from this screen.
+ *
+ *  Three, not unbounded: the notch sizes in hazards.ts are tuned for a
+ *  ten-bay run where the same axis is rarely taken more than three times, and
+ *  a practice bay at eight notches of clock is not a hard version of the game
+ *  — it is a different one, with nothing to learn from. */
+export const SANDBOX_RATCHET_MAX = 3;
 
 /**
  * The sandbox's material override.
@@ -71,8 +93,8 @@ export const SANDBOX_MATERIALS: Material[] = MATERIALS.filter((m) => m !== "stan
  * the caps there (MATERIAL_CAP 0.32 per material, and the combined cap) exist to
  * keep a REAL run's difficulty honest, and honouring them here would mean the one
  * screen built to look at every material could never show more than a third of a
- * queue's worth. The shipping path is untouched — this is only ever called from
- * launchSandbox, behind the SANDBOX gate.
+ * queue's worth. The ladder's own path is untouched — this is only ever called
+ * for a Tier S launch, and only when the choice is not "mix".
  *
  * Returns the same object it was handed, so callers can inline it.
  */
@@ -114,6 +136,9 @@ export function newSandbox(): SandboxState {
     // The ladder's own mix by default: the sandbox opens showing the real game,
     // and forcing materials is something you turn on deliberately.
     material: "mix",
+    // Same argument: an un-notched bay is what the ladder deals, so that is
+    // what the screen opens on.
+    ratchets: {},
   };
 }
 
@@ -137,4 +162,66 @@ export function sandboxVariants(tier: number): Array<{
   return VARIANTS.map((v) => ({
     id: v.id, name: v.name, tier: v.tier, locked: v.tier > tier,
   }));
+}
+
+/**
+ * The axes Tier S may pre-ratchet at `tier`, in ladder order.
+ *
+ * `hazardsForMark` rather than the whole table, so the screen offers exactly
+ * what a real run at that Mark could have drafted — including its retirements.
+ * Practising against an axis the ladder no longer deals would be practising
+ * the wrong game, and the sandbox is worth less than nothing if what it
+ * rehearses is not what the ladder asks.
+ */
+export function sandboxAxes(tier: number): HazardDef[] {
+  return hazardsForMark(Math.max(1, Math.min(MARK_COUNT, tier)));
+}
+
+/** Cycle one axis 0 -> 1 -> ... -> SANDBOX_RATCHET_MAX -> 0, in place.
+ *  Wrapping for the same reason the rig chips wrap: one button per axis beats a
+ *  stepper pair under a thumb, and no axis can get stuck at a notch the thumb
+ *  cannot walk back from. */
+export function bumpSandboxRatchet(r: Ratchets, id: HazardId): Ratchets {
+  const next = ((r[id] ?? 0) + 1) % (SANDBOX_RATCHET_MAX + 1);
+  const out = { ...r };
+  if (next === 0) delete out[id];
+  else out[id] = next;
+  return out;
+}
+
+/** Total notches taken — the one number that says how far from the ladder's
+ *  own bay this configuration has been pushed. */
+export function ratchetTotal(r: Ratchets): number {
+  return Object.values(r).reduce<number>((a, n) => a + (n ?? 0), 0);
+}
+
+/**
+ * The RunState a Tier S launch produces.
+ *
+ * ONE function, called by both the screen (to preview the bay through
+ * `levelForRun`, the same pipeline the game builds from) and main.ts (to
+ * actually fly it). The alternative — a preview that models the launch — is
+ * the specific bug this mode cannot afford: a practice bay that is not the bay
+ * it advertised teaches the wrong lesson, confidently.
+ *
+ * `sandbox: true` is the field that keeps all of this out of the player's
+ * save. It is set here rather than at the call site so there is no way to
+ * construct this run without it.
+ */
+export function sandboxRunFor(s: SandboxState, unlocks: string[] = []): RunState {
+  const bay = s.target.kind === "bay" ? s.target.bay : 1;
+  return {
+    ...newRun(s.seed >>> 0, unlocks, 0, s.tiers, clampTier(s.tier)),
+    // Start AT the chosen bay. Nothing else about the run is fast-forwarded:
+    // carry stays 0 and the rig is exactly what was selected, because "bay 7,
+    // cold, on this rig" is the state worth practising — a fabricated bankroll
+    // from six bays that were never played would make it a different bay.
+    levelIndex: Math.max(0, Math.min(RUN_LEVELS - 1, bay - 1)),
+    ratchets: { ...s.ratchets },
+    sandbox: true,
+  };
+}
+
+function clampTier(tier: number): number {
+  return Math.max(1, Math.min(MARK_COUNT, Math.floor(tier)));
 }

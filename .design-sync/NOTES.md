@@ -54,3 +54,15 @@
   `design/screens/menu.html` (group "Screens", replacing the old card),
   `design/screens/contracts.html` (group "Screens", still never uploaded), and
   a re-copy of `app/src/styles/app.css` over `tokens/app.css`.
+- 2026-08-24: TIER S — the developer sandbox became a shipping game mode
+  (`src/ui/sandbox-screen.ts`, rebuilt; app.css's `.sbx*` block, replaced
+  wholesale). Reached from a basement plate under the tier tower
+  (`.tower__sub`), opened by nine taps on the headhouse beacon
+  (`.tower__head`, now a button carrying `--beacon` progress). The leaderboard
+  grew a two-board tab strip (`.lb-tabs`) and the run-end modal a Tier S row
+  (`.salvage-row--sandbox`).
+  NO MOCKUP CARD YET: `design/screens/` has nothing for this screen, so the
+  next `/design-login` sync owes the project a `design/screens/sandbox.html`
+  alongside the menu/contracts cards the two entries above already owe it, and
+  another re-copy of `app/src/styles/app.css` over `tokens/app.css` (the .sbx
+  block, the tower's basement rules and the beacon's lit state are all new).

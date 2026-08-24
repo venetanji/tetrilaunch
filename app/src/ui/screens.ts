@@ -19,7 +19,7 @@ import {
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
 import type { Settings } from "../lib/store";
-import type { ScoreEntry } from "../lib/api";
+import { BOARD_DEEP_RUN, BOARD_SANDBOX, type BoardId, type ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
 import {
@@ -131,27 +131,68 @@ export function splashScreen(): string {
  *  identity everywhere rather than by "> 10". */
 export const GOD_TIER = MARK_COUNT + 1;
 
-/** How many floors the shaft holds: the Marks, plus God on the roof. */
+/**
+ * TIER S — the sandbox, and the one floor the elevator does not serve.
+ *
+ * NEGATIVE, and that is the whole design in one number. Every other floor is a
+ * rung: it has a position in the shaft, the car rides to it, and picking it
+ * changes what the Deep Run button will fly. S is none of those things. It is
+ * a door in the basement wall that opens a different screen, so it is given an
+ * id that can never be mistaken for a Mark, can never be produced by clamping
+ * one, and can never index the shaft.
+ *
+ * It is drawn BELOW the base slab rather than as a twelfth floor inside the
+ * shaft, for two reasons that happen to agree. The honest one: the ten Marks
+ * plus God are the ladder, and a sandbox rung inside it would say the sandbox
+ * is part of the climb, which is the exact thing that must not be true if the
+ * mode is to be safe to ship. The mechanical one: the shaft's floors are
+ * `flex: 1 1 0`, so a twelfth would take every floor from 44px to 40px at the
+ * cap the tower was sized against (see app.css's --tower-floors note) and cost
+ * every tablet the tap floor the whole screen is built to clear.
+ */
+export const SANDBOX_TIER = -1;
+
+/** How many floors the shaft holds: the Marks, plus God on the roof. Tier S is
+ *  deliberately NOT counted — it is not in the shaft (see SANDBOX_TIER). */
 export const TOWER_FLOORS = MARK_COUNT + 1;
 
 export interface TowerState {
   /** The highest Mark the player may fly (meta.ts's markUnlocked). */
   unlocked: number;
-  /** The floor the car is parked on — a Mark, or GOD_TIER. */
+  /** The floor the car is parked on — a Mark, or GOD_TIER. Never SANDBOX_TIER:
+   *  the car cannot go there. */
   selected: number;
   /** Whether the God floor is open (the whole ladder beaten). */
   god: boolean;
+  /** Whether Tier S is drawn under the tower (lib/store.ts's Settings.devMode,
+   *  flipped by the beacon gesture — see lib/devmode.ts). Absent reads as off,
+   *  so every caller that predates the mode renders the tower it always did. */
+  sandbox?: boolean;
 }
 
-/** True when `tier` is a floor this player may ride to. The one gate; main.ts
- *  calls it again before a run starts. */
+/** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
+ *  calls it again before a run starts.
+ *
+ *  Tier S is false here whether or not the mode is open, and that is not an
+ *  oversight: "open" and "rideable" are different questions, and S is a door,
+ *  not a floor. sandboxOpen() below answers the other one. */
 export function tierOpen(state: TowerState, tier: number): boolean {
+  if (tier === SANDBOX_TIER) return false;
   return tier === GOD_TIER ? state.god : tier >= 1 && tier <= state.unlocked;
+}
+
+/** True when the Tier S door is there to be opened. */
+export function sandboxOpen(state: TowerState): boolean {
+  return state.sandbox === true;
 }
 
 /** Where a floor sits in the shaft, counting from the roof — the car's whole
  *  position is this one number (app.css does the arithmetic from --tower-idx),
- *  so the travel animation is a single custom property to write. */
+ *  so the travel animation is a single custom property to write.
+ *
+ *  Only ever called for a floor `tierOpen` accepted, which is what keeps
+ *  SANDBOX_TIER out of it — it has no index, and clamping it into one would
+ *  park the car on Mark 10. */
 export function towerIndexOf(tier: number): number {
   return tier === GOD_TIER ? 0 : MARK_COUNT - tier + 1;
 }
@@ -192,22 +233,61 @@ function floorHTML(state: TowerState, tier: number): string {
     + `</button>`;
 }
 
+/**
+ * The headhouse and its beacon.
+ *
+ * The motor room every real lift has on its roof, and — until now — the one
+ * piece of the drawing that was pure signage. It is now also the way into
+ * Tier S: nine taps on the beacon (lib/devmode.ts), which is a thing nobody
+ * does by accident and anybody can be told in one sentence.
+ *
+ * A `<button>`, because it is pressable and B1 says a pressable thing is a
+ * button — but deliberately OUT of the accessibility tree and out of the tab
+ * order. An assistive-technology user tabbing the home screen should not meet
+ * an unlabelled control whose only honest label would give the secret away,
+ * and a keyboard user has no way to perform a nine-tap gesture anyway. The
+ * mode is reachable without it once found: Settings carries the same toggle,
+ * with a real label, for everyone.
+ */
+function towerHeadHTML(): string {
+  return `<button class="tower__head" type="button" data-action="tower-beacon"
+    aria-hidden="true" tabindex="-1"><i></i><b></b><i></i></button>`;
+}
+
+/**
+ * Tier S's plate, under the tower's slab.
+ *
+ * Reads as a basement door rather than as a floor: it sits below the base, it
+ * is wider than the shaft is tall at that point, and it carries a hazard
+ * stripe instead of windows. Nothing about it should suggest the car can get
+ * there — the elevator has no call button for this floor, and pressing it
+ * opens a screen rather than moving anything.
+ */
+function sandboxFloorHTML(): string {
+  return `<button class="tower__sub" type="button" data-action="pick-tier"
+    data-tier="${SANDBOX_TIER}"
+    aria-label="Tier S — sandbox. Practice any Mark, bay or Contract. Scores are kept on a separate board.">
+    <span class="tower__sub-n">S</span>
+    <span class="tower__sub-txt">Sandbox</span>
+    <span class="tower__sub-hz" aria-hidden="true"></span>
+  </button>`;
+}
+
 export function tierTowerHTML(state: TowerState): string {
   // Roof first, ground floor last.
   const floors: string[] = [];
   for (let t = GOD_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
   const idx = towerIndexOf(state.selected);
-  return `<div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
+  const sub = sandboxOpen(state) ? sandboxFloorHTML() : "";
+  return `<div class="tower${sub ? " tower--sub" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}">
-      <!-- The headhouse: the motor room every real lift has on its roof, and
-           the one piece of the drawing that is pure signage. Its lamp is the
-           only thing on the home screen that moves when the car does not. -->
-      <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
+      ${towerHeadHTML()}
       <div class="tower__rail" aria-hidden="true"></div>
       <div class="tower__car" aria-hidden="true"><span></span></div>
       ${floors.join("")}
     </div>
     <div class="tower__base" aria-hidden="true"></div>
+    ${sub}
   </div>`;
 }
 
@@ -262,7 +342,7 @@ export function baseBayPanelHTML(opts: {
   /** The floor the panel is describing — a Mark, or GOD_TIER. */
   tier: number;
   best: number;
-  /** The entitlement / sandbox chips, if this build has any. */
+  /** The entitlement chips, if this build has any. */
   extras?: string;
 }): string {
   const god = opts.tier === GOD_TIER;
@@ -307,7 +387,8 @@ export function baseBayPanelHTML(opts: {
  *  which is the tutorial's door, over the entries nobody opens the game to
  *  reach), the LADDER, and the LOOP (the recap of the parked floor, then the
  *  three things you can launch into). The entitlement entry is a shelf row —
- *  the demo taking How to Play's job is what freed it one. */
+ *  the demo taking How to Play's job is what freed it one. Tier S is not a row
+ *  anywhere: it has its own plate under the tower (#90). */
 export function menuScreen(
   best: number,
   salvage = 0,
@@ -318,17 +399,6 @@ export function menuScreen(
     install: { name: string; cost: number } | null;
     firstLaunch: boolean;
   },
-  /** True only in a build that compiled the developer sandbox in (see
-   *  lib/sandbox.ts). Adds a plainly visible entry button.
-   *
-   *  Plainly visible, and that is on purpose. A hidden gesture would be
-   *  protecting against something the build gate already prevents — the whole
-   *  screen is absent from every shippable bundle, and
-   *  scripts/verify-store-bundle.mjs fails the build if it is not. What a
-   *  secret entry WOULD reliably do is make the tool hard to find on a phone,
-   *  fight the menu's own decoration (the wordmark is pointer-events: none by
-   *  design), and be untestable. So: a button. */
-  sandbox = false,
   /** Which floor the car is parked on and which floors are open. Absent only
    *  where `progress` is (a caller with no meta state at all), and the screen
    *  then falls back to a one-floor tower at Tier 1 rather than to no tower —
@@ -348,11 +418,13 @@ export function menuScreen(
   // they carry ids rather than being found by shape.
   const sel = twr.selected;
   const godSel = sel === GOD_TIER;
-  // Only the developer sandbox rides the recap's footnote row now — the
-  // entitlement entries moved onto the demo panel (see the note there). A
-  // dev-only entry is exactly what a footnote row is for, and it is absent
-  // from every shippable bundle anyway (lib/sandbox.ts).
-  const extras = sandbox ? sandboxChipHTML() : "";
+  // NOTHING rides the recap's footnote row any more, and it took both of these
+  // branches to empty it. #86 moved the entitlement entries onto the demo
+  // panel, which the demo taking How to Play's job had just freed a row on.
+  // #90 then deleted the sandbox chip, because Tier S has a door of its own
+  // under the tower and a second entry to one screen on one screen is how a
+  // menu stops feeling owned. The panel keeps its optional `extras` slot for
+  // the next thing that genuinely has nowhere else to go.
   return `<div class="screen neon-backdrop">
     <div class="menu split">
       <div class="menu__brand">
@@ -419,7 +491,7 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best, extras })}
+        ${baseBayPanelHTML({ tier: sel, best })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -451,11 +523,11 @@ export function menuScreen(
         }</span></span>${guide?.step === "workshop" ? nextBadgeHTML() : ""}</button>
         <!-- Three, and never a fourth. This column is the recap plus the loop
              it describes, and the recap is not compressible: it holds four
-             readouts and the belt. Neither extra entry is a button here — the
-             Unlimited upsell is a shelf row in the brand column, and the
-             developer sandbox rides the recap's own footnote row — which is
-             what keeps this column the same three rows in every build and at
-             every entitlement state. -->
+             readouts and the belt. No extra entry is a button here — the
+             Unlimited upsell is a shelf row in the brand column, and Tier S is
+             a plate under the tower (#90) — which is what keeps this column
+             the same three rows in every build and at every entitlement
+             state. -->
       </div>
     </div>
     <div class="build-tag" aria-hidden="true">${
@@ -489,14 +561,6 @@ function unlimitedBadgeHTML(): string {
  *  purchase entry the way the rest of the screen treats a control. */
 function unlockChipHTML(): string {
   return `<button class="btn btn--block menu__unlock" data-action="paywall">${icon("star", 13)}Unlock Unlimited</button>`;
-}
-
-/** The developer sandbox's entry, in the tier recap's footnote row rather than
- *  a column of its own — see the note in menuScreen's action column on why
- *  that column is three buttons and no more. Only rendered by a build that
- *  compiled the sandbox in (lib/sandbox.ts), which is none that ships. */
-function sandboxChipHTML(): string {
-  return `<button class="btn chip--cta" data-action="sandbox">⚙ Sandbox</button>`;
 }
 
 export function howtoScreen(): string {
@@ -570,6 +634,15 @@ export function settingsScreen(
           ${toggleHTML("sound", "Sound FX", "Launch, impact & line-clear cues", s.sound)}
           ${toggleHTML("music", "Music", "Ambient synth soundtrack", s.music)}
           ${hapticsAvailable ? toggleHTML("haptics", "Haptics", "Vibration feedback on mobile", s.haptics) : ""}
+          ${
+            // Only once the door has been found. Rendering it off would put the
+            // secret on the one screen everybody opens, and rendering nothing
+            // at all would leave the only way OUT of the mode behind the same
+            // nine taps that opened it — a door with no handle on the inside.
+            s.devMode
+              ? toggleHTML("devMode", "Tier S", "The sandbox floor under the tower · separate board", true)
+              : ""
+          }
         </div>
         <div class="settings__actions">
           <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
@@ -723,18 +796,57 @@ export function leaderboardRowsHTML(rows: BoardRow[], highlight?: string): strin
     .join("")}</div>`;
 }
 
-export function leaderboardScreen(rows: string): string {
+/**
+ * The standalone Leaderboard.
+ *
+ * TWO BOARDS once Tier S is open, and they are separate for the reason the
+ * mode is safe at all: a sandbox run can start on bay 9, at Mark 10, on a
+ * maxed rig nobody paid for. Mixing one of those into the Deep Run board would
+ * not make it a better board — it would end it, because after the first such
+ * entry no honest score could ever place. So they are two boards with one
+ * shape, and the tab strip is what says so out loud rather than leaving the
+ * player to discover it from a score they cannot explain.
+ *
+ * The strip renders ONLY when the sandbox is open. A player who has never
+ * found Tier S has one board, and a tab strip with one tab in it is a
+ * question mark, not a control.
+ */
+export function leaderboardScreen(rows: string, opts?: {
+  /** Which board's rows are in `rows` (lib/api.ts's BoardId). */
+  board: BoardId;
+  /** Whether the Tier S board exists for this player. */
+  sandbox: boolean;
+}): string {
+  const board = opts?.board ?? BOARD_DEEP_RUN;
+  const sandbox = board === BOARD_SANDBOX;
+  const tabs = opts?.sandbox
+    ? `<div class="lb-tabs" role="tablist" aria-label="Leaderboard">
+        ${lbTabHTML(BOARD_DEEP_RUN, "Deep Run", board)}
+        ${lbTabHTML(BOARD_SANDBOX, "Tier S", board)}
+      </div>`
+    : "";
   return `<div class="screen neon-backdrop center">
     <div class="panel modal pop" style="width:min(560px,94vw)">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <div style="text-align:left"><div class="eyebrow">Launch Bay</div>
+        <div style="text-align:left"><div class="eyebrow">${
+          sandbox ? "Tier S · Sandbox" : "Launch Bay"
+        }</div>
         <h2 class="display" style="font-size:var(--fs-h1)">Leaderboard</h2></div>
         <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
       </div>
+      ${tabs}
       <div id="lb-body" data-scroll>${rows}</div>
-      <button class="btn btn--primary" data-action="play">${icon("play")}Play</button>
+      <button class="btn btn--primary" data-action="${sandbox ? "sandbox" : "play"}">${
+        sandbox ? `${icon("play")}Open Tier S` : `${icon("play")}Play`
+      }</button>
     </div>
   </div>`;
+}
+
+function lbTabHTML(board: BoardId, label: string, current: BoardId): string {
+  const on = board === current;
+  return `<button class="lb-tab${on ? " is-on" : ""}" type="button" role="tab"
+    aria-selected="${on}" data-action="lb-board" data-board="${board}">${label}</button>`;
 }
 
 /**
@@ -2422,6 +2534,33 @@ function loseFxHTML(reason: LossReason): string {
   return "";
 }
 
+/**
+ * Tier S's replacement for the tier-progress row.
+ *
+ * The row it replaces exists to answer "what did that run do for me". For a
+ * sandbox run the honest answer is "nothing, by design", and saying it plainly
+ * is the point rather than an apology: the mode is worth flying BECAUSE
+ * nothing it does can cost or credit anything, and a player who is not sure of
+ * that will keep treating practice as a risk.
+ *
+ * It still prints scrap and the refit, because those did happen inside the run
+ * and are how the build read on the way out — they simply died with it, as
+ * they do in every run.
+ */
+function sandboxEndRowHTML(
+  setup: string, scrapEarned: number, tiers: UpgradeTiers, demoFoot: string,
+): string {
+  return `<div class="salvage-row salvage-row--sandbox">
+    <div class="salvage-row__amt salvage-row__amt--sandbox">S</div>
+    <div class="salvage-row__body">
+      <b>Tier S — practice run</b>
+      <span class="muted">${setup ? `${setup}. ` : ""}No salvage, no tier progress, no mark on the ladder. The score goes to the <b>Tier S board</b>.</span>
+      <span class="muted salvage-row__foot">${scrapEarned} scrap earned · ${tiersCost(tiers)} refitted into the ship${demoFoot}</span>
+    </div>
+    <button class="btn btn--secondary" data-action="sandbox">Reconfigure</button>
+  </div>`;
+}
+
 export function endModal(opts: {
   won: boolean;
   /** Composite final run score (run.ts's finalRunScore) — bays + lines +
@@ -2453,6 +2592,13 @@ export function endModal(opts: {
   tierSalvage: number;
   /** Where the (possibly new) current tier stands after this run. */
   progress: TierProgress;
+  /** The run was flown from Tier S (run.ts's RunState.sandbox). Swaps the tier
+   *  progress row for the sandbox's own, and the actions for ones that lead
+   *  back into the mode — a sandbox run has no next rung to offer. */
+  sandbox?: boolean;
+  /** What the sandbox run was configured as, for the row above ("Mark 7 · bay
+   *  4 · 2 notches"). Ignored unless `sandbox`. */
+  sandboxSetup?: string;
   salvageTotal: number;
   /** Scrap earned across the run and the ship it bought — so the build reads as
    *  an investment on the way out, not just a row of chips that vanished. */
@@ -2539,7 +2685,9 @@ export function endModal(opts: {
            (meta.ts): a first at-tier win banks its share on the spot, so the
            progress row can carry a payout line without a completion. -->
       ${
-        opts.tierCompleted !== null
+        opts.sandbox
+          ? sandboxEndRowHTML(opts.sandboxSetup ?? "", opts.scrapEarned, opts.tiers, demoFoot)
+          : opts.tierCompleted !== null
           ? `<div class="salvage-row salvage-row--tier-done">
         <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
@@ -2577,7 +2725,7 @@ export function endModal(opts: {
         // changes — truthfully. A Mark no longer scales the ladder's numbers
         // (level.ts's zeroed MARK_*_STEP), so what a tier opens is a hazard
         // axis and a bigger build budget, and that is what the line says.
-        opts.runComplete && opts.tierCompleted !== null
+        !opts.sandbox && opts.runComplete && opts.tierCompleted !== null
           ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
               (() => {
                 const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
@@ -2602,10 +2750,25 @@ export function endModal(opts: {
         <button class="btn btn--primary" data-action="restart">${
           // A15: the bay-10 primary carries the tier plate (the 26px size of
           // the one component) and names the rung it flies next.
-          opts.runComplete
-            ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
-            : "Play Again"
+          //
+          // A sandbox run's primary re-flies the SAME configuration, which is
+          // what practice is: main.ts's restart routes on RunState.sandbox, so
+          // this button never has to know which mode it is in.
+          opts.sandbox
+            ? "Fly it again"
+            : opts.runComplete
+              ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
+              : "Play Again"
         }</button>
+        ${
+          // Back to the bench, not to the menu — the thing a player wants
+          // after a practice run is almost always the next configuration, and
+          // routing that through the home screen puts a tower and a nine-tap
+          // door between them and it.
+          opts.sandbox
+            ? `<button class="btn btn--secondary" data-action="sandbox">Tier S</button>`
+            : ""
+        }
         <button class="btn btn--ghost" data-action="menu">Menu</button>
       </div>
     </div>
@@ -2825,6 +2988,11 @@ export function contractEndModal(opts: {
   nextContract?: { name: string } | null;
   /** All three cards on that board are now cleared. */
   boardComplete?: boolean;
+  /** The attempt was launched from Tier S rather than from the daily board.
+   *  Swaps the award row for one that says nothing was banked, and points both
+   *  exits back at the sandbox — a practice Contract has no board to return
+   *  to, and the daily board is not it. */
+  sandbox?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
@@ -2860,7 +3028,9 @@ export function contractEndModal(opts: {
         </div>
         <div class="row end__actions">
           <button class="btn btn--primary" data-action="contract-retry">${icon("retry", 12)}Try Again</button>
-          <button class="btn btn--ghost" data-action="contracts">Contract Board</button>
+          <button class="btn btn--ghost" data-action="${opts.sandbox ? "sandbox" : "contracts"}">${
+            opts.sandbox ? "Tier S" : "Contract Board"
+          }</button>
         </div>
       </div>
     </div>`;
@@ -2881,7 +3051,17 @@ export function contractEndModal(opts: {
   // celebration), the clear ticked tier progress (say what's still missing),
   // or it was a replay (free practice, nothing moved — the quiet variant).
   const salvageRow =
-    opts.award?.firstClear && opts.award.completedTier !== null
+    opts.sandbox
+      ? `<div class="salvage-row salvage-row--sandbox">
+        <div class="salvage-row__amt salvage-row__amt--sandbox">S</div>
+        <div class="salvage-row__body">
+          <b>Tier S — practice Contract</b>
+          <span class="muted">Rolled from a seed you chose, at a tier you chose. It banks no
+            salvage and logs no clear — re-roll it and fly it again.</span>
+        </div>
+        <button class="btn btn--secondary" data-action="sandbox">Tier S</button>
+      </div>`
+      : opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">
         <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
         <div class="salvage-row__body">
@@ -2936,14 +3116,23 @@ export function contractEndModal(opts: {
       </div>
       <div class="row end__actions">
         ${
-          opts.boardComplete
-            ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
-            : opts.nextContract
-              ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
-              : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
+          // Tier S has no board to send anyone to and nothing to award, so its
+          // forward move is the bench it came from — the next configuration is
+          // what a practice clear makes you want, not a daily card.
+          opts.sandbox
+            ? `<button class="btn btn--primary" data-action="sandbox">Tier S →</button>`
+            : opts.boardComplete
+              ? `<button class="btn btn--primary" data-action="workshop">Workshop →</button>`
+              : opts.nextContract
+                ? `<button class="btn btn--primary" data-action="contract-next">Next: ${opts.nextContract.name} →</button>`
+                : `<button class="btn btn--primary" data-action="contracts">Contract Board →</button>`
         }
         <button class="btn btn--secondary" data-action="contract-retry">${icon("retry", 12)}Play Again</button>
-        ${primaryIsBoard ? "" : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`}
+        ${
+          opts.sandbox || primaryIsBoard
+            ? ""
+            : `<button class="btn btn--ghost" data-action="contracts">Contract Board</button>`
+        }
       </div>
     </div>
   </div>`;

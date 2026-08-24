@@ -11,6 +11,16 @@
   "Android · 640x360 budget|menu-nostore|tap": [
     ".tower__floor 82x26"
   ],
+  "Android · 640x360 budget|menu-tier-s-live|tap": [
+    ".btn 210x23",
+    ".tower__floor 82x23",
+    ".tower__sub 92x26"
+  ],
+  "Android · 640x360 budget|menu-tier-s|tap": [
+    ".btn 210x23",
+    ".tower__floor 82x23",
+    ".tower__sub 92x26"
+  ],
   "Android · 640x360 budget|menu-tower-top-live|tap": [
     ".tower__floor 82x26"
   ],
@@ -37,6 +47,16 @@
   ],
   "Android · Galaxy S8+|menu-nostore|tap": [
     ".tower__floor 108x25"
+  ],
+  "Android · Galaxy S8+|menu-tier-s-live|tap": [
+    ".btn 207x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
+  ],
+  "Android · Galaxy S8+|menu-tier-s|tap": [
+    ".btn 207x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
   ],
   "Android · Galaxy S8+|menu-tower-top-live|tap": [
     ".tower__floor 108x25"
@@ -65,6 +85,16 @@
   "Android · OnePlus 12|menu-nostore|tap": [
     ".tower__floor 108x25"
   ],
+  "Android · OnePlus 12|menu-tier-s-live|tap": [
+    ".btn 254x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
+  ],
+  "Android · OnePlus 12|menu-tier-s|tap": [
+    ".btn 254x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
+  ],
   "Android · OnePlus 12|menu-tower-top-live|tap": [
     ".tower__floor 108x25"
   ],
@@ -91,6 +121,16 @@
   ],
   "Android · Pixel 5|menu-nostore|tap": [
     ".tower__floor 108x28"
+  ],
+  "Android · Pixel 5|menu-tier-s-live|tap": [
+    ".btn 308x23",
+    ".tower__floor 108x25",
+    ".tower__sub 118x26"
+  ],
+  "Android · Pixel 5|menu-tier-s|tap": [
+    ".btn 308x23",
+    ".tower__floor 108x25",
+    ".tower__sub 118x26"
   ],
   "Android · Pixel 5|menu-tower-top-live|tap": [
     ".tower__floor 108x28"
@@ -119,6 +159,16 @@
   "Android · Pixel 7 cutout|menu-nostore|tap": [
     ".tower__floor 108x29"
   ],
+  "Android · Pixel 7 cutout|menu-tier-s-live|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x27",
+    ".tower__sub 118x26"
+  ],
+  "Android · Pixel 7 cutout|menu-tier-s|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x27",
+    ".tower__sub 118x26"
+  ],
   "Android · Pixel 7 cutout|menu-tower-top-live|tap": [
     ".tower__floor 108x29"
   ],
@@ -145,6 +195,16 @@
   ],
   "Android · Pixel 7|menu-nostore|tap": [
     ".tower__floor 108x29"
+  ],
+  "Android · Pixel 7|menu-tier-s-live|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x27",
+    ".tower__sub 118x26"
+  ],
+  "Android · Pixel 7|menu-tier-s|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x27",
+    ".tower__sub 118x26"
   ],
   "Android · Pixel 7|menu-tower-top-live|tap": [
     ".tower__floor 108x29"
@@ -173,6 +233,16 @@
   "iOS · iPhone 13 mini|menu-nostore|tap": [
     ".tower__floor 108x25"
   ],
+  "iOS · iPhone 13 mini|menu-tier-s-live|tap": [
+    ".btn 243x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
+  ],
+  "iOS · iPhone 13 mini|menu-tier-s|tap": [
+    ".btn 243x23",
+    ".tower__floor 108x23",
+    ".tower__sub 118x26"
+  ],
   "iOS · iPhone 13 mini|menu-tower-top-live|tap": [
     ".tower__floor 108x25"
   ],
@@ -199,6 +269,16 @@
   ],
   "iOS · iPhone 15|menu-nostore|tap": [
     ".tower__floor 108x28"
+  ],
+  "iOS · iPhone 15|menu-tier-s-live|tap": [
+    ".btn 309x23",
+    ".tower__floor 108x25",
+    ".tower__sub 118x26"
+  ],
+  "iOS · iPhone 15|menu-tier-s|tap": [
+    ".btn 309x23",
+    ".tower__floor 108x25",
+    ".tower__sub 118x26"
   ],
   "iOS · iPhone 15|menu-tower-top-live|tap": [
     ".tower__floor 108x28"
@@ -227,6 +307,16 @@
   "iOS · iPhone 16 Pro Max|menu-nostore|tap": [
     ".tower__floor 108x32"
   ],
+  "iOS · iPhone 16 Pro Max|menu-tier-s-live|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x29",
+    ".tower__sub 118x26"
+  ],
+  "iOS · iPhone 16 Pro Max|menu-tier-s|tap": [
+    ".btn 342x23",
+    ".tower__floor 108x29",
+    ".tower__sub 118x26"
+  ],
   "iOS · iPhone 16 Pro Max|menu-tower-top-live|tap": [
     ".tower__floor 108x32"
   ],
@@ -253,6 +343,16 @@
   ],
   "iOS · iPhone SE 3|menu-nostore|tap": [
     ".tower__floor 82x27"
+  ],
+  "iOS · iPhone SE 3|menu-tier-s-live|tap": [
+    ".btn 234x23",
+    ".tower__floor 82x24",
+    ".tower__sub 92x26"
+  ],
+  "iOS · iPhone SE 3|menu-tier-s|tap": [
+    ".btn 234x23",
+    ".tower__floor 82x24",
+    ".tower__sub 92x26"
   ],
   "iOS · iPhone SE 3|menu-tower-top-live|tap": [
     ".tower__floor 82x27"
