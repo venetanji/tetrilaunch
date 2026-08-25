@@ -39,6 +39,24 @@ export interface RunState {
   ratchets: Ratchets;
   /** Cumulative cleared lines across all completed levels. */
   linesTotal: number;
+  /** Bay restarts taken this run. Written by main.ts's resetBay — the pause
+   *  modal's "Restart Bay", the held pause button, AND the tutorial failure
+   *  card's retry, which all route through that one call — and read once at
+   *  the end (meta.ts's recordRunEnd) to decide the seal.
+   *
+   *  It lives on the run rather than being derived, because a restart leaves
+   *  no other trace: resetBay rebuilds the bay from the same un-advanced
+   *  levelIndex and the carry, scrap, ratchets and Bond magazine all survive
+   *  untouched — which is exactly what makes "cleared it without one" worth
+   *  marking. Tier S never increments it; the sandbox files to its own board
+   *  and climbs no ladder.
+   *
+   *  Carried by advanceRun for the same reason salvagedFunds is: it is a
+   *  RUN-long total, and that function rebuilds the run field by field, so a
+   *  rebuild that forgot it would silently zero the count at every bay
+   *  boundary and seal every run that only ever restarted a bay it went on to
+   *  clear — i.e. very nearly all of them. */
+  restarts: number;
   /** UNSPENT scrap — the in-run upgrade currency (level.ts's SCRAP_PER_LINE /
    *  SCRAP_PER_BAY earn it, refit stops spend it). Distinct from `carry`:
    *  carry is operating cash that funds the next bay's launches, scrap is
@@ -128,6 +146,7 @@ export function newRun(
     carry: 0,
     ratchets: {},
     linesTotal: 0,
+    restarts: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
     // No starting-scrap equivalent: nothing has been blown up yet.
@@ -338,6 +357,14 @@ export function advanceRun(
     carry: Math.min(CARRY_CAP, Math.max(0, endedScore - clearedTarget)),
     ratchets,
     linesTotal: run.linesTotal + lines,
+    // Accumulated across the whole run, never reset. The seal turns entirely on
+    // this surviving a bay boundary: main.ts banks every cleared bay through
+    // here (afterBayClear), so a rebuild that dropped the field would hand the
+    // badge to a run that restarted bay 1 three times and then went the
+    // distance. Spelled out rather than left to a spread for the same reason
+    // `sandbox` below is — this function names every field, so anything it
+    // omits is zeroed rather than carried.
+    restarts: run.restarts,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,

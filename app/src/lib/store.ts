@@ -145,6 +145,17 @@ export function loadMeta(): MetaState {
     // rather than throw inside the award path on the first Contract win.
     if (!Array.isArray(meta.claimedContracts)) meta.claimedContracts = [];
     meta.claimedContracts = meta.claimedContracts.filter((c): c is string => typeof c === "string");
+    // Same fail-closed reading as the two lists above: a corrupt value loads as
+    // "no seals" rather than as free ones, and entries are clamped to whole
+    // non-negative Marks so a hand-edited save cannot put a badge on a floor
+    // that isn't there. (An out-of-range Mark is inert rather than wrong — the
+    // tower asks includes() per floor it actually draws — so this clamps
+    // instead of rejecting the whole list, which would punish a save written by
+    // a future build with a longer ladder.)
+    if (!Array.isArray(meta.sealedMarks)) meta.sealedMarks = [];
+    meta.sealedMarks = meta.sealedMarks
+      .filter((m): m is number => Number.isFinite(m))
+      .map((m) => Math.max(0, Math.floor(m)));
     meta.salvage = Number.isFinite(meta.salvage) ? Math.max(0, Math.floor(meta.salvage)) : 0;
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;

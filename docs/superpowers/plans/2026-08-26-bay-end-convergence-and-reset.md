@@ -21,6 +21,79 @@ restart-free Deep Runs as a per-Mark seal on the tower.
 
 **Spec:** `docs/superpowers/specs/2026-08-26-bay-end-and-reset-design.md`
 
+## Corrections found during implementation
+
+This plan was reviewed before any of it was written, and five things in it were
+wrong about the code. They are recorded here rather than silently edited into
+the steps below, because a plan that reads as if it were right the first time
+teaches the next person nothing.
+
+**Task 1's scenario could not fail.** Three separate reasons, each sufficient:
+
+- `pieceQueue: []` does not spend the manifest. `Cannon`'s
+  `finite = !!queue && queue.length > 0` (`cannon.ts:132`) reads a zero-length
+  queue as a *cycling bag*, so `piecesLeft` is `Infinity` and the
+  `piecesLeft <= 0` branch — the branch under test — is never entered at all.
+  A finite queue has to be **fired**; `consumed` only moves in `markShot`.
+- The row cleared before the disturbance. `createStandingWall` places its cubes
+  "already settled on the slot grid ... with no press stroke needed to square it
+  first" (`pieces.ts`), and `zoneGrid`'s `needed` rounds to 6 as soon as the
+  bar's face is within 6.5 cells of the wall — so the row clears on step 123,
+  while the first full advance is on step 134. Measured: `advanced` never became
+  true and the lift never fired, and the check reported `won`.
+- Step 2's remediation makes it worse. Lifting the whole row by a whole number
+  of cells re-forms a countable row one row up, and `setPosition` leaves
+  velocity at zero so the teleported cubes read as settled immediately.
+
+  The shipped check instead spends a real one-shipment manifest into a
+  four-cube wall — six cubes available against six required, the reported bug's
+  own zero-waste shape — and fires it *before* the stroke that sets
+  `strokeDone` rather than after. Measured against the unfixed code:
+  `lost (pieces)` after 155 steps, 0 lines, all six cubes standing on the floor.
+
+**Task 2's probe measured nothing usable.** Run verbatim it prints `samples 0`
+and then throws. More importantly its design was circular: it claimed to split
+samples by whether a stroke changed anything, but appended every sample to one
+unlabelled array and reported percentiles of the blend, so "read the p50 of the
+low population" was unfollowable. The shipped instrument classifies each
+interval by **the grind's own precondition** (`settleZoneCubes`' input
+condition, evaluated at the interval's start) — independent of the displacement
+being measured — and matches cubes by body id so an interval a shipment landed
+in still contributes instead of being discarded by a size check. Numbers and
+sample counts are in `CONVERGED_EPS_PX`'s comment.
+
+**Task 3's helper had a staleness hole.** `settleQuiet` is written once per full
+advance, but the overtime branches ask every step, so for up to a whole cycle
+the flag is stale. Any cube removed in that gap — `updateBlinking`,
+`shatterColdCryo`, `shredInChute`, `resolveVolatile`, `detonate` — drops
+whatever rested on it, the pile re-rests within a few dozen steps, and the bay
+is called with no press since the field changed: the same bug in a different
+coat. `settleDone` therefore re-checks the sample's cube count against
+`this.cubes.length` on every step.
+
+**Task 4's `resolveWin` conversion is NOT implemented, deliberately.** Under a
+flat `WIN_SETTLE_MAX_STEPS` (240 steps) the convergence exit can essentially
+never fire: the clear that opens the win calls `noteClearForSettle`, which nulls
+the sample, so the earliest quiet verdict is two full advances — one whole
+compactor cycle, at or above 240 steps at every tier below 9. Every win would
+resolve at the backstop, turning the most-repeated moment in the game into a
+flat four-second wait. `resolveWin` runs only once the bay is won and its money
+banked, so no verdict there can change and there is nothing to converge toward.
+It keeps its one-stroke gate, and `game.ts` says so at the method.
+
+**Tasks 5-9 carried four shipping bugs**, all recorded at their code:
+`.bond-trigger::after` is what draws the charge meter, so the pause button
+would have animated its rim and drawn no fill; giving it the `bond-trigger`
+class instead would have made `syncAbility` *disable* pause on every bay
+without Bond charges; the plan's pointerdown hunk returned above
+`pressFeedback` and silently deleted the button's press sound; and `advanceRun`
+rebuilds `RunState` field by field, so `restarts` had to be carried there or
+the count zeroed at every bay boundary and sealed nearly every run. Task 9's
+premise was also backwards — `.kbd-hint` is hidden on *coarse* pointers, not
+fine ones, so a touch-only hint renders where no touch player can see it.
+
+---
+
 ## Global Constraints
 
 - **Run from `app/`.** All npm scripts live in `app/package.json`.
