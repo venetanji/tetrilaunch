@@ -250,6 +250,22 @@ Each task is independently shippable and ends with `npx tsc --noEmit`, `npx tsx 
 >   consumed it — Task 8's "tokens as functions of one scale" never landed, and
 >   publishing a channel nothing reads claimed a mechanism the stylesheet does
 >   not have. Re-publish it in the same change that adds its first consumer.
+> - **The scale is now TWO one-directional channels, and only the grow half is
+>   published.** This plan assumed the reference box was a ceiling — `uiScale`
+>   clamped to 1, "at or above this nothing is scaled" — which left a desktop
+>   browser rendering a layout measured for a 360px-tall phone at 1:1, with
+>   860px of a 1080p window that no rule could spend. `layout.ts` now solves
+>   `chromeZoom` alongside `uiScale` from the same ratio, read the other way and
+>   capped at 2x, and `main.ts` publishes it as `--chrome-zoom`. Its one
+>   consumer is `zoom` on the screen-anchored scaffolds (`.screen`,
+>   `.modal-scrim`, `.bayclear`, `.rotate-guard`) — deliberately NOT `.hud`,
+>   which is sized off `--fpx` and already tracks the field. That is a
+>   different answer to §Task 8's "tokens as functions of one scale": scaling
+>   the layout box wholesale keeps every hand-measured relationship in app.css
+>   exact, where multiplying each token would have had to re-derive all of
+>   them. The shrink half is still unpublished, for the original reason —
+>   below the reference the answer is a restructure, and `data-density` is
+>   that channel.
 
 - [x] **Task 1 — Solve the chrome scale.** `uiScale` + `density` in `game/layout.ts`; publish `--ui-scale` and `data-density` from `main.ts`'s `onResize`; Tier-1 checks for both. No CSS consumes them yet — pure addition, nothing changes on screen.
 - [x] **Task 2 — Fit-first scaffolding.** `.screen` inverts to fit-by-default; `[data-scroll]` on `#lb-body` and `.workshop__shop`; `.screen--fit` folded away. Expect the menu and howto to *clip* rather than scroll at this point — that is the intended intermediate state, and Task 6's harness names it.

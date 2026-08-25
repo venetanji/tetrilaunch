@@ -1645,14 +1645,19 @@ class App {
     // The gap the solver budgeted the column with — the CSS reads it back so
     // the rendered stack matches the fit prediction exactly.
     rs.setProperty("--rail-gap", `${RAIL_GAP}px`);
+    // How far the chrome is magnified above its authored box (game/layout.ts's
+    // chromeZoom). app.css's screen-anchored scaffolds put this straight into
+    // `zoom`, so a browser window bigger than the reference renders the
+    // reference LAYOUT at the reference PROPORTIONS rather than rendering
+    // phone-sized furniture in the middle of a desktop.
+    //
+    // Its counterpart — how far the chrome had to shrink BELOW that box — is
+    // still not published, and for the reason it never was: no rule can use a
+    // shrink factor, because under the reference the answer is a structural
+    // change rather than a smaller font. `data-density` is that channel, and
+    // remains the solver's only switch into the stylesheet.
+    rs.setProperty("--chrome-zoom", String(l.chromeZoom));
     document.documentElement.dataset.layout = l.mode;
-    // `data-density` is the solver's one channel into the stylesheet's
-    // structural switches (see game/layout.ts's Density). The continuous
-    // uiScale behind it is deliberately NOT published as a custom property:
-    // no rule ever consumed one (the responsive plan's "tokens as functions
-    // of --ui-scale" task never landed), and publishing a channel nothing
-    // reads claimed a mechanism the CSS does not have. Publish it again the
-    // day a rule actually reads it.
     document.documentElement.dataset.density = l.density;
 
     const mobile = "ontouchstart" in window || w < 900;

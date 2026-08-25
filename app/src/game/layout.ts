@@ -170,9 +170,14 @@ function railColumnCap(uh: number): number {
  */
 export type Density = "compact" | "regular" | "roomy";
 
-/** Viewport the chrome is authored against. At or above this, uiScale is 1
- *  and nothing is shrunk. 720 is the world's own height, which is also roughly
- *  where the old hand-tuned `max-height` breakpoint stack used to start firing. */
+/** The box the chrome is authored against — every fixed px in app.css means
+ *  what it says at exactly this size. 720 is the world's own height, which is
+ *  also roughly where the old hand-tuned `max-height` breakpoint stack used to
+ *  start firing.
+ *
+ *  It is a REFERENCE, not a ceiling. Below it the chrome shrinks (uiScale);
+ *  above it the chrome is magnified (chromeZoom) so a desktop window renders
+ *  the same layout the reference box does, just bigger. */
 const UI_REF_H = 720;
 const UI_REF_W = 1000;
 
@@ -183,7 +188,21 @@ const UI_REF_W = 1000;
  *  "compact"` and a structural change, never a smaller font. */
 export const UI_SCALE_MIN = 0.72;
 
-/** Above this, nothing is scaled at all. */
+/** The ceiling on the OTHER direction — see chromeZoom below.
+ *
+ *  2 is one doubling, which a 2560x1440 browser window reaches exactly and
+ *  nothing short of it does. The cap is not about taste at 1440p (2x is
+ *  right there); it is about the displays past it. A 4K panel with OS
+ *  scaling off reports 3840x2160 CSS px and would otherwise ask for 3x, which
+ *  renders a menu button at its 132px cap 396 device px tall — and the honest
+ *  reading of a window that big is that the player is sitting further away
+ *  from a display with more room, not that they want the chrome to keep pace
+ *  forever. */
+const UI_ZOOM_MAX = 2;
+
+/** Above this, nothing is SHRUNK — the tier is `roomy` whether the box is the
+ *  authored one or a magnified one, because both render the same layout and
+ *  neither needs the compact tier's restructuring. */
 const DENSITY_ROOMY = 0.995;
 
 export interface Layout {
@@ -203,12 +222,23 @@ export interface Layout {
   fh: number;
   /** Rail button edge length for this layout. */
   railSize: number;
-  /** Continuous chrome scale the density tier is derived from. 1 on a
-   *  comfortable viewport, never below UI_SCALE_MIN. NOT published to CSS:
-   *  no rule ever consumed a --ui-scale property, so the channel was removed
-   *  rather than left claiming a mechanism the stylesheet does not have —
-   *  `density` is the shipped switch. */
+  /** How far the chrome had to SHRINK to fit a viewport smaller than the
+   *  authored box. 1 on anything at or above it, never below UI_SCALE_MIN.
+   *  Not published to CSS: no rule reads a shrink factor — below the
+   *  reference the answer is a structural change, and `density` is the
+   *  channel that triggers one. */
   uiScale: number;
+  /** ...and how far it is MAGNIFIED on a viewport bigger than the authored
+   *  box. 1 at or below it, never above UI_ZOOM_MAX. Published as
+   *  `--chrome-zoom` and consumed by app.css's `zoom` on the screen-anchored
+   *  scaffolds, which is what stops a 1080p browser from rendering a layout
+   *  measured for a 360px-tall phone at 1:1 and calling the result desktop
+   *  support.
+   *
+   *  The two are complementary, never simultaneous: a viewport is either
+   *  under the reference box or over it, so `uiScale < 1` implies
+   *  `chromeZoom === 1` and vice versa. sim/systems asserts it. */
+  chromeZoom: number;
   /** Coarse tier for rules that must SWITCH rather than scale (published as
    *  <html data-density>). */
   density: Density;
@@ -241,11 +271,24 @@ export function getSafeAreaInsets(): Insets {
  *
  * Both axes are considered and the smaller wins — a 640x400 window is as
  * cramped as a 1000x360 one, and the chrome has to answer to whichever ran out
- * first.
+ * first. That is as true magnifying as it is shrinking: an 1100x2000 window
+ * has no more room for a WIDE menu than an 1100x720 one does, so taking the
+ * smaller ratio is what stops the grow direction from pushing a three-column
+ * row off the side of a tall narrow window.
  */
-export function uiScaleFor(uw: number, uh: number): { uiScale: number; density: Density } {
+export function uiScaleFor(
+  uw: number,
+  uh: number,
+): { uiScale: number; chromeZoom: number; density: Density } {
   const raw = Math.min(uh / UI_REF_H, uw / UI_REF_W);
   const uiScale = Math.max(UI_SCALE_MIN, Math.min(1, raw));
+  // The same ratio read the other way. Splitting one continuum into two
+  // one-directional channels is not redundancy: the two have different
+  // consumers and different failure modes. Shrinking is a fit problem and
+  // bottoms out in a RESTRUCTURE (`density`); magnifying is a legibility
+  // problem and is a pure multiply, which is why only this half reaches the
+  // stylesheet.
+  const chromeZoom = Math.min(UI_ZOOM_MAX, Math.max(1, raw));
   // Compact is a HEIGHT verdict. The scale takes the tighter of the two axes
   // (a 640x400 window is as cramped as a 1000x360 one), but the compact
   // tier's rules RESTRUCTURE — they drop rows, chips and context tiles, all
@@ -258,7 +301,7 @@ export function uiScaleFor(uw: number, uh: number): { uiScale: number; density: 
       : uh / UI_REF_H <= UI_SCALE_MIN
         ? "compact"
         : "regular";
-  return { uiScale, density };
+  return { uiScale, chromeZoom, density };
 }
 
 /** Fit the world into a box, centered. */
