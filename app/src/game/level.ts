@@ -142,6 +142,19 @@ export interface LevelConfig {
    *  detonate). The economic core of the bomb: a junk pile that can never
    *  complete a line is still worth something. */
   salvagePerCube: number;
+  /** Multiplier on a demolition charge's kill radius (game.ts's BOMB_BLAST_R,
+   *  and the shove ring that rides on it). 1 = stock, and every bay is stock
+   *  until the Demolition Rack's capstone writes it.
+   *
+   *  A multiplier rather than an absolute radius for the same reason
+   *  volatileTriggerMult is one: the stock number is tuned against CELL and the
+   *  bay's geometry, and a second absolute figure here would be a copy of that
+   *  relationship free to drift out of it. Radius, not count, because the thing
+   *  a buried bay needs is a charge that reaches THROUGH a welded crust rather
+   *  than more charges that each bite the same cube-and-a-half — and because
+   *  area goes as the square, so a modest number on the radius is a large one on
+   *  the hole, which is the shape of a capstone. */
+  bombBlastMult: number;
   /** Multiplier on the impact speed that sets a VOLATILE cube off
    *  (lineClear.ts's VOLATILE_TRIGGER_SPEED). 1 = stock, and every ordinary bay
    *  is stock.
@@ -852,6 +865,48 @@ export const SLAG_BOUNTY = 20;
 export const DEMO_RESUPPLY_LINES = 4;
 
 /**
+ * THE CAPSTONE'S OTHER TWO HALVES — what a MAXED Demolition Rack buys besides
+ * charges, and why charges alone were not enough.
+ *
+ * The resupply line answered the question "what happens when a bay out-lasts six
+ * charges", and it answered it correctly. It did not answer the one a Tier-10
+ * bay actually asks, which the owner's playtest states exactly: with replenishing
+ * bombs aboard, "I still couldn't clear all the slag and couldn't make new lines
+ * because tar everywhere." That is not a bay short of charges. It is a bay where
+ * each charge does not do enough, and where the money each one returns no longer
+ * keeps up with what a Tier-10 launch costs.
+ *
+ * So the capstone now moves all three numbers that make demolition a STRATEGY
+ * rather than a rescue valve, and the two here are the ones that answer a
+ * high-material bay specifically:
+ *
+ *  - DEMO_BLAST_MULT — the charge reaches further. A welded tar crust is the
+ *    case the stock radius handles worst: tar's joints cannot be broken by the
+ *    press or by a Bond Breaker (game.ts's resolveTarWelds), so the ONLY thing
+ *    that opens one is vaporizing the cubes themselves, and a stock blast takes
+ *    a bite roughly a piece wide out of a crust that spans the bay. x1.35 on the
+ *    radius is x1.8 on the AREA — the difference between chipping at the crust
+ *    and cutting a hole through it — while still landing well short of the
+ *    Bond Breaker's field-wide reset, which stays the rare consumable.
+ *
+ *  - DEMO_SALVAGE_MULT — the charge pays enough to fire. salvagePerCube is $8,
+ *    tuned against a Tier-1 launch at $20; at Tier 10 a launch is $30 and the
+ *    bay's target has climbed with it, so clearing a dead pile the size of a
+ *    line — 8 cubes, $64 — no longer even covers the shots spent placing the
+ *    row it unblocks. x1.5 puts a cube back at $12 and a line-sized clear at
+ *    $96, which is under scorePerLine at every bay (100 + 10i, before combo) —
+ *    so the hierarchy level.ts's SLAG_BOUNTY note sets out survives intact:
+ *    disposal is clearly worth the shot, and never out-earns playing the game.
+ *
+ * Both are the CAPSTONE only, deliberately. Tiers 1 and 2 stay "+2 charges", so
+ * the track keeps its shape — quantity, quantity, then a change in kind — and
+ * the rung that changes kind is the one a player reaches by choosing to commit
+ * to demolition rather than by dabbling in it.
+ */
+export const DEMO_BLAST_MULT = 1.35;
+export const DEMO_SALVAGE_MULT = 1.5;
+
+/**
  * How many charges a bay still owes the player, given the lines cleared so far.
  *
  * Metered on CUMULATIVE lines against a running grant count rather than on each
@@ -993,6 +1048,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     materialMix: { ...NO_MATERIALS },
     bombCharges: 0,
     salvagePerCube: 8,
+    // Stock blast. Inert-by-default, the same stance windMax 0 and
+    // volatileTriggerMult 1 take — the Demolition Rack's capstone is the only
+    // thing that moves it.
+    bombBlastMult: 1,
     // Stock priming. Inert-by-default, the same stance windMax 0 and
     // autoLaunchMs 0 take.
     volatileTriggerMult: 1,

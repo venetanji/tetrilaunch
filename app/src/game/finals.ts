@@ -417,11 +417,30 @@ const FOULED_ALLOWANCE = 12;
  * sim/systems.ts pins this: a clause whose delivered rate can exceed its own
  * clean-bay rate must say so on its face.
  */
-/** The most of one material a clause may leave on the belt, ratchet included.
- *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and well
- *  under MIX_TOTAL_CAP so the belt still carries a majority of standard cargo
- *  even at maximum ratchet. */
-export const FINAL_MATERIAL_CAP = 0.4;
+/**
+ * The most of one material a clause may leave on the belt, ratchet included.
+ *
+ * THE WHOLE BELT, down from a flat 0.4 — and both halves of that are
+ * MIX_TOTAL_CAP's move. With the total ceiling now at one shipment in three
+ * (hazards.ts, belt.ts), 0.4 would have let a clause alone exceed the belt:
+ * applyFinal's re-cap would zero every ratcheted material to make room and the
+ * final bay would still land ABOVE the ceiling, which is the one place belt.ts's
+ * spacing rule stops applying — so the hardest bay in the game would be the only
+ * one that could deal three materials in a row.
+ *
+ * Held EQUAL to the belt rather than a hair under it because of the invariant
+ * sim/systems.ts pins: no ratchet may silently eat a clause. hazards.ts's
+ * MATERIAL_CAP is 0.32, so a run that poured six notches into one material
+ * arrives at a Final already there — and a clause capped below that has nothing
+ * left to add, making a MANDATORY cost the player chose over another one cost
+ * nothing at all. At the ceiling it still has the last sliver, which is small
+ * but real, and it is the honest amount: the belt is full.
+ *
+ * A clause is still not a notch. What it buys over one is reaching the top in a
+ * single step instead of six, and reaching it on a material the run never
+ * ratcheted — the ceiling bounds how MUCH, never which.
+ */
+export const FINAL_MATERIAL_CAP = MIX_TOTAL_CAP;
 function schedule(
   cfg: LevelConfig,
   material: keyof LevelConfig["materialMix"],
@@ -901,8 +920,10 @@ export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
   const restSum = rest.reduce((a, k) => a + cfg.materialMix[k], 0);
   // Room left for the ratcheted materials once the clause has taken its share.
   // Floored at 0 for the degenerate case of a clause that alone exceeds the
-  // cap — no clause below comes close (the largest is 0.32 against 0.55), and
-  // a future one that did would clear the belt rather than go negative.
+  // cap. FINAL_MATERIAL_CAP is held at 0.32 against a 1/3 ceiling precisely so
+  // no clause can reach it — the largest, Full Rebar, lands a hair under and
+  // leaves the ratcheted materials a sliver rather than nothing. A future clause
+  // that did exceed it would clear the belt rather than go negative.
   const room = Math.max(0, MIX_TOTAL_CAP - heldSum);
   const scale = restSum > 0 ? room / restSum : 0;
   for (const k of rest) cfg.materialMix[k] *= scale;

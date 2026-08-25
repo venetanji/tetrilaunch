@@ -348,10 +348,19 @@ It is what makes `--marks` mean more than the tier ladder alone. `makeBaseLevel`
 already moves the bay's target, clock, launch cost and bond strength with the
 Mark, but a run at bay 5 is also carrying four bays' worth of notches, and
 without a model the sweep would fly a Mark-10 bay that nobody had ever
-ratcheted. Content axes are excluded: every hand holds at least two number axes
-(`hazards.ts`), so content is always dodgeable, and the bots own no answer to a
-material — including them would measure "bots cannot play slag" rather than the
-ladder.
+ratcheted. Content axes are excluded: the bots own no answer to a material —
+none of them ever fires a demolition charge, which is slag's only exit — so
+including them would measure "bots cannot play slag" rather than the ladder.
+
+**Read every `--ratchets spread` number as an upper bound.** The exclusion is a
+real blind spot and it sits exactly where a high-Mark run gets hard: three bays
+a run (`MATERIAL_DRAFT_BAYS`) deal a hand the player cannot answer with a
+number, so the modelled run is one nobody flies. Measured on the same rig and
+bay, that gap is the whole result — Tier 10 bay 5 takes **83%** of bays with the
+number axes alone and **8-17%** once the materials a run would really be
+carrying are on the belt, with every single loss to bankruptcy rather than
+topping out. Nothing here measures whether a bomb-carrying human clears those
+bays, and a bomb is the play.
 
 ## `perf.ts` — physics step-cost sweep
 

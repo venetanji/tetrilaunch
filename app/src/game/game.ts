@@ -1880,7 +1880,14 @@ export class Game {
 
     const cx = bombBody.position.x;
     const cy = bombBody.position.y;
-    const shoveR = BOMB_SHOVE_MULT * BOMB_BLAST_R;
+    // The Demolition Rack's capstone widens the charge (level.ts's
+    // DEMO_BLAST_MULT). Read per detonation rather than cached at construction
+    // because a bay's config is rebuilt every level from the run's tiers, and
+    // the shove ring rides on the kill radius so a wider blast also shoves
+    // further — one number, two effects, which is what keeps the FX ring below
+    // an honest picture of what was destroyed.
+    const blastR = BOMB_BLAST_R * (this.level.bombBlastMult > 0 ? this.level.bombBlastMult : 1);
+    const shoveR = BOMB_SHOVE_MULT * blastR;
 
     let vaporized = 0;
     const gone: { x: number; y: number }[] = [];
@@ -1890,7 +1897,7 @@ export class Game {
       const dx = b.position.x - cx;
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
-      if (d <= BOMB_BLAST_R) {
+      if (d <= blastR) {
         gone.push({ x: b.position.x, y: b.position.y });
         this.throwChunks(cube, now);
         removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -1915,7 +1922,7 @@ export class Game {
     for (const g of gone) wakeNear(this.cubes, g.x, g.y);
 
     Matter.Composite.remove(this.phys.world, bombBody);
-    this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
+    this.effects.push({ kind: "explosion", x: cx, y: cy, r: blastR, t0: now });
     this.events.onExplosion?.("bomb");
 
     if (vaporized > 0) {
