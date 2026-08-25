@@ -324,13 +324,17 @@ body.crt-off #app::after { display: none; }
      spends that width as margin instead, which is what .workshop and .guide
      already do with theirs.
 
-     The bound is the row at its full size, not a round number: 600 for the
+     The bound is the row at its full size, not a round number: 640 for the
      demo panel (see the min-height step below) + 118 tower + 300 rail + two
      sp-4 gaps + this rule's own 60px padding either side, all of which
      `box-sizing: border-box` puts inside the max-width. So it can only ever
      bind on a window with more width than the layout has any use for, and
-     every narrower one is untouched. */
-  max-width: 1170px;
+     every narrower one is untouched.
+
+     Width past this point buys the panel nothing anyway: the panel is 16:9
+     and the column's HEIGHT is what caps it (see the min-height step), so a
+     wider row would only stretch the gap between the columns. */
+  max-width: 1210px;
   margin-inline: auto;
   width: 100%;
 }
@@ -668,13 +672,29 @@ body.crt-off #app::after { display: none; }
      of glass, where each floor becomes an 80px band holding a 12px number and
      the building reads as a ladder diagram instead.
 
-     520px, not a rounder number: eleven floors and the shaft's own slack
-     (--tower-slack, 26px) is 44px a floor at exactly 510px, and 44px is the
-     tap floor the rest of this screen is built to. Anywhere with the height to
-     spare — both tablets and the iPad Pro — the tower therefore clears it
-     outright. A 360px-tall phone gives the shaft 313px, where eleven floors
-     cannot each be 44px by arithmetic, and they come out at 26px; see the
-     entries this leaves in sim/uifit/baseline.json.
+     620px, and the number moved for a reason worth recording: the cap used to
+     be 520, which is where eleven floors plus the shaft's own slack
+     (--tower-slack, 26px) first clear the 44px tap floor the rest of this
+     screen is built to. That made it a FLOOR expressed as a ceiling, and it
+     was set when a tablet's menu row really was ~900px tall. It is not any
+     more — chrome magnification pins the layout box to the authored 720
+     (game/layout.ts's chromeZoom), so the row is ~544px on every magnified
+     device, tablets included. Against that row a 520 cap binds by 24px and
+     `align-self: center` splits the difference, which drew the one column in
+     the middle of the screen 12px short at both ends while the demo and the
+     action rail sat flush.
+
+     620 clears every row the magnified box can produce, so the tower is
+     stretched — and flush — on all of them, at 47px a floor. The cap is still
+     here for the cases magnification does not cover: a very tall narrow
+     window, and a 4K panel past the 2x zoom limit, where the row genuinely is
+     900px and eleven floors would otherwise become 80px bands holding a 12px
+     number, reading as a ladder diagram instead of a building.
+
+     A 360px-tall phone gives the shaft 313px, where eleven floors cannot each
+     be 44px by arithmetic, and they come out at 26px; see the entries this
+     leaves in sim/uifit/baseline.json. Unchanged — `100%` wins there and
+     always did.
 
      The cap is RAISED by exactly the basement's own height when Tier S is
      drawn (see .tower--sub), rather than the basement taking its height out of
@@ -685,7 +705,7 @@ body.crt-off #app::after { display: none; }
      exactly as an eleventh floor's worth of anything would: those are the
      phones the tower is already baselined short on.
 
-     The cap is now a flat 520px again. It used to be raised by the basement
+     The cap is a flat number either way. It used to be raised by the basement
      door's own height (--tower-sub-h) when Tier S was open, so the eleven
      climbed floors would not each pay 2.6px for a floor nobody climbs. Tier S
      moved to the headhouse, which is drawn in the gap ABOVE the shaft and takes
@@ -707,7 +727,7 @@ body.crt-off #app::after { display: none; }
      is not a bigger target but a target hanging off the top of the screen. */
   --tower-roof-h: 22px;
   align-self: center;
-  height: min(100%, 520px);
+  height: min(100%, 620px);
   display: flex; flex-direction: column; align-items: stretch;
 }
 @media (min-height: 620px) {
@@ -965,14 +985,29 @@ body.crt-off #app::after { display: none; }
   justify-content: flex-end;
   width: var(--brand-w);
 }
-/* Deliberately `flex-grow: 0` — the shelf rows keep their content height and
-   the column's leftover stays ABOVE them, which is what `justify-content:
-   flex-end` spends it on: the stack hangs off the bottom of the column and
-   squares with the action rail's last row. The brand column's slack is the
-   demo panel's to take (see the min-height step further down), not this
-   stack's, so these three stay the same size on a 1080p browser as on a
-   phone. */
-.menu__nav > .btn { flex: 0 1 auto; min-height: 44px; max-height: 56px; }
+/* These GROW, where they used to sit at content height and let the column's
+   leftover pool above them. `justify-content: flex-end` was spending that
+   leftover on hanging the stack off the bottom of the column, which is the
+   right answer only while there is nothing better to do with it.
+
+   How much leftover there is depends on the demo panel above, and the panel
+   is 16:9 — so it is the COLUMN'S ASPECT that decides, not the device class.
+   At 792x360 the panel comes out 153px of a 317px column and the three 44px
+   rows fill the remaining 156 exactly, which is why this looked settled. The
+   narrower the column relative to its height, the shorter the panel and the
+   bigger the hole: 27.8px on the 640x360 budget phone, 24px on a 1080p
+   browser, 42px on a 720p one. Growing the rows closes it in all three, and
+   only ever upward — the 44px floor still holds, and the budget phone's rows
+   go to 53px, so this is a bigger target everywhere it changes anything.
+
+   The cap is what keeps them buttons. 96px is the two-entry shelf at the
+   authored box — a build with no store renders only Leaderboard and Settings,
+   so each takes ~89px of the same leftover three rows split ~55 ways — and
+   sizing the cap to the state that needs it most is what stops the entitlement
+   state from deciding whether the column has a hole in it. It reads as
+   generous rather than absurd because it is nearly the proportion the phone
+   already gives these rows: 89 of a 544px column is 16%, against 44 of 317. */
+.menu__nav > .btn { flex: 1 1 auto; min-height: 44px; max-height: 96px; }
 
 /* ---------- The demo panel as the tutorial door ----------
    A bay playing itself IS the explanation, so the panel is the entry to the
@@ -4649,12 +4684,19 @@ button.panel { color: var(--text); }
    browser, with the hero element of the screen sitting at 37% of the column
    width it had available.
 
-   Sized so the column FILLS rather than by eye. The panel is 16:9 and the
-   shelf under it is three 44px rows plus two sp-3 gaps (156px) plus the
-   column's own sp-4; at the 544px the brand column gets in the authored box
-   that leaves 372px of height for the panel, i.e. 661px of width. 600 is
-   inside that with room for the fallback face and for the wider shelf rows a
-   long entitlement label produces.
+   Sized against the column's HEIGHT, which is the axis that actually binds:
+   the panel is 16:9, so every pixel of width it gains costs 0.5625 of the
+   height the shelf under it needs. At the 544px the brand column gets in the
+   authored box, 640 puts the panel at 360 and leaves 168 for the shelf — 12
+   more than the three 44px rows and two sp-3 gaps that a full shelf cannot go
+   under. The shelf's own `flex-grow` (see .menu__nav above) spends whatever
+   is left over on the rows, so the column is exactly full at any width up to
+   this one and the panel is simply as big as the height allows.
+
+   Not larger: 660 would put the panel at 371 and leave the shelf 157, inside
+   its 156px floor by a pixel. The 12px here is the margin for a face whose
+   rows measure taller than Chromium's — WebKit's do — before the floor starts
+   pushing the column past its own box.
 
    WHY min-height, on a screen where every other step is keyed the other way:
    the query has to test the height of the box the CHROME is laid out in, and
@@ -4666,7 +4708,7 @@ button.panel { color: var(--text); }
    about. Mutually exclusive with the 620px step-down above, so the two can
    never both apply. */
 @media (min-height: 700px) {
-  .menu__brand { --brand-w: min(100%, 600px); }
+  .menu__brand { --brand-w: min(100%, 640px); }
   /* The wordmark is sized off the PLATE it sits in (6.8cqw of the panel), and
      that clamp topped out at 31px — the exact fit for the 440px panel and
      nothing wider. Left there, a 600px panel would have carried the same 31px
