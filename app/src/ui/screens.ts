@@ -460,7 +460,12 @@ export function baseBayPanelHTML(opts: {
     </div>
     <div class="base-bay__grid">
       ${statCellHTML("reactor", "Target", `$${bay.targetFrom}→${bay.targetTo}`, "var(--accent)")}
-      ${statCellHTML("launcher", "Launch", `$${bay.launchCost} · $${bay.startingFunds}`, "var(--warn)")}
+      <!-- "Launch $20 · $160" was one label over two unrelated quantities: the
+           price of a shot, and the float a bay opens with. Both are named
+           now. NOT split into two cells — this grid is 2x2 and the panel's
+           height is measured against it; a fifth cell buys a clearer label at
+           the cost of the layout the whole menu column is sized around. -->
+      ${statCellHTML("launcher", "Shot · Float", `$${bay.launchCost} · $${bay.startingFunds}`, "var(--warn)")}
       ${statCellHTML("clock", "Clock", `${formatMMSS(bay.timeLimitSec * 1000)} · ${bay.bays} bays`, "var(--text)")}
       ${statCellHTML("bonds", "Bonds", bonds, "var(--piece-t)")}
     </div>
@@ -552,9 +557,17 @@ export function menuScreen(
         <div class="menu__demo">
           <canvas class="menu__demo-canvas" aria-hidden="true"></canvas>
           <h1 class="menu__title display neon-text brand-gradient" aria-label="Tetrilaunch"><span>TETRI</span><span>LAUNCH</span></h1>
-          <p class="menu__sub">Load the cannon, arc your tetrominoes across the bay, and feed
-          full rows into the compactor before it sweeps them away — across a 10-bay gauntlet
-          where every cleared bay ratchets one difficulty axis of your choosing.</p>
+          <!-- Written to survive its own clamp. The reduced-motion fallback
+               limits this to four lines (app.css) because the shelf rows beside
+               it cannot yield — a real constraint, and the paragraph is also
+               the live demo's text alternative, so the one reader who gets it
+               instead of the animation was the one reading a sentence cut at
+               "…one difficulty axis of your". The mechanic now leads and
+               finishes inside the budget; the ratchet is a second sentence,
+               which is the half that can afford to go. -->
+          <p class="menu__sub">Load the cannon, arc your shipments across the bay, and feed full
+          rows into the compactor before it sweeps them away. Ten bays, and every one you clear
+          ratchets a difficulty axis of your choosing.</p>
           <!-- THE PANEL IS THE DOOR. A bay playing itself, with no HUD over
                it, is already a demonstration of how the game works — so it is
                the tutorial's entry rather than a decoration sitting beside
@@ -813,7 +826,15 @@ export function guideScreen(opts: {
 
   const tabs = CHAPTERS.map((c) => {
     const n = unlockedDrills(c.id, opts.meta);
-    return `<button class="workshop__tab${c.id === opts.chapter ? " workshop__tab--on" : ""}" role="tab" data-action="guide-chapter" data-chapter="${c.id}" aria-selected="${c.id === opts.chapter}">${c.name}${n ? `<b>${n}</b>` : ""}</button>`;
+    // The count carries the PLAY GLYPH the rows use, because a bare number
+    // meant three different things across one tab strip. On a fresh save it
+    // read "Basics 8 · Money 3 · Cargo 1 · Hazards · The Rig 3 · Modes":
+    // Basics happens to have exactly 8 topics AND 8 playable entries, so the
+    // first tab taught the reader the number was a topic count — which Cargo
+    // (1 badge, 7 rows) immediately contradicted, and which Hazards and Modes
+    // rendered as nothing at all rather than as an honest zero. With the glyph
+    // it is unambiguously "bays you can play in here", and 0 can be printed.
+    return `<button class="workshop__tab${c.id === opts.chapter ? " workshop__tab--on" : ""}" role="tab" data-action="guide-chapter" data-chapter="${c.id}" aria-selected="${c.id === opts.chapter}">${c.name}<b class="guide__tabn">${icon("play", 8)}${n}</b></button>`;
   }).join("");
 
   const rows = topics
@@ -937,6 +958,15 @@ export function settingsScreen(
         </div>
         <div class="settings__actions">
           <button class="btn btn--secondary btn--block" data-action="controls">Controls</button>
+          <!-- NO "How to Play" ROW HERE, and the reason is measured rather
+               than a preference. This column is why the screen is two columns
+               at all: stacked it needed 344px against a landscape phone's 322,
+               and the split exists to remove the scroll. A sixth control puts
+               the panel 6-13px over on four devices — so the guide's doors are
+               the menu's demo panel and the PAUSE modal, which is the one that
+               mattered (the catalogue's best moment is mid-bay, and that route
+               previously required abandoning the run). A third door is not
+               worth the scroll this panel was restructured to eliminate. -->
           ${store?.available ? purchaseRowsHTML(store) : ""}
           <button class="btn btn--secondary btn--block" data-action="menu">Done</button>
         </div>
@@ -992,7 +1022,7 @@ export function controlsScreen(opts: {
     pane = `${infoRow("Aim & fire", "drag anywhere · release fires")}
       ${infoRow("Cancel a launch", "second finger taps ✕")}
       ${infoRow("Rotate", "⟲ / ⟳ on the rail")}
-      ${infoRow("Abilities", "rail buttons · plant chips")}
+      ${infoRow("Abilities", "rail buttons · readout chips")}
       ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
   } else if (opts.tab === "keyboard") {
     pane = BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("");
@@ -1896,7 +1926,7 @@ export function dragHintHTML(): string {
  * touch the rail buttons are the controls, and desktop players get the
  * kbd-hint strip anyway.
  *
- * ONE CARD PER COMPLETABLE ACTION — this is why the deck is four steps and
+ * ONE CARD PER COMPLETABLE ACTION — this is why the deck is five steps and
  * not the playtest deck's six (aim, power, rotate, launch, row, resources).
  * Aim, power and launch are not three actions: they are one continuous drag,
  * whose only possible ending is the release that fires. Splitting that
@@ -1909,6 +1939,17 @@ export function dragHintHTML(): string {
  * when the gesture COMPLETES in a fired shot. Rotate is the one genuinely
  * separate verb (a discrete tap, doable between shots), so it keeps its card
  * — placed AFTER the first shot, where the player has a next piece to turn.
+ *
+ * THE PRESS CARD obeys that same rule rather than bending it. Two rules were
+ * going untaught, and they are the two a Tetris player will get wrong: that
+ * the compactor MOVES — grinding near-aligned cubes square as it sweeps, which
+ * is what closes rows you could not close by hand — and that only completed
+ * rows ever remove cubes, so a pile that only grows ends the bay. The old deck
+ * gave the first a subordinate clause ("in front of the red compactor") and
+ * the second nothing at all; a player learned topping out by losing to it.
+ * The card fires on the first press stroke that CLEARS a row, which is a
+ * completable action every player performs inside bay 1 — and the one moment
+ * when both halves of the lesson are on screen at once.
  */
 export interface CoachStep {
   title: string;
@@ -1961,6 +2002,10 @@ export function coachSteps(level: {
       body: `Fill a <b>full row</b> in front of the red compactor: it vanishes and pays. Cubes <b>short of the bar</b> are lost.`,
     },
     {
+      title: "The press",
+      body: `That red bar <b>squares up near-misses</b> as it sweeps — and only <b>full rows</b> ever leave the bay. A pile that just grows tops out and ends it.`,
+    },
+    {
       title: "Funds & Target",
       body: `Launches cost <b>$${level.launchCost}</b>; rows pay <b>$${level.scorePerLine}</b> plus <b>${scrapHTML("scrap")}</b>; lost cubes fine <b>$${level.penaltyPerLostPiece}</b>. Reach <b>$${level.targetScore}</b> before Funds or time runs out.`,
     },
@@ -1991,9 +2036,15 @@ export function coachHTML(
       <div class="coach__foot">
         <span class="coach__dots" aria-hidden="true">${dots}</span>
         ${
+          // The last card's "Got it!" is a real primary — it is the one action
+          // the deck asks for. Skip is not: on cards 1-4 it was the ONLY
+          // control, and at pixel-face size inside a bordered ghost button it
+          // rendered wider than the card's own title. The most prominent thing
+          // on a first-time player's screen was the way out of the lesson.
+          // A link beside the dots keeps it findable and stops it leading.
           last
             ? `<button class="btn btn--primary coach__btn" data-action="coach-done">Got it!</button>`
-            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">Skip tutorial</button>`
+            : `<button class="coach__skip" data-action="coach-skip">Skip tutorial</button>`
         }
       </div>
     </div>
@@ -2316,7 +2367,14 @@ export function refitScreen(opts: {
         )}
       </div>
       <div class="refit__foot" id="refit-foot">
-        <button class="btn btn--primary btn--block" data-action="refit-done">${
+        <!-- THE PRIMARY IS THE PURCHASE, not the exit. Undocking with nothing
+             staged is leaving the shop, and it was the brightest, widest
+             control on the screen where the run's whole build gets decided —
+             louder than any of the systems it was offering. It keeps the
+             primary once there is an order to commit, which is the moment it
+             genuinely is the action the screen is for; empty-handed it is a
+             secondary, and the shelf beside it is what leads. -->
+        <button class="btn ${staged > 0 ? "btn--primary" : "btn--secondary"} btn--block" data-action="refit-done">${
           staged > 0
             ? `Install ${staged}<span class="price__sep">·</span>${scrapHTML(spend, 11)} — undock →`
             : "Undock →"
@@ -2511,7 +2569,7 @@ export function workshopScreen(meta: MetaState): string {
         // menu chip and the end modals use.
         (() => {
           const p = tierProgressFor(meta);
-          return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "○"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
+          return `Tier ${p.tier} — Deep Run ${p.runDone ? "✓" : "☐"} · Contracts ${p.contracts}/${p.needed}${p.contracts >= p.needed ? " ✓" : ""}`;
         })()
       }</div>
       <div class="workshop__body">
@@ -3167,7 +3225,7 @@ export function endModal(opts: {
         <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? salvageHTML(`+${opts.tierSalvage}`, 16) : `T${opts.progress.tier}`}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>${salvageHTML(`+${opts.tierSalvage}`)} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
+          <span class="muted">${opts.tierSalvage > 0 ? `<b>${salvageHTML(`+${opts.tierSalvage}`)} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "☐"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "☐"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
           <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked${demoFoot}</span>
         </div>
         ${
@@ -3327,6 +3385,17 @@ export function contractsScreen(opts: {
           <span class="contract-card__supply-val">${supply}</span>
         </span>
         <span class="contract-card__brief">${c.brief}</span>
+        <!-- THE PATTERN VARIANT'S RULE, in the WHY voice this screen already
+             uses at its foot. Zero-waste tiling is the most unusual objective
+             in the game — you are handed the exact inventory, so every cube
+             has to end up inside a completed row — and the card gave it three
+             words at the tail of a conditions string ("2 shapes, no waste").
+             Stated once, on the cards it applies to. -->
+        ${
+          c.kind === "pattern"
+            ? `<span class="contract-card__rule">Exact inventory — <b>every cube</b> has to land in a finished row.</span>`
+            : ""
+        }
       </button>`;
     })
     .join("");
@@ -3341,8 +3410,8 @@ export function contractsScreen(opts: {
         <div class="chip__label">Tier</div>
         <div class="chip__value" style="color:var(--accent)">${opts.progress.tier}</div>
         <div class="tier-chip__halves">
-          <span class="${opts.progress.runDone ? "done" : ""}">${opts.progress.runDone ? "✓" : "○"} Run</span>
-          <span class="${opts.progress.contracts >= opts.progress.needed ? "done" : ""}">${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed}</span>
+          <span class="${opts.progress.runDone ? "done" : ""}">${opts.progress.runDone ? "✓" : "☐"} Run</span>
+          <span class="${opts.progress.contracts >= opts.progress.needed ? "done" : ""}">${opts.progress.contracts >= opts.progress.needed ? "✓" : "☐"} Contracts ${opts.progress.contracts}/${opts.progress.needed}</span>
         </div>
       </div>`
     : "";

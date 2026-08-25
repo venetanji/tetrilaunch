@@ -247,8 +247,8 @@ export const GUIDE_TOPICS: GuideTopic[] = [
   {
     id: "tutorial", chapter: "basics", tier: 1,
     name: "Guided Tutorial",
-    summary: "A coached first bay — four cards, one per action, as you do it.",
-    body: `A real Deep Run bay with a coach riding along: four cards, each one waiting until`
+    summary: "A coached first bay — five cards, one per action, as you do it.",
+    body: `A real Deep Run bay with a coach riding along: five cards, each one waiting until`
       + ` you have actually done the thing it describes. It runs on bay 1 and hands the bay`
       + ` back rather than ending the run if you lose, so there is nothing to be careful about.`
       + ` Start here if you have never fired the cannon.`,
@@ -293,7 +293,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     name: "Controls",
     summary: "Touch, keyboard and gamepad — every binding rebindable.",
     body: `Drag anywhere to aim on touch; on desktop the cannon has keys and a pad has sticks,`
-      + ` and <b>every binding is rebindable</b>.`
+      + ` and <b>every key and pad binding is rebindable</b>.`
       + ` The rail down the side of the field carries rotate and whichever abilities your rig`
       + ` is carrying, and it can be <b>mirrored to the left edge</b> for a left-handed grip.`,
     cta: {

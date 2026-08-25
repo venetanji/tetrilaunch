@@ -4259,6 +4259,15 @@ body.crt-off #app::after { display: none; }
 /* ---------- Toggle ---------- */
 .setting { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 14px 4px; border-bottom: 1px solid var(--line); min-height: var(--tap-min); cursor: pointer; }
 .setting:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The switch state in words (components.ts's toggleHTML). Sits between the
+   label and the pill, and shows exactly one of its two spans — the row's
+   aria-checked is the single source of truth, so the text can never disagree
+   with the pill beside it. */
+.setting__state { flex: none; font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; }
+.setting__on { color: var(--accent); }
+.setting__off { color: var(--text-faint); }
+[role="switch"][aria-checked="true"] .setting__off,
+[role="switch"][aria-checked="false"] .setting__on { display: none; }
 .setting__label { display: flex; flex-direction: column; }
 .setting__label b { font-weight: 600; }
 .setting__label span { font-size: var(--fs-sm); color: var(--text-muted); }
@@ -5142,6 +5151,12 @@ button.panel { color: var(--text); }
 }
 .workshop__tab--on { color: var(--text); border-bottom-color: var(--accent); }
 .workshop__tab b { font-family: var(--font-mono); color: var(--accent); font-weight: 700; }
+/* The guide's tab count carries a play glyph, so it has to lay out as ONE
+   inline run — an inline <b> with an SVG child and a number lets the two find
+   different baselines and renders as a glyph stacked over a digit. See
+   screens.ts's guideScreen for why the glyph is there at all. */
+.guide__tabn { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+.guide__tabn .ico { flex: none; }
 .workshop__tabs .workshop__budget { margin-left: auto; }
 
 /* The tab bar is fixed chrome above the scroller, not part of it. */
@@ -5390,6 +5405,15 @@ button.panel { color: var(--text); }
 /* The generator's own note about the bay (crosswind, tight launch budget, the
    shape count). Pushed to the card's foot by the auto margin so the three cards
    line their briefs up regardless of how tall the slots above them ran. */
+/* The pattern variant's defining rule (screens.ts's contractsScreen). Warm,
+   like the WHY badge at this screen's foot, because it is the same voice: the
+   one sentence that says what this card actually asks of you. */
+.contract-card__rule {
+  font-size: 11px; line-height: 1.3; color: var(--warn);
+  margin-top: 2px;
+}
+.contract-card__rule b { font-weight: var(--fw-bold); }
+@media (max-height: 460px) { .contract-card__rule { font-size: 9.5px; line-height: 1.25; } }
 .contract-card__brief {
   margin-top: auto; padding-top: 6px; border-top: 1px solid var(--line);
   font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35;
@@ -5429,8 +5453,15 @@ button.panel { color: var(--text); }
 }
 .salvage-row__amt { font-family: var(--font-mono); font-weight: 800; font-size: 24px; color: var(--warn); flex: none; }
 .salvage-row__body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.salvage-row__body b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
+/* The pixel face belongs to the block's HEADLINE, which is a line of its own.
+   Unscoped it also caught the <b> INSIDE the sentence below it — so "1700
+   salvage banked" switched face, size and metric mid-clause and wrapped badly
+   around the switch. Emphasis inside running copy is a weight; the pixel face
+   is this app's chrome voice (chips, eyebrows, buttons) and mid-sentence is
+   the one place it reads as breakage. */
+.salvage-row__body > b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
 .salvage-row__body span { font-size: 11px; line-height: 1.35; }
+.salvage-row__body span b { font-weight: var(--fw-bold); color: var(--text); }
 .salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
 
 /* Short (landscape-phone) viewports: the refit shelf and the salvage row are the
@@ -5904,6 +5935,28 @@ button.panel { color: var(--text); }
 .coach__title { font-family: var(--font-pixel); font-size: 13px; color: var(--text); }
 .coach__body { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
 .coach__body b { color: var(--text); }
+/* Skip, as a link rather than a button. It is still a 44px-tall target (the
+   padding below), still keyboard-reachable, and no longer the loudest thing on
+   a first-time player's screen — see screens.ts's coachHTML. */
+.coach__skip {
+  /* A LINK'S LOOK, A BUTTON'S BOX. The 44px floor is not what made skip the
+     loudest thing on the card — the border, the fill and the pixel face did —
+     so only those come off. Shrinking the target instead (a 32px box with
+     negative margins) trades a real accessibility property for a visual
+     preference, spills out of .coach__foot, and is exactly the regression the
+     comments around .btn--menu were written to prevent. */
+  padding: 6px 10px; margin: 0;
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0;
+  font-family: var(--font-ui); font-size: 11px; font-weight: var(--fw-medium);
+  color: var(--text-muted); text-decoration: underline;
+  text-underline-offset: 2px; cursor: pointer;
+  pointer-events: auto;
+  -webkit-appearance: none; appearance: none;
+}
+.coach__skip:hover, .coach__skip:focus-visible { color: var(--text-dim); }
+.coach__skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .coach__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .coach__dots { display: flex; gap: 4px; }
 .coach__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); display: block; }

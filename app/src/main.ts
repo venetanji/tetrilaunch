@@ -2097,9 +2097,17 @@ class App {
   /** A cleared row finishes the row step — and the rotate step too, if the
    *  player got there without ever tapping ⟲/⟳: a completed line is proof the
    *  lesson's GOAL is understood, and holding the card hostage to one specific
-   *  input would stall the coach for a player who is already succeeding. */
+   *  input would stall the coach for a player who is already succeeding.
+   *
+   *  The SAME event then carries the deck into the press card, one step later:
+   *  a row only clears on a press stroke, so the moment a line pays is the
+   *  moment the stroke that squared it up is on screen. That is the completable
+   *  action the press card waits for (see screens.ts's coachSteps) — the deck
+   *  advances one card per clear, so a player who clears their first line goes
+   *  row -> press and a second clear moves them on again. */
   private coachOnLineClear(): void {
     if (this.tutorialStep === 1 || this.tutorialStep === 2) this.coachAdvance(3);
+    else if (this.tutorialStep === 3) this.coachAdvance(4);
   }
 
   /** Finish or skip: drop the coach and persist the seen-flag so it never

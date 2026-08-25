@@ -329,8 +329,14 @@ export function toggleHTML(id: string, label: string, desc: string, on: boolean)
   // closest("[data-toggle]"), so moving the attributes up makes the label,
   // the description and the pill one target instead of three inert areas
   // around one small one.
+  // The STATE IN WORDS, beside the pill. The pill alone carried it in knob
+  // position and fill — which is the convention, but it is also the one thing
+  // on this screen with no label at all, and its off state is very low
+  // contrast on the dark ground. Two characters cost nothing and mean the row
+  // can be read without knowing which way this particular switch points.
   return `<div class="setting" role="switch" data-toggle="${id}" aria-checked="${on}" tabindex="0">
     <div class="setting__label"><b>${label}</b><span>${desc}</span></div>
+    <div class="setting__state"><span class="setting__on">On</span><span class="setting__off">Off</span></div>
     <div class="toggle"></div>
   </div>`;
 }

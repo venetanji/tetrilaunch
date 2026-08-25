@@ -4611,7 +4611,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // split across cards they advance mid-gesture and flash past unread,
     // which is the playtest bug ("steps 2 and 4 are skipped immediately").
     // The first card must therefore cover the whole gesture, and the deck
-    // must stay at four steps: fire, rotate, row, resources.
+    // must stay at five steps: fire, rotate, row, press, resources.
+    //
+    // The press card is the fifth and it obeys the same rule rather than
+    // bending it: it fires on the first press stroke that CLEARS a row, which
+    // is a completable action every player performs inside bay 1. It teaches
+    // the two rules a Tetris player gets wrong — that the compactor moves and
+    // grinds near-misses square, and that only completed rows remove cubes at
+    // all — which the deck previously gave a subordinate clause and nothing.
     // Lower-cased: which clause opens the sentence is the copy's business, and
     // "Release to fire" teaches the same gesture as "release to fire" while
     // failing a literal match.
@@ -4619,7 +4626,14 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("the coach teaches the drag as one card (power and release together)",
       drag.includes("power") && drag.includes("release"), steps[0].body);
     check("the coach deck is one card per completable action",
-      steps.length === 4);
+      steps.length === 5, String(steps.length));
+    // Each of those two rules has to actually be IN the press card — they are
+    // the reason it exists, and a card that drifts into generic press flavour
+    // would leave topping out untaught again.
+    const press = plain(steps[3].body).toLowerCase();
+    check("the press card teaches the squaring stroke", press.includes("square"));
+    check("the press card teaches that only full rows leave the bay",
+      press.includes("full rows") && press.includes("tops out"), steps[3].body);
 
     // ---- The coach handles its own failures --------------------------------
     // A lost first bay used to route straight into the run-end modal: "Game

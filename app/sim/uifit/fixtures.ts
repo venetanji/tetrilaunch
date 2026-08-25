@@ -725,7 +725,12 @@ export const SCREENS: Record<string, () => string> = {
   coach: () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 0, S.coachHTML(0, BAY_1)),
   "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, BAY_1)),
   "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, BAY_1)),
-  "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, BAY_1)),
+  "coach-press": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, BAY_1)),
+  // The LAST card is the deck's tightest fit: it carries four figures and the
+  // reveal has just handed the panel back Launches and Reload, so card and
+  // readout share the column at their fullest. Index 4 now, since the press
+  // card sits ahead of it.
+  "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 4, S.coachHTML(4, BAY_1)),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>
