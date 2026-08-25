@@ -3934,6 +3934,42 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
     check("a forced hand still deals at least as many cards as picks", !capstoneShort);
 
+    // EVERY hand is one card bigger than the number of picks — the rule that
+    // makes a draft a draft, pinned on the ORDINARY bays too because that is
+    // where it was broken. picksPerBay is 2 at the capstone and hazardOffers
+    // sized the hand Math.max(count, picksPerBay(mark)) = 2, so seven of the ten
+    // Mark-10 bays dealt two cards and took both.
+    //
+    // The consequence was not just a dull draft. The ordinary draft's promise
+    // that slag is DODGEABLE — it is the one material with no passive counter,
+    // so a bay that ratchets it with an empty bomb rack is quietly unwinnable —
+    // rests entirely on there being a spare seat to dodge into. There was not:
+    // 3,924 of 200,000 hands at Marks 6-10 forced slag on a player who had every
+    // reason to refuse it.
+    {
+      let tooSmall: string[] = [];
+      let slagForced = 0;
+      for (let m = 1; m <= MARK_COUNT; m++) {
+        for (let seed = 0; seed < 300; seed++) {
+          for (let b = 0; b < 10; b++) {
+            const offer = hazardOffers(seed, b, m, undefined, { cost: 2, time: 2, wind: 1 });
+            const picks = picksPerBay(m);
+            // Marks 1-2 deal the whole pool (two axes, one pick) — a hand cannot
+            // be bigger than the axes that exist, and hazardOffers returns the
+            // pool wholesale there. That is the one honest exception.
+            if (offer.length <= picks && hazardsForMark(m).length > picks) {
+              tooSmall.push(`m${m}b${b}:${offer.length}<=${picks}`);
+            }
+            if (offer.filter((h) => h.id !== "slag").length < picks) slagForced += 1;
+          }
+        }
+      }
+      check("every hand deals more cards than it takes picks",
+        tooSmall.length === 0, tooSmall.slice(0, 4).join(" "));
+      check("no hand can force slag on a player who refuses it",
+        slagForced === 0, `${slagForced} forced hands`);
+    }
+
     // The offer must stay a function of (seed, bay, Mark) — a restarted run has
     // to deal the same table, and the ratchets must not smuggle in variation
     // beyond the single-material partner they are read for.

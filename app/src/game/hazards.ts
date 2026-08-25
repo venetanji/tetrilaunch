@@ -25,9 +25,12 @@ import { BELT_CEILING } from "./belt";
  *    hazard cheap for you. Own the Launcher and crosswind is the notch you can
  *    afford. So the draft asks "what have you prepared for?" and the poison you
  *    are equipped for costs you nothing.
- *  - **The hand is small.** Two cards per draft, not three (see hazardOffers):
- *    with the purse now the binding constraint (level.ts's economy note), every
- *    notch is a real fork, and a third card only invited the least-bad shrug.
+ *  - **The hand is small, and always one card bigger than the picks.** Two cards
+ *    for one pick at most rungs, not three (see hazardOffers): with the purse
+ *    now the binding constraint (level.ts's economy note), every notch is a real
+ *    fork, and a third card only invited the least-bad shrug. The capstone takes
+ *    TWO notches a bay, so its hand is three — the "+1" is the rule, not the 2.
+ *    A hand the same size as the picks is not a draft at all, it is a bill.
  *  - **Marks add axes rather than steepen them.** Higher Marks do not make the
  *    ratchet bigger; they put more kinds of pressure on the table. A Mark is
  *    mostly a statement about which hazards and systems exist. What it does
@@ -570,7 +573,20 @@ export function hazardOffers(
   ratchets: Ratchets = {},
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
-  const want = Math.max(count, picksPerBay(mark));
+  // ALWAYS ONE MORE CARD THAN THERE ARE PICKS. That is what makes a draft a
+  // draft, and at the capstone it was not true: picksPerBay is 2 there and this
+  // read Math.max(count, picksPerBay(mark)), which is 2 — so an ordinary Mark-10
+  // hand dealt two cards and took both, on seven of the ten bays. The ratchet's
+  // whole claim is that "by bay 10 they have authored their own curve"; a hand
+  // the player cannot choose within authors nothing, it just bills them.
+  //
+  // It also had a sharp edge. slag is the one material with no passive counter,
+  // and the ordinary draft's guarantee that it is DODGEABLE rests entirely on
+  // there being a spare seat to dodge into: measured over 200,000 hands at Marks
+  // 6-10, a two-card capstone hand forced slag on 3,924 of them. The forced
+  // hands (materialHand) were given their spare card last pass for exactly this
+  // reason; the ordinary hands are the other half of the same fix.
+  const want = Math.max(count, picksPerBay(mark) + 1);
 
   if (isMaterialDraft(levelIndex)) {
     // picksPerBay, not `want`: `want` is the HAND SIZE (two cards, or more if
