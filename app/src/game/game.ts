@@ -308,8 +308,15 @@ const BOMB_ARM_STEPS = 5;
 /** Fallback fuse (physics steps) so a bomb that never touches anything (e.g.
  *  sails off past the walls) still goes off instead of lingering forever. */
 const BOMB_FUSE_STEPS = 300;
-/** Blast radius: cubes centered within this are destroyed outright. */
-const BOMB_BLAST_R = CELL * 2.4;
+/** Blast radius: cubes centered within this are destroyed outright. Scaled per
+ *  detonation by level.bombBlastMult (the Demolition Rack's capstone).
+ *
+ *  Exported for sim/bots.ts, whose `demo` bot has to know how much a charge
+ *  actually reaches before it can decide a pile is worth one. A copy of the
+ *  number there would be a second statement of the blast that is free to drift
+ *  out of this one, and the bot's whole job is to price what the real charge
+ *  does. */
+export const BOMB_BLAST_R = CELL * 2.4;
 /** Cubes within 2x the blast radius get a radial shove instead of removal. */
 const BOMB_SHOVE_MULT = 2;
 const BOMB_SHOVE_SPEED = 10;

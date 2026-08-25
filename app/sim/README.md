@@ -93,9 +93,36 @@ shot. Presets:
 - `impatient` — `aim` minus its restraint: fires on every cooldown, funds
   permitting. The harness's model of "spam pieces and let gravity do the
   rest", and the other end of that same paired comparison.
+- `demo` — `aim` plus a pair of hands for the **Demolition Rack**: it scores
+  every dead cube on the field as a blast site, aims a charge with the same
+  search it aims cargo with, and fires when the blast nets `DEMO_MIN_NET`
+  dead cubes. The only bot here that can answer a MATERIAL, and the one that
+  closes this harness's longest-standing caveat — see below. Identical to
+  `aim` on a rig carrying no charges, so it is only meaningful *against*
+  `aim` on the same seeds and the same rig: the gap between them is what a
+  charge is worth.
 
 No lookahead, no trajectory awareness — these approximate "hold roughly the
 same aim and keep firing," not a strong player.
+
+#### Valuing a blast (`demo`)
+
+`demo` scores a candidate site as **dead cubes caught, minus live cubes caught
+in rows nothing is blocking** — no invented weights. The row clause is the
+whole trick and the first version lacked it: counting every live cube as a loss
+reads a packed pile as a terrible place to bomb (the blast spans ~2.4 cells, so
+four slag against fourteen live scores −10 however jammed the bay is), and the
+bot fired **one** charge across six bays holding six apiece. That would have
+measured "a rack is worth nothing" when what it measured was a valuation that
+ignores what slag does. A row containing slag can never clear, so the cargo
+sharing it is already spent and destroying it costs nothing; only a live cube
+in a *clean* row is the "row you were two cubes from closing" the design warns
+about. With the clause in, the same rig fires 5 charges a bay and takes a
+2-notch slag bay from 1.8 lines to 7.0.
+
+It deliberately does **not** dig for buried cargo, and does **not** model tar —
+which joints are welds is private to `Game`, and a proxy here would measure the
+proxy. It is a competent pair of hands, not an optimizer.
 
 ### Baseline table
 
@@ -359,8 +386,13 @@ number, so the modelled run is one nobody flies. Measured on the same rig and
 bay, that gap is the whole result — Tier 10 bay 5 takes **83%** of bays with the
 number axes alone and **8-17%** once the materials a run would really be
 carrying are on the belt, with every single loss to bankruptcy rather than
-topping out. Nothing here measures whether a bomb-carrying human clears those
-bays, and a bomb is the play.
+topping out.
+
+The half of that caveat which said *nothing here measures whether a
+bomb-carrying player clears those bays* is now false: `demo` does. What is still
+true is that **this model** excludes content axes, so a `spread` number prices
+the ladder's arithmetic and not its cargo. To price a material, ratchet it
+explicitly and fly `aim` against `demo` on a rig that carries charges.
 
 ## `perf.ts` — physics step-cost sweep
 

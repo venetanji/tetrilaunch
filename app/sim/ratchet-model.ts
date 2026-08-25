@@ -37,6 +37,13 @@ import { hazardsForMark, picksPerBay, type Ratchets } from "../src/game/hazards"
  * once the materials a run would really be carrying are on the belt, every loss
  * to bankruptcy. Read a `--ratchets spread` number as an upper bound.
  *
+ * The bots' half of that is now fixable — bots.ts's `demo` fires demolition
+ * charges, so a material CAN be priced against its counter. This model still
+ * leaves content out, deliberately: it is a model of an AVERAGE run's number
+ * axes, and which materials a given run carries is exactly the thing a player
+ * chooses. Price a material by ratcheting it explicitly and flying `aim`
+ * against `demo`, not by widening this.
+ *
  * The slid Fibonacci ladders are what this exists to price, and the slide is
  * hazards.ts's ladderStart — floor((mark-1)/2), one rung per TWO Marks, not
  * per Mark. The per-Mark slide this model was first written against is the one

@@ -28,6 +28,7 @@ import {
   type LevelConfig, type PileTier,
 } from "../src/game/level";
 import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
@@ -4829,6 +4830,70 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The demolition bot actually fires charges (sim/bots.ts)");
+// ---------------------------------------------------------------------------
+{
+  // `demo` is `aim` plus a pair of hands for the rack, and the ONLY thing that
+  // makes it worth having is that it pulls the trigger. A scoring change that
+  // quietly stopped it firing would not fail anything — it would just silently
+  // become `aim` again and every material it was built to price would read as
+  // unanswerable. That already happened once: the first blast valuation counted
+  // every live cube caught as a loss, which reads a packed pile as a terrible
+  // place to bomb, and the bot fired one charge across six bays holding six
+  // apiece. This is the tripwire for that.
+  const build = { ...newTiers(), reactor: 3, hydraulics: 2, bay: 2, demolition: MAX_TIER };
+  let cfg = makeBaseLevel(4, TIER_COUNT);
+  applyUpgrades(cfg, build);
+  cfg = applyRatchets(cfg, { slag: 2 } as Ratchets);
+  cfg.startingFunds += 150;
+
+  const fly = (botName: string) => {
+    let bombs = 0;
+    let lines = 0;
+    const SEEDS = 3;
+    for (let s = 1; s <= SEEDS; s++) {
+      const g = new Game(cfg, { onShoot: (info) => { if (info?.bomb) bombs += 1; } }, s);
+      const bot = BOTS[botName](s);
+      let now = 0;
+      let steps = 0;
+      const cap = cfg.timeLimitSec * 60 + 3600;
+      while (g.status === "playing" && steps < cap) {
+        now += 1000 / 60;
+        bot.act(g, now);
+        g.update(now);
+        steps += 1;
+      }
+      lines += g.linesTotal;
+      g.destroy();
+    }
+    return { bombs, lines: lines / SEEDS };
+  };
+
+  check("the bay under test actually carries charges and slag",
+    cfg.bombCharges > 0 && cfg.materialMix.slag > 0,
+    `${cfg.bombCharges} charges, slag ${cfg.materialMix.slag.toFixed(2)}`);
+
+  const plain = fly("aim");
+  const demo = fly("demo");
+  check("`aim` fires no charges (it has no hands)", plain.bombs === 0, `${plain.bombs}`);
+  // At least one per bay. The real rate measured ~5/bay on this rig; the floor
+  // is deliberately far below that, because this pins THAT IT FIRES, not how
+  // often — a tripwire that also encodes the tuning would fail on every honest
+  // retune of DEMO_MIN_NET.
+  check("`demo` fires charges on a slag bay", demo.bombs >= 3, `${demo.bombs} across 3 bays`);
+  // And the charges have to be worth firing, or the bot is just burning funds.
+  check("`demo` clears more lines than `aim` on a slag bay",
+    demo.lines > plain.lines, `demo ${demo.lines.toFixed(1)} vs aim ${plain.lines.toFixed(1)}`);
+  // A rack-less rig must fall back to `aim` exactly, or every sweep that runs
+  // `demo` on a stock build is quietly measuring a different bot.
+  {
+    const bare = makeBaseLevel(4, TIER_COUNT);
+    check("`demo` on a rig with no rack has nothing to fire",
+      bare.bombCharges === 0);
+  }
 }
 
 // ---------------------------------------------------------------------------
