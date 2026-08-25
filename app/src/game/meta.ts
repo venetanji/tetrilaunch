@@ -526,9 +526,27 @@ function advanceTier(meta: MetaState): TierResult {
  * the run was flown at (RunState.mark) — a stale save replaying an
  * already-beaten Mark cannot tick the current tier.
  */
-export function recordRunEnd(meta: MetaState, runMark: number, won: boolean, bayReached: number): TierResult {
+export function recordRunEnd(
+  meta: MetaState,
+  runMark: number,
+  won: boolean,
+  bayReached: number,
+  /** Was the run flown WITHOUT spending a bay restart (run.ts's runContinued)?
+   *
+   *  A continued run still bumps the lifetime counters below — it was real
+   *  play, and bestBay should reflect how deep the player actually got — but
+   *  it does not tick the tier's run half and banks no milestone salvage.
+   *  That is the whole of "restarts must never become pay-to-progress": they
+   *  are free, and free is exactly what they buy. A tier is still won, and now
+   *  winning it means winning it without a continue.
+   *
+   *  Defaults to true so every caller that predates the allowance (and the sim
+   *  harnesses, which construct runs directly) keeps describing a clean run
+   *  rather than silently withholding tier progress. */
+  clean = true,
+): TierResult {
   const tier = markUnlocked(meta);
-  const newlyDone = !meta.tierRunDone && won && runMark === tier;
+  const newlyDone = !meta.tierRunDone && won && clean && runMark === tier;
   const share = newlyDone ? tierMilestoneSalvage(tier) : 0;
   const next: MetaState = {
     ...meta,

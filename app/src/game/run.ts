@@ -39,6 +39,33 @@ export interface RunState {
   ratchets: Ratchets;
   /** Cumulative cleared lines across all completed levels. */
   linesTotal: number;
+  /** Free bay restarts left this run (see RESTARTS_PER_RUN).
+   *
+   *  Restarting a Deep Run bay used to be unlimited, free and silent, which
+   *  quietly contradicted the mode's whole stated proposition — the guide says
+   *  "there are no lives" and the README calls it permadeath, while the pause
+   *  menu offered an infinite undo that no copy anywhere admitted to. Both
+   *  halves of that were wrong: the promise was false, and the button never
+   *  said what it did.
+   *
+   *  A small allowance keeps the beginner's exit that the button was really
+   *  serving, and the price below is what keeps the promise honest. Never
+   *  purchasable — nothing in the Workshop, the refit yard or the store
+   *  touches this field, which is what stops it becoming pay-to-progress. */
+  restartsLeft: number;
+  /** Bays before this index earn NO score: a restart forfeits them.
+   *
+   *  This is the price of a restart, and it is deliberately self-scaling
+   *  rather than a tuned constant. finalRunScore is
+   *  `baysCleared * 500 + lines * 100 + funds`, so a run that restarts scores
+   *  as though it BEGAN at the restarted bay — restart on bay 2 and a beginner
+   *  forfeits almost nothing, because they had almost nothing; restart on bay
+   *  8 and a strong run forfeits seven bays and every line banked.
+   *
+   *  The population the allowance exists for therefore pays nearly nothing for
+   *  it, and a leaderboard run will never touch it. No difficulty scaling and
+   *  no tuning table: the score curve already does that work. */
+  scoreFloorBay: number;
   /** UNSPENT scrap — the in-run upgrade currency (level.ts's SCRAP_PER_LINE /
    *  SCRAP_PER_BAY earn it, refit stops spend it). Distinct from `carry`:
    *  carry is operating cash that funds the next bay's launches, scrap is
@@ -115,6 +142,43 @@ export function bondChargesFor(tier: number): number {
   return Math.max(0, Math.floor(tier));
 }
 
+/** Free bay restarts a run is granted, once, at its start.
+ *
+ *  Two rather than one because the first is nearly always spent on a mistake
+ *  rather than on a difficulty wall — a mis-drag on the opening shot, a phone
+ *  call, a bay entered before the player realised what the draft had just done
+ *  to it — and a mode that offers exactly one retry teaches players to hoard
+ *  it instead of using it. Two is enough to cover the fumble and still be a
+ *  decision the second time.
+ *
+ *  Not scaled by Mark, and not purchasable. The price of using one already
+ *  scales with how far in you are (see RunState.scoreFloorBay), so a second
+ *  dial here would be tuning the same thing twice. */
+export const RESTARTS_PER_RUN = 2;
+
+/** Has this run been continued? A restarted run keeps playing and keeps its
+ *  score (from the restarted bay on), but it is no longer the clean clear a
+ *  tier is won with — see meta.ts's recordRunEnd. */
+export function runContinued(run: RunState): boolean {
+  return run.scoreFloorBay > 0;
+}
+
+/** Spend one restart: the bay is replayed from its own opening conditions
+ *  (levelForRun is derived, so nothing needs resetting), and the run forfeits
+ *  every bay and every line banked so far.
+ *
+ *  Returns the run unchanged when the allowance is spent, so the caller cannot
+ *  hand out a restart the pause modal has already disabled. */
+export function spendRestart(run: RunState): RunState {
+  if (run.restartsLeft <= 0) return run;
+  return {
+    ...run,
+    restartsLeft: run.restartsLeft - 1,
+    scoreFloorBay: run.levelIndex,
+    linesTotal: 0,
+  };
+}
+
 export function newRun(
   seed: number,
   unlocks: string[] = [],
@@ -128,6 +192,8 @@ export function newRun(
     carry: 0,
     ratchets: {},
     linesTotal: 0,
+    restartsLeft: RESTARTS_PER_RUN,
+    scoreFloorBay: 0,
     scrap: startingScrap,
     scrapEarned: startingScrap,
     // No starting-scrap equivalent: nothing has been blown up yet.
@@ -350,6 +416,14 @@ export function advanceRun(
     carry: carryFrom(endedScore, clearedTarget),
     ratchets,
     linesTotal: run.linesTotal + lines,
+    // Both carried for the same reason `sandbox` is spelled out below: this
+    // function rebuilds the run field by field, and a restart allowance that
+    // silently refilled at every bay boundary would be an unlimited undo again
+    // — the exact thing the allowance replaced. The forfeited-bays floor has
+    // to survive too, or a continued run would score itself clean the moment
+    // it cleared one more bay.
+    restartsLeft: run.restartsLeft,
+    scoreFloorBay: run.scoreFloorBay,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,

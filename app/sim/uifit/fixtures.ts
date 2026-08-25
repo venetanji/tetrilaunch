@@ -668,7 +668,7 @@ export const SCREENS: Record<string, () => string> = {
         + " · Reactor Output — +$60 float · Launcher Coils — +6% speed · Loader Magazine — −15% reload",
       pressure: "Crosswind ×2 — Every bay blows harder · Sweeper Tempo — The press runs faster"
         + " · Cold Chain — Ice on the belt · Slag Intake ×2 — Dead cargo on the belt",
-    }),
+    }, { left: 2, continued: false }),
   // …and the Contract face, which carries no rack and no tally and therefore no
   // glossary: the modal has to be correct with the block absent too. Built on
   // the CONTRACT hud, not on HUD_BASE — a Deep Run HUD with a null glossary is

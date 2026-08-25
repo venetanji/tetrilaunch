@@ -303,7 +303,7 @@ function towerHeadHTML(state: TowerState): string {
   const sel = state.selected === SANDBOX_TIER;
   return `<button class="tower__head tower__head--floor${sel ? " is-selected" : ""}" type="button"
     data-action="pick-tier" data-tier="${SANDBOX_TIER}" aria-pressed="${sel}"
-    aria-label="Tier S — sandbox. Any Mark, any bay, any Contract. Scores are kept on a separate board."
+    aria-label="Tier S — sandbox. Any Tier, any bay, any Contract. Scores are kept on a separate board."
     >${lamps}</button>`;
 }
 
@@ -324,7 +324,7 @@ export function tierTowerHTML(state: TowerState): string {
   // is as far up as it goes.
   const off = state.selected === SANDBOX_TIER;
   const idx = towerIndexOf(off ? GOD_TIER : state.selected);
-  return `<div class="tower${off ? " tower--off" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
+  return `<div class="tower${off ? " tower--off" : ""}" role="group" aria-label="Tier tower — pick the Tier to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}">
       ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
@@ -380,7 +380,7 @@ function beltLadderHTML(mark: number, unknown = false): string {
   // picksPerBay is the capstone's OTHER rung: Mark 10 adds no new material and
   // asks for two ratchets a bay instead, which is the thing that makes the top
   // floor different from the ninth. It belongs beside the material count
-  // because between them they are the whole of "what does this Mark deal".
+  // because between them they are the whole of "what does this Tier deal".
   const picks = picksPerBay(mark);
   return `<div class="bay-belt">
     <span class="bay-belt__lbl">Belt</span>
@@ -631,7 +631,7 @@ export function menuScreen(
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${sbxSel ? "Sandbox" : "Deep Run"}</span><span class="btn__sub" id="menu-play-sub">${
           sbxSel
-            ? "Any Mark, bay or Contract · own board"
+            ? "Any Tier, bay or Contract · own board"
             : godSel
               ? "All ten marks at once · no mercy"
               : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
@@ -2249,7 +2249,7 @@ export function refitScreen(opts: {
             : `<button class="btn btn--primary refit-card__buy" data-action="stage-upgrade" data-upgrade="${u.id}"${canStage ? "" : " disabled"}>
                 <span class="refit-card__arrow">${icon(step.dir, 10)}</span>
                 <span class="refit-card__delta">${step.text}</span>
-                <span class="refit-card__price"><span class="refit-card__tier">T${tier + 1}<span class="price__sep">·</span></span>${icon("scrap", 11)}${cost}</span>
+                <span class="refit-card__price"><span class="refit-card__tier">G${tier + 1}<span class="price__sep">·</span></span>${icon("scrap", 11)}${cost}</span>
               </button>`;
     // The track's OWN before/after — absolute on both sides, because "+2 cells"
     // is only legible next to the number it moves. Unstaged, the card states
@@ -2260,7 +2260,7 @@ export function refitScreen(opts: {
     // The ladder still ships in `title` for where hover exists, but it is no
     // longer the only place it is written down: the card's own copy and its
     // before/after carry the tiers a player can actually reach from here.
-    const ladder = u.tiers.map((t, i) => `T${i + 1} ${t}`).join(" · ");
+    const ladder = u.tiers.map((t, i) => `G${i + 1} ${t}`).join(" · ");
     return `<div class="shop-card refit-card${queued > 0 ? " refit-card--staged" : ""}${owned === 0 ? " shop-card--gated" : ""}" title="${u.name} — ${ladder}">
       <div class="shop-card__body">
         <div class="shop-card__name">${icon(u.id as IconName, 13)}${u.name}</div>
@@ -2292,7 +2292,7 @@ export function refitScreen(opts: {
     <div class="panel modal modal--refit pop" style="width:min(940px,96vw)">
       <div class="refit__hdr">
         <div style="text-align:left">
-          <div class="eyebrow">Mark ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
+          <div class="eyebrow">Tier ${opts.mark} · refit stop · after bay ${opts.bayNum}</div>
           <h2 class="display">Yard &amp; Dry Dock</h2>
           <p class="muted refit__blurb" style="margin:0">The compactor rig is your ship. Stage what you want; Undock installs the lot. Next up: ${opts.nextBayName}.</p>
         </div>
@@ -2428,12 +2428,12 @@ export function workshopScreen(meta: MetaState): string {
       // yard's buy buttons use for tiers 2 and 3 — with the one difference that
       // matters, the currency glyph: this purchase is salvage, that one scrap.
       const foot = available
-        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>T1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
+        ? `<button class="btn btn--primary" data-action="buy-install" data-install="${i.id}"${affordable ? "" : " disabled"}>G1<span class="price__sep">·</span>${icon("salvage", 11)}${i.cost}</button>`
         : `<span class="shop-card__locked">Needs ${gates.join(" · ")}</span>`;
       return `<div class="shop-card${available ? "" : " shop-card--gated"}${i.id === nextId ? " shop-card--next" : ""}">
       <div class="shop-card__body">
         <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
-        <p class="shop-card__desc">${def.blurb} Installs at tier 1; refit stops raise it.</p>
+        <p class="shop-card__desc">${def.blurb} Installs at Grade 1; refit stops raise it.</p>
       </div>
       <div class="shop-card__foot">${foot}</div>
     </div>`;
@@ -2539,6 +2539,15 @@ export function pauseModal(
    *  room to grow them, while this modal has room to spare and is already
    *  where a player goes to look something up. */
   glossary: { ship: string; pressure: string } | null = null,
+  /** The bay-restart allowance (run.ts's RESTARTS_PER_RUN), or null where the
+   *  concept does not apply — Contracts and drills restart freely and always
+   *  will, since neither banks a score or a tier.
+   *
+   *  The button used to say "Restart Bay" and nothing else, on a mode whose
+   *  guide entry reads "there are no lives". Both halves of that were wrong at
+   *  once: the restart was real and unlimited, and no copy anywhere admitted
+   *  it. Now it has a price and the button quotes it before it is spent. */
+  restarts: { left: number; continued: boolean } | null = null,
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -2555,7 +2564,21 @@ export function pauseModal(
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
         ${fullscreen ? `<button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>` : ""}
-        <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
+        ${
+          restarts === null
+            ? `<button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>`
+            : `<button class="btn btn--secondary btn--terms" data-action="restart-bay"${
+                restarts.left > 0 ? "" : " disabled"
+              }><span class="btn__txt"><span>Restart Bay${
+                restarts.left > 0 ? ` · ${restarts.left} left` : ""
+              }</span><span class="btn__sub">${
+                restarts.left <= 0
+                  ? "None left this run"
+                  : restarts.continued
+                    ? "Score already restarted · Tier not advanced"
+                    : "Score restarts from this bay · Tier not advanced"
+              }</span></span></button>`
+        }
         <!-- THE RULES, from inside the run. The catalogue is 41 topics deep and
              its best moment is the one it could not reach: a material lands,
              refuses to clear, and the only route to the entry explaining it ran
@@ -3004,6 +3027,15 @@ export function endModal(opts: {
   bayName: string;
   /** True only for the bay-10 win — every other win routes to draftScreen instead. */
   runComplete: boolean;
+  /** This run spent a bay restart (run.ts's runContinued).
+   *
+   *  It changes what the numbers on this screen MEAN, so it has to be said on
+   *  the screen: the score is counted only from the restarted bay, and the
+   *  tier's run half is not ticked however deep the run got. A continued run
+   *  that quietly posted a normal-looking score beside a normal-looking tier
+   *  row would make the ladder's one promise — that a tier is won, never
+   *  bought — unreadable from the outside. */
+  continued?: boolean;
   /** The tier this run's end just COMPLETED (meta.ts's recordRunEnd), or null
    *  when it only ticked progress. */
   tierCompleted: number | null;
@@ -3107,6 +3139,11 @@ export function endModal(opts: {
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
       </div>
+      ${
+        opts.continued
+          ? `<p class="end__continued">Continued run — counted from your restart, and it does not advance your Tier.</p>`
+          : ""
+      }
       <!-- Tier progress. Deliberately prominent on a LOSS too: the run ending
            is not the end of the progression, and the player should see what
            the ladder still asks of them — or what this end just banked —

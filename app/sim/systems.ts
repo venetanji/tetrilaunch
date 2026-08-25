@@ -61,7 +61,8 @@ import {
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
-  newRun, carryFrom, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  newRun, carryFrom, runContinued, spendRestart,
+  CARRY_CAP, REFIT_EVERY, RESTARTS_PER_RUN, RUN_LEVELS,
 } from "../src/game/run";
 import {
   FINALS, applyFinal, finalById, finalsForTier, type FinalId,
@@ -817,9 +818,9 @@ section("Installs — what salvage buys (meta.ts)");
     oneUp.includes(`data-action="stage-upgrade" data-upgrade="reactor"`) &&
       !oneUp.includes(`data-action="buy-upgrade"`));
   const staged = yard({ order: { reactor: 1 } });
-  check("a staged track offers the tier ABOVE the one queued",
-    staged.includes(`T3<span class="price__sep">·</span>`),
-    staged.includes("T2<span") ? "still offering T2" : "no price");
+  check("a staged track offers the Grade ABOVE the one queued",
+    staged.includes(`G3<span class="price__sep">·</span>`),
+    staged.includes("G2<span") ? "still offering G2" : "no price");
   // ONE CYCLING BUTTON per card: it stages while the track has room, and turns
   // into the way out once it cannot. Two controls is what the 44px tap floor
   // cannot afford across a seven-card shelf.
@@ -1897,6 +1898,51 @@ section("Refit cadence + run economy (run.ts)");
     scrap: 96, carry: null, nextBayName: null,
   }).includes("bayclear__carry"));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
+
+  // ---- BAY RESTARTS -------------------------------------------------------
+  // A limited, free, unpurchasable allowance, priced in SCORE rather than in
+  // money — which is what lets it rescue a beginner without softening the
+  // ladder. The three properties below are the whole contract.
+  {
+    let r = newRun(1, [], 0, newTiers(), 1);
+    check("a run starts with its restart allowance",
+      r.restartsLeft === RESTARTS_PER_RUN && r.scoreFloorBay === 0 && !runContinued(r));
+    // Deep into a run, then a restart: the bays and lines banked so far are
+    // forfeit, and the run is marked continued from then on.
+    r = advanceRun(r, 900, 800, 12, 20, []);
+    r = advanceRun(r, 900, 800, 9, 20, []);
+    check("a clean run banks its bays and lines", r.levelIndex === 2 && r.linesTotal === 21);
+    const after = spendRestart(r);
+    check("a restart forfeits the bays banked so far", after.scoreFloorBay === 2);
+    check("a restart forfeits the lines banked so far", after.linesTotal === 0);
+    check("a restart spends one of the allowance",
+      after.restartsLeft === RESTARTS_PER_RUN - 1);
+    check("a restarted run is continued", runContinued(after));
+    check("the bay itself is unchanged — same index, same carry",
+      after.levelIndex === r.levelIndex && after.carry === r.carry);
+    // The allowance does NOT refill at a bay boundary. advanceRun rebuilds the
+    // run field by field, and a refill there would restore the unlimited undo
+    // the allowance replaced — while a floor that reset would let a continued
+    // run score itself clean by clearing one more bay.
+    const onward = advanceRun(after, 900, 800, 5, 20, []);
+    check("the allowance does not refill between bays",
+      onward.restartsLeft === RESTARTS_PER_RUN - 1);
+    check("the score floor survives the next bay", onward.scoreFloorBay === 2);
+    // Spent out, the allowance refuses rather than going negative.
+    let broke = spendRestart(spendRestart(newRun(1, [], 0, newTiers(), 1)));
+    check("the allowance bottoms out at zero", broke.restartsLeft === 0);
+    const refused = spendRestart(broke);
+    check("a spent allowance refuses a further restart", refused === broke);
+    // …and the tier gate. A continued run banks lifetime stats but never ticks
+    // the tier's run half: restarts are free, and free is what they buy.
+    const meta0 = newMeta();
+    const cleanEnd = recordRunEnd(meta0, 1, true, 10, true);
+    const contEnd = recordRunEnd(meta0, 1, true, 10, false);
+    check("a clean win ticks the tier's run half", cleanEnd.meta.tierRunDone);
+    check("a continued win does not tick the tier's run half", !contEnd.meta.tierRunDone);
+    check("a continued win banks no milestone salvage", contEnd.salvage === 0);
+    check("a continued win still logs how deep it got", contEnd.meta.bestBay === 10);
+  }
   // Demolition recovery rides along as a run-long STAT. The default is 0, not
   // the running total: a caller that forgets the argument must under-report one
   // bay rather than re-count every bay before it, and the call above (which

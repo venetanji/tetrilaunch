@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrades, bayMusic, carryFrom, RUN_LEVELS, type RunState,
+  buyUpgrades, bayMusic, carryFrom, runContinued, spendRestart, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -1471,7 +1471,17 @@ class App {
       case "paused":
         if (g) {
           this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported(), this.pauseGlossary());
+            S.hudHTML(this.hudOpts(g))
+            + S.pauseModal(
+              fullscreenSupported(),
+              this.pauseGlossary(),
+              // Contracts and drills pass null: both restart freely, and both
+              // always will — neither banks a score or ticks a tier, so there
+              // is nothing for an allowance to protect.
+              this.run && !this.contract && !this.drill
+                ? { left: this.run.restartsLeft, continued: runContinued(this.run) }
+                : null,
+            );
         }
         break;
       case "bayclear":
@@ -1523,7 +1533,15 @@ class App {
               won: this.state === "won",
               score: this.finalScore(g, this.state === "won"),
               lines: this.run.linesTotal + g.linesTotal,
-              baysCleared: this.run.levelIndex + (this.state === "won" ? 1 : 0),
+              // Counted from the score floor, exactly as finalScore does — the
+              // breakdown line has to explain the score it is printed under,
+              // and a continued run that showed the full bay count beside a
+              // score computed from the restart would read as arithmetic that
+              // does not add up.
+              baysCleared:
+                Math.max(0, this.run.levelIndex - this.run.scoreFloorBay)
+                + (this.state === "won" ? 1 : 0),
+              continued: runContinued(this.run),
               funds: g.score,
               best: loadBest(this.runBoard()),
               name: loadName(),
@@ -2102,7 +2120,13 @@ class App {
    *  the bay-10 clear; every other end is a loss). Bays cleared and lines
    *  weigh far more than the funds in hand — see run.ts's finalRunScore. */
   private finalScore(g: Game, won: boolean): number {
-    const cleared = (this.run?.levelIndex ?? 0) + (won ? 1 : 0);
+    // Bays are counted FROM THE SCORE FLOOR, not from bay 1: a run that spent
+    // a restart forfeits every bay it had banked before it (run.ts's
+    // spendRestart also zeroes linesTotal), so it scores as though it began at
+    // the bay it restarted. On a clean run the floor is 0 and this is the
+    // expression it has always been.
+    const floor = this.run?.scoreFloorBay ?? 0;
+    const cleared = Math.max(0, (this.run?.levelIndex ?? 0) - floor) + (won ? 1 : 0);
     return finalRunScore(cleared, (this.run?.linesTotal ?? 0) + g.linesTotal, g.score);
   }
 
@@ -2487,7 +2511,9 @@ class App {
       this.setState(won ? "won" : "lost");
       return;
     }
-    const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
+    const result = recordRunEnd(
+      this.meta, this.run.mark, won, this.run.levelIndex + 1, !runContinued(this.run),
+    );
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
@@ -2925,6 +2951,12 @@ class App {
       return;
     }
     if (!this.run) return;
+    // A DEEP RUN restart is the one that costs something. The allowance is
+    // spent here rather than in startLevel, because startLevel is also the
+    // tutorial's retry path (coachRetry) and the first bay of every run — a
+    // fumbled tutorial explicitly costs nothing and must keep costing nothing.
+    if (this.run.restartsLeft <= 0) return;
+    this.run = spendRestart(this.run);
     this.startLevel();
     this.last = performance.now();
     this.acc = 0;

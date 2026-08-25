@@ -138,7 +138,7 @@ function bayBriefing(s: SandboxState, meta: MetaState): string {
   const clause = run.levelIndex === RUN_LEVELS - 1 ? finalById(run.final ?? "") : undefined;
   return `<div class="sbx-brief">
     <div class="sbx-brief__ttl">${cfg.name}</div>
-    <div class="sbx-brief__sub">Bay ${bay}/${RUN_LEVELS} · Mark ${run.mark} · ${cfg.pieceSize} shipments${
+    <div class="sbx-brief__sub">Bay ${bay}/${RUN_LEVELS} · Tier ${run.mark} · ${cfg.pieceSize} shipments${
       notches > 0 ? ` · ${notches} notch${notches === 1 ? "" : "es"}` : ""
     }${clause ? ` · ${clause.name}` : ""}</div>
     ${clause
@@ -306,7 +306,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
         <section class="sbx-col" aria-label="What to fly">
           <h3 class="sbx-col__ttl">What</h3>
           ${chipRow("Mode", "", "sbx-mode", "mode", modes)}
-          ${chipRow("Mark", "difficulty rung", "sbx-tier", "tier",
+          ${chipRow("Tier", "difficulty rung", "sbx-tier", "tier",
             SANDBOX_TIERS.map((t) => ({ value: t, text: String(t), on: t === s.tier })))}
           ${
             isBay
@@ -334,7 +334,7 @@ export function sandboxScreen(opts: SandboxScreenOpts): string {
           ${rowHTML("Rig", isBay ? `${tiersCost(s.tiers)} pts installed` : "Deep Run only", rigHTML(s.tiers))}
           ${chipRow("Belt", "what the cannon ships", "sbx-material", "material", [
             { value: "mix", text: "Ladder mix", on: s.material === "mix",
-              title: "Exactly what the Mark deals" },
+              title: "Exactly what the Tier deals" },
             { value: "all", text: "Parade", on: s.material === "all",
               title: "An even run of all six — for comparing them side by side" },
             ...SANDBOX_MATERIALS.map((m) => ({

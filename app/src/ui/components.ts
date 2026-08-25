@@ -374,7 +374,7 @@ export function shipPlatesHTML(tiers: UpgradeTiers): string {
     // rack moves the moment the track is bought and the fixed slots buy
     // nothing.
     const empty = tier === 0 ? " ship-plate--empty" : "";
-    const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — tier ${tier}`;
+    const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — Grade ${tier}`;
     return `<div class="ship-plate${empty}" title="${title}">
         <span class="ship-plate__g">${u.glyph}</span>
         <span class="ship-plate__pips">${pips}</span>

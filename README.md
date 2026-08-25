@@ -19,15 +19,22 @@ clears them away.
   compactor, pricier launches, a tighter clock. Each bay has its own **funding
   target** and **countdown**; bank the target before the clock or the bankroll
   runs out.
-- **Ten Marks** are the difficulty ladder over Deep Run. Each one states harder
+- **Two bay restarts a run**, and they are priced in score rather than money.
+  Restarting is free and can never be bought — but your **score restarts with
+  it**, counted from the bay you restarted, and a **continued run cannot raise
+  your Tier**. That keeps the retry a beginner needs (restarting on bay 2
+  forfeits almost nothing, because you had almost nothing) without softening
+  the ladder (restarting on bay 8 forfeits seven bays and every line). A Tier
+  is still won by a clean run.
+- **Ten Tiers** are the difficulty ladder over Deep Run. Each one states harder
   terms — the opening bay's funding target climbs from **$600 to $780** (and the
   per-bay climb steepens with it, so a run ends at **$1500** at Tier 1 and
   **$1842** at Tier 10), the shift shortens **180s → 144s**, a shot costs
   **$20 → $30** against a float that always buys the same eight launches — and
-  hands you a larger **build budget** to spend on the ship to meet them. The Mark you may
+  hands you a larger **build budget** to spend on the ship to meet them. The Tier you may
   attempt is always **one above your best clear**. Nothing purchasable raises it —
-  a Mark is *won*, never bought, which is what keeps "cleared Mark 7" worth the
-  same for everyone. **Every Mark keeps its own leaderboard**, so a heavier tier
+  a Tier is *won*, never bought, which is what keeps "cleared Tier 7" worth the
+  same for everyone. **Every Tier keeps its own leaderboard**, so a heavier one
   can't out-score a lighter one.
 - **Three daily Contracts** — one bay, **no clock, no launch cost**, failing costs
   nothing and you can retry forever. What replaces time and money pressure is a
@@ -41,10 +48,15 @@ clears them away.
   - **Salvage** is forever, paid out at the end of **every** run — win or lose —
     and spent in the **Workshop** on permanent unlocks.
 - **The compactor is your ship.** After bays **3, 6 and 9** you dock at a
-  **refit stop** and spend scrap on six systems, three tiers each: **Bay
+  **refit stop** and spend scrap on six systems, three **Grades** each: **Bay
   Extension** (12→18 open cells), **Launcher Coils** (muzzle power + a wind
   stabilizer), **Press Hydraulics**, **Loader Magazine**, **Reactor Output**,
-  **Bond Emitter**. Upgrades last the whole run.
+  **Bond Emitter**. Upgrades last the whole run. Grade 1 of a system is a
+  Workshop purchase made with salvage and is yours forever; Grades 2 and 3 are
+  bought with scrap here. **Grade** is kept verbally distinct from the **Tier**
+  ladder above, because they used to both be "tier" — which put "G1 · ♻15" one
+  row above "Needs Tier 2" on the Workshop shelf. (Internally they are `tier`
+  and `mark` respectively — see the note atop `app/src/game/guide.ts`.)
 - **Draft a modifier after every bay** — **2 seeded offers** (or skip), and a
   **third slot once you've cleared 5 daily Contracts**. Twelve mods: Overclock,
   Sturdy/Micro/Bulk Shipments, Demolition Charges, Autoloader, Overtime, Premium
@@ -102,7 +114,7 @@ headhouse — the blinking lamp on the tower's roof — **nine times in a row** 
 a basement floor appears below the building's slab. The elevator does not serve
 it; tapping it opens a level-select screen instead.
 
-From there: any Mark 1-10, any of the ten bays started cold, any Contract
+From there: any Tier 1-10, any of the ten bays started cold, any Contract
 variant, any rig from stock to maxed, any belt (one material, or a parade of all
 six), and any difficulty axis pre-ratcheted up to three notches — states a real
 run can only reach by drafting its way there across six correct bays.
@@ -113,11 +125,11 @@ It is a **game mode, not a cheat menu**, and the difference is enforced:
   `finishRun` skip `recordRunEnd` entirely, and a Tier S Contract never reaches
   `recordContractClear`.
 - Scores go to **their own leaderboard** (`BOARD_SANDBOX`), with its own personal
-  best. A run started on bay 9 at Mark 10 on a rig nobody paid for can never
+  best. A run started on bay 9 at Tier 10 on a rig nobody paid for can never
   place against an honest one.
 - The gesture toggles, and Settings carries the same switch once found.
 
-The **save-editing tools** (set the Mark, grant salvage, unlock everything, wipe)
+The **save-editing tools** (set the Tier, grant salvage, unlock everything, wipe)
 are a different thing and stay behind the build gate they always had: they live
 in `src/lib/sandbox-cheats.ts`, are reached only through `if (SANDBOX)`, and
 `npm run verify:store` fails any bundle their marker string appears in. Build one
@@ -349,7 +361,7 @@ modifier draft, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   Contracts** hand you an exact inventory and demand zero waste; a backtracking
   tiler (`tiling.ts`) *proves* the queue fills the goal before the Contract ships,
   because the one failure this mode can't survive is an unwinnable puzzle.
-- **The Mark ladder** — ten difficulty steps over Deep Run, each with its own
+- **The Tier ladder** — ten difficulty steps over Deep Run, each with its own
   bay terms (target, clock, launch cost), its own build budget and its own
   leaderboard, each raised only by beating the one below. Calibrated with a
   headless harness (`sim/`), which is also how we learned the ladder's original

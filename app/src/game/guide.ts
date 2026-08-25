@@ -3,7 +3,7 @@ import { LEVEL_1, PILE_TIERS } from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
 import { SIZE_SPEC } from "./pieces";
-import { CARRY_CAP, REFIT_EVERY, RUN_LEVELS } from "./run";
+import { CARRY_CAP, REFIT_EVERY, RESTARTS_PER_RUN, RUN_LEVELS } from "./run";
 import { MATERIAL_SPEC, type Material } from "./theme";
 import { MARK_COUNT, MAX_TIER, UPGRADES, type UpgradeId } from "./upgrades";
 import { DRILLS, type DrillSpec } from "./drills";
@@ -43,9 +43,27 @@ import { DRILLS, type DrillSpec } from "./drills";
  * "cryo needs a second shot, so land it early" belongs, and it has never had
  * anywhere else to live.
  *
- * TIERS
+ * TWO VOCABULARIES, AND WHICH WORD IS WHICH
  *
- * `tier` is the tier at which a topic becomes real — the same number, on the
+ * The player-facing words are: TIER for a rung of the 1-10 ladder (the thing
+ * that is won, never bought), and GRADE for a level of a ship system (1-3,
+ * bought with salvage then scrap). They used to both be "tier", which put
+ * "G1 · 15 salvage" one row above "Needs Tier 2" on the Workshop's shelf —
+ * the same word meaning two unrelated things, adjacent, on the screen where
+ * both are being bought.
+ *
+ * THE CODE STILL SAYS OTHERWISE, deliberately, and this is the note that
+ * stops a future reader re-introducing the collision: internally a ladder rung
+ * is a `mark` (MARK_COUNT, markUnlocked, RunState.mark) and a system level is
+ * a `tier` (MAX_TIER, UpgradeTiers, nextTierCost). Renaming those symbols is a
+ * large mechanical diff with real regression surface and no player-visible
+ * benefit, so the mapping lives here instead:
+ *
+ *     code `mark` -> UI "Tier"        code `tier` -> UI "Grade"
+ *
+ * TIERS (this file's own `tier` field)
+ *
+ * `tier` below is a LADDER rung — the tier at which a topic becomes real — the same number, on the
  * same base, that hazards.ts's HazardDef.mark uses: the tier being FLOWN, which
  * is meta.ts's markUnlocked and one above the player's best clear. Topics past
  * it still LIST (a locked row that names its tier is a roadmap; a hidden one is
@@ -151,9 +169,9 @@ function systemTopics(): GuideTopic[] {
     name: u.name,
     summary: u.blurb,
     body:
-      `${u.blurb}<br><b>Tier 1</b> ${u.tiers[0]}. <b>Tier ${MAX_TIER}</b> ${u.tiers[MAX_TIER - 1]}.`
-      + ` Tier 1 is bought once with salvage in the Workshop and is yours forever;`
-      + ` tiers 2 and ${MAX_TIER} are bought with scrap at a refit stop and last the run.`,
+      `${u.blurb}<br><b>Grade 1</b> ${u.tiers[0]}. <b>Grade ${MAX_TIER}</b> ${u.tiers[MAX_TIER - 1]}.`
+      + ` Grade 1 is bought once with salvage in the Workshop and is yours forever;`
+      + ` Grades 2 and ${MAX_TIER} are bought with scrap at a refit stop and last the run.`,
     tier: gate[u.id] ?? 1,
     system: u.id,
     drill: DRILLS[`sys-${u.id}`],
@@ -349,6 +367,16 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       + ` $${CARRY_CAP}, nearly a third funded.`,
   },
   {
+    id: "restarts", chapter: "economy", tier: 1,
+    name: "Restarting a bay",
+    summary: `${RESTARTS_PER_RUN} free restarts a run — they cost you score, not money.`,
+    body: `Pause and you may restart your current bay, <b>${RESTARTS_PER_RUN} times a run</b>. It`
+      + ` cannot be bought — but your score <b>restarts with it</b>: every bay and every line`
+      + ` banked before it is forfeit.`
+      + `<br>Nearly free on bay 2, brutal on bay 8 — it is there to rescue a fumble, not to farm a`
+      + ` deep run. A continued run <b>cannot raise your tier</b>.`,
+  },
+  {
     id: "clock", chapter: "economy", tier: 1,
     name: "The clock",
     summary: `Deep Run bays run on a countdown — ${LEVEL_1.timeLimitSec}s in bay 1. Contracts have none.`,
@@ -366,7 +394,7 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     body: `Scrap is the RUN's currency: <b>${LEVEL_1.scrapPerLine} a line</b> and`
       + ` <b>${LEVEL_1.scrapPerBay} a bay</b>, spent at the refit stops after bays`
       + ` ${Array.from({ length: Math.floor(RUN_LEVELS / REFIT_EVERY) }, (_, i) => (i + 1) * REFIT_EVERY).join(", ")}`
-      + ` on tiers 2 and ${MAX_TIER} of whatever systems you own.`
+      + ` on Grades 2 and ${MAX_TIER} of whatever systems you own.`
       + ` It is gone when the run ends, win or lose — banking scrap is not a strategy, spending it is.`,
   },
   {
@@ -480,8 +508,8 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     name: "Refit stops",
     summary: `After bays ${Array.from({ length: Math.floor(RUN_LEVELS / REFIT_EVERY) }, (_, i) => (i + 1) * REFIT_EVERY).join(", ")} you dock and spend scrap on the ship.`,
     body: `Three times a run the bay ends at a <b>refit yard</b> instead of straight into the next bay.`
-      + ` Scrap buys tiers 2 and ${MAX_TIER} of the systems you already own — tier 1 of a system is a`
-      + ` Workshop purchase, made with salvage, between runs.`
+      + ` Scrap buys Grades 2 and ${MAX_TIER} of the systems you already own — Grade 1 of a system`
+      + ` is a Workshop purchase, made with salvage, between runs.`
       + ` Everything bought here lasts the whole run and stacks with whatever the tier's build budget`
       + ` let you launch with.`,
   },
@@ -515,8 +543,8 @@ export const GUIDE_TOPICS: GuideTopic[] = [
     name: "Deep Run",
     summary: `${RUN_LEVELS} bays, permadeath, a clock and a bankroll. The exam.`,
     body: `<b>${RUN_LEVELS} bays</b> of rising targets and stiffer joints, run end to end.`
-      + ` Each bay has its own funding target and countdown; go broke or run the clock out and the run`
-      + ` ends there — there are no lives.`
+      + ` Each bay has its own funding target and countdown; go broke or run the clock out and the`
+      + ` run is over — you get <b>${RESTARTS_PER_RUN} bay restarts</b> a run and nothing else.`
       + ` Between bays you ratchet an axis, and three times you refit. It is the only mode that`
       + ` posts to the leaderboard, and the only one that can raise your tier.`,
   },

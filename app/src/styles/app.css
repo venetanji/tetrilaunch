@@ -4707,6 +4707,15 @@ button.panel { color: var(--text); }
   .pause-gloss { gap: 4px; }
   .pause-gloss > div { padding: 4px 7px; }
   .pause-gloss dd { font-size: 10px; line-height: 1.3; }
+  /* The heading gives way before the content does. "Take a breath" is mood;
+     the two rows under it are the reason the modal is worth opening, and the
+     restart button's subtitle is a price the player is about to pay. Measured
+     on the 640x360 budget phone, where the modal overflowed its box by 3px
+     once the glossary and that subtitle both landed. */
+  .modal .pause-gloss ~ .row { gap: 6px; }
+  .modal:has(.pause-gloss) { gap: 6px; }
+  .modal:has(.pause-gloss) h2.display { font-size: 15px; line-height: 1.1; }
+  .modal:has(.pause-gloss) .eyebrow { font-size: 7px; }
 }
 .settle-note__dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -6146,6 +6155,13 @@ button.panel { color: var(--text); }
   border-radius: var(--r-md);
 }
 .end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
+/* A CONTINUED run, said where the score is being explained. Warm rather than
+   danger-red: spending a restart is a legitimate way to play the mode, not a
+   failure — it just is not the clean clear a Tier is won with. */
+.end__continued {
+  margin: 0; font-size: var(--fs-sm); line-height: 1.35; color: var(--warn);
+}
+@media (max-height: 460px) { .end__continued { font-size: 10px; } }
 
 /* Short (landscape-phone) viewports. This block shipped without the
    short-viewport variant that every other region of the end modal carries,
