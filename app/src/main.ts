@@ -1321,13 +1321,11 @@ class App {
           this.towerState().selected === S.SANDBOX_TIER ? loadBest(BOARD_SANDBOX) : loadBest(),
           this.meta.salvage, this.storeState(), tierProgressFor(this.meta),
           // The first-session system (canvas A2/A3): the one computed NEXT
-          // STEP, the live numbers for the subtitles, and the Guided
-          // Tutorial entry until the coach has been finished or skipped.
-          {
-            step: nextStep(this.meta),
-            install: this.nextInstall(),
-            firstLaunch: !this.settings.seenTutorial,
-          },
+          // STEP, and the live numbers for the subtitles. The tutorial is a
+          // RUNG of that step now rather than a second badge beside it — see
+          // meta.ts's nextStep, which reads the settings flag so a save that
+          // has never run the coach is pointed at it before anything else.
+          { step: nextStep(this.meta, this.settings.seenTutorial), install: this.nextInstall() },
           this.towerState(),
         );
         break;

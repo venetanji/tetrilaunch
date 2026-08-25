@@ -22,6 +22,13 @@ const appRoot = resolve(here, "..", "..");
 export default defineConfig({
   root: here,
   publicDir: resolve(appRoot, "public"),
+  // The app's own config defines this (see ../../vite.config.ts) and the real
+  // bundle prints the build's short SHA in the menu's corner. Without the
+  // define here `import.meta.env.VITE_BUILD_ID` resolves to undefined, so
+  // every screenshot this harness writes carried a literal "undefined" in its
+  // bottom-right corner — a defect that does not exist in any shipped build,
+  // printed onto the artefact the team reviews builds by.
+  define: { "import.meta.env.VITE_BUILD_ID": JSON.stringify("uifit") },
   // The harness imports ../../src/**; without this Vite's fs guard refuses to
   // serve them, since they sit outside `root`.
   server: { fs: { allow: [appRoot] }, host: "127.0.0.1" },

@@ -493,10 +493,14 @@ export function menuScreen(
   salvage = 0,
   store?: StoreState,
   progress?: TierProgress,
+  /** The first-session system (canvas A2/A3). `step` is meta.ts's ONE
+   *  computed next step, and the only thing that decides which surface wears
+   *  the badge — including the demo panel, whose "Start here" used to be a
+   *  second, independently-computed badge that could (and did) disagree with
+   *  this one on a fresh save. */
   guide?: {
     step: NextStepId;
     install: { name: string; cost: number } | null;
-    firstLaunch: boolean;
   },
   /** Which floor the car is parked on and which floors are open. Absent only
    *  where `progress` is (a caller with no meta state at all), and the screen
@@ -564,10 +568,26 @@ export function menuScreen(
                canvas has to stay out of the accessible name. The corner tag is
                the visible affordance and rides inside the hit layer, so the
                two can never drift apart. -->
-          <button class="menu__demo-hit" data-action="${guide?.firstLaunch ? "tutorial" : "howto"}"
-            aria-label="${guide?.firstLaunch ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
-            <span class="menu__demo-tag">${icon("howto", 11)}Tutorial</span>
-            ${guide?.firstLaunch ? nextBadgeHTML("Start here") : ""}
+          <button class="menu__demo-hit" data-action="${guide?.step === "tutorial" ? "tutorial" : "howto"}"
+            aria-label="${guide?.step === "tutorial" ? "Guided tutorial — learn the cannon in one bay" : "How to play"}">
+            ${
+              // ONE CHIP, two faces — not a tag plus a badge beside it.
+              //
+              // The panel used to carry both: a "Tutorial" tag pinned top-right
+              // and a NEXT STEP badge pinned top-left. That needs two free
+              // corners, and the panel only has them while the demo is LIVE —
+              // the reduced-motion fallback keeps the wordmark as a full-width
+              // headline across the top, so the left-hand badge printed over
+              // TETRI and the right-hand tag over LAUNCH's tail. Two chips
+              // fighting one corner each is also a worse read than one chip
+              // that states its own status, which is exactly the rule
+              // `.btn--next` already applies everywhere else on this screen:
+              // the carrying control takes the warm treatment, rather than
+              // wearing a sticker.
+              guide?.step === "tutorial"
+                ? `<span class="menu__demo-tag menu__demo-tag--next">${icon("howto", 11)}Start here</span>`
+                : `<span class="menu__demo-tag">${icon("howto", 11)}Tutorial</span>`
+            }
           </button>
         </div>
         <!-- The SHELF: everything a player does not open the game to reach.

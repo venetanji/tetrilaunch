@@ -265,7 +265,6 @@ const TOWER_SANDBOX: S.TowerState = { ...TOWER_TOP, sandbox: true };
 const GUIDE = {
   step: "workshop" as const,
   install: { name: "Loader Magazine", cost: 25 },
-  firstLaunch: false,
 };
 
 /** A first-bay HUD as the tutorial actually meets it: stock rig, no abilities,
@@ -360,15 +359,25 @@ export const SCREENS: Record<string, () => string> = {
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX),
   "menu-tier-s-live": () =>
     live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, TOWER_SANDBOX)),
-  // A2's first launch: the SEVENTH action row (Guided Tutorial, badged) plus
-  // the upsell chip — the tallest menu the app can produce, which is exactly
-  // why it is its own fixture.
+  // A2's first launch: the demo panel is the lesson's door and wears the one
+  // NEXT STEP badge, plus the upsell chip — the tallest menu the app can
+  // produce, which is exactly why it is its own fixture.
+  //
+  // PAIRED LIVE, like every other menu state. It was the one fixture without
+  // a `-live` twin, and that gap is precisely how a first-launch badge shipped
+  // rendering `position: static` in the middle of the description paragraph:
+  // the state a real new player sees — demo running, wordmark repositioned,
+  // paragraph visually hidden — was never measured at all.
   "menu-first": () =>
     S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
-      step: "contracts",
+      step: "tutorial",
       install: { name: "Reactor Output", cost: 15 },
-      firstLaunch: true,
     }),
+  "menu-first-live": () =>
+    live(S.menuScreen(0, 0, STORE, tierProgressFor(newMeta()), {
+      step: "tutorial",
+      install: { name: "Reactor Output", cost: 15 },
+    })),
 
   // THE GUIDE (How to Play). Seven fixtures, because the pane has seven shapes
   // and the screen it replaces had ONE fixture — a single argument-less call —

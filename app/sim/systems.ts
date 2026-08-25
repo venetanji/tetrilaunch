@@ -696,9 +696,17 @@ section("Installs — what salvage buys (meta.ts)");
 
   // A3: ONE computed next step, the rule stated once (meta.ts's nextStep) so
   // the menu, the Workshop and the fail card can never point at different
-  // doors: cover an install -> spend it; contracts owed -> earn it;
-  // otherwise the run is the exam.
-  check("a fresh save's next step is Contracts", nextStep(freshMeta()) === "contracts");
+  // doors: coach unseen -> learn it; cover an install -> spend it; contracts
+  // owed -> earn it; otherwise the run is the exam.
+  //
+  // The TUTORIAL rung is asserted first and on a fresh save, because that is
+  // the case the table used to get wrong: with salvage 0 and tierContracts 0
+  // every branch fell through to Contracts, i.e. the badge sent a player who
+  // had never fired the cannon to the one mode that mounts no coach.
+  check("a save that has not run the coach is pointed at the tutorial",
+    nextStep(freshMeta(), false) === "tutorial");
+  check("a fresh save that HAS run the coach is pointed at Contracts",
+    nextStep(freshMeta()) === "contracts");
   check("salvage covering an install says Workshop",
     nextStep(freshMeta({ salvage: 15 })) === "workshop");
   check("contracts done and salvage spent point at the run",
@@ -706,19 +714,31 @@ section("Installs — what salvage buys (meta.ts)");
       tierContracts: 3, salvage: 0,
       loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
     })) === "run");
+  // The tutorial rung outranks a Workshop the player could afford — a first
+  // session must not be sent shopping for systems it has no way to price yet.
+  check("the tutorial rung outranks an affordable install",
+    nextStep(freshMeta({ salvage: 9_999 }), false) === "tutorial");
   // …and the menu renders exactly the one badge the rule picked (A3), the
-  // tier plate in the Deep Run button (A1), and — on first launch only — the
-  // Guided Tutorial in How to Play's slot, with its own START HERE marker
-  // (A2: a seventh row overflows a 360dp phone, so it takes a slot).
+  // tier plate in the Deep Run button (A1), and — on the tutorial rung — the
+  // demo panel as the lesson's door, wearing that same single badge.
   const menuMid = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
-    { step: "contracts", install: null, firstLaunch: false });
+    { step: "contracts", install: null });
   check("exactly one menu action carries the NEXT STEP badge",
     (menuMid.match(/next-badge/g) ?? []).length === 1);
   check("the Deep Run button carries the tier plate", menuMid.includes("tier-plate--menu"));
   const menuFirst = menuScreen(0, 0, undefined, tierProgressFor(freshMeta()),
-    { step: "contracts", install: null, firstLaunch: true });
-  check("first launch swaps How to Play for the badged Guided Tutorial",
+    { step: "tutorial", install: null });
+  check("the tutorial rung swaps How to Play for the Guided Tutorial",
     menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
+  // The whole point of folding the tutorial into nextStep: the first-launch
+  // menu used to draw the computed badge AND a hand-placed "Start here", so a
+  // screen with a one-badge rule showed two of them. Now the demo's own tag
+  // carries the state — ONE marker on the panel, and none of the action rows
+  // wearing a badge that points somewhere else.
+  check("the tutorial rung marks the demo tag rather than adding a badge",
+    menuFirst.includes("menu__demo-tag--next") && !menuFirst.includes("next-badge"));
+  check("no menu action row is badged while the tutorial is owed",
+    (menuFirst.match(/btn--next/g) ?? []).length === 0);
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
 

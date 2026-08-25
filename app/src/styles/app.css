@@ -948,10 +948,16 @@ body.crt-off #app::after { display: none; }
   border-radius: var(--r-sm);
 }
 .menu__demo-hit:hover .menu__demo-tag { background: rgba(0, 240, 255, 0.18); }
-/* First launch puts the NEXT STEP badge on the demo, since the demo is now the
-   lesson's door. Positioned against the panel rather than the tag so the two
-   never stack on the same corner. */
-.menu__demo-hit .next-badge { top: 6px; left: 6px; right: auto; }
+/* The tutorial rung (meta.ts's nextStep) turns the tag itself into the NEXT
+   STEP marker rather than adding a second chip beside it — see screens.ts for
+   why the panel cannot afford two. Same warm vocabulary as .next-badge and
+   .btn--next, on the control that already exists. */
+.menu__demo-tag--next {
+  color: var(--accent-ink);
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.menu__demo-hit:hover .menu__demo-tag--next { background: var(--warn); filter: brightness(1.1); }
 
 /* ---------- The entitlement row (screens.ts's menuScreen) ----------
    A full-size shelf button. It has now been three things: a 23px footnote in

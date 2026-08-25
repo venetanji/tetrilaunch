@@ -603,11 +603,26 @@ export function tierProgressFor(meta: MetaState): TierProgress {
  * Exactly one surface ever carries the badge, and this is the rule that
  * picks it, stated once so the menu, the Workshop and the fail card can
  * never point at different doors:
+ *   tutorial not yet seen                 -> Tutorial (learn it)
  *   salvage covers an installable system  -> Workshop (spend it)
  *   contracts still owed this tier        -> Contracts (earn it)
  *   otherwise                             -> Deep Run (the exam)
+ *
+ * THE TUTORIAL RUNG IS FIRST, and it is first because the three rungs below
+ * it are all written for someone who has already played. On a brand-new save
+ * salvage is 0 and tierContracts is 0, so the old table fell through to
+ * Contracts — and Contracts is the one mode that deliberately mounts NO coach
+ * (main.ts's startContract), replaces the clock and the bankroll with a hard
+ * launch budget, and is described in the guide as where a KNOWN material is
+ * safe to practise. Pointing a player who has never fired the cannon at it
+ * was the one recommendation the badge could make that teaches nothing.
+ *
+ * It also collapses the two badges the first-launch menu used to carry. The
+ * menu used to draw this computed badge AND a separate hand-placed "Start
+ * here" on the demo panel, which is how a screen with a one-badge rule ended
+ * up showing two that disagreed. One rung here, one badge there.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "workshop" | "contracts" | "run";
+export type NextStepId = "tutorial" | "workshop" | "contracts" | "run";
 
 /** The cheapest system the player could install right now, or null. */
 export function cheapestInstall(meta: MetaState): InstallDef | null {
@@ -616,7 +631,13 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
   );
 }
 
-export function nextStep(meta: MetaState): NextStepId {
+/** `seenTutorial` is lib/store's Settings flag, not MetaState: the coach is a
+ *  per-device teaching aid rather than progression, and it is cleared on demand
+ *  by How to Play's replay button. Defaulting it to `true` keeps every caller
+ *  that has no settings to hand (sim harnesses, fixtures) on the pre-tutorial
+ *  table rather than silently badging a tutorial they cannot launch. */
+export function nextStep(meta: MetaState, seenTutorial = true): NextStepId {
+  if (!seenTutorial) return "tutorial";
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
   if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
