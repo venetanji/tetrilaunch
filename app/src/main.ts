@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
+  buyUpgrades, bayMusic, carryFrom, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
@@ -50,7 +50,7 @@ function axisNotchList(ratchets: Ratchets): string[] {
     .map((h) => `${h.id}:${ratchets[h.id]}`);
 }
 import {
-  MAX_TIER, clearTrack, newTiers, orderRungs, orderSize, refitTracks, stageTier, upgradeById,
+  MAX_TIER, UPGRADES, clearTrack, newTiers, orderRungs, orderSize, refitTracks, stageTier, upgradeById,
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
@@ -413,6 +413,13 @@ class App {
    *  which is the Guided Tutorial — the row a first-time player wants. */
   private guideChapter: ChapterId = "basics";
   private guideTopic: string = GUIDE_TOPICS[0].id;
+  /** The guide is open OVER A LIVE BAY (from the pause modal) rather than from
+   *  the menu. Held here rather than derived from `game !== null`, because a
+   *  finished bay's Game outlives it — the end modal is drawn over it — and
+   *  "is there a Game object" is not the same question as "is there a bay to
+   *  go back to". Cleared by resume(), and by every route that leaves the run
+   *  (setState's menu paths), so it can never survive into a fresh open. */
+  private guideFromPause = false;
   /** The guide topic whose drill is currently being flown, or null.
    *
    *  Parallel to `contract`, exclusive with it and with `run`, and for the same
@@ -1406,6 +1413,7 @@ class App {
           chapter: this.guideChapter,
           topicId: this.guideTopic,
           meta: this.meta,
+          inRun: this.guideFromPause,
         });
         break;
       // The drill result, over the dead bay's own HUD — the same placement the
@@ -1461,7 +1469,10 @@ class App {
         }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported());
+        if (g) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported(), this.pauseGlossary());
+        }
         break;
       case "bayclear":
         if (g && this.run) {
@@ -1474,6 +1485,15 @@ class App {
               target: g.target,
               lines: g.linesTotal,
               scrap: g.scrapEarned + g.level.scrapPerBay,
+              // Computed with the SAME expression advanceRun uses rather than
+              // read back off the advanced run, because this card is drawn
+              // BEFORE afterBayClear banks the bay — and a second formula here
+              // would be a second place for the cap to go stale.
+              carry: this.run.levelIndex + 1 >= RUN_LEVELS ? null : carryFrom(g.score, g.target),
+              nextBayName:
+                this.run.levelIndex + 1 >= RUN_LEVELS
+                  ? null
+                  : makeBaseLevel(this.run.levelIndex + 1, this.run.mark).name,
             });
         }
         break;
@@ -2357,6 +2377,52 @@ class App {
     this.overlay.querySelector("#settle-note")?.classList.toggle("show", on);
   }
 
+  /**
+   * THE IN-RUN GLOSSARY — what the HUD's two ciphered readouts actually say.
+   *
+   * The build rack (BAY LCH HYD MAG RCT BND DEM) and the notch tally
+   * (WD x2 . SW . CR . SL x2) are the only persistent statements of what the
+   * player's ship IS and what the bay is DOING to them — the two questions
+   * asked most often, on the screen they spend nearly all their time on — and
+   * the only thing that ever named either was a `title` attribute. Touch
+   * devices do not surface `title`, and this game is landscape-locked for
+   * phones, so on the platform it ships to both readouts were decoration.
+   *
+   * IT LIVES ON THE PAUSE MODAL, not on the readouts themselves, and that is a
+   * conclusion rather than a first choice. Making the plates and the tally
+   * tappable was tried first and is the wrong answer twice over: a plate is
+   * ~25-30px wide by the slot arithmetic app.css derives from the glyph's own
+   * legibility floor, and the tally's chips are inline text — as controls they
+   * are far under the 44px tap floor (sim/uifit put 131 new violations on the
+   * board for it), and the plant panel has no room to make them bigger. That
+   * panel's height budget is the most fought-over number in the stylesheet.
+   *
+   * The pause modal has the room, needs no new tap target, and is already
+   * where a player goes to look something up. It also lets the answer be a
+   * SENTENCE rather than a four-second toast: every string is read from the
+   * table that owns it — upgrades.ts's name and current(tier), hazards.ts's
+   * name and desc, finals.ts's clause — so nothing here is a second copy of
+   * copy that lives somewhere else.
+   */
+  private pauseGlossary(): { ship: string; pressure: string } | null {
+    if (!this.run || this.contract || this.drill) return null;
+    const on = UPGRADES.filter((u) => (this.run!.tiers[u.id] ?? 0) > 0);
+    const ship = on.length
+      ? on.map((u) => `${u.name} — ${u.current(this.run!.tiers[u.id]!)}`).join(" · ")
+      : "Stock rig — nothing installed. Salvage buys a system in the Workshop; scrap raises it at a refit stop.";
+    const taken = HAZARDS.filter((h) => (this.run!.ratchets[h.id] ?? 0) > 0);
+    const parts = taken.map((h) => {
+      const n = this.run!.ratchets[h.id]!;
+      return `${h.name}${n > 1 ? ` \u00d7${n}` : ""} — ${h.desc}`;
+    });
+    const clause = this.run.final ? finalById(this.run.final) : undefined;
+    if (clause) parts.push(`Final Inspection, ${clause.name} — ${clause.desc}`);
+    const pressure = parts.length
+      ? parts.join(" · ")
+      : "No notches taken yet — this bay is running at its base difficulty.";
+    return { ship, pressure };
+  }
+
   /** End of the bay-clear celebration: bank the bay into the run, then route to
    *  a REFIT stop if this clear earned one (every REFIT_EVERY-th bay — see
    *  run.ts's isRefitBay), otherwise straight to the modifier draft. Both paths
@@ -2808,8 +2874,16 @@ class App {
     this.game.paused = true;
     this.setState("paused");
   }
+  /** Back to the bay — from the pause modal, and from the GUIDE opened over it.
+   *
+   *  "howto" is accepted as a resumable state only while `guideFromPause` is
+   *  set, which is the flag that says the run behind this screen is still
+   *  alive. Without that pair the guide's Back button would be the one route
+   *  into resume() that could reach a menu-opened guide with no Game at all. */
   private resume(): void {
-    if (this.state !== "paused" || !this.game) return;
+    const fromGuide = this.state === "howto" && this.guideFromPause;
+    if ((this.state !== "paused" && !fromGuide) || !this.game) return;
+    this.guideFromPause = false;
     this.game.paused = false;
     this.last = performance.now();
     this.acc = 0;
@@ -3374,7 +3448,15 @@ class App {
       // The Tier S gesture. Never re-renders on a partial streak — see
       // onBeaconTap.
       case "tower-beacon": this.onBeaconTap(el); break;
-      case "howto": this.setState("howto"); break;
+      case "howto": this.guideFromPause = false; this.setState("howto"); break;
+      // The pause modal's route into the catalogue. Same screen and same
+      // selection state as the menu's, minus every control that would end the
+      // bay waiting behind it (screens.ts's guideScreen, `inRun`).
+      case "howto-paused":
+        if (this.state !== "paused") break;
+        this.guideFromPause = true;
+        this.setState("howto");
+        break;
       // THE GUIDE. Both selections live on the app (see guideChapter), so
       // switching chapters keeps the pane and the highlighted row in step and
       // a drill can return to the row it was launched from.
@@ -3496,6 +3578,7 @@ class App {
         break;
       case "menu":
         this.contract = null; this.contractMusic = null; this.drill = null;
+        this.guideFromPause = false;
         this.setState("menu");
         break;
       case "pause": this.pause(); break;

@@ -222,6 +222,22 @@ body.crt-off #app::after { display: none; }
      drag the whole app (iOS scrollEnabled is already off in capacitor.config,
      but the PWA has no such setting). */
   overscroll-behavior: contain;
+  /* THE BOTTOM FADE — the cue that says "there is more", which every one of
+     these regions was missing.
+     The refit shelf, the Workshop's stock and the Controls list all end their
+     visible area flush against a full-width button bar (Undock, Start Run,
+     Done). A row sliced through the middle of its own text, hard up against a
+     button, does not read as a scroll edge — it reads as two boxes colliding,
+     which is exactly what it was reported as. The scrolling itself is not the
+     defect and is not being undone: the arithmetic in sim/uifit's
+     ALLOWED_SCROLLERS is right that seven upgrade tracks at the 44px tap floor
+     cannot fit a sub-200px region on a phone.
+     A mask costs no layout, no reflow and no box: it cannot disturb the fit
+     assertions these same regions have to keep passing. It is also
+     self-hiding — a list shorter than its box has nothing under the gradient's
+     tail, so the fade only appears where there is something to fade. */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
 }
 
 /* Centering is done via `margin: auto` on the `.modal` child itself (see below),
@@ -3969,9 +3985,16 @@ body.crt-off #app::after { display: none; }
    row carries, which is what made the missing floor visible; the draft's own
    note never reached it. */
 .projection__note {
-  color: var(--text-muted);
+  color: var(--accent-ink); background: var(--text-muted);
+  border-radius: var(--r-sm); padding: 2px 5px;
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* THE AMBER KEY (screens.ts's projectionHTML), and it is hidden HERE — at the
+   widths where every active tile is already flying its own ACTIVE tag. It is
+   un-hidden at compact density below, which is exactly where that tag is
+   dropped for width. One statement of the meaning at every viewport, never
+   two, never none. */
+.projection__key { display: none; }
 /* What the panel is FOR, said in the space it is waiting to fill. Only the
    yard passes it (screens.ts's projectionHTML): a draft always has rows to
    show, a yard with nothing staged may hold only the bay's priced five. */
@@ -4048,6 +4071,13 @@ body.crt-off #app::after { display: none; }
 .draft__confirm { display: flex; flex-direction: column; gap: 6px; }
 .draft__confirm .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 .draft__confirm-note { font-size: 11px; line-height: 1.35; margin: 0; }
+/* The commitment's TERMS, stated on the control that accepts them. Centred
+   rather than left-aligned like the menu's subtitled rows: this button is one
+   centred label, and a sub that hung left under a centred title would read as
+   two unrelated lines. See screens.ts's draftScreen for why the terms moved
+   off the note and onto the button. */
+.btn--terms .btn__txt { align-items: center; gap: 2px; }
+.btn--terms .btn__sub { font-size: 10px; letter-spacing: 0.04em; opacity: 0.72; }
 
 /* The card grid is the draft modal's flexible, scrollable region (same idiom
    as #lb-body below): it shrinks and scrolls before the header or carry chip
@@ -4130,6 +4160,13 @@ body.crt-off #app::after { display: none; }
      label as one letter — which loses the row's identity to keep a flag that
      the border was already flying. */
   .preview-stat__live { display: none; }
+  /* ...and the key takes over from it, off the tiles where it costs no label
+     width. See .projection__key above. */
+  .projection__key {
+    display: block; margin: 0;
+    font-family: var(--font-pixel); font-size: 6.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--warn); opacity: 0.85;
+  }
   .preview-stat__val { font-size: 12px; gap: 4px; line-height: 1.25; }
   .preview-stat__from { font-size: 10px; }
   .modal--draft .draft__confirm-note { font-size: 9px; }
@@ -4639,6 +4676,38 @@ button.panel { color: var(--text); }
   z-index: 7;
 }
 .settle-note.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+/* ---------- The in-run glossary (screens.ts's pauseModal) ----------
+   The plant panel's two ciphered readouts, in words: the build rack's seven
+   3-letter system glyphs and the notch tally's 2-letter axis codes. Both were
+   explained only by a `title` attribute, which touch devices never surface —
+   on a landscape-locked phone game that made the only persistent statement of
+   "what is my ship" and "what is this bay doing to me" unreadable.
+   It sits HERE rather than on the readouts because those are far under the
+   44px tap floor and the plant panel has no height left to grow them (see
+   main.ts's pauseGlossary). Two definition rows, label above value, so a long
+   list of installed systems wraps as prose instead of fighting a grid. */
+.pause-gloss {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 0; text-align: left; width: 100%;
+}
+.pause-gloss > div {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 9px;
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--bw) solid var(--line);
+  border-radius: var(--r-sm);
+}
+.pause-gloss dt {
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--accent);
+}
+.pause-gloss dd { margin: 0; font-size: 11.5px; line-height: 1.35; color: var(--text-dim); }
+@media (max-height: 460px) {
+  .pause-gloss { gap: 4px; }
+  .pause-gloss > div { padding: 4px 7px; }
+  .pause-gloss dd { font-size: 10px; line-height: 1.3; }
+}
 .settle-note__dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--success); box-shadow: 0 0 8px var(--success);
@@ -4701,6 +4770,16 @@ button.panel { color: var(--text); }
   letter-spacing: 0.06em;
 }
 .bayclear__stats { display: flex; gap: clamp(16px, 4vw, 40px); }
+/* What actually carries. Sits between the banked figure and the tap hint
+   because it is the FOOTNOTE to that figure — the headline number is the bay's
+   ending funds, and only the overshoot above target follows the player on
+   (run.ts's carryFrom). Deliberately not styled as a stat: it is a sentence
+   about the stats above it, not a fourth one beside them. */
+.bayclear__carry {
+  margin: 0; font-size: var(--fs-sm); line-height: 1.35;
+  color: var(--text-dim); text-align: center;
+}
+.bayclear__carry b { color: var(--accent); font-weight: var(--fw-bold); }
 .bayclear__hint { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); opacity: 0.85; }
 @media (prefers-reduced-motion: reduce) {
   .bayclear__rays { animation: none; opacity: 0.4; }

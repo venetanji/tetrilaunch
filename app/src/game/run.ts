@@ -295,6 +295,20 @@ export function levelForRun(run: RunState): LevelConfig {
  *  left to actually play. A strong bay buys tempo — never the next bay. */
 export const CARRY_CAP = 150;
 
+/** The carry a bay ending on `endedScore` against `clearedTarget` banks into
+ *  the next bay's float. Only the OVERSHOOT above target follows you on, and
+ *  only up to CARRY_CAP; a bay that ended at or below target carries nothing
+ *  (no debt travels either).
+ *
+ *  Extracted from advanceRun so the bay-clear card can state the figure
+ *  BEFORE the bay is banked (main.ts draws that card first, and afterBayClear
+ *  runs advanceRun only once it is dismissed). A second copy of the
+ *  expression at the call site would be a second place for the cap to go
+ *  stale — the same one-home rule the guide's copy is held to. */
+export function carryFrom(endedScore: number, clearedTarget: number): number {
+  return Math.min(CARRY_CAP, Math.max(0, endedScore - clearedTarget));
+}
+
 /** Advance to the next level after one ends: carry becomes the overshoot
  *  banked above the just-cleared bay's target, CAPPED at CARRY_CAP (0 if the
  *  bay ended at or below target — no debt carries), lines and scrap
@@ -333,7 +347,7 @@ export function advanceRun(
   return {
     seed: run.seed,
     levelIndex: run.levelIndex + 1,
-    carry: Math.min(CARRY_CAP, Math.max(0, endedScore - clearedTarget)),
+    carry: carryFrom(endedScore, clearedTarget),
     ratchets,
     linesTotal: run.linesTotal + lines,
     scrap: run.scrap + scrapEarned,

@@ -61,7 +61,7 @@ import {
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
-  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  newRun, carryFrom, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
   FINALS, applyFinal, finalById, finalsForTier, type FinalId,
@@ -1868,6 +1868,34 @@ section("Refit cadence + run economy (run.ts)");
   check("a small overshoot carries itself, not the cap",
     advanceRun(run, 850, 800, 0, 0, []).carry === 50,
     String(advanceRun(run, 850, 800, 0, 0, []).carry));
+  // The bay-clear card states the carry BEFORE afterBayClear banks the bay, so
+  // it cannot read the figure off an advanced run — it calls carryFrom, the
+  // same helper advanceRun uses. These pin the two to each other: a cap moved
+  // in one place and not the other is the exact drift the extraction exists to
+  // prevent, and the card is where a player would first read the stale number.
+  check("the card's carry helper agrees with the banked carry",
+    carryFrom(950, 800) === advanceRun(run, 950, 800, 0, 0, []).carry
+    && carryFrom(5000, 1000) === CARRY_CAP
+    && carryFrom(700, 800) === 0);
+  // …and the card SAYS it, in both directions. A bay that cleared by a hair
+  // carries nothing, and the copy has to state that rather than print "$0
+  // carries" — which reads as a bug rather than as a rule.
+  const clearCard = (funds: number) => S.bayClearScreen({
+    bayNum: 7, bayName: "Cryo Vault", funds, target: 1_700, lines: 14, scrap: 96,
+    carry: carryFrom(funds, 1_700), nextBayName: "Compactor Core",
+  });
+  check("the bay-clear card names what carries",
+    clearCard(1_820).includes("<b>$120</b> carries into Compactor Core"));
+  check("a bay cleared on the nose says nothing carries",
+    clearCard(1_700).includes("Nothing carries") && !clearCard(1_700).includes("$0</b> carries"));
+  // The last bay has no next bay to fund, so the line is absent rather than
+  // promising a carry into nothing. Asserted on the CLASS, not on the word:
+  // these templates ship their own explanatory HTML comments to the DOM (the
+  // repo's convention throughout screens.ts), and one of them says "carries".
+  check("the final bay's card renders no carry line", !S.bayClearScreen({
+    bayNum: RUN_LEVELS, bayName: "Compactor Core", funds: 3_000, target: 1_700, lines: 14,
+    scrap: 96, carry: null, nextBayName: null,
+  }).includes("bayclear__carry"));
   check("scrap accumulates", run.scrap === 26 && run.scrapEarned === 26);
   // Demolition recovery rides along as a run-long STAT. The default is 0, not
   // the running total: a caller that forgets the argument must under-report one

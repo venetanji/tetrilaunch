@@ -3,7 +3,7 @@ import { LEVEL_1, PILE_TIERS } from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
 import { SIZE_SPEC } from "./pieces";
-import { REFIT_EVERY, RUN_LEVELS } from "./run";
+import { CARRY_CAP, REFIT_EVERY, RUN_LEVELS } from "./run";
 import { MATERIAL_SPEC, type Material } from "./theme";
 import { MARK_COUNT, MAX_TIER, UPGRADES, type UpgradeId } from "./upgrades";
 import { DRILLS, type DrillSpec } from "./drills";
@@ -336,6 +336,17 @@ export const GUIDE_TOPICS: GuideTopic[] = [
       + ` costs you <b>$${LEVEL_1.penaltyPerLostPiece}</b> — a red −$ marks the spot.`
       + ` It is the same money as a third of a launch, and it is why the useful question mid-drag is`
       + ` "does this reach the zone" before "does this fit the row".`,
+  },
+  {
+    id: "carry", chapter: "economy", tier: 1,
+    name: "Carry-over",
+    summary: `Only funds ABOVE the target follow you on — at most $${CARRY_CAP}.`,
+    body: `A bay's funds do not roll into the next one. Only the <b>overshoot above target</b>`
+      + ` carries, and never more than <b>$${CARRY_CAP}</b> — the rest is spent running the bay`
+      + ` you just finished.`
+      + `<br>So the question at a bay's end is not "how rich am I" but <b>how far past target</b>`
+      + ` one more row puts you. Crossed by $10, the next bay opens on its bare float; by`
+      + ` $${CARRY_CAP}, nearly a third funded.`,
   },
   {
     id: "clock", chapter: "economy", tier: 1,

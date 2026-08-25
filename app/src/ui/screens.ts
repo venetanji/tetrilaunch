@@ -791,6 +791,21 @@ export function guideScreen(opts: {
   topicId: string;
   /** The save, for the tier every drill gate is measured against. */
   meta: MetaState;
+  /** Opened from the PAUSE MENU, over a bay that is still live.
+   *
+   *  The catalogue's whole value is answering "what is this cube doing" at the
+   *  moment the cube is on the field, and until now the only route to it was
+   *  the main menu — i.e. abandoning the run to look up the rule you needed to
+   *  finish it. This flag is what makes the screen safe to open from there,
+   *  and it is a SUBTRACTION rather than a decoration: every control that
+   *  would end the paused run is replaced.
+   *
+   *  Both of them would, and neither obviously: "Start Run" reads as the way
+   *  back to play and would silently discard the run in progress, and a
+   *  drill's Run button flies a different bay entirely (main.ts's startDrill
+   *  destroys the current Game). A guide that can eat the run it was opened to
+   *  rescue is worse than no guide. */
+  inRun?: boolean;
 }): string {
   const tier = markUnlocked(opts.meta);
   const topics = topicsIn(opts.chapter);
@@ -814,7 +829,18 @@ export function guideScreen(opts: {
   // than hiding: a row that says "Tier 6" is a roadmap, a row that is simply
   // absent is a surprise — the same argument the Workshop's gated cards make.
   let foot = "";
-  if (topic.cta) {
+  if (opts.inRun && (topic.cta || topic.drill)) {
+    // A bay is live: the offer is stated but not launchable, and the note says
+    // why rather than leaving a dead button to be poked at.
+    const name = topic.cta ? topic.cta.label : `Drill · ${topic.drill!.name}`;
+    foot = `<div class="guide__drill guide__drill--locked">
+      <span class="guide__drill-txt">
+        <span class="guide__drill-kind">${name}</span>
+        <span class="guide__drill-brief">${topic.cta ? topic.cta.note : topic.drill!.brief}</span>
+      </span>
+      <span class="guide__drill-go">After this bay</span>
+    </div>`;
+  } else if (topic.cta) {
     foot = `<button class="guide__drill" data-action="${topic.cta.action}">
       <span class="guide__drill-txt">
         <span class="guide__drill-kind">Start here</span>
@@ -847,8 +873,12 @@ export function guideScreen(opts: {
           <div class="eyebrow">Briefing</div>
           <h2 class="display">How to Play</h2>
         </div>
-        <button class="btn btn--primary guide__play" data-action="play">${icon("play")}Start Run</button>
-        <button class="icon-btn" data-action="menu" aria-label="Back">${icon("close", 18)}</button>
+        ${
+          opts.inRun
+            ? `<button class="btn btn--primary guide__play" data-action="resume">${icon("play")}Resume Bay</button>`
+            : `<button class="btn btn--primary guide__play" data-action="play">${icon("play")}Start Run</button>`
+        }
+        <button class="icon-btn" data-action="${opts.inRun ? "resume" : "menu"}" aria-label="${opts.inRun ? "Back to the bay" : "Back"}">${icon("close", 18)}</button>
       </div>
       <div class="workshop__tabs guide__tabs" role="tablist">${tabs}</div>
       <div class="guide__cols">
@@ -2085,6 +2115,12 @@ export function bayClearScreen(opts: {
   target: number;
   lines: number;
   scrap: number;
+  /** What the OVERSHOOT actually banks into the next bay's float — run.ts's
+   *  advanceRun, capped at CARRY_CAP. Null on the last bay, where there is no
+   *  next bay to carry into. */
+  carry: number | null;
+  /** The bay the carry funds, for the line that states it. */
+  nextBayName: string | null;
 }): string {
   return `<div class="bayclear" id="bayclear" data-action="skip-bayclear">
     <div class="bayclear__rays" aria-hidden="true"></div>
@@ -2096,6 +2132,24 @@ export function bayClearScreen(opts: {
         <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
         <div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>
       </div>
+      <!-- WHAT YOU ACTUALLY KEEP. The figure above is the bay's ending funds,
+           and it is the biggest number on the screen — but only the overshoot
+           above target carries, capped at CARRY_CAP (run.ts's advanceRun), and
+           the rest evaporates. Until this line existed the rule appeared
+           NOWHERE a player could read it: not in the guide's Money chapter,
+           not here, and the draft's "Ended $1820 — carries $120" chip states a
+           result without ever stating the rule that produced it. So the
+           celebration's headline number was the one you don't get to keep, and
+           the screen never said so. -->
+      ${
+        opts.carry !== null && opts.nextBayName
+          ? `<p class="bayclear__carry">${
+              opts.carry > 0
+                ? `<b>$${opts.carry}</b> carries into ${opts.nextBayName} — the rest is spent`
+                : `Nothing carries — only funds <b>above target</b> follow you on`
+            }</p>`
+          : ""
+      }
       <p class="muted bayclear__hint">tap to continue</p>
     </div>
   </div>`;
@@ -2476,15 +2530,39 @@ export function workshopScreen(meta: MetaState): string {
 /** `fullscreen` mirrors hudHTML's fullscreenSupported: false (the native
  *  shells, iPhone Safari) mounts no fullscreen row at all — the app is
  *  already edge-to-edge there, so the button would be a dead control. */
-export function pauseModal(fullscreen = true): string {
+export function pauseModal(
+  fullscreen = true,
+  /** THE IN-RUN GLOSSARY — the plant panel's two ciphered readouts, in words.
+   *  Null for Contracts and drills, which carry neither. See main.ts's
+   *  pauseGlossary for why the answer lives here rather than on the readouts:
+   *  the plates and the tally are far under the tap floor and the panel has no
+   *  room to grow them, while this modal has room to spare and is already
+   *  where a player goes to look something up. */
+  glossary: { ship: string; pressure: string } | null = null,
+): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
       <div class="eyebrow">Paused</div>
       <h2 class="display">Take a breath</h2>
+      ${
+        glossary
+          ? `<dl class="pause-gloss">
+        <div><dt>Your ship</dt><dd>${glossary.ship}</dd></div>
+        <div><dt>This bay</dt><dd>${glossary.pressure}</dd></div>
+      </dl>`
+          : ""
+      }
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
         ${fullscreen ? `<button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>` : ""}
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
+        <!-- THE RULES, from inside the run. The catalogue is 41 topics deep and
+             its best moment is the one it could not reach: a material lands,
+             refuses to clear, and the only route to the entry explaining it ran
+             through the main menu — i.e. through abandoning the run. Opens over
+             the paused bay and returns to it; see guideScreen's inRun flag, which
+             strips every control on that screen that would end the run. -->
+        <button class="btn btn--secondary" data-action="howto-paused">${icon("howto", 14)}How to Play</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
     </div>
@@ -2553,12 +2631,31 @@ function projectionHTML(
    *  load rather than one waiting for a tap. */
   idleHint = "",
 ): string {
+  // THE AMBER KEY, rendered only when there is amber to explain.
+  //
+  // An active row (its axis already has banked notches) is drawn with an amber
+  // border AND an ACTIVE tag — but app.css hides that tag at compact density,
+  // deliberately: the word costs ~28px of a ~63px tile interior and would
+  // ellipsise the label down to one letter. The border is what survives, and a
+  // border is a colour nobody has been told the meaning of.
+  // So the word moves off the tiles and into one line under the grid, where it
+  // costs the tiles nothing. Paired with the tag rather than replacing it:
+  // app.css shows this line only at the densities that hide the tag, so the
+  // meaning is stated exactly once, at every width.
+  const key = rows.some((r) => r.active)
+    ? `<p class="projection__key">Amber — already ratcheted this run</p>`
+    : "";
   return `<div class="projection" id="${id}" aria-live="polite">
     <div class="projection__hd">
       <span>${title}</span>
+      <!-- A STATE PILL, not a second heading. This is what the grid is
+           currently showing ("as it stands" / "with your selection"), and as a
+           bare right-aligned span opposite the title it read as a column
+           header over a grid that has no columns. -->
       <span class="projection__note">${note}</span>
     </div>
     <div class="preview-grid">${previewGridHTML(rows)}</div>
+    ${key}
     ${idleHint ? `<p class="projection__idle muted">${idleHint}</p>` : ""}
   </div>`;
 }
@@ -2699,14 +2796,30 @@ export function draftScreen(opts: {
         )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
-        <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
-          ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
+        <!-- THE TERMS RIDE THE BUTTON, not the note under it.
+             .draft__confirm-note is display:none under max-height 520px,
+             and every device in sim/uifit's matrix is 360-440 tall — so on
+             every phone the app ships to, the note was invisible. That would
+             be fine for a line the screen repeats elsewhere (the header's
+             "next up" genuinely does duplicate this button, and still yields),
+             but the note was the ONLY place in the entire app stating that a
+             notch is permanent and cannot be declined. It is also the first
+             screen a player meets after the tutorial's last card: REFIT_EVERY
+             is 3, so bay 1 routes straight here.
+             A sub-label inside the label survives every viewport the button
+             does, and states the terms at the moment they are accepted. -->
+        <button class="btn btn--primary btn--block btn--terms" data-action="confirm-hazards"${ready ? "" : " disabled"}>
+          <span class="btn__txt"><span>${
+            ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`
+          }</span><span class="btn__sub">${
+            opts.picksNeeded > 1
+              ? "Permanent · every bay costs two notches · no skip"
+              : "Permanent · every bay costs a notch · no skip"
+          }</span></span>
         </button>
-        <p class="draft__confirm-note muted">${
-          opts.picksNeeded > 1
-            ? "The capstone costs two notches a bay — there is no skip. Pick the pressures you are equipped for."
-            : "Every bay costs one notch — there is no skip. Pick the pressure you are equipped for."
-        }</p>
+        <p class="draft__confirm-note muted">Pick the ${
+          opts.picksNeeded > 1 ? "pressures" : "pressure"
+        } you are equipped for — the axis your ship answers is the one that costs you least.</p>
       </div>
     </div>
   </div>`;
@@ -2794,8 +2907,15 @@ export function finalScreen(opts: {
         )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
-        <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
-          ${ready ? `Sign it — launch ${opts.nextBayName}` : "Take a clause"}
+        <!-- Same treatment as the ratchet draft's confirm, and the same
+             reason: the note below is hidden on every phone. What the terms
+             SAY differs, because a clause is not a ratchet — it binds one bay
+             rather than the rest of the run, which is the whole distinction
+             finals.ts exists to draw. -->
+        <button class="btn btn--primary btn--block btn--terms" data-action="confirm-hazards"${ready ? "" : " disabled"}>
+          <span class="btn__txt"><span>${
+            ready ? `Sign it — launch ${opts.nextBayName}` : "Take a clause"
+          }</span><span class="btn__sub">Binds the final bay only · no skip</span></span>
         </button>
         <p class="draft__confirm-note muted">Both clauses cost about the same. Which one costs YOU less is what your refits decided.</p>
       </div>

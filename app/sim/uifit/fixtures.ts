@@ -421,6 +421,14 @@ export const SCREENS: Record<string, () => string> = {
   "guide-art": () =>
     S.guideScreen({ chapter: "basics", topicId: "rotate", meta: newMeta() }),
   "guide-rig": () => S.guideScreen({ chapter: "rig", topicId: "sys-bonds", meta: ownedMeta() }),
+  // The guide OPENED FROM THE PAUSE MODAL, over a live bay. A different screen
+  // in two places that both have to fit: the header's primary becomes Resume
+  // Bay, and every drill foot becomes the locked variant (a drill launched
+  // from here would destroy the run the player paused). Measured on an
+  // unlocked drill topic, which is the row that would otherwise render the
+  // launchable foot.
+  "guide-inrun": () =>
+    S.guideScreen({ chapter: "basics", topicId: "rotate", meta: ownedMeta(), inRun: true }),
 
   // The drill result, both verdicts. The LOSS card is the tall one: it repeats
   // the drill's brief where the win card states one short line.
@@ -648,11 +656,35 @@ export const SCREENS: Record<string, () => string> = {
 
   // Modals render OVER the HUD in the app; measuring them alone would miss any
   // collision with the chrome underneath.
-  pause: () => S.hudHTML({ ...HUD_BASE, contract: null }) + S.pauseModal(),
+  // The pause modal now carries the IN-RUN GLOSSARY (screens.ts's pauseModal),
+  // and the fixture states its worst case rather than its emptiest: every
+  // system installed and four axes banked is the longest both rows can get, so
+  // a modal that fits this fits every honest run. HUD_BASE's own tiers and
+  // ratchets, rendered exactly as main.ts's pauseGlossary would.
+  pause: () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) +
+    S.pauseModal(true, {
+      ship: "Bay Extension — 16 open cells · Press Hydraulics — ×2.8 assist · +24% stroke"
+        + " · Reactor Output — +$60 float · Launcher Coils — +6% speed · Loader Magazine — −15% reload",
+      pressure: "Crosswind ×2 — Every bay blows harder · Sweeper Tempo — The press runs faster"
+        + " · Cold Chain — Ice on the belt · Slag Intake ×2 — Dead cargo on the belt",
+    }),
+  // …and the Contract face, which carries no rack and no tally and therefore no
+  // glossary: the modal has to be correct with the block absent too. Built on
+  // the CONTRACT hud, not on HUD_BASE — a Deep Run HUD with a null glossary is
+  // a pairing main.ts cannot produce (pauseGlossary returns null only when
+  // `contract` or `drill` is set), and measuring it put the rail's ability
+  // buttons off the bottom of four phones: a Contract carries no bond, demo or
+  // autoloader button at all, so the rail it lays out is three rows shorter.
+  "pause-contract": () => (SCREENS["hud-contract"]?.() ?? "") + S.pauseModal(),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
       bayNum: 7, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 96,
+      // A CAPPED carry (the overshoot here is $120, under CARRY_CAP) into a
+      // long bay name — the widest the carry line gets, since the zero case
+      // renders shorter copy and the last bay renders none at all.
+      carry: 120, nextBayName: "Compactor Core",
     }),
 
   refit: () => refit({}),
