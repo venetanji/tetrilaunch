@@ -622,29 +622,56 @@ function measure(cfg: {
   // The tolerance is 0.6px: the offsets are calc() chains over fractional
   // field dimensions, so a rooted edge lands within a rounding step of the
   // panel's, and the defect this exists for was --bw = 2px, three times that.
-  const strip = (sel: string): DOMRect | null =>
-    document.querySelector(sel)?.getBoundingClientRect() ?? null;
-  const brow = strip(".plant__crest--brow");
-  if (plant && brow) {
+  //
+  // PRESENCE FIRST, then geometry. All seven strips are unconditional in
+  // screens.ts's hudHTML — brow, flank, port and skirt hung off `.plant`,
+  // cap, step and shoulder off the `.pl-pwr` cap nested inside it — and
+  // hudHTML is the only thing that renders a `.plant` at all (the coach
+  // fixtures inject into its markup rather than building their own). So a
+  // panel that renders renders the WHOLE ring, and none of the seven is
+  // optional. That matters because the natural way to write this — compare
+  // an edge only if the strip is there — is an assertion that goes green by
+  // deleting the thing it exists to hold: rename a class, drop an `<i>`, and
+  // the ring loses an edge while the check reports nothing. Each missing
+  // segment is its own violation, reported before any geometry is compared.
+  //
+  // The RIVETS are deliberately out of scope. They plug the corners where two
+  // independent tooth runs meet, their offsets derive from the same --bw the
+  // strips use, and there are six rather than eight for a reason app.css
+  // documents (no R5 — the shoulder/flank join is not a turn). Their presence
+  // is a statement about the art, which this assertion does not make.
+  const strip = (name: string): DOMRect | null =>
+    document.querySelector(`.plant__crest--${name}`)?.getBoundingClientRect() ?? null;
+  if (plant) {
     const p = plant.getBoundingClientRect();
+    const seg: Record<string, DOMRect | undefined> = {};
+    for (const name of ["brow", "cap", "step", "shoulder", "flank", "port", "skirt"]) {
+      const rect = strip(name);
+      if (rect) seg[name] = rect;
+      else out.crest.push(`the ${name} strip is missing — the ring has no such segment to seat`);
+    }
+    // Undefined reaches `seat` only for a segment already reported missing
+    // above, and an edge that does not exist has no offset to report twice.
     const seat = (name: string, edge: number | undefined, want: number | undefined): void => {
       if (edge === undefined || want === undefined) return;
       const d = edge - want;
       if (Math.abs(d) > 0.6) out.crest.push(`${name} sits ${d > 0 ? "+" : ""}${d.toFixed(1)}px off`);
     };
-    const cap = strip(".plant__crest--cap");
-    const flank = strip(".plant__crest--flank");
-    const port = strip(".plant__crest--port");
-    const skirt = strip(".plant__crest--skirt");
+    const { brow, cap, step, shoulder, flank, port, skirt } = seg;
     // The top edge is TWO strips at two heights — the brow along the panel's
-    // own top, the cap up over the raised PWR meter — so it is checked as a
-    // handoff (the brow's right edge is the cap's left) rather than as one
-    // band. That step is the design, not a break in the ring; what the ring
-    // must not do is leave a gap at the join.
-    seat("brow left vs panel left", brow.left, p.left);
-    seat("brow bottom vs panel top", brow.bottom, p.top);
-    seat("brow right vs cap left", brow.right, cap?.left);
+    // own top, the cap up over the raised PWR meter, with the step rising
+    // between them and the shoulder bringing the run back down the cap's far
+    // side — so it is checked as a chain of handoffs rather than as one band.
+    // That step is the design, not a break in the ring; what the ring must not
+    // do is leave a gap at a join.
+    seat("brow left vs panel left", brow?.left, p.left);
+    seat("brow bottom vs panel top", brow?.bottom, p.top);
+    seat("brow right vs cap left", brow?.right, cap?.left);
+    seat("step right vs cap left", step?.right, cap?.left);
+    seat("step top vs cap bottom", step?.top, cap?.bottom);
     seat("cap right vs panel right", cap?.right, p.right);
+    seat("shoulder top vs cap bottom", shoulder?.top, cap?.bottom);
+    seat("shoulder left vs panel right", shoulder?.left, p.right);
     seat("flank left vs panel right", flank?.left, p.right);
     seat("flank top vs panel top", flank?.top, p.top);
     seat("flank bottom vs panel bottom", flank?.bottom, p.bottom);
