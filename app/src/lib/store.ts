@@ -16,6 +16,13 @@ export interface Settings {
    *  driver + ui/screens.ts's coachHTML). The How to Play screen's "Guided
    *  Tutorial" button clears it to replay the coach on demand. */
   seenTutorial: boolean;
+  /** Set once a shot has been fired from the keyboard/mouse or gamepad family
+   *  — the key-hint strip's own seenDragHint. It gates the strip's full-time
+   *  appearance the same way seenDragHint gates the finger loop: a hint that
+   *  keeps restating a control the player has demonstrably used is chrome
+   *  pretending to teach, and the pause modal carries the reference table for
+   *  everyone past that point (see main.ts's armKeyHints/dismissKeyHints). */
+  seenKeyHints: boolean;
   /** Mirror the touch rail to the LEFT edge (Controls screen's touch tab) —
    *  the solver reserves its band on that side too (layout.ts setRailSide). */
   leftHandRail: boolean;
@@ -62,6 +69,7 @@ const META_KEY = "tetrilaunch.meta";
 
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
+  seenKeyHints: false,
   leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
 };
 

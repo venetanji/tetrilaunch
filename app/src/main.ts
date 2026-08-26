@@ -97,6 +97,7 @@ import {
 import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
+import { focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_NAV } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, fetchLeaderboard, isLadderBoard, submitScore,
@@ -231,6 +232,11 @@ const BOND_HOLD_SLOP = 24;
  *  deliberate second press: startPauseHold zeroes the stamp on every new
  *  press, so the window only ever covers the press that fired. */
 const HOLD_CLICK_MS = 400;
+/** How long after the profile flips to gamepad a UI press still reads as the
+ *  press that CAUSED the flip (see onPadUiButton). The real gap is one poll
+ *  tick — sub-millisecond — so this only has to be comfortably above that and
+ *  comfortably below any deliberate second press. */
+const PAD_WAKE_MS = 50;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -417,6 +423,20 @@ class App {
    *  loop — one schedules a start, the other an end, and sharing a handle would
    *  let a misfire cancel a pending onboarding hint. */
   private misfireGuideTimer: number | null = null;
+  /** The key-hint strip's drivers (see armKeyHints) — the drag-hint trio for
+   *  the OTHER onboarding surface: whether the strip is currently faded (the
+   *  value every HUD render mounts with, since renderOverlay rewrites the
+   *  strip wholesale), the once-per-session idle re-show, and its timer. */
+  private keyHintsDismissed = false;
+  private keyHintsShownThisSession = false;
+  private keyHintTimer: number | null = null;
+  /** When the profile last flipped to gamepad (performance.now()), so the
+   *  press edge that CAUSED the flip — delivered by the same poll tick,
+   *  microseconds later — lands focus and does nothing else (see setProfile /
+   *  onPadUiButton). A timestamp, not a consumed-once flag: a flag would
+   *  survive until whatever press came next, seconds later, and eat a
+   *  deliberate one. */
+  private padWokeAt = 0;
   /** performance.now() of the last misfire guide, for its rate limit. */
   private lastMisfireGuide = -Infinity;
 
@@ -597,6 +617,7 @@ class App {
         this.renderOverlay();
         return true;
       },
+      onUiButton: (button) => this.onPadUiButton(button),
       assist: () => this.settings.stickAssist,
       pull: () => this.settings.stickPull,
     });
@@ -654,6 +675,7 @@ class App {
     this.attract.stop();
     this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    if (this.keyHintTimer !== null) window.clearTimeout(this.keyHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
@@ -779,16 +801,30 @@ class App {
     this.profile = p;
     document.documentElement.dataset.profile = p;
     if (!changed) return;
+    // A pad's first press can arrive with any screen already up — the moment
+    // the profile flips is the moment that screen needs a focus to steer. The
+    // flag makes that same press SPEND itself on the landing (onPadUiButton):
+    // the press that woke the pad on the end modal must not also press the
+    // freshly-focused Play Again.
+    if (p === "gamepad") {
+      this.padWokeAt = performance.now();
+      this.syncPadFocus();
+    }
     const g = this.game;
     if (!g) return;
+    const owned = {
+      bond: g.bondCharges > 0,
+      demo: g.level.bombCharges > 0,
+      auto: g.level.autoLaunchMs > 0,
+    };
     const strip = this.overlay.querySelector(".kbd-hint");
-    if (strip) {
-      strip.outerHTML = S.hintStripHTML(p, {
-        bond: g.bondCharges > 0,
-        demo: g.level.bombCharges > 0,
-        auto: g.level.autoLaunchMs > 0,
-      });
-    }
+    // The fade state rides across the swap: a profile flip mid-bay re-labels
+    // the hints, it does not re-earn them screen time.
+    if (strip) strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed);
+    // The pause modal's reference block re-labels the same way — a pad picked
+    // up while paused should read pad hints before play resumes.
+    const pauseKeys = this.overlay.querySelector("#pause-keys");
+    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned);
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -889,6 +925,9 @@ class App {
       },
       tier: this.run?.mark ?? null,
       profile: this.profile,
+      // The strip's transience (armKeyHints): every HUD mount has to carry the
+      // current fade state, or a pause/draft round-trip would resurrect it.
+      hintsDismissed: this.keyHintsDismissed,
       target: g.target,
       score: g.score,
       // launchCostNow, not level.launchCost: under a congestion tier the shot
@@ -1350,6 +1389,13 @@ class App {
 
   private renderOverlay(): void {
     const g = this.game;
+    // The Controls screen re-renders on every rebind interaction, and the
+    // wholesale innerHTML rewrite below detaches whatever row held focus — a
+    // keyboard or pad flow lost its place on every capture (the same defect
+    // refreshDraft fixes for the draft, D4). The rebind rows carry a stable
+    // per-action attribute, so the place is recorded here and restored below.
+    const focusedBind = (document.activeElement as HTMLElement | null)
+      ?.closest("[data-bind]")?.getAttribute("data-bind") ?? null;
     // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
     // screen is about to be replaced by a fresh one carrying none of the crest
     // variables syncHud wrote inline. Those writes are guarded by a "last value
@@ -1515,7 +1561,15 @@ class App {
         }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported());
+        if (g) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.pauseModal(fullscreenSupported(), this.profile, {
+              bond: g.bondCharges > 0,
+              demo: g.level.bombCharges > 0,
+              auto: g.level.autoLaunchMs > 0,
+            });
+        }
         break;
       case "bayclear":
         if (g && this.run) {
@@ -1594,8 +1648,39 @@ class App {
         }
         break;
     }
+    if (focusedBind) {
+      this.overlay
+        .querySelector<HTMLElement>(`[data-action="rebind"][data-bind="${focusedBind}"]`)
+        ?.focus();
+    }
+    this.syncPadFocus();
     this.syncFullscreenButtons();
     this.syncAttract();
+  }
+
+  /** A pad player needs focus to EXIST before the D-pad can move it: land it
+   *  on each fresh screen's primary action (ui/padnav.ts's focusInitial).
+   *  Gamepad profile only — a mouse player's screens should not open with a
+   *  focus ring they never asked for — and never over focus that survived the
+   *  render (the data-bind restore above, a browser-preserved input). */
+  private syncPadFocus(): void {
+    if (this.profile !== "gamepad" || this.state === "playing") return;
+    const root = this.padNavRoot();
+    const el = document.activeElement as HTMLElement | null;
+    if (el && root.contains(el)) return;
+    focusInitial(root);
+  }
+
+  /** The subtree pad navigation may roam. The modal states render the HUD
+   *  and the modal into ONE overlay (renderOverlay concatenates them), so
+   *  querying the whole overlay offered the covered rail, pause and
+   *  fullscreen buttons under the scrim as focus targets — found in review:
+   *  moving right off a modal's last action could walk focus onto an
+   *  invisible control and the next A would press it, fullscreen included.
+   *  The scrim covers everything beneath it, so while one is up it IS the
+   *  navigable screen. */
+  private padNavRoot(): HTMLElement {
+    return this.overlay.querySelector<HTMLElement>(".modal-scrim") ?? this.overlay;
   }
 
   /**
@@ -1792,7 +1877,8 @@ class App {
     if (this.run.sandbox) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints(); this.coachOnShoot();
       },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
@@ -1836,6 +1922,7 @@ class App {
     this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   /** Shows the finger-drag onboarding hint immediately on a brand-new
@@ -2026,6 +2113,47 @@ class App {
     }
   }
 
+  /** The key-hint strip's bay-start arming — armDragHint for the OTHER
+   *  onboarding surface, with the same shape on purpose: shown in full until
+   *  the family's first shot (settings.seenKeyHints), then once per session as
+   *  a 15s stuck-player fallback, and otherwise mounted faded. The strip's
+   *  retirement home is the pause modal (screens.ts's pauseKeysHTML), so a
+   *  veteran is never without the table — it just stops squatting the bay
+   *  floor. No baysPlayed cap here, unlike the drag hint's D3 rule: the
+   *  counter counts TOUCH bays too, and a fifty-bay phone veteran plugging in
+   *  a pad for the first time is exactly the first-timer this strip is for. */
+  private armKeyHints(): void {
+    if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
+    this.keyHintsDismissed = this.settings.seenKeyHints;
+    // Sync the mounted strip too: the callers run AFTER setState("playing")
+    // rendered the HUD, and that render read the PREVIOUS bay's dismissed
+    // state — arming has to be able to both reveal and fade the live node.
+    this.overlay.querySelector(".kbd-hint")?.classList.toggle("kbd-hint--hidden", this.keyHintsDismissed);
+    if (!this.settings.seenKeyHints) return;
+    if (this.keyHintsShownThisSession) return;
+    this.keyHintTimer = window.setTimeout(() => {
+      this.keyHintsShownThisSession = true;
+      this.keyHintsDismissed = false;
+      this.overlay.querySelector(".kbd-hint")?.classList.remove("kbd-hint--hidden");
+    }, 15_000);
+  }
+
+  /** Fades the strip once a shot proves the controls, and marks the family
+   *  seen. Gated on the PROFILE, not the pointer event: onShoot cannot see
+   *  the input that fired it, but the profile is by definition the last input
+   *  seen — and a touch shot must not retire a strip the touch player has
+   *  never been shown. */
+  private dismissKeyHints(): void {
+    if (this.profile === "touch") return;
+    if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
+    this.keyHintsDismissed = true;
+    this.overlay.querySelector(".kbd-hint")?.classList.add("kbd-hint--hidden");
+    if (!this.settings.seenKeyHints) {
+      this.settings.seenKeyHints = true;
+      saveSettings(this.settings);
+    }
+  }
+
   // ---------------- interactive coach (first-run tutorial, issue #23) -------
   /** Move the coach forward to step `to` (never backward — actions can arrive
    *  out of order, e.g. a shot fired straight from the aim step skips rotate
@@ -2183,7 +2311,8 @@ class App {
     // Contract.
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints();
       },
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -2198,6 +2327,7 @@ class App {
     }, drillSeed(topic.id));
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   /**
@@ -2233,7 +2363,8 @@ class App {
     if (this.sandboxContract) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints();
       },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
@@ -2265,6 +2396,7 @@ class App {
     this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   private onGameStatus(s: GameStatus): void {
@@ -3488,6 +3620,88 @@ class App {
       t.click();
     }
   };
+
+  /** Where B (PAD_BACK) lands per screen — each entry is the screen's OWN
+   *  back/close control, clicked rather than re-implemented, so backing out
+   *  by pad runs the exact handler (and cleanup — "menu" clears the contract
+   *  and the drill) the on-screen button runs. Screens with no entry have no
+   *  back by design: the drafts and the refit are the run's mandatory
+   *  commitment screens, and the end modals are an explicit choice between
+   *  exits — a B that picked one for the player would be a decision, not a
+   *  dismissal. */
+  private padBackTarget(): string | null {
+    switch (this.state) {
+      case "paused": return '[data-action="resume"]';
+      // Controls goes back through whichever door opened it (controlsBack).
+      case "controls": return `[data-action="${this.controlsBack}"]`;
+      case "settings": case "workshop": case "contracts":
+      case "howto": case "leaderboard": case "sandbox":
+        return '[data-action="menu"]';
+      default: return null;
+    }
+  }
+
+  /** The pad's UI layer (ui/padnav.ts): D-pad or stick flicks move focus, A
+   *  activates, B backs out. Runs for every press edge the poller sees
+   *  (before its playing gate), so the playing arm has to be explicit about
+   *  the one press it owns — B dismissing the coach card — and refuse the
+   *  rest back to the game.
+   *
+   *  Activation is el.click(), deliberately: it is the keyboard-activation
+   *  path onClick already handles (detail 0, no pointerType), feedback sound
+   *  included, so a pad press and an Enter press are indistinguishable to
+   *  every screen — including the draft's focus-restoring re-render, which is
+   *  what lets pad selection survive a card toggle. */
+  private onPadUiButton(button: number): boolean {
+    // The press that flipped the profile to gamepad already did its job —
+    // landing focus (see setProfile, which stamped padWokeAt in this same
+    // poll tick). Consuming it here is what keeps "wake the pad" and "press
+    // the focused button" two presses on every screen where a button is an
+    // irreversible act. Gameplay is exempt: waking the pad by firing is a
+    // fire. The window is a couple of frames — long enough to cover the tick
+    // that stamped it, far too short to reach a human's second press.
+    if (performance.now() - this.padWokeAt < PAD_WAKE_MS && this.state !== "playing") {
+      return true;
+    }
+    if (this.state === "playing") {
+      // The coach's card is the one UI control alive during play, and every
+      // face button is spoken for except B — so B is the card's button
+      // (Skip on the teaching steps, Got it! on the last), and the card
+      // labels it (coachHTML's pad chip). Without this a pad-only player
+      // completes the tutorial's last step and has no way to say so.
+      if (button === PAD_BACK && this.tutorialStep !== null) {
+        this.overlay.querySelector<HTMLElement>(".coach__btn")?.click();
+        return true;
+      }
+      return false;
+    }
+    // The bay-clear celebration's whole surface is one tap-through div —
+    // nothing focusable, so confirm skips it directly, as a tap would.
+    if (this.state === "bayclear" && button === PAD_CONFIRM) {
+      this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
+      return true;
+    }
+    const root = this.padNavRoot();
+    const dir = PAD_NAV[button];
+    if (dir) return moveFocus(root, dir);
+    if (button === PAD_CONFIRM) {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && root.contains(el)) {
+        el.click();
+        return true;
+      }
+      // Nothing focused yet: the first A lands focus (on the primary), so
+      // the player sees what the next A will do rather than firing blind.
+      return focusInitial(root);
+    }
+    if (button === PAD_BACK) {
+      const sel = this.padBackTarget();
+      const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
+      if (el) el.click();
+      return el !== null;
+    }
+    return false;
+  }
 
   private onClick = (e: MouseEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");

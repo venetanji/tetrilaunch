@@ -59,7 +59,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 }));
 
 const SETTINGS: Settings = {
-  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
   leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
 };
 
@@ -514,6 +514,13 @@ export const SCREENS: Record<string, () => string> = {
       ratchets: {} as Ratchets,
       tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
     }),
+  // The HUD as every bay PAST the first shot mounts it (main.ts's
+  // armKeyHints): the hint strip faded, the bay floor clear. The strip's
+  // shown-state geometry is measured by every other HUD fixture; this one
+  // pins the mount-time dismissed path — the state the strip's transience
+  // exists to produce — through the real hudHTML plumbing rather than a
+  // class toggled in the harness.
+  "hud-hints-dismissed": () => S.hudHTML({ ...HUD_BASE, contract: null, hintsDismissed: true }),
   // Five figures against a four-figure target. A Reactor build carrying
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
@@ -642,7 +649,15 @@ export const SCREENS: Record<string, () => string> = {
 
   // Modals render OVER the HUD in the app; measuring them alone would miss any
   // collision with the chrome underneath.
-  pause: () => S.hudHTML({ ...HUD_BASE, contract: null }) + S.pauseModal(),
+  //
+  // The pause modal carries the control-reference block now (pauseKeysHTML) —
+  // the keyboard arm with the full ability loadout, which is the longest hint
+  // list the block can render and therefore the tallest this modal gets on the
+  // fine-pointer rows (the block is display:none on coarse ones, exactly like
+  // the strip it replaces).
+  pause: () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) +
+    S.pauseModal(true, "keyboard", { bond: true, demo: true, auto: true }),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
@@ -688,6 +703,15 @@ export const SCREENS: Record<string, () => string> = {
   "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, BAY_1)),
   "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, BAY_1)),
   "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, BAY_1)),
+  // The pad player's deck differs in the two places that cost width: the aim
+  // card's body renders the gamepad hint sentence, and every card's button
+  // wears the B chip (screens.ts's padKey — the pad's only route to it). Step
+  // 0 carries the longest gamepad body and step 3 the widest button, so those
+  // two pin the profile.
+  "coach-pad": () =>
+    withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0, S.coachHTML(0, BAY_1, "gamepad")),
+  "coach-final-pad": () =>
+    withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 3, S.coachHTML(3, BAY_1, "gamepad")),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>
@@ -850,7 +874,7 @@ const HUD_LOADOUT = {
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
-    || id === "pause" || id === "bayclear"
+    || id === "hud-hints-dismissed" || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
 }

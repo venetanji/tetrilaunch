@@ -237,6 +237,19 @@
   "Web · 800x600 window|draft|scrollers": [
     ".draft__body scrolls 75px"
   ],
+  "Web · 800x600 window|hud-hints-dismissed|badge": [
+    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
+    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+  ],
+  "Web · 800x600 window|hud-hints-dismissed|tap": [
+    "#bond-chip 47x43",
+    "#demo-chip 47x43"
+  ],
   "Web · 800x600 window|hud-notched|badge": [
     "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
     "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",

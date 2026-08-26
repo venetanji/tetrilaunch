@@ -23,6 +23,7 @@ import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
 } from "../game/guide";
 import type { Settings } from "../lib/store";
+import { PAD_BACK } from "./padnav";
 import { BOARD_SANDBOX, isLadderBoard, type BoardId, type ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
@@ -1322,6 +1323,13 @@ export function hudHTML(opts: {
   /** The active input family (D2): the hint strip renders its bindings from
    *  this. main.ts re-patches the strip when the profile flips mid-bay. */
   profile?: InputProfile;
+  /** Mount the hint strip already faded (kbd-hint--hidden). The strip is
+   *  transient (see hintStripHTML), and the HUD is re-rendered wholesale on
+   *  every state change — pause and back, a draft and back — so the strip's
+   *  visibility has to be part of the render or every modal round-trip would
+   *  resurrect a hint the player already dismissed. main.ts's
+   *  armKeyHints/dismissKeyHints own the value. */
+  hintsDismissed?: boolean;
   /** What the cannon is HOLDING — the transport's first queue slot (canvas
    *  A5's two-deep read: loaded full-size, next behind it). The canvas draws
    *  the same piece at the muzzle; the housing is where it reads as a queue. */
@@ -1849,7 +1857,11 @@ export function hudHTML(opts: {
     </div>
 
     <div class="hud__bottom">
-      ${hintStripHTML(opts.profile ?? "keyboard", { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned })}
+      ${hintStripHTML(
+        opts.profile ?? "keyboard",
+        { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned },
+        opts.hintsDismissed ?? false,
+      )}
     </div>
     <!-- Settle banner: shown while the bay's funding target is met and the
          field is still coming to rest (game.ts's Game.settling). Reassures the
@@ -1863,19 +1875,22 @@ export function hudHTML(opts: {
 }
 
 /**
- * The HUD's input-hint strip (D2): rendered FROM the live bindings per
- * profile, never hardcoded — a rebound key changes the strip, and the
- * gamepad family gets its own strip (CSS shows it whenever the profile is
- * gamepad, whatever the pointer type). Touch renders the keyboard strip's
- * content — the strip itself is hidden on coarse pointers, where the rail is
- * the control surface.
+ * The one list of input hints per non-touch family (D2): every entry is
+ * rendered FROM the live bindings, never hardcoded — a rebound key changes
+ * the hint. Shared by the HUD's transient strip and the pause modal's
+ * reference block, so the two can never teach different controls.
  */
-export function hintStripHTML(
+function hintParts(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; auto: boolean },
-): string {
+  /** The pause card asks for the FULL scheme; the field strip stays the lean
+   *  onboarding set — its two extra mouse lines wrapped it onto a second row
+   *  on a 1280x720 laptop, straight into the plant panel (caught by uifit's
+   *  overlap assertion). The strip is a subset of the card, never a
+   *  disagreement: shared parts render from the same lines. */
+  full = false,
+): string[] {
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
-  const sep = `<span class="kbd-hint__sep">·</span>`;
   const parts: string[] = [];
   /* Each hint is wrapped as ONE element below, which is layout, not markup
      tidiness: .kbd-hint is a flex container, so every loose text node between
@@ -1886,7 +1901,10 @@ export function hintStripHTML(
   const part = (inner: string) => parts.push(`<span class="kbd-hint__part">${inner}</span>`);
   if (profile === "gamepad") {
     part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
-    part(`${kbd("Stick")} aim + power`);
+    // The rate-dial default (gamepad.ts): vertical trims the angle,
+    // horizontal the power, centred holds. The slingshot opt-in changes what
+    // the stick MEANS but not that it aims, so the hint stays true either way.
+    part(`${kbd("Stick")} ↕ angle · ↔ power`);
     part(`${kbd(padLabel(padFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
@@ -1907,6 +1925,15 @@ export function hintStripHTML(
        solve the arc onto it (game/input.ts). A finger still pulls back, and a
        finger never sees this strip. */
     part("click to aim");
+    /* The rest of the mouse scheme (game/input.ts), plain for the same
+       no-keycap reason as "click to aim": the wheel and the mouse buttons
+       are not rebindable keys, and a chip around them would claim they are.
+       Pause-card only (see `full`) — the wheel is the control nothing else
+       on screen teaches, and the card is the scheme's permanent reference. */
+    if (full) {
+      part("scroll for arc height");
+      part("right ⟳ · wheel-press ⟲");
+    }
     /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
        [data-action="pause"]). A gesture nobody is told about is a gesture
        nobody uses.
@@ -1930,10 +1957,67 @@ export function hintStripHTML(
        pause button's own accessible name instead (see hudHTML's .side-rail).
 
        NOT IN THE GAMEPAD ARM: Start is a button press, and nothing binds a
-       held pad button to resetBay. */
+       held pad button to resetBay — a pad player restarts through the pause
+       modal's own button, which pad navigation reaches (main.ts's
+       onPadUiButton). */
     part("hold pause to restart");
   }
-  return `<div class="kbd-hint" aria-hidden="true">${parts.join(`\n        ${sep}\n        `)}</div>`;
+  return parts;
+}
+
+const HINT_SEP = `<span class="kbd-hint__sep">·</span>`;
+
+/**
+ * The HUD's input-hint strip (D2): the hintParts table above, joined as one
+ * sentence on the field's foot. The gamepad family gets its own strip (CSS
+ * shows it whenever the profile is gamepad, whatever the pointer type); touch
+ * renders the keyboard strip's content — the strip itself is hidden on coarse
+ * pointers, where the rail is the control surface.
+ *
+ * TRANSIENT, not resident. The strip is onboarding, and its retirement rule
+ * is the drag hint's (D3, main.ts's armKeyHints/dismissKeyHints): shown in
+ * full until the family's first shot proves the controls, re-shown once per
+ * session if a bay sits 15s with no shot, and otherwise faded out — the bay
+ * floor belongs to the bay. `dismissed` is the mount-time state, because the
+ * HUD is re-rendered wholesale on every state change and a class main.ts
+ * toggled on the old node would not survive the trip; main.ts still toggles
+ * `kbd-hint--hidden` live between renders. The reference copy of these hints
+ * lives on the pause modal (pauseKeysHTML), which is where a player who wants
+ * them re-reads them — and which points at the Controls screen for rebinds.
+ */
+export function hintStripHTML(
+  profile: InputProfile,
+  owned: { bond: boolean; demo: boolean; auto: boolean },
+  dismissed = false,
+): string {
+  const parts = hintParts(profile, owned);
+  return `<div class="kbd-hint${dismissed ? " kbd-hint--hidden" : ""}" aria-hidden="true">${
+    parts.join(`\n        ${HINT_SEP}\n        `)
+  }</div>`;
+}
+
+/**
+ * The pause modal's control reference — the permanent home of the hints the
+ * transient strip retires from. Same hintParts table, same live bindings, so
+ * the strip a first-timer saw and the card a veteran pauses into can never
+ * disagree; the note under it is where "the rest" lives, pointing at the
+ * Controls screen the way the design asks (rebinds, the stick settings).
+ *
+ * Rendered for every profile and CSS-gated exactly like the strip (fine
+ * pointer, or the gamepad profile on any pointer): the pause modal is one
+ * innerHTML render, and gating in markup would leave a stale block behind
+ * when the profile flips mid-pause — main.ts's setProfile re-patches this
+ * node by id instead, the same treatment the strip gets.
+ */
+export function pauseKeysHTML(
+  profile: InputProfile,
+  owned: { bond: boolean; demo: boolean; auto: boolean },
+): string {
+  const parts = hintParts(profile, owned, true);
+  return `<div class="pause-keys" id="pause-keys">
+    <div class="pause-keys__grid">${parts.join("\n      ")}</div>
+    <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>
+  </div>`;
 }
 
 /** First-play / idle-timeout onboarding overlay teaching the slingshot drag
@@ -2051,6 +2135,15 @@ export function coachHTML(
   const dots = steps
     .map((_, i) => `<i class="${i < step ? "done" : i === step ? "cur" : ""}"></i>`)
     .join("");
+  /* The pad's route to this button. While the game is live every pad face
+     button is spoken for except B, so B presses the card's button (main.ts's
+     onPadUiButton) — and a control a pad cannot see is a control a pad-only
+     player cannot use, so the button wears the chip. RAW B (padnav's
+     PAD_BACK), not a bindings.ts lookup: this is the menu-layer convention,
+     deliberately outside the rebindable gameplay table — see padnav.ts. */
+  const padKey = profile === "gamepad"
+    ? `<span class="kbd coach__padkey">${padLabel(PAD_BACK)}</span>`
+    : "";
   return `<div class="coach" id="coach">
     <div class="coach__card">
       <div class="coach__eyebrow">Tutorial · ${Math.min(step + 1, steps.length)}/${steps.length}</div>
@@ -2060,8 +2153,8 @@ export function coachHTML(
         <span class="coach__dots" aria-hidden="true">${dots}</span>
         ${
           last
-            ? `<button class="btn btn--primary coach__btn" data-action="coach-done">Got it!</button>`
-            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">Skip tutorial</button>`
+            ? `<button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}Got it!</button>`
+            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">${padKey}Skip tutorial</button>`
         }
       </div>
     </div>
@@ -2586,8 +2679,18 @@ export function workshopScreen(meta: MetaState): string {
 
 /** `fullscreen` mirrors hudHTML's fullscreenSupported: false (the native
  *  shells, iPhone Safari) mounts no fullscreen row at all — the app is
- *  already edge-to-edge there, so the button would be a dead control. */
-export function pauseModal(fullscreen = true): string {
+ *  already edge-to-edge there, so the button would be a dead control.
+ *
+ *  `profile`/`owned` feed the control-reference block (pauseKeysHTML): the
+ *  pause is the one screen a keyboard or pad player reliably visits when
+ *  they are lost mid-bay, which makes it the right permanent home for the
+ *  hints the transient strip retires from. Touch never sees the block (same
+ *  CSS gates as the strip — the rail is touch's reference). */
+export function pauseModal(
+  fullscreen = true,
+  profile: InputProfile = "keyboard",
+  owned: { bond: boolean; demo: boolean; auto: boolean } = { bond: false, demo: false, auto: false },
+): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
       <div class="eyebrow">Paused</div>
@@ -2598,6 +2701,7 @@ export function pauseModal(fullscreen = true): string {
         <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
+      ${pauseKeysHTML(profile, owned)}
     </div>
   </div>`;
 }

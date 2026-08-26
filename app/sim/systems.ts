@@ -120,10 +120,11 @@ import {
   menuScreen, salvageHTML,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, padFor,
+  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
   resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
+import { PAD_BACK, PAD_CONFIRM, PAD_NAV, pickNext } from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
 import {
   CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
@@ -3325,7 +3326,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // D1: the Controls screen renders every binding as a rebindable row, says
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
-    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
     leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
@@ -7309,6 +7310,95 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
     "the hold is not dressed as a keycap",
     !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The hint strip is transient; the pause modal is its reference (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  const bare = { bond: false, demo: false, auto: false };
+  const full = { bond: true, demo: true, auto: true };
+  // The strip mounts in whichever fade state main.ts hands it — the HUD is
+  // re-rendered wholesale on every state change, so a pause round-trip on a
+  // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
+  check("the strip mounts shown by default",
+    !S.hintStripHTML("keyboard", bare).includes("kbd-hint--hidden"));
+  check("the strip can mount already dismissed",
+    S.hintStripHTML("keyboard", bare, true).includes("kbd-hint--hidden"));
+  // The pause modal carries the same hint table (one source: hintParts), so
+  // the strip a first-timer saw and the card a veteran pauses into can never
+  // disagree — including about a rebind, which is the LIVE-BINDING half.
+  const paused = S.pauseModal(true, "keyboard", full);
+  check("the pause modal carries the control reference", paused.includes('id="pause-keys"'));
+  check("the reference renders the live fire binding",
+    paused.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
+  check("the reference carries the full loadout's ability hints",
+    /break bonds/.test(paused) && /arm charge/.test(paused) && /autofire/.test(paused));
+  check("the reference points at the Controls screen for the rest",
+    /Settings → Controls/.test(paused));
+  // The gamepad arm re-labels the whole table, exactly as the strip does —
+  // main.ts patches #pause-keys on a profile flip mid-pause.
+  const padPaused = S.pauseModal(true, "gamepad", bare);
+  check("the gamepad reference speaks pad, not keys",
+    padPaused.includes(`<span class="kbd">${padLabel(padFor("fire"))}</span>`) &&
+      padPaused.includes("Stick"));
+  // …and never names the pointer hold the pad cannot make (the pad restarts
+  // through this very modal's button, which pad navigation reaches).
+  check("the gamepad reference does not claim the hold gesture",
+    !/hold.*restart/i.test(padPaused));
+}
+
+// ---------------------------------------------------------------------------
+section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The layout every run-critical modal reduces to: a row of cards over a
+  // full-width confirm bar (the draft, the inspection), stated in px so the
+  // scoring is held to real screen shapes rather than to its own arithmetic.
+  const cardA = { x: 100, y: 100, w: 200, h: 240 };
+  const cardB = { x: 340, y: 100, w: 200, h: 240 };
+  const confirm = { x: 100, y: 380, w: 440, h: 48 };
+  const draftish = [cardA, cardB, confirm];
+  check("right steps to the neighbouring card", pickNext(draftish, 0, "right") === 1);
+  check("left steps back", pickNext(draftish, 1, "left") === 0);
+  check("down from a card lands on the confirm bar",
+    pickNext(draftish, 0, "down") === 2 && pickNext(draftish, 1, "down") === 2);
+  check("up from the confirm bar returns to the nearer card",
+    pickNext(draftish, 2, "up") === 0);
+  // The screen's edge is a wall, not a wrap — wrapping turns "which way is
+  // the confirm button" into a memory question.
+  check("the edge is a wall", pickNext(draftish, 0, "left") === 0 && pickNext(draftish, 2, "down") === 2);
+
+  // The menu tower: a vertical stack must step one floor at a time, never
+  // skip to the far end (the off-axis penalty must not distort a pure column).
+  const tower = Array.from({ length: 5 }, (_, i) => ({ x: 40, y: 60 * i, w: 120, h: 50 }));
+  check("a column steps one floor at a time",
+    pickNext(tower, 4, "up") === 3 && pickNext(tower, 0, "down") === 1);
+
+  // A lone diagonal target still has to be reachable — the pause modal's row
+  // is not perfectly aligned with the reference block under it.
+  const diag = [{ x: 0, y: 0, w: 60, h: 40 }, { x: 200, y: 120, w: 60, h: 40 }];
+  check("a diagonal-only neighbour is reachable",
+    pickNext(diag, 0, "down") === 1 && pickNext(diag, 0, "right") === 1);
+
+  // The UI layer's buttons are the RAW standard-mapping conventions, outside
+  // the rebindable gameplay table on purpose (see padnav.ts's note) — pin
+  // them so a refactor cannot quietly route menu confirm through a rebind.
+  check("the UI buttons are the console conventions",
+    PAD_CONFIRM === 0 && PAD_BACK === 1 &&
+      PAD_NAV[12] === "up" && PAD_NAV[13] === "down" &&
+      PAD_NAV[14] === "left" && PAD_NAV[15] === "right");
+
+  // The coach's card is the one control alive during play, and B is its
+  // button (main.ts's onPadUiButton) — so the card must label it for a pad
+  // player, and must not show the chip to anyone else.
+  const lvl = makeBaseLevel(0);
+  check("the coach's button wears the pad chip under the gamepad profile",
+    S.coachHTML(0, lvl, "gamepad").includes("coach__padkey") &&
+      S.coachHTML(0, lvl, "gamepad").includes(`>${padLabel(PAD_BACK)}</span>`));
+  check("no pad chip for touch or keyboard",
+    !S.coachHTML(0, lvl, "touch").includes("coach__padkey") &&
+      !S.coachHTML(0, lvl, "keyboard").includes("coach__padkey"));
 }
 
 // ---------------------------------------------------------------------------

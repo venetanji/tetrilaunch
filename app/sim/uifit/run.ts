@@ -227,7 +227,7 @@ const ASSERTIONS = [
   { id: "rack", desc: "every build-rack system slot is visible without scrolling" },
   { id: "badge", desc: "a badge leaves air around the glyph it frames" },
   { id: "inkline", desc: "a label and the value beside it share one optical line" },
-  { id: "kbdhint", desc: "the key-hint strip is centred on the field and clear of the chrome" },
+  { id: "kbdhint", desc: "the key-hint strip is centred on the field, clear of the chrome, and fades when dismissed" },
 ] as const;
 
 type AssertionId = (typeof ASSERTIONS)[number]["id"];
@@ -991,6 +991,24 @@ function measure(cfg: {
       if (ox > 1 && oy > 1) {
         out.kbdhint.push(`strip overlaps the rail by ${Math.round(ox)}x${Math.round(oy)}px`);
       }
+    }
+    // The strip is TRANSIENT now (main.ts's armKeyHints/dismissKeyHints): a
+    // bay's first shot retires it to the pause modal's reference block, via
+    // the kbd-hint--hidden class. The geometry above is measured in the SHOWN
+    // state the fixtures mount; this pins the other half of the contract —
+    // that the dismissed class actually removes the strip from view. Opacity,
+    // not display, is the mechanism (app.css keeps the box in layout so the
+    // retirement is a visible fade), so opacity is what is asserted; the
+    // harness zeroes transition durations, which is what makes the class flip
+    // measurable in the same frame.
+    const wasHidden = kb.classList.contains("kbd-hint--hidden");
+    kb.classList.add("kbd-hint--hidden");
+    const faded = parseFloat(getComputedStyle(kb).opacity);
+    // Restore the fixture's own state — the screenshot pass reads the DOM
+    // after this measure, and a check must not repaint what it measured.
+    if (!wasHidden) kb.classList.remove("kbd-hint--hidden");
+    if (faded > 0.01) {
+      out.kbdhint.push(`kbd-hint--hidden leaves the strip at opacity ${faded}`);
     }
   }
 
