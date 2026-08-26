@@ -97,6 +97,7 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
+import { GamepadPoller } from "../src/game/gamepad";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -127,7 +128,9 @@ import {
   resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
-import { PAD_BACK, PAD_CONFIRM, PAD_NAV, pickNext } from "../src/ui/padnav";
+import {
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, type NavRect,
+} from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
 import {
   CHAPTERS, GUIDE_TOPICS, drillUnlocked, guideTopics, topicById, topicsIn,
@@ -3495,6 +3498,26 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes('data-toggle="leftHandRail"'));
   check("the gamepad tab carries the stick-assist toggle",
     padPane.includes('data-toggle="stickAssist"'));
+  // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
+  // that has no row in the table below, because they have no binding — so the
+  // pane states them, or they are documented nowhere at all.
+  check("the gamepad pane states the fixed menu buttons",
+    padPane.includes("D-pad move") &&
+      padPane.includes(`${padLabel(PAD_CONFIRM)} select`) &&
+      padPane.includes(`${padLabel(PAD_BACK)} back`));
+  check("the gamepad pane names the button that opens it",
+    padPane.includes("Open Controls") && padPane.includes(padLabel(PAD_CONTROLS)));
+  // Controls is now reachable from every out-of-run menu (the pad's shortcut),
+  // and its header has to say where Done will land — an eyebrow stuck on
+  // "Settings" would be a screen lying about its own exit.
+  check("the header names the door the player came through",
+    controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "workshop" })
+      .includes(">Workshop<") &&
+      controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "howto" })
+        .includes(">How to Play<"));
+  check("both exits lead back through that same door",
+    (controlsScreen({ tab: "touch", settings: ctrlSettings, padName: null, rebinding: null, back: "leaderboard" })
+      .match(/data-action="leaderboard"/g) ?? []).length === 2);
 
   // The left-handed mirror is solver state, not just CSS: snug mode reserves
   // its band on the rail's side, so the field shifts the other way.
@@ -7732,6 +7755,22 @@ section("The hint strip is transient; the pause modal is its reference (screens.
   // through this very modal's button, which pad navigation reaches).
   check("the gamepad reference does not claim the hold gesture",
     !/hold.*restart/i.test(padPaused));
+  // THE MENU GESTURES (ui/padnav.ts). The pad's route through every screen in
+  // the game runs on four buttons that appear in no binding row and on no
+  // other surface, and the card a pad player is reading is itself being driven
+  // by them — so this is where they are written down.
+  check("the gamepad reference names the menu gestures",
+    /D-pad<\/span> move/.test(padPaused) &&
+      padPaused.includes(`<span class="kbd">${padLabel(PAD_CONFIRM)}</span> select`) &&
+      padPaused.includes(`<span class="kbd">${padLabel(PAD_BACK)}</span> back`));
+  check("the gamepad reference names the way into Controls",
+    padPaused.includes(`<span class="kbd">${padLabel(PAD_CONTROLS)}</span> opens Controls`));
+  // …and the FIELD strip does not. It is width-budgeted onboarding for the bay
+  // (four more hints wrapped it into the plant panel), and on a live field the
+  // D-pad is nudging aim while A is the trigger — naming menu gestures there
+  // would be naming controls the player does not have at that moment.
+  check("the field strip stays the bay's own scheme",
+    !/D-pad<\/span> move/.test(S.hintStripHTML("gamepad", full)));
 }
 
 // ---------------------------------------------------------------------------
@@ -7771,9 +7810,105 @@ section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
   // the rebindable gameplay table on purpose (see padnav.ts's note) — pin
   // them so a refactor cannot quietly route menu confirm through a rebind.
   check("the UI buttons are the console conventions",
-    PAD_CONFIRM === 0 && PAD_BACK === 1 &&
+    PAD_CONFIRM === 0 && PAD_BACK === 1 && PAD_CONTROLS === 8 &&
       PAD_NAV[12] === "up" && PAD_NAV[13] === "down" &&
       PAD_NAV[14] === "left" && PAD_NAV[15] === "right");
+  // …and none of them collides with a face button the platform owns: 9 is the
+  // pause binding's default (bindings.ts), 16 is Guide/PS, and 17 is the
+  // DualSense touchpad click, which is outside standard mapping and would
+  // silently do nothing on a Deck.
+  check("the UI never spends a button the platform owns",
+    ![9, 16, 17].some((b) => b === PAD_CONFIRM || b === PAD_BACK || b === PAD_CONTROLS || b in PAD_NAV));
+
+  // -------------------------------------------------------------------------
+  // REACHABILITY, which is the criterion the whole picker is judged by ("all
+  // functionality is accessible when using a controller"). Geometry buys
+  // better-feeling movement than document order and pays for it with the risk
+  // document order does not have: a control that no sequence of presses
+  // reaches, or a corner that focus cannot leave. So the two-dimensional
+  // screens are held to the property directly rather than to a handful of
+  // hand-picked steps.
+  //
+  // `stranded` walks the picker to a fixed point from every control in turn
+  // and reports any pair that cannot be joined — a directed strong-connectivity
+  // check, since "you can get in but not out" is exactly the trap.
+  const stranded = (rects: NavRect[]): string[] => {
+    const dirs = ["up", "down", "left", "right"] as const;
+    const out: string[] = [];
+    for (let from = 0; from < rects.length; from++) {
+      const seen = new Set<number>([from]);
+      const queue = [from];
+      while (queue.length) {
+        const cur = queue.shift()!;
+        for (const d of dirs) {
+          const next = pickNext(rects, cur, d);
+          if (!seen.has(next)) { seen.add(next); queue.push(next); }
+        }
+      }
+      for (let to = 0; to < rects.length; to++) if (!seen.has(to)) out.push(`${from}→${to}`);
+    }
+    return out;
+  };
+
+  // THE TIER S BENCH, measured out of the uifit harness (the `sandbox` fixture
+  // on the 1280x720 laptop row, Chromium): three columns of chips whose middle
+  // column is twice the width of the left, over a launch button parked alone
+  // in the third — the densest and least regular focus field the game has, and
+  // the shape the design note singled out as the one geometry might strand.
+  // Real pixels rather than a tidied sketch, because the risk here is in the
+  // irregularity: ragged row ends, chip rows of different lengths, and one
+  // target 350px away from its nearest neighbour.
+  const bench: NavRect[] = [
+    { x: 1172, y: 56, w: 52, h: 52 },    // ✕, alone in the header
+    { x: 70, y: 174, w: 76, h: 44 },     // mode chips
+    { x: 150, y: 174, w: 72, h: 44 },
+    { x: 226, y: 174, w: 51, h: 44 },
+    { x: 70, y: 248, w: 44, h: 44 },     // tier chips, seven then three
+    { x: 214, y: 248, w: 44, h: 44 },
+    { x: 358, y: 248, w: 44, h: 44 },
+    { x: 70, y: 296, w: 44, h: 44 },
+    { x: 166, y: 296, w: 44, h: 44 },    // ragged end of the wrapped row
+    { x: 70, y: 492, w: 102, h: 44 },    // reseed, alone at the column's foot
+    { x: 445, y: 174, w: 44, h: 44 },    // rig chips, middle column
+    { x: 723, y: 174, w: 44, h: 44 },
+    { x: 445, y: 296, w: 94, h: 44 },    // material chips
+    { x: 740, y: 344, w: 94, h: 44 },
+    { x: 445, y: 466, w: 94, h: 44 },    // axis chips
+    { x: 544, y: 514, w: 94, h: 44 },    // ragged end again
+    { x: 445, y: 570, w: 105, h: 44 },   // clear axes
+    { x: 642, y: 644, w: 94, h: 44 },    // final clause chips
+    { x: 875, y: 592, w: 335, h: 58 },   // Launch, the third column entire
+  ];
+  check("nothing is stranded on the Tier S bench", stranded(bench).length === 0,
+    stranded(bench).slice(0, 6).join(" "));
+  // The two moves that make the bench usable rather than merely connected: the
+  // launch button is one press right of the column beside it, and the ✕ is
+  // reachable by heading up-and-right from the top of the middle column.
+  check("the launch button is one press off the last column",
+    pickNext(bench, 17, "right") === 18);
+  check("the header's close button is reachable from the top row",
+    pickNext(bench, 11, "up") === 0);
+
+  // THE WORKSHOP, same source (`workshop-owned` on the same row): the shop's
+  // column of buy buttons on the right — including one below the pane's fold,
+  // which is a real focus target with a real rect the moment nav scrolls it in
+  // (focusOn's scrollIntoView) — against the single Start Run button in the
+  // aside, 400px to its left and out of line with every one of them.
+  const shop: NavRect[] = [
+    { x: 1078, y: 40, w: 52, h: 52 },    // ✕
+    { x: 962, y: 188, w: 152, h: 47 },
+    { x: 962, y: 276, w: 152, h: 47 },
+    { x: 962, y: 364, w: 152, h: 47 },
+    { x: 962, y: 461, w: 152, h: 47 },
+    { x: 962, y: 559, w: 152, h: 47 },
+    { x: 962, y: 656, w: 152, h: 47 },
+    { x: 1016, y: 744, w: 98, h: 47 },   // below the fold of the shop pane
+    { x: 531, y: 629, w: 219, h: 51 },   // Start Run, alone in the aside
+  ];
+  check("nothing is stranded in the workshop", stranded(shop).length === 0,
+    stranded(shop).slice(0, 6).join(" "));
+  check("the aside's action is one press left of the shop",
+    pickNext(shop, 5, "left") === 8);
 
   // The coach's card is the one control alive during play, and B is its
   // button (main.ts's onPadUiButton) — so the card must label it for a pad
@@ -7785,6 +7920,80 @@ section("Gamepad focus navigation picks by geometry (ui/padnav.ts)");
   check("no pad chip for touch or keyboard",
     !S.coachHTML(0, lvl, "touch").includes("coach__padkey") &&
       !S.coachHTML(0, lvl, "keyboard").includes("coach__padkey"));
+}
+
+// ---------------------------------------------------------------------------
+section("A held direction repeats into the menus (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// The poller driven through a stub pad, the same admission the InputController
+// block below makes: there is no browser here, but GamepadPoller only asks
+// navigator for a button-and-axis snapshot, so a stub runs the REAL poll loop.
+// Worth a behaviour test rather than a reading of the constants, because the
+// property is a cadence — one step on the press, nothing for the delay, then a
+// steady stream — and every part of it is a comparison against `now`.
+{
+  let buttons: number[] = [];
+  let playing = false;
+  // Node ships its own `navigator` as a getter-only accessor on globalThis, so
+  // this is defineProperty rather than an assignment — and it is restored at
+  // the end of the block, since systems.ts is one long-lived process.
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: "stub", connected: true, mapping: "standard",
+        axes: [0, 0],
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+  const ui: number[] = [];
+  const pad = new GamepadPoller({
+    game: () => null,
+    playing: () => playing,
+    onActivity: () => {},
+    onPause: () => {},
+    onCapture: () => false,
+    onUiButton: (b) => { ui.push(b); return true; },
+    assist: () => false,
+    pull: () => false,
+  });
+  /** Polls the stub at 60Hz from `t0` for `ms`, as main.ts's loop does. */
+  const run = (t0: number, ms: number): number => {
+    let t = t0;
+    for (; t <= t0 + ms; t += 1000 / 60) pad.poll(t);
+    return t;
+  };
+
+  buttons = [13]; // D-pad down, held
+  let t = run(0, 100);
+  check("the press itself steps once", ui.length === 1 && ui[0] === 13, String(ui.length));
+  t = run(t, 250); // ~360ms in — still inside the 400ms delay
+  check("a brief hold does not double the step", ui.length === 1, String(ui.length));
+  t = run(t, 400); // past the delay, then ~3-4 repeats at 120ms
+  const repeats = ui.length;
+  check("a held direction repeats after the delay", repeats >= 4 && repeats <= 8, String(repeats));
+  check("...and every repeat is the direction being held", ui.every((b) => b === 13));
+
+  // Release re-arms: the next press starts the delay over rather than
+  // continuing the stream it was in.
+  buttons = [];
+  t = run(t, 200);
+  check("releasing stops the stream", ui.length === repeats, String(ui.length));
+  buttons = [13];
+  t = run(t, 100);
+  check("the next press pays the full delay again", ui.length === repeats + 1);
+
+  // Gameplay takes the D-pad back: 12-15 are aim and power nudges while a bay
+  // is live, and a repeat there would be the menu layer nudging the cannon.
+  const beforePlay = ui.length;
+  playing = true;
+  run(t, 600);
+  check("a live bay silences the repeat", ui.length === beforePlay, String(ui.length - beforePlay));
+  playing = false;
+
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
 }
 
 // ---------------------------------------------------------------------------

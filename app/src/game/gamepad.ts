@@ -40,6 +40,21 @@ const STICK_NAV_OFF = 0.35;
 /** The standard-mapping D-pad indices a stick flick translates to, so the
  *  UI hook speaks exactly one language (ui/padnav.ts's PAD_NAV). */
 const DPAD_UP = 12, DPAD_DOWN = 13, DPAD_LEFT = 14, DPAD_RIGHT = 15;
+const DPAD = [DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT];
+/** Held-D-pad autorepeat for MENU navigation: the first repeat lands this long
+ *  after the press, then one every NAV_REPEAT_MS while the direction is held.
+ *  A pad delivers no key-repeat of its own — the API is a state snapshot — so
+ *  without this the only way down a 57-chip screen (the Tier S bench) is 57
+ *  separate presses.
+ *
+ *  The numbers are a keyboard's: long enough that a deliberate single step
+ *  never doubles (the delay is ~24 frames at 60Hz, far past any press a thumb
+ *  makes on purpose), short enough between repeats to cross a long column at a
+ *  useful pace. The STICK deliberately has no equivalent (see STICK_NAV_ON): a
+ *  thumb resting at a threshold is not the same statement as a D-pad held
+ *  down. */
+const NAV_REPEAT_DELAY_MS = 400;
+const NAV_REPEAT_MS = 120;
 
 export interface GamepadHooks {
   game(): Game | null;
@@ -59,7 +74,9 @@ export interface GamepadHooks {
    *  else falls through to the game exactly as before. Return true to
    *  consume. A stick flick while not playing arrives here too, translated
    *  to its D-pad index — the stick aims during play and navigates outside
-   *  it, and the hook should not have to know which physical control moved. */
+   *  it, and the hook should not have to know which physical control moved.
+   *  A HELD direction arrives repeatedly (NAV_REPEAT_MS), so the hook has to
+   *  be idempotent per press rather than counting them. */
   onUiButton(button: number): boolean;
   /** Stick-assist setting, read live so the toggle applies immediately. */
   assist(): boolean;
@@ -79,6 +96,12 @@ export class GamepadPoller {
    *  holding the axis "fired", or 0 when re-armed. */
   private navX = 0;
   private navY = 0;
+  /** The D-pad direction the UI layer is currently holding, and when its next
+   *  repeat is due (see NAV_REPEAT_DELAY_MS). -1 when nothing is held — which
+   *  includes a D-pad held during PLAY, where the same buttons are aim and
+   *  power nudges and repeat is the game's business, not the menu's. */
+  private navHeld = -1;
+  private navRepeatAt = 0;
   private connected: string | null = null;
 
   constructor(hooks: GamepadHooks) {
@@ -97,6 +120,9 @@ export class GamepadPoller {
     if (!pad) {
       this.connected = null;
       this.prev = [];
+      // A pad that vanishes mid-hold must not leave a direction repeating into
+      // the menu, the same reasoning setAutoHeld follows for the trigger.
+      this.navHeld = -1;
       return;
     }
     this.connected = pad.id;
@@ -122,7 +148,17 @@ export class GamepadPoller {
       // Resume button is the focus landing, so A resumes either way).
       // DURING play the pause binding keeps precedence, so a rebound pause
       // still pauses mid-bay even while a coach card is listening for B.
-      if (!this.hooks.playing() && this.hooks.onUiButton(i)) continue;
+      if (!this.hooks.playing() && this.hooks.onUiButton(i)) {
+        // Arm the autorepeat only for a press the UI ACCEPTED, and only for a
+        // direction: a confirm or a back that repeated would fire its screen's
+        // action again, and a press the UI refused (a screen with nothing to
+        // focus) has nothing to repeat into.
+        if (DPAD.includes(i)) {
+          this.navHeld = i;
+          this.navRepeatAt = now + NAV_REPEAT_DELAY_MS;
+        }
+        continue;
+      }
       if (action === "pause") {
         this.hooks.onPause();
         continue;
@@ -132,6 +168,19 @@ export class GamepadPoller {
       const g = this.hooks.game();
       if (!g) continue;
       this.act(g, action, now);
+    }
+
+    // Held-direction autorepeat, outside play only. Driven from the pressed
+    // STATE rather than from edges — that is the whole point, since the API
+    // reports no repeats — and released the moment the button comes up or
+    // gameplay takes the D-pad back.
+    if (this.navHeld >= 0) {
+      if (!pressed[this.navHeld] || this.hooks.playing()) {
+        this.navHeld = -1;
+      } else if (now >= this.navRepeatAt) {
+        this.navRepeatAt = now + NAV_REPEAT_MS;
+        this.hooks.onUiButton(this.navHeld);
+      }
     }
 
     // Stick-as-D-pad, outside play only: one focus step per flick, per axis,
