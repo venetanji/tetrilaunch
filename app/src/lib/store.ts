@@ -22,6 +22,19 @@ export interface Settings {
   /** Gamepad stick-aiming assist: the left stick's aim is smoothed through a
    *  short lerp so analogue jitter doesn't wobble the arc (gamepad.ts). */
   stickAssist: boolean;
+  /** Which way the left stick points the barrel (gamepad.ts).
+   *
+   *  false (default) — PUSH toward the target: the stick vector is where you
+   *  want the piece to go. Reads like a twin-stick shooter.
+   *  true — PULL BACK like a slingshot: the stick vector is the drag, so the
+   *  barrel swings opposite the thumb. Reads like the touch gesture.
+   *
+   *  A setting rather than a decision because the two are equally defensible
+   *  and the preference is not predictable from anything else about a player:
+   *  a stick is a physical thing you can pull, which makes the slingshot
+   *  reading feel native, but the pad also has to agree with a MOUSE that
+   *  points straight at the target. Neither reading can be right for both. */
+  stickPull: boolean;
   /** Tier S is open — the sandbox floor is drawn under the tower and the mode
    *  can be entered (see lib/devmode.ts for the gesture that flips this, and
    *  for why a MODE is a setting while the developer CHEATS stay a build flag).
@@ -40,7 +53,7 @@ const META_KEY = "tetrilaunch.meta";
 
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
-  leftHandRail: false, stickAssist: true, devMode: false,
+  leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
 };
 
 export function loadSettings(): Settings {

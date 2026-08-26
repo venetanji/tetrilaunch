@@ -277,11 +277,17 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "aim", chapter: "basics", tier: 1,
     name: "Aim & fire",
-    summary: "Drag back like a slingshot; distance sets the power.",
-    body: `<b>Pull back anywhere on the field.</b> The cannon aims <b>opposite</b> your drag and`
-      + ` fires along the dotted arc; the further you pull, the harder it goes.`
-      + ` Release to launch. A second finger on the <b>✕</b> cancels a drag you have thought better of.`
-      + ` The ceiling is open — a full-power lob arcs above the screen and falls back into the bay.`,
+    summary: "Touch pulls back like a slingshot; a mouse points at the spot.",
+    /* BOTH SCHEMES, because this page is not profile-aware. Every other
+       instruction in the game renders per input family through bindings.ts's
+       hint table, but the guide is a reference the player reads between bays —
+       often on a different device from the one they last played on, and always
+       with time to read a second sentence. Rendering only the current device's
+       half would leave the other half undocumented anywhere. */
+    body: `<b>On touch, pull back anywhere on the field.</b> The cannon aims <b>opposite</b> your drag —`
+      + ` the further you pull, the harder it goes. A second finger on the <b>✕</b> cancels a drag.`
+      + ` <b>With a mouse, hold over the spot you want.</b> The cannon solves the gentlest arc through it,`
+      + ` so the meter reads how close to your limit that spot is. Aim high and short to lob a stack.`,
     drill: DRILLS.aim,
   },
   {

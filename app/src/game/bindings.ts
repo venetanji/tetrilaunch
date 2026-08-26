@@ -171,8 +171,16 @@ export function hintAim(profile: InputProfile): string {
   if (profile === "gamepad") {
     return `aim with the left stick — deflection sets the power — and press ${padLabel(padFor("fire"))} to fire`;
   }
+  // MOUSE AND TOUCH NOW AIM DIFFERENTLY, which is exactly the situation this
+  // table exists for. The mouse points at a spot and the cannon solves the arc
+  // onto it (game/input.ts); the finger still pulls back like a slingshot,
+  // because a thumb covers the spot it is aiming at and because the misfire
+  // gate has nothing to measure without a gesture that travels. So the touch
+  // sentence above and this one describe two real, different controls rather
+  // than one control worded twice — and neither can be rendered to the wrong
+  // device without going through here first.
   return (
-    `drag with the mouse, or aim with ${keyLabel(keyFor("aimUp"))}/${keyLabel(keyFor("aimDown"))} and ` +
+    `click where it should land, or aim with ${keyLabel(keyFor("aimUp"))}/${keyLabel(keyFor("aimDown"))} and ` +
     `power with ${keyLabel(keyFor("powerDown"))}/${keyLabel(keyFor("powerUp"))}, then ${keyLabel(keyFor("fire"))} to fire`
   );
 }

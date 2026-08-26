@@ -38,7 +38,10 @@ import {
 } from "../src/game/hazards";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
-import { Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag, SPEED_MAX } from "../src/game/cannon";
+import {
+  AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
+} from "../src/game/cannon";
 import { CHUTE, CHUTE_SURFACE_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
@@ -116,7 +119,7 @@ import {
   menuScreen, salvageHTML,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, actionForKey, hintRotate, keyFor, padFor,
+  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, padFor,
   resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
@@ -3322,7 +3325,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
-    leftHandRail: false, stickAssist: true, devMode: false,
+    leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -7303,6 +7306,178 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
     "the hold is not dressed as a keycap",
     !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
   );
+}
+
+// ---------------------------------------------------------------------------
+section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The forward model's constants, restated the way game.ts's previewModel
+  // feeds them: matter's default gravity through engine.ts's fixed 60Hz step,
+  // and the frictionAir every launched body is created with.
+  const DT = 1000 / 60;
+  const G_ACCEL = 1 * 0.001 * DT * DT;
+  const FRICTION = 0.012;
+  const STEPS = 140;
+  const origin = { x: CANNON.x, y: CANNON.y };
+
+  /** Closest approach of a DRAWN arc to a point, world px. The same question
+   *  the solver answers internally, asked here through predictTrajectory —
+   *  which is the entire point of these checks. Mouse aiming is only correct
+   *  if the arc the PREVIEW draws goes where the solver said it would, so
+   *  nothing below reads the solver's own miss back and calls that proof. */
+  const arcMiss = (angle: number, power: number, t: { x: number; y: number }, wind = 0): number => {
+    const pts = predictTrajectory(
+      {
+        x: origin.x + CANNON.barrel * Math.cos(angle),
+        y: origin.y - CANNON.barrel * Math.sin(angle),
+      },
+      { x: power * Math.cos(angle), y: -power * Math.sin(angle) },
+      G_ACCEL, FRICTION, STEPS, () => wind,
+    );
+    let best = Infinity;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let u = len2 > 0 ? ((t.x - a.x) * dx + (t.y - a.y) * dy) / len2 : 0;
+      u = u < 0 ? 0 : u > 1 ? 1 : u;
+      best = Math.min(best, Math.hypot(a.x + u * dx - t.x, a.y + u * dy - t.y));
+    }
+    return best;
+  };
+
+  const solve = (t: { x: number; y: number }, min = SPEED_MIN, max = SPEED_MAX, wind = 0) =>
+    solveAimForTarget(origin, CANNON.barrel, t, min, max, G_ACCEL, FRICTION, STEPS, () => wind);
+
+  // --- The whole point: the dots go where the click went --------------------
+  // SWEPT across the playable bay rather than spot-checked, because the failure
+  // this guards is not "the solver is broken" — that would be obvious on the
+  // first shot — but "the solver disagrees with the preview somewhere", which
+  // is a band of the field rather than a total loss, and is invisible until a
+  // player trusts the arc in exactly that band.
+  {
+    let worst = 0;
+    let worstAt = "";
+    let refused = 0;
+    let n = 0;
+    for (let x = 400; x <= 1260; x += 20) {
+      for (let y = 200; y <= 700; y += 50) {
+        const t = { x, y };
+        const sol = solve(t);
+        n += 1;
+        // Outside the cone the drag path clamps to, the autoloader's own clamp
+        // (game.ts's stepAutoLaunch) would silently rewrite the aim, and the
+        // arc that fired would not be the arc that was drawn.
+        if (Math.abs(sol.angle) > AIM_CONE + 1e-9) {
+          worst = Infinity;
+          worstAt = `${x},${y} outside the cone`;
+          continue;
+        }
+        if (!sol.hit) { refused += 1; continue; }
+        const d = arcMiss(sol.angle, sol.power, t);
+        if (d > worst) { worst = d; worstAt = `${x},${y}`; }
+      }
+    }
+    check("the preview's arc passes through every point the solver claims",
+      worst <= AIM_HIT_TOL, `worst ${worst.toFixed(2)}px at ${worstAt}`);
+    // A solver that quietly gave up on most of the field would pass the check
+    // above by never claiming anything. The stock bay is meant to be reachable
+    // essentially everywhere a player can click — that is what SPEED_MAX 28 was
+    // raised from 26 to buy (see its comment).
+    check("the stock cannon can reach the bay it is aiming into",
+      refused === 0, `${refused} of ${n} points refused`);
+  }
+
+  // --- Which of the two solutions -------------------------------------------
+  // Every reachable point has a flat drive and a high lob, and solveAimForTarget
+  // documents that it returns the one needing the LEAST POWER. Asserted rather
+  // than trusted, by sweeping the whole cone at a power just under the one it
+  // returned and confirming nothing there reaches the target.
+  {
+    const t = { x: 900, y: 620 };
+    const sol = solve(t);
+    check("a mid-bay target is reachable at all", sol.hit, `miss ${sol.miss.toFixed(1)}px`);
+    let cheaperHit = "";
+    const weaker = sol.power - 0.5;
+    for (let i = 0; i <= 240; i++) {
+      const angle = -AIM_CONE + (i / 240) * 2 * AIM_CONE;
+      if (arcMiss(angle, weaker, t) <= AIM_HIT_TOL) cheaperHit = `${(angle * 180 / Math.PI).toFixed(1)}deg`;
+    }
+    check("no gentler shot reaches the same point", cheaperHit === "",
+      `returned ${sol.power.toFixed(2)} px/step; ${cheaperHit} reached it at ${weaker.toFixed(2)}`);
+    // The corollary the player actually feels: a point further out costs more,
+    // so the PWR meter reads as "how close to your limit this spot is".
+    check("a further target costs more power",
+      solve({ x: 1200, y: 620 }).power > sol.power);
+  }
+
+  // --- Wind -----------------------------------------------------------------
+  // The solver takes the same frozen wind reading the preview does (game.ts's
+  // previewModel hands both callers one object). This proves it is actually
+  // USED rather than accepted and dropped: an aim solved against a wind must
+  // hit under that wind AND miss under still air, or the solve and the dots are
+  // reading two different bays.
+  {
+    const t = { x: 1000, y: 620 };
+    const wind = 0.03;
+    const sol = solve(t, SPEED_MIN, SPEED_MAX, wind);
+    check("an aim solved against the wind lands on target in that wind",
+      arcMiss(sol.angle, sol.power, t, wind) <= AIM_HIT_TOL,
+      `${arcMiss(sol.angle, sol.power, t, wind).toFixed(2)}px`);
+    check("...and would miss in still air, so the wind is really being read",
+      arcMiss(sol.angle, sol.power, t, 0) > AIM_HIT_TOL,
+      `${arcMiss(sol.angle, sol.power, t, 0).toFixed(2)}px`);
+  }
+
+  // --- Out of reach ---------------------------------------------------------
+  // Documented behaviour is CLAMP, never refuse: the nearest arc the cannon can
+  // throw, at the top of its band, with the miss reported honestly so the
+  // preview can be the feedback channel. A half-power hull cannot cross the bay.
+  {
+    const t = { x: 1240, y: 700 };
+    const sol = solve(t, SPEED_MIN * 0.5, SPEED_MAX * 0.5);
+    check("an unreachable target is reported as one", !sol.hit);
+    check("...and answered with the hardest throw available, not with nothing",
+      Math.abs(sol.power - SPEED_MAX * 0.5) < 1e-6 && Number.isFinite(sol.miss),
+      `power ${sol.power.toFixed(2)}, miss ${sol.miss.toFixed(1)}px`);
+    check("...and the aim is still inside the cone", Math.abs(sol.angle) <= AIM_CONE + 1e-9);
+  }
+
+  // --- A click the cone cannot answer ---------------------------------------
+  // Nothing behind the muzzle is reachable at any angle, so the solver aims at
+  // a substitute point in front of it. The MISS it reports must still be
+  // measured against the pixel the player clicked: reporting the substitute's
+  // miss instead came back as a confident 0 for a click on the launcher itself,
+  // which is the one number here that must never lie.
+  {
+    const behind = { x: CANNON.x - 60, y: CANNON.y + 300 };
+    const sol = solve(behind);
+    check("a click behind the muzzle reports its real miss, not the substitute's",
+      !sol.hit && sol.miss > AIM_HIT_TOL, `${sol.miss.toFixed(1)}px`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("Mouse and touch are taught different aiming (bindings.ts)");
+// ---------------------------------------------------------------------------
+{
+  // The two schemes diverged (game/input.ts): a mouse points at a spot and the
+  // cannon solves the arc onto it, a finger still pulls back. The one hint
+  // table is all that stands between that and a strip telling a mouse player to
+  // drag, so it is asserted in BOTH directions rather than only in the one that
+  // changed — the touch sentence going stale would be the same bug mirrored.
+  check("the mouse hint teaches the click, not the drag",
+    /click/i.test(hintAim("keyboard")) && !/pull back|drag/i.test(hintAim("keyboard")),
+    hintAim("keyboard"));
+  check("the touch hint still teaches the pull-back",
+    /pull back/i.test(hintAim("touch")) && !/click/i.test(hintAim("touch")),
+    hintAim("touch"));
+  // The fine-pointer strip renders on the same surface and has to agree with it.
+  check("the fine-pointer strip names the click too",
+    /click to aim/i.test(S.hintStripHTML("keyboard", { bond: false, demo: false, auto: false })));
 }
 
 console.log(

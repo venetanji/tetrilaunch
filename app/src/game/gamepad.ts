@@ -8,10 +8,12 @@ import { actionForPad, padFor, type BindableAction } from "./bindings";
  *
  * The mapping is bindings.ts's pad table (rebindable on the Controls
  * screen); aim and power live on the LEFT STICK, deliberately unbindable —
- * a stick is not a button. Pushing the stick TOWARD the target aims there,
- * and the deflection sets the power, mapped onto the same drag-length range
- * the slingshot uses (cannon.aimFromDrag), so a full deflection is a full
- * pull. "Stick aiming assist" (a Controls toggle) smooths the raw stick
+ * a stick is not a button. WHICH WAY the stick points the barrel is the
+ * "Slingshot stick" setting (store.ts's stickPull): off, pushing the stick
+ * TOWARD the target aims there; on, the stick is pulled BACK the way the
+ * touch drag is. Either way the deflection sets the power, mapped onto the
+ * same drag-length range the slingshot uses (cannon.aimFromDrag), so a full
+ * deflection is a full pull. "Stick aiming assist" (a Controls toggle) smooths the raw stick
  * through a short lerp so analogue jitter doesn't wobble the arc; off, the
  * stick is raw.
  */
@@ -37,6 +39,10 @@ export interface GamepadHooks {
   onCapture(button: number): boolean;
   /** Stick-assist setting, read live so the toggle applies immediately. */
   assist(): boolean;
+  /** Slingshot-stick setting (store.ts's stickPull), read live for the same
+   *  reason: the toggle has to be feelable from the Controls screen without
+   *  a round trip through a bay. */
+  pull(): boolean;
 }
 
 export class GamepadPoller {
@@ -104,9 +110,13 @@ export class GamepadPoller {
           this.sx = target.x;
           this.sy = target.y;
         }
-        // Push TOWARD the target: aimFromDrag is slingshot pull-back, so the
-        // stick vector is passed reversed.
-        g.cannon.aimFromDrag(-this.sx * STICK_DRAG, -this.sy * STICK_DRAG);
+        // aimFromDrag speaks slingshot: it takes the PULL-BACK vector, so the
+        // barrel ends up opposite whatever it is handed. That makes the sign
+        // the whole setting — hand it the raw stick and the stick is a
+        // slingshot; hand it the negated stick and pushing the thumb toward
+        // the target aims there.
+        const sign = this.hooks.pull() ? 1 : -1;
+        g.cannon.aimFromDrag(sign * this.sx * STICK_DRAG, sign * this.sy * STICK_DRAG);
         g.updateTrajectory();
       } else {
         // Centred stick re-anchors the assist so the next deflection starts
