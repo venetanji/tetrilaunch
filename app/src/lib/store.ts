@@ -190,6 +190,26 @@ export function loadMeta(): MetaState {
     meta.runs = Number.isFinite(meta.runs) ? Math.max(0, Math.floor(meta.runs)) : 0;
     meta.bestBay = Number.isFinite(meta.bestBay) ? Math.max(0, Math.floor(meta.bestBay)) : 0;
     meta.mark = Number.isFinite(meta.mark) ? Math.max(0, Math.floor(meta.mark)) : 0;
+    // THE UNLOCK CEREMONY'S WATERMARK (meta.ts's celebratedMark), and the one
+    // field here whose ABSENCE must not read as its default.
+    //
+    // Every other field above is happy to fall back to newMeta()'s value,
+    // because "missing" and "zero" mean the same thing for a counter. This one
+    // they do not: a save written before this build has a `mark` earned over
+    // weeks and no watermark at all, and defaulting it to 0 would owe that
+    // player one ceremony per tier they have ever climbed — nine rides, back to
+    // back, on the first menu after an update. So the raw object is asked
+    // whether the key was ever written, and a save that predates the field
+    // migrates to `mark`: those floors opened long ago and were lived in.
+    //
+    // Clamped to `mark` from above as well, since a watermark past the ladder
+    // position is a state nothing can produce and would suppress the next real
+    // unlock. Fails toward "already celebrated" on a corrupt value, which loses
+    // one animation rather than replaying the whole climb.
+    const rawCelebrated = (raw as Record<string, unknown>).celebratedMark;
+    meta.celebratedMark = typeof rawCelebrated === "number" && Number.isFinite(rawCelebrated)
+      ? Math.min(meta.mark, Math.max(0, Math.floor(rawCelebrated)))
+      : meta.mark;
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.

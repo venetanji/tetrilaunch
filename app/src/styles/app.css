@@ -1054,6 +1054,187 @@ body.crt-off #app::after { display: none; }
   .tower__head[style*="--beacon"] b { transition: none; }
 }
 
+/* ============================================================================
+   THE UNLOCK RIDE (screens.ts's TowerState.celebrate) — a new tier, celebrated.
+
+   The home screen mounts .tower--rising for one visit after the ladder moves
+   (main.ts's armUnlockCelebration), and everything below runs off the four
+   custom properties tierTowerHTML writes onto the shaft with it:
+
+     --tower-rise-from   the ground floor's shaft index — where the ride starts
+     --tower-rise-hold   the doors-closed beat before the car moves
+     --tower-rise-dur    the climb, which is longer the further it climbs
+     --tower-arrive-dur  the plate igniting once the car is there
+
+   …plus one per floor, --tower-pass: when the car draws level with THAT floor
+   (screens.ts's towerRisePassMs), which is what turns the lighting into a wave
+   travelling up the building rather than a glow around the car.
+
+   NOTHING HERE MOVES ANYTHING. Every property animated is a paint property —
+   `top` on an absolutely positioned car, box-shadow, background, border-color,
+   and transform on the 4px window lights. The shaft's own arithmetic
+   (--tower-floor-h and friends) is not touched, so the resting geometry the
+   uifit baseline measures is the same building with the ceremony running or
+   not — the class simply never mounts in a fixture.
+
+   TIMED IN CASCADE, NOT IN JAVASCRIPT. The phases are animation-delays off one
+   mount rather than a chain of setTimeouts writing classes, for the same
+   reason the car's ordinary trips are a transition on one custom property: a
+   menu that re-renders mid-sequence (the beacon gesture does) would leave a JS
+   chain writing into elements that no longer exist, and a backgrounded tab
+   would leave it half-applied. A CSS animation on a torn-down element is gone
+   with the element, and one on a fresh element simply starts over.
+
+   LONGHANDS, EVERY TIME, and this one is not a style preference — it is a bug
+   that was measured. `animation: name var(--a) ease var(--b) backwards` parses
+   in Blink to a duration and a delay of 0s: the shorthand's two time slots are
+   positional, and a value that is not a time until substitution cannot be put
+   in either slot, so both fall back to their initial value and the whole ride
+   plays in one frame. Written as animation-duration / animation-delay there is
+   no slot to guess at. Anything here whose timing comes from a custom property
+   is spelled out for that reason.
+   ========================================================================== */
+
+/* THE CLIMB. One keyframe, and only its `from` is written: the implicit `to`
+   is the element's own computed `top`, which is the resting position the
+   selected floor already puts it at. So the ride cannot land anywhere except
+   where the car belongs, no fill-mode is needed at the end, and the floor
+   arithmetic exists in exactly one place (the .tower__car rule) rather than
+   being restated in a keyframe that could drift from it.
+
+   `backwards` fill so the car waits at the GROUND FLOOR through the hold
+   rather than at its destination — without it the first thing the ceremony
+   shows is the ending.
+
+   The easing is deliberately not the car's usual cubic-bezier(0.34, 1.28,
+   0.64, 1): that one overshoots and settles back, which is right for a lift
+   answering a tap and wrong here, because an overshoot at the top of the climb
+   puts the car briefly ABOVE the floor that just opened — i.e. on a floor
+   nobody has earned. This one leaves slowly and arrives without bouncing. */
+.tower--rising .tower__car {
+  animation-name: tower-rise;
+  animation-duration: var(--tower-rise-dur);
+  animation-delay: var(--tower-rise-hold);
+  animation-timing-function: cubic-bezier(0.45, 0, 0.15, 1);
+  animation-fill-mode: backwards;
+}
+@keyframes tower-rise {
+  from {
+    top: calc(var(--tower-pad)
+      + var(--tower-rise-from) * (var(--tower-floor-h) + var(--tower-gap)));
+  }
+}
+/* THE CAR'S LAMP: charges over the climb, flares white on arrival, settles
+   back to the idle look it will keep once the class is stripped.
+
+   Two animations rather than one set of percentages, because the two phases
+   have independently chosen lengths and percentages would silently re-time the
+   flare whenever the ride length changed with the ladder. The second gets NO
+   fill: a `backwards` there would apply its 0% during its delay, and a later
+   animation in the list wins, so the flare's start state would sit on top of
+   the whole climb and the charge would never be seen. Its 0% is written to
+   match the first's 100% instead, so the handover is invisible. */
+.tower--rising .tower__car span {
+  animation-name: tower-rise-charge, tower-rise-land;
+  animation-duration: var(--tower-rise-dur), var(--tower-arrive-dur);
+  animation-delay: var(--tower-rise-hold), calc(var(--tower-rise-hold) + var(--tower-rise-dur));
+  animation-timing-function: ease-in, ease-out;
+  animation-fill-mode: backwards, none;
+}
+@keyframes tower-rise-charge {
+  from { background: rgba(0, 240, 255, 0.16); box-shadow: 0 0 0 rgba(0, 240, 255, 0); }
+  to { background: rgba(0, 240, 255, 0.45); box-shadow: 0 0 14px rgba(0, 240, 255, 0.75); }
+}
+@keyframes tower-rise-land {
+  0% { background: rgba(0, 240, 255, 0.45); box-shadow: 0 0 14px rgba(0, 240, 255, 0.75); }
+  12% {
+    background: rgba(255, 255, 255, 0.9); border-color: #fff;
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.95), 0 0 8px #fff;
+  }
+  100% { background: rgba(0, 240, 255, 0.16); box-shadow: 0 0 0 rgba(0, 240, 255, 0); }
+}
+/* THE FLOOR THAT JUST OPENED. It ignites as the car reaches it — --tower-pass
+   on the destination floor IS the arrival time, so this needs no separate
+   number to keep in step with the ride.
+
+   Note what does NOT happen here: its window lights do not come on. A tier
+   opens with none of its Contracts cleared, so its three sockets are honestly
+   dark (screens.ts's floorHTML), and flashing them for the ceremony would
+   promise three clears the player has not made and then take them away. The
+   floor arriving is the plate coming alive; the WINDOWS coming alive is what
+   the floor below is doing at the same moment, having just earned its third
+   light by completing. Both are true, which is the whole point. */
+.tower--rising .tower__floor.is-arriving {
+  animation-name: tower-arrive;
+  animation-duration: var(--tower-arrive-dur);
+  animation-delay: var(--tower-pass);
+  animation-timing-function: ease-out;
+  animation-fill-mode: backwards;
+}
+@keyframes tower-arrive {
+  0% { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
+  10% {
+    border-color: #fff; color: #fff;
+    background: rgba(0, 240, 255, 0.5);
+    box-shadow: 0 0 26px rgba(0, 240, 255, 0.85), inset 0 0 14px rgba(255, 255, 255, 0.55);
+  }
+  100% { box-shadow: 0 0 0 rgba(0, 240, 255, 0), inset 0 0 0 1px rgba(0, 0, 0, 0.5); }
+}
+/* THE WAVE. Every window that is genuinely lit surges as the car passes its
+   floor — the building waking up behind the climb. Only `.on` sockets, so the
+   effect never lights a Contract nobody cleared, and only floors the ride
+   actually reaches (the `--tower-pass` attribute selector, the same idiom the
+   beacon's streak uses above), so it stops dead at the new floor and no
+   unearned tier is ever touched by it.
+
+   560ms and the 60ms stagger are fixed: this is one floor's worth of lighting,
+   not a trip, and it has nothing to scale with. The stagger is what makes it
+   read as three lights rather than one three-wide light. */
+.tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on {
+  animation-name: tower-window-surge;
+  animation-duration: 560ms;
+  animation-delay: var(--tower-pass);
+  animation-timing-function: ease-out;
+  animation-fill-mode: backwards;
+}
+.tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on:nth-child(2) {
+  animation-delay: calc(var(--tower-pass) + 60ms);
+}
+.tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on:nth-child(3) {
+  animation-delay: calc(var(--tower-pass) + 120ms);
+}
+@keyframes tower-window-surge {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 176, 32, 0.55); }
+  30% {
+    transform: scale(1.75);
+    box-shadow: 0 0 12px var(--warn), 0 0 4px #fff;
+  }
+}
+/* THE JUMP CUT. Reduced motion gets the ARRIVAL and nothing else: the car is
+   already parked on the new floor (the ride was the only thing putting it
+   anywhere else), the wave does not travel, and the floor that opened wears
+   the ignition's peak as a still. It is held rather than faded because it has
+   no timeline to be held BY — main.ts strips .tower--rising on the same
+   towerCelebrationMs the animated version runs for, so both versions announce
+   the tier for the same length of time and end in the same resting state.
+
+   Specificity note: these have to outrank the .tower--rising rules above, and
+   the block sits after them for the ones that tie. The general reduced-motion
+   block further up cannot do this job — `.tower__car span` there loses to
+   `.tower--rising .tower__car span` on class count. */
+@media (prefers-reduced-motion: reduce) {
+  .tower--rising .tower__car,
+  .tower--rising .tower__car span,
+  .tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on {
+    animation: none;
+  }
+  .tower--rising .tower__floor.is-arriving {
+    animation: none;
+    border-color: #fff; color: #fff;
+    box-shadow: 0 0 18px rgba(0, 240, 255, 0.7), inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+}
+
 /* ---------- The shelf (screens.ts's .menu__nav) ----------
    How to Play, Leaderboard, Settings: the three entries nobody opens the game
    to reach. They keep the column the attract demo already decorates, and the
