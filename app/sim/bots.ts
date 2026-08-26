@@ -7,9 +7,10 @@ import type Matter from "matter-js";
 import type { Game } from "../src/game/game";
 import { mulberry32 } from "../src/game/mods";
 import { SPEED_MAX } from "../src/game/cannon";
-import { CELL, WALL_INNER } from "../src/game/engine";
-import { pieceCells } from "../src/game/pieces";
-import type { PieceSize, PieceType } from "../src/game/theme";
+import { BOMB_BLAST_R } from "../src/game/game";
+import { CELL, WALL_INNER, WORLD } from "../src/game/engine";
+import { pieceCells, type Cube } from "../src/game/pieces";
+import { MATERIAL_SPEC, type PieceSize, type PieceType } from "../src/game/theme";
 
 export interface Bot {
   name: string;
@@ -542,6 +543,205 @@ interface AimOpts {
    * that is this flag.
    */
   impatient?: boolean;
+  /**
+   * Fire demolition charges at dead cargo — see the DEMOLITION block above.
+   *
+   * The counter-play switch for MATERIALS, exactly as congestionAware is for the
+   * congestion tax, and it exists for the same reason: measuring slag against a
+   * bot that cannot answer it reports "bots cannot play slag", not "slag is
+   * mispriced". Only interesting AGAINST plain `aim` on the same seeds; the gap
+   * between the two is what a charge is actually worth.
+   */
+  demolish?: boolean;
+}
+
+/**
+ * Search the cannon's angle/power grid for the shot that lands nearest `target`.
+ *
+ * Lifted out of aimBot's act() unchanged when the demolition bot arrived: a
+ * charge has to be aimed by exactly the same search a shipment is, or the
+ * measurement would be comparing a bot that can aim cargo against one that
+ * throws bombs at random. Two copies of an aim search is also how a harness ends
+ * up describing a cannon that no longer exists.
+ *
+ * Leaves the cannon parked on the winning candidate's angle/power as a side
+ * effect of the search itself; every caller sets them again explicitly, which is
+ * deliberate — reading the return value is the contract, not the cannon.
+ */
+function solveAim(g: Game, target: number, halfWidthPx: number): AimCandidate {
+  const safeCands: AimCandidate[] = [];
+  const allCands: AimCandidate[] = [];
+  for (let deg = 15; deg <= 55; deg += 2) {
+    const rad = (deg * Math.PI) / 180;
+    // Scale the fixed candidate list by whatever the ship's launcher can
+    // actually do (cannon.speedMax vs. the stock SPEED_MAX), so a
+    // LAUNCHER-upgraded run's extra reach is searched instead of clamped away.
+    const powerScale = g.cannon.speedMax / SPEED_MAX;
+    for (const pwBase of AIM_POWER_CANDIDATES) {
+      const pw = pwBase * powerScale;
+      g.cannon.angle = rad;
+      g.cannon.power = pw;
+      g.updateTrajectory();
+      const traj = g.trajectory;
+      const landX = estimateLandingX(traj, g.compactor.top, target);
+      const err = Math.abs(landX - target);
+      const cand: AimCandidate = { deg, power: pw, err };
+      allCands.push(cand);
+      if (!candidateHitsBar(traj, g.compactor, halfWidthPx)) safeCands.push(cand);
+    }
+  }
+
+  // Prefer a bar-clear candidate even if its raw error is a bit worse —
+  // only fall back to the unconstrained pool when EVERY candidate this
+  // shot happens to graze the bar's swept range (rare; patience at the call
+  // site will usually catch a genuinely bad remaining option anyway).
+  const pool = safeCands.length ? safeCands : allCands;
+  const bestErr = Math.min(...pool.map((c) => c.err));
+  // Among candidates within AIM_TIE_TOL_PX of the best score, the STEEPEST
+  // wins (see the ANGLE-VS-LANDING-X note in aimBot's doc comment) — pool is
+  // scanned in ascending deg order, so sorting descending and taking [0] picks
+  // the steepest.
+  const near = pool.filter((c) => c.err <= bestErr + AIM_TIE_TOL_PX);
+  near.sort((a, b) => b.deg - a.deg);
+  return near[0];
+}
+
+/* ---------------------------------------------------------------------------
+ * DEMOLITION — the instrument the harness was missing.
+ *
+ * Every bot here fires shipments and nothing else, which `sim/README.md` has
+ * long recorded as a caveat ("the bots never use Bond Breaker or Demolition, so
+ * those tracks measure as worthless"). It stopped being a caveat and became the
+ * blocking problem the moment the question was slag: a demolition charge is
+ * slag's ONLY exit — a dead cube leaves the field that way or not at all — so a
+ * bot without one cannot distinguish "slag is mispriced" from "this bot has no
+ * hands". Measured with the piece-only bots, one notch of slag takes a Tier-10
+ * bay from 88% to 0% with every seed going bankrupt, and that number is not
+ * about slag.
+ *
+ * The rule below is deliberately the SIMPLEST one that is economically honest,
+ * and it is the trade game.ts's own detonate() note describes: "a cube sitting
+ * in a pile that will never complete a line is worth $0 as line material and
+ * salvagePerCube as scrap metal, so blowing up junk is a POSITIVE-value play,
+ * while blowing up a row you were two cubes from closing is a clear,
+ * self-inflicted loss". So a site is scored dead-cubes-caught MINUS
+ * live-cubes-caught, and the bot fires when that net clears a floor.
+ *
+ * WHAT IT DELIBERATELY IS NOT. It does not dig — it aims at a cluster and takes
+ * whatever the charge reaches where it lands, exactly as a player does, rather
+ * than solving for buried cargo. It does not model tar: a welded crust is the
+ * other thing a charge is for, but which joints are welds is private to Game,
+ * and inventing a proxy for it here would measure the proxy. It is a competent
+ * pair of hands, not an optimizer, which is the same bar every other bot in this
+ * file is held to.
+ * ------------------------------------------------------------------------- */
+
+/** Net dead cubes a blast must catch before it is worth a charge. Three, which
+ *  is game.ts's own break-even ("$8n against a $20-$30 launch breaks even at
+ *  three cubes, and nobody fires a charge at fewer than three") read back as a
+ *  firing rule. */
+const DEMO_MIN_NET = 3;
+
+/** How far off the chosen site the search may land and still fire. Looser than
+ *  AIM_PATIENCE_TOL because a blast has a RADIUS — a charge that lands a cell
+ *  wide of a slag cluster still takes most of it, where a shipment a cell wide
+ *  of its slot is in the wrong column. */
+const DEMO_AIM_TOL = CELL * 1.5;
+
+/** The bomb body's half-width, for the bar-clearance test — game.ts's spawnBomb
+ *  makes a circle of radius CELL * 0.45. */
+const BOMB_HALF_PX = CELL * 0.45;
+
+/** Can this cube EVER fill a line slot, however the bay is played? False only
+ *  for slag. Deliberately not lineClear.ts's fillsSlots, which also returns
+ *  false for an unstruck cryo cube — that one is live cargo waiting for a hit,
+ *  and bombing it is a loss, not a salvage. */
+function isDead(cube: Cube): boolean {
+  return !MATERIAL_SPEC[cube.material].countsForLines;
+}
+
+/** Floor-anchored row index of a world y, the same bucketing settleZoneCubes
+ *  uses (lineClear.ts). Rows are what slag actually denies, so they are the
+ *  unit a charge has to be valued in. */
+function rowOf(y: number): number {
+  return Math.round((WORLD.height - CELL / 2 - y) / CELL);
+}
+
+/**
+ * The best place on the field to put a charge, or null when nothing is worth
+ * one.
+ *
+ * Candidate centres are the dead cubes themselves rather than a grid sweep: a
+ * blast is only ever worth firing because of the dead cargo it catches, so the
+ * dead cubes are where the maxima are, and scanning them is O(dead x cubes)
+ * instead of O(field).
+ *
+ * SCORED BY ROW, not by cube, and the first version of this was wrong in a way
+ * worth recording. Counting every live cube caught as a loss (dead minus live)
+ * reads a packed pile as a terrible place to bomb: the blast is ~2.4 cells
+ * across, so it catches a dozen-odd cubes, and four slag against fourteen live
+ * scores -10 however jammed the bay is. The bot fired ONE charge across six
+ * bays holding six apiece — which would have measured "a rack is worth nothing"
+ * when what it measured was a valuation that ignores what slag DOES.
+ *
+ * A row containing slag can never clear (lineClear.ts's fillsSlots), so the
+ * live cargo sharing that row is not cargo — it is already spent, and it stays
+ * spent until the slag goes. Destroying it costs nothing. Only a live cube in a
+ * CLEAN row is a real loss, and that is the cube the design means by "blowing up
+ * a row you were two cubes from closing". Scoring it that way needs no invented
+ * weight: dead cubes caught, minus live cubes caught in rows nothing is
+ * blocking.
+ */
+function bestBlastSite(g: Game): { x: number; y: number; net: number } | null {
+  const blastR = BOMB_BLAST_R * (g.level.bombBlastMult > 0 ? g.level.bombBlastMult : 1);
+  // Rows already denied by slag. Computed once per call rather than per
+  // candidate — every candidate asks the same question of the same field.
+  const blocked = new Set<number>();
+  for (const c of g.cubes) if (isDead(c)) blocked.add(rowOf(c.body.position.y));
+
+  let best: { x: number; y: number; net: number } | null = null;
+  for (const centre of g.cubes) {
+    if (!isDead(centre)) continue;
+    let net = 0;
+    for (const c of g.cubes) {
+      const dx = c.body.position.x - centre.body.position.x;
+      const dy = c.body.position.y - centre.body.position.y;
+      if (Math.hypot(dx, dy) > blastR) continue;
+      if (isDead(c)) net += 1;
+      else if (!blocked.has(rowOf(c.body.position.y))) net -= 1;
+    }
+    if (!best || net > best.net) {
+      best = { x: centre.body.position.x, y: centre.body.position.y, net };
+    }
+  }
+  return best && best.net >= DEMO_MIN_NET ? best : null;
+}
+
+/**
+ * Arm and fire a charge at the best site, if there is one worth firing at.
+ * Returns true when a charge actually left the muzzle — the caller then skips
+ * its shipment for this cooldown, which is the real cost of a charge and the
+ * reason this is not free.
+ *
+ * Disarms on every path that does not fire. armBomb() only toggles a flag and
+ * the charge is spent in shoot(), so an armed bomb left behind by a refused
+ * shot would silently turn the NEXT shipment into a bomb — a bug that would
+ * read in the results as the bot throwing away cargo.
+ */
+function fireCharge(g: Game, now: number): boolean {
+  if (g.bombCharges <= 0) return false;
+  const site = bestBlastSite(g);
+  if (!site) return false;
+  if (!g.armBomb()) return false;
+  const chosen = solveAim(g, site.x, BOMB_HALF_PX);
+  if (chosen.err <= DEMO_AIM_TOL) {
+    g.cannon.angle = (chosen.deg * Math.PI) / 180;
+    g.cannon.power = chosen.power;
+    g.updateTrajectory();
+    if (g.shoot(now)) return true;
+  }
+  g.armBomb();
+  return false;
 }
 
 function aimBot(seed = 1, opts: AimOpts = {}): Bot {
@@ -553,7 +753,9 @@ function aimBot(seed = 1, opts: AimOpts = {}): Bot {
   let holdingSince: number | null = null;
 
   return {
-    name: opts.congestionAware ? "patient" : opts.impatient ? "impatient" : "aim",
+    name: opts.demolish
+      ? "demo"
+      : opts.congestionAware ? "patient" : opts.impatient ? "impatient" : "aim",
     act(g, now) {
       if (!g.cannon.canShoot(now)) return;
       if (g.score < g.level.launchCost) return;
@@ -574,44 +776,13 @@ function aimBot(seed = 1, opts: AimOpts = {}): Bot {
         }
       }
 
+      // DEMOLITION comes first, because a charge and a shipment compete for the
+      // same cooldown — see fireCharge.
+      if (opts.demolish && fireCharge(g, now)) return;
+
       const { x: target, slot } = gapTargeter.read(g, now);
       const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
-
-      const safeCands: AimCandidate[] = [];
-      const allCands: AimCandidate[] = [];
-      for (let deg = 15; deg <= 55; deg += 2) {
-        const rad = (deg * Math.PI) / 180;
-        // Scale the fixed candidate list by whatever the ship's launcher can
-        // actually do (cannon.speedMax vs. the stock SPEED_MAX), so a
-        // LAUNCHER-upgraded run's extra reach is searched instead of clamped away.
-        const powerScale = g.cannon.speedMax / SPEED_MAX;
-        for (const pwBase of AIM_POWER_CANDIDATES) {
-          const pw = pwBase * powerScale;
-          g.cannon.angle = rad;
-          g.cannon.power = pw;
-          g.updateTrajectory();
-          const traj = g.trajectory;
-          const landX = estimateLandingX(traj, g.compactor.top, target);
-          const err = Math.abs(landX - target);
-          const cand: AimCandidate = { deg, power: pw, err };
-          allCands.push(cand);
-          if (!candidateHitsBar(traj, g.compactor, halfWidthPx)) safeCands.push(cand);
-        }
-      }
-
-      // Prefer a bar-clear candidate even if its raw error is a bit worse —
-      // only fall back to the unconstrained pool when EVERY candidate this
-      // shot happens to graze the bar's swept range (rare; patience below
-      // will usually catch a genuinely bad remaining option anyway).
-      const pool = safeCands.length ? safeCands : allCands;
-      const bestErr = Math.min(...pool.map((c) => c.err));
-      // Among candidates within AIM_TIE_TOL_PX of the best score, the
-      // STEEPEST wins (see the ANGLE-VS-LANDING-X note in aimBot's doc
-      // comment) — pool is scanned in ascending deg order (the outer loop
-      // above), so sorting descending and taking [0] picks the steepest.
-      const near = pool.filter((c) => c.err <= bestErr + AIM_TIE_TOL_PX);
-      near.sort((a, b) => b.deg - a.deg);
-      const chosen = near[0];
+      const chosen = solveAim(g, target, halfWidthPx);
 
       // Patience: sit out a shot whose best-found landing still misses badly
       // — UNLESS the clock is running out, in which case firing something
@@ -701,6 +872,13 @@ export const BOTS: Record<string, (seed: number) => Bot> = {
   // Same search as `aim`, plus the one rule the congestion tax is meant to
   // teach: don't fire into a bay that's already too full. See AimOpts.
   patient: (seed) => aimBot(seed, { congestionAware: true }),
+  // `aim` plus a pair of hands for the demolition rack — the only bot here that
+  // can answer a material. Pair it with `aim` on the same seeds and the same
+  // rig: the gap between them is what a charge is worth, and it is the only way
+  // this harness can tell a mispriced material from a bot that cannot play one.
+  // Worthless on a rig that carries no charges (bombCharges 0), where it is
+  // `aim` exactly. See the DEMOLITION block above.
+  demo: (seed) => aimBot(seed, { demolish: true }),
   // Same search as `aim`, minus its restraint — fires on every cooldown. The
   // harness's model of "spam pieces and let gravity do the rest". See AimOpts.
   impatient: (seed) => aimBot(seed, { impatient: true }),

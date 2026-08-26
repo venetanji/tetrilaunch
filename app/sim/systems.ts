@@ -24,8 +24,11 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
+import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
@@ -65,7 +68,7 @@ import {
   newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  FINALS, applyFinal, finalById, finalsForTier, type FinalId,
+  FINALS, FINAL_MATERIAL_CAP, applyFinal, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
 import {
   dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
@@ -1861,6 +1864,20 @@ section("Refit cadence + run economy (run.ts)");
   check("a fresh run has a stock ship", Object.values(run.tiers).every((t) => t === 0));
   check("a fresh run has no scrap without the cache unlock", run.scrap === 0);
   check("scrap-cache seeds starting scrap", newRun(1, [], 30).scrap === 30);
+  check("a fresh run has taken no restarts", newRun(1).restarts === 0);
+  // The seal turns entirely on this surviving a bay boundary. advanceRun
+  // rebuilds the run field by field, so a rebuild that dropped the field would
+  // zero the count at bay 2 and hand the badge to a run that restarted bay 1
+  // three times and then went the distance. Two boundaries, not one, so a
+  // version that carried it across the first and not the second is caught too.
+  const conceded = advanceRun(
+    advanceRun({ ...newRun(5), restarts: 2 }, 800, 800, 0, 0, []), 800, 800, 0, 0, [],
+  );
+  check(
+    "restarts survive the bays they were taken in",
+    conceded.restarts === 2,
+    String(conceded.restarts),
+  );
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
@@ -2219,6 +2236,34 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
     return hand.length === 1;
   })());
 
+  // THE FORCED HAND'S PARTNER IS CAPPED AT ONE SEAT — found in review. The
+  // capstone's forced-material hand deals two materials plus the number-axis
+  // partner and asks for two picks; without the cap, two taps on the partner
+  // produced [partner, partner], passed the full-hand confirmation, and took
+  // no material notch at all — voiding the one guarantee these bays exist for.
+  {
+    const mat = HAZARDS.find((h) => h.kind === "content")!.id;
+    check("on a forced hand, a second tap on the picked partner removes it",
+      togglePick(["cost"], "cost", 2, true).length === 0);
+    check("on a forced hand, a material still stacks to a double notch",
+      JSON.stringify(togglePick([mat], mat, 2, true)) === JSON.stringify([mat, mat]));
+    check("on a forced hand, partner beside a material still un-picks cleanly",
+      JSON.stringify(togglePick([mat, "cost"], "cost", 2, true)) === JSON.stringify([mat]));
+    check("an ordinary hand still stacks the number axis (the flag defaults off)",
+      JSON.stringify(togglePick(["cost"], "cost", 2)) === '["cost","cost"]');
+    // No reachable tap sequence may fill a forced two-pick hand without a
+    // material: from every material-free state, tapping the partner never
+    // completes the hand.
+    check("a forced two-pick hand cannot be completed by the partner alone", (() => {
+      let picks: HazardId[] = [];
+      for (let taps = 0; taps < 6; taps++) {
+        picks = togglePick(picks, "cost", 2, true);
+        if (picks.length === 2 && picks.every((p) => p === "cost")) return false;
+      }
+      return true;
+    })());
+  }
+
   // The projection is drawn from levelForRun on both sides — the same call the
   // bay is actually built with — so what the modal promises is what gets flown.
   const drafting = { ...newRun(11, [], 500, newTiers(), 3), levelIndex: 3 };
@@ -2491,6 +2536,32 @@ section("Tier milestones pay the salvage (meta.ts)");
     "a first at-tier win banks its milestone share",
     runOnly.salvage === share && runOnly.meta.salvage === share,
   );
+
+  // The seal (meta.ts's sealedMarks): a Deep Run cleared without ever
+  // restarting a bay gets a badge on that floor of the tower, and nothing else.
+  const clean = recordRunEnd(newMeta(), 1, true, 5, 0);
+  check("a run won without a restart is sealed", clean.meta.sealedMarks.includes(1));
+  const messy = recordRunEnd(newMeta(), 1, true, 5, 3);
+  check("a run won after a restart is not sealed", !messy.meta.sealedMarks.includes(1));
+  const lostClean = recordRunEnd(newMeta(), 1, false, 5, 0);
+  check("a run LOST without a restart is not sealed", !lostClean.meta.sealedMarks.includes(1));
+  // Cosmetic BY CONSTRUCTION (docs/DESIGN.md prints "Purchasable power: none"
+  // for both modes — nothing that can be earned a second way may move the
+  // ladder). A seal that paid out would be exactly that second axis, so a
+  // sealed run and an identical unsealed one must be indistinguishable in Mark
+  // and in salvage, both the banked total and the share this call hands back.
+  const unsealed = recordRunEnd(newMeta(), 1, true, 5, 9);
+  check(
+    "sealing pays nothing and moves no Mark",
+    clean.meta.mark === unsealed.meta.mark
+      && clean.meta.salvage === unsealed.meta.salvage
+      && clean.salvage === unsealed.salvage,
+  );
+  // Once per floor. A player who re-flies a Mark they already sealed must not
+  // grow the list, or the tower's per-floor lookup starts scanning duplicates
+  // and any future count of "floors sealed" reads high.
+  const again = recordRunEnd(clean.meta, 1, true, 5, 0);
+  check("re-flying a sealed Mark clean seals it once", again.meta.sealedMarks.length === 1);
 
   let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
   for (const c of board(1)) {
@@ -2988,6 +3059,15 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       !/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u.test(rail), rail.match(/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u)?.[0] ?? "");
     check("the rail's controls are drawn as inline SVG",
       (rail.match(/<svg/g) ?? []).length >= 7, String((rail.match(/<svg/g) ?? []).length));
+    // TAP pauses, HOLD restarts the bay (main.ts's startHold). The second half
+    // has nowhere else to go on touch: the .kbd-hint strip that names it is
+    // display:none on a coarse pointer AND aria-hidden everywhere, and this
+    // rail carries no visible labels. So the accessible name is the only route
+    // a touch or assistive-technology player has to the gesture, and it is
+    // asserted here because this is where the rail markup already is.
+    check("the pause button's accessible name carries the hold gesture",
+      /aria-label="Pause[^"]*hold to restart/i.test(rail),
+      rail.match(/aria-label="Pause[^"]*"/)?.[0] ?? "no pause button");
     // A4: the run's tier rides the bay banner as the plate's banner size;
     // A5: the transport carries both queue slots and the shipment-class tag.
     check("the bay banner carries the tier plate", hud.includes("tier-plate--banner"));
@@ -3842,6 +3922,27 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("the mix never reaches certainty even fully ratcheted",
     Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0) < 1,
     `${Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0).toFixed(2)}`);
+  // The two caps are ONE number, and that is what keeps materialMix a literal
+  // per-shipment probability all the way to the top of the ratchet: the belt
+  // can deliver at most BELT_CEILING, so a mix allowed to sum above it would be
+  // a promise the schedule cannot keep — and preview.ts prints those numbers to
+  // the player unmediated.
+  check("the mix cap is the belt ceiling",
+    MIX_TOTAL_CAP === BELT_CEILING, `${MIX_TOTAL_CAP} vs ${BELT_CEILING}`);
+  check("a fully ratcheted belt lands exactly on the ceiling",
+    Math.abs(mixTotal(allMaxed.materialMix) - BELT_CEILING) < 1e-9,
+    `${mixTotal(allMaxed.materialMix).toFixed(4)}`);
+  // The scale-down is PROPORTIONAL, so notches past the ceiling stop adding
+  // specials and start deciding WHICH special — belt.ts's rule 3, and the whole
+  // reason a capped belt is still an escalating one.
+  {
+    const lopsided = applyRatchets(flat, { slag: 6, cryo: 1 });
+    const share = lopsided.materialMix.slag
+      / (lopsided.materialMix.slag + lopsided.materialMix.cryo);
+    check("past the ceiling, notches buy composition rather than arrivals",
+      Math.abs(mixTotal(lopsided.materialMix) - BELT_CEILING) < 1e-9 && share > 0.8,
+      `belt ${mixTotal(lopsided.materialMix).toFixed(3)}, slag ${(share * 100).toFixed(0)}% of it`);
+  }
 
   // ---- The offer -----------------------------------------------------------
   check("the offer is deterministic in the seed",
@@ -3898,9 +3999,15 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
           continue;
         }
         if (materials.length >= 2) {
-          // TWO materials on offer and one pick: the choice is which material,
-          // never whether. This is the whole feature.
-          if (inHand.length !== offer.length) forcedEverywhere = false;
+          // TWO materials on offer, and one more card than the hand has picks:
+          // the choice is which material, never whether. This is the whole
+          // feature. Below the capstone that means every card is a material (two
+          // cards, one pick); at the capstone the hand carries a number axis as
+          // its third card so the SECOND pick is free — a hand of exactly two
+          // materials against two picks would force both, which is a heavier
+          // promise than this feature makes (see hazards.ts's materialHand).
+          if (inHand.length < 2) forcedEverywhere = false;
+          if (offer.length !== picksPerBay(m) + 1) forcedEverywhere = false;
           // ...and slag may fill a seat but never the last one — it is the one
           // material with no passive counter, so a hand of nothing but slag is
           // a bay that cannot be won by playing well.
@@ -3922,7 +4029,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check(`materials-only bays are ${MATERIAL_DRAFT_BAYS.join(", ")}`,
       MATERIAL_DRAFT_BAYS.every((b) => isMaterialDraft(b - 1))
         && !isMaterialDraft(0) && !isMaterialDraft(2));
-    check("with two or more materials, every card in the hand is a material", forcedEverywhere);
+    check("with two or more materials, the hand forces one and offers a choice of which",
+      forcedEverywhere);
     check("with one material, it is paired with the run's hardest active axis", pairedWhenSingle);
     // Kept, but no longer the whole story: with two DISTINCT materials in the
     // hand this cannot fire, and saying so is more honest than implying a guard
@@ -3932,20 +4040,75 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("slag is never the only thing on offer", !slagEverAlone);
     check("slag is genuinely dealt on forced bays (not quietly excluded)", slagOffered);
     {
-      // At the capstone, picksPerBay equals the hand size, so a forced hand is
-      // taken WHOLE — there is no choosing. If slag is in it, the player eats
-      // slag. That is an edge of this feature, not a defect, and it is pinned
-      // here so it cannot change without someone deciding to change it.
+      // At the capstone the hand has one card MORE than it has picks, and the
+      // spare is a number axis. So a forced hand forces exactly ONE material and
+      // the second pick has somewhere else to go — including away from slag, the
+      // one material with no passive counter.
+      //
+      // This used to assert the opposite (hand size == picks, every card a
+      // material, "an edge of this feature, not a defect") and the owner's
+      // Tier-10 playtest is what re-decided it: three forced bays at two
+      // materials apiece is six of a run's ten notches spent on materials before
+      // the player chooses anything, which is how a belt reaches the flood
+      // belt.ts describes. Forcing the player to MEET a material is the feature;
+      // forcing two at a stroke was picksPerBay leaking into it.
       const capstoneForced = hazardOffers(4242, MATERIAL_DRAFT_BAYS[0] - 1, CAPSTONE_MARK);
+      const picks = picksPerBay(CAPSTONE_MARK);
+      const mats = capstoneForced.filter((h) => h.kind === "content");
       check(
-        `a capstone forced hand is taken whole (${capstoneForced.length} cards, ${picksPerBay(CAPSTONE_MARK)} picks)`,
-        capstoneForced.length === picksPerBay(CAPSTONE_MARK)
-          && capstoneForced.every((h) => h.kind === "content"),
+        `a capstone forced hand leaves a pick free (${capstoneForced.length} cards, ${picks} picks)`,
+        capstoneForced.length === picks + 1
+          && mats.length === picks
+          && capstoneForced.some((h) => h.kind !== "content"),
         capstoneForced.map((h) => h.id).join(","),
+      );
+      // The forcing half still has to hold: with more cards than picks, a player
+      // can only dodge the material entirely if the hand has fewer materials
+      // than picks. It does not.
+      check(
+        "a capstone forced hand still cannot be dodged entirely",
+        capstoneForced.length - mats.length < picks,
+        `${mats.length} material(s) among ${capstoneForced.length} cards`,
       );
     }
     check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
     check("a forced hand still deals at least as many cards as picks", !capstoneShort);
+
+    // EVERY hand is one card bigger than the number of picks — the rule that
+    // makes a draft a draft, pinned on the ORDINARY bays too because that is
+    // where it was broken. picksPerBay is 2 at the capstone and hazardOffers
+    // sized the hand Math.max(count, picksPerBay(mark)) = 2, so seven of the ten
+    // Mark-10 bays dealt two cards and took both.
+    //
+    // The consequence was not just a dull draft. The ordinary draft's promise
+    // that slag is DODGEABLE — it is the one material with no passive counter,
+    // so a bay that ratchets it with an empty bomb rack is quietly unwinnable —
+    // rests entirely on there being a spare seat to dodge into. There was not:
+    // 3,924 of 200,000 hands at Marks 6-10 forced slag on a player who had every
+    // reason to refuse it.
+    {
+      let tooSmall: string[] = [];
+      let slagForced = 0;
+      for (let m = 1; m <= MARK_COUNT; m++) {
+        for (let seed = 0; seed < 300; seed++) {
+          for (let b = 0; b < 10; b++) {
+            const offer = hazardOffers(seed, b, m, undefined, { cost: 2, time: 2, wind: 1 });
+            const picks = picksPerBay(m);
+            // Marks 1-2 deal the whole pool (two axes, one pick) — a hand cannot
+            // be bigger than the axes that exist, and hazardOffers returns the
+            // pool wholesale there. That is the one honest exception.
+            if (offer.length <= picks && hazardsForMark(m).length > picks) {
+              tooSmall.push(`m${m}b${b}:${offer.length}<=${picks}`);
+            }
+            if (offer.filter((h) => h.id !== "slag").length < picks) slagForced += 1;
+          }
+        }
+      }
+      check("every hand deals more cards than it takes picks",
+        tooSmall.length === 0, tooSmall.slice(0, 4).join(" "));
+      check("no hand can force slag on a player who refuses it",
+        slagForced === 0, `${slagForced} forced hands`);
+    }
 
     // The offer must stay a function of (seed, bay, Mark) — a restarted run has
     // to deal the same table, and the ratchets must not smuggle in variation
@@ -4276,6 +4439,40 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // The charge count itself is untouched by this change.
     check("the capstone still grants its six charges",
       tiersAt(MAX_TIER).bombCharges === 6);
+
+    // The capstone's other two halves. Charges alone did not answer the bay
+    // that actually loses — a Tier-10 belt deep in slag and tar, where a full
+    // rack still could not open the crust or pay for the shots it took. See
+    // level.ts's DEMO_BLAST_MULT note.
+    const stock = tiersAt(0);
+    const capped = tiersAt(MAX_TIER);
+    check("demolition tiers 0-2 leave the blast and the rate stock",
+      [0, 1, 2].every((t) =>
+        tiersAt(t).bombBlastMult === 1 && tiersAt(t).salvagePerCube === stock.salvagePerCube));
+    check("demolition tier 3 widens the blast",
+      Math.abs(capped.bombBlastMult - DEMO_BLAST_MULT) < 1e-9,
+      `x${capped.bombBlastMult}`);
+    check("demolition tier 3 raises the salvage rate",
+      capped.salvagePerCube === Math.round(stock.salvagePerCube * DEMO_SALVAGE_MULT),
+      `$${stock.salvagePerCube} -> $${capped.salvagePerCube}/cube`);
+    // The hierarchy level.ts's SLAG_BOUNTY note sets out has to survive the
+    // raise: disposal must clearly beat the shot that delivers it and must
+    // never out-earn playing the game. A line-sized salvage is
+    // compactorMinLineCells cubes; one line pays scorePerLine before combo.
+    {
+      const bay10 = makeBaseLevel(9, TIER_COUNT);
+      applyUpgrades(bay10, { ...newTiers(), demolition: MAX_TIER });
+      const lineSized = bay10.compactorMinLineCells * bay10.salvagePerCube;
+      check("a maxed rack's salvage beats a launch but never a line",
+        lineSized > bay10.launchCost && lineSized < bay10.scorePerLine,
+        `$${lineSized} vs launch $${bay10.launchCost}, line $${bay10.scorePerLine}`);
+    }
+    // Radius, not count — and the reason is area. A capstone that read as "a
+    // bit wider" on the card has to be substantially bigger in the hole it
+    // actually cuts, which is what makes it a change in kind.
+    check("the wider blast is worth roughly double the area",
+      DEMO_BLAST_MULT ** 2 > 1.7 && DEMO_BLAST_MULT ** 2 < 2,
+      `x${(DEMO_BLAST_MULT ** 2).toFixed(2)} area`);
   }
 
   // Tar welds to what it settles against, and the weld is the joint nothing
@@ -4772,6 +4969,221 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The demolition bot actually fires charges (sim/bots.ts)");
+// ---------------------------------------------------------------------------
+{
+  // `demo` is `aim` plus a pair of hands for the rack, and the ONLY thing that
+  // makes it worth having is that it pulls the trigger. A scoring change that
+  // quietly stopped it firing would not fail anything — it would just silently
+  // become `aim` again and every material it was built to price would read as
+  // unanswerable. That already happened once: the first blast valuation counted
+  // every live cube caught as a loss, which reads a packed pile as a terrible
+  // place to bomb, and the bot fired one charge across six bays holding six
+  // apiece. This is the tripwire for that.
+  const build = { ...newTiers(), reactor: 3, hydraulics: 2, bay: 2, demolition: MAX_TIER };
+  let cfg = makeBaseLevel(4, TIER_COUNT);
+  applyUpgrades(cfg, build);
+  cfg = applyRatchets(cfg, { slag: 2 } as Ratchets);
+  cfg.startingFunds += 150;
+
+  const fly = (botName: string) => {
+    let bombs = 0;
+    let lines = 0;
+    const SEEDS = 3;
+    for (let s = 1; s <= SEEDS; s++) {
+      const g = new Game(cfg, { onShoot: (info) => { if (info?.bomb) bombs += 1; } }, s);
+      const bot = BOTS[botName](s);
+      let now = 0;
+      let steps = 0;
+      const cap = cfg.timeLimitSec * 60 + 3600;
+      while (g.status === "playing" && steps < cap) {
+        now += 1000 / 60;
+        bot.act(g, now);
+        g.update(now);
+        steps += 1;
+      }
+      lines += g.linesTotal;
+      g.destroy();
+    }
+    return { bombs, lines: lines / SEEDS };
+  };
+
+  check("the bay under test actually carries charges and slag",
+    cfg.bombCharges > 0 && cfg.materialMix.slag > 0,
+    `${cfg.bombCharges} charges, slag ${cfg.materialMix.slag.toFixed(2)}`);
+
+  const plain = fly("aim");
+  const demo = fly("demo");
+  check("`aim` fires no charges (it has no hands)", plain.bombs === 0, `${plain.bombs}`);
+  // At least one per bay. The real rate measured ~5/bay on this rig; the floor
+  // is deliberately far below that, because this pins THAT IT FIRES, not how
+  // often — a tripwire that also encodes the tuning would fail on every honest
+  // retune of DEMO_MIN_NET.
+  check("`demo` fires charges on a slag bay", demo.bombs >= 3, `${demo.bombs} across 3 bays`);
+  // And the charges have to be worth firing, or the bot is just burning funds.
+  check("`demo` clears more lines than `aim` on a slag bay",
+    demo.lines > plain.lines, `demo ${demo.lines.toFixed(1)} vs aim ${plain.lines.toFixed(1)}`);
+  // A rack-less rig must fall back to `aim` exactly, or every sweep that runs
+  // `demo` on a stock build is quietly measuring a different bot.
+  {
+    const bare = makeBaseLevel(4, TIER_COUNT);
+    check("`demo` on a rig with no rack has nothing to fire",
+      bare.bombCharges === 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The belt schedule: ceiling, escalation, composition (belt.ts)");
+// ---------------------------------------------------------------------------
+{
+  // Everything here is measured off a real Cannon over a long stream rather
+  // than off BeltSchedule directly, because what has to hold is what the PLAYER
+  // meets — the cannon's seeded stream, its two-draws-per-shipment contract and
+  // its size normalization included. A unit test of the class alone would have
+  // passed happily while the cannon fed it a different mix.
+  const ROLLS = 20_000;
+
+  /** The material of every shipment a bay would deal, in order. */
+  function stream(cfg: LevelConfig, seed = 4242): Material[] {
+    const cannon = new Cannon(cfg, seed);
+    const out: Material[] = [];
+    for (let i = 0; i < ROLLS; i++) {
+      out.push(cannon.currentMaterial);
+      cannon.markShot(i * 1000);
+    }
+    return out;
+  }
+
+  /** The longest run of consecutive non-standard shipments. */
+  function longestStreak(s: Material[]): number {
+    let best = 0;
+    let cur = 0;
+    for (const m of s) {
+      cur = m === "standard" ? 0 : cur + 1;
+      best = Math.max(best, cur);
+    }
+    return best;
+  }
+
+  const bay = makeBaseLevel(5, CAPSTONE_MARK);
+
+  // ---- THE CEILING --------------------------------------------------------
+  // The headline promise, and the one the owner asked for in the words "max 2
+  // normal pieces and a material is fair". It is structural, not statistical:
+  // no seed, no ratchet and no combination of them produces two materials back
+  // to back on a bay the ladder built.
+  {
+    const maxed = applyRatchets(bay, Object.fromEntries(
+      HAZARDS.filter((h) => h.kind === "content").map((h) => [h.id, 99])) as Ratchets);
+    let worstStreak = 0;
+    let worstShare = 0;
+    let worstGap = Infinity;
+    for (let seed = 1; seed <= 12; seed++) {
+      const s = stream(maxed, seed);
+      worstStreak = Math.max(worstStreak, longestStreak(s));
+      worstShare = Math.max(worstShare, s.filter((m) => m !== "standard").length / s.length);
+      // Smallest observed spacing between two materials, in shipments.
+      let last = -Infinity;
+      for (let i = 0; i < s.length; i++) {
+        if (s[i] === "standard") continue;
+        worstGap = Math.min(worstGap, i - last);
+        last = i;
+      }
+    }
+    check("a fully ratcheted belt never deals two materials in a row",
+      worstStreak === 1, `longest streak ${worstStreak}`);
+    check(`every material is followed by ${MATERIAL_GAP} standard shipments`,
+      worstGap >= MATERIAL_GAP + 1, `closest spacing ${worstGap}`);
+    check("a fully ratcheted belt still leaves two thirds of shipments standard",
+      worstShare <= BELT_CEILING + 1e-9,
+      `${(worstShare * 100).toFixed(1)}% material, ceiling ${(BELT_CEILING * 100).toFixed(1)}%`);
+  }
+
+  // ---- THE RATE IS STILL THE MIX ------------------------------------------
+  // The spacing rule may bound the belt; it may not quietly TAX it. materialMix
+  // is documented as a per-shipment probability and printed to the player as
+  // one, so a schedule that delivered 5% while the card said 7% would make
+  // every material row in preview.ts a lie. Stochastic rounding is exact in the
+  // long run, which is why it is the mechanism (belt.ts's rule 2).
+  {
+    const drifted: string[] = [];
+    for (const notches of [1, 2, 4, 6]) {
+      const cfg = applyRatchets(bay, { slag: notches });
+      const want = cfg.materialMix.slag;
+      const got = stream(cfg).filter((m) => m !== "standard").length / ROLLS;
+      if (Math.abs(got - want) > 0.006) drifted.push(`x${notches}: want ${want.toFixed(3)}, got ${got.toFixed(3)}`);
+    }
+    check("the belt delivers the rate the mix states", drifted.length === 0, drifted.join("; "));
+  }
+
+  // ---- THE ESCALATION -----------------------------------------------------
+  // A drought has to close itself, which is the other half of what makes the
+  // ceiling affordable: capping the floods would be a straight nerf if the
+  // droughts stayed as long as an independent roll's. Measured as the SPREAD of
+  // the gaps rather than their mean — the mean is pinned by the check above, so
+  // only the variance can move, and the point of the pity credit is that it
+  // shrinks it.
+  {
+    const cfg = applyRatchets(bay, { slag: 2 });
+    const s = stream(cfg);
+    const gaps: number[] = [];
+    let last = -1;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "standard") continue;
+      if (last >= 0) gaps.push(i - last);
+      last = i;
+    }
+    const mean = gaps.reduce((a, g) => a + g, 0) / gaps.length;
+    const sd = Math.sqrt(gaps.reduce((a, g) => a + (g - mean) ** 2, 0) / gaps.length);
+    // An independent roll at rate p has geometric gaps: sd/mean -> 1 as p
+    // shrinks (sd = sqrt(1-p)/p against mean 1/p). Anything well under that is
+    // a schedule with memory. Measured at ~0.42 here against the geometric
+    // ~0.94 the old roll produced at the same rate.
+    check("a clean stretch makes the next material likelier (gaps cluster)",
+      sd / mean < 0.7, `sd/mean ${(sd / mean).toFixed(2)} over ${gaps.length} gaps`);
+    check("the longest drought is bounded well under an independent roll's",
+      Math.max(...gaps) < 4 / cfg.materialMix.slag,
+      `longest ${Math.max(...gaps)} shipments at rate ${cfg.materialMix.slag.toFixed(3)}`);
+  }
+
+  // ---- COMPOSITION --------------------------------------------------------
+  // Rule 3: which material is a separate draw off the mix ratio. This is what a
+  // notch past the ceiling actually buys, so it has to be visible in the stream
+  // and not merely in the config.
+  {
+    const cfg = applyRatchets(bay, { slag: 6, cryo: 1 });
+    const s = stream(cfg).filter((m) => m !== "standard");
+    const slagShare = s.filter((m) => m === "slag").length / s.length;
+    const want = cfg.materialMix.slag / mixTotal(cfg.materialMix);
+    check("which material follows the mix ratio",
+      Math.abs(slagShare - want) < 0.02,
+      `slag ${(slagShare * 100).toFixed(1)}% of materials, mix says ${(want * 100).toFixed(1)}%`);
+  }
+
+  // ---- AN AUTHORED BAY IS EXEMPT ------------------------------------------
+  // A drill, a Contract or a Final clause that states a density above the
+  // ceiling gets what it asked for. The ceiling governs the RATCHET ladder,
+  // which is the thing that stacks behind the player's back; a bay that names
+  // its own number is not stacking anything.
+  {
+    const solo = { ...bay, materialMix: { ...NO_MATERIALS, rebar: 1 } };
+    check("a bay that states every shipment is a material still gets every shipment",
+      stream(solo).every((m) => m === "rebar"));
+  }
+
+  // ---- DETERMINISM --------------------------------------------------------
+  // The schedule carries state across a bay, which is exactly the kind of thing
+  // that breaks a replay. Same seed, same bay, same belt.
+  {
+    const cfg = applyRatchets(bay, { slag: 2, tar: 2 });
+    check("the belt is deterministic in the run seed",
+      stream(cfg, 77).join(",") === stream(cfg, 77).join(","));
+    check("a different seed deals a different belt",
+      stream(cfg, 77).join(",") !== stream(cfg, 78).join(","));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5494,8 +5906,22 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       // ratchet mix is held to 0.55 and a clause may not route around it (see
       // applyFinal's re-cap). A tolerance, not equality, because the scaling is
       // floating point.
+      //
+      // EXCEPT the capstone's full-belt pair, whose whole design is that
+      // nothing standard ships: there the belt must land at exactly 1, and
+      // the playability line is drawn where hazards.ts always drew it — on
+      // cargo that can never count. Slag is the one material whose cubes
+      // cannot fill a slot (theme.ts's countsForLines), so slag is what stays
+      // bounded; and the pair's other promise — the capstone stopped dealing
+      // shipment sizes — is pinned in the same breath.
       const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
-      if (mix > MIX_TOTAL_CAP + 1e-9) why.push(`materials sum ${mix.toFixed(3)}`);
+      if (clause.fullBelt) {
+        if (Math.abs(mix - 1) > 1e-9) why.push(`full belt sums ${mix.toFixed(3)}`);
+        if (cfg.materialMix.slag > FINAL_MATERIAL_CAP + 1e-9) why.push(`slag at ${cfg.materialMix.slag.toFixed(3)}`);
+        if (cfg.pieceSize !== "std") why.push(`ships ${cfg.pieceSize} shipments`);
+      } else if (mix > MIX_TOTAL_CAP + 1e-9) {
+        why.push(`materials sum ${mix.toFixed(3)}`);
+      }
       if (why.length) broken.push(`${clause.id}: ${why.join(", ")}`);
      }
     }
@@ -5507,6 +5933,10 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // the bay it just sold them.
     const lied: string[] = [];
     for (const clause of FINALS) {
+      // The full-belt pair's card quotes no per-material rate to hold — its
+      // promise is the belt's SHAPE (nothing standard), held by its own
+      // block below on the same arrivals.
+      if (clause.fullBelt) continue;
       const clean = levelForRun({
         ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
       });
@@ -5537,6 +5967,7 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // arrivals it matters for. "At least" is what makes it true on all of them.
     const bare: string[] = [];
     for (const clause of FINALS) {
+      if (clause.fullBelt) continue; // no numeric rate on the card to outrun
       const clean = levelForRun({
         ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
       });
@@ -5557,6 +5988,45 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     }
     check("a clause that can outrun its own card says \"at least\" on it",
       bare.length === 0, bare.join(", "));
+
+    // THE CAPSTONE PAIR SHIPS NO STANDARD CARGO — on every arrival, and
+    // without refunding anything. "Nothing standard" is each card's whole
+    // promise, so it gets the same treatment the rate cards' numbers get:
+    // checked on the worst arrivals, not just the clean one. And the full
+    // belt must still be the one the run's own ratchets built — a clause that
+    // converted a ratcheted material into easier cargo would be the refund
+    // bug (see finals.ts's schedule()) wearing its third coat.
+    {
+      const pair = finalsForTier(MARK_COUNT);
+      check("the capstone's pair is the full-belt pair, and nothing else is",
+        pair.every((c) => c.fullBelt === true)
+          && FINALS.every((c) => !c.fullBelt || c.tier === MARK_COUNT),
+        FINALS.filter((c) => c.fullBelt).map((c) => `${c.id}@${c.tier}`).join(", "));
+      const partial: string[] = [];
+      const converted: string[] = [];
+      for (const clause of FINALS.filter((c) => c.fullBelt)) {
+        for (const ratchets of [{} as Ratchets, ...arrivals(clause)]) {
+          const base = {
+            ...newRun(7, [], 0, newTiers(), clause.tier),
+            levelIndex: RUN_LEVELS - 1,
+            ratchets,
+          };
+          const before = levelForRun(base);
+          const after = levelForRun({ ...base, final: clause.id });
+          const total = Object.values(after.materialMix).reduce((a, b) => a + b, 0);
+          if (Math.abs(total - 1) > 1e-9) partial.push(`${clause.id} at ${total.toFixed(3)}`);
+          for (const k of Object.keys(after.materialMix) as Array<keyof typeof after.materialMix>) {
+            if (after.materialMix[k] < before.materialMix[k] - 1e-9) {
+              converted.push(`${clause.id} refunds ${k}`);
+            }
+          }
+        }
+      }
+      check("a full belt ships nothing standard on any arrival",
+        partial.length === 0, partial.join(", "));
+      check("a full belt keeps every material the run arrived with",
+        converted.length === 0, converted.join(", "));
+    }
   }
 
   // The wind pair's seam. A locked bay must actually blow the way its card
@@ -5601,9 +6071,10 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // clause was correct, the number was correct, and the screen still told the
     // player the opposite of the truth.
     //
-    // Some rows going GREEN is fine and deliberate: Short Measure genuinely
-    // makes a launch cheaper, and Dead Weight genuinely buys a bigger payload.
-    // What no clause may do is project a bay that costs nothing anywhere.
+    // Some rows going GREEN is fine and deliberate: the retired size pair
+    // genuinely moved launch money in the player's favour on one half, and a
+    // future clause may trade the same way again. What no clause may do is
+    // project a bay that costs nothing anywhere.
     const painless: string[] = [];
     for (const clause of FINALS) {
       const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
@@ -6601,6 +7072,228 @@ section("The guide + drills (guide.ts / drills.ts)");
       cfg.scrapPerLine >= 0 && cfg.scrapPerBay >= 0,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Bay end: convergence, not one stroke (game.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DT = 1000 / 60;
+
+  /** A one-line bay whose manifest is a single shipment, with every other
+   *  limit zeroed so `pieces` is the only reachable loss reason — the same
+   *  shape levelForContract gives a pattern Contract.
+   *
+   *  pieceQueue is ["O"] and not []: Cannon's `finite` is
+   *  `!!queue && queue.length > 0` (cannon.ts:132), so a ZERO-LENGTH queue is
+   *  read as a cycling bag and piecesLeft reports Infinity. A bay built with
+   *  `pieceQueue: []` never reaches the exact-inventory branch at all; it
+   *  simply plays on. The queue only goes dry once a shipment has been taken
+   *  off it (cannon.ts's `consumed` moves in markShot and nowhere else), which
+   *  is why both scenarios below fire.
+   *
+   *  penaltyPerLostPiece 0 is not decoration either: the dead bay below throws
+   *  its shipment away deliberately, and a fine for that drops score under
+   *  launchCostNow and opens the BROKE countdown — a different verdict racing
+   *  the one under test, and one whose margin shrinks as this fix lengthens
+   *  the bay. */
+  function spentBay(standingWall: number[]): LevelConfig {
+    const cfg = makeBaseLevel(0);
+    cfg.objectiveLines = 1;
+    cfg.compactorMinLineCells = 6;
+    cfg.compactorOpenCells = 12;
+    cfg.pieceSize = "tiny";
+    cfg.pieceQueue = ["O"];
+    cfg.standingWall = standingWall;
+    cfg.launchBudget = 0;
+    cfg.launchCost = 0;
+    cfg.startingFunds = 0;
+    cfg.penaltyPerLostPiece = 0;
+    cfg.timeLimitSec = 0;
+    cfg.targetScore = Number.MAX_SAFE_INTEGER;
+    cfg.windMax = 0;
+    return cfg;
+  }
+
+  /** Centre of slot column k, counted from the wall outward — the same
+   *  arithmetic createStandingWall lays its cubes on (pieces.ts) and the same
+   *  index lineClear.ts's nearest-slot check reads, so a cube dropped here
+   *  lands ON the grid the line check uses rather than near it. */
+  const slotX = (k: number) => WALL_INNER - CELL / 2 - k * CELL;
+
+  /** Which step the single shipment is fired on.
+   *
+   *  The bar's first full advance on this bay is step 134, and the manifest has
+   *  to run dry BEFORE it so that the stroke which sets strokeDone is one the
+   *  window has already opened over. Measured band on this bay: 100 through
+   *  130 all reproduce the loss. Firing at or below 80 was tried and rejected —
+   *  the cubes land early enough that the row clears at step 123, inside the
+   *  same stroke, and the bay simply wins. Firing at 133 or later was tried and
+   *  rejected too: it wins at step 402, which is the correct outcome reached by
+   *  accident, because today's gate only gets this right when the manifest
+   *  happens to run out AFTER the stroke rather than before it. */
+  const FIRE_STEP = 120;
+
+  /** How high above the floor the shipment is placed.
+   *
+   *  Cubes are placed with setPosition rather than aimed, so the scenario does
+   *  not depend on the cannon's default angle and power, on the trajectory
+   *  solver, or on where a lob happens to bounce. Eight cells is ~26 steps of
+   *  fall: long enough that the pair is still airborne through the full advance
+   *  at 134 and lands after it. Measured band: 4 through 12 cells all reproduce
+   *  the loss, so this is not perched on an edge. */
+  const DROP_CELLS = 8;
+
+  // EXACT INVENTORY, ZERO WASTE — the reported failure verbatim. Four wall
+  // cubes plus a two-cube shipment is exactly the six a line needs, so nothing
+  // may be spent. The shipment lands in the two empty slots and completes the
+  // row on the floor — but only AFTER the stroke that would have counted it.
+  // Today the bay is judged the instant that pair stops moving, because
+  // strokeDone was already true from step 134: lost with the winning six cubes
+  // standing complete and nothing wasted.
+  const g = new Game(spentBay([1, 1, 1, 1, 0, 0]), {}, 7);
+  let now = 0;
+  let steps = 0;
+  let fired = false;
+  while (g.status === "playing" && steps < 4000) {
+    if (!fired && steps === FIRE_STEP) {
+      fired = g.shoot(now);
+      // The shipment's cubes are the two just pushed onto g.cubes by shoot().
+      g.cubes.slice(-2).forEach((c, i) => {
+        Matter.Body.setPosition(c.body, {
+          x: slotX(4 + i),
+          y: WORLD.height - CELL / 2 - CELL * DROP_CELLS,
+        });
+        Matter.Body.setVelocity(c.body, { x: 0, y: 0 });
+        Matter.Body.setAngle(c.body, 0);
+        Matter.Body.setAngularVelocity(c.body, 0);
+        Matter.Sleeping.set(c.body, false);
+      });
+    }
+    now += DT;
+    g.update(now);
+    steps += 1;
+  }
+
+  // The premise, asserted rather than assumed: a scenario that quietly stopped
+  // being an exact-inventory bay would still pass the check below for the
+  // wrong reason, which is exactly how the first draft of it went wrong.
+  check(
+    "the bay under test really has run its manifest dry",
+    fired && g.piecesLeft === 0,
+    `fired ${fired}, piecesLeft ${g.piecesLeft}`,
+  );
+  check(
+    "a row completed after the last stroke still gets its press",
+    g.status === "won" && g.linesTotal === 1,
+    `${g.status}${g.lossReason ? ` (${g.lossReason})` : ""} after ${steps} steps, ` +
+    `${g.linesTotal} lines, ${g.cubes.length} cubes left`,
+  );
+
+  // HANG GUARD, not a regression check: this is green before and after the
+  // convergence change by construction, and it exists so that a later widening
+  // of the window cannot turn a dead bay into a stall. The other half of the
+  // contract — a bay that CANNOT be finished must still end, and not at the
+  // backstop.
+  //
+  // Six cubes over five slots: the row is one slot short of a line however long
+  // the press runs, and the spare is stacked on the wall column where it can
+  // never fill the gap. Six and not five, because five would put cubesAvailable
+  // under cubesRequired and route the bay through objectiveUnreachable's
+  // one-second grace instead, which tests nothing about convergence. The pile
+  // stands clear of the bar's stop, so nothing the press does moves it and the
+  // first quiet stroke settles it.
+  const dead = new Game(spentBay([2, 1, 1, 1, 1]), {}, 7);
+  dead.shoot(0);
+  let deadNow = 0;
+  let deadSteps = 0;
+  while (dead.status === "playing" && deadSteps < 4000) {
+    deadNow += DT;
+    dead.update(deadNow);
+    deadSteps += 1;
+  }
+  check(
+    "a bay that cannot be finished still ends, and not at the cap",
+    dead.status === "lost" && dead.lossReason === "pieces" &&
+      deadSteps < dead.compactor.cycleSteps * 4,
+    `${dead.status} (${dead.lossReason}) after ${deadSteps} steps ` +
+    `(cap ${(dead.compactor.cycleSteps * 6).toFixed(0)})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  // String-only, because this file is: the SHAPE and the 25px offset are
+  // app.css's, and whether they collide with the windows is sim/uifit's
+  // question. What can be asserted here is that the markup says it at all,
+  // says it once, and says it in words as well as in a class name.
+  const base: S.TowerState = { unlocked: 3, selected: 3, god: false, sealed: [2] };
+  const html = S.tierTowerHTML(base);
+  check("a sealed floor is marked", html.includes("tower__seal"));
+  check(
+    "an unsealed floor is not",
+    (html.match(/tower__seal/g) ?? []).length === 1,
+    `${(html.match(/tower__seal/g) ?? []).length} seals for one sealed Mark`,
+  );
+  // The distinction must survive a viewer who cannot separate the hues. The
+  // stamp is a shape and it is aria-hidden, so the floor's accessible NAME is
+  // what carries it to anyone the shape does not reach. Asserted as the whole
+  // label, not as the bare word: `includes("sealed")` passes on an accident —
+  // the class name alone would satisfy it.
+  check(
+    "the seal is named, not merely drawn",
+    html.includes('aria-label="Tier 2 — sealed"'),
+  );
+  // God is not a Mark. meta.ts can never record a seal for it, so a build in
+  // which the God floor could wear one is drawing a state nothing produces.
+  check(
+    "the God floor is never sealed",
+    !S.tierTowerHTML({ ...base, god: true, sealed: [S.GOD_TIER] }).includes("tower__seal"),
+  );
+  // Absent reads as none — menuScreen's fallback tower and every uifit fixture
+  // that predates the seal must render exactly the tower they always did.
+  check(
+    "a tower with no seal record draws no seals",
+    !S.tierTowerHTML({ unlocked: 3, selected: 3, god: false }).includes("tower__seal"),
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("The hint strip names the hold-to-restart gesture (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  // BARE LOADOUT deliberately: with the Autoloader owned the strip already
+  // says "hold to autofire", and /hold.*restart/ would then match across two
+  // separate hints and pass for the wrong reason.
+  const bare = { bond: false, demo: false, auto: false };
+  // Keyboard and touch share one arm, and the strip is drawn on the
+  // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
+  // the keyboard strip is the one that has to name it.
+  check(
+    "the strip names the hold-to-restart gesture",
+    /hold.*restart/i.test(S.hintStripHTML("keyboard", bare)),
+  );
+  check(
+    "touch renders the same strip content",
+    /hold.*restart/i.test(S.hintStripHTML("touch", bare)),
+  );
+  // GUARD, not a regression check — green before this hint existed and green
+  // after. The pad's Start button is a press, not a pointer hold: nothing binds
+  // a held pad button to resetBay, so the gamepad strip must not claim it.
+  check(
+    "the gamepad strip does not name a gesture the pad cannot make",
+    !/hold.*restart/i.test(S.hintStripHTML("gamepad", bare)),
+  );
+  // GUARD, same reason. Every .kbd chip in this strip is a LIVE BINDING
+  // (game/bindings.ts). A keycap around "Hold" would be the strip telling the
+  // player to press a key that does not exist — the exact class of bug the one
+  // hint table exists to make impossible.
+  check(
+    "the hold is not dressed as a keycap",
+    !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
+  );
 }
 
 console.log(

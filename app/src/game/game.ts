@@ -278,6 +278,45 @@ const WIN_SETTLE_MAX_STEPS = Math.round(4 * (1000 / DT));
  *  outcome is already decided. */
 const UNREACHABLE_GRACE_STEPS = Math.round(1 * (1000 / DT));
 
+/** Convergence thresholds for the three overtime windows: the most a cube may
+ *  drift between two consecutive compactor full advances and still count as
+ *  "the press achieved nothing" (see sampleField / settleDone).
+ *
+ *  A bay used to be called once ONE full advance had happened and the field
+ *  was at rest. Both halves of that were weaker than they read: strokeDone is
+ *  sticky, so it stays true forever once a stroke lands, and isAtRest reads
+ *  VELOCITY while settleZoneCubes squares the pile with setPosition/setAngle
+ *  (lineClear.ts:392,404) — a cube being ground into its slot carries no
+ *  velocity and reads at rest on every step of the grind. So the gate ended
+ *  the bay mid-grind, and a row one pass short of square never got the pass
+ *  that would have closed it: a Tier 9 exact-inventory Contract was lost with
+ *  the winning six cubes standing on the floor and nothing wasted.
+ *
+ *  Measured over pattern bays and constructed piles with sim/settle-probe.ts,
+ *  splitting intervals by the GRIND'S OWN PRECONDITION at the start of each
+ *  one (settleZoneCubes' input condition) rather than by the displacement
+ *  being measured, so the two populations are labelled independently of the
+ *  thing under test:
+ *
+ *    quiet, no correction pending (n=3360): max 0.4289 px, max 0.00006 rad
+ *    positional grind working      (n=80):  min 11.3753 px, median 16.5417 px
+ *    angular grind working         (n=80):  min 0.12669 rad, median 0.18155 rad
+ *
+ *  1.0 px sits 2.3x above the measured jitter maximum and 11x below the
+ *  smallest real correction; 0.002 rad sits 33x above the jitter maximum and
+ *  63x below the smallest real correction. The gap is that wide because
+ *  settleZoneCubes has dead bands of its own — 0.5 px (lineClear.ts:402) and
+ *  1e-4 rad (lineClear.ts:390) — below which it stops moving a cube at all, so
+ *  displacement caused by grinding is either zero or large with no population
+ *  in between. And a cube within a pixel of its slot is already deep inside
+ *  X_TOL (0.3 * CELL = 12 px), i.e. already clearable, so calling it quiet is
+ *  the right answer rather than a tolerated error.
+ *
+ *  These numbers are only meaningful relative to the compactor rates, gravity
+ *  and the solver. Re-measure with the same method if any of those change. */
+const CONVERGED_EPS_PX = 1.0;
+const CONVERGED_EPS_RAD = 0.002;
+
 /** Autoloader aim spread (radians, +/-) around the player's current angle —
  *  ~5.7 degrees. Wide enough that consecutive shots genuinely scatter (that's
  *  the mechanic), tight enough that where the player points the cannon still
@@ -308,8 +347,15 @@ const BOMB_ARM_STEPS = 5;
 /** Fallback fuse (physics steps) so a bomb that never touches anything (e.g.
  *  sails off past the walls) still goes off instead of lingering forever. */
 const BOMB_FUSE_STEPS = 300;
-/** Blast radius: cubes centered within this are destroyed outright. */
-const BOMB_BLAST_R = CELL * 2.4;
+/** Blast radius: cubes centered within this are destroyed outright. Scaled per
+ *  detonation by level.bombBlastMult (the Demolition Rack's capstone).
+ *
+ *  Exported for sim/bots.ts, whose `demo` bot has to know how much a charge
+ *  actually reaches before it can decide a pile is worth one. A copy of the
+ *  number there would be a second statement of the blast that is free to drift
+ *  out of this one, and the bot's whole job is to price what the real charge
+ *  does. */
+export const BOMB_BLAST_R = CELL * 2.4;
 /** Cubes within 2x the blast radius get a radial shove instead of removal. */
 const BOMB_SHOVE_MULT = 2;
 const BOMB_SHOVE_SPEED = 10;
@@ -438,6 +484,11 @@ export class Game {
    *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS). */
   private readonly brokeGraceSteps: number;
 
+  /** Ceiling on an overtime window, in physics steps — the backstop half of
+   *  settleDone, and the only exit a pile in permanent contact-jitter can
+   *  reach. See the constructor for the sizing. */
+  private readonly settleCapSteps: number;
+
   /** Game.stepCount when the clock first hit zero, or null while time
    *  remains. Time-up is overtime, not an instant loss — see the time-up
    *  block in update(). */
@@ -488,6 +539,21 @@ export class Game {
    *  (rightX) — "a pressing stroke has completed since step S" is then just
    *  `lastFullAdvanceStep > S`. */
   private lastFullAdvanceStep = -1;
+
+  /** The field as it stood at the previous compactor full advance — body id to
+   *  position and angle — or null before the first advance, and after a clear
+   *  (see noteClearForSettle). Keyed by BODY ID rather than by index into
+   *  this.cubes because every removal path splices that array
+   *  (updateLineClear, shatterColdCryo, updateBlinking, shredInChute,
+   *  detonate, resolveVolatile), which shifts every cube after the hole and
+   *  would read as the whole pile having moved. Matter hands out ids from
+   *  Common.nextId and never reuses one, so an id match is a cube match. */
+  private settleSample: Map<number, { x: number; y: number; a: number }> | null = null;
+  /** Whether the most recent full advance found the field unchanged since the
+   *  advance before it. Written only by sampleField — once per compactor cycle
+   *  — and so up to a whole cycle stale by the time anyone reads it. settleDone
+   *  is the only reader and it re-checks freshness itself; see there. */
+  private settleQuiet = false;
 
   /** Physics steps elapsed (one per update() call) — bombs use this instead
    *  of wall-clock time so arming/fuse timing is pause-safe by construction
@@ -640,6 +706,20 @@ export class Game {
       this.compactor.cycleSteps + 2000 / DT,
       30_000 / DT,
     );
+    // The overtime backstop. A pile in permanent contact-jitter never
+    // converges, so the window still needs a ceiling — but one stroke's worth
+    // was the bug, so this is six compactor round trips. Set beside
+    // brokeGraceSteps because the change is only legible next to it:
+    // brokeGraceSteps is 313.9 steps at Tier 9's 193.9-step cycle and 386.7 at
+    // Tier 0's 266.7, while this is 1163.6 steps (19.4s) and 1600 (26.7s) — a
+    // 4x increase in what a stone-dead bay can be made to sit through. That is
+    // affordable only because convergence normally ends such a bay in about
+    // two strokes and this is never the path taken; sim/systems.ts asserts
+    // exactly that ("a bay that cannot be finished still ends, and not at the
+    // cap"). The 30s absolute cap is the one brokeGraceSteps already carries,
+    // for the same reason: a degenerate compactorSpeed mutator must not make
+    // the window effectively infinite.
+    this.settleCapSteps = Math.min(this.compactor.cycleSteps * 6, 30_000 / DT);
     resetLineClear();
     // The salvage wall, if this bay opens on one. Before updateTrajectory so
     // the aim line is drawn against the pile that is actually there, and before
@@ -1403,8 +1483,13 @@ export class Game {
     const pressing = this.compactor.pressing;
     this.compactor.update();
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
-    // to retreat), so this records precisely the full-advance ticks.
-    if (this.compactor.x >= this.compactor.rightX) this.lastFullAdvanceStep = this.stepCount;
+    // to retreat), so this records precisely the full-advance ticks — and full
+    // advance is the one phase at which two samples of the pile are comparable,
+    // which is why the convergence sample is taken here (see sampleField).
+    if (this.compactor.x >= this.compactor.rightX) {
+      this.lastFullAdvanceStep = this.stepCount;
+      this.sampleField();
+    }
     // The bar is a STATIC body moved by setPosition, so matter's sleeping
     // machinery never sees it coming: static-vs-sleeping pairs are skipped by
     // collision detection outright, and a sleeping cube in its path would be
@@ -1466,6 +1551,15 @@ export class Game {
       ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level, this.constraints)
       : { lines: 0, cubes: [], rows: [] };
     if (clear.lines > 0) {
+      // A clear is progress, and progress earns more strokes: reopen the
+      // convergence window so no overtime branch can compare across a field
+      // that just changed shape. settleDone's cube-count check would catch
+      // this same clear on its own, which makes the call strictly redundant —
+      // it is here to state the INTENT in the place the progress happens,
+      // rather than leaving it resting on the side effect of some cubes having
+      // been removed. At the top of the block because everything below it is
+      // bookkeeping that must not be able to return early past it.
+      this.noteClearForSettle();
       this.combo += 1;
       // Congestion's fourth pressure (level.ts's PileTier.payMult): a clear
       // taken out of a cluttered bay pays less. The other three price the shot,
@@ -1584,57 +1678,51 @@ export class Game {
       //
       //   queue empty      — overtime, exactly like the launch budget below:
       //                      the last shipment is still airborne and is the one
-      //                      most likely to close the goal, so wait for a
-      //                      completed press and a field at rest.
+      //                      most likely to close the goal, so the bay runs on
+      //                      until the press stops CHANGING anything. This used
+      //                      to wait for one completed press and a field at
+      //                      rest, which was a settle gate wearing a finish
+      //                      gate's clothes — see settleDone for what was wrong
+      //                      with both halves of it.
       //   unreachable      — the arithmetic already settled it (see
       //                      objectiveUnreachable). Nothing that happens next
-      //                      can change the answer, so the only reason to wait
-      //                      at all is to let the player SEE the cube they just
-      //                      lost blink out. A second is enough for that;
-      //                      making them play out a dead bay is not kindness.
+      //                      can change the answer, so there is nothing to
+      //                      converge toward and the only reason to wait at all
+      //                      is to let the player SEE the cube they just lost
+      //                      blink out. A second is enough for that; making them
+      //                      play out a dead bay is not kindness.
       if (this.piecesUpStep === null) this.piecesUpStep = this.stepCount;
-      const waited = this.stepCount - this.piecesUpStep;
-      const strokeDone = this.lastFullAdvanceStep > this.piecesUpStep;
       const done = this.objectiveUnreachable
-        ? waited > UNREACHABLE_GRACE_STEPS
-        : (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
-          waited > this.brokeGraceSteps;
+        ? this.stepCount - this.piecesUpStep > UNREACHABLE_GRACE_STEPS
+        : this.settleDone(this.piecesUpStep);
       if (done) {
         this.lossReason = "pieces";
         this.setStatus("lost");
       }
     } else if (this.launchesLeft <= 0) {
       // Budget spent — but the last launch is still airborne, so this is
-      // overtime, not a verdict. Identical settle gate to the clock below:
-      // wait for a completed pressing stroke AND a field at rest, so a line
-      // the final shipment completed gets crushed and counted, with the same
-      // capped grace so a never-resting pile can't stall forever. The win test
-      // above runs first, so finishing on the last launch is a clear.
+      // overtime, not a verdict. Same convergence exit as the manifest above
+      // and the clock below (settleDone): the bay runs until a whole pressing
+      // pass changes nothing, so a line the final shipment completed gets its
+      // grind, its crush and its payout instead of being cut off one pass
+      // short. The win test above runs first, so finishing on the last launch
+      // is a clear.
       if (this.launchesUpStep === null) this.launchesUpStep = this.stepCount;
-      const strokeDone = this.lastFullAdvanceStep > this.launchesUpStep;
-      if (
-        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
-        this.stepCount - this.launchesUpStep > this.brokeGraceSteps
-      ) {
+      if (this.settleDone(this.launchesUpStep)) {
         this.lossReason = "launches";
         this.setStatus("lost");
       }
     } else if (this.timeLeftMs <= 0) {
-      // Overtime — not an instant loss: launches already paid for get to
-      // land and their lines to be pressed and paid before the run is
-      // judged (shoot() blocks new launches once the clock is out). The
-      // run ends once the compactor has completed a pressing stroke since
-      // expiry AND the field is at rest — any line the final launch
-      // completed has had its crush-and-pay stroke by then — or after the
-      // same capped grace window the broke-loss uses, so a never-resting
-      // pile can't stall the verdict forever. A payout during overtime can
-      // still win the bay: the score >= target check above runs first.
+      // Overtime — not an instant loss: launches already paid for get to land
+      // and their lines to be pressed and paid before the run is judged
+      // (shoot() blocks new launches once the clock is out). Same convergence
+      // exit as the two branches above (settleDone) — the bay ends when the
+      // press stops changing anything, not one stroke after expiry — backed by
+      // settleCapSteps so a never-resting pile can't stall the verdict forever.
+      // A payout during overtime can still win the bay: the score >= target
+      // check above runs first.
       if (this.timeUpStep === null) this.timeUpStep = this.stepCount;
-      const strokeDone = this.lastFullAdvanceStep > this.timeUpStep;
-      if (
-        (strokeDone && this.cubes.every((c) => isAtRest(c.body))) ||
-        this.stepCount - this.timeUpStep > this.brokeGraceSteps
-      ) {
+      if (this.settleDone(this.timeUpStep)) {
         this.lossReason = "time";
         this.setStatus("lost");
       }
@@ -1723,6 +1811,113 @@ export class Game {
   }
 
   /**
+   * Sample the field at a compactor full advance and decide whether the stroke
+   * that just finished changed anything.
+   *
+   * Full advance is the only moment worth comparing two samples at: the bar is
+   * in the same place in both, so any difference is the PILE having moved and
+   * not the stroke being caught at a different phase. Consecutive full
+   * advances are also exactly one round trip apart (Compactor.update clamps at
+   * rightX, flips to -1, retreats to leftX, flips back), so every interval
+   * this compares contains one complete pressing pass. Two matching samples
+   * therefore mean the press ran a whole pass over this field and achieved
+   * nothing, which is the honest end of a bay: more strokes cannot help. It
+   * also makes the first advance after a window opens a legitimate verdict
+   * even though its predecessor predates the window — the pass is whole
+   * either way.
+   *
+   * A changed cube COUNT is never quiet: it is a different field, and a
+   * position-by-position comparison of it means nothing. (A clear drops the
+   * sample outright as well — see noteClearForSettle.)
+   */
+  private sampleField(): void {
+    const cur = new Map<number, { x: number; y: number; a: number }>();
+    for (const c of this.cubes) {
+      cur.set(c.body.id, { x: c.body.position.x, y: c.body.position.y, a: c.body.angle });
+    }
+    const prev = this.settleSample;
+    let quiet = prev !== null && prev.size === cur.size;
+    if (quiet && prev) {
+      for (const [id, p] of prev) {
+        const c = cur.get(id);
+        if (
+          !c ||
+          Math.hypot(c.x - p.x, c.y - p.y) > CONVERGED_EPS_PX ||
+          Math.abs(c.a - p.a) > CONVERGED_EPS_RAD
+        ) {
+          quiet = false;
+          break;
+        }
+      }
+    }
+    this.settleQuiet = quiet;
+    this.settleSample = cur;
+  }
+
+  /** A line cleared: the bay has earned more strokes. Drops the sample so the
+   *  next full advance has nothing to compare against and cannot call a field
+   *  that just changed shape quiet. See the call site in update() for why this
+   *  is kept even though settleDone's count check makes it redundant. */
+  private noteClearForSettle(): void {
+    this.settleSample = null;
+    this.settleQuiet = false;
+  }
+
+  /**
+   * The shared exit for the three overtime windows in update(): the press has
+   * stopped changing anything AND the field is at rest, or the backstop has
+   * run out. One method rather than three copies because "settled" is one
+   * idea, and three inlined copies of it drift.
+   *
+   * Three guards, each closing a different hole:
+   *
+   *   strokeDone   — settleQuiet can be a verdict on two advances that BOTH
+   *                  predate sinceStep, and a window that has not yet seen a
+   *                  full advance has not been pressed at all.
+   *   count match  — the freshness guard. settleQuiet is rewritten only at a
+   *                  full advance, and a whole cycle (193.9 steps at Tier 9,
+   *                  266.7 at Tier 0) can pass before the next one, while this
+   *                  is asked every step. Any cube added or removed inside
+   *                  that gap is invisible to a stale true: updateBlinking,
+   *                  shatterColdCryo, shredInChute, resolveVolatile, detonate
+   *                  and shoot all reach this.cubes between advances, and a
+   *                  removal drops whatever was resting on the cube, which
+   *                  re-rests within a few dozen steps — long before the
+   *                  sample catches up. Ending there would be the same "called
+   *                  it without a press" bug in a different coat. One integer
+   *                  compare covers all seven paths and cannot be forgotten by
+   *                  whoever adds the eighth.
+   *   isAtRest     — never sufficient on its own, and that is the original
+   *                  bug: settleZoneCubes grinds with setPosition/setAngle
+   *                  (lineClear.ts:392,404), so a cube being ground into its
+   *                  slot carries no velocity and reads at rest throughout.
+   *                  The position sample is what actually sees the grind; this
+   *                  only keeps a bay alive while something is still in flight.
+   *
+   * The sample is deliberately NOT reset when a window OPENS. Resetting would
+   * cost every window a whole extra cycle even on a stone-dead bay, and it
+   * buys nothing: none of the window-opening events change the field. A shot
+   * still in the air is already in this.cubes (shoot pushes it there), so it
+   * either moves between two samples or was spawned after the earlier one and
+   * changes the count — not quiet either way. The clock hitting zero and the
+   * budget running out change nothing at all.
+   */
+  private settleDone(sinceStep: number): boolean {
+    const strokeDone = this.lastFullAdvanceStep > sinceStep;
+    const sampleFresh =
+      this.settleSample !== null && this.settleSample.size === this.cubes.length;
+    if (
+      strokeDone &&
+      this.settleQuiet &&
+      sampleFresh &&
+      this.cubes.every((c) => isAtRest(c.body))
+    ) {
+      return true;
+    }
+    return this.stepCount - sinceStep > this.settleCapSteps;
+  }
+
+  /**
    * The SETTLE window's exit condition. The bay is called won once EITHER
    *   - the field is at rest AND a full pressing stroke has completed since the
    *     window opened (so a line the final shot completed has had its
@@ -1735,6 +1930,23 @@ export class Game {
    * all keep running, so shots already paid for still land, still shatter, and
    * still pay out — the score shown on the celebration is the real final one.
    * shoot() is what's blocked (see there), not the world.
+   *
+   * DELIBERATELY NOT settleDone. The three overtime branches in update() moved
+   * to convergence because they can LOSE a bay that was still winnable; this
+   * one cannot. By the time it runs the bay is already won and its money
+   * already banked (see the settle-window comment above the call), so no
+   * verdict here can change and there is nothing to converge toward — only the
+   * question of when the dust stops. Convergence would also not fit under a
+   * flat 4s cap: the clear that opens the win calls noteClearForSettle, which
+   * nulls the sample, so the earliest quiet verdict is two full advances away
+   * — one whole compactor cycle, 193.9 steps at Tier 9 up to 266.7 at Tier 0,
+   * i.e. at or above WIN_SETTLE_MAX_STEPS at every tier below 9. Every win
+   * would then resolve at the backstop instead, turning the most-repeated
+   * moment in the game into a flat 4-second wait. Raising the cap to fit is a
+   * separate, feel-level decision about the celebration and is not part of the
+   * loss fix. So: one completed stroke and a field at rest stays the gate here,
+   * on purpose — do not "finish the job" by routing this through settleDone
+   * without also re-sizing the cap and playing it.
    */
   private resolveWin(now: number): void {
     if (this.winPendingStep === null) return;
@@ -1880,7 +2092,14 @@ export class Game {
 
     const cx = bombBody.position.x;
     const cy = bombBody.position.y;
-    const shoveR = BOMB_SHOVE_MULT * BOMB_BLAST_R;
+    // The Demolition Rack's capstone widens the charge (level.ts's
+    // DEMO_BLAST_MULT). Read per detonation rather than cached at construction
+    // because a bay's config is rebuilt every level from the run's tiers, and
+    // the shove ring rides on the kill radius so a wider blast also shoves
+    // further — one number, two effects, which is what keeps the FX ring below
+    // an honest picture of what was destroyed.
+    const blastR = BOMB_BLAST_R * (this.level.bombBlastMult > 0 ? this.level.bombBlastMult : 1);
+    const shoveR = BOMB_SHOVE_MULT * blastR;
 
     let vaporized = 0;
     const gone: { x: number; y: number }[] = [];
@@ -1890,7 +2109,7 @@ export class Game {
       const dx = b.position.x - cx;
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
-      if (d <= BOMB_BLAST_R) {
+      if (d <= blastR) {
         gone.push({ x: b.position.x, y: b.position.y });
         this.throwChunks(cube, now);
         removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -1915,7 +2134,7 @@ export class Game {
     for (const g of gone) wakeNear(this.cubes, g.x, g.y);
 
     Matter.Composite.remove(this.phys.world, bombBody);
-    this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
+    this.effects.push({ kind: "explosion", x: cx, y: cy, r: blastR, t0: now });
     this.events.onExplosion?.("bomb");
 
     if (vaporized > 0) {

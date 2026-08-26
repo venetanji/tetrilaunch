@@ -99,9 +99,9 @@ function draft(selected: HazardId[]): string {
 /** The FINAL INSPECTION (game/finals.ts) — the run's last draft.
  *
  *  Tier 10 deliberately: its clauses carry the longest copy in the table and
- *  its projection is the widest the screen can produce, because the pair moves
- *  cargo size and the launch price at once on a bay that already has four
- *  banked axes pinned ACTIVE. A screen that fits this fits every other Tier's.
+ *  its projection is the widest the screen can produce, because Odd Lots
+ *  moves every material row at once on a bay that already has four banked
+ *  axes pinned ACTIVE. A screen that fits this fits every other Tier's.
  */
 function inspection(selected: string | null): string {
   const run = {
@@ -245,11 +245,18 @@ const SANDBOX_CONTRACT: SandboxState = {
 
 /** The tower with the whole ladder beaten and the car on the God floor — the
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
- *  save, so this is the only fixture that reaches it. */
+ *  save, so this is the only fixture that reaches it.
+ *
+ *  SEALED AT MARK 10, and that Mark specifically: the seal is stamped in the
+ *  slack between the plate's number and its windows, and 10 is the only
+ *  two-digit number the ladder has — i.e. the narrowest that slack ever gets.
+ *  Without this the seal renders nowhere in the whole matrix and every "no new
+ *  violations" run is measuring a floor that has no stamp on it. */
 const TOWER_TOP: S.TowerState = {
   unlocked: MARK_COUNT,
   selected: S.GOD_TIER,
   god: true,
+  sealed: [MARK_COUNT],
 };
 
 /** The same tower with Tier S open — the tallest the column ever gets, because
@@ -670,7 +677,7 @@ export const SCREENS: Record<string, () => string> = {
   // both: accepting a clause grows a struck-through old value on every row it
   // moves, and the Tier-10 pair moves the most rows of any pair.
   inspection: () => inspection(null),
-  "inspection-signed": () => inspection("dead-weight"),
+  "inspection-signed": () => inspection("odd-lots"),
 
   // The tutorial, EVERY step. It used to be the two extremes — step 0 (plant
   // fully collapsed) and step 3 (most of the readout revealed) — on the

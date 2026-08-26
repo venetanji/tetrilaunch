@@ -430,13 +430,26 @@ export interface MetaState {
    *  Contract once keeps the subscription buying throughput rather than power,
    *  and leaves replaying a cleared Contract as free practice. */
   claimedContracts: string[];
+  /** Marks beaten in a single run with ZERO bay restarts — the seal, drawn on
+   *  that floor of the tower.
+   *
+   *  A list rather than a flag because `mark` is a high-water number and the
+   *  tower draws every floor: each one needs its own answer, and a player who
+   *  sealed Mark 3 keeps that after Mark 4 falls messily.
+   *
+   *  Cosmetic by construction. It must never feed salvage, a loadout budget or
+   *  `mark` — docs/DESIGN.md's mode table prints "Purchasable power: none" for
+   *  both modes, and a seal that paid out would be a second progression axis
+   *  wearing a badge. The sim guards that with an explicit check rather than
+   *  trusting anyone to read this paragraph. */
+  sealedMarks: number[];
 }
 
 export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
-    loadout: newTiers(), claimedContracts: [],
+    loadout: newTiers(), claimedContracts: [], sealedMarks: [],
   };
 }
 
@@ -569,17 +582,33 @@ function advanceTier(meta: MetaState): TierResult {
  * re-winning an already-ticked half pays nothing. `runMark` must be the Mark
  * the run was flown at (RunState.mark) — a stale save replaying an
  * already-beaten Mark cannot tick the current tier.
+ *
+ * A run flown with zero restarts also SEALS its Mark (`sealedMarks`) — a badge
+ * on the tower floor and nothing else. `restarts` defaults to 0 so a caller
+ * that predates the field reads as a clean run rather than throwing; the only
+ * caller that can actually seal anything is main.ts's finishRun, which threads
+ * RunState.restarts through.
  */
-export function recordRunEnd(meta: MetaState, runMark: number, won: boolean, bayReached: number): TierResult {
+export function recordRunEnd(
+  meta: MetaState, runMark: number, won: boolean, bayReached: number, restarts = 0,
+): TierResult {
   const tier = markUnlocked(meta);
   const newlyDone = !meta.tierRunDone && won && runMark === tier;
   const share = newlyDone ? tierMilestoneSalvage(tier) : 0;
+  // Deliberately NOT gated on runMark === tier the way the tier bookkeeping
+  // above is: flying an already-beaten Mark clean is still flying it clean, and
+  // the badge belongs on THAT floor. It pays nothing either way, so nothing can
+  // be farmed by re-flying a low floor.
+  const sealed = won && restarts === 0 && !meta.sealedMarks.includes(runMark)
+    ? [...meta.sealedMarks, runMark]
+    : meta.sealedMarks;
   const next: MetaState = {
     ...meta,
     runs: meta.runs + 1,
     bestBay: Math.max(meta.bestBay, bayReached),
     salvage: meta.salvage + share,
     tierRunDone: meta.tierRunDone || newlyDone,
+    sealedMarks: sealed,
   };
   const result = advanceTier(next);
   return { ...result, salvage: result.salvage + share };

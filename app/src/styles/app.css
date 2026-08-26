@@ -922,6 +922,64 @@ body.crt-off #app::after { display: none; }
 .tower__windows i {
   width: 4px; height: 4px; background: currentColor; border-radius: 1px; opacity: 0.4;
 }
+/* THE SEAL — a Mark that fell in one unbroken run (screens.ts's floorHTML, fed
+   from meta.ts's sealedMarks).
+
+   POSITIONED, AND THE REASON IS WIDTH, NOT HEIGHT. Height is safe either way:
+   the floors are `flex: 1 1 0; min-height: 0` above, so the shaft divides its
+   height between eleven of them and no content can grow one. Width is not. On
+   the narrowest device in the fleet the plate is 82px — sim/uifit's baseline
+   records `.tower__floor 82x26` on the 640x360 budget phone — which is 72px of
+   content once its 1px border and `0 5px 0 3px` padding are off, and that 72px
+   is already spent: 22px car lane, 4px gap, ~14px for "10" (JetBrains Mono
+   12px), 4px gap, 16px window block. ~12px of slack against the ~14px a flowed
+   badge and its gap would want, so a flowed seal squeezes .tower__n and shows
+   up as a `spill` regression (sim/uifit skips position:absolute children and
+   catches flowed ones — sim/uifit/run.ts).
+
+   RIGHT: 25px IS MEASURED. The window block is 3 x 4px + 2 x 2px = 16px sitting
+   on the plate's own 5px padding-right, and the row's gap is 4px: 25px is the
+   first pixel to the left of the windows that the plate is not already using.
+   0.45em (7.2px at the inherited 16px root) was tried and parks the stamp
+   squarely ON the windows — nothing in sim/uifit measures that particular
+   overlap, which is why it is written down here instead of left to the harness.
+
+   8px, IN PIXELS. Every dimension in this drawing is a fixed pixel derived from
+   the 26px floor — 4px windows, 4px car dot, 2px rail, 22px car lane — and the
+   floor's own font-size is the inherited 16px root, which has nothing to do
+   with the 12px number it draws. An em here would track a scale that is not
+   this building's.
+
+   currentColor, so the stamp inherits the floor's state rather than keeping a
+   bright badge on a dark building: a locked floor dims it with the windows, a
+   selected floor turns it cyan with everything else.
+
+   THE SHAPE IS THE WHOLE DISTINCTION — an octagonal stamp pressed into the
+   plate, notched on all four diagonals, legible in a greyscale screenshot. The
+   palette is full at 13 swatches (sim/systems.ts's dE00 10 check) and a
+   red-green viewer separates none of it, so no seal may rest on hue. */
+.tower__floor { position: relative; }
+/* The guide line keeps an explicit rung now that the plates are positioned.
+   .tower__rail is absolute with z-index auto and comes BEFORE the floors in the
+   DOM (screens.ts's tierTowerHTML), so it used to paint over unpositioned
+   plates; making them position: relative would otherwise put every plate's
+   background — and .is-selected's inset shadow — in front of the shaft's own
+   line. 1, so it stays under the car's 2. */
+.tower__rail { z-index: 1; }
+.tower__seal {
+  position: absolute;
+  right: 25px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+  opacity: 0.85;
+  clip-path: polygon(
+    30% 0%, 70% 0%, 100% 30%, 100% 70%,
+    70% 100%, 30% 100%, 0% 70%, 0% 30%
+  );
+}
 .tower__floor.is-selected {
   border-color: var(--accent); color: var(--accent);
   background: rgba(0, 240, 255, 0.12);
@@ -1509,7 +1567,7 @@ body.crt-off #app::after { display: none; }
   text-align: center;
 }
 
-/* ---------- Bond Breaker: HOLD to fire (see main.ts's startBondHold) ----------
+/* ---------- HOLD to fire: Bond Breaker, and ⏸ (see main.ts's startHold) ----------
    Both triggers are held, not tapped. The charge is the run's rarest
    consumable and both buttons sit on glass a thumb is already dragging the
    slingshot across, so a tap must not be able to spend one — main.ts's
@@ -1533,11 +1591,27 @@ body.crt-off #app::after { display: none; }
    painted on top would hide the very icon it is charging. The transition on
    the base rule is the UNWIND — when main.ts drops the class the animation
    ends and the meter drains back down, so an abandoned hold reads as
-   "nothing happened" rather than blinking out. */
+   "nothing happened" rather than blinking out.
+
+   The pause button wears this treatment too — main.ts's startPauseHold makes a
+   HOLD on ⏸ restart the bay while a tap still pauses, and the meter is what
+   says the press is being counted. It is addressed here by attribute rather
+   than by joining `.bond-trigger`, because that class is syncAbility's selector
+   protocol (`.${name}-trigger`, main.ts) and would DISABLE the pause button on
+   every bay whose Bond Breaker charges are at zero. The `--holding` modifier
+   keeps the bond name on purpose: the class is the TREATMENT, both buttons wear
+   it, and renaming it would put cosmetic churn in a bug-fix diff. */
 .bond-btn { --bond-fill: 255, 210, 63; }
 .mod--bb { --bond-fill: 178, 158, 255; }
-.bond-trigger {
+.bond-trigger,
+.side-rail [data-action="pause"] {
   isolation: isolate;
+  /* The meter is an inset ::after, so the button has to be its own containing
+     block — otherwise it sizes to `.side-rail`, which IS positioned, and the
+     fill paints down the whole rail column. No-op for the two bond triggers
+     (.bond-btn and .mod already set this); stated here so the rule carries
+     everything the hold needs. */
+  position: relative;
   /* A one-second press must stay a press: no scroll, no long-press callout,
      no text selection creeping in under the finger. (body already sets
      touch-action/user-select globally; stated here so the hold does not
@@ -1545,7 +1619,8 @@ body.crt-off #app::after { display: none; }
   touch-action: none;
   -webkit-touch-callout: none;
 }
-.bond-trigger::after {
+.bond-trigger::after,
+.side-rail [data-action="pause"]::after {
   content: "";
   position: absolute; inset: 0;
   z-index: -1;

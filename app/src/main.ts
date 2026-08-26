@@ -7,7 +7,7 @@ import {
 } from "./game/run";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
-  hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
+  hazardOffers, hazardById, isMaterialDraft, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
 import { previewRows } from "./game/preview";
@@ -199,7 +199,7 @@ const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
 const CREST_HEAT_REST = 0.45;
 
 /** How long a pointer must stay pressed on a Bond Breaker trigger before the
- *  charge is actually spent (see startBondHold).
+ *  charge is actually spent (see startHold).
  *
  *  A Bond Breaker is the run's rarest consumable — one stock granted once for
  *  the whole ten-bay run, not a per-bay refill (run.ts's bondChargesFor) — and
@@ -220,6 +220,17 @@ const BOND_HOLD_MS = 1000;
  *  fat part of a thumb and wobbles by a few px while it sits there; sliding
  *  deliberately away is the escape hatch, and 24px (~4mm) separates the two. */
 const BOND_HOLD_SLOP = 24;
+/** How long after a COMPLETED hold a click on the same button still counts as
+ *  that hold's own release rather than a fresh tap (see holdFiredAt).
+ *
+ *  The synthesized click follows its pointerup within a frame here —
+ *  index.html's viewport is `width=device-width, user-scalable=no` and app.css
+ *  sets `touch-action: none` on body, which is exactly what retires mobile
+ *  Chrome's legacy 300ms tap delay — so the window only has to outlast one
+ *  frame; 400ms leaves that whole retired delay as headroom. It cannot eat a
+ *  deliberate second press: startPauseHold zeroes the stamp on every new
+ *  press, so the window only ever covers the press that fired. */
+const HOLD_CLICK_MS = 400;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -444,15 +455,37 @@ class App {
    *  button. */
   private autoPointerId: number | null = null;
 
-  /** The Bond Breaker press currently being held down, or null (see
-   *  BOND_HOLD_MS / startBondHold). `el` is the trigger being held — either of
-   *  the ability's two — so only the button under the finger animates; `rect`
-   *  is that button's box captured at press time, which is what the drift
-   *  check measures against (nothing in the HUD moves mid-press, so measuring
-   *  once is enough and keeps the move handler off getBoundingClientRect). */
-  private bondHold:
-    | { pointerId: number; el: HTMLElement; rect: DOMRect; timer: number }
+  /** The hold-to-confirm press currently down, or null (see BOND_HOLD_MS /
+   *  startHold). Bond Breaker's two triggers and the pause button share it —
+   *  two copies of this machinery would drift, and the drift would show up as
+   *  a gesture that behaves differently on two buttons. `el` is the button
+   *  being held, so only the one under the finger animates; `rect` is that
+   *  button's box captured at press time, which is what the drift check
+   *  measures against (nothing in the HUD moves mid-press, so measuring once
+   *  is enough and keeps the move handler off getBoundingClientRect).
+   *  `onComplete` is what the fill reaching the top does — the whole reason
+   *  this is shared. */
+  private hold:
+    | {
+        pointerId: number;
+        el: HTMLElement;
+        rect: DOMRect;
+        timer: number;
+        onComplete: () => void;
+      }
     | null = null;
+
+  /** When the last hold COMPLETED, so the click the browser sends after that
+   *  release is swallowed instead of doing the tap's job as well.
+   *
+   *  A timestamp, not a flag. The hold that fires restarts the bay, which goes
+   *  through setState → renderOverlay and rewrites overlay.innerHTML wholesale
+   *  (see renderOverlay's "playing" arm), so the pressed button is GONE before
+   *  pointerup and the click is never dispatched to any [data-action] at all.
+   *  A flag set on completion would then never be cleared, and would swallow
+   *  some later pause — a keyboard activation, which arrives with no
+   *  pointerdown to reset it. A window expires on its own. */
+  private holdFiredAt = 0;
 
   /** The active input family (canvas D2), set by the LAST INPUT SEEN — a
    *  touch, a keypress, or gamepad activity. Every hint surface renders from
@@ -609,7 +642,7 @@ class App {
     this.input.destroy();
     this.game?.destroy();
     this.attract.stop();
-    this.clearBondHold();
+    this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
@@ -623,10 +656,10 @@ class App {
     // be replaced by a modal, so its pointerup will never arrive and the burst
     // would resume the moment play did.
     if (s !== "playing") this.releaseAutoTrigger();
-    // Same reasoning for a Bond Breaker mid-hold: the trigger is about to be
-    // replaced, so nothing would ever cancel the countdown, and it would spend
-    // the charge into a paused bay a second after the player left it.
-    this.clearBondHold();
+    // Same reasoning for a mid-hold press: the button is about to be replaced,
+    // so nothing would ever cancel the countdown, and it would spend the
+    // charge into a paused bay a second after the player left it.
+    this.clearHold();
     // The congestion cue belongs to the bay being PLAYED. Muted for every other
     // screen and restored on the way back in, so it cannot leak into a pause
     // modal, a draft or the menu — and cannot go missing after one.
@@ -1005,6 +1038,11 @@ class App {
       // developer should not have to perform a nine-tap gesture to reach the
       // tool their build exists to carry.
       sandbox: this.sandboxOpen(),
+      // Handed straight through: the seal is meta's record, and the tower is
+      // the one screen that draws it. No clamp — a Mark can only enter
+      // sealedMarks by being CLEARED (meta.ts's advanceMeta), so every sealed
+      // Mark is an unlocked one by construction.
+      sealed: this.meta.sealedMarks,
     };
     // Two conditions, and the SECOND is the one this used to be missing.
     // `tierOpen` only rejects a floor above the unlock, so it catches a save
@@ -2428,7 +2466,9 @@ class App {
       this.setState(won ? "won" : "lost");
       return;
     }
-    const result = recordRunEnd(this.meta, this.run.mark, won, this.run.levelIndex + 1);
+    const result = recordRunEnd(
+      this.meta, this.run.mark, won, this.run.levelIndex + 1, this.run.restarts,
+    );
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
@@ -2651,7 +2691,13 @@ class App {
     // Only from the hand actually dealt — a stale or hand-edited data-hazard
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
-    this.pendingPicks = togglePick(this.pendingPicks, id as HazardId, picksPerBay(this.run.mark));
+    this.pendingPicks = togglePick(
+      this.pendingPicks, id as HazardId, picksPerBay(this.run.mark),
+      // A forced-material hand caps its partner card at one seat — see
+      // togglePick. The draft edits the hand dealt after clearing
+      // run.levelIndex, the same index pendingOffers was dealt from.
+      isMaterialDraft(this.run.levelIndex),
+    );
     this.refreshDraft();
   }
 
@@ -2823,23 +2869,69 @@ class App {
     this.setState("playing");
   }
 
-  /** Pause modal's "Restart Bay": re-enters the *current* bay from scratch —
-   *  unlike startGame()/"restart", this leaves `this.run` untouched, so
-   *  startLevel() rebuilds the Game from the same un-advanced levelIndex,
-   *  keeping the run's carried surplus and drafted mods exactly as they were
-   *  at this bay's entry. */
-  /** Replay the bay the tutorial just lost. Distinct from restartBay only in
-   *  the state it will accept: restartBay is the pause-menu path, this one is
-   *  the failure card's, and neither should fire from the other's screen. */
+  /** Replay the bay the tutorial just lost — the failure card's "Try this bay
+   *  again", and also "Skip tutorial", which drops the coach for good and then
+   *  comes straight back through here to hand the same bay back (see onClick's
+   *  "coach-skip-run"). Distinct from restartBay only in the state it will
+   *  accept: restartBay is the pause-menu path, this one is the failure card's,
+   *  and neither should fire from the other's screen.
+   *
+   *  It goes through resetBay rather than calling startLevel itself so the
+   *  retry is COUNTED. A tutorial retry leaves the run untouched exactly as the
+   *  pause modal's restart does — same un-advanced levelIndex, same carry, same
+   *  scrap, same magazine — so a run that took three of them and then went the
+   *  distance is not a run flown "without ever restarting" and must not wear
+   *  the seal. Booking it here rather than adding a second increment at the
+   *  "coach-skip-run" call site keeps resetBay the one place restarts are
+   *  counted, and the one place the Tier S exclusion lives (the coach can arm
+   *  on a sandbox bay-1 run — sandbox.ts's sandboxRunFor leaves levelIndex 0
+   *  for target bay 1).
+   *
+   *  The drill and Contract branches inside resetBay are unreachable from here:
+   *  startDrill and startContract both null `this.run`, and startGame nulls
+   *  `this.drill` and `this.contract`, so a run in coach-fail always falls
+   *  through to startLevel() — the identical rebuild this used to do inline. */
   private coachRetry(): void {
     if (this.state !== "coach-fail" || !this.run) return;
-    this.startLevel();
-    this.last = performance.now();
-    this.acc = 0;
+    this.resetBay();
   }
 
-  private restartBay(): void {
-    if (this.state !== "paused") return;
+  /** Restart the bay in play, from scratch. The single door for all three
+   *  routes into it: the pause modal's "Restart Bay", the held pause button,
+   *  and the tutorial failure card's retry. They differ only in the screen they
+   *  fire from — the bay itself is rebuilt identically either way, and unlike
+   *  startGame()/"restart" this leaves `this.run` untouched, so startLevel()
+   *  rebuilds the Game from the same un-advanced levelIndex, keeping the run's
+   *  carried surplus and drafted mods exactly as they were at this bay's entry.
+   *
+   *  Every caller has its OWN, narrower guard — restartBay: paused; the held
+   *  pause button: playing; coachRetry: coach-fail. This list is the floor
+   *  under all three, so no future caller can rebuild a bay from a screen the
+   *  player is not standing in. */
+  private resetBay(): void {
+    if (this.state !== "playing" && this.state !== "paused" && this.state !== "coach-fail") return;
+    // A hold that restarted the bay must not leave its own meter counting on a
+    // button the rebuild is about to replace, and the Autoloader must not stay
+    // held down through a bay that no longer exists. setState does NOT do the
+    // second one for us here: it releases the trigger only when it is LEAVING
+    // play, and this path ends on "playing" again. The pointerup that would
+    // have released it may also never arrive — a touch pointer's implicit
+    // capture dies with the button renderOverlay is about to remove, and a
+    // pointerup dispatched at a detached node reaches no window listener.
+    // (Both are already no-ops on the coach-fail route, and cost nothing there.)
+    this.clearHold();
+    this.releaseAutoTrigger();
+    // Deep Run only, and the ONE place a restart is booked. `this.run` is
+    // exactly that test: startContract and startDrill both null it, so a
+    // Contract or drill re-deal cannot reach here with a run in hand. A
+    // Contract re-deal costs nothing and is the mode working as designed; Tier
+    // S climbs no ladder (see RunState.restarts). Written as a replacement
+    // rather than a `+= 1`: nothing else in this file mutates `this.run` in
+    // place, and one field that did would be the exception a later aliasing
+    // bug hides behind.
+    if (this.run && !this.run.sandbox) {
+      this.run = { ...this.run, restarts: this.run.restarts + 1 };
+    }
     // A drill restarts from its own fixed seed (drillSeed), so pausing and
     // restarting hands back the identical lesson — same reasoning as the
     // Contract below.
@@ -2861,6 +2953,14 @@ class App {
     this.startLevel();
     this.last = performance.now();
     this.acc = 0;
+  }
+
+  /** The pause modal's "Restart Bay". Keeps its own state guard so neither
+   *  entry point can fire from the other's screen — the same split coachRetry
+   *  makes against this one. */
+  private restartBay(): void {
+    if (this.state !== "paused") return;
+    this.resetBay();
   }
 
   /** Patches the currently-mounted #lb-body in place (no full overlay
@@ -3160,6 +3260,14 @@ class App {
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
     this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
+    // A hold on ⏸ cannot outlive the button. Mid-drag the rail swaps the aim ✕
+    // into the pause button's slot (app.css hides [data-action="pause"] under
+    // .hud--aiming on coarse pointers), so a thumb that was holding ⏸ while a
+    // second finger started a drag is now holding nothing — and letting that
+    // count finish would restart the bay out from under a player who is aiming.
+    // Bond Breaker's triggers stay put mid-drag, so this is the only hold that
+    // can have its button pulled away.
+    if (g.aiming && this.hold?.el.dataset.action === "pause") this.clearHold();
     // The LIVE gesture's ratio while a drag is in progress, the cannon's only
     // when there isn't one. They differ in exactly the case that matters: a tap
     // (or a sub-4px wobble) never reaches aimFromDrag, so the cannon still
@@ -3346,6 +3454,15 @@ class App {
 
     const action = el.getAttribute("data-action");
     if (!action) return;
+    // A completed hold on ⏸ already restarted the bay; the click that follows
+    // its release must not also pause. Usually there is no such click — the
+    // restart re-rendered the overlay and the pressed button is gone, so the
+    // browser has nothing to dispatch to — which is exactly why this is a
+    // window and not a flag (see holdFiredAt).
+    if (action === "pause" && performance.now() - this.holdFiredAt < HOLD_CLICK_MS) {
+      this.holdFiredAt = 0;
+      return;
+    }
     // Pointer presses already got their haptic and sound at pointerdown
     // (pressFeedback); only a keyboard activation — a click with no pointer
     // behind it, the same test as the data-game branch above — sounds here.
@@ -3815,10 +3932,50 @@ class App {
     this.actionFeedback(el);
   }
 
+  /** ⏸ does double duty: a TAP pauses, a HOLD restarts the bay. Returns whether
+   *  it took this press, so the caller knows not to hand it to pressFeedback as
+   *  an ordinary button.
+   *
+   *  The tap path is untouched: [data-action] buttons act on CLICK (onClick's
+   *  switch), so a hold released early simply lets the click through and pauses
+   *  as always, and a hold that COMPLETES only has to suppress the one click
+   *  that follows (holdFiredAt). Deliberately no preventDefault here — that
+   *  click is the tap, unlike the [data-game] branch below which has to kill it.
+   *
+   *  Only while playing. The HUD — and with it this button — is rendered behind
+   *  the pause, refit, draft, bay-clear and end modals too (see renderOverlay),
+   *  and a hold on one of those screens would restart a bay the player is not
+   *  in. Same guard pause() itself makes. */
+  private startPauseHold(e: PointerEvent): boolean {
+    // The same test pressFeedback makes, for the same reason: a right/middle
+    // press produces no click, so it can start no gesture either — and this
+    // gesture throws the bay away.
+    if (e.button !== 0 || this.state !== "playing") return false;
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-action="pause"]');
+    if (!btn) return false;
+    // A new press means any earlier hold's pending click is water under the
+    // bridge; only THIS press's click may be swallowed.
+    this.holdFiredAt = 0;
+    this.startHold(btn, e.pointerId, BOND_HOLD_MS, () => {
+      this.holdFiredAt = performance.now();
+      // A three-beat notification, not the tap the press already got: the bay
+      // is being thrown away, which is worth a different answer than "counted".
+      void successHaptic();
+      this.resetBay();
+    });
+    return true;
+  }
+
   private onGamePointerDown = (e: PointerEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-game]");
     if (!el) {
-      this.pressFeedback(e);
+      // ⏸ is the one [data-action] press that starts a GESTURE, so it takes its
+      // press feedback from the hold instead: startHold buzzes to say the count
+      // has started, and pressFeedback's own tapHaptic on the same press would
+      // be a second buzz inside one frame. The SOUND is still the one every
+      // screen button makes on press (see pressFeedback's comment).
+      if (this.startPauseHold(e)) playUiClick();
+      else this.pressFeedback(e);
       return;
     }
     if ((el as HTMLButtonElement).disabled) return;
@@ -3836,36 +3993,37 @@ class App {
       return;
     }
     // The one HELD-TO-CONFIRM control: a press starts a charge meter and the
-    // charge is only spent if it fills (see BOND_HOLD_MS / startBondHold).
+    // charge is only spent if it fills (see BOND_HOLD_MS / startHold).
     // Every pointer type, mouse included — the meter filling under the cursor
     // is the affordance, and a mouse that fired instantly would flash it for
     // nothing. Desktop's fast path is the B key, which stays a single press.
     if (act === "bond") {
-      this.startBondHold(el, e.pointerId);
+      this.startHold(el, e.pointerId, BOND_HOLD_MS, () => this.onGameAction("bond"));
       return;
     }
     this.onGameAction(act);
   };
 
-  /** Ends an Autoloader burst — and cancels an unfinished Bond Breaker hold —
-   *  on release, on the window rather than the button so a thumb that drifts
+  /** Ends an Autoloader burst — and cancels an unfinished hold — on release,
+   *  on the window rather than the button so a thumb that drifts
    *  off mid-hold cannot leave either trigger stuck down. Bound to
    *  pointercancel too: a gesture the browser takes over (a system edge swipe)
    *  must not leave a charge counting down behind a UI the player left. */
   private onGlobalPointerUp = (e: PointerEvent): void => {
-    if (this.bondHold && e.pointerId === this.bondHold.pointerId) this.clearBondHold();
+    if (this.hold && e.pointerId === this.hold.pointerId) this.clearHold();
     if (this.autoPointerId === null || e.pointerId !== this.autoPointerId) return;
     this.autoPointerId = null;
     this.game?.setAutoHeld(false);
   };
 
-  /** Starts the Bond Breaker's hold-to-confirm on one of its two triggers.
+  /** Starts a hold-to-confirm press on a button. Bond Breaker's two triggers
+   *  are one caller and the pause button is the other.
    *
-   *  The charge is spent WHEN THE METER FILLS, not on the release after it:
+   *  The action runs WHEN THE METER FILLS, not on the release after it:
    *  the fill reaching the top is the moment the player is watching for, so
    *  the field-wide shatter (and onBondBreak's thump + sound) lands with it
    *  rather than waiting for a lift they have no reason to make. Releasing
-   *  early — or sliding the thumb off, see onBondHoldMove — drains the meter
+   *  early — or sliding the thumb off, see onHoldMove — drains the meter
    *  and spends nothing.
    *
    *  Keyboard and gamepad deliberately do NOT hold: `B` and the pad button
@@ -3875,24 +4033,35 @@ class App {
    *  draws when it exempts the mouse from the misfire gate — and a hold
    *  requirement on the keyboard path would only take the instant, one-key
    *  route away from the players relying on it. */
-  private startBondHold(el: HTMLElement, pointerId: number): void {
-    this.clearBondHold();
+  private startHold(
+    el: HTMLElement,
+    pointerId: number,
+    ms: number,
+    onComplete: () => void,
+  ): void {
+    this.clearHold();
     // One number for the meter and the timer (see BOND_HOLD_MS).
-    el.style.setProperty("--bond-hold", `${BOND_HOLD_MS}ms`);
+    el.style.setProperty("--bond-hold", `${ms}ms`);
     el.classList.add("bond-trigger--holding");
-    this.bondHold = {
+    this.hold = {
       pointerId,
       el,
       rect: el.getBoundingClientRect(),
+      onComplete,
       timer: window.setTimeout(() => {
-        this.clearBondHold();
-        this.onGameAction("bond");
-      }, BOND_HOLD_MS),
+        // Tear down FIRST: the completion may re-render the overlay (the pause
+        // button's restarts the bay), and clearHold has to drop the class off
+        // the element that is still on screen, not off a detached one.
+        const done = this.hold?.onComplete;
+        this.clearHold();
+        done?.();
+      }, ms),
     };
-    window.addEventListener("pointermove", this.onBondHoldMove);
+    window.addEventListener("pointermove", this.onHoldMove);
     // The press is worth confirming on its own, before anything has happened
     // yet: it is what tells a thumb that the hold has STARTED and is being
-    // counted. onGameAction's own tap follows a second later if it completes.
+    // counted. What completion is worth follows a second later if it fills —
+    // onGameAction's tap for Bond Breaker, successHaptic for the reset.
     void tapHaptic();
   }
 
@@ -3900,8 +4069,8 @@ class App {
    *  the player can back out of by sliding away is the same escape hatch
    *  input.ts gives a misfired drag — "nothing happened" has to be reachable
    *  once the finger is already down. */
-  private onBondHoldMove = (e: PointerEvent): void => {
-    const h = this.bondHold;
+  private onHoldMove = (e: PointerEvent): void => {
+    const h = this.hold;
     if (!h || e.pointerId !== h.pointerId) return;
     const r = h.rect;
     if (
@@ -3910,7 +4079,7 @@ class App {
       e.clientY < r.top - BOND_HOLD_SLOP ||
       e.clientY > r.bottom + BOND_HOLD_SLOP
     ) {
-      this.clearBondHold();
+      this.clearHold();
     }
   };
 
@@ -3918,16 +4087,16 @@ class App {
    *  Called on release, on drift, the instant the hold completes, and whenever
    *  play stops (setState), since a modal replacing the rail means the
    *  pointerup that would have ended it is never coming. Idempotent. */
-  private clearBondHold(): void {
-    const h = this.bondHold;
+  private clearHold(): void {
+    const h = this.hold;
     if (!h) return;
     window.clearTimeout(h.timer);
     // Dropping the class ends the fill animation, and the base rule's
     // transition drains the meter back down instead of blinking it away — an
     // abandoned hold should visibly UNWIND, not just stop existing.
     h.el.classList.remove("bond-trigger--holding");
-    this.bondHold = null;
-    window.removeEventListener("pointermove", this.onBondHoldMove);
+    this.hold = null;
+    window.removeEventListener("pointermove", this.onHoldMove);
   }
 
   /** Drops the Autoloader trigger unconditionally — used whenever the game
@@ -3952,7 +4121,7 @@ class App {
     // onGamePointerDown drops it), and the arm's own tap goes. Bond Breaker
     // reaches this only once its hold COMPLETES, so its tap lands on the
     // shatter rather than on the press that started counting (which got its
-    // own, in startBondHold).
+    // own, in startHold).
     void tapHaptic();
     if (a === "rotl") { g.cannon.rotateLeft(); g.updateTrajectory(); }
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
