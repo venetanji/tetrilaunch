@@ -1048,6 +1048,9 @@ class App {
       // sealedMarks by being CLEARED (meta.ts's advanceMeta), so every sealed
       // Mark is an unlocked one by construction.
       sealed: this.meta.sealedMarks,
+      // The current floor's window lights (screens.ts's floorHTML): one per
+      // first-clear Contract logged on the tier being flown.
+      contracts: tierProgressFor(this.meta).contracts,
     };
     // Two conditions, and the SECOND is the one this used to be missing.
     // `tierOpen` only rejects a floor above the unlock, so it catches a save

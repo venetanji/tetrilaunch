@@ -51,6 +51,12 @@ export type IconName =
   // control — nothing about it is pressable — so it sits with the currencies
   // below rather than with the rail's control set above.
   | "clock"
+  // THE NUMBER AXES that have no material to borrow a glyph from
+  // (components.ts's axisIconHTML): the draft's cards give every MATERIAL its
+  // belt icon, and a two-letter text code beside real glyphs read as a
+  // placeholder. "time" reuses `clock` and "wind" reuses `survey` — the same
+  // fact, already drawn — so only the two axes nothing else depicts are new.
+  | "levy" | "sweep"
   // THE TWO CURRENCIES, and they must never look alike. Both used to render as
   // the ♻ emoji — literally the same character for scrap and for salvage, on
   // the refit chip and the workshop chip, and on both shops' price buttons —
@@ -124,6 +130,19 @@ const PATHS: Record<IconName, string> = {
   // FULL-width rails with handles, and equal-length streaks would collide.
   survey:
     `<path d="M2 5h7"/><path d="M2 8h10"/><path d="M2 11h5"/><path d="M9 3l3 2-3 2"/>`,
+  // Fuel Levy (the launch-cost axis): a price tag, hole and all. A coin was
+  // the first sketch and it died at 14px — a circle with a $ inside is
+  // `salvage`'s arcs to a squint, and the two would sit rows apart on the
+  // draft. Nothing else in the set is a rotated-square silhouette.
+  levy:
+    `<path d="M2.5 2.5h5.2l5.8 5.8-5.2 5.2-5.8-5.8z"/><circle cx="5.6" cy="5.6" r="1.1" fill="currentColor" stroke="none"/>`,
+  // Sweeper Detail (the press-tempo axis): the bar mid-stroke, pushing off its
+  // wall. Deliberately the mirror of `bay`'s reading — bay's arrow pulls the
+  // far wall OUTWARD (room bought), this one drives INWARD (room taken) — and
+  // the wall sits left where bay's sits right, so the pair never blur even
+  // side by side on a refit shelf.
+  sweep:
+    `<path d="M3 2v12"/><path d="M3 8h8"/><path d="M8.5 5L11.5 8l-3 3"/>`,
   // Scrap Cache: a crate with an X brace. The brace is the whole idea — a plain
   // rect with a lid is `contracts`' clipboard at 13px, and nothing else in the
   // set uses a diagonal cross.

@@ -3,7 +3,8 @@ import {
   shipmentAura, shipmentColor, type Material, type PieceSize, type PieceType,
 } from "../game/theme";
 import { pieceCells } from "../game/pieces";
-import { HAZARDS, type HazardId, type Ratchets } from "../game/hazards";
+import { HAZARDS, type HazardDef, type HazardId, type Ratchets } from "../game/hazards";
+import { icon, type IconName } from "./icons";
 import { finalById, type FinalId } from "../game/finals";
 import { MAX_TIER, UPGRADES, type UpgradeTiers } from "../game/upgrades";
 
@@ -245,6 +246,28 @@ export function beltSealedHTML(): string {
  *  player learns on the plant panel's notch line is the mark they pick the
  *  notch by, byte for byte — the same one-vocabulary rule materialIconHTML
  *  states for the material glyphs. */
+/** Real icons for the NUMBER axes — the materials already have theirs
+ *  (materialIconHTML), and a two-letter text code sitting beside real glyphs
+ *  on the draft's cards read as a placeholder. "time" and "wind" reuse
+ *  glyphs the set already draws for the same facts (the bay clock, the
+ *  Weather Survey's streaks); the two axes nothing else depicts got their
+ *  own (icons.ts's levy and sweep). `target` is deliberately absent — the
+ *  axis is retired from the offer (hazards.ts's RETIRED_AXES), so only the
+ *  glyph-text fallback below can ever render it. */
+const AXIS_ICONS: Partial<Record<HazardId, IconName>> = {
+  cost: "levy", time: "clock", wind: "survey", sweeper: "sweep",
+};
+
+/** One axis as a GLYPH — the material's belt icon, the number axis's icon,
+ *  or (for an axis neither table carries) the two-letter tally code. The
+ *  draft's cards and pick slots read this, so every axis a hand can deal
+ *  shows a real mark and the text code is strictly a fallback. */
+export function axisIconHTML(h: HazardDef, px = 14): string {
+  if (h.material) return materialIconHTML(h.material, px);
+  const name = AXIS_ICONS[h.id];
+  return name ? icon(name, px) : axisGlyph(h.id);
+}
+
 export function axisGlyph(id: HazardId): string {
   return AXIS_GLYPHS[id] ?? id.slice(0, 2).toUpperCase();
 }
@@ -290,33 +313,45 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
   const taken = HAZARDS.filter((h) => (ratchets[h.id] ?? 0) > 0);
   const parts = taken.map((h) => {
     const n = ratchets[h.id] ?? 0;
-    const glyph = AXIS_GLYPHS[h.id] ?? h.id.slice(0, 2).toUpperCase();
+    // The axis's real mark, not its two-letter code — the same glyph the
+    // draft's cards deal it by (axisIconHTML), so the bill on the HUD is
+    // written in the vocabulary the player signed it in. Narrower than the
+    // code it replaced (a 9px icon against ~13px of two pixel-font capitals),
+    // so the width story in the header only improves. The kind colour still
+    // rides the k- class: number-axis icons stroke currentColor, and the
+    // material icons keep their own belt colours, which outrank a tint here
+    // for the same one-vocabulary reason everywhere else.
     const kind = h.kind === "content" ? "bane" : "tradeoff";
     const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
-    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${glyph}${stack}</span>`;
+    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${axisIconHTML(h, 9)}${stack}</span>`;
   });
   // The Final Inspection's clause (game/finals.ts) rides the same line, in its
   // own colour, on the one bay it applies to. It belongs here rather than on a
   // row of its own for the reason the tally exists at all: this line answers
   // "what is this bay doing to me", and on the last bay the clause is the
-  // loudest thing on that list. Named in full on the title, because two
-  // letters cannot carry a clause the way they carry an axis.
+  // loudest thing on that list. Named in full on the title; the glyph is the
+  // SHIP SYSTEM the clause examines — the same icon its card wore at the
+  // inspection (FinalDef.system doubles as an IconName, as the refit shelf
+  // already relies on).
   const def = final ? finalById(final) : undefined;
   if (def) {
     parts.push(
-      `<span class="pl-notch__ax k-final" title="Final Inspection — ${def.name}: ${def.desc}">${def.name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()}</span>`,
+      `<span class="pl-notch__ax k-final" title="Final Inspection — ${def.name}: ${def.desc}">${
+        icon(def.system as IconName, 9)
+      }</span>`,
     );
   }
   // An em-dash rather than an empty row: the line is rendered on every Deep
   // Run bay including the first, where no notch has been taken yet, and a row
   // that appears halfway through a run shifts every row above it. Same idiom
   // the pattern manifest uses for an empty queue.
+  //
+  // No · separators between entries any more — they earned their keep between
+  // two-letter TEXT codes, where "WDSL" needed cutting, but an icon chip is
+  // its own boundary and the row's flex gap already spaces them; between
+  // glyphs the dots read as noise (the owner's pass).
   if (!parts.length) return `<span class="pl-notch__none">—</span>`;
-  return parts.join(`<span class="pl-notch__sep" aria-hidden="true">·</span>`);
+  return parts.join("");
 }
 
 /** Format a countdown in ms as "m:ss", ceiling-rounded so the displayed
