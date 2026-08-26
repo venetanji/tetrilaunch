@@ -97,6 +97,7 @@ import {
 import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
+import { focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_NAV } from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, fetchLeaderboard, isLadderBoard, submitScore,
@@ -424,6 +425,10 @@ class App {
   private keyHintsDismissed = false;
   private keyHintsShownThisSession = false;
   private keyHintTimer: number | null = null;
+  /** True for exactly one UI press after the profile flips to gamepad — the
+   *  press that woke the pad lands focus and does nothing else (see
+   *  setProfile / onPadUiButton). */
+  private padJustWoke = false;
   /** performance.now() of the last misfire guide, for its rate limit. */
   private lastMisfireGuide = -Infinity;
 
@@ -599,6 +604,7 @@ class App {
         this.renderOverlay();
         return true;
       },
+      onUiButton: (button) => this.onPadUiButton(button),
       assist: () => this.settings.stickAssist,
       pull: () => this.settings.stickPull,
     });
@@ -782,6 +788,15 @@ class App {
     this.profile = p;
     document.documentElement.dataset.profile = p;
     if (!changed) return;
+    // A pad's first press can arrive with any screen already up — the moment
+    // the profile flips is the moment that screen needs a focus to steer. The
+    // flag makes that same press SPEND itself on the landing (onPadUiButton):
+    // the press that woke the pad on the end modal must not also press the
+    // freshly-focused Play Again.
+    if (p === "gamepad") {
+      this.padJustWoke = true;
+      this.syncPadFocus();
+    }
     const g = this.game;
     if (!g) return;
     const owned = {
@@ -1361,6 +1376,13 @@ class App {
 
   private renderOverlay(): void {
     const g = this.game;
+    // The Controls screen re-renders on every rebind interaction, and the
+    // wholesale innerHTML rewrite below detaches whatever row held focus — a
+    // keyboard or pad flow lost its place on every capture (the same defect
+    // refreshDraft fixes for the draft, D4). The rebind rows carry a stable
+    // per-action attribute, so the place is recorded here and restored below.
+    const focusedBind = (document.activeElement as HTMLElement | null)
+      ?.closest("[data-bind]")?.getAttribute("data-bind") ?? null;
     // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
     // screen is about to be replaced by a fresh one carrying none of the crest
     // variables syncHud wrote inline. Those writes are guarded by a "last value
@@ -1613,8 +1635,26 @@ class App {
         }
         break;
     }
+    if (focusedBind) {
+      this.overlay
+        .querySelector<HTMLElement>(`[data-action="rebind"][data-bind="${focusedBind}"]`)
+        ?.focus();
+    }
+    this.syncPadFocus();
     this.syncFullscreenButtons();
     this.syncAttract();
+  }
+
+  /** A pad player needs focus to EXIST before the D-pad can move it: land it
+   *  on each fresh screen's primary action (ui/padnav.ts's focusInitial).
+   *  Gamepad profile only — a mouse player's screens should not open with a
+   *  focus ring they never asked for — and never over focus that survived the
+   *  render (the data-bind restore above, a browser-preserved input). */
+  private syncPadFocus(): void {
+    if (this.profile !== "gamepad" || this.state === "playing") return;
+    const el = document.activeElement as HTMLElement | null;
+    if (el && this.overlay.contains(el)) return;
+    focusInitial(this.overlay);
   }
 
   /**
@@ -3554,6 +3594,86 @@ class App {
       t.click();
     }
   };
+
+  /** Where B (PAD_BACK) lands per screen — each entry is the screen's OWN
+   *  back/close control, clicked rather than re-implemented, so backing out
+   *  by pad runs the exact handler (and cleanup — "menu" clears the contract
+   *  and the drill) the on-screen button runs. Screens with no entry have no
+   *  back by design: the drafts and the refit are the run's mandatory
+   *  commitment screens, and the end modals are an explicit choice between
+   *  exits — a B that picked one for the player would be a decision, not a
+   *  dismissal. */
+  private padBackTarget(): string | null {
+    switch (this.state) {
+      case "paused": return '[data-action="resume"]';
+      // Controls goes back through whichever door opened it (controlsBack).
+      case "controls": return `[data-action="${this.controlsBack}"]`;
+      case "settings": case "workshop": case "contracts":
+      case "howto": case "leaderboard": case "sandbox":
+        return '[data-action="menu"]';
+      default: return null;
+    }
+  }
+
+  /** The pad's UI layer (ui/padnav.ts): D-pad or stick flicks move focus, A
+   *  activates, B backs out. Runs for every press edge the poller sees
+   *  (before its playing gate), so the playing arm has to be explicit about
+   *  the one press it owns — B dismissing the coach card — and refuse the
+   *  rest back to the game.
+   *
+   *  Activation is el.click(), deliberately: it is the keyboard-activation
+   *  path onClick already handles (detail 0, no pointerType), feedback sound
+   *  included, so a pad press and an Enter press are indistinguishable to
+   *  every screen — including the draft's focus-restoring re-render, which is
+   *  what lets pad selection survive a card toggle. */
+  private onPadUiButton(button: number): boolean {
+    // The press that flipped the profile to gamepad already did its job —
+    // landing focus (see setProfile). Consuming it here is what keeps "wake
+    // the pad" and "press the focused button" two presses on every screen
+    // where a button is an irreversible act. Gameplay is exempt: waking the
+    // pad by firing is a fire.
+    if (this.padJustWoke) {
+      this.padJustWoke = false;
+      if (this.state !== "playing") return true;
+    }
+    if (this.state === "playing") {
+      // The coach's card is the one UI control alive during play, and every
+      // face button is spoken for except B — so B is the card's button
+      // (Skip on the teaching steps, Got it! on the last), and the card
+      // labels it (coachHTML's pad chip). Without this a pad-only player
+      // completes the tutorial's last step and has no way to say so.
+      if (button === PAD_BACK && this.tutorialStep !== null) {
+        this.overlay.querySelector<HTMLElement>(".coach__btn")?.click();
+        return true;
+      }
+      return false;
+    }
+    // The bay-clear celebration's whole surface is one tap-through div —
+    // nothing focusable, so confirm skips it directly, as a tap would.
+    if (this.state === "bayclear" && button === PAD_CONFIRM) {
+      this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
+      return true;
+    }
+    const dir = PAD_NAV[button];
+    if (dir) return moveFocus(this.overlay, dir);
+    if (button === PAD_CONFIRM) {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && this.overlay.contains(el)) {
+        el.click();
+        return true;
+      }
+      // Nothing focused yet: the first A lands focus (on the primary), so
+      // the player sees what the next A will do rather than firing blind.
+      return focusInitial(this.overlay);
+    }
+    if (button === PAD_BACK) {
+      const sel = this.padBackTarget();
+      const el = sel ? this.overlay.querySelector<HTMLElement>(sel) : null;
+      if (el) el.click();
+      return el !== null;
+    }
+    return false;
+  }
 
   private onClick = (e: MouseEvent): void => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action],[data-game],[data-toggle]");

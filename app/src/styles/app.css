@@ -154,6 +154,16 @@ body.crt-off #app::after { display: none; }
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* Under the GAMEPAD profile the same ring rides plain :focus. The pad steers
+   by focus (main.ts's onPadUiButton over ui/padnav.ts) and lands it with
+   programmatic focus() calls, and whether those match :focus-visible is a
+   per-browser heuristic about the last input modality — one that knows
+   nothing about gamepads. For a pad the focus ring IS the cursor, so it is
+   never allowed to be invisible. */
+:root[data-profile="gamepad"] :is(button, input, [role="switch"], [tabindex]):focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* No .fs-hidden rule any more: where the Fullscreen API can't do anything
    (the native shells, iPhone Safari) screens.ts renders no fullscreen control
    at all — see platform.ts's fullscreenSupported — so there is nothing left
@@ -6417,6 +6427,16 @@ button.panel { color: var(--text); }
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
 .coach__btn { pointer-events: auto; }
+/* The pad-route chip on the coach's button (screens.ts's padKey): the same
+   keycap the hint strip speaks in, sized down to ride inside a button label
+   without growing its line. */
+.coach__btn .coach__padkey {
+  margin-right: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  vertical-align: 1px;
+}
 
 /* ---------- Tutorial failure card ----------
    The same card, moved out of the plant panel and into a scrim (see screens.ts

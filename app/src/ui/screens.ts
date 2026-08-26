@@ -23,6 +23,7 @@ import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
 } from "../game/guide";
 import type { Settings } from "../lib/store";
+import { PAD_BACK } from "./padnav";
 import { BOARD_SANDBOX, isLadderBoard, type BoardId, type ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
@@ -2107,6 +2108,15 @@ export function coachHTML(
   const dots = steps
     .map((_, i) => `<i class="${i < step ? "done" : i === step ? "cur" : ""}"></i>`)
     .join("");
+  /* The pad's route to this button. While the game is live every pad face
+     button is spoken for except B, so B presses the card's button (main.ts's
+     onPadUiButton) — and a control a pad cannot see is a control a pad-only
+     player cannot use, so the button wears the chip. RAW B (padnav's
+     PAD_BACK), not a bindings.ts lookup: this is the menu-layer convention,
+     deliberately outside the rebindable gameplay table — see padnav.ts. */
+  const padKey = profile === "gamepad"
+    ? `<span class="kbd coach__padkey">${padLabel(PAD_BACK)}</span>`
+    : "";
   return `<div class="coach" id="coach">
     <div class="coach__card">
       <div class="coach__eyebrow">Tutorial · ${Math.min(step + 1, steps.length)}/${steps.length}</div>
@@ -2116,8 +2126,8 @@ export function coachHTML(
         <span class="coach__dots" aria-hidden="true">${dots}</span>
         ${
           last
-            ? `<button class="btn btn--primary coach__btn" data-action="coach-done">Got it!</button>`
-            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">Skip tutorial</button>`
+            ? `<button class="btn btn--primary coach__btn" data-action="coach-done">${padKey}Got it!</button>`
+            : `<button class="btn btn--ghost coach__btn" data-action="coach-skip">${padKey}Skip tutorial</button>`
         }
       </div>
     </div>

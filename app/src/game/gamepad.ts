@@ -25,6 +25,17 @@ const DEADZONE = 0.22;
 const STICK_DRAG = 240;
 /** Assist lerp factor per frame — settles in ~6 frames, ~100ms at 60Hz. */
 const ASSIST_LERP = 0.3;
+/** Stick-as-D-pad thresholds for MENU navigation (see onUiButton): a flick
+ *  past ON fires one step and the stick must fall back under OFF before the
+ *  next — a hysteresis edge, not an autorepeat, so a held stick moves focus
+ *  once rather than strafing it across the screen. ON is well past DEADZONE
+ *  because a menu step is a discrete act; the gap to OFF is what keeps a
+ *  thumb resting at the threshold from machine-gunning. */
+const STICK_NAV_ON = 0.55;
+const STICK_NAV_OFF = 0.35;
+/** The standard-mapping D-pad indices a stick flick translates to, so the
+ *  UI hook speaks exactly one language (ui/padnav.ts's PAD_NAV). */
+const DPAD_UP = 12, DPAD_DOWN = 13, DPAD_LEFT = 14, DPAD_RIGHT = 15;
 
 export interface GamepadHooks {
   game(): Game | null;
@@ -37,6 +48,15 @@ export interface GamepadHooks {
   /** While the Controls screen is capturing a rebind: the next button press
    *  lands here INSTEAD of acting. Return true to consume it. */
   onCapture(button: number): boolean;
+  /** The UI layer's chance at a press edge — modal/menu navigation and
+   *  activation (main.ts's onPadUiButton over ui/padnav.ts). Consulted after
+   *  capture and the pause binding but BEFORE the playing gate, because one
+   *  press is a UI press even mid-play (the coach card's dismiss); everything
+   *  else falls through to the game exactly as before. Return true to
+   *  consume. A stick flick while not playing arrives here too, translated
+   *  to its D-pad index — the stick aims during play and navigates outside
+   *  it, and the hook should not have to know which physical control moved. */
+  onUiButton(button: number): boolean;
   /** Stick-assist setting, read live so the toggle applies immediately. */
   assist(): boolean;
   /** Slingshot-stick setting (store.ts's stickPull), read live for the same
@@ -51,6 +71,10 @@ export class GamepadPoller {
   /** The assist lerp's current smoothed stick vector. */
   private sx = 0;
   private sy = 0;
+  /** Stick-nav hysteresis state per axis: the sign of the flick currently
+   *  holding the axis "fired", or 0 when re-armed. */
+  private navX = 0;
+  private navY = 0;
   private connected: string | null = null;
 
   constructor(hooks: GamepadHooks) {
@@ -89,10 +113,30 @@ export class GamepadPoller {
         this.hooks.onPause();
         continue;
       }
+      if (this.hooks.onUiButton(i)) continue;
       if (!this.hooks.playing()) continue;
       const g = this.hooks.game();
       if (!g) continue;
       this.act(g, action, now);
+    }
+
+    // Stick-as-D-pad, outside play only: one focus step per flick, per axis,
+    // re-armed when the axis re-centres (see STICK_NAV_ON/OFF). During play
+    // the stick is the aim and never reaches here.
+    if (!this.hooks.playing()) {
+      if (this.navX !== 0 && Math.abs(ax) < STICK_NAV_OFF) this.navX = 0;
+      if (this.navY !== 0 && Math.abs(ay) < STICK_NAV_OFF) this.navY = 0;
+      if (this.navX === 0 && Math.abs(ax) > STICK_NAV_ON) {
+        this.navX = Math.sign(ax);
+        this.hooks.onUiButton(ax > 0 ? DPAD_RIGHT : DPAD_LEFT);
+      }
+      if (this.navY === 0 && Math.abs(ay) > STICK_NAV_ON) {
+        this.navY = Math.sign(ay);
+        this.hooks.onUiButton(ay > 0 ? DPAD_DOWN : DPAD_UP);
+      }
+    } else {
+      this.navX = 0;
+      this.navY = 0;
     }
 
     const g = this.hooks.game();

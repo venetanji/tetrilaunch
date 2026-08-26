@@ -696,6 +696,15 @@ export const SCREENS: Record<string, () => string> = {
   "coach-rotate": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 1, S.coachHTML(1, BAY_1)),
   "coach-row": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 2, S.coachHTML(2, BAY_1)),
   "coach-final": () => withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null }), 3, S.coachHTML(3, BAY_1)),
+  // The pad player's deck differs in the two places that cost width: the aim
+  // card's body renders the gamepad hint sentence, and every card's button
+  // wears the B chip (screens.ts's padKey — the pad's only route to it). Step
+  // 0 carries the longest gamepad body and step 3 the widest button, so those
+  // two pin the profile.
+  "coach-pad": () =>
+    withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 0, S.coachHTML(0, BAY_1, "gamepad")),
+  "coach-final-pad": () =>
+    withCoach(S.hudHTML({ ...HUD_TUTORIAL, contract: null, profile: "gamepad" }), 3, S.coachHTML(3, BAY_1, "gamepad")),
   // The tutorial-failure modal over the dead bay's HUD — "broke" carries the
   // fullest explanation copy of the three causes.
   "coach-fail": () =>
