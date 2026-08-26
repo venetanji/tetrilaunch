@@ -20,6 +20,8 @@
     "android:open": "npm run android:sync && cap open android",
     "android:run": "npm run android:sync && cap run android",
     "android:apk": "npm run android:sync && node scripts/gradle.mjs assembleDebug",
+    "desktop": "npm --prefix desktop start",
+    "desktop:build": "npm run build:native && npm --prefix desktop start",
     "android:bundle": "npm run android:sync && node scripts/gradle.mjs bundleRelease",
     "android:apk:release": "npm run android:sync && node scripts/gradle.mjs assembleRelease",
     "ios:sync": "npm run build:native && npm run verify:store && cap sync ios",
