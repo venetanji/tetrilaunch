@@ -919,8 +919,20 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.04em;
 }
 .tower__windows { display: flex; gap: 2px; margin-left: auto; flex: none; }
+/* WINDOW LIGHTS — one per first-clear Contract on the floor's tier
+   (screens.ts's floorHTML). OFF is a dark socket, not a dimmed light: the
+   uniform 0.4 these used to sit at read as "on" for floors the player had
+   never touched. Lit is salvage amber — the same colour the Contracts
+   button's pips and the milestone payouts wear, because it is the same
+   fact — and a beaten floor burns all three, so the tower reads as a
+   building lighting up behind the climb. */
 .tower__windows i {
-  width: 4px; height: 4px; background: currentColor; border-radius: 1px; opacity: 0.4;
+  width: 4px; height: 4px; background: currentColor; border-radius: 1px; opacity: 0.14;
+}
+.tower__windows i.on {
+  background: var(--warn);
+  opacity: 1;
+  box-shadow: 0 0 4px rgba(255, 176, 32, 0.55);
 }
 /* THE SEAL — a Mark that fell in one unbroken run (screens.ts's floorHTML, fed
    from meta.ts's sealedMarks).
@@ -985,7 +997,9 @@ body.crt-off #app::after { display: none; }
   background: rgba(0, 240, 255, 0.12);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
 }
-.tower__floor.is-selected .tower__windows i { opacity: 0.95; }
+/* No selected-state brightening of the windows any more: they carry
+   information now, and a rule that lit every socket on the selected floor
+   would claim Contracts the tier has not logged. */
 .tower__floor--god.is-selected {
   border-color: var(--warn); color: var(--warn);
   background: rgba(255, 176, 32, 0.16);
@@ -996,7 +1010,7 @@ body.crt-off #app::after { display: none; }
   opacity: 0.55;
   cursor: not-allowed;
 }
-.tower__floor.is-locked .tower__windows i { opacity: 0.18; }
+.tower__floor.is-locked .tower__windows i { opacity: 0.08; }
 /* Refusal, not a message. A floor you have not earned shakes its head and
    stays where it is — a toast would cover the tower the player is reading. */
 .tower__floor.is-denied {
