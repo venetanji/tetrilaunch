@@ -15,7 +15,7 @@ import {
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
-  tierProgressFor, uprateCost,
+  tierProgressFor, uprateCost, TIER_CONTRACTS_REQUIRED,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -195,6 +195,11 @@ export interface TowerState {
    *  are two, menuScreen's fallback tower and every uifit fixture — renders
    *  the tower it always did. */
   sealed?: number[];
+  /** First-clear Contracts logged on the CURRENT tier (`unlocked`), 0-based
+   *  count out of TIER_CONTRACTS_REQUIRED — meta.ts's tierProgressFor. The
+   *  floors' windows read it: see floorHTML's note. Absent reads as 0, which
+   *  is the honest dark for a caller with no meta to ask. */
+  contracts?: number;
 }
 
 /** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
@@ -251,11 +256,34 @@ function floorHTML(state: TowerState, tier: number): string {
   if (god) cls.push("tower__floor--god");
   if (sel) cls.push("is-selected");
   if (!open) cls.push("is-locked");
-  // The three lit squares are WINDOWS, and they are the reason a locked floor
-  // still reads as a floor rather than as a disabled button: a dark building
-  // is a building. They dim with the floor rather than disappearing.
-  const windows = `<span class="tower__windows">${"<i></i>".repeat(3)}</span>`;
+  // The three squares are WINDOWS, and they are LIGHTS now, not decoration:
+  // one per first-clear Contract the tier asks for (TIER_CONTRACTS_REQUIRED),
+  // dark until that clear lands. A beaten floor burns all three — a tier
+  // cannot be beaten without its Contracts (meta.ts's advanceTier), so the
+  // building lights up floor by floor as the player climbs. The current
+  // floor shows the tier's live count (TowerState.contracts), floors above
+  // are dark, and God's burn only once the whole ladder has (it has no
+  // Contracts of its own to count). They used to sit at a uniform half-lit
+  // opacity, which read as "on" for floors the player had not touched — the
+  // owner's pass caught it — and a dark socket still does the old job: a
+  // dark building is a building.
+  const lit = god
+    ? (state.god ? TIER_CONTRACTS_REQUIRED : 0)
+    : tier < state.unlocked
+      ? TIER_CONTRACTS_REQUIRED
+      : tier === state.unlocked
+        ? Math.min(TIER_CONTRACTS_REQUIRED, Math.max(0, state.contracts ?? 0))
+        : 0;
+  const windows = `<span class="tower__windows">${
+    Array.from({ length: TIER_CONTRACTS_REQUIRED }, (_, i) => `<i${i < lit ? ' class="on"' : ""}></i>`).join("")
+  }</span>`;
   const label = god ? "God tier" : `Tier ${tier}`;
+  // The current floor's windows are live information, so its accessible name
+  // carries the same count — the other floors' lights are implied by
+  // locked/open, which the label already states.
+  const contractsNote = !god && tier === state.unlocked
+    ? ` — Contracts ${lit}/${TIER_CONTRACTS_REQUIRED}`
+    : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
   // swatches and sim/systems.ts fails the build below dE00 10, so there is no
@@ -273,7 +301,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${god ? "GOD" : tier}</span>`
     + windows
@@ -531,6 +559,7 @@ export function menuScreen(
     unlocked: progress?.tier ?? 1,
     selected: progress?.tier ?? 1,
     god: false,
+    contracts: progress?.contracts ?? 0,
   };
   // The Deep Run flies the SELECTED floor, so everything on that button reads
   // off `selected` rather than off the unlocked Mark. main.ts rewrites both
