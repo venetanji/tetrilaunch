@@ -74,9 +74,7 @@ function draft(selected: HazardId[]): string {
   for (const id of selected) withPicks[id] = (withPicks[id] ?? 0) + 1;
   return S.draftScreen({
     bayNum: 6,
-    bayName: "Slag Works",
     tier: 6,
-    nextBayName: "Cryo Vault",
     funds: 1_820,
     carry: 120,
     offers: hazardOffers(20_260_815, 6, 6),
@@ -113,9 +111,7 @@ function inspection(selected: string | null): string {
   };
   return S.finalScreen({
     bayNum: 9,
-    bayName: "Gravity Well",
     tier: 10,
-    nextBayName: "Compactor Core",
     funds: 1_820,
     carry: 120,
     offers: finalsForTier(10),

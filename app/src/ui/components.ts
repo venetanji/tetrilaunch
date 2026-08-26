@@ -240,6 +240,15 @@ export function beltSealedHTML(): string {
  *  no longer a trophy shelf of what you were given, they are the running bill
  *  for what you took on. Which is exactly what a player needs on screen while
  *  deciding whether the next notch is affordable. */
+/** The bare glyph for one axis, with the same fallback the tally uses.
+ *  Exported for the draft's cards and pick slots (screens.ts): the mark a
+ *  player learns on the plant panel's notch line is the mark they pick the
+ *  notch by, byte for byte — the same one-vocabulary rule materialIconHTML
+ *  states for the material glyphs. */
+export function axisGlyph(id: HazardId): string {
+  return AXIS_GLYPHS[id] ?? id.slice(0, 2).toUpperCase();
+}
+
 const AXIS_GLYPHS: Record<HazardId, string> = {
   target: "QT",
   cost: "$L",
