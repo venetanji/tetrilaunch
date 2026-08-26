@@ -1001,9 +1001,12 @@ function measure(cfg: {
     // retirement is a visible fade), so opacity is what is asserted; the
     // harness zeroes transition durations, which is what makes the class flip
     // measurable in the same frame.
+    const wasHidden = kb.classList.contains("kbd-hint--hidden");
     kb.classList.add("kbd-hint--hidden");
     const faded = parseFloat(getComputedStyle(kb).opacity);
-    kb.classList.remove("kbd-hint--hidden");
+    // Restore the fixture's own state — the screenshot pass reads the DOM
+    // after this measure, and a check must not repaint what it measured.
+    if (!wasHidden) kb.classList.remove("kbd-hint--hidden");
     if (faded > 0.01) {
       out.kbdhint.push(`kbd-hint--hidden leaves the strip at opacity ${faded}`);
     }

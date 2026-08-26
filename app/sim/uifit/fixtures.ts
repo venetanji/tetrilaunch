@@ -514,6 +514,13 @@ export const SCREENS: Record<string, () => string> = {
       ratchets: {} as Ratchets,
       tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
     }),
+  // The HUD as every bay PAST the first shot mounts it (main.ts's
+  // armKeyHints): the hint strip faded, the bay floor clear. The strip's
+  // shown-state geometry is measured by every other HUD fixture; this one
+  // pins the mount-time dismissed path — the state the strip's transience
+  // exists to produce — through the real hudHTML plumbing rather than a
+  // class toggled in the harness.
+  "hud-hints-dismissed": () => S.hudHTML({ ...HUD_BASE, contract: null, hintsDismissed: true }),
   // Five figures against a four-figure target. A Reactor build carrying
   // overshoot between bays reaches this, and it is the widest the funds readout
   // can get — the case sim/systems.ts's width budget flags as short of slack.
@@ -867,7 +874,7 @@ const HUD_LOADOUT = {
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
-    || id === "pause" || id === "bayclear"
+    || id === "hud-hints-dismissed" || id === "pause" || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
 }
