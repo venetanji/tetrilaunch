@@ -432,16 +432,42 @@ const FOULED_ALLOWANCE = 12;
  * sim/systems.ts pins this: a clause whose delivered rate can exceed its own
  * clean-bay rate must say so on its face.
  */
-/** The most of one material a SCHEDULED clause may leave on the belt, ratchet
- *  included — and the per-material ceiling Odd Lots fills its full belt under.
- *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and far
- *  enough under a whole belt that the cargo which can never count (slag —
- *  theme.ts's countsForLines) stays a minority even at maximum ratchet. Full
- *  Rebar is the one deliberate exception and does not read it: rebar counts
- *  for lines and refuses only to SPLIT, so a belt of it stays playable — the
- *  Full Rebar Contract (contracts.ts) and the mat-rebar drill already ship
- *  exactly that belt at rate 1. */
-export const FINAL_MATERIAL_CAP = 0.4;
+/**
+ * The most of one material a SCHEDULED clause may leave on the belt, ratchet
+ * included.
+ *
+ * THE WHOLE BELT, down from a flat 0.4 — and both halves of that are
+ * MIX_TOTAL_CAP's move. With the total ceiling now at one shipment in three
+ * (hazards.ts, belt.ts), 0.4 would have let a scheduled clause alone exceed
+ * the belt: applyFinal's re-cap would zero every ratcheted material to make
+ * room and the final bay would still land ABOVE the ceiling, which is the one
+ * place belt.ts's spacing rule stops applying — so a bay never asked to be
+ * dense would have been the only ratcheted one that could deal three
+ * materials in a row.
+ *
+ * Held EQUAL to the belt rather than a hair under it because of the invariant
+ * sim/systems.ts pins: no ratchet may silently eat a clause. hazards.ts's
+ * MATERIAL_CAP is 0.32, so a run that poured six notches into one material
+ * arrives at a Final already there — and a clause capped below that has nothing
+ * left to add, making a MANDATORY cost the player chose over another one cost
+ * nothing at all. At the ceiling it still has the last sliver, which is small
+ * but real, and it is the honest amount: the belt is full.
+ *
+ * A clause is still not a notch. What it buys over one is reaching the top in a
+ * single step instead of six, and reaching it on a material the run never
+ * ratcheted — the ceiling bounds how MUCH, never which.
+ *
+ * The capstone's FULL-BELT pair reads it differently, and one of the two not
+ * at all. Odd Lots states the whole belt (total 1 — belt.ts's authored case,
+ * where the spacing rule deliberately stands down) and uses this as its
+ * PER-MATERIAL ceiling, so the cargo that can never count (slag — theme.ts's
+ * countsForLines) stays a minority of a belt with no standard majority left
+ * to dilute it. Full Rebar is the one deliberate exception and does not read
+ * it: rebar counts for lines and refuses only to SPLIT, so a belt of it stays
+ * playable — the Full Rebar Contract (contracts.ts) and the mat-rebar drill
+ * already ship exactly that belt at rate 1.
+ */
+export const FINAL_MATERIAL_CAP = MIX_TOTAL_CAP;
 function schedule(
   cfg: LevelConfig,
   material: keyof LevelConfig["materialMix"],
@@ -860,8 +886,9 @@ export const FINALS: FinalDef[] = [
       // remainder onto a deep-ratcheted axis: without the ceiling, a
       // slag-only arrival put slag at 0.43 of the belt — dead cargo at a
       // depth no card priced. Overflow past a capped material re-spreads to
-      // the rest, and six materials at 0.4 hold 2.4 of belt, so the fill
-      // always lands at 1.
+      // the rest, and six materials at the 1/3 ceiling hold 2.0 of belt, so
+      // the fill always lands at 1; MATERIAL_CAP (0.32) keeps every arrival
+      // under the ceiling, so every material still strictly rises.
       const keys = Object.keys(cfg.materialMix) as Array<keyof LevelConfig["materialMix"]>;
       const mix = { ...cfg.materialMix };
       let leftover = 1 - keys.reduce((a, k) => a + mix[k], 0);
@@ -972,9 +999,12 @@ export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
   const rest = keys.filter((k) => !held.includes(k));
   const restSum = rest.reduce((a, k) => a + cfg.materialMix[k], 0);
   // Room left for the ratcheted materials once the clause has taken its share.
-  // Floored at 0 for the degenerate case of a clause that alone exceeds the
-  // cap — no clause below comes close (the largest is 0.32 against 0.55), and
-  // a future one that did would clear the belt rather than go negative.
+  // Floored at 0 for the degenerate case of a scheduled clause that alone
+  // exceeds the cap. No shipped one does: the largest scheduled rate, Rebar
+  // Run's 0.32, lands a hair under the 1/3 ceiling and leaves the ratcheted
+  // materials a sliver rather than nothing. (The full-belt pair exceeds it by
+  // design and returned above this re-cap entirely.) A future scheduled
+  // clause that did exceed it would clear the belt rather than go negative.
   const room = Math.max(0, MIX_TOTAL_CAP - heldSum);
   const scale = restSum > 0 ? room / restSum : 0;
   for (const k of rest) cfg.materialMix[k] *= scale;

@@ -24,8 +24,11 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
+import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
+import { BOTS } from "./bots";
 import {
   HAZARDS, hazardById, hazardOffers, hazardsForMark, isMaterialDraft, MATERIAL_DRAFT_BAYS,
   picksPerBay, applyRatchets, togglePick,
@@ -3780,6 +3783,27 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
   check("the mix never reaches certainty even fully ratcheted",
     Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0) < 1,
     `${Object.values(allMaxed.materialMix).reduce((a, b) => a + b, 0).toFixed(2)}`);
+  // The two caps are ONE number, and that is what keeps materialMix a literal
+  // per-shipment probability all the way to the top of the ratchet: the belt
+  // can deliver at most BELT_CEILING, so a mix allowed to sum above it would be
+  // a promise the schedule cannot keep — and preview.ts prints those numbers to
+  // the player unmediated.
+  check("the mix cap is the belt ceiling",
+    MIX_TOTAL_CAP === BELT_CEILING, `${MIX_TOTAL_CAP} vs ${BELT_CEILING}`);
+  check("a fully ratcheted belt lands exactly on the ceiling",
+    Math.abs(mixTotal(allMaxed.materialMix) - BELT_CEILING) < 1e-9,
+    `${mixTotal(allMaxed.materialMix).toFixed(4)}`);
+  // The scale-down is PROPORTIONAL, so notches past the ceiling stop adding
+  // specials and start deciding WHICH special — belt.ts's rule 3, and the whole
+  // reason a capped belt is still an escalating one.
+  {
+    const lopsided = applyRatchets(flat, { slag: 6, cryo: 1 });
+    const share = lopsided.materialMix.slag
+      / (lopsided.materialMix.slag + lopsided.materialMix.cryo);
+    check("past the ceiling, notches buy composition rather than arrivals",
+      Math.abs(mixTotal(lopsided.materialMix) - BELT_CEILING) < 1e-9 && share > 0.8,
+      `belt ${mixTotal(lopsided.materialMix).toFixed(3)}, slag ${(share * 100).toFixed(0)}% of it`);
+  }
 
   // ---- The offer -----------------------------------------------------------
   check("the offer is deterministic in the seed",
@@ -3836,9 +3860,15 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
           continue;
         }
         if (materials.length >= 2) {
-          // TWO materials on offer and one pick: the choice is which material,
-          // never whether. This is the whole feature.
-          if (inHand.length !== offer.length) forcedEverywhere = false;
+          // TWO materials on offer, and one more card than the hand has picks:
+          // the choice is which material, never whether. This is the whole
+          // feature. Below the capstone that means every card is a material (two
+          // cards, one pick); at the capstone the hand carries a number axis as
+          // its third card so the SECOND pick is free — a hand of exactly two
+          // materials against two picks would force both, which is a heavier
+          // promise than this feature makes (see hazards.ts's materialHand).
+          if (inHand.length < 2) forcedEverywhere = false;
+          if (offer.length !== picksPerBay(m) + 1) forcedEverywhere = false;
           // ...and slag may fill a seat but never the last one — it is the one
           // material with no passive counter, so a hand of nothing but slag is
           // a bay that cannot be won by playing well.
@@ -3860,7 +3890,8 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check(`materials-only bays are ${MATERIAL_DRAFT_BAYS.join(", ")}`,
       MATERIAL_DRAFT_BAYS.every((b) => isMaterialDraft(b - 1))
         && !isMaterialDraft(0) && !isMaterialDraft(2));
-    check("with two or more materials, every card in the hand is a material", forcedEverywhere);
+    check("with two or more materials, the hand forces one and offers a choice of which",
+      forcedEverywhere);
     check("with one material, it is paired with the run's hardest active axis", pairedWhenSingle);
     // Kept, but no longer the whole story: with two DISTINCT materials in the
     // hand this cannot fire, and saying so is more honest than implying a guard
@@ -3870,20 +3901,75 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("slag is never the only thing on offer", !slagEverAlone);
     check("slag is genuinely dealt on forced bays (not quietly excluded)", slagOffered);
     {
-      // At the capstone, picksPerBay equals the hand size, so a forced hand is
-      // taken WHOLE — there is no choosing. If slag is in it, the player eats
-      // slag. That is an edge of this feature, not a defect, and it is pinned
-      // here so it cannot change without someone deciding to change it.
+      // At the capstone the hand has one card MORE than it has picks, and the
+      // spare is a number axis. So a forced hand forces exactly ONE material and
+      // the second pick has somewhere else to go — including away from slag, the
+      // one material with no passive counter.
+      //
+      // This used to assert the opposite (hand size == picks, every card a
+      // material, "an edge of this feature, not a defect") and the owner's
+      // Tier-10 playtest is what re-decided it: three forced bays at two
+      // materials apiece is six of a run's ten notches spent on materials before
+      // the player chooses anything, which is how a belt reaches the flood
+      // belt.ts describes. Forcing the player to MEET a material is the feature;
+      // forcing two at a stroke was picksPerBay leaking into it.
       const capstoneForced = hazardOffers(4242, MATERIAL_DRAFT_BAYS[0] - 1, CAPSTONE_MARK);
+      const picks = picksPerBay(CAPSTONE_MARK);
+      const mats = capstoneForced.filter((h) => h.kind === "content");
       check(
-        `a capstone forced hand is taken whole (${capstoneForced.length} cards, ${picksPerBay(CAPSTONE_MARK)} picks)`,
-        capstoneForced.length === picksPerBay(CAPSTONE_MARK)
-          && capstoneForced.every((h) => h.kind === "content"),
+        `a capstone forced hand leaves a pick free (${capstoneForced.length} cards, ${picks} picks)`,
+        capstoneForced.length === picks + 1
+          && mats.length === picks
+          && capstoneForced.some((h) => h.kind !== "content"),
         capstoneForced.map((h) => h.id).join(","),
+      );
+      // The forcing half still has to hold: with more cards than picks, a player
+      // can only dodge the material entirely if the hand has fewer materials
+      // than picks. It does not.
+      check(
+        "a capstone forced hand still cannot be dodged entirely",
+        capstoneForced.length - mats.length < picks,
+        `${mats.length} material(s) among ${capstoneForced.length} cards`,
       );
     }
     check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
     check("a forced hand still deals at least as many cards as picks", !capstoneShort);
+
+    // EVERY hand is one card bigger than the number of picks — the rule that
+    // makes a draft a draft, pinned on the ORDINARY bays too because that is
+    // where it was broken. picksPerBay is 2 at the capstone and hazardOffers
+    // sized the hand Math.max(count, picksPerBay(mark)) = 2, so seven of the ten
+    // Mark-10 bays dealt two cards and took both.
+    //
+    // The consequence was not just a dull draft. The ordinary draft's promise
+    // that slag is DODGEABLE — it is the one material with no passive counter,
+    // so a bay that ratchets it with an empty bomb rack is quietly unwinnable —
+    // rests entirely on there being a spare seat to dodge into. There was not:
+    // 3,924 of 200,000 hands at Marks 6-10 forced slag on a player who had every
+    // reason to refuse it.
+    {
+      let tooSmall: string[] = [];
+      let slagForced = 0;
+      for (let m = 1; m <= MARK_COUNT; m++) {
+        for (let seed = 0; seed < 300; seed++) {
+          for (let b = 0; b < 10; b++) {
+            const offer = hazardOffers(seed, b, m, undefined, { cost: 2, time: 2, wind: 1 });
+            const picks = picksPerBay(m);
+            // Marks 1-2 deal the whole pool (two axes, one pick) — a hand cannot
+            // be bigger than the axes that exist, and hazardOffers returns the
+            // pool wholesale there. That is the one honest exception.
+            if (offer.length <= picks && hazardsForMark(m).length > picks) {
+              tooSmall.push(`m${m}b${b}:${offer.length}<=${picks}`);
+            }
+            if (offer.filter((h) => h.id !== "slag").length < picks) slagForced += 1;
+          }
+        }
+      }
+      check("every hand deals more cards than it takes picks",
+        tooSmall.length === 0, tooSmall.slice(0, 4).join(" "));
+      check("no hand can force slag on a player who refuses it",
+        slagForced === 0, `${slagForced} forced hands`);
+    }
 
     // The offer must stay a function of (seed, bay, Mark) — a restarted run has
     // to deal the same table, and the ratchets must not smuggle in variation
@@ -4214,6 +4300,40 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     // The charge count itself is untouched by this change.
     check("the capstone still grants its six charges",
       tiersAt(MAX_TIER).bombCharges === 6);
+
+    // The capstone's other two halves. Charges alone did not answer the bay
+    // that actually loses — a Tier-10 belt deep in slag and tar, where a full
+    // rack still could not open the crust or pay for the shots it took. See
+    // level.ts's DEMO_BLAST_MULT note.
+    const stock = tiersAt(0);
+    const capped = tiersAt(MAX_TIER);
+    check("demolition tiers 0-2 leave the blast and the rate stock",
+      [0, 1, 2].every((t) =>
+        tiersAt(t).bombBlastMult === 1 && tiersAt(t).salvagePerCube === stock.salvagePerCube));
+    check("demolition tier 3 widens the blast",
+      Math.abs(capped.bombBlastMult - DEMO_BLAST_MULT) < 1e-9,
+      `x${capped.bombBlastMult}`);
+    check("demolition tier 3 raises the salvage rate",
+      capped.salvagePerCube === Math.round(stock.salvagePerCube * DEMO_SALVAGE_MULT),
+      `$${stock.salvagePerCube} -> $${capped.salvagePerCube}/cube`);
+    // The hierarchy level.ts's SLAG_BOUNTY note sets out has to survive the
+    // raise: disposal must clearly beat the shot that delivers it and must
+    // never out-earn playing the game. A line-sized salvage is
+    // compactorMinLineCells cubes; one line pays scorePerLine before combo.
+    {
+      const bay10 = makeBaseLevel(9, TIER_COUNT);
+      applyUpgrades(bay10, { ...newTiers(), demolition: MAX_TIER });
+      const lineSized = bay10.compactorMinLineCells * bay10.salvagePerCube;
+      check("a maxed rack's salvage beats a launch but never a line",
+        lineSized > bay10.launchCost && lineSized < bay10.scorePerLine,
+        `$${lineSized} vs launch $${bay10.launchCost}, line $${bay10.scorePerLine}`);
+    }
+    // Radius, not count — and the reason is area. A capstone that read as "a
+    // bit wider" on the card has to be substantially bigger in the hole it
+    // actually cuts, which is what makes it a change in kind.
+    check("the wider blast is worth roughly double the area",
+      DEMO_BLAST_MULT ** 2 > 1.7 && DEMO_BLAST_MULT ** 2 < 2,
+      `x${(DEMO_BLAST_MULT ** 2).toFixed(2)} area`);
   }
 
   // Tar welds to what it settles against, and the weld is the joint nothing
@@ -4710,6 +4830,221 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The demolition bot actually fires charges (sim/bots.ts)");
+// ---------------------------------------------------------------------------
+{
+  // `demo` is `aim` plus a pair of hands for the rack, and the ONLY thing that
+  // makes it worth having is that it pulls the trigger. A scoring change that
+  // quietly stopped it firing would not fail anything — it would just silently
+  // become `aim` again and every material it was built to price would read as
+  // unanswerable. That already happened once: the first blast valuation counted
+  // every live cube caught as a loss, which reads a packed pile as a terrible
+  // place to bomb, and the bot fired one charge across six bays holding six
+  // apiece. This is the tripwire for that.
+  const build = { ...newTiers(), reactor: 3, hydraulics: 2, bay: 2, demolition: MAX_TIER };
+  let cfg = makeBaseLevel(4, TIER_COUNT);
+  applyUpgrades(cfg, build);
+  cfg = applyRatchets(cfg, { slag: 2 } as Ratchets);
+  cfg.startingFunds += 150;
+
+  const fly = (botName: string) => {
+    let bombs = 0;
+    let lines = 0;
+    const SEEDS = 3;
+    for (let s = 1; s <= SEEDS; s++) {
+      const g = new Game(cfg, { onShoot: (info) => { if (info?.bomb) bombs += 1; } }, s);
+      const bot = BOTS[botName](s);
+      let now = 0;
+      let steps = 0;
+      const cap = cfg.timeLimitSec * 60 + 3600;
+      while (g.status === "playing" && steps < cap) {
+        now += 1000 / 60;
+        bot.act(g, now);
+        g.update(now);
+        steps += 1;
+      }
+      lines += g.linesTotal;
+      g.destroy();
+    }
+    return { bombs, lines: lines / SEEDS };
+  };
+
+  check("the bay under test actually carries charges and slag",
+    cfg.bombCharges > 0 && cfg.materialMix.slag > 0,
+    `${cfg.bombCharges} charges, slag ${cfg.materialMix.slag.toFixed(2)}`);
+
+  const plain = fly("aim");
+  const demo = fly("demo");
+  check("`aim` fires no charges (it has no hands)", plain.bombs === 0, `${plain.bombs}`);
+  // At least one per bay. The real rate measured ~5/bay on this rig; the floor
+  // is deliberately far below that, because this pins THAT IT FIRES, not how
+  // often — a tripwire that also encodes the tuning would fail on every honest
+  // retune of DEMO_MIN_NET.
+  check("`demo` fires charges on a slag bay", demo.bombs >= 3, `${demo.bombs} across 3 bays`);
+  // And the charges have to be worth firing, or the bot is just burning funds.
+  check("`demo` clears more lines than `aim` on a slag bay",
+    demo.lines > plain.lines, `demo ${demo.lines.toFixed(1)} vs aim ${plain.lines.toFixed(1)}`);
+  // A rack-less rig must fall back to `aim` exactly, or every sweep that runs
+  // `demo` on a stock build is quietly measuring a different bot.
+  {
+    const bare = makeBaseLevel(4, TIER_COUNT);
+    check("`demo` on a rig with no rack has nothing to fire",
+      bare.bombCharges === 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The belt schedule: ceiling, escalation, composition (belt.ts)");
+// ---------------------------------------------------------------------------
+{
+  // Everything here is measured off a real Cannon over a long stream rather
+  // than off BeltSchedule directly, because what has to hold is what the PLAYER
+  // meets — the cannon's seeded stream, its two-draws-per-shipment contract and
+  // its size normalization included. A unit test of the class alone would have
+  // passed happily while the cannon fed it a different mix.
+  const ROLLS = 20_000;
+
+  /** The material of every shipment a bay would deal, in order. */
+  function stream(cfg: LevelConfig, seed = 4242): Material[] {
+    const cannon = new Cannon(cfg, seed);
+    const out: Material[] = [];
+    for (let i = 0; i < ROLLS; i++) {
+      out.push(cannon.currentMaterial);
+      cannon.markShot(i * 1000);
+    }
+    return out;
+  }
+
+  /** The longest run of consecutive non-standard shipments. */
+  function longestStreak(s: Material[]): number {
+    let best = 0;
+    let cur = 0;
+    for (const m of s) {
+      cur = m === "standard" ? 0 : cur + 1;
+      best = Math.max(best, cur);
+    }
+    return best;
+  }
+
+  const bay = makeBaseLevel(5, CAPSTONE_MARK);
+
+  // ---- THE CEILING --------------------------------------------------------
+  // The headline promise, and the one the owner asked for in the words "max 2
+  // normal pieces and a material is fair". It is structural, not statistical:
+  // no seed, no ratchet and no combination of them produces two materials back
+  // to back on a bay the ladder built.
+  {
+    const maxed = applyRatchets(bay, Object.fromEntries(
+      HAZARDS.filter((h) => h.kind === "content").map((h) => [h.id, 99])) as Ratchets);
+    let worstStreak = 0;
+    let worstShare = 0;
+    let worstGap = Infinity;
+    for (let seed = 1; seed <= 12; seed++) {
+      const s = stream(maxed, seed);
+      worstStreak = Math.max(worstStreak, longestStreak(s));
+      worstShare = Math.max(worstShare, s.filter((m) => m !== "standard").length / s.length);
+      // Smallest observed spacing between two materials, in shipments.
+      let last = -Infinity;
+      for (let i = 0; i < s.length; i++) {
+        if (s[i] === "standard") continue;
+        worstGap = Math.min(worstGap, i - last);
+        last = i;
+      }
+    }
+    check("a fully ratcheted belt never deals two materials in a row",
+      worstStreak === 1, `longest streak ${worstStreak}`);
+    check(`every material is followed by ${MATERIAL_GAP} standard shipments`,
+      worstGap >= MATERIAL_GAP + 1, `closest spacing ${worstGap}`);
+    check("a fully ratcheted belt still leaves two thirds of shipments standard",
+      worstShare <= BELT_CEILING + 1e-9,
+      `${(worstShare * 100).toFixed(1)}% material, ceiling ${(BELT_CEILING * 100).toFixed(1)}%`);
+  }
+
+  // ---- THE RATE IS STILL THE MIX ------------------------------------------
+  // The spacing rule may bound the belt; it may not quietly TAX it. materialMix
+  // is documented as a per-shipment probability and printed to the player as
+  // one, so a schedule that delivered 5% while the card said 7% would make
+  // every material row in preview.ts a lie. Stochastic rounding is exact in the
+  // long run, which is why it is the mechanism (belt.ts's rule 2).
+  {
+    const drifted: string[] = [];
+    for (const notches of [1, 2, 4, 6]) {
+      const cfg = applyRatchets(bay, { slag: notches });
+      const want = cfg.materialMix.slag;
+      const got = stream(cfg).filter((m) => m !== "standard").length / ROLLS;
+      if (Math.abs(got - want) > 0.006) drifted.push(`x${notches}: want ${want.toFixed(3)}, got ${got.toFixed(3)}`);
+    }
+    check("the belt delivers the rate the mix states", drifted.length === 0, drifted.join("; "));
+  }
+
+  // ---- THE ESCALATION -----------------------------------------------------
+  // A drought has to close itself, which is the other half of what makes the
+  // ceiling affordable: capping the floods would be a straight nerf if the
+  // droughts stayed as long as an independent roll's. Measured as the SPREAD of
+  // the gaps rather than their mean — the mean is pinned by the check above, so
+  // only the variance can move, and the point of the pity credit is that it
+  // shrinks it.
+  {
+    const cfg = applyRatchets(bay, { slag: 2 });
+    const s = stream(cfg);
+    const gaps: number[] = [];
+    let last = -1;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "standard") continue;
+      if (last >= 0) gaps.push(i - last);
+      last = i;
+    }
+    const mean = gaps.reduce((a, g) => a + g, 0) / gaps.length;
+    const sd = Math.sqrt(gaps.reduce((a, g) => a + (g - mean) ** 2, 0) / gaps.length);
+    // An independent roll at rate p has geometric gaps: sd/mean -> 1 as p
+    // shrinks (sd = sqrt(1-p)/p against mean 1/p). Anything well under that is
+    // a schedule with memory. Measured at ~0.42 here against the geometric
+    // ~0.94 the old roll produced at the same rate.
+    check("a clean stretch makes the next material likelier (gaps cluster)",
+      sd / mean < 0.7, `sd/mean ${(sd / mean).toFixed(2)} over ${gaps.length} gaps`);
+    check("the longest drought is bounded well under an independent roll's",
+      Math.max(...gaps) < 4 / cfg.materialMix.slag,
+      `longest ${Math.max(...gaps)} shipments at rate ${cfg.materialMix.slag.toFixed(3)}`);
+  }
+
+  // ---- COMPOSITION --------------------------------------------------------
+  // Rule 3: which material is a separate draw off the mix ratio. This is what a
+  // notch past the ceiling actually buys, so it has to be visible in the stream
+  // and not merely in the config.
+  {
+    const cfg = applyRatchets(bay, { slag: 6, cryo: 1 });
+    const s = stream(cfg).filter((m) => m !== "standard");
+    const slagShare = s.filter((m) => m === "slag").length / s.length;
+    const want = cfg.materialMix.slag / mixTotal(cfg.materialMix);
+    check("which material follows the mix ratio",
+      Math.abs(slagShare - want) < 0.02,
+      `slag ${(slagShare * 100).toFixed(1)}% of materials, mix says ${(want * 100).toFixed(1)}%`);
+  }
+
+  // ---- AN AUTHORED BAY IS EXEMPT ------------------------------------------
+  // A drill, a Contract or a Final clause that states a density above the
+  // ceiling gets what it asked for. The ceiling governs the RATCHET ladder,
+  // which is the thing that stacks behind the player's back; a bay that names
+  // its own number is not stacking anything.
+  {
+    const solo = { ...bay, materialMix: { ...NO_MATERIALS, rebar: 1 } };
+    check("a bay that states every shipment is a material still gets every shipment",
+      stream(solo).every((m) => m === "rebar"));
+  }
+
+  // ---- DETERMINISM --------------------------------------------------------
+  // The schedule carries state across a bay, which is exactly the kind of thing
+  // that breaks a replay. Same seed, same bay, same belt.
+  {
+    const cfg = applyRatchets(bay, { slag: 2, tar: 2 });
+    check("the belt is deterministic in the run seed",
+      stream(cfg, 77).join(",") === stream(cfg, 77).join(","));
+    check("a different seed deals a different belt",
+      stream(cfg, 77).join(",") !== stream(cfg, 78).join(","));
+  }
 }
 
 // ---------------------------------------------------------------------------

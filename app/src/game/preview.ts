@@ -295,12 +295,28 @@ const FIELDS: Field[] = [
     read: (c) => c.bombCharges, fmt: int, higherIsWorse: false,
   },
   {
-    // The Demolition Rack's capstone is a resupply LINE rather than more
+    // The Demolition Rack's capstone is a CHANGE IN KIND rather than more
     // charges, so a projection that only counted charges would show its third
-    // tier buying the same +2 the second one did.
+    // tier buying the same +2 the second one did. Three rows, because it moves
+    // three numbers: the resupply line, the blast and the rate.
     id: "resupply", label: "Charge resupply", short: "Resupply",
     read: (c) => c.bombResupplyLines,
     fmt: (v) => (v > 0 ? `+1 / ${Math.round(v)} lines` : "none"),
+    higherIsWorse: false,
+  },
+  {
+    id: "blast", label: "Blast radius", short: "Blast",
+    read: (c) => c.bombBlastMult,
+    fmt: (v) => (v > 1 ? `×${v.toFixed(2).replace(/0$/, "")}` : "stock"),
+    higherIsWorse: false,
+  },
+  {
+    // Quoted per CUBE, the unit detonate actually pays in — a charge's worth
+    // depends on how much it caught, and a per-blast figure would be inventing
+    // an average the bay never promised.
+    id: "salvage", label: "Salvage per cube", short: "Salvage",
+    read: (c) => c.salvagePerCube,
+    fmt: (v) => `$${Math.round(v)}`,
     higherIsWorse: false,
   },
   // The content axes, in ladder order, labelled off their own HazardDef so a

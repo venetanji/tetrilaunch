@@ -1,4 +1,6 @@
-import { DEMO_RESUPPLY_LINES, type LevelConfig } from "./level";
+import {
+  DEMO_BLAST_MULT, DEMO_RESUPPLY_LINES, DEMO_SALVAGE_MULT, type LevelConfig,
+} from "./level";
 
 /**
  * SHIP UPGRADES — the FTL layer of the run.
@@ -233,15 +235,15 @@ export const UPGRADES: UpgradeDef[] = [
     tiers: [
       "+2 charges per bay",
       "+4 charges per bay",
-      `+6 per bay · +1 every ${DEMO_RESUPPLY_LINES} lines`,
+      `+6 per bay · +1 every ${DEMO_RESUPPLY_LINES} lines · ×${DEMO_BLAST_MULT} blast · ×${DEMO_SALVAGE_MULT} salvage`,
     ],
     current: (t) => (t === 0
       ? "no charges"
       : t >= MAX_TIER
-        ? `+${2 * t}/bay · +1 per ${DEMO_RESUPPLY_LINES} lines`
+        ? `+${2 * t}/bay · +1 per ${DEMO_RESUPPLY_LINES} lines · ×${DEMO_BLAST_MULT} blast`
         : `+${2 * t} charges/bay`),
     step: (t) => (t + 1 >= MAX_TIER
-      ? { dir: "up", text: "+2 charges, and a resupply line" }
+      ? { dir: "up", text: "+2 charges, resupply, a wider blast and a better rate" }
       : { dir: "up", text: "+2 charges" }),
     apply(cfg, tier) {
       // Twice the old size, and deliberately more generous than the bond
@@ -252,15 +254,29 @@ export const UPGRADES: UpgradeDef[] = [
       // only clean answer, and leaving that answer to a draft shuffle meant a
       // player who had paid for it went whole runs without one.
       cfg.bombCharges += 2 * tier;
-      // The capstone is a RESUPPLY LINE, not another +2. Six charges is a
-      // budget for a bay, and a bay can out-last it: at two or three notches of
-      // slag, or under the Tier 6 Slag Wall clause, a seventh dead shipment
-      // arrives with nothing left to answer it. Metering the return on LINES
-      // makes the loop circular on purpose — bomb the slag, close the row, get
-      // the charge back — so the tier pays out for charges spent unblocking
-      // rather than hoarded.
-      // It will not rescue a bay that is already buried, and should not.
-      if (tier >= MAX_TIER) cfg.bombResupplyLines = DEMO_RESUPPLY_LINES;
+      // The capstone is a CHANGE IN KIND, not another +2, and it moves three
+      // numbers rather than one — see level.ts's DEMO_BLAST_MULT note for the
+      // sizing and the playtest behind each.
+      //
+      // The resupply line came first and answers "what happens when a bay
+      // out-lasts six charges": at two or three notches of slag, or under the
+      // Tier 6 Slag Wall clause, a seventh dead shipment arrives with nothing
+      // left to answer it. Metering the return on LINES makes the loop circular
+      // on purpose — bomb the slag, close the row, get the charge back — so the
+      // tier pays out for charges spent unblocking rather than hoarded.
+      //
+      // The other two answer the case a full rack still lost: a Tier-10 bay deep
+      // in slag and tar, where the problem was never the number of charges but
+      // what one charge DOES and what it returns. A wider blast cuts through a
+      // welded crust instead of chipping at it (tar's joints are the one bond
+      // nothing else in the game can break), and a better rate keeps a
+      // line-sized salvage worth the shots it costs at a $30 launch. Neither
+      // will rescue a bay that is already buried, and neither should.
+      if (tier >= MAX_TIER) {
+        cfg.bombResupplyLines = DEMO_RESUPPLY_LINES;
+        cfg.bombBlastMult *= DEMO_BLAST_MULT;
+        cfg.salvagePerCube = Math.round(cfg.salvagePerCube * DEMO_SALVAGE_MULT);
+      }
     },
   },
 ];

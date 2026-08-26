@@ -1,5 +1,6 @@
 import type { LevelConfig, MaterialMix } from "./level";
 import { WIND_GUST_FRACTION } from "./level";
+import { BELT_CEILING } from "./belt";
 
 /**
  * HAZARDS — the axis ratchet that replaced the modifier draft.
@@ -24,9 +25,12 @@ import { WIND_GUST_FRACTION } from "./level";
  *    hazard cheap for you. Own the Launcher and crosswind is the notch you can
  *    afford. So the draft asks "what have you prepared for?" and the poison you
  *    are equipped for costs you nothing.
- *  - **The hand is small.** Two cards per draft, not three (see hazardOffers):
- *    with the purse now the binding constraint (level.ts's economy note), every
- *    notch is a real fork, and a third card only invited the least-bad shrug.
+ *  - **The hand is small, and always one card bigger than the picks.** Two cards
+ *    for one pick at most rungs, not three (see hazardOffers): with the purse
+ *    now the binding constraint (level.ts's economy note), every notch is a real
+ *    fork, and a third card only invited the least-bad shrug. The capstone takes
+ *    TWO notches a bay, so its hand is three — the "+1" is the rule, not the 2.
+ *    A hand the same size as the picks is not a draft at all, it is a bill.
  *  - **Marks add axes rather than steepen them.** Higher Marks do not make the
  *    ratchet bigger; they put more kinds of pressure on the table. A Mark is
  *    mostly a statement about which hazards and systems exist. What it does
@@ -220,21 +224,47 @@ export const OPEN_CELL_NOTCH = 1;
  *  since the player only takes it when Demolition is aboard. */
 export const MATERIAL_BASE = 0.07;
 export const MATERIAL_NOTCH = 0.05;
-/** No single material may pass this, however many notches are stacked on it. */
+/** No single material may pass this, however many notches are stacked on it.
+ *  Just under MIX_TOTAL_CAP, so six notches on one axis is very nearly a belt
+ *  of that one material and nothing else — which is what "a slag-heavy bay by
+ *  choice" has to be allowed to mean. It reaches that by CROWDING the others
+ *  out through applyRatchets' proportional scale-down rather than by adding
+ *  arrivals on top of them: past the ceiling the belt's density is fixed and
+ *  notches buy composition. See belt.ts's rule 3. */
 export const MATERIAL_CAP = 0.32;
 
-/** And no COMBINATION may pass this. The per-material cap alone is not a rail:
- *  six content axes at 0.32 sum to 1.92, and the roll is a cumulative walk — so
- *  past 1.0 the last materials in the order can never come up at all while the
- *  first ones silently swallow the whole belt. Worse, "every shipment is a
- *  hazard" is not a hard bay, it is an unplayable one: the player needs cargo
- *  to build rows out of.
+/**
+ * And no COMBINATION may pass this. The per-material cap alone is not a rail:
+ * six content axes at 0.32 sum to 1.92, and past 1.0 the last materials in the
+ * order can never come up at all while the first ones silently swallow the whole
+ * belt. Worse, "every shipment is a hazard" is not a hard bay, it is an
+ * unplayable one: the player needs cargo to build rows out of.
  *
- *  0.55 leaves a clear majority of shipments standard at maximum ratchet. When
- *  the sum would exceed it the mix is scaled DOWN proportionally rather than
- *  clipped per material, so the player's relative emphasis survives — a run
- *  that ratcheted slag three times and cryo once still faces mostly slag. */
-export const MIX_TOTAL_CAP = 0.55;
+ * When the sum would exceed it the mix is scaled DOWN proportionally rather than
+ * clipped per material, so the player's relative emphasis survives — a run that
+ * ratcheted slag three times and cryo once still faces mostly slag.
+ *
+ * HELD EQUAL TO belt.ts's BELT_CEILING, and imported from there rather than
+ * stated again, which is a real change of stance and not a tidy-up. This used
+ * to be 0.55 — "a clear majority of shipments standard at maximum ratchet" —
+ * and that reasoning was answering the wrong question. 0.55 was a bound on the
+ * AVERAGE; what loses a bay is the CLUSTER, and an independent roll clusters at
+ * every rate (belt.ts's header has the arithmetic and the playtest that found
+ * it: Tier 10, bay 6, ~0.47 of the belt, three-and-four-material streaks that
+ * left nothing to build a row out of). belt.ts fixes the clustering structurally
+ * with a spacing rule, and that rule permits at most one material in
+ * (MATERIAL_GAP + 1) shipments — so a mix summing above it would be a promise
+ * the belt cannot keep.
+ *
+ * Setting the two equal is what keeps materialMix a literal per-shipment
+ * probability all the way to the top of the ratchet: at maximum the belt really
+ * does deliver the sum, and preview.ts can go on printing each material's rate
+ * to the player with nothing in between. The pressure a run buys past the
+ * ceiling has not vanished, it has changed KIND — further notches no longer add
+ * specials, they decide WHICH special, since the proportional scale-down leaves
+ * the ratios intact. See belt.ts's rule 3.
+ */
+export const MIX_TOTAL_CAP = BELT_CEILING;
 
 /** The rate a content axis schedules at `notches` notches. */
 export function materialRate(notches: number): number {
@@ -433,12 +463,20 @@ export function hazardsForMark(mark: number): HazardDef[] {
  * Bays after which the draft deals MATERIALS ONLY — a hand with no number axis
  * in it, so the pick has to be a material.
  *
- * "Materials only" is exact where the Mark has TWO OR MORE materials: every card
- * is a material and the pick cannot avoid one. Where it has exactly one — Mark 4,
- * cryo alone — the hand is that material plus the run's hardest active axis, so
- * the player CAN still take the number and dodge. That is the design (a hand of
- * one card is not a draft), not an oversight, and it means these bays force a
- * material from Mark 5 onward and merely offer one at Mark 4.
+ * "Materials only" is exact at the ONE-PICK rungs where the Mark has two or more
+ * materials: both cards are materials and the pick cannot avoid one. Where the
+ * Mark has exactly one — Mark 4, cryo alone — the hand is that material plus the
+ * run's hardest active axis, so the player CAN still take the number and dodge.
+ * That is the design (a hand of one card is not a draft), not an oversight, and
+ * it means these bays force a material from Mark 5 onward and merely offer one
+ * at Mark 4.
+ *
+ * At the CAPSTONE, where picksPerBay is 2, the hand carries a number axis too —
+ * three cards for two picks — so exactly one material is forced and the second
+ * pick is free. A two-card hand there would have forced BOTH, which is a
+ * different promise from the one this note makes below (one problem, one bay,
+ * one shop) and is how a Tier-10 run ended up spending seven of its ten notches
+ * on materials before choosing anything. See materialHand.
  *
  * Named by the bay the player just CLEARED, 1-based, the way a player counts
  * them. The rest of the ladder is deliberately dodgeable: one content card per
@@ -535,10 +573,26 @@ export function hazardOffers(
   ratchets: Ratchets = {},
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
-  const want = Math.max(count, picksPerBay(mark));
+  // ALWAYS ONE MORE CARD THAN THERE ARE PICKS. That is what makes a draft a
+  // draft, and at the capstone it was not true: picksPerBay is 2 there and this
+  // read Math.max(count, picksPerBay(mark)), which is 2 — so an ordinary Mark-10
+  // hand dealt two cards and took both, on seven of the ten bays. The ratchet's
+  // whole claim is that "by bay 10 they have authored their own curve"; a hand
+  // the player cannot choose within authors nothing, it just bills them.
+  //
+  // It also had a sharp edge. slag is the one material with no passive counter,
+  // and the ordinary draft's guarantee that it is DODGEABLE rests entirely on
+  // there being a spare seat to dodge into: measured over 200,000 hands at Marks
+  // 6-10, a two-card capstone hand forced slag on 3,924 of them. The forced
+  // hands (materialHand) were given their spare card last pass for exactly this
+  // reason; the ordinary hands are the other half of the same fix.
+  const want = Math.max(count, picksPerBay(mark) + 1);
 
   if (isMaterialDraft(levelIndex)) {
-    const forced = materialHand(pool, want, seed, levelIndex, ratchets);
+    // picksPerBay, not `want`: `want` is the HAND SIZE (two cards, or more if
+    // the Mark asks for more picks than that), and what decides whether the
+    // materials alone would fill every seat is how many picks the player has.
+    const forced = materialHand(pool, picksPerBay(mark), seed, levelIndex, ratchets);
     // Marks 1-3 have no material to force. Falling through to the ordinary
     // draft is the only honest answer there: a hand cannot be materials-only
     // when there are no materials, and an empty offer reads as a bug.
@@ -583,28 +637,40 @@ export function hazardOffers(
  * them rather than a single card the player taps to get past. One material plus
  * the run's hardest active axis where it has only one (see hardestActive).
  *
- * SLAG IS NEVER BOTH CARDS. It is the one material with no passive counter — a
- * dead cube leaves the field by Demolition or not at all — which is why the
- * ladder puts it two rungs after cryo and rebar and why the ordinary draft
- * guarantees it is dodgeable. Forcing a material is the point here; forcing
- * THAT material, on a rack that may be empty, is a bay that cannot be won by
- * playing well. So slag may fill one seat and never the last one.
+ * IT FORCES EXACTLY ONE MATERIAL, NEVER TWO, and at the capstone that costs a
+ * third card. picksPerBay is 2 at Mark 10, so a two-material hand there is not
+ * "materials only" — it is materials only AND both of them, which is a different
+ * and much heavier promise than the one MATERIAL_DRAFT_BAYS' note makes ("the
+ * player meets the problem, plays a bay against it, and walks straight into the
+ * shop that answers it": one problem, one bay, one shop). Taking two at a stroke
+ * is also how a Tier-10 belt got where the owner found it — bays 2, 5 and 8
+ * dealing two material notches apiece is seven of a run's ten notches spent on
+ * materials before the player has chosen anything, which is the input side of
+ * the flood belt.ts fixes on the output side. Dealing `want + 1` cards with one
+ * number axis among them leaves the forced pick forced and gives the second pick
+ * somewhere else to go.
+ *
+ * SLAG IS NEVER THE ONLY MATERIAL ON THE TABLE. It is the one material with no
+ * passive counter — a dead cube leaves the field by Demolition or not at all —
+ * which is why the ladder puts it two rungs after cryo and rebar and why the
+ * ordinary draft guarantees it is dodgeable. Forcing a material is the point
+ * here; forcing THAT material, on a rack that may be empty, is a bay that cannot
+ * be won by playing well. With two materials dealt and only one pick forced, a
+ * player who cannot answer slag always has the other one.
  */
 function materialHand(
   pool: HazardDef[],
-  want: number,
+  /** How many notches this bay's draft takes — hazards.ts's picksPerBay, NOT the
+   *  hand size. The two are equal only at the capstone, and telling them apart
+   *  is the whole arithmetic below: the partner card exists to stop the
+   *  materials filling every PICK. */
+  picks: number,
   seed: number,
   levelIndex: number,
   ratchets: Ratchets,
 ): HazardDef[] | null {
   const materials = pool.filter((h) => h.kind === "content");
   if (materials.length === 0) return null;
-
-  if (materials.length === 1) {
-    const partner = hardestActive(pool, ratchets);
-    const hand = partner ? [materials[0], partner] : [materials[0]];
-    return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
-  }
 
   // Same seeded stream shape as the ordinary draft, so a bay's hand stays a
   // function of (run seed, bay, Mark) and a restarted run deals it again.
@@ -614,17 +680,24 @@ function materialHand(
     const j = Math.floor(rng() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  // `shuffled` holds DISTINCT axes, so a hand of two can never be slag twice —
-  // there used to be a guard here swapping slag out of an all-slag hand, and it
-  // could not fire: 120,000 generated forced hands produced none. It is gone
-  // rather than kept as reassurance, because an unreachable guard reads as a
-  // protection that is being relied on.
+
+  // Two materials wherever the Mark has them, so the forced pick is a CHOICE of
+  // material rather than one card to tap past — and one per pick where the bay
+  // takes more than two notches, so a deeper draft still meets a real fork.
+  const hand: HazardDef[] = shuffled.slice(0, Math.min(materials.length, Math.max(2, picks)));
+  // The number axis, added exactly when the materials alone would fill every
+  // PICK. At the one-pick rungs a two-material hand already leaves a seat
+  // unpicked, so nothing is added and the shape is the old one card for card; at
+  // the capstone's two picks it is the third card that keeps the second pick
+  // free. It doubles as the partner for Mark 4, where the single material would
+  // otherwise be a hand of one card, which is not a draft.
   //
-  // What IS true, and is not a guard: slag can be one of the two cards, and at
-  // the capstone Mark picksPerBay is 2 against a hand of 2, so a capstone player
-  // takes both — slag included. That is a real edge of this feature rather than
-  // a bug in it, and sim/systems.ts pins it so it cannot change unnoticed.
-  return shuffled.slice(0, want).sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
+  // hardestActive returns null only for a pool with no number axis at all, which
+  // no Mark that has opened a material can be — at that point the hand is
+  // whatever materials exist, which is the honest fallback rather than a crash.
+  const partner = hardestActive(pool, ratchets);
+  if (partner && hand.length <= picks) hand.push(partner);
+  return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
 }
 
 /**

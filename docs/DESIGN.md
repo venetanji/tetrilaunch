@@ -621,6 +621,19 @@ by the ladder at all — `level.ts`'s `materialMixFor` is retired, and a materia
 now arrives only when the player ratchets its content axis (`hazards.ts`), so
 facing one and choosing to face it are the same act. Mark 1 stays entirely clean.
 
+**How MUCH of a bay may be special is capped, and the cap is structural.** The
+ratchet is additive and a Tier-10 run takes two notches a bay, so by bay 6 a run
+that took every material card it was dealt had ~47% of shipments carrying one —
+and an independent per-shipment roll at that rate deals runs of three and four
+back to back, which is a bay no amount of skill builds a row in. `belt.ts` now
+schedules the belt instead of rolling it: two standard shipments are guaranteed
+after every material (**one in three, hard**), the odds escalate across a clean
+stretch so droughts close themselves, and *which* material is a separate draw off
+the mix. Notches past the ceiling therefore buy **composition** rather than
+arrivals — the run's chosen poison crowds the others out instead of piling on
+top. See [ECONOMY.md](ECONOMY.md#the-belt-a-ceiling-on-how-much-of-a-bay-is-special)
+for the measured before/after.
+
 Two things the build settled that this table could not:
 
 - **Striking cryo is asymmetric.** A cryo cube thaws only when it is already at

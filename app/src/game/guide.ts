@@ -1,4 +1,5 @@
 import { HAZARDS, MATERIAL_CAP, materialRate, type HazardId } from "./hazards";
+import { MATERIAL_GAP } from "./belt";
 import { makeBaseLevel, PILE_TIERS, type LevelConfig } from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
@@ -479,12 +480,12 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "materials-axis", chapter: "pressure", tier: 4,
     name: "Material axes",
     summary: `Six of the axes put a MATERIAL on the belt instead of raising a number.`,
-    body: `From tier 4 the draft deals content: a notch that ships <b>${FIRST_NOTCH_PCT}%</b>`
+    body: `From tier 4 the draft deals content: a notch ships <b>${FIRST_NOTCH_PCT}%</b>`
       + ` of a material instead of raising a number, up to`
-      + ` <b>${Math.round(MATERIAL_CAP * 100)}%</b> however many you stack.`
-      + ` An ordinary hand deals <b>at most one</b>, so a material is dodgeable — except on the`
-      + ` bay before each refit, where the hand is materials only. You meet the problem, then`
-      + ` walk into the shop that sells the answer.`,
+      + ` <b>${Math.round(MATERIAL_CAP * 100)}%</b> stacked.`
+      + ` The belt caps at <b>one in ${MATERIAL_GAP + 1}</b> — every material is followed by`
+      + ` <b>${MATERIAL_GAP} plain ones</b> — so notches past that decide <b>which</b>, not how many.`
+      + ` An ordinary hand deals at most one; on the bay before each refit, one is forced.`,
   },
   {
     id: "final", chapter: "pressure", tier: 1,
