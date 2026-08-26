@@ -94,6 +94,7 @@ import {
 import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
+import { InputController, wheelRotation } from "../src/game/input";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -7478,6 +7479,234 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
   // The fine-pointer strip renders on the same surface and has to agree with it.
   check("the fine-pointer strip names the click too",
     /click to aim/i.test(S.hintStripHTML("keyboard", { bond: false, demo: false, auto: false })));
+}
+
+// ---------------------------------------------------------------------------
+section("The mouse can rotate, and only the left button fires (input.ts)");
+// ---------------------------------------------------------------------------
+// The wheel accumulator first, which is pure and needs nothing but numbers.
+// The point of every case here is that ONE PHYSICAL NOTCH TURNS THE PIECE ONCE
+// no matter what unit the device chose to report it in, and that a continuous
+// device's stream of crumbs is measured by distance rather than by event count.
+{
+  check("one Chrome/Edge detent down turns it once, clockwise",
+    wheelRotation(0, 100, 0).dir === "right", String(wheelRotation(0, 100, 0).dir));
+  check("one detent up turns it once, anticlockwise",
+    wheelRotation(0, -100, 0).dir === "left", String(wheelRotation(0, -100, 0).dir));
+  // deltaMode is the half of this that is easiest to write and forget: Firefox
+  // reports LINES, so an unnormalised threshold of 100 would need thirty-four
+  // notches per rotation there and the feature would simply not work on it.
+  check("one Firefox line-mode notch (deltaMode 1, 3 lines) also turns it once",
+    wheelRotation(0, 3, 1).dir === "right", String(wheelRotation(0, 3, 1).dir));
+  check("a page-mode notch (deltaMode 2) turns it once too",
+    wheelRotation(0, 1, 2).dir === "right", String(wheelRotation(0, 1, 2).dir));
+  // THE TRACKPAD CASE, which is the reason the accumulator exists. One flick
+  // is one gesture; without accumulation it is thirty rotations through four
+  // orientations, i.e. a random draw.
+  {
+    let accum = 0;
+    let turns = 0;
+    for (let i = 0; i < 30; i++) {
+      const r = wheelRotation(accum, 8, 0);
+      accum = r.accum;
+      if (r.dir) turns += 1;
+    }
+    check("a 30-event, 240px trackpad flick turns it twice, not thirty times",
+      turns === 2, `${turns} turns`);
+  }
+  // A reversal has to cost one notch of travel, not two. Banking 90px downward
+  // and then pushing back up must not need 190px of up before anything moves.
+  {
+    const banked = wheelRotation(0, 90, 0);
+    check("90px of travel alone turns nothing", banked.dir === null);
+    check("...and a full notch the OTHER way still lands immediately",
+      wheelRotation(banked.accum, -100, 0).dir === "left",
+      String(wheelRotation(banked.accum, -100, 0).dir));
+  }
+  // The remainder is DROPPED on a fire, so one event can never be worth more
+  // than one turn however hard it was thrown. Carrying 300px of overflow out
+  // of an inertial fling would spend it on three more turns — all the way back
+  // round to where the piece started, since it only has four faces.
+  {
+    const fling = wheelRotation(0, 400, 0);
+    check("a 400px inertial fling turns it exactly once", fling.dir === "right", String(fling.dir));
+    check("...and banks nothing toward the next one", fling.accum === 0, String(fling.accum));
+  }
+}
+
+// Now the controller itself, driven through a stub canvas. This harness has no
+// browser (see the chute's stylesheet check for the same admission), but
+// InputController only ever asks its canvas for addEventListener and a
+// bounding rect, so a stub is enough to run the REAL handlers rather than
+// string-matching them — and the bug this section exists to pin (a right-click
+// firing a shot) is a behaviour, not a spelling.
+{
+  type Handler = (e: unknown) => void;
+  const onCanvas = new Map<string, Handler[]>();
+  const onWindow = new Map<string, Handler[]>();
+  const wheelOpts: { passive?: boolean }[] = [];
+  const bind = (m: Map<string, Handler[]>, t: string, h: Handler) => {
+    const a = m.get(t) ?? [];
+    a.push(h);
+    m.set(t, a);
+  };
+  const canvas = {
+    addEventListener: (t: string, h: Handler, o?: { passive?: boolean }) => {
+      bind(onCanvas, t, h);
+      if (t === "wheel" && o) wheelOpts.push(o);
+    },
+    removeEventListener: () => {},
+    getBoundingClientRect: () => ({ width: 800, height: 450, left: 0, top: 0 }),
+    setPointerCapture: () => {},
+  } as unknown as HTMLCanvasElement;
+
+  // The globals go up for the length of this block and come straight back
+  // down. systems.ts is one long-lived process and a lingering `window` would
+  // flip every `typeof window` feature test in src/ for whatever runs next.
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevRaf = glob.requestAnimationFrame;
+  glob.window = {
+    addEventListener: (t: string, h: Handler) => bind(onWindow, t, h),
+    removeEventListener: () => {},
+  };
+  glob.requestAnimationFrame = () => 0;
+
+  const g = new Game(makeBaseLevel(0), {}, 7);
+  g.status = "playing";
+  let shots = 0;
+  const realShoot = g.shoot.bind(g);
+  g.shoot = (now: number, auto = false) => {
+    shots += 1;
+    return realShoot(now, auto);
+  };
+  new InputController(canvas, () => g);
+
+  const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
+    (m.get(t) ?? []).forEach((h) => h(e));
+  let prevented = 0;
+  const ptr = (button: number, pointerType = "mouse", clientX = 500) => ({
+    button, pointerId: 1, pointerType, clientX, clientY: 260,
+    preventDefault: () => { prevented += 1; },
+  });
+  const whl = (deltaY: number, deltaMode = 0, ctrlKey = false) => ({
+    deltaY, deltaX: 0, deltaMode, ctrlKey, metaKey: false,
+    preventDefault: () => { prevented += 1; },
+  });
+  /** Quarter-turns the piece made across a call, signed. */
+  const turned = (fn: () => void): number => {
+    const before = g.cannon.pieceRotation;
+    fn();
+    return Math.round((g.cannon.pieceRotation - before) / (Math.PI / 2));
+  };
+  const fired = (fn: () => void): number => {
+    const before = shots;
+    fn();
+    return shots - before;
+  };
+
+  check("the wheel listener is registered non-passive, or its preventDefault is ignored",
+    wheelOpts.length === 1 && wheelOpts[0].passive === false, JSON.stringify(wheelOpts));
+  check("the canvas refuses the browser context menu", (() => {
+    prevented = 0;
+    send(onCanvas, "contextmenu", { preventDefault: () => { prevented += 1; } });
+    return prevented === 1;
+  })());
+
+  // THE BUG. A right press used to run the whole targeting gesture and its
+  // release used to call shoot() — the misfire gate that would have caught it
+  // is deliberately off for a mouse. Asserted as "no shot" and "one ⟳"
+  // separately, because a fix that stopped the shot by refusing the event
+  // entirely would pass the first and lose the feature.
+  check("a right-click fires nothing", fired(() => {
+    send(onCanvas, "pointerdown", ptr(2));
+    send(onWindow, "pointerup", ptr(2));
+  }) === 0);
+  check("a right-click turns the shipment clockwise instead", turned(() => {
+    send(onCanvas, "pointerdown", ptr(2));
+    send(onWindow, "pointerup", ptr(2));
+  }) === 1);
+  // The middle button has no job here and must therefore do nothing at all —
+  // it went down the same aim-and-fire path as the right one.
+  check("the middle button does nothing", (() => {
+    let t = 0;
+    const s = fired(() => { t = turned(() => {
+      send(onCanvas, "pointerdown", ptr(1));
+      send(onWindow, "pointerup", ptr(1));
+    }); });
+    return s === 0 && t === 0;
+  })());
+  check("the left button still aims and fires", fired(() => {
+    send(onCanvas, "pointerdown", ptr(0));
+    send(onWindow, "pointerup", ptr(0));
+  }) === 1);
+
+  // ROTATING MID-AIM. A mouse keeps one pointerId across all its buttons, so
+  // the right button's own pointerup reaches the drag's release path; if that
+  // path does not check the button, turning the piece while holding the aim
+  // launches it. Both halves are asserted: the turn happens, the aim the
+  // player is holding survives it, and the shot waits for the LEFT release.
+  {
+    send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+    const heldAngle = g.cannon.angle;
+    const heldPower = g.cannon.power;
+    let t = 0;
+    const early = fired(() => { t = turned(() => {
+      send(onCanvas, "pointerdown", ptr(2, "mouse", 400));
+      send(onWindow, "pointerup", ptr(2, "mouse", 400));
+    }); });
+    check("right-clicking mid-aim turns the shipment", t === 1, `${t} quarter-turns`);
+    check("...without firing the aim being held", early === 0, `${early} shots`);
+    check("...and without disturbing the aim itself",
+      g.cannon.angle === heldAngle && g.cannon.power === heldPower);
+    const late = fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400)));
+    check("...the shot still waiting for the left button's own release", late === 1);
+  }
+
+  // The wheel, through the real handler this time: the pure function above
+  // proves the arithmetic, this proves it is wired to the cannon and to
+  // preventDefault.
+  check("a wheel notch turns the shipment and swallows the page scroll", (() => {
+    prevented = 0;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    return t === 1 && prevented === 1;
+  })());
+  check("ctrl+wheel is left alone, so browser zoom still works", (() => {
+    prevented = 0;
+    const t = turned(() => send(onCanvas, "wheel", whl(100, 0, true)));
+    return t === 0 && prevented === 0;
+  })());
+
+  // TOUCH IS UNTOUCHED, asserted rather than assumed: every guard added here
+  // is gated on pointerType, and a bare button test would have quietly changed
+  // the pen's path. A full-power pull still fires; a tap still misfires; and
+  // nothing on this path turns the piece.
+  check("a touch drag still fires, and still rotates nothing", (() => {
+    let t = 0;
+    const s = fired(() => { t = turned(() => {
+      send(onCanvas, "pointerdown", ptr(0, "touch", 700));
+      send(onCanvas, "pointermove", ptr(0, "touch", 120));
+      send(onWindow, "pointerup", ptr(0, "touch", 120));
+    }); });
+    return s === 1 && t === 0;
+  })());
+  check("a touch tap is still caught by the misfire gate", fired(() => {
+    send(onCanvas, "pointerdown", ptr(0, "touch", 700));
+    send(onWindow, "pointerup", ptr(0, "touch", 700));
+  }) === 0);
+
+  // A wheel on a paused bay must leave the event completely alone — no
+  // rotation AND no preventDefault, because an overlay the player is reading
+  // may want to scroll.
+  check("a paused bay neither rotates on the wheel nor blocks the scroll", (() => {
+    g.paused = true;
+    prevented = 0;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    g.paused = false;
+    return t === 0 && prevented === 0;
+  })());
+
+  delete glob.window;
+  glob.requestAnimationFrame = prevRaf;
 }
 
 console.log(

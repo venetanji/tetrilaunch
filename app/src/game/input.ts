@@ -54,7 +54,96 @@ import { MIN_FIRE_RATIO } from "./cannon";
  * so; it takes CLIENT coordinates because what it drives is DOM chrome (the
  * drag-hint guide, placed at the thumb), and the game has no business knowing
  * about CSS pixels.
+ *
+ * ROTATION ON THE MOUSE (right button and wheel) is what makes the left-click
+ * scheme above a COMPLETE control scheme rather than most of one. Aiming and
+ * firing were already on the mouse; turning the shipment was not, so a desktop
+ * player still had to reach for the keyboard or the on-screen rail between
+ * every shot for the one input that decides whether the piece fits. Both new
+ * gestures land on the same pair the keyboard, the gamepad and the rail all
+ * call (cannon.rotateLeft/rotateRight + updateTrajectory, via `rotate` below),
+ * so there is exactly one definition of what "turn it" means.
+ *
+ * THEY DO NOT TOUCH THE GESTURE IN PROGRESS. `rotate` reads no drag state and
+ * writes none: no dragStart, no dragPointerId, no aimBefore, no pendingTarget.
+ * That is the same contract the side-rail rotate buttons already keep (a
+ * second finger on the rail leaves the drag alive; only the ✕ cancels it), and
+ * it is what lets a player hold the left button on a spot, turn the piece, and
+ * watch the arc through that same spot redraw around the new shape.
+ *
+ * Both are MOUSE-ONLY by construction, and deliberately so — see onDown's
+ * button guard for why the pointerType test is there rather than a bare
+ * `e.button !== 0`. Touch and pen take the identical path they took before.
  */
+
+/** Pixels of wheel travel that earn one rotation, and the unit every device's
+ *  delta is converted into. 100 because that is what a physical detent reports
+ *  on every clicky wheel worth naming: Chrome and Edge on Windows send
+ *  deltaY 100 per notch, Firefox sends deltaMode 1 with deltaY 3 (three lines,
+ *  hence WHEEL_STEP_PX / 3 below), and a Windows "one screen at a time"
+ *  setting sends deltaMode 2 with deltaY 1. The devices that DON'T land on 100
+ *  — Magic Mouse, trackpads, anything with inertia — are exactly the ones that
+ *  send a continuous stream of small deltas instead, which is what the
+ *  accumulator is for. Getting this wrong in the low direction is much worse
+ *  than in the high: a threshold under a real notch spins the piece several
+ *  times per flick, and the piece only has four orientations, so an overshoot
+ *  is indistinguishable from a random draw. */
+const WHEEL_STEP_PX = 100;
+
+/** Which way a wheel-DOWN turn (positive deltaY) turns the shipment. THE ONE
+ *  LINE THAT REVERSES THE WHEEL — flip this to false and both directions swap
+ *  together, because the ⟲ case below is derived from it rather than written
+ *  out separately. There is no convention to inherit here: down-is-clockwise
+ *  matches "scroll down, the piece rolls forward under your finger", which is
+ *  the reading we picked, and the opposite reading ("the wheel is a dial, down
+ *  is anticlockwise") is just as defensible. Typed `boolean` rather than left
+ *  to literal inference so flipping it does not make the comparison below a
+ *  compile error about an impossible comparison. */
+const WHEEL_DOWN_ROTATES_RIGHT: boolean = true;
+
+export type RotateDir = "left" | "right";
+
+/** One wheel event's worth of rotation, as a pure function of the accumulator
+ *  and the event's raw delta, so it can be tested against real device traces
+ *  without a browser (sim/systems.ts drives both a detent mouse and a trackpad
+ *  flick through it).
+ *
+ *  WHY ACCUMULATE AT ALL. One notch of a real mouse wheel is a single event
+ *  and rotating on it is correct. A trackpad two-finger swipe is thirty-odd
+ *  events of a few px each covering the same distance, and rotating on each
+ *  would spin the piece a dozen times for one flick — through four
+ *  orientations three times over, landing somewhere the player did not choose.
+ *  Summing until the total crosses one notch makes both devices mean the same
+ *  thing by distance travelled rather than by event count.
+ *
+ *  A DIRECTION CHANGE RESETS rather than subtracting, so a scroll up after 90px
+ *  of scroll down does not need 190px to register. The accumulator is asking
+ *  "how far have you pushed THIS way", and pushing the other way ends that
+ *  question.
+ *
+ *  THE REMAINDER IS DROPPED on a fire rather than carried, so no single event
+ *  can ever be worth more than one turn. That is what keeps an inertial fling
+ *  honest — one 400px momentum delta, or one deltaMode 2 page, is one turn and
+ *  not four, which on a piece with four faces would land exactly back where it
+ *  started. It also means a tiny nudge cannot trip a turn off change banked
+ *  from a scroll the player has long since forgotten: every notch starts from
+ *  zero. */
+export function wheelRotation(
+  accum: number,
+  deltaY: number,
+  deltaMode: number,
+): { accum: number; dir: RotateDir | null } {
+  // deltaMode is the unit the device chose to speak in — 0 px, 1 lines,
+  // 2 pages — and it is per-EVENT, not per-device: the same wheel can switch
+  // modes when a modifier or an OS setting changes. Normalising here rather
+  // than at the call site means the threshold above is one number in one unit.
+  const px = deltaY * (deltaMode === 1 ? WHEEL_STEP_PX / 3 : deltaMode === 2 ? WHEEL_STEP_PX : 1);
+  if (px === 0) return { accum, dir: null };
+  const next = Math.sign(px) === Math.sign(accum) ? accum + px : px;
+  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, dir: null };
+  return { accum: 0, dir: (px > 0) === WHEEL_DOWN_ROTATES_RIGHT ? "right" : "left" };
+}
+
 export class InputController {
   private canvas: HTMLCanvasElement;
   private game: () => Game | null;
@@ -98,6 +187,12 @@ export class InputController {
    *  player the shot they had lined up — the accident would be free of ammo
    *  and expensive in setup, which is only half a fix. */
   private aimBefore: { angle: number; power: number } | null = null;
+  /** Wheel travel banked toward the next rotation, in normalised px. Lives on
+   *  the controller rather than inside onWheel because a trackpad's notch is
+   *  spread across many events (see wheelRotation). Zeroed whenever the wheel
+   *  arrives on a bay that is not being played, so a half-turn banked before a
+   *  pause cannot fall out of the machine on the first scroll after it. */
+  private wheelAccum = 0;
   private raf = 0;
 
   constructor(
@@ -111,6 +206,18 @@ export class InputController {
 
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
+    // ON THE CANVAS, NOT ON WINDOW, and that placement is the whole answer to
+    // "does the wheel break scrolling anywhere". A wheel listener only runs
+    // when the event's target is the element or a descendant, the canvas has no
+    // descendants, and every screen that scrolls — Controls, Workshop, the
+    // guide — is a DOM overlay that is not inside it. So a scroll over those
+    // never reaches this handler and never sees a preventDefault. Same for
+    // contextmenu: right-clicking a menu is still a right-click on a menu.
+    // passive: false because the default for wheel on a scrollable region is
+    // passive, and a passive listener's preventDefault is ignored with a
+    // console warning — the page would scroll out from under the bay.
+    canvas.addEventListener("wheel", this.onWheel, { passive: false });
+    canvas.addEventListener("contextmenu", this.onContextMenu);
     window.addEventListener("pointerup", this.onUp);
     window.addEventListener("pointercancel", this.onPointerCancel);
     window.addEventListener("keydown", this.onKey);
@@ -122,6 +229,8 @@ export class InputController {
   destroy(): void {
     this.canvas.removeEventListener("pointerdown", this.onDown);
     this.canvas.removeEventListener("pointermove", this.onMove);
+    this.canvas.removeEventListener("wheel", this.onWheel);
+    this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     window.removeEventListener("pointerup", this.onUp);
     window.removeEventListener("pointercancel", this.onPointerCancel);
     window.removeEventListener("keydown", this.onKey);
@@ -192,7 +301,64 @@ export class InputController {
     this.game()?.aimAt(p);
   }
 
+  /** Turn the loaded shipment, from wherever the request came from. The pair
+   *  and the redraw are the same ones bindings.ts's "rotl"/"rotr" reach through
+   *  the keyboard (onKey), the gamepad (gamepad.ts's act) and the side rail
+   *  (main.ts's onGameAction) — one definition, four doors.
+   *
+   *  READS AND WRITES NO GESTURE STATE, which is the load-bearing property
+   *  rather than an accident of it being short. A rotation arriving mid-aim
+   *  must leave the drag exactly as it found it: the target the player is
+   *  holding the button on, the pointer id that owns the gesture, and the
+   *  pre-gesture aim the misfire path would restore. updateTrajectory then
+   *  redraws the arc from that untouched aim around the new shape, which is
+   *  precisely "keep the target, re-solve the picture". */
+  private rotate(dir: RotateDir): void {
+    const g = this.game();
+    // Same guard onDown uses, checked here rather than at each call site
+    // because both callers reach the game through the same accessor and there
+    // is no third state either of them could be in.
+    if (!g || g.status !== "playing" || g.paused) return;
+    if (dir === "right") g.cannon.rotateRight();
+    else g.cannon.rotateLeft();
+    g.updateTrajectory();
+  }
+
   private onDown = (e: PointerEvent): void => {
+    // NON-PRIMARY MOUSE BUTTONS NEVER START AN AIM. Until this guard existed a
+    // right-press ran the whole targeting gesture and its release called
+    // shoot() — the barrel swung to wherever the cursor was and fired, because
+    // onDown never looked at e.button and onUp's misfire gate is deliberately
+    // skipped for a mouse (see there). That is a shot spent on a gesture the
+    // player made to open a context menu. It predates the click-to-target
+    // scheme: the old drag path had the same hole, a right-press just took a
+    // drag's worth of movement to become expensive instead of being wrong on
+    // contact.
+    //
+    // GATED ON pointerType, not written as a bare `e.button !== 0`, and the
+    // distinction matters. Touch and pen report button 0 for the contact that
+    // starts a gesture, so a bare test would pass them through unchanged — but
+    // a pen with its barrel button held reports 2 or 5 for the same physical
+    // press, and gating on the button alone would silently stop that pen from
+    // aiming at all. The pointerType line is the one this whole file already
+    // draws (the header, the misfire gate, app.css's `pointer: fine`), and
+    // drawing it once more here keeps every non-mouse device on the byte-identical
+    // path it was on before mouse rotation existed.
+    if (e.pointerType === "mouse" && e.button !== 0) {
+      // ⟳ on the right button, matching the rail's primary rotate — the two
+      // sit next to each other in a desktop player's head and disagreeing
+      // about which way "the rotate one" turns is worse than either choice.
+      //
+      // BEFORE the `this.dragging` bail below, so this fires DURING a left-drag
+      // too. That is the gesture the mouse scheme is missing without it: hold
+      // the left button on the gap you want to fill, right-click to turn the
+      // piece until it fits, release. Treating the second button as a
+      // collision and refusing it would leave the player choosing between
+      // holding their aim and turning their shipment, which is the exact
+      // reach-for-the-keyboard this change is here to delete.
+      if (e.button === 2) this.rotate("right");
+      return;
+    }
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
     // A second finger landing on the canvas mid-aim (reaching for the rail
@@ -222,6 +388,19 @@ export class InputController {
   };
 
   private onUp = (e: PointerEvent): void => {
+    // THE OTHER HALF OF onDown's BUTTON GUARD, and it is not redundant with it.
+    // A mouse is ONE pointer with several buttons: every button's pointerdown
+    // and pointerup carry the same pointerId. So the pointerId test below —
+    // which is what keeps a second finger's release from firing a touch drag —
+    // cannot tell the left button's release from the right button's, and
+    // without this line releasing the right button after rotating mid-aim
+    // would fire the left button's shot. The player would have asked to turn
+    // the piece and been answered with a launch.
+    //
+    // Same pointerType gating as onDown, for the same pen reason, and it is
+    // also why this can safely come BEFORE the `dragging` test: for a mouse
+    // whose gesture never started, both guards return anyway.
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     // Only the finger that started the drag fires it — any other pointer's
     // release (a rotate/✕ tap mid-aim) leaves the drag alive.
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
@@ -281,6 +460,57 @@ export class InputController {
       return;
     }
     if (g) g.shoot(performance.now());
+  };
+
+  /** The wheel turns the shipment. See wheelRotation for the accumulator and
+   *  WHEEL_DOWN_ROTATES_RIGHT for which way, both module-level and both
+   *  deliberately outside this method so the direction is one line to reverse.
+   *
+   *  NOT WHILE PAUSED, AND NOT ON A FINISHED BAY — and the reason is the
+   *  preventDefault rather than the rotation. Killing the page's scroll is a
+   *  thing this handler is allowed to do only while it is genuinely consuming
+   *  the input; a paused bay with an overlay over it is a screen the player may
+   *  well be reading, and a wheel that silently does nothing AND refuses to
+   *  scroll is worse than either. So the early return leaves the event
+   *  completely untouched, which is also what makes the answer to "does this
+   *  break the Controls and Workshop screens" a structural no rather than a
+   *  promise: those never reach this handler at all (see the listener
+   *  registration), and even the canvas itself stops eating wheel events the
+   *  moment it stops being a live bay. */
+  private onWheel = (e: WheelEvent): void => {
+    const g = this.game();
+    if (!g || g.status !== "playing" || g.paused) {
+      this.wheelAccum = 0;
+      return;
+    }
+    // ctrl/⌘+wheel is the browser's zoom, not a scroll, and it is one of the
+    // few accessibility affordances a player has on a canvas game that cannot
+    // reflow. Swallowing it to rotate a piece nobody asked to rotate — nobody
+    // holds ctrl to turn a shipment — would trade a real accommodation for
+    // nothing. Left entirely alone, default included.
+    if (e.ctrlKey || e.metaKey) return;
+    // Unconditional once we are playing, and before the deltaY test rather
+    // than after it: a diagonal trackpad swipe carries deltaX too, and letting
+    // the horizontal half through would scroll the page sideways under a bay
+    // that is meant to be the whole viewport. During play the wheel belongs to
+    // the game whether or not this particular event earns a rotation.
+    e.preventDefault();
+    const r = wheelRotation(this.wheelAccum, e.deltaY, e.deltaMode);
+    this.wheelAccum = r.accum;
+    if (r.dir) this.rotate(r.dir);
+  };
+
+  /** No context menu on the bay. Electron ships without one, so this is
+   *  invisible there, but the web and PWA builds are the same code and a
+   *  browser answers the rotate gesture with a menu covering the field —
+   *  which also swallows the pointerup that would have ended an aim in
+   *  progress. Unconditional rather than gated on `playing`: the canvas is the
+   *  game surface in every state, never a document with text to act on, and a
+   *  menu offering to save it as an image is not something a paused bay should
+   *  start offering. Every screen that isn't the bay is a DOM overlay outside
+   *  the canvas and keeps its menu (see the listener registration). */
+  private onContextMenu = (e: Event): void => {
+    e.preventDefault();
   };
 
   private onPointerCancel = (e: PointerEvent): void => {
