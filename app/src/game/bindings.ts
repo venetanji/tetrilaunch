@@ -169,7 +169,7 @@ export function hintAim(profile: InputProfile): string {
     return "touch the field and pull back — farther is more power — then release to fire";
   }
   if (profile === "gamepad") {
-    return `aim with the left stick — deflection sets the power — and press ${padLabel(padFor("fire"))} to fire`;
+    return `aim with the left stick — up/down for angle, left/right for power — and press ${padLabel(padFor("fire"))} to fire`;
   }
   // MOUSE AND TOUCH NOW AIM DIFFERENTLY, which is exactly the situation this
   // table exists for. The mouse points at a spot and the cannon solves the arc

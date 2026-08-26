@@ -29,19 +29,28 @@ export interface Settings {
   /** Gamepad stick-aiming assist: the left stick's aim is smoothed through a
    *  short lerp so analogue jitter doesn't wobble the arc (gamepad.ts). */
   stickAssist: boolean;
-  /** Which way the left stick points the barrel (gamepad.ts).
+  /** HOW the left stick aims (gamepad.ts).
    *
-   *  false (default) — PUSH toward the target: the stick vector is where you
-   *  want the piece to go. Reads like a twin-stick shooter.
-   *  true — PULL BACK like a slingshot: the stick vector is the drag, so the
-   *  barrel swings opposite the thumb. Reads like the touch gesture.
-   *
-   *  A setting rather than a decision because the two are equally defensible
-   *  and the preference is not predictable from anything else about a player:
-   *  a stick is a physical thing you can pull, which makes the slingshot
-   *  reading feel native, but the pad also has to agree with a MOUSE that
-   *  points straight at the target. Neither reading can be right for both. */
+   *  false (default) — RATE DIALS: up/down trims the angle, left/right trims
+   *  the power, and a centred stick HOLDS the aim, so the thumb rests between
+   *  adjustments. Promoted to default by the owner's pad session: holding a
+   *  deflection to hold an aim keeps the thumb tense for the whole bay.
+   *  true — PULL BACK like a slingshot: the stick vector is the touch drag,
+   *  so the barrel swings opposite the thumb. The expressive mode — one
+   *  gesture carries angle and power together — kept for the players who
+   *  like it, demoted for being the tiring one. */
   stickPull: boolean;
+  /** The MOUSE WHEEL's job (game/input.ts).
+   *
+   *  false (default) — the wheel is the ARC-HEIGHT dial: a click solves the
+   *  arc onto the point, scrolling chooses how steeply it comes down on that
+   *  same point, and rotation lives on the buttons (right ⟳, wheel press ⟲).
+   *  true — the wheel ROTATES the shipment the way it originally did, and
+   *  arc height moves onto a chord drag: hold the right button mid-aim and
+   *  drag up/down. The owner floated both mappings in the same play session;
+   *  the wheel-lofts reading won the default for being explainable in one
+   *  sentence, and this keeps the other one for hands that disagree. */
+  wheelRotates: boolean;
   /** Tier S is open — the sandbox floor is drawn under the tower and the mode
    *  can be entered (see lib/devmode.ts for the gesture that flips this, and
    *  for why a MODE is a setting while the developer CHEATS stay a build flag).
@@ -61,7 +70,7 @@ const META_KEY = "tetrilaunch.meta";
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   seenKeyHints: false,
-  leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
+  leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
 };
 
 export function loadSettings(): Settings {

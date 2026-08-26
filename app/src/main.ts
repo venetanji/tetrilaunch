@@ -540,7 +540,12 @@ class App {
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
 
-    this.input = new InputController(this.canvas, () => this.game, this.onMisfire);
+    this.input = new InputController(
+      this.canvas, () => this.game, this.onMisfire,
+      // Read live, like the gamepad hooks: the Controls toggle re-jobs the
+      // wheel without a restart.
+      () => this.settings.wheelRotates,
+    );
 
     this.overlay.addEventListener("click", this.onClick);
     this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
@@ -1660,9 +1665,22 @@ class App {
    *  render (the data-bind restore above, a browser-preserved input). */
   private syncPadFocus(): void {
     if (this.profile !== "gamepad" || this.state === "playing") return;
+    const root = this.padNavRoot();
     const el = document.activeElement as HTMLElement | null;
-    if (el && this.overlay.contains(el)) return;
-    focusInitial(this.overlay);
+    if (el && root.contains(el)) return;
+    focusInitial(root);
+  }
+
+  /** The subtree pad navigation may roam. The modal states render the HUD
+   *  and the modal into ONE overlay (renderOverlay concatenates them), so
+   *  querying the whole overlay offered the covered rail, pause and
+   *  fullscreen buttons under the scrim as focus targets — found in review:
+   *  moving right off a modal's last action could walk focus onto an
+   *  invisible control and the next A would press it, fullscreen included.
+   *  The scrim covers everything beneath it, so while one is up it IS the
+   *  navigable screen. */
+  private padNavRoot(): HTMLElement {
+    return this.overlay.querySelector<HTMLElement>(".modal-scrim") ?? this.overlay;
   }
 
   /**
@@ -3663,17 +3681,18 @@ class App {
       this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
       return true;
     }
+    const root = this.padNavRoot();
     const dir = PAD_NAV[button];
-    if (dir) return moveFocus(this.overlay, dir);
+    if (dir) return moveFocus(root, dir);
     if (button === PAD_CONFIRM) {
       const el = document.activeElement as HTMLElement | null;
-      if (el && this.overlay.contains(el)) {
+      if (el && root.contains(el)) {
         el.click();
         return true;
       }
       // Nothing focused yet: the first A lands focus (on the primary), so
       // the player sees what the next A will do rather than firing blind.
-      return focusInitial(this.overlay);
+      return focusInitial(root);
     }
     if (button === PAD_BACK) {
       const sel = this.padBackTarget();

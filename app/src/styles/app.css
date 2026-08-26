@@ -3203,7 +3203,15 @@ body.crt-off #app::after { display: none; }
    its design box on the tightest device in the matrix, so it is paid for out
    of air the panel was already spreading between its rows, not out of the box. */
 .pl-notch b {
-  display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
+  /* center, not baseline — the same move .pl-tier b documents below, forced
+     by the same shape: the tally's entries lead with an SVG now (the axis
+     icons), and a flex box whose first content is a replaced element has no
+     text baseline to offer, so baseline alignment seats it on its bottom
+     margin edge and the icons ride high against the ×N counts and the ·
+     separators (the owner's crop caught exactly that). Centering seats
+     icons, counts and separators on one optical line; sim/uifit's inkline
+     probe reads this shape through capMid's wrapper fallback. */
+  display: flex; align-items: center; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
   overscroll-behavior-x: contain;
@@ -3213,14 +3221,13 @@ body.crt-off #app::after { display: none; }
 /* The chip's border-top colour, carried over as the glyph colour: content axes
    bane-red, number axes tradeoff-amber. It is the fastest thing in the row to
    read and it survives the shrink from a chip to two letters. */
-.pl-notch__ax { flex: none; }
+.pl-notch__ax { flex: none; display: inline-flex; align-items: center; gap: 1px; }
 .pl-notch__ax.k-bane { color: var(--danger); }
 .pl-notch__ax.k-tradeoff { color: var(--warn); }
 /* The Final Inspection's clause on the last bay — same violet as its card, so
    the thing the player signed for and the thing biting them are one colour. */
 .pl-notch__ax.k-final { color: var(--accent-2); }
 .pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
-.pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
 
 /* The tier line — the same label-plus-mono-value shell as .pl-notch and
@@ -4302,12 +4309,16 @@ body.crt-off #app::after { display: none; }
   overflow: hidden;
   line-height: 1.1;
 }
-.mod-card__stack {
+/* The notch LEVEL, riding the right edge beside the pick box: the ratchet's
+   own up-triangle (the bank's Notches cell wears the same one) plus the
+   count. This replaced an "at N" word pill in the title row — ~45px of
+   badge that clipped "Crosswind" to "Cros" in a compact card's ~100px name
+   column. An icon and a digit say the same thing in ~22px. */
+.mod-card__lvl {
   flex: none;
-  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--warn);
-  border: 1px solid rgba(255,176,32,0.5); border-radius: var(--r-sm);
-  padding: 2px 4px;
+  display: inline-flex; align-items: center; gap: 2px;
+  font-family: var(--font-pixel); font-size: 8px;
+  color: var(--warn);
 }
 /* The PICK BOX — the card's selection state said as a control: empty square,
    check when picked, ×N when double-picked. It is what makes three cards read
@@ -4583,7 +4594,7 @@ body.crt-off #app::after { display: none; }
   .modal--draft .mod-card__ax { width: 18px; height: 18px; font-size: 7px; }
   .modal--draft .mod-card__box { width: 16px; height: 16px; font-size: 7px; }
   .modal--draft .mod-card__top { gap: 5px; }
-  .modal--draft .mod-card__stack { font-size: 6px; padding: 1px 3px; }
+  .modal--draft .mod-card__lvl { font-size: 7px; }
   /* Kept on one line: wrapped, the projection's own header cost as much height
      as a row of stat tiles. */
   .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }

@@ -287,7 +287,7 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `<b>On touch, pull back anywhere on the field.</b> The cannon aims <b>opposite</b> your drag —`
       + ` the further you pull, the harder it goes. A second finger on the <b>✕</b> cancels a drag.`
       + ` <b>With a mouse, hold over the spot you want.</b> The cannon solves the gentlest arc through it,`
-      + ` so the meter reads how close to your limit that spot is. Aim high and short to lob a stack.`,
+      + ` so the meter reads how close to your limit that spot is. <b>Scroll</b> to arc over a stack.`,
     drill: DRILLS.aim,
   },
   {

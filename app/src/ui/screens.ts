@@ -4,7 +4,7 @@ import { baseBayFor } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
-  runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph,
+  runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -1016,10 +1016,19 @@ export function controlsScreen(opts: {
       ${infoRow("Abilities", "rail buttons · plant chips")}
       ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
   } else if (opts.tab === "keyboard") {
-    pane = BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("");
+    // The mouse rides this tab — keyboard and mouse are one fine-pointer
+    // family (the strip, the coach and app.css all draw that line). Info
+    // rows state the DEFAULT scheme; the toggle's description carries the
+    // whole alternate so the pane is honest in either state without a
+    // re-render on toggle.
+    pane = `${infoRow("Mouse aim", "click where it should land")}
+      ${infoRow("Arc height", "scroll · up comes down steeper")}
+      ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
+      ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
+      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}`;
   } else {
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
-      ${infoRow("Aim & power", "left stick · deflection sets power")}
+      ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
       ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
       ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;
@@ -1874,6 +1883,12 @@ export function hudHTML(opts: {
 function hintParts(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; auto: boolean },
+  /** The pause card asks for the FULL scheme; the field strip stays the lean
+   *  onboarding set — its two extra mouse lines wrapped it onto a second row
+   *  on a 1280x720 laptop, straight into the plant panel (caught by uifit's
+   *  overlap assertion). The strip is a subset of the card, never a
+   *  disagreement: shared parts render from the same lines. */
+  full = false,
 ): string[] {
   const kbd = (s: string) => `<span class="kbd">${s}</span>`;
   const parts: string[] = [];
@@ -1886,7 +1901,10 @@ function hintParts(
   const part = (inner: string) => parts.push(`<span class="kbd-hint__part">${inner}</span>`);
   if (profile === "gamepad") {
     part(`${kbd(padLabel(padFor("rotl")))}/${kbd(padLabel(padFor("rotr")))} rotate`);
-    part(`${kbd("Stick")} aim + power`);
+    // The rate-dial default (gamepad.ts): vertical trims the angle,
+    // horizontal the power, centred holds. The slingshot opt-in changes what
+    // the stick MEANS but not that it aims, so the hint stays true either way.
+    part(`${kbd("Stick")} ↕ angle · ↔ power`);
     part(`${kbd(padLabel(padFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
@@ -1907,6 +1925,15 @@ function hintParts(
        solve the arc onto it (game/input.ts). A finger still pulls back, and a
        finger never sees this strip. */
     part("click to aim");
+    /* The rest of the mouse scheme (game/input.ts), plain for the same
+       no-keycap reason as "click to aim": the wheel and the mouse buttons
+       are not rebindable keys, and a chip around them would claim they are.
+       Pause-card only (see `full`) — the wheel is the control nothing else
+       on screen teaches, and the card is the scheme's permanent reference. */
+    if (full) {
+      part("scroll for arc height");
+      part("right ⟳ · wheel-press ⟲");
+    }
     /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
        [data-action="pause"]). A gesture nobody is told about is a gesture
        nobody uses.
@@ -1986,7 +2013,7 @@ export function pauseKeysHTML(
   profile: InputProfile,
   owned: { bond: boolean; demo: boolean; auto: boolean },
 ): string {
-  const parts = hintParts(profile, owned);
+  const parts = hintParts(profile, owned, true);
   return `<div class="pause-keys" id="pause-keys">
     <div class="pause-keys__grid">${parts.join("\n      ")}</div>
     <p class="pause-keys__note muted">Rebind these under Settings → Controls.</p>
@@ -2839,16 +2866,21 @@ export function draftScreen(opts: {
       // The tentative picks count toward the badge too — the card has to show
       // the notch level the projection below it is currently drawing.
       const owned = (opts.ratchets[h.id] ?? 0) + picks;
-      const stack = owned > 0 ? `<span class="mod-card__stack">at ${owned}</span>` : "";
+      // The level rides the card's RIGHT edge as an icon and a number (the
+      // same up-triangle the bank's Notches cell wears), not as an "at N"
+      // word badge in the title row — the words were what clipped "Crosswind"
+      // to "Cros" on a compact card: ~45px of badge in a ~100px name column
+      // (the owner's pass caught it).
+      const stack = owned > 0
+        ? `<span class="mod-card__lvl" aria-label="notched at ${owned}">${icon("up", 9)}${owned}</span>`
+        : "";
       const kind = h.kind === "content" ? "bane" : "tradeoff";
       // The kind is said by the card's GLYPH and colour, not by a word: a
       // material card wears the material's own belt icon and bane red, a
-      // number card wears the axis's two-letter tally glyph and tradeoff cyan
-      // — the same two vocabularies the plant panel spends a whole run
-      // teaching (components.ts's one-vocabulary rule).
-      const badge = h.material
-        ? materialIconHTML(h.material, 15)
-        : axisGlyph(h.id);
+      // number card its axis's icon and tradeoff cyan (components.ts's
+      // axisIconHTML — every axis a hand can deal has a real mark now, and
+      // the two-letter tally code is strictly that helper's fallback).
+      const badge = axisIconHTML(h, 15);
       // The pick box is the card's selection state said as a control: empty
       // square, check when picked, ×N when double-picked. aria-pressed
       // carries the same fact to a screen reader.
@@ -2886,9 +2918,12 @@ export function draftScreen(opts: {
       <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       ${quotaHTML(pending, opts.picksNeeded, opts.offers.length, opts.selected.map((id) => {
-        const h = opts.offers.find((o) => o.id === id);
+        // Resolved against the whole table, not just the dealt hand: a pick is
+        // always from the hand in play, but the slot's glyph should survive a
+        // caller (a fixture, a stale save) whose selection outruns its offer.
+        const h = opts.offers.find((o) => o.id === id) ?? HAZARDS.find((o) => o.id === id);
         return {
-          glyph: h?.material ? materialIconHTML(h.material, 12) : axisGlyph(id),
+          glyph: h ? axisIconHTML(h, 11) : axisGlyph(id),
           kind: h?.kind === "content" ? "bane" : "tradeoff",
         };
       }), "sticks for the rest of the run")}
