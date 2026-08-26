@@ -232,6 +232,11 @@ const BOND_HOLD_SLOP = 24;
  *  deliberate second press: startPauseHold zeroes the stamp on every new
  *  press, so the window only ever covers the press that fired. */
 const HOLD_CLICK_MS = 400;
+/** How long after the profile flips to gamepad a UI press still reads as the
+ *  press that CAUSED the flip (see onPadUiButton). The real gap is one poll
+ *  tick — sub-millisecond — so this only has to be comfortably above that and
+ *  comfortably below any deliberate second press. */
+const PAD_WAKE_MS = 50;
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -425,10 +430,13 @@ class App {
   private keyHintsDismissed = false;
   private keyHintsShownThisSession = false;
   private keyHintTimer: number | null = null;
-  /** True for exactly one UI press after the profile flips to gamepad — the
-   *  press that woke the pad lands focus and does nothing else (see
-   *  setProfile / onPadUiButton). */
-  private padJustWoke = false;
+  /** When the profile last flipped to gamepad (performance.now()), so the
+   *  press edge that CAUSED the flip — delivered by the same poll tick,
+   *  microseconds later — lands focus and does nothing else (see setProfile /
+   *  onPadUiButton). A timestamp, not a consumed-once flag: a flag would
+   *  survive until whatever press came next, seconds later, and eat a
+   *  deliberate one. */
+  private padWokeAt = 0;
   /** performance.now() of the last misfire guide, for its rate limit. */
   private lastMisfireGuide = -Infinity;
 
@@ -794,7 +802,7 @@ class App {
     // the press that woke the pad on the end modal must not also press the
     // freshly-focused Play Again.
     if (p === "gamepad") {
-      this.padJustWoke = true;
+      this.padWokeAt = performance.now();
       this.syncPadFocus();
     }
     const g = this.game;
@@ -3628,13 +3636,14 @@ class App {
    *  what lets pad selection survive a card toggle. */
   private onPadUiButton(button: number): boolean {
     // The press that flipped the profile to gamepad already did its job —
-    // landing focus (see setProfile). Consuming it here is what keeps "wake
-    // the pad" and "press the focused button" two presses on every screen
-    // where a button is an irreversible act. Gameplay is exempt: waking the
-    // pad by firing is a fire.
-    if (this.padJustWoke) {
-      this.padJustWoke = false;
-      if (this.state !== "playing") return true;
+    // landing focus (see setProfile, which stamped padWokeAt in this same
+    // poll tick). Consuming it here is what keeps "wake the pad" and "press
+    // the focused button" two presses on every screen where a button is an
+    // irreversible act. Gameplay is exempt: waking the pad by firing is a
+    // fire. The window is a couple of frames — long enough to cover the tick
+    // that stamped it, far too short to reach a human's second press.
+    if (performance.now() - this.padWokeAt < PAD_WAKE_MS && this.state !== "playing") {
+      return true;
     }
     if (this.state === "playing") {
       // The coach's card is the one UI control alive during play, and every
