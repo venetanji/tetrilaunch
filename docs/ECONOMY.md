@@ -181,11 +181,47 @@ volatile as "deliberately chaining it into a pile that was never going to
 complete a row anyway", and a slag pile is definitionally exactly that. It just
 paid nothing.
 
-**Bombs stay at $8 on slag.** Their problem is that they run out, not that they
-underpay, and the resupply line answers that directly. Keeping the premium
-exclusive to volatile also keeps the strategy's identity: the *renewable*
-channel is the profitable one, because a bomb is capped per bay and the belt is
-not.
+**Bombs keep no slag premium.** The denial premium stays exclusive to volatile,
+which keeps the strategy's identity: the *renewable* channel is the profitable
+one, because a bomb is capped per bay and the belt is not.
+
+What a bomb pays did move, but on the **rack**, not on slag — see the capstone
+below.
+
+### The capstone: charges were not the whole answer
+
+The resupply line answers "you run out of bombs" and answers it correctly. It
+does not answer the bay a Tier-10 playtest actually lost: with replenishing
+bombs aboard, *"I still couldn't clear all the slag and couldn't make new lines
+because tar everywhere."* That is not a bay short of charges. It is a bay where
+each charge does not do enough, and where what one returns no longer keeps up
+with what a launch costs.
+
+So the maxed rack now moves three numbers instead of one:
+
+| | stock | maxed rack |
+|---|---|---|
+| charges per bay | — | **+6**, and **+1 every 4 lines** |
+| blast radius | `CELL × 2.4` | **×1.35** — ×1.8 the *area* |
+| salvage per cube | $8 | **$12** |
+
+**Radius, not another `+2`.** Tar is the case the stock radius handles worst:
+tar's welds are the one joint neither the press nor a Bond Breaker can split
+(`game.ts`'s `resolveTarWelds`), so vaporizing the cubes is the *only* thing
+that opens a crust — and a stock blast takes a bite about a piece wide out of
+one that spans the bay. Area goes as the square, so ×1.35 on the radius is the
+difference between chipping at a crust and cutting through it, while still
+landing well short of the Bond Breaker's field-wide reset.
+
+**$12 keeps disposal worth the shot.** `salvagePerCube` was tuned against a
+Tier-1 launch at $20; at Tier 10 a launch is $30, so a line-sized salvage — 8
+cubes, $64 — no longer covered the shots spent placing the row it unblocked. At
+$12 that clear is $96, which is still under `scorePerLine` (100 + 10i, before
+combo) at every bay. The hierarchy above survives intact: disposal clearly beats
+the launch, and never out-earns playing the game.
+
+Both are the **capstone only**. Tiers 1 and 2 stay a flat `+2`, so the track
+keeps its shape — quantity, quantity, then a change in kind.
 
 Sized to sit between two things. A volatile lobbed into a three-slag cluster
 returns $60 against a launch that costs $20 at Tier 1 and $30 at Tier 10, so
@@ -425,6 +461,75 @@ taken by a player who has no idea yet what a notch feels like. That is the same
 reasoning that already took `TIME_NOTCH` from 20 to 5, carried the rest of the
 way.
 
+## The belt: a ceiling on how much of a bay is special
+
+`belt.ts`. A material used to be an **independent roll per shipment** — a
+cumulative walk over `materialMix`, one draw, everything unclaimed is standard.
+That was correct in the average and wrong in the moment, and the difference is
+what a player meets.
+
+The mix is a **sum of ratcheted axes**, and a Tier-10 run takes two notches a
+bay. Every material card a run is dealt and takes puts ~0.47 on the belt by bay
+6 — and an independent roll at 0.47 does not deliver "roughly half specials,
+evenly spread". Measured over 200,000 shipments at exactly that mix:
+
+| | old roll | scheduled belt |
+|---|---|---|
+| share of shipments carrying a material | 46.9% | **33.3%** |
+| longest run of consecutive materials | **16** | **1** |
+| 2-in-a-row, per 100 shipments | 11.6 | **0** |
+| 3-in-a-row, per 100 shipments | 5.5 | **0** |
+| 4-in-a-row, per 100 shipments | 2.6 | **0** |
+
+A four-material streak is a bay you cannot build a row in — slag fills slots
+nothing can close and tar welds the mess shut behind it — and at 5.5 three-plus
+streaks per 100 shipments a ~40-shot bay meets two of them. The bay is lost to a
+**streak**, not to a decision. This is what the Tier-10 device playtest ran into
+at bay 6, with a full replenishing bomb rack aboard.
+
+**A cap on the sum could not fix it, and there already was one.** At *any* rate
+an independent roll floods and droughts; lowering it makes floods rarer, never
+shorter. The fix has to be about spacing.
+
+### Three rules, deliberately separable
+
+1. **A ceiling.** Two standard shipments are guaranteed after every material, so
+   the belt can never carry more than **one material in three**. Structural, not
+   statistical: no seed, no ratchet and no Final clause produces two in a row on
+   a bay the ladder built.
+2. **A rate that escalates while the belt is clean.** Past the gap, each standard
+   shipment makes the next one likelier, and firing a material spends that
+   pressure back down — so a drought closes itself and a flood cannot start. The
+   mechanism is stochastic rounding, chosen because it is **exact**: credit gains
+   the bay's density every shipment and loses exactly 1 per material, so the
+   long-run share *is* the density. `materialMix` therefore still means literally
+   what it says, and the draft screen goes on printing each material's rate to
+   the player unmediated.
+3. **Which material is a separate draw,** weighted by the mix.
+
+Splitting "how often" from "which" is what makes the ceiling affordable.
+`MIX_TOTAL_CAP` now equals the ceiling (`0.55` → `1/3`), and `applyRatchets`
+scales an over-full mix down **proportionally**, so notches past the ceiling stop
+adding specials and start deciding **which** special: six notches of slag against
+one of cryo is a belt that is 1-in-3 material and >80% of it slag. The pressure
+still climbs; what stops climbing is the share of the bay you are allowed to
+build rows out of.
+
+**An authored bay is exempt.** A drill that ships rebar on every shipment, a
+Contract built around one material, `Full Rebar` — those state a density above
+the ceiling on purpose, and get it. The ceiling governs the **ratchet ladder**,
+which is the thing that stacks behind the player's back; a bay that names its own
+number is not stacking anything.
+
+### The forced hands stopped forcing two
+
+`MATERIAL_DRAFT_BAYS` deals a materials-only hand after bays 2, 5 and 8 so a run
+cannot reach bay 10 having never met a material. At the capstone `picksPerBay` is
+2 against a hand of 2, so the player took **both** — three bays × two materials
+is six of a run's ten notches spent on materials before choosing anything, which
+is the input side of the same flood. The hand now carries a number axis as a
+third card: one material forced, the second pick free.
+
 ## The Final Inspection: the last choice of a run
 
 `finals.ts`. Every bay-clear but one deals the axis ratchet — pick a notch, it
@@ -457,7 +562,7 @@ change anything.
 | 7 | Bay Extension | **Powder Run** — 27% of the belt volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
 | 8 | Demolition Rack | **Tar Run** — 18% of the belt tar | **Fouled Bay** — 12% tar, congestion bites 12 cubes earlier |
 | 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
-| 10 | Bond Emitter | **Dead Weight** — every shipment a pentomino, +50% a launch | **Short Measure** — every shipment a domino, −40% a launch |
+| 10 | Bond Emitter | **Odd Lots** — nothing standard ships: all six materials at once | **Full Rebar** — every standard shipment arrives as rebar |
 
 **Both clauses are meant to be equally bad, and bad differently.** That is what
 makes it a choice rather than a toll, and it is the part that had to be
@@ -506,9 +611,20 @@ clause takes away, all twenty fall into three groups with no exceptions:
 
 | What the clause takes away | Clauses | Bot |
 |---|---|---|
-| **Cubes that can reach a line** | every material clause, plus Cold Weld and Dead Weight | −15 to −70 |
+| **Cubes that can reach a line** | every material clause, plus Cold Weld and the retired Dead Weight | −15 to −70 |
 | **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
-| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, Short Measure | free or better |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, the retired Short Measure | free or better |
+
+The Tier 10 pair postdates the table. The size fork it replaced (**Dead
+Weight** / **Short Measure**, the pentomino/domino pair) examined the cannon's
+unit economics — launches per line, priced per cube — which nothing in the
+ladder teaches. The full-belt cargo pair asks what the Tiers actually taught:
+`Odd Lots` deals the whole material catalogue with the standard shipment
+removed, and `Full Rebar` ships the capstone's own unbreakable format as
+cargo. The bot cannot rank the two poles (a material flood collapses it, a
+placement demand reads free), so the sizing argument is against the ladder
+itself and lives in `finals.ts`'s Tier 10 header; only a device playtest can
+say more.
 
 The third group is the finding. The bot does not plan a row — it solves an angle
 and fires on every cooldown — so a clause that shrinks the space of *good*
@@ -538,9 +654,16 @@ Two consequences are already in the numbers:
 Two corrections fell out of the pricing and are worth stating on their own.
 
 `applyFinal` runs *after* `applyRatchets`, which is where `MIX_TOTAL_CAP` is
-enforced — so a material clause landing on an already-full belt pushed it to
-0.78 against a cap of 0.55. It now re-caps, holding the clause's own material at
-the rate its card quotes and taking the reduction from the ratcheted ones.
+enforced — so a material clause landing on an already-full belt pushed it to 0.78
+against a cap that was then 0.55. It now re-caps, holding the clause's own
+material at the rate its card quotes and taking the reduction from the ratcheted
+ones. That re-cap matters more since the cap became the belt ceiling: a final bay
+allowed over it would be the only bay in the game that could deal three materials
+in a row — the hardest one, on the run's last life. `FINAL_MATERIAL_CAP` is held
+*equal* to the ceiling rather than under it, so a clause can still fill the belt
+with its own material (which is what `Full Rebar` is) and can still out-bid a
+maxed ratchet by the last sliver, which is what keeps a mandatory clause from
+being silently free.
 
 Because that rate is a floor rather than a quantity, the six material cards
 read **"at least N%"**. A run carrying two Slag notches meets `Slag Wall`'s 8%

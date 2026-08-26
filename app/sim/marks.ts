@@ -27,6 +27,12 @@
 // the bots never use Bond Breaker or Demolition (so the BONDS track measures as
 // worthless and bomb-carrying builds are undersold), and they fire a fixed arc
 // rather than reading the pile. A human clears bays these bots lose.
+//
+// Half of the first caveat now has an answer: bots.ts's `demo` fires demolition
+// charges, so `--bots demo` on a DEMOLITION-carrying build measures that track
+// instead of writing it off. It is not the default here because ARCHETYPES
+// deliberately excludes demolition from every build (see CALIBRATION_TRACKS), so
+// `demo` on the standard rigs is `aim` exactly and would only cost wall-clock.
 import {
   makeBaseLevel, MARK_SPEED_STEP, SCRAP_PER_BAY, SCRAP_PER_LINE,
 } from "../src/game/level";
@@ -168,6 +174,14 @@ function tiersForBay(
  * DEMOLITION is out for the neighbouring reason, the one the header caveat
  * already names: no bot here ever fires a charge, so every point spent on the
  * track buys the sim nothing at all.
+ *
+ * That reason expired with bots.ts's `demo`, and this exclusion is now a choice
+ * rather than a fact. It stays because these ARCHETYPES exist to price the
+ * LADDER against the `aim` bot's competence, and `--ratchets spread` puts no
+ * material on the belt — a rack with nothing dead to clear is still worth
+ * nothing, so buying it here would only dilute the budget. A build with
+ * demolition in it wants a bay with a material in it; that pairing is a
+ * measurement to run deliberately, not a default to fold in here.
  *
  * Consequence for anything measured here: these builds top out at 550 of the
  * 770-point ladder (UPGRADES is seven tracks now, so FULL_BUILD_COST is

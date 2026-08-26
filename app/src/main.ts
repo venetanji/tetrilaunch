@@ -7,7 +7,7 @@ import {
 } from "./game/run";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
-  hazardOffers, hazardById, picksPerBay, togglePick, HAZARDS,
+  hazardOffers, hazardById, isMaterialDraft, picksPerBay, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
 import { previewRows } from "./game/preview";
@@ -2686,7 +2686,13 @@ class App {
     // Only from the hand actually dealt — a stale or hand-edited data-hazard
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
-    this.pendingPicks = togglePick(this.pendingPicks, id as HazardId, picksPerBay(this.run.mark));
+    this.pendingPicks = togglePick(
+      this.pendingPicks, id as HazardId, picksPerBay(this.run.mark),
+      // A forced-material hand caps its partner card at one seat — see
+      // togglePick. The draft edits the hand dealt after clearing
+      // run.levelIndex, the same index pendingOffers was dealt from.
+      isMaterialDraft(this.run.levelIndex),
+    );
     this.refreshDraft();
   }
 

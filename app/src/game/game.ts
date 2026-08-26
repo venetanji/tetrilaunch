@@ -347,8 +347,15 @@ const BOMB_ARM_STEPS = 5;
 /** Fallback fuse (physics steps) so a bomb that never touches anything (e.g.
  *  sails off past the walls) still goes off instead of lingering forever. */
 const BOMB_FUSE_STEPS = 300;
-/** Blast radius: cubes centered within this are destroyed outright. */
-const BOMB_BLAST_R = CELL * 2.4;
+/** Blast radius: cubes centered within this are destroyed outright. Scaled per
+ *  detonation by level.bombBlastMult (the Demolition Rack's capstone).
+ *
+ *  Exported for sim/bots.ts, whose `demo` bot has to know how much a charge
+ *  actually reaches before it can decide a pile is worth one. A copy of the
+ *  number there would be a second statement of the blast that is free to drift
+ *  out of this one, and the bot's whole job is to price what the real charge
+ *  does. */
+export const BOMB_BLAST_R = CELL * 2.4;
 /** Cubes within 2x the blast radius get a radial shove instead of removal. */
 const BOMB_SHOVE_MULT = 2;
 const BOMB_SHOVE_SPEED = 10;
@@ -2085,7 +2092,14 @@ export class Game {
 
     const cx = bombBody.position.x;
     const cy = bombBody.position.y;
-    const shoveR = BOMB_SHOVE_MULT * BOMB_BLAST_R;
+    // The Demolition Rack's capstone widens the charge (level.ts's
+    // DEMO_BLAST_MULT). Read per detonation rather than cached at construction
+    // because a bay's config is rebuilt every level from the run's tiers, and
+    // the shove ring rides on the kill radius so a wider blast also shoves
+    // further — one number, two effects, which is what keeps the FX ring below
+    // an honest picture of what was destroyed.
+    const blastR = BOMB_BLAST_R * (this.level.bombBlastMult > 0 ? this.level.bombBlastMult : 1);
+    const shoveR = BOMB_SHOVE_MULT * blastR;
 
     let vaporized = 0;
     const gone: { x: number; y: number }[] = [];
@@ -2095,7 +2109,7 @@ export class Game {
       const dx = b.position.x - cx;
       const dy = b.position.y - cy;
       const d = Math.hypot(dx, dy);
-      if (d <= BOMB_BLAST_R) {
+      if (d <= blastR) {
         gone.push({ x: b.position.x, y: b.position.y });
         this.throwChunks(cube, now);
         removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -2120,7 +2134,7 @@ export class Game {
     for (const g of gone) wakeNear(this.cubes, g.x, g.y);
 
     Matter.Composite.remove(this.phys.world, bombBody);
-    this.effects.push({ kind: "explosion", x: cx, y: cy, r: BOMB_BLAST_R, t0: now });
+    this.effects.push({ kind: "explosion", x: cx, y: cy, r: blastR, t0: now });
     this.events.onExplosion?.("bomb");
 
     if (vaporized > 0) {

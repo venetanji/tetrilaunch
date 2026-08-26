@@ -99,9 +99,9 @@ function draft(selected: HazardId[]): string {
 /** The FINAL INSPECTION (game/finals.ts) — the run's last draft.
  *
  *  Tier 10 deliberately: its clauses carry the longest copy in the table and
- *  its projection is the widest the screen can produce, because the pair moves
- *  cargo size and the launch price at once on a bay that already has four
- *  banked axes pinned ACTIVE. A screen that fits this fits every other Tier's.
+ *  its projection is the widest the screen can produce, because Odd Lots
+ *  moves every material row at once on a bay that already has four banked
+ *  axes pinned ACTIVE. A screen that fits this fits every other Tier's.
  */
 function inspection(selected: string | null): string {
   const run = {
@@ -677,7 +677,7 @@ export const SCREENS: Record<string, () => string> = {
   // both: accepting a clause grows a struck-through old value on every row it
   // moves, and the Tier-10 pair moves the most rows of any pair.
   inspection: () => inspection(null),
-  "inspection-signed": () => inspection("dead-weight"),
+  "inspection-signed": () => inspection("odd-lots"),
 
   // The tutorial, EVERY step. It used to be the two extremes — step 0 (plant
   // fully collapsed) and step 3 (most of the readout revealed) — on the

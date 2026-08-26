@@ -76,10 +76,11 @@ clears them away.
   their own weight to square up the pile below them. **Bulk** pentominoes are
   expensive, rigid, and heavy enough that landing presses the layers beneath them
   flat. Standard tetrominoes sit between.
-- **Demolition charges** are armed consumables, not launches: free to fire, and
-  each cube they vaporize **refunds $8**. Blowing up a junk pile that will never
-  complete a line is a positive-value play; blowing up a row you were two cubes
-  from closing is not.
+- **Demolition charges** are armed consumables fired by your next launch: they
+  cost the full launch fee, and each cube they vaporize **refunds $8** — a
+  charge pays for itself from three cubes up. Blowing up a junk pile that will
+  never complete a line is a positive-value play; blowing up a row you were two
+  cubes from closing is not.
 - The **compactor** (bottom-half red bar) ping-pongs between its open and
   full-advance stops, pressing cubes against the right wall. A row clears only
   when **every cell slot is filled by one settled, squared-up cube**; the pressing
@@ -350,8 +351,8 @@ hazard ratchet, per-bay time limits, bankroll carry-over, line-clear FX) plus th
   Contract first-clears plus the tier's Deep Run win, 15 each), spent in the
   Workshop on installs and unlocks that add *options* rather than stat bumps
   (`meta.ts`).
-- **Bombs with an economic argument** — armed consumables, free to fire, refund
-  per cube vaporized.
+- **Bombs with an economic argument** — armed consumables that cost a launch
+  and refund per cube vaporized.
 - **Three payload sizes** — micro dominoes / tetrominoes / bulk pentominoes,
   differing in weight and rigidity as well as shape, with the Autoloader as the
   micro build's endgame — a **held** trigger (`⚡`/`F`) at 420ms, so volume is
