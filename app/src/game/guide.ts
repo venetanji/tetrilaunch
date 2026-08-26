@@ -487,7 +487,7 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` <b>${Math.round(MATERIAL_CAP * 100)}%</b> stacked.`
       + ` The belt caps at <b>one in ${MATERIAL_GAP + 1}</b> — every material is followed by`
       + ` <b>${MATERIAL_GAP} plain ones</b> — so notches past that decide <b>which</b>, not how many.`
-      + ` An ordinary hand deals at most one; on the bay before each refit, one is forced.`,
+      + ` An ordinary hand deals at most one material; the bay before each refit deals materials only.`,
   },
   {
     id: "final", chapter: "pressure", tier: 1,

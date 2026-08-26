@@ -232,10 +232,10 @@
     "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
   ],
   "Web · 800x600 window|draft-picked|scrollers": [
-    ".draft__body scrolls 141px"
+    ".draft__body scrolls 83px"
   ],
   "Web · 800x600 window|draft|scrollers": [
-    ".draft__body scrolls 133px"
+    ".draft__body scrolls 75px"
   ],
   "Web · 800x600 window|hud-notched|badge": [
     "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
@@ -286,10 +286,10 @@
     "#demo-chip 47x43"
   ],
   "Web · 800x600 window|inspection-signed|scrollers": [
-    ".draft__body scrolls 249px"
+    ".draft__body scrolls 75px"
   ],
   "Web · 800x600 window|inspection|scrollers": [
-    ".draft__body scrolls 133px"
+    ".draft__body scrolls 75px"
   ],
   "Web · 800x600 window|menu-first|tap": [
     ".tower__floor 108x42"
@@ -341,9 +341,6 @@
   ],
   "Web · 800x600 window|refit-staged|scrollers": [
     "#refit-preview scrolls 142px"
-  ],
-  "Web · 800x600 window|refit|scrollers": [
-    "#refit-preview scrolls 4px"
   ],
   "iOS · iPhone 13 mini|menu-first|tap": [
     ".tower__floor 108x25"

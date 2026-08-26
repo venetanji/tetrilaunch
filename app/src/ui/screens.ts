@@ -2825,8 +2825,16 @@ function quotaHTML(
   // The count lives on the INNER slots row, not the container: main.ts's
   // toggle patch swaps #draft-quota's innerHTML, so a label on the container
   // would go stale on the first tap.
+  // "Pick 2 of 2" would read as no choice at all, and at the capstone it is
+  // not the truth either: two picks over two cards is a three-way choice —
+  // one of each, or either card doubled (hazards.ts's togglePick). Say that.
+  const ask = need < offered
+    ? `Pick ${need} of ${offered}`
+    : need > 1
+      ? `${need} picks — split or double up`
+      : `Pick ${need} of ${offered}`;
   return `<div class="draft__quota" id="draft-quota">
-    <span class="draft__quota-n">Pick ${need} of ${offered}</span>
+    <span class="draft__quota-n">${ask}</span>
     <span class="draft__slots" role="img" aria-label="${pending} of ${need} picked">${slots}</span>
     <span class="draft__quota-note muted">${note}</span>
   </div>`;
