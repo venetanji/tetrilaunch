@@ -4139,11 +4139,48 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ---------- Draft modal (mod cards) ---------- */
+/* ONE column: the cards are a hand being chosen from, and a hand reads as a
+   list. The old auto-fit grid packed two cards beside each other and wrapped
+   the third below-left, which is exactly the layout that made playtest ask
+   whether the three cards were three problems or three options — a ragged
+   grid reads as content, a column reads as a menu. (Compact height overrides
+   this below, where the projection needs the rows more than the cards need
+   the shape.) */
 .draft__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
+/* EXCEPT the Final Inspection's pair: two clauses are mutually exclusive
+   readings of one inspection, and alternatives sit side by side — a column
+   would rank them. It is also what keeps the two tall clause cards from
+   setting the modal's height. */
+.draft__cards--pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The PICK QUOTA — "pick 2 of 3" said as slots that fill with the picked
+   axes' own glyphs (screens.ts's quotaHTML). The empty box is the affordance
+   the words never were: a hole the eye wants filled. */
+.draft__quota {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  flex-wrap: wrap;
+  margin-top: -6px;
+}
+.draft__quota-n {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.draft__slots { display: flex; gap: 5px; }
+.draft__slot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border: var(--bw) dashed var(--line-strong); border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  background: rgba(255,255,255,0.03);
+}
+.draft__slot--filled { border-style: solid; }
+.draft__slot--bane { border-color: var(--danger); color: var(--danger); background: rgba(255,45,85,0.12); }
+.draft__slot--tradeoff { border-color: var(--accent); color: var(--accent); background: rgba(0,240,255,0.12); }
+.draft__slot--final { border-color: var(--accent-2); color: var(--accent-2); background: rgba(122,92,255,0.14); }
+.draft__quota-note { font-size: 11px; }
 .mod-card {
   /* Explicit resets, NOT `all: unset` (B1): a pressable card is a control on
      the same base as every other control, and `all: unset` silently removed
@@ -4170,6 +4207,59 @@ body.crt-off #app::after { display: none; }
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur) var(--ease);
 }
 .mod-card:hover, .mod-card:focus-visible { transform: translate(-2px, -2px); }
+/* The card's head: kind glyph, name, stack badge, pick box — one row, so the
+   whole state of a card is readable at its top edge. */
+.mod-card__top { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+/* The kind said as a GLYPH: a material card wears its belt icon, a number card
+   its two-letter tally glyph — the same marks the plant panel teaches all run,
+   coloured by the card's own kind rules below. Replaces the "pressure" /
+   "material" word pill, which spent a whole line saying what the colour
+   already said. */
+.mod-card__ax {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  background: rgba(255,255,255,0.06);
+}
+.mod-card--bane .mod-card__ax { color: var(--danger); background: rgba(255,45,85,0.12); }
+.mod-card--tradeoff .mod-card__ax { color: var(--accent); background: rgba(0,240,255,0.12); }
+.mod-card--final .mod-card__ax { color: var(--accent-2); background: rgba(122,92,255,0.14); }
+/* The name WRAPS (clamped at two lines) rather than ellipsizing: beside the
+   glyph, the stack badge and the pick box, a compact card leaves ~40px of
+   name column, and "Fuel Levy" was rendering as "Fue…" — an identity is the
+   one thing on the card that may not give way. */
+.mod-card__top .mod-card__name {
+  flex: 1 1 auto; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.1;
+}
+.mod-card__stack {
+  flex: none;
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--warn);
+  border: 1px solid rgba(255,176,32,0.5); border-radius: var(--r-sm);
+  padding: 2px 4px;
+}
+/* The PICK BOX — the card's selection state said as a control: empty square,
+   check when picked, ×N when double-picked. It is what makes three cards read
+   as three OPTIONS: a description with a checkbox is an offer, a description
+   alone is a paragraph. Decorative to a screen reader (the button's
+   aria-pressed carries the fact); coloured by the card's kind when lit. */
+.mod-card__box {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border: var(--bw) solid var(--line-strong); border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  color: transparent;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.mod-card--picked .mod-card__box--on { color: var(--accent); border-color: var(--accent); background: rgba(0,240,255,0.14); }
+.mod-card--picked.mod-card--bane .mod-card__box--on { color: var(--danger); border-color: var(--danger); background: rgba(255,45,85,0.14); }
+.mod-card--picked.mod-card--final .mod-card__box--on { color: var(--accent-2); border-color: var(--accent-2); background: rgba(122,92,255,0.16); }
 .mod-card__kind {
   font-family: var(--font-pixel);
   font-size: 8px;
@@ -4389,7 +4479,6 @@ body.crt-off #app::after { display: none; }
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
     overflow: hidden;
   }
-  .modal--draft .mod-card__kind { font-size: 7px; padding: 1px 5px; }
   .modal--draft .mod-card__pick { font-size: 9px; }
   /* The two cards sit SIDE BY SIDE inside their column here, not stacked: at
      ~78px each, stacking them made the cards column 165px against the
@@ -4411,9 +4500,24 @@ body.crt-off #app::after { display: none; }
   .modal--draft h2 { font-size: 17px; }
   .modal--draft > .muted { font-size: 10px; }
   .modal--draft .draft__bank { gap: 6px; }
-  .modal--draft .draft__bank .chip { padding: 2px 8px; min-width: 0; gap: 5px !important; }
-  .modal--draft .draft__bank .chip__label { font-size: 7px; }
-  .modal--draft .draft__bank .chip__value { font-size: 12px; }
+  /* Label BESIDE value here, not stacked: the stacked cell is 5px taller than
+     the chip row it replaced, and on a 360px phone that 5px is projection. */
+  .modal--draft .draft__bank .bay-stat { padding: 1px 6px; gap: 4px; }
+  .modal--draft .draft__bank .bay-stat__txt { flex-direction: row; align-items: baseline; gap: 4px; }
+  .modal--draft .draft__bank .bay-stat__val { font-size: 11px; }
+  /* The quota keeps its slots — they ARE the "this is a choice" affordance the
+     redesign exists for — and gives up its prose tail instead. */
+  .modal--draft .draft__quota { gap: 7px; margin-block: -4px -2px; }
+  .modal--draft .draft__quota-note { display: none; }
+  .modal--draft .draft__slot { width: 15px; height: 15px; font-size: 6px; }
+  /* The clause card's system PILL stands down; the system icon in the card's
+     corner keeps carrying the fact. On a 360px-tall phone the pill's line is
+     a row of projection tiles. */
+  .modal--draft .mod-card__kind { display: none; }
+  .modal--draft .mod-card__ax { width: 18px; height: 18px; font-size: 7px; }
+  .modal--draft .mod-card__box { width: 16px; height: 16px; font-size: 7px; }
+  .modal--draft .mod-card__top { gap: 5px; }
+  .modal--draft .mod-card__stack { font-size: 6px; padding: 1px 3px; }
   /* Kept on one line: wrapped, the projection's own header cost as much height
      as a row of stat tiles. */
   .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
@@ -5692,7 +5796,13 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
-.draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
+/* The bank wears the menu's own stat cells (.bay-stat — the home panel's
+   icon + label + mono-value grammar) rather than a third chip style: the
+   numbers a draft is priced against should look like the numbers the menu
+   quoted. */
+.draft__bank { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
+.draft__bank .bay-stat { flex: 1 1 0; min-width: 0; max-width: 240px; padding: 5px 9px; }
+.draft__bank .bay-stat__val { font-size: 12px; }
 .salvage-row {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: 10px 14px;
