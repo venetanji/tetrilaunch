@@ -42,7 +42,9 @@ import {
   AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
-import { CHUTE, CHUTE_SURFACE_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
+import {
+  CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+} from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -6646,8 +6648,33 @@ section("Misfire prevention");
       check("the chute's lip sits at the plant panel's top edge",
         CHUTE.y0 === Math.round((bottom - height) * WORLD.height),
         `${CHUTE.y0} vs ${Math.round((bottom - height) * WORLD.height)}`);
+      // WHAT IS DRAWN IS NOT THE RECT. The two above pin the physics box
+      // against the stylesheet; this pins the FACE — the span render.ts's
+      // drawChute actually paints the lip bar and the strand heat across.
+      //
+      // The rect deliberately runs 21px further left than the panel does (see
+      // CHUTE's own note: the sliver beside the machine is dead space a cube
+      // must never rest in). Drawing from there is a different claim, and a
+      // false one: it put a machined bar — bright red under a strand warning —
+      // out across the field's glowing left wall, above the panel's top-left
+      // corner, in the one strip of field the crest's port band is dressing.
+      // The owner saw a crimson toothed band crossing the wall; this is the
+      // half of it the canvas was painting.
+      const stock = chuteMouth(chuteRightEdge(new Game(makeBaseLevel(0), {}, 5).strandCutoffX));
+      check("the mouth is DRAWN from the panel's left edge, not from the wall",
+        Math.abs(stock.x0 - left * WORLD.width) < 0.5,
+        `${stock.x0} vs ${left * WORLD.width}`);
+      check("...which is inside the rect the physics enforces",
+        stock.x0 > CHUTE.x0, `${stock.x0} vs ${CHUTE.x0}`);
+      check("...and it still ends where the panel does",
+        Math.abs(stock.x0 + stock.w - (left + width) * WORLD.width) < 0.5,
+        `${stock.x0 + stock.w} vs ${(left + width) * WORLD.width}`);
     }
   }
+  // A press that reaches inside the panel's own left edge is not a mouth to
+  // draw inside out — the span clamps rather than going negative.
+  check("a mouth narrower than nothing draws nothing",
+    chuteMouth(CHUTE_MOUTH_X0 - 40).w === 0);
   check("the chute reaches the floor", CHUTE.y1 === WORLD.height);
   check("the chute reaches the left wall", CHUTE.x0 === 0);
   check("the cannon is not standing in its own chute", !inChute(CANNON.x, CANNON.y));

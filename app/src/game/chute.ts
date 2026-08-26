@@ -64,6 +64,37 @@ export const CHUTE = {
 export const CHUTE_LIP_Y = CHUTE.y0;
 
 /**
+ * Where the machine's FACE starts — `.plant`'s own left frame fraction (1.67%
+ * of the field), the same fraction CHUTE.x1 is the far end of.
+ *
+ * This is deliberately NOT CHUTE.x0, and the 21px between them is the whole
+ * point of the rect's "widened to the left wall" note: the physics claims the
+ * dead sliver beside the panel so a cube can never come to rest in it, while
+ * there is no machine out there to DRAW. Nothing is mounted in that sliver but
+ * the crest's port band (app.css's .plant__crest--port), which hangs off the
+ * panel's corner and reaches for the wall.
+ */
+export const CHUTE_MOUTH_X0 = 0.0167 * WORLD.width;
+
+/**
+ * The mouth AS DRAWN, for a bay whose press leaves the maw ending at
+ * `rightEdge` (chuteRightEdge above).
+ *
+ * Lives here rather than in render.ts because it is the same authored panel
+ * geometry the rect is, measured off the same fractions, and because that seam
+ * — world px here against CSS fractions in app.css — is the one this file
+ * exists to keep honest. sim/systems.ts pins both ends of this span against
+ * the stylesheet, which is a check no browser is needed for.
+ *
+ * Clamped rather than allowed to go negative: chuteRightEdge tracks the press,
+ * and a bay whose press somehow reached inside the panel's own left edge would
+ * otherwise ask the renderer to draw a mouth inside out.
+ */
+export function chuteMouth(rightEdge: number): { x0: number; w: number } {
+  return { x0: CHUTE_MOUTH_X0, w: Math.max(0, rightEdge - CHUTE_MOUTH_X0) };
+}
+
+/**
  * A WALL, NOT A HOPPER. The machine's surface IS its mouth.
  *
  * This used to be a plane 231px down inside the machine (CHUTE_THROAT_Y, 620),
