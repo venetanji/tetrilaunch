@@ -429,8 +429,29 @@ export function picksPerBay(mark: number): number {
  *
  * Returns a new array; never mutates `picks`.
  */
-export function togglePick(picks: HazardId[], axis: HazardId, need: number): HazardId[] {
-  if (picks.length < need) return [...picks, axis];
+export function togglePick(
+  picks: HazardId[],
+  axis: HazardId,
+  need: number,
+  /** True when the hand being edited is a forced-material one (isMaterialDraft
+   *  decides; main.ts threads it through). Off by default so every ordinary
+   *  draft keeps the exact rules above. */
+  forcedMaterial = false,
+): HazardId[] {
+  // ON A FORCED HAND THE PARTNER IS CAPPED AT ONE SEAT — found in review. The
+  // capstone's forced hand deals two materials plus the number-axis partner
+  // and asks for two picks, and without this cap two taps on the partner
+  // filled the whole hand and took no material notch at all, quietly voiding
+  // the one guarantee these bays exist for ("one material is forced"). So on
+  // a forced hand a second tap on the picked partner reads as the removal it
+  // already is on every one-pick rung, while a MATERIAL card keeps the
+  // "double notch" reading — a doubled material still satisfies the bay. The
+  // full-hand replacement below cannot re-create the stack: a tap on a picked
+  // axis always takes the removal branch first.
+  const capped = forcedMaterial
+    && hazardById(axis)?.kind !== "content"
+    && picks.includes(axis);
+  if (picks.length < need && !capped) return [...picks, axis];
   const cut = picks.lastIndexOf(axis);
   if (cut >= 0) return picks.filter((_, i) => i !== cut);
   // A full hand of other axes still has to move. At one pick that is a straight

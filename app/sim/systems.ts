@@ -2222,6 +2222,34 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
     return hand.length === 1;
   })());
 
+  // THE FORCED HAND'S PARTNER IS CAPPED AT ONE SEAT — found in review. The
+  // capstone's forced-material hand deals two materials plus the number-axis
+  // partner and asks for two picks; without the cap, two taps on the partner
+  // produced [partner, partner], passed the full-hand confirmation, and took
+  // no material notch at all — voiding the one guarantee these bays exist for.
+  {
+    const mat = HAZARDS.find((h) => h.kind === "content")!.id;
+    check("on a forced hand, a second tap on the picked partner removes it",
+      togglePick(["cost"], "cost", 2, true).length === 0);
+    check("on a forced hand, a material still stacks to a double notch",
+      JSON.stringify(togglePick([mat], mat, 2, true)) === JSON.stringify([mat, mat]));
+    check("on a forced hand, partner beside a material still un-picks cleanly",
+      JSON.stringify(togglePick([mat, "cost"], "cost", 2, true)) === JSON.stringify([mat]));
+    check("an ordinary hand still stacks the number axis (the flag defaults off)",
+      JSON.stringify(togglePick(["cost"], "cost", 2)) === '["cost","cost"]');
+    // No reachable tap sequence may fill a forced two-pick hand without a
+    // material: from every material-free state, tapping the partner never
+    // completes the hand.
+    check("a forced two-pick hand cannot be completed by the partner alone", (() => {
+      let picks: HazardId[] = [];
+      for (let taps = 0; taps < 6; taps++) {
+        picks = togglePick(picks, "cost", 2, true);
+        if (picks.length === 2 && picks.every((p) => p === "cost")) return false;
+      }
+      return true;
+    })());
+  }
+
   // The projection is drawn from levelForRun on both sides — the same call the
   // bay is actually built with — so what the modal promises is what gets flown.
   const drafting = { ...newRun(11, [], 500, newTiers(), 3), levelIndex: 3 };
