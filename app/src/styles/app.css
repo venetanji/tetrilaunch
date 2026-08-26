@@ -5850,6 +5850,37 @@ button.panel { color: var(--text); }
   max-width: 100%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* ...but TWO lines where there is height for a second one, which is the same
+   step the demo panel takes at this breakpoint.
+
+   One line is right on a short viewport and the note below says why: a wrapped
+   sub costs the row 21px and three of those is the whole menu overflow. That
+   is a FIT argument, and it does not hold on a desktop — there the rail's rows
+   grow to 132px and use about 55, so the second line is free.
+
+   What it costs to take it anyway is not prose. The rail is 300px wide
+   (--rail-w), which leaves the text column 210px, and these subtitles exist to
+   "state the offer in LIVE numbers" (screens.ts). Measured on the authored box:
+   Contracts wants 332px and Workshop 297px, so at one line the ellipsis lands
+   mid-offer — "1480 — Loader Magazine costs …" drops the price the row is
+   there to quote, and Contracts loses "no launch cost" entirely. The
+   numbers-lead rule saves the leading figure, not the trailing one.
+
+   Clamped at two rather than left to wrap freely, so the concern that put the
+   one-line rule here — a sub growing into a paragraph inside a control —
+   cannot happen either: two lines is the ceiling, the third is still an
+   ellipsis. Same device the guide's drill brief uses for the same reason.
+
+   Keyed on min-height for the reason the demo panel's step is: above the
+   authored box the chrome is laid out in viewport/--chrome-zoom, and zoom is
+   never below 1, so a viewport at least 700px tall has a box at least 700px
+   tall. */
+@media (min-height: 700px) {
+  .btn__sub {
+    white-space: normal;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+}
 @media (max-height: 460px) {
   /* One line, always: the live-number subtitles (A3) run long, and a wrapped
      sub costs the row 21px — three of those is the whole menu overflow. The
