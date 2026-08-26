@@ -34,7 +34,7 @@ import { HAZARDS } from "./hazards";
 import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
-import type { BayTrack } from "./run";
+import { bayMusic, RUN_LEVELS, type BayTrack } from "./run";
 import {
   MATERIAL_SPEC, PIECE_TYPES, type Material, type PieceSize, type PieceType,
 } from "./theme";
@@ -52,11 +52,62 @@ export type ContractBed = "contract-rare" | BayTrack;
  *  shows up two thirds less often than the others, which is just inconsistent. */
 export const CONTRACT_RARE_CHANCE = 0.05;
 
-/** The usual bed per daily slot — Contracts 1, 2 and 3 borrow the run's first
- *  three. Indexed by slot rather than rolled, so the day's three Contracts
- *  always sound different FROM EACH OTHER; a Contract you retry sounds the same
- *  as it did, and the one next to it never sounds like it. */
-const SLOT_BEDS: readonly BayTrack[] = ["bay-1", "bay-2", "bay-3"];
+/**
+ * How many Contracts a day's board deals.
+ *
+ * Lives up here, ahead of the bed window, because the window is exactly this
+ * wide: the size of the board and the stretch of the soundtrack it walks are
+ * the same number, and a fourth card would have to move CONTRACT_BED_TOP_BASE
+ * with it. See PATTERN_SLOT for what the count means to the board itself.
+ */
+export const DAILY_COUNT = 3;
+
+/**
+ * The deepest bay a board's bed window may START at — the last anchor whose
+ * DAILY_COUNT-wide window still lands inside the beds that exist. At ten bays
+ * and a three-card board that is bay 8, which is why tiers 8, 9 and 10 all deal
+ * bays 8, 9 and 10: past there the window cannot walk without running off the
+ * end of the ladder.
+ *
+ * Clamping the BASE rather than each slot is the load-bearing half. Clamping
+ * per slot would deal the closer twice on a tier-9 board and three times on a
+ * tier-10 one, which throws away the reason the beds are indexed at all — three
+ * cards that never sound like each other.
+ */
+export const CONTRACT_BED_TOP_BASE = RUN_LEVELS - DAILY_COUNT + 1;
+
+/**
+ * Which bay's bed Contract `slot` borrows on a tier-`tier` board.
+ *
+ * The board's three cards walk a window of consecutive bays anchored at the
+ * tier they were generated for: window base = min(tier, CONTRACT_BED_TOP_BASE),
+ * and the slot index walks up from there. Tier 2 deals bays 2, 3 and 4; tier 3
+ * deals 3, 4 and 5.
+ *
+ * The tier is the anchor because a Contract tier IS the Mark it is generated
+ * against (see contractMaterialsFor) — it is the one number on the card that
+ * already means depth. A fixed slot table sent every board back to bays 1-3, so
+ * a tier-7 Contract carrying Mark 7's materials played the bed a new player
+ * hears in their first minute; walking the window makes the board sound like the
+ * depth it is asking to be played at.
+ *
+ * Indexed rather than rolled, exactly as the fixed table was: the day's three
+ * Contracts always sound different FROM EACH OTHER, a Contract you retry sounds
+ * the same as it did, and the one next to it never sounds like it.
+ *
+ * The last step goes through run.ts's bayMusic rather than naming a role
+ * directly, because the window is over BAYS and not over songs — a bay on loan
+ * from an earlier bay's bed while its own is written has to reach Contracts too,
+ * or the two halves of the game disagree about what bay 4 sounds like.
+ */
+export function contractSlotBed(tier: number, slot: number): BayTrack {
+  // Clamped at both ends: bayMusic would clamp a base below 1 for us, but into a
+  // window whose first two slots are the SAME bed, which is the one thing the
+  // indexing exists to prevent.
+  const base = Math.min(Math.max(1, Math.floor(tier)), CONTRACT_BED_TOP_BASE);
+  // bayMusic indexes bays from 0; `base` is a bay number.
+  return bayMusic(base - 1 + (slot % DAILY_COUNT));
+}
 
 /**
  * The bed a Contract plays under, in precedence order:
@@ -68,7 +119,7 @@ const SLOT_BEDS: readonly BayTrack[] = ["bay-1", "bay-2", "bay-3"];
  *     in 5/4 and a pentomino is five cubes. It outranks the slot bed because it
  *     is about what you are LAUNCHING rather than which card you tapped, and
  *     the whole point is that it lines up.
- *  3. **The slot's bed** — Contract 1, 2 or 3 takes bay 1, 2 or 3's.
+ *  3. **The slot's bed in the tier's window** — see contractSlotBed.
  *
  * `rng` defaults to Math.random — UNSEEDED, deliberately, the same call this
  * file already makes for a pattern Contract's queue order. The roll belongs to
@@ -81,7 +132,7 @@ export function contractBed(c: Contract, rng: () => number = Math.random): Contr
   if (rng() < CONTRACT_RARE_CHANCE) return "contract-rare";
   // "bulk" is the five-cube shipment; see pieces.ts's SIZE_SPEC.
   if (c.pieceSize === "bulk") return "bay-5";
-  return SLOT_BEDS[c.slot % SLOT_BEDS.length];
+  return contractSlotBed(c.tier, c.slot);
 }
 
 /**
@@ -1043,8 +1094,6 @@ export function generateContract(
 export function dailySeed(d = new Date()): number {
   return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
 }
-
-export const DAILY_COUNT = 3;
 
 /**
  * Which daily slot is the pattern Contract. Fixed rather than rolled so the

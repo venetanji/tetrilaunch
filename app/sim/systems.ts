@@ -75,6 +75,7 @@ import {
 } from "../src/game/finals";
 import {
   dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
+  contractSlotBed, CONTRACT_BED_TOP_BASE,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
@@ -6280,12 +6281,50 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
     day.map((c) => c.slot).join(","));
 
   const std = day.map((c) => withSize(c, "std", never));
-  check("Contracts 1-3 borrow bays 1-3", std.join(" ") === "bay-1 bay-2 bay-3", std.join(" "));
+  check("a tier-1 board borrows bays 1-3", std.join(" ") === "bay-1 bay-2 bay-3", std.join(" "));
   // Distinct is the point of indexing by slot rather than rolling: the three
   // cards on the board must never sound like each other. This also catches
   // DAILY_COUNT growing past the slot table, where slot 3 would wrap to bay 1.
   check("no two of the day's Contracts share a bed",
     new Set(std).size === std.length, std.join(" "));
+
+  // ---- The tier window ----------------------------------------------------
+  // A board's three cards walk three consecutive bays anchored at the tier they
+  // were generated for (contracts.ts's contractSlotBed). Pinned through the
+  // mapping itself rather than through generated boards: a board per tier costs
+  // seconds of tiling work to assert something that is arithmetic, and the
+  // arithmetic is the part that can go wrong.
+  const windowOf = (tier: number) =>
+    Array.from({ length: DAILY_COUNT }, (_, slot) => contractSlotBed(tier, slot));
+  const windowTrace = (tier: number) => windowOf(tier).join(" ");
+  const TIERS = Array.from({ length: RUN_LEVELS }, (_, i) => i + 1);
+
+  check("a tier-2 board walks bays 2-4", windowTrace(2) === "bay-2 bay-3 bay-4", windowTrace(2));
+  check("a tier-3 board walks bays 3-5", windowTrace(3) === "bay-3 bay-4 bay-5", windowTrace(3));
+  // The clamp, from both sides. Below it the window is anchored at the tier's
+  // own bay; at and above it every board keeps the last three, which is the
+  // whole reason the BASE clamps rather than each slot.
+  check("below the clamp a board opens on its own tier's bed",
+    TIERS.filter((t) => t <= CONTRACT_BED_TOP_BASE)
+      .every((t) => windowOf(t)[0] === `bay-${t}`),
+    TIERS.map((t) => `${t}:${windowOf(t)[0]}`).join(" "));
+  check("tiers 8, 9 and 10 all keep the last three",
+    [8, 9, 10].every((t) => windowTrace(t) === "bay-8 bay-9 bay-10"),
+    [8, 9, 10].map(windowTrace).join(" | "));
+  // A tier past the ladder is not a real board today, but sandbox.ts hands
+  // arbitrary tiers around and a window that walked off the end would clamp
+  // every slot onto the closer.
+  check("a tier past the ladder keeps them too",
+    windowTrace(RUN_LEVELS + 5) === windowTrace(RUN_LEVELS), windowTrace(RUN_LEVELS + 5));
+  check("no window runs past the last bay",
+    TIERS.every((t) => windowOf(t).every((b) => bayOf(b) <= RUN_LEVELS)));
+  check("no board ever deals one bed twice",
+    TIERS.every((t) => new Set(windowOf(t)).size === DAILY_COUNT),
+    TIERS.map(windowTrace).join(" | "));
+  // The clamp is DERIVED, not typed in: it is the last anchor whose window ends
+  // exactly on the last bay. Widening the board without moving it fails here.
+  check("the clamp leaves room for exactly one window",
+    CONTRACT_BED_TOP_BASE + DAILY_COUNT - 1 === RUN_LEVELS, String(CONTRACT_BED_TOP_BASE));
 
   // The joke: a five-cube shipment gets the bed written in 5/4, from any slot.
   const bulk = day.map((c) => withSize(c, "bulk", never));
@@ -6297,6 +6336,21 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   // pentomino Contract at all — a rare thing that yields to a rule is not rare.
   check("the special beats the slot bed", withSize(day[0], "std", always) === "contract-rare");
   check("the special beats the 5/4 rule", withSize(day[0], "bulk", always) === "contract-rare");
+  // …and it beats the window at every depth, not just at the tier the board
+  // above happens to be. Both overrides sit ON TOP of the window rather than
+  // beside it, so a deep board is the case that would expose them being folded
+  // into the per-tier lookup: a tier-9 pentomino Contract must still find the
+  // 5/4 bed, which is nowhere near its own window.
+  {
+    const deep = { ...day[0], tier: 9 };
+    check("a deep board's window still yields to the special",
+      contractBed(deep, always) === "contract-rare");
+    check("a deep pentomino Contract still gets the 5/4 bed",
+      withSize(deep, "bulk", never) === "bay-5", withSize(deep, "bulk", never));
+    check("…and otherwise plays its own window",
+      withSize(deep, "std", never) === windowOf(9)[deep.slot % DAILY_COUNT],
+      withSize(deep, "std", never));
+  }
   // Both sides of the boundary: `<`, not `<=`.
   check("a roll just under the chance is special",
     contractBed(day[0], () => CONTRACT_RARE_CHANCE - 1e-9) === "contract-rare");
@@ -6334,7 +6388,14 @@ section("Music beds (run ladder + Contract picks vs public/audio/music)");
   const shipped = new Set(
     fs.readdirSync(musicDir).filter((f) => f.endsWith(".mp3")).map((f) => f.slice(0, -4)),
   );
-  const wanted = new Set([...SCREEN_BEDS, ...beds, ...std, ...bulk, "contract-rare"]);
+  const wanted = new Set([
+    ...SCREEN_BEDS, ...beds, ...std, ...bulk,
+    // Every bed any tier's window can reach, asked for on the Contract board's
+    // own account rather than left to overlap the run ladder — the two tables
+    // are free to stop agreeing.
+    ...TIERS.flatMap(windowOf),
+    "contract-rare",
+  ]);
   const absent = [...wanted].filter((n) => !shipped.has(n));
   const orphaned = [...shipped].filter((n) => !wanted.has(n));
   check("every bed the game asks for is shipped", absent.length === 0, absent.join(", "));

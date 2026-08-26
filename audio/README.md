@@ -62,22 +62,29 @@ Contract can draw (`contractBed` in `app/src/game/contracts.ts`).
 Contracts have no theme of their own, by design: each borrows a bay's bed. In
 precedence order — the special on a 5% roll, else bay 5's bed if the belt
 carries **pentominoes** (that track is in 5/4 and a pentomino is five cubes),
-else the bed of the bay matching its slot, so Contracts 1, 2 and 3 take bays 1,
-2 and 3. The roll is per ATTEMPT, so a retry can surprise you twice.
+else the bed for its slot in the board's TIER WINDOW. The roll is per ATTEMPT,
+so a retry can surprise you twice.
+
+The window is three consecutive bays anchored at the board's tier
+(`contractSlotBed`): a tier-2 board plays bays 2, 3 and 4, a tier-7 board plays
+7, 8 and 9. The anchor clamps at bay 8 — the last one whose three still fit
+inside the ladder — so tiers 8, 9 and 10 all keep bays 8, 9 and 10. The board
+tier is the player's unlocked Mark, so the daily deepens in sound as it deepens
+in difficulty instead of restarting the arc at bay 1 every day.
 
 | role     | song                | plays over            |
 | -------- | ------------------- | --------------------- |
 | `menu`   | lounge-menu-pause   | menus, pause, tutorial fail |
-| `bay-1`  | chill beginning (Remastered) | bay 1, and Contract 1 |
-| `bay-2`  | 2 chill             | bay 2, and Contract 2 |
-| `bay-3`  | Threes              | bay 3, and Contract 3 |
-| `bay-4`  | Level Four on the floor | bay 4 |
-| `bay-5`  | level 5             | bay 5 — it is in 5/4, which is why it is pinned to the NUMBER — and any pentomino Contract |
-| `bay-6`  | raggae circuit      | bay 6 |
-| `bay-7`  | Chipdisco           | bay 7 |
-| `bay-8`  | Neon Circuit        | bay 8 |
-| `bay-9`  | Neon Static         | bay 9 |
-| `bay-10` | Neon Pixel Pulse    | bay 10, the closer |
+| `bay-1`  | chill beginning (Remastered) | bay 1, and a tier-1 board's first Contract |
+| `bay-2`  | 2 chill             | bay 2, and a Contract in tiers 1-2's window |
+| `bay-3`  | Threes              | bay 3, and a Contract in tiers 1-3's window |
+| `bay-4`  | Level Four on the floor | bay 4, and a Contract in tiers 2-4's window |
+| `bay-5`  | level 5             | bay 5 — it is in 5/4, which is why it is pinned to the NUMBER — any pentomino Contract, and tiers 3-5's window |
+| `bay-6`  | raggae circuit      | bay 6, and a Contract in tiers 4-6's window |
+| `bay-7`  | Chipdisco           | bay 7, and a Contract in tiers 5-7's window |
+| `bay-8`  | Neon Circuit        | bay 8, and a Contract in tiers 6-10's window |
+| `bay-9`  | Neon Static         | bay 9, and a Contract in tiers 7-10's window |
+| `bay-10` | Neon Pixel Pulse    | bay 10, the closer, and a Contract in tiers 8-10's window |
 | `contract-rare` | Whale Circuit | 5% of Contract attempts, beating both rules |
 
 ## Adding a track
