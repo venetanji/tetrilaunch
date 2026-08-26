@@ -3331,6 +3331,108 @@ body.crt-off #app::after { display: none; }
   .pl-funds.pl-stat--danger .pl-goal i { animation: none; }
 }
 
+/* ---------- THE DIAL COLLAPSE (screens.ts's collapsingDial) ----------
+   The dial that emptied, crunched flat the moment the bay is lost. The danger
+   class above is the WARNING — a pulse that says "this is about to run
+   out" and that can be answered; this is the VERDICT, and it plays once,
+   forwards, and stays where it lands. They never overlap in practice: the
+   danger class is written onto live elements by main.ts's syncHud, which only
+   runs while the state is "playing", and the HUD is re-rendered from scratch
+   on the way into the run-end screen — so the render that carries
+   .dial-collapse carries no .pl-stat--danger at all.
+
+   ONE class, both readouts, applied to the readout BLOCK (.pl-time or
+   .pl-funds) rather than to the number. The block is what owns the label and,
+   on Funds, the goal bar, and all three go over together: red label, crushed
+   number, dead bar. The player's eye is being sent to a COLUMN, not to a
+   glyph.
+
+   WHAT IS CRUSHED is `.v` — on Funds that is "$0 / 1700" whole, target
+   included, not just the funds figure. Deliberate, and the same reading the
+   panel already commits to: `.pl-funds .v` is `white-space: nowrap` precisely
+   because "'$1259' and '/ 1700' are one reading" (see that rule above), and
+   crushing half of one reading would leave the target hanging in mid-air at
+   full size beside a flattened figure.
+
+   NOTHING HERE CHANGES A BOX. Only transform, opacity, color and text-shadow
+   are animated — the crush is a `transform: scale`, which is composited and
+   leaves the element's laid-out box exactly where it was; no width, height,
+   margin, padding, font-size or letter-spacing is touched at any keyframe.
+   That is a hard constraint, not a preference: this
+   markup renders on the same screens sim/uifit measures, the plant panel's
+   design box is a measured fit on the tightest handset in the matrix, and a
+   readout that grew by a pixel mid-collapse would take the whole panel with
+   it. sim/systems.ts reads these keyframes back and fails on any property
+   outside that set. */
+.dial-collapse .lbl { color: var(--danger); }
+.dial-collapse .v {
+  /* Anchored at the BOTTOM (so the digits are crushed down onto the line they
+     were already sitting on — any other vertical origin reads as "zooming
+     away" rather than "collapsing") and at the readout's own TEXT edge: the
+     left one here, the right one for `.pl-stat` below, which is
+     `text-align: right`.
+     Not 50%. The funds readout "has essentially zero horizontal slack" — see
+     the .plant note about $1259 / 1700 wrapping — so the sideways spread of
+     the crush has to grow INWARD across the panel from the number's own edge,
+     never outward past the panel's. Centring the origin would split that
+     spread and send half of it over the frame. */
+  transform-origin: 0% 100%;
+  animation: dial-collapse var(--dial-collapse) cubic-bezier(0.5, 0, 0.3, 1) both;
+}
+.pl-stat.dial-collapse .v { transform-origin: 100% 100%; }
+/* The target half of the Funds reading carries its own goal-yellow (see
+   `.pl-funds .v .tgt`), which would have sat there unchanged while the figure
+   beside it drained — half a readout going over. `inherit` hands it the
+   PARENT'S animated value frame by frame, so the whole line flares white,
+   flickers and drains as one thing without this rule owning a second copy of
+   the colour ramp. */
+.dial-collapse .v .tgt { color: inherit; text-shadow: inherit; }
+/* The goal bar dies with the number it belongs to: whatever width syncHud last
+   wrote stays exactly where it is (a width change here would be a layout
+   change AND a lie about the final score), but the fill goes danger red and
+   loses its glow. Only ever reached on a `broke` loss — `.pl-time` has no bar
+   — which is the loss where the bar is the picture of what went wrong. */
+.pl-funds.dial-collapse .pl-goal i {
+  background: var(--danger);
+  box-shadow: none;
+  animation: none;
+}
+/*  0 -> 8%   THE TRIP. One frame of white over-bright as the dial goes: the
+              flare is what gets the eye to the column before the crunch, which
+              is the entire job of this animation.
+    8 -> 34%  THE FLICKER. Two dropped beats, the readout losing power, already
+              draining to danger red.
+   34 -> 72%  THE IMPLOSION. Squashed to a fifth of its height and pushed wide,
+              the way a crushed thing spreads.
+   72 -> 100% THE SETTLE. A small rebound, a slight tilt, and it stays there —
+              `both` fill, so the crushed red slab is what the run-end scrim
+              fades in over rather than a readout that has sprung back to
+              normal. Deliberately NOT faded out: the number that killed the
+              bay has to still be READABLE under the scrim, or the modal's
+              "The clock ran out" has nothing on screen to point at. */
+@keyframes dial-collapse {
+  0%   { transform: scale(1, 1); }
+  8%   { transform: scale(0.97, 1.10); color: #fff; text-shadow: 0 0 14px rgba(255, 255, 255, 0.95); }
+  14%  { opacity: 0.15; color: var(--danger); }
+  20%  { opacity: 1; }
+  27%  { opacity: 0.3; }
+  34%  { opacity: 1; transform: scale(1, 1); color: var(--danger); text-shadow: 0 0 12px rgba(255, 45, 85, 0.85); }
+  72%  { transform: scale(1.06, 0.22) rotate(-1.5deg); }
+  100% { transform: scale(1.02, 0.46) rotate(-2deg); opacity: 1; color: var(--danger); text-shadow: 0 0 12px rgba(255, 45, 85, 0.85); }
+}
+/* Reduced motion keeps the TEACHING and drops the theatre. The dial still
+   singles itself out — danger red, the same glow the animation settles on, the
+   same red label and dead bar — it simply never moves or flickers. main.ts
+   holds the scrim back for the same beat either way: a static change of state
+   still needs a moment on an uncovered screen to be noticed at all. */
+@media (prefers-reduced-motion: reduce) {
+  .dial-collapse .v {
+    animation: none;
+    color: var(--danger);
+    text-shadow: 0 0 12px rgba(255, 45, 85, 0.85);
+  }
+}
+
 /* Reload — tier 4. Amber while the loader runs, flipping to the aim cyan the
    instant the cannon can fire again (the only state change that matters here).
    The canvas draws the same value as a ring at the muzzle, see

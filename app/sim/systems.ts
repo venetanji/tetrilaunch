@@ -120,6 +120,7 @@ import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
   menuScreen, salvageHTML,
+  collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
 } from "../src/ui/screens";
 import {
   BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
@@ -3281,6 +3282,154 @@ section("Contract plant panel (screens.ts hudHTML)");
       return !run.includes('id="hud-conditions"') && !run.includes('class="pl-tier"')
         && run.includes('id="hud-notches"');
     })());
+}
+
+// ---------------------------------------------------------------------------
+section("The dial collapse (screens.ts collapsingDial + app.css)");
+// The two losses a player could not tell apart. Running out of TIME and running
+// out of MONEY both ended the same way — field freezes, modal arrives — and
+// play-testers afterwards could not name which dial had emptied, because the
+// modal that explains it has replaced the instrument it is explaining. The
+// losing readout now crunches flat where it stands, one beat before the scrim
+// covers it.
+//
+// Three things are pinned here, and they are the three that can silently rot:
+// the reason -> readout mapping (a pure function, so it is testable at all),
+// the MARKUP carrying the hook (the mapping is worthless if hudHTML stops
+// emitting the class), and the animation's no-layout-change contract (read
+// back out of app.css, because the harness that would otherwise catch a
+// geometry change — sim/uifit — never renders a lost bay).
+{
+  const base = {
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: null,
+    tier: 2, target: 800, score: 40, launchCost: 25, bayNum: 3,
+    timeLimitSec: 150, timeLeftMs: 0, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    autoloaderOwned: false, ratchets: {} as Ratchets, tiers: newTiers(),
+    contract: null,
+  };
+  const both = { funds: true, clock: true };
+
+  check("the clock runs out -> the clock collapses",
+    collapsingDial("time", both) === "time");
+  check("the bankroll runs out -> the funds readout collapses",
+    collapsingDial("broke", both) === "funds");
+  // Every other verdict is deliberately silent. A topout is already its own
+  // picture (the pile is against the ceiling, mid-screen) and points at no
+  // dial; "launches" and "pieces" are supply verdicts whose column has been
+  // counting down in plain sight, and crushing a readout for each of the five
+  // reasons would make the cue mean "you lost" rather than "check THIS".
+  check("every other loss collapses nothing",
+    (["topout", "launches", "pieces"] as const).every((r) => collapsingDial(r, both) === null));
+  check("a bay still being played collapses nothing",
+    collapsingDial(null, both) === null && collapsingDial(undefined, both) === null);
+  // The guards are the point of the second argument. Time out on a bay with no
+  // clock is not a state the game can reach today (game.ts only sets "time"
+  // when timeLeftMs hits 0, and it is Infinity without a limit), but the
+  // MAPPING must not be the thing that assumes it: a Contract reporting
+  // "broke" would otherwise crush its Lines/Goal figure, which is a number
+  // that did not run out and cannot.
+  check("no clock on the panel, no clock to crush",
+    collapsingDial("time", { funds: true, clock: false }) === null);
+  check("no Funds column on the panel, no bankroll to crush",
+    collapsingDial("broke", { funds: false, clock: true }) === null);
+
+  // --- the markup carrying the hook ----------------------------------------
+  const timeOut = hudHTML({ ...base, lossReason: "time" });
+  const broke = hudHTML({ ...base, lossReason: "broke" });
+  const topout = hudHTML({ ...base, lossReason: "topout" });
+  const alive = hudHTML({ ...base });
+  // Anchored on the readout's own opening tag rather than on a bare
+  // "dial-collapse", which would pass with the class on either column — the
+  // one failure this cue cannot survive is pointing at the wrong dial.
+  const hooked = (hud: string, cls: string): boolean =>
+    new RegExp(`<div class="[^"]*\\b${cls}\\b[^"]*\\bdial-collapse\\b`).test(hud);
+  check("a time loss hooks the clock column and only the clock column",
+    hooked(timeOut, "pl-time") && !hooked(timeOut, "pl-funds"));
+  check("a broke loss hooks the funds column and only the funds column",
+    hooked(broke, "pl-funds") && !hooked(broke, "pl-time"));
+  check("a topout hooks neither", !topout.includes("dial-collapse"));
+  check("a bay in progress hooks neither", !alive.includes("dial-collapse"));
+  // hudHTML asks collapsingDial with the two facts that decide whether the
+  // column is on the panel at all, so the hook can never land on a column this
+  // render did not emit. Both halves of that, both modes.
+  check("a bay with no clock renders no clock to hook",
+    !hudHTML({ ...base, timeLimitSec: 0, lossReason: "time" }).includes("dial-collapse"));
+  check("a Contract's Lines/Goal figure is never crushed as a bankroll",
+    !hudHTML({
+      ...base,
+      timeLimitSec: 0,
+      lossReason: "broke",
+      contract: {
+        name: "Foundry Overrun", kind: "lines", goal: 5, lines: 2, launchesLeft: 9,
+        remaining: [], lost: 0, conditions: "crosswind", tier: 1,
+        progress: { tier: 1, runDone: false, contracts: 0, needed: 3, award: 45, milestone: 15 },
+      },
+    }).includes("dial-collapse"));
+
+  // --- the choreography -----------------------------------------------------
+  // The scrim's hold has to end INSIDE the crunch, not after it. Landing the
+  // modal on a finished animation would put a still frame on screen for the
+  // gap and read as a stall; landing it during the settle (the number is
+  // already crushed and red by ~65%) reads as the modal arriving on top of
+  // what just happened, which is the sequencing the cue is for.
+  check("the scrim is held for most of the crunch, and lifts before it ends",
+    DIAL_COLLAPSE_HOLD_MS < DIAL_COLLAPSE_MS && DIAL_COLLAPSE_HOLD_MS > DIAL_COLLAPSE_MS / 2,
+    `${DIAL_COLLAPSE_HOLD_MS} vs ${DIAL_COLLAPSE_MS}`);
+
+  // --- the stylesheet, read back --------------------------------------------
+  // Same instrument the chute's geometry check uses two sections down: two
+  // files in two languages own halves of one fact, so read the other half
+  // rather than trusting a comment to stay true.
+  {
+    const styles = (name: string): string =>
+      fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+        "utf8",
+      );
+    const tokens = styles("tokens.css");
+    const css = styles("app.css");
+    const token = tokens.match(/--dial-collapse:\s*(\d+)ms/);
+    check("the crunch's duration is one number in two files",
+      token !== null && Number(token[1]) === DIAL_COLLAPSE_MS,
+      `${token?.[1] ?? "missing"} vs ${DIAL_COLLAPSE_MS}`);
+
+    const kf = css.slice(css.indexOf("@keyframes dial-collapse"));
+    const body = kf.slice(kf.indexOf("{") + 1, kf.indexOf("\n}"));
+    check("the collapse keyframes are still findable", body.length > 0 && kf.startsWith("@keyframes"));
+    // THE LAYOUT CONTRACT. Only compositor/paint properties may appear inside
+    // these keyframes. This is the assertion the animation was designed
+    // against: the plant panel's design box is a measured fit on the tightest
+    // handset in sim/uifit's matrix, and a readout that grew by a pixel
+    // mid-collapse would take the panel with it — on a screen sim/uifit never
+    // renders, because the harness has no lost bay among its fixtures. A
+    // `font-size`, `padding`, `width`, `margin` or `letter-spacing` sneaking
+    // in here would therefore ship unmeasured. It cannot: this fails first.
+    const ANIMATABLE = ["transform", "opacity", "color", "text-shadow"];
+    const props = [...body.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+    check("the crunch animates nothing that lays out",
+      props.length > 0 && props.every((p) => ANIMATABLE.includes(p)),
+      props.filter((p) => !ANIMATABLE.includes(p)).join(", "));
+    // It also has to END somewhere, and where it ends is the state the run-end
+    // modal fades in over: crushed, red, and still fully opaque. A collapse
+    // that faded the number out would take the evidence away exactly when the
+    // modal starts talking about it.
+    const last = body.slice(body.lastIndexOf("100%"));
+    check("...and settles crushed, red and readable, not faded away",
+      /scale\(/.test(last) && last.includes("var(--danger)") && /opacity:\s*1\b/.test(last),
+      last.trim());
+    // Reduced motion keeps the teaching (the dial still singles itself out in
+    // danger red) and drops the theatre. Asserted because the animation is the
+    // ONLY thing writing that colour: without an explicit static fallback,
+    // switching the animation off would leave the failing dial looking exactly
+    // like a healthy one, which is the whole defect this cue exists to fix.
+    const reduced = css.slice(css.indexOf(".dial-collapse .v {"));
+    const block = reduced.slice(0, reduced.indexOf("/* Reload"));
+    check("reduced motion still names the dial, in danger red, without moving",
+      /prefers-reduced-motion[\s\S]*\.dial-collapse \.v \{[\s\S]*animation:\s*none[\s\S]*var\(--danger\)/.test(block),
+      block.slice(-240).trim());
+  }
 }
 
 // ---------------------------------------------------------------------------
