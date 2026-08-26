@@ -1799,6 +1799,15 @@ body.crt-off #app::after { display: none; }
    baseline, which is what stops "Q/E rotate" from stepping up and down. */
 .kbd-hint .kbd { display: inline-block; vertical-align: middle; }
 .kbd-hint__sep { opacity: 0.4; }
+/* TRANSIENT (main.ts's armKeyHints/dismissKeyHints): the strip teaches until
+   the family's first shot proves the controls, then fades and leaves the bay
+   floor to the bay — the drag hint's own lifecycle, on the drag hint's own
+   class idiom. Opacity rather than display, so the retirement is a fade the
+   player can see rather than chrome blinking out of existence; the box stays
+   in layout, which costs nothing (it was pointer-events: none all along) and
+   keeps the geometry the kbdhint assertion pins measurable in either state. */
+.kbd-hint { transition: opacity var(--dur-slow) var(--ease); }
+.kbd-hint--hidden { opacity: 0; }
 /* A gamepad player sees the strip whatever the pointer type (D2): the pad is
    the control surface, and the rail's touch buttons say nothing about it. */
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
@@ -1819,6 +1828,39 @@ body.crt-off #app::after { display: none; }
     display: flex;
   }
 }
+
+/* The pause modal's control reference (screens.ts's pauseKeysHTML) — the
+   permanent home the transient strip retires to. Gated exactly as the strip
+   is (fine pointer, or the gamepad profile on any pointer): touch pauses into
+   the same modal and its controls are the rail, so the block would only be
+   telling a thumb about keys. The chips are the prose-sized .kbd — this is a
+   card being read at rest, not a strip squeezed into the field's foot lane,
+   so they keep their air (see the .kbd-hint padding note above for the
+   distinction). */
+.pause-keys {
+  display: none;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+.pause-keys__grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-xs);
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+}
+.pause-keys__note {
+  margin: var(--sp-2) 0 0;
+  text-align: center;
+  font-size: var(--fs-xs);
+}
+@media (pointer: fine) {
+  .pause-keys { display: block; }
+}
+:root[data-profile="gamepad"] .pause-keys { display: block; }
 
 /* Short (landscape-phone) viewports: only the glyph size steps down. The
    stack arithmetic — button size, gap, whether the column fits at all — is

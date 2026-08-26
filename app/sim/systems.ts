@@ -119,7 +119,7 @@ import {
   menuScreen, salvageHTML,
 } from "../src/ui/screens";
 import {
-  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, padFor,
+  BINDABLE_ACTIONS, actionForKey, hintAim, hintRotate, keyFor, keyLabel, padFor, padLabel,
   resetKeyBindings, resetPadBindings, setKeyBinding, setPadBinding,
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
@@ -3324,7 +3324,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // D1: the Controls screen renders every binding as a rebindable row, says
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
-    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+    sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
     leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
@@ -7306,6 +7306,42 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
     "the hold is not dressed as a keycap",
     !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The hint strip is transient; the pause modal is its reference (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  const bare = { bond: false, demo: false, auto: false };
+  const full = { bond: true, demo: true, auto: true };
+  // The strip mounts in whichever fade state main.ts hands it — the HUD is
+  // re-rendered wholesale on every state change, so a pause round-trip on a
+  // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
+  check("the strip mounts shown by default",
+    !S.hintStripHTML("keyboard", bare).includes("kbd-hint--hidden"));
+  check("the strip can mount already dismissed",
+    S.hintStripHTML("keyboard", bare, true).includes("kbd-hint--hidden"));
+  // The pause modal carries the same hint table (one source: hintParts), so
+  // the strip a first-timer saw and the card a veteran pauses into can never
+  // disagree — including about a rebind, which is the LIVE-BINDING half.
+  const paused = S.pauseModal(true, "keyboard", full);
+  check("the pause modal carries the control reference", paused.includes('id="pause-keys"'));
+  check("the reference renders the live fire binding",
+    paused.includes(`<span class="kbd">${keyLabel(keyFor("fire"))}</span>`));
+  check("the reference carries the full loadout's ability hints",
+    /break bonds/.test(paused) && /arm charge/.test(paused) && /autofire/.test(paused));
+  check("the reference points at the Controls screen for the rest",
+    /Settings → Controls/.test(paused));
+  // The gamepad arm re-labels the whole table, exactly as the strip does —
+  // main.ts patches #pause-keys on a profile flip mid-pause.
+  const padPaused = S.pauseModal(true, "gamepad", bare);
+  check("the gamepad reference speaks pad, not keys",
+    padPaused.includes(`<span class="kbd">${padLabel(padFor("fire"))}</span>`) &&
+      padPaused.includes("Stick"));
+  // …and never names the pointer hold the pad cannot make (the pad restarts
+  // through this very modal's button, which pad navigation reaches).
+  check("the gamepad reference does not claim the hold gesture",
+    !/hold.*restart/i.test(padPaused));
 }
 
 // ---------------------------------------------------------------------------

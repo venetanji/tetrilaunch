@@ -59,7 +59,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 }));
 
 const SETTINGS: Settings = {
-  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
+  sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
   leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
 };
 
@@ -642,7 +642,15 @@ export const SCREENS: Record<string, () => string> = {
 
   // Modals render OVER the HUD in the app; measuring them alone would miss any
   // collision with the chrome underneath.
-  pause: () => S.hudHTML({ ...HUD_BASE, contract: null }) + S.pauseModal(),
+  //
+  // The pause modal carries the control-reference block now (pauseKeysHTML) —
+  // the keyboard arm with the full ability loadout, which is the longest hint
+  // list the block can render and therefore the tallest this modal gets on the
+  // fine-pointer rows (the block is display:none on coarse ones, exactly like
+  // the strip it replaces).
+  pause: () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) +
+    S.pauseModal(true, "keyboard", { bond: true, demo: true, auto: true }),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({

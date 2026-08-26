@@ -417,6 +417,13 @@ class App {
    *  loop — one schedules a start, the other an end, and sharing a handle would
    *  let a misfire cancel a pending onboarding hint. */
   private misfireGuideTimer: number | null = null;
+  /** The key-hint strip's drivers (see armKeyHints) — the drag-hint trio for
+   *  the OTHER onboarding surface: whether the strip is currently faded (the
+   *  value every HUD render mounts with, since renderOverlay rewrites the
+   *  strip wholesale), the once-per-session idle re-show, and its timer. */
+  private keyHintsDismissed = false;
+  private keyHintsShownThisSession = false;
+  private keyHintTimer: number | null = null;
   /** performance.now() of the last misfire guide, for its rate limit. */
   private lastMisfireGuide = -Infinity;
 
@@ -649,6 +656,7 @@ class App {
     this.attract.stop();
     this.clearHold();
     if (this.dragHintTimer !== null) window.clearTimeout(this.dragHintTimer);
+    if (this.keyHintTimer !== null) window.clearTimeout(this.keyHintTimer);
     if (this.bayClearTimer !== null) window.clearTimeout(this.bayClearTimer);
     this.offUnlimitedChange?.();
     document.removeEventListener("fullscreenchange", this.onFullscreenChange);
@@ -776,14 +784,19 @@ class App {
     if (!changed) return;
     const g = this.game;
     if (!g) return;
+    const owned = {
+      bond: g.bondCharges > 0,
+      demo: g.level.bombCharges > 0,
+      auto: g.level.autoLaunchMs > 0,
+    };
     const strip = this.overlay.querySelector(".kbd-hint");
-    if (strip) {
-      strip.outerHTML = S.hintStripHTML(p, {
-        bond: g.bondCharges > 0,
-        demo: g.level.bombCharges > 0,
-        auto: g.level.autoLaunchMs > 0,
-      });
-    }
+    // The fade state rides across the swap: a profile flip mid-bay re-labels
+    // the hints, it does not re-earn them screen time.
+    if (strip) strip.outerHTML = S.hintStripHTML(p, owned, this.keyHintsDismissed);
+    // The pause modal's reference block re-labels the same way — a pad picked
+    // up while paused should read pad hints before play resumes.
+    const pauseKeys = this.overlay.querySelector("#pause-keys");
+    if (pauseKeys) pauseKeys.outerHTML = S.pauseKeysHTML(p, owned);
     if (this.tutorialStep !== null && this.state === "playing") {
       this.mountCoach(S.coachHTML(this.tutorialStep, g.level, p));
     }
@@ -884,6 +897,9 @@ class App {
       },
       tier: this.run?.mark ?? null,
       profile: this.profile,
+      // The strip's transience (armKeyHints): every HUD mount has to carry the
+      // current fade state, or a pause/draft round-trip would resurrect it.
+      hintsDismissed: this.keyHintsDismissed,
       target: g.target,
       score: g.score,
       // launchCostNow, not level.launchCost: under a congestion tier the shot
@@ -1510,7 +1526,15 @@ class App {
         }
         break;
       case "paused":
-        if (g) this.overlay.innerHTML = S.hudHTML(this.hudOpts(g)) + S.pauseModal(fullscreenSupported());
+        if (g) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.pauseModal(fullscreenSupported(), this.profile, {
+              bond: g.bondCharges > 0,
+              demo: g.level.bombCharges > 0,
+              auto: g.level.autoLaunchMs > 0,
+            });
+        }
         break;
       case "bayclear":
         if (g && this.run) {
@@ -1787,7 +1811,8 @@ class App {
     if (this.run.sandbox) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint(); this.coachOnShoot();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints(); this.coachOnShoot();
       },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
@@ -1831,6 +1856,7 @@ class App {
     this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   /** Shows the finger-drag onboarding hint immediately on a brand-new
@@ -2021,6 +2047,47 @@ class App {
     }
   }
 
+  /** The key-hint strip's bay-start arming — armDragHint for the OTHER
+   *  onboarding surface, with the same shape on purpose: shown in full until
+   *  the family's first shot (settings.seenKeyHints), then once per session as
+   *  a 15s stuck-player fallback, and otherwise mounted faded. The strip's
+   *  retirement home is the pause modal (screens.ts's pauseKeysHTML), so a
+   *  veteran is never without the table — it just stops squatting the bay
+   *  floor. No baysPlayed cap here, unlike the drag hint's D3 rule: the
+   *  counter counts TOUCH bays too, and a fifty-bay phone veteran plugging in
+   *  a pad for the first time is exactly the first-timer this strip is for. */
+  private armKeyHints(): void {
+    if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
+    this.keyHintsDismissed = this.settings.seenKeyHints;
+    // Sync the mounted strip too: the callers run AFTER setState("playing")
+    // rendered the HUD, and that render read the PREVIOUS bay's dismissed
+    // state — arming has to be able to both reveal and fade the live node.
+    this.overlay.querySelector(".kbd-hint")?.classList.toggle("kbd-hint--hidden", this.keyHintsDismissed);
+    if (!this.settings.seenKeyHints) return;
+    if (this.keyHintsShownThisSession) return;
+    this.keyHintTimer = window.setTimeout(() => {
+      this.keyHintsShownThisSession = true;
+      this.keyHintsDismissed = false;
+      this.overlay.querySelector(".kbd-hint")?.classList.remove("kbd-hint--hidden");
+    }, 15_000);
+  }
+
+  /** Fades the strip once a shot proves the controls, and marks the family
+   *  seen. Gated on the PROFILE, not the pointer event: onShoot cannot see
+   *  the input that fired it, but the profile is by definition the last input
+   *  seen — and a touch shot must not retire a strip the touch player has
+   *  never been shown. */
+  private dismissKeyHints(): void {
+    if (this.profile === "touch") return;
+    if (this.keyHintTimer !== null) { window.clearTimeout(this.keyHintTimer); this.keyHintTimer = null; }
+    this.keyHintsDismissed = true;
+    this.overlay.querySelector(".kbd-hint")?.classList.add("kbd-hint--hidden");
+    if (!this.settings.seenKeyHints) {
+      this.settings.seenKeyHints = true;
+      saveSettings(this.settings);
+    }
+  }
+
   // ---------------- interactive coach (first-run tutorial, issue #23) -------
   /** Move the coach forward to step `to` (never backward — actions can arrive
    *  out of order, e.g. a shot fired straight from the aim step skips rotate
@@ -2178,7 +2245,8 @@ class App {
     // Contract.
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints();
       },
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
@@ -2193,6 +2261,7 @@ class App {
     }, drillSeed(topic.id));
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   /**
@@ -2228,7 +2297,8 @@ class App {
     if (this.sandboxContract) applySandboxMaterials(cfg, this.sandbox.material);
     this.game = new Game(cfg, {
       onShoot: (info) => {
-        telemetry.shot(info); void tapHaptic(); playFx("shoot"); this.dismissDragHint();
+        telemetry.shot(info); void tapHaptic(); playFx("shoot");
+        this.dismissDragHint(); this.dismissKeyHints();
       },
       onLineClear: (n) => {
         telemetry.lineClear(n, this.game?.elapsedMs ?? 0);
@@ -2260,6 +2330,7 @@ class App {
     this.baysPlayed = bumpBaysPlayed();
     this.setState("playing");
     this.armDragHint();
+    this.armKeyHints();
   }
 
   private onGameStatus(s: GameStatus): void {
