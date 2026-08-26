@@ -396,6 +396,17 @@ class App {
    *  attempt was the first clear, and whether it completed the tier (see
    *  meta.ts's recordContractClear). Null until one resolves. */
   private contractAward: (TierResult & { firstClear: boolean }) | null = null;
+  /** One-shot latch, armed by the Deep Run loss that is about to collapse a
+   *  dial and consumed by the first mountEndScrim after it. It has to be a
+   *  latch rather than a question the render can ask itself, because the HUD
+   *  keeps its .dial-collapse hook for as long as the dead bay is on screen —
+   *  so "is a dial collapsing?" stays true across a resize re-render, and a
+   *  hold derived from it alone would yank the modal away again every time. */
+  private endScrimHeld = false;
+  /** Live handle for that hold. Non-null exactly while the collapse has the
+   *  screen to itself; read by setState to keep the overlay inert for the
+   *  same beat. */
+  private endScrimTimer: number | null = null;
 
   private dpr = 1;
   private last = 0;
@@ -708,10 +719,21 @@ class App {
       window.clearTimeout(this.denyTimer);
       this.towerTravel = null;
     }
+    // A run-end scrim being held back for the dial collapse (mountEndScrim)
+    // belongs to the screen that armed it. Cancelled here, BEFORE the render
+    // below can arm a fresh one, so a pending modal can never land on top of
+    // whatever screen replaced the one it was meant for.
+    this.clearEndScrimHold();
     this.state = s;
     this.syncMusic(s);
     this.renderOverlay();
-    this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
+    // Mid-hold the overlay is the dead bay's HUD and nothing else — its rail
+    // buttons belong to a bay that is already over, and the buttons that
+    // should answer a tap here have not mounted yet. Taps are refused for that
+    // beat rather than landing on the wrong control; the hold's own timer
+    // restores this the moment the modal arrives.
+    this.overlay.style.pointerEvents =
+      s === "playing" || this.endScrimTimer !== null ? "none" : "auto";
   }
 
   /**
@@ -958,6 +980,22 @@ class App {
       // False in the native shells and on iPhone Safari — no fullscreen
       // button is rendered there at all (see screens.ts / platform.ts).
       fullscreenSupported: fullscreenSupported(),
+      // THE DIAL COLLAPSE (screens.ts's collapsingDial): the readout that ran
+      // out crunches on every HUD render that follows the loss, which is what
+      // makes it survive the re-render the run-end transition performs.
+      //
+      // Read off the GAME rather than latched in a field of this class, and
+      // that is the whole reason there is nothing here to reset: a new bay is
+      // a new Game whose status starts at "playing", so the hook cannot outlive
+      // the bay that earned it, and no restart, retry or mode switch has to
+      // remember to clear it.
+      //
+      // Deep Run only. A Contract has neither of these two dials — its panel
+      // reads Lines/Goal and a supply count, and it runs without a clock — and
+      // a drill is a lesson that has not been lost, only ended, so crushing a
+      // readout under its verdict card would be teaching the wrong thing.
+      lossReason:
+        this.contract || this.drill ? null : g.status === "lost" ? g.lossReason : null,
       // A drill names itself in the banner and drops the tier row and the ship
       // rack (see screens.ts's `drill` opt for why all three go together).
       drill: this.drill?.drill ? { name: this.drill.drill.name } : null,
@@ -1597,16 +1635,15 @@ class App {
       // replaces the whole screen cannot do.
       case "coach-fail":
         if (g) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
-            S.coachFailHTML(g.lossReason, g.level, g.level.name);
+          this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
+          this.mountEndScrim(S.coachFailHTML(g.lossReason, g.level, g.level.name));
         }
         break;
       case "won":
       case "lost":
         if (g && this.run) {
-          this.overlay.innerHTML =
-            S.hudHTML(this.hudOpts(g)) +
+          this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
+          this.mountEndScrim(
             S.endModal({
               won: this.state === "won",
               score: this.finalScore(g, this.state === "won"),
@@ -1644,7 +1681,8 @@ class App {
               // labelling it with the Mark it borrowed would say the practice
               // score is on the ladder.
               boardTier: this.runBoard(),
-            });
+            }),
+          );
         }
         break;
     }
@@ -2526,6 +2564,15 @@ class App {
     } else if (s === "lost") {
       void impactHaptic();
       this.showSettleNote(false);
+      // Arm the dial collapse's beat of clear screen. Set for EVERY Deep Run
+      // loss rather than only the two economic ones, because whether a dial
+      // actually collapses is a question about the panel that was rendered
+      // (a bay with no clock has no clock to crush), and mountEndScrim settles
+      // it by looking at the markup instead of re-deriving the rule here.
+      // Both routes out of this branch mount a scrim over the HUD — the
+      // tutorial's failure card and the run-end modal use the same
+      // `.modal-scrim` — so both want the hold.
+      this.endScrimHeld = true;
       // A loss WHILE THE COACH IS RUNNING is a teaching moment, not a run end.
       // The tutorial explains what happened and offers the bay back (see
       // screens.ts's coachFailHTML) — deliberately BEFORE finishRun, so none
@@ -2539,6 +2586,69 @@ class App {
       }
       this.finishRun(false);
     }
+  }
+
+  /**
+   * Put a run-end scrim (the end modal, or the tutorial's failure card) on top
+   * of the HUD renderOverlay has just written — immediately, or one beat late
+   * so the dial collapse can be seen happening.
+   *
+   * WHY THE BEAT. `.modal-scrim` is a 72%-opaque wash with a 4px backdrop blur
+   * (app.css), which is exactly what it should be for a modal and exactly what
+   * a teaching animation cannot survive underneath: the collapse would be a
+   * dim smear behind frosted glass, playing correctly and reaching nobody. The
+   * scrim waits DIAL_COLLAPSE_HOLD_MS instead, which is most of the crunch,
+   * and then fades in over its tail — so the run-end screen still arrives
+   * promptly and the crushed red readout is still legible under it, which is
+   * what lets the modal's "The clock ran out" point at something.
+   *
+   * WHY IT IS PATCHED IN rather than re-rendered. The obvious shape — render
+   * the HUD now, call renderOverlay() again when the timer fires — rebuilds
+   * the HUD too, and a rebuilt element restarts its CSS animation from frame
+   * one. The player would watch the number spring back to full size and flare
+   * white a second time, half-visible, just as the scrim faded over it. So the
+   * HUD is left strictly alone and only the scrim is appended; the collapse
+   * plays out its own tail undisturbed underneath.
+   *
+   * The hold is a ONE-SHOT (endScrimHeld, armed by the loss itself) that also
+   * has to see a `.dial-collapse` hook in the markup that was just written.
+   * Both conditions, because either alone is wrong: without the latch a resize
+   * mid-modal would pull the scrim off the screen and hold it again, and
+   * without the DOM check a loss that collapses nothing — a topout, or a
+   * "broke" verdict on a panel with no Funds column — would stall the run-end
+   * screen for two thirds of a second for no visible reason.
+   */
+  private mountEndScrim(html: string): void {
+    const holding =
+      this.endScrimTimer !== null ||
+      (this.endScrimHeld && this.overlay.querySelector(".dial-collapse") !== null);
+    this.endScrimHeld = false;
+    if (!holding) {
+      this.overlay.insertAdjacentHTML("beforeend", html);
+      return;
+    }
+    // Already counting down (a re-render arrived mid-hold): the pending timer
+    // owns the mount and its markup describes the same dead bay, so let it.
+    if (this.endScrimTimer !== null) return;
+    this.endScrimTimer = window.setTimeout(() => {
+      this.endScrimTimer = null;
+      this.overlay.insertAdjacentHTML("beforeend", html);
+      this.overlay.style.pointerEvents = "auto";
+      // The tail of renderOverlay, for the half of the screen that arrives
+      // late: a pad player needs focus to land on the modal's primary action,
+      // and the fullscreen control inside a pause-style scrim needs its label.
+      this.syncPadFocus();
+      this.syncFullscreenButtons();
+    }, S.DIAL_COLLAPSE_HOLD_MS);
+  }
+
+  /** Drop a pending end-scrim hold. Only the timer — never `endScrimHeld`,
+   *  which is armed by the loss BEFORE the setState that clears this and would
+   *  be thrown away on the way to the very screen it was armed for. */
+  private clearEndScrimHold(): void {
+    if (this.endScrimTimer === null) return;
+    window.clearTimeout(this.endScrimTimer);
+    this.endScrimTimer = null;
   }
 
   /** Toggles the "target met — settling" HUD note (see screens.ts's

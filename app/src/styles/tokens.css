@@ -140,6 +140,12 @@
   --dur-fast: 120ms;
   --dur: 220ms;
   --dur-slow: 420ms;
+  /* The losing dial's crunch (app.css's .dial-collapse). Its own token rather
+     than another --dur-* rung because it is not UI chrome timing: it is a beat
+     of choreography that main.ts holds the run-end scrim against, and the two
+     have to be one number. screens.ts's DIAL_COLLAPSE_MS mirrors it for the
+     JS side of that hold, and sim/systems.ts fails if the pair drift apart. */
+  --dial-collapse: 820ms;
 
   /* --- Layout --- */
   /* How far the screen-anchored scaffolds are magnified above the box the

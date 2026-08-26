@@ -1260,6 +1260,83 @@ export const LOW_LAUNCH_WARN = 3;
  */
 export const LOW_SUPPLY_WARN = 2;
 
+/* ---------------------------------------------------------------------------
+ * THE DIAL COLLAPSE — the readout that crunches when the bay is lost.
+ *
+ * Playtest finding: a player who loses to the clock and a player who loses to
+ * the bankroll watch the same thing happen — the field freezes and a modal
+ * arrives — and afterwards could not say which of the two dials had emptied.
+ * The end modal names the cause in words (see endModal's `lossWhy`), but it
+ * says it on a screen that has replaced the instrument the player was supposed
+ * to be reading, so the lesson lands nowhere near the thing it is about. The
+ * collapse says it on the dial itself, one beat before the modal: the number
+ * that ran out flickers, drains to danger red and is crushed flat where it
+ * stands (app.css's `dial-collapse` keyframes).
+ *
+ * Only the two ECONOMIC losses take it. A topout is already its own picture —
+ * the pile is touching the ceiling, in the middle of the screen, and there is
+ * no dial to point at; "launches" and "pieces" are supply verdicts whose
+ * readout has been counting down in plain sight and which the same modal
+ * explains. Both halves of that split are the same rule the full-screen
+ * `loseFxHTML` backdrop already follows, and the two are designed to land
+ * together: the backdrop is the mood, this is the evidence.
+ * ------------------------------------------------------------------------ */
+
+/** Which plant readout the collapse plays on. */
+export type DialCollapse = "time" | "funds";
+
+/**
+ * How long the crunch runs, mirroring app.css's `--dial-collapse` token. Held
+ * in TypeScript as well as in the stylesheet because main.ts times the modal
+ * hold below against it and cannot read a CSS custom property that is only
+ * ever resolved on an element it has not mounted yet. sim/systems.ts reads
+ * both and fails if they drift apart — same treatment the chute's world
+ * geometry gets against the plant panel's CSS fractions.
+ */
+export const DIAL_COLLAPSE_MS = 820;
+
+/**
+ * How long the run-end scrim is held back so the collapse plays in the clear.
+ *
+ * It has to be held: `.modal-scrim` is a 72%-opaque wash with a 4px backdrop
+ * blur over it (app.css), so a readout animating underneath one is a smear at
+ * roughly a quarter contrast — the collapse would technically be playing and
+ * would teach nobody anything. Holding is also why the modal is PATCHED in
+ * beside the HUD rather than re-rendered with it (main.ts's mountEndScrim):
+ * a second full render would restart the crunch from frame one just as the
+ * scrim began to fade over it.
+ *
+ * Shorter than DIAL_COLLAPSE_MS on purpose. The animation spends its last
+ * third settling — the number is already crushed and red by ~65% — so the
+ * scrim's own 220ms fade (--dur) can start over the tail without covering
+ * anything the player still needs to see, and the run-end screen arrives
+ * while the evidence is still under it rather than a full second later. A
+ * loss screen that makes you wait is a loss screen you learn to skip.
+ */
+export const DIAL_COLLAPSE_HOLD_MS = 640;
+
+/**
+ * Reason -> readout. Pure, and deliberately asked to prove the readout EXISTS
+ * rather than assuming the mode: `hudHTML` swaps the whole `.pl-read` row for
+ * a Contract's Lines/Goal + supply columns and drops the clock entirely when
+ * the bay has no time limit, so a mapping that went straight from "broke" to
+ * `.pl-funds` would crush a Contract's line count — a number that did not run
+ * out and cannot — the first time a Contract ever reported that reason.
+ */
+export function collapsingDial(
+  reason: LossReason | null | undefined,
+  readouts: {
+    /** A Funds/Target column is on the panel (Deep Run readout, not a Contract's). */
+    funds: boolean;
+    /** The bay runs on a clock, so a Time column rendered at all. */
+    clock: boolean;
+  },
+): DialCollapse | null {
+  if (reason === "time") return readouts.clock ? "time" : null;
+  if (reason === "broke") return readouts.funds ? "funds" : null;
+  return null;
+}
+
 /** The transport's direction cue: eight CSS-drawn chevrons marching toward the
  *  cannon (see app.css's .belt__arrows). Eight, and elements rather than the
  *  "▸ ▸ ▸ ▸" text run this replaces, because the strip is twice the track wide
@@ -1410,6 +1487,13 @@ export function hudHTML(opts: {
    *  RailLoadout.fullscreen keeps the rail budget in step. Defaults to true
    *  so the uifit harness renders the full browser rail. */
   fullscreenSupported?: boolean;
+  /** Why the bay just ended, on the renders that FOLLOW a loss — null for the
+   *  whole of a bay that is still being played. The HUD is re-rendered
+   *  wholesale on the way into the run-end screen (main.ts's renderOverlay),
+   *  so the dial collapse cannot be a class dropped on a live element: it has
+   *  to be part of the markup that render emits, or it would be thrown away by
+   *  the very transition that is supposed to trigger it. See collapsingDial. */
+  lossReason?: LossReason | null;
 }): string {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
@@ -1454,9 +1538,17 @@ export function hudHTML(opts: {
   // cube count already carries the read there.
   const sizeTag = pieceSize === "tiny" ? "Micro" : pieceSize === "bulk" ? "Bulk" : "Std";
   const launches = Math.floor(score / Math.max(1, launchCost));
+  // Which dial (if either) this render is the wake for. Asked with the two
+  // facts that decide whether the readout is even on the panel, which are
+  // exactly the two conditions the branches below render against — so the hook
+  // class cannot land on a column this call did not emit.
+  const collapse = collapsingDial(opts.lossReason, {
+    funds: !contract,
+    clock: timeLimitSec > 0,
+  });
   const timeBlock =
     timeLimitSec > 0
-      ? `<div class="pl-stat pl-time" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
+      ? `<div class="pl-stat pl-time${collapse === "time" ? " dial-collapse" : ""}" id="hud-time-chip"><div class="lbl">Time</div><div class="v" id="hud-time">${formatMMSS(timeLeftMs)}</div></div>`
       : "";
   // ABILITIES (Bond Breaker, Demolition Charges) each get TWO triggers on
   // screen at once when drafted — a chip in the plant's ability row and a
@@ -1677,7 +1769,7 @@ export function hudHTML(opts: {
               ? `<div class="pl-stat pl-lost"><div class="lbl">Lost</div><div class="v" id="hud-lost">${contract.lost}</div></div>`
               : ""
           }`
-              : `<div class="pl-funds">
+              : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
             <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
