@@ -7424,6 +7424,26 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
   check("the arrival is timed off the ride",
     S.tierTowerHTML(riding)
       .includes(`--tower-pass:${S.towerRisePassMs(4, 4)}ms`));
+  // A TIMELINE, NOT A MOUNT. The menu can be re-rendered from under a running
+  // ceremony (the store's entitlement callback does it), which restarts every
+  // CSS animation in the replacement tower while the teardown timer keeps
+  // counting from the real start. The offset is what reconciles them: it
+  // becomes a negative animation-delay, so the new tower resumes the frame the
+  // old one was showing. Zero on the mount that starts the ride, so a caller
+  // that never re-renders sees exactly the delays the constants read as.
+  check("a fresh ceremony starts at its beginning",
+    S.tierTowerHTML(riding).includes("--tower-rise-elapsed:0ms"));
+  check("a ceremony re-rendered mid-ride resumes where it was",
+    S.tierTowerHTML({ ...riding, celebrateElapsed: 1234 })
+      .includes("--tower-rise-elapsed:1234ms"));
+  // A negative offset would push the ceremony into the FUTURE and desynchronise
+  // it from the one timer that ends it — the ride would still be climbing when
+  // its classes were stripped.
+  check("the ride can never be offset backwards",
+    S.tierTowerHTML({ ...riding, celebrateElapsed: -500 }).includes("--tower-rise-elapsed:0ms"));
+  check("a resting tower carries no offset",
+    !S.tierTowerHTML(resting).includes("--tower-rise-elapsed"));
+
   // THE LIFT STILL DOES NOT SERVE THE ROOF. Nothing unlocks Tier S — it is
   // found, not earned — so a ceremony can never ride there, and a build where
   // one could would contradict the whole rule the headhouse is built on.

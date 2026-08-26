@@ -216,6 +216,26 @@ export interface TowerState {
    *  fallback tower in menuScreen and every uifit fixture — renders the tower
    *  it always did, at exactly the geometry it always did. */
   celebrate?: boolean;
+  /** How far into the ceremony this render already is, in ms.
+   *
+   *  A CEREMONY IS A TIMELINE, NOT A MOUNT. The menu's markup is rewritten
+   *  wholesale on a re-render (the store's entitlement callback does it), which
+   *  restarts every CSS animation in it from frame one — while the timer that
+   *  tears the ceremony down is still counting from when the ride really began.
+   *  A re-render two seconds in would therefore restart a four-second ride with
+   *  two seconds left to run, and the player would watch the car set off and be
+   *  cut off halfway up. (Codex review, PR #110.)
+   *
+   *  Passing the offset makes the ride RESUME instead: it becomes a negative
+   *  animation-delay (app.css), so the replacement tower renders the frame the
+   *  old one was showing and carries on from there. The teardown timer needs no
+   *  adjustment because, as far as the animation is concerned, nothing
+   *  restarted.
+   *
+   *  Absent or 0 is the first mount — the ceremony starting at its beginning,
+   *  which is what every caller that does not re-render mid-ride ever asks
+   *  for. */
+  celebrateElapsed?: number;
 }
 
 /** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
@@ -526,6 +546,12 @@ export function tierTowerHTML(state: TowerState): string {
       + `;--tower-rise-hold:${TOWER_RISE_HOLD_MS}ms`
       + `;--tower-rise-dur:${towerRiseMs(state.selected)}ms`
       + `;--tower-arrive-dur:${TOWER_ARRIVE_MS}ms`
+      // How far in this mount already is — subtracted from every delay below
+      // the shaft, so a tower re-rendered mid-ride resumes rather than restarts
+      // (see TowerState.celebrateElapsed). Clamped at 0 and floored to whole
+      // milliseconds: a negative offset would push the ceremony into the future
+      // and desynchronise it from the timer that ends it.
+      + `;--tower-rise-elapsed:${Math.max(0, Math.floor(state.celebrateElapsed ?? 0))}ms`
     : "";
   return `<div class="tower${off ? " tower--off" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
     <div class="tower__shaft" style="--tower-idx:${idx}${ride}">

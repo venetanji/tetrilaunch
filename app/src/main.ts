@@ -379,6 +379,21 @@ class App {
    *  menu is the state on screen — setState clears it on the way out, so no
    *  other screen can ever ask the audio for the special. */
   private celebrating = false;
+  /** When the ceremony began, on the same clock the teardown timer counts from.
+   *
+   *  The ride is a CSS animation and the menu can be re-rendered from under it
+   *  — the store's entitlement callback does exactly that (see restoreScreen),
+   *  and a re-render replaces the tower wholesale, so its animations start over
+   *  from frame one. The teardown timeout, meanwhile, is still counting from
+   *  the original mount, and a re-render late in the ride would strip a
+   *  freshly-restarted one almost immediately.
+   *
+   *  So the ceremony has a START rather than a mount: every render hands the
+   *  tower how far in it already is (screens.ts's TowerState.celebrateElapsed),
+   *  the animations resume at that point instead of restarting, and the one
+   *  timer stays correct because the thing it is timing never actually
+   *  restarted. (Codex review, PR #110.) */
+  private celebrateStart = 0;
   /** Strips the ceremony's classes out of the live menu when the ride ends. */
   private celebrateTimer = 0;
   /** Hands the menu bed back once the bonus track has had its phrase
@@ -1168,6 +1183,14 @@ class App {
       // ride's destination is `selected`, which is why the clamp below has to
       // stay the only thing that can set it — see the note there.
       celebrate: this.celebrating,
+      // …and how far into it this render is. Zero on the mount that starts it;
+      // a real offset on any re-render that lands mid-ride, which is what lets
+      // the replacement tower pick the ride up rather than start it again (see
+      // celebrateStart). Rounded because it becomes a CSS time and a
+      // sub-millisecond fraction is noise in the markup, not precision.
+      celebrateElapsed: this.celebrating
+        ? Math.max(0, Math.round(performance.now() - this.celebrateStart))
+        : 0,
     };
     // Two conditions, and the SECOND is the one this used to be missing.
     // `tierOpen` only rejects a floor above the unlock, so it catches a save
@@ -1226,6 +1249,9 @@ class App {
     this.meta = markUnlockCelebrated(this.meta);
     saveMeta(this.meta);
     this.celebrating = true;
+    // The clock every later render measures its offset against, set before
+    // towerState is asked anything — that call already reads it.
+    this.celebrateStart = performance.now();
     // Asked of towerState rather than of markUnlocked, because the God floor
     // above makes those two different questions and the ride's length is the
     // shaft's, not the ladder's.
@@ -1406,18 +1432,38 @@ class App {
       }
       return;
     }
-    if (tier === state.selected && this.towerTravel === null) return;
-
-    // A DELIBERATE PICK ENDS THE CEREMONY. The tower is a control before it is
-    // a celebration, and a player who reaches past the ride to choose a floor
-    // has said what they want: from here the car is answering them, not
-    // performing. Ending it first also stops the two from fighting over the
-    // car's position — the ride's animation outranks the transition this
-    // method drives, so leaving it running would show the car finishing a trip
-    // to the new floor and then snapping to the tapped one. The bed is left
-    // playing out its phrase (see UNLOCK_MUSIC_TAIL_MS); nothing about picking
+    // A DELIBERATE TAP ENDS THE CEREMONY, and it has to be settled BEFORE the
+    // no-op below rather than after it. The tower is a control before it is a
+    // celebration, and a player who reaches past the ride to touch a floor has
+    // said what they want.
+    //
+    // The floor they are most likely to touch is the one the ride is heading
+    // for — it is lit, it is the thing that just changed, and tapping the
+    // interesting thing on screen is what anyone does. That floor IS
+    // `state.selected`, so with this after the early return the single most
+    // natural way to dismiss the ceremony was the one gesture that did nothing
+    // at all. (Codex review, PR #110.)
+    //
+    // Ending it here also stops the ride and the pick from fighting over the
+    // car's position: the ride's animation outranks the transition this method
+    // drives, so leaving it running would show the car finishing its trip to
+    // the new floor and then snapping to the tapped one. The bed is left
+    // playing out its phrase (see UNLOCK_MUSIC_TAIL_MS); nothing about touching
     // a floor is a reason to cut a piece of music off.
+    //
+    // Deliberately NOT above the `tierOpen` refusal: a tap on a locked floor is
+    // answered by the floor shaking its head, and that is not the player
+    // choosing anything. The ceremony plays on.
+    const dismissed = this.celebrating;
     this.endUnlockCelebration();
+
+    if (tier === state.selected && this.towerTravel === null) {
+      // Dismissal only — the car is already parked here, so re-running the
+      // travel machinery below would roll the plate from a floor to itself and
+      // arm a timer to land somewhere it already is.
+      if (dismissed) playUiClick();
+      return;
+    }
 
     const dur = S.towerTravelMs(state.selected, tier);
     this.pickedTier = tier;

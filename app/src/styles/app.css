@@ -1061,10 +1061,11 @@ body.crt-off #app::after { display: none; }
    (main.ts's armUnlockCelebration), and everything below runs off the four
    custom properties tierTowerHTML writes onto the shaft with it:
 
-     --tower-rise-from   the ground floor's shaft index — where the ride starts
-     --tower-rise-hold   the doors-closed beat before the car moves
-     --tower-rise-dur    the climb, which is longer the further it climbs
-     --tower-arrive-dur  the plate igniting once the car is there
+     --tower-rise-from     the ground floor's shaft index — where the ride starts
+     --tower-rise-hold     the doors-closed beat before the car moves
+     --tower-rise-dur      the climb, which is longer the further it climbs
+     --tower-arrive-dur    the plate igniting once the car is there
+     --tower-rise-elapsed  how far into the ceremony this MOUNT already is
 
    …plus one per floor, --tower-pass: when the car draws level with THAT floor
    (screens.ts's towerRisePassMs), which is what turns the lighting into a wave
@@ -1084,6 +1085,20 @@ body.crt-off #app::after { display: none; }
    chain writing into elements that no longer exist, and a backgrounded tab
    would leave it half-applied. A CSS animation on a torn-down element is gone
    with the element, and one on a fresh element simply starts over.
+
+   A TIMELINE, NOT A MOUNT. Every delay below is written MINUS
+   --tower-rise-elapsed, which is what makes the ceremony survive the menu
+   being re-rendered from under it (the store's entitlement callback does
+   exactly that). A re-render replaces the tower wholesale and every animation
+   in the replacement starts from frame one — while main.ts's teardown timer is
+   still counting from when the ride really began, so a re-render late in the
+   ride would strip a freshly-restarted one on the spot. Subtracting the offset
+   turns each delay negative by however much has already run, which is CSS's
+   own way of saying "start this animation as though it began that long ago":
+   the new tower renders the frame the old one was showing and carries on. The
+   timer then needs no adjustment, because from the animation's point of view
+   nothing restarted. On the mount that begins the ceremony the offset is 0 and
+   every delay is exactly what it reads as.
 
    LONGHANDS, EVERY TIME, and this one is not a style preference — it is a bug
    that was measured. `animation: name var(--a) ease var(--b) backwards` parses
@@ -1111,10 +1126,16 @@ body.crt-off #app::after { display: none; }
    answering a tap and wrong here, because an overshoot at the top of the climb
    puts the car briefly ABOVE the floor that just opened — i.e. on a floor
    nobody has earned. This one leaves slowly and arrives without bouncing. */
+/* Belt and braces: tierTowerHTML writes this onto the shaft on every
+   celebrating render, but a delay of `calc(450ms - <invalid>)` is invalid at
+   computed-value time and falls back to 0s — which would run the whole
+   ceremony in the first frame. Declared here so the offset always resolves,
+   with "the ceremony is starting now" as the value it resolves to. */
+.tower--rising { --tower-rise-elapsed: 0ms; }
 .tower--rising .tower__car {
   animation-name: tower-rise;
   animation-duration: var(--tower-rise-dur);
-  animation-delay: var(--tower-rise-hold);
+  animation-delay: calc(var(--tower-rise-hold) - var(--tower-rise-elapsed));
   animation-timing-function: cubic-bezier(0.45, 0, 0.15, 1);
   animation-fill-mode: backwards;
 }
@@ -1137,7 +1158,9 @@ body.crt-off #app::after { display: none; }
 .tower--rising .tower__car span {
   animation-name: tower-rise-charge, tower-rise-land;
   animation-duration: var(--tower-rise-dur), var(--tower-arrive-dur);
-  animation-delay: var(--tower-rise-hold), calc(var(--tower-rise-hold) + var(--tower-rise-dur));
+  animation-delay:
+    calc(var(--tower-rise-hold) - var(--tower-rise-elapsed)),
+    calc(var(--tower-rise-hold) + var(--tower-rise-dur) - var(--tower-rise-elapsed));
   animation-timing-function: ease-in, ease-out;
   animation-fill-mode: backwards, none;
 }
@@ -1167,7 +1190,7 @@ body.crt-off #app::after { display: none; }
 .tower--rising .tower__floor.is-arriving {
   animation-name: tower-arrive;
   animation-duration: var(--tower-arrive-dur);
-  animation-delay: var(--tower-pass);
+  animation-delay: calc(var(--tower-pass) - var(--tower-rise-elapsed));
   animation-timing-function: ease-out;
   animation-fill-mode: backwards;
 }
@@ -1193,15 +1216,15 @@ body.crt-off #app::after { display: none; }
 .tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on {
   animation-name: tower-window-surge;
   animation-duration: 560ms;
-  animation-delay: var(--tower-pass);
+  animation-delay: calc(var(--tower-pass) - var(--tower-rise-elapsed));
   animation-timing-function: ease-out;
   animation-fill-mode: backwards;
 }
 .tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on:nth-child(2) {
-  animation-delay: calc(var(--tower-pass) + 60ms);
+  animation-delay: calc(var(--tower-pass) + 60ms - var(--tower-rise-elapsed));
 }
 .tower--rising .tower__floor[style*="--tower-pass"] .tower__windows i.on:nth-child(3) {
-  animation-delay: calc(var(--tower-pass) + 120ms);
+  animation-delay: calc(var(--tower-pass) + 120ms - var(--tower-rise-elapsed));
 }
 @keyframes tower-window-surge {
   0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 176, 32, 0.55); }
