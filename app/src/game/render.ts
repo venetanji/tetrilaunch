@@ -1272,12 +1272,28 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     // sprite's transparent glow padding before stretching: scaling that padding
     // created visible gaps at BOTH joints when the piston was fully extended.
     if (rodX1 > rodX0) {
+      // The source rect is in the sprite's BACKING-STORE pixels, and the bake
+      // canvas holds its world box at the live sprite scale (makeSpriteCanvas)
+      // — so the world-unit constants have to be scaled up before they are
+      // used as a crop. Passing them raw was only correct at bake scale 1: at
+      // 1.5 (a 1080p fullscreen) the crop caught half padding, drawing the
+      // rod thin and low against the head it drives, and at the bake cap of 3
+      // (a 4K TV) it landed entirely inside the transparent padding — the rod
+      // vanished and the piston heads floated free of their barrels. Derived
+      // from the canvas rather than from spritePxScale so the crop follows
+      // the ceil-exact scale the bake actually used — and PER AXIS (found in
+      // review), because makeSpriteCanvas ceils each dimension independently:
+      // at scale 1.5 this 96x47-world sprite bakes 144x71, whose vertical
+      // scale is 71/47, not 1.5, and a width-derived crop would still shave
+      // the rod thin.
+      const sx = rodSprite.width / (PISTON_ROD_BAKE_LEN + PISTON_PART_PAD * 2);
+      const sy = rodSprite.height / (PISTON_ROD_H + PISTON_PART_PAD * 2);
       ctx.drawImage(
         rodSprite,
-        PISTON_PART_PAD,
-        PISTON_PART_PAD,
-        PISTON_ROD_BAKE_LEN,
-        PISTON_ROD_H,
+        PISTON_PART_PAD * sx,
+        PISTON_PART_PAD * sy,
+        PISTON_ROD_BAKE_LEN * sx,
+        PISTON_ROD_H * sy,
         rodX0,
         y - PISTON_ROD_H / 2,
         rodX1 - rodX0,
