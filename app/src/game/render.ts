@@ -1281,14 +1281,19 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
       // (a 4K TV) it landed entirely inside the transparent padding — the rod
       // vanished and the piston heads floated free of their barrels. Derived
       // from the canvas rather than from spritePxScale so the crop follows
-      // the ceil-exact scale the bake actually used.
-      const s = rodSprite.width / (PISTON_ROD_BAKE_LEN + PISTON_PART_PAD * 2);
+      // the ceil-exact scale the bake actually used — and PER AXIS (found in
+      // review), because makeSpriteCanvas ceils each dimension independently:
+      // at scale 1.5 this 96x47-world sprite bakes 144x71, whose vertical
+      // scale is 71/47, not 1.5, and a width-derived crop would still shave
+      // the rod thin.
+      const sx = rodSprite.width / (PISTON_ROD_BAKE_LEN + PISTON_PART_PAD * 2);
+      const sy = rodSprite.height / (PISTON_ROD_H + PISTON_PART_PAD * 2);
       ctx.drawImage(
         rodSprite,
-        PISTON_PART_PAD * s,
-        PISTON_PART_PAD * s,
-        PISTON_ROD_BAKE_LEN * s,
-        PISTON_ROD_H * s,
+        PISTON_PART_PAD * sx,
+        PISTON_PART_PAD * sy,
+        PISTON_ROD_BAKE_LEN * sx,
+        PISTON_ROD_H * sy,
         rodX0,
         y - PISTON_ROD_H / 2,
         rodX1 - rodX0,
