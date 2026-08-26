@@ -2817,8 +2817,11 @@ body.crt-off #app::after { display: none; }
 }
 /* The cap's two short sides, so the ring turns the step corners instead of
    skipping them: the left step-up faces the brow, the right shoulder hands
-   the run down to the flank. Two cells — all either edge is deep enough to
-   hold at a square aspect. */
+   the run down to the flank. Three cells, which is what the runs below
+   actually author and what holds nearest to square: the riser is --pwr-h
+   tall (22.7 * --fpx) against a --crest-h deep strip (9 * --fpx), so three
+   cells measure 0.72-0.82 of the depth across the device matrix where two
+   would measure 1.26 at desktop scale. */
 .plant__crest--step,
 .plant__crest--shoulder {
   width: var(--crest-h);
@@ -2861,7 +2864,19 @@ body.crt-off #app::after { display: none; }
      the tips off the glowing wall. */
   left: calc(-0.0167 * var(--field-w) - var(--bw) + var(--crest-wall));
   width: calc(0.0167 * var(--field-w) - var(--crest-wall));
-  top: 0;
+  /* BOTH ends carry the border correction, and the top one is the whole
+     reason this comment exists. `top: 0` is the padding box's top, which is
+     --bw BELOW the panel's border-box top, so the band began one border
+     inside the corner it is supposed to turn: measured at 1280x720, panel
+     top 387.41, port top 389.41 — a 2px notch of bare backdrop across the
+     band's full 9.7px width, right where the ring turns from the brow down
+     the wall. Only rivet-1 (5.6px wide, hung off the same corner) covered
+     any of it, so what showed was a nick to the LEFT of the bolt. Every
+     other strip already spells the correction out — the brow's `left`, the
+     flank's `top`/`bottom`, the skirt's `left`/`right`/`top` — and this one
+     offset was the exception. The ring registers on the panel's BORDER box
+     on all four sides; the border is what the crest is dressing. */
+  top: calc(-1 * var(--bw));
   bottom: calc(-1 * var(--bw));
   background-image: repeating-linear-gradient(180deg, var(--h3) 0% 3.33%, var(--h5) 3.33% 6.67%, var(--h3) 6.67% 10%, var(--h3) 10% 13.33%, var(--h5) 13.33% 16.67%, var(--h5) 16.67% 20%, var(--h4) 20% 23.33%, var(--h2) 23.33% 26.67%, var(--h3) 26.67% 30%, var(--h3) 30% 33.33%, var(--h4) 33.33% 36.67%, var(--h2) 36.67% 40%, var(--h3) 40% 43.33%, var(--h2) 43.33% 46.67%, var(--h4) 46.67% 50%, var(--h2) 50% 53.33%, var(--h2) 53.33% 56.67%, var(--h4) 56.67% 60%, var(--h3) 60% 63.33%, var(--h3) 63.33% 66.67%, var(--h4) 66.67% 70%, var(--h5) 70% 73.33%, var(--h4) 73.33% 76.67%, var(--h2) 76.67% 80%, var(--h1) 80% 83.33%, var(--h2) 83.33% 86.67%, var(--h4) 86.67% 90%, var(--h4) 90% 93.33%, var(--h3) 93.33% 96.67%, var(--h3) 96.67% 100%);
   clip-path: polygon(100% 0%, 17.35% 0%, 17.35% 3.33%, 32.95% 3.33%, 32.95% 6.67%, 41.01% 6.67%, 41.01% 10%, 42.34% 10%, 42.34% 13.33%, 20.34% 13.33%, 20.34% 16.67%, 20.71% 16.67%, 20.71% 20%, 14.17% 20%, 14.17% 23.33%, 43.63% 23.33%, 43.63% 26.67%, 35.62% 26.67%, 35.62% 30%, 12.61% 30%, 12.61% 33.33%, 33.94% 33.33%, 33.94% 36.67%, 21.63% 36.67%, 21.63% 40%, 11.84% 40%, 11.84% 43.33%, 6.34% 43.33%, 6.34% 46.67%, 26.22% 46.67%, 26.22% 50%, 35.86% 50%, 35.86% 53.33%, 34.21% 53.33%, 34.21% 56.67%, 11.6% 56.67%, 11.6% 60%, 25.44% 60%, 25.44% 63.33%, 46.81% 63.33%, 46.81% 66.67%, 35.61% 66.67%, 35.61% 70%, 19.45% 70%, 19.45% 73.33%, 18.97% 73.33%, 18.97% 76.67%, 6.58% 76.67%, 6.58% 80%, 20.05% 80%, 20.05% 83.33%, 50.33% 83.33%, 50.33% 86.67%, 10.98% 86.67%, 10.98% 90%, 7.4% 90%, 7.4% 93.33%, 16.86% 93.33%, 16.86% 96.67%, 49.76% 96.67%, 49.76% 100%, 100% 100%);
