@@ -408,24 +408,33 @@ The clock, replacing `syncHud`'s time block (`main.ts:3506-3509`):
 ```ts
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
-      const low = g.timeLeftMs > 0 && g.timeLeftMs < S.LOW_TIME_WARN_MS;
+      // TWO predicates, not one — found in review. The COLOUR is a state:
+      // the chip has always stayed red at zero and through overtime, because
+      // time-expired is the most dangerous the clock ever gets, and a shared
+      // "low" predicate that required positive time would snap the danger off
+      // at the exact moment it peaks. The SOUND is a count: ticks only make
+      // sense while there is a count left to keep, so ticking gates on
+      // positive time on top of the colour's own condition.
+      const danger = g.timeLeftMs < S.LOW_TIME_WARN_MS;
+      const ticking = danger && g.timeLeftMs > 0;
       this.overlay.querySelector("#hud-time-chip")
-        ?.classList.toggle("pl-stat--danger", low);
+        ?.classList.toggle("pl-stat--danger", danger);
       // THE TICK — the colour cue offered to the ear, on the BEAT rather than
-      // per frame. syncHud runs every drawn frame, so a tick keyed to `low`
-      // alone would fire sixty times a second for twenty seconds; the beat
-      // number changing IS the cue. It halves under FINAL_TIME_WARN_MS, which
-      // together with playTimeTick's rate climb is the whole acceleration.
-      const beat = low
+      // per frame. syncHud runs every drawn frame, so a tick keyed to the
+      // state alone would fire sixty times a second for twenty seconds; the
+      // beat number changing IS the cue. It halves under FINAL_TIME_WARN_MS,
+      // which together with playTimeTick's rate climb is the whole
+      // acceleration.
+      const beat = ticking
         ? Math.ceil(g.timeLeftMs / (g.timeLeftMs < S.FINAL_TIME_WARN_MS ? 500 : 1000))
         : -1;
       if (beat !== this.timeBeat) {
-        if (low) playTimeTick(1 - g.timeLeftMs / S.LOW_TIME_WARN_MS);
+        if (ticking) playTimeTick(1 - g.timeLeftMs / S.LOW_TIME_WARN_MS);
         this.timeBeat = beat;
       }
       // The riser, once a bay: it says the count is nearly over, underneath the
       // ticks that are still keeping it.
-      if (low && g.timeLeftMs < S.FINAL_TIME_WARN_MS && !this.timeFinalPlayed) {
+      if (ticking && g.timeLeftMs < S.FINAL_TIME_WARN_MS && !this.timeFinalPlayed) {
         this.timeFinalPlayed = true;
         playFx("timeFinal", { gain: 0.8 });
       }
@@ -445,7 +454,15 @@ The bankroll, inside the Deep-Run-only branch right after `launches` is computed
       if (launches !== this.lastLaunchesSeen) {
         const was = this.lastLaunchesSeen;
         this.lastLaunchesSeen = launches;
-        if (was >= 0 && g.status === "playing") {
+        // Gated on the clock still SELLING launches, not merely on status —
+        // found in review. Overtime keeps status "playing" while shoot()
+        // rejects every launch (timeLeftMs <= 0), and payouts, lost-cube
+        // penalties and congestion pricing all still move `launches` across
+        // these rungs — a "funds low" fired then would be advertising
+        // purchasing power the clock no longer honours, on top of timeUp.
+        // The tracker still updates above, so a bay that somehow re-opened
+        // would not fire a stale crossing.
+        if (was >= 0 && g.status === "playing" && g.timeLeftMs > 0) {
           if (launches === 1 && was > 1) playFx("lastLaunch");
           else if (launches <= S.LOW_LAUNCH_WARN && was > S.LOW_LAUNCH_WARN) {
             playFx("fundsLow", { gain: 0.8 });
