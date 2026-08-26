@@ -209,6 +209,9 @@
   "Android · Pixel 7|menu|tap": [
     ".tower__floor 108x29"
   ],
+  "Web · 1280x720 laptop|inspection-signed|scrollers": [
+    ".draft__body scrolls 6px"
+  ],
   "Web · 800x600 window|bayclear|badge": [
     "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
     "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
@@ -286,7 +289,7 @@
     "#demo-chip 47x43"
   ],
   "Web · 800x600 window|inspection-signed|scrollers": [
-    ".draft__body scrolls 230px"
+    ".draft__body scrolls 325px"
   ],
   "Web · 800x600 window|inspection|scrollers": [
     ".draft__body scrolls 209px"

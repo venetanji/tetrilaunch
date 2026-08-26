@@ -76,19 +76,24 @@ import { MARK_COUNT } from "./upgrades";
  *   T4  Cold Chain  -70   Ice Wall    -65      T9  Bled Hyd    -5  Haulage   -10
  *   T5  Rebar Run   +10   Cold Weld   -15      T10 Dead Weight -45  Short Ms +30
  *
+ * (The T10 row reads the RETIRED size pair — Dead Weight and Short Measure,
+ * the domino/pentomino fork. The capstone now deals the full-belt cargo pair
+ * below, which the bot has not flown; the Tier 10 section says why the size
+ * fork was retired and what can honestly be said about its replacement.)
+ *
  * Six clauses read at or ABOVE the bay they are supposed to make harder. That
  * looks like six broken cards, and it is not: sorted by what each clause takes
  * away, all twenty fall into three groups with no exceptions.
  *
  *  - **Take away CUBES THAT CAN REACH A LINE** — every material clause, plus
- *    Cold Weld (no loose cubes to fill gaps) and Dead Weight (a rigid pentomino
- *    on an unbreakable bay cannot be worked into a row). The bot collapses:
- *    -15 to -70.
+ *    Cold Weld (no loose cubes to fill gaps) and the retired Dead Weight (a
+ *    rigid pentomino on an unbreakable bay cannot be worked into a row). The
+ *    bot collapses: -15 to -70.
  *  - **Take away MONEY** — Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics.
  *    A small, consistent -5 to -10: the bot stops firing when it is broke, so
  *    it feels this directly and proportionately.
  *  - **Take away GOOD PLACEMENTS** — Tight Gauge, Tail Gale, Rebar Run, Hair
- *    Trigger, Powder Run, Short Measure. Free, or better than free.
+ *    Trigger, Powder Run, the retired Short Measure. Free, or better than free.
  *
  * The third group is the finding. The bot does not plan a row: it solves an
  * angle and fires on every cooldown, so a clause that shrinks the space of GOOD
@@ -131,7 +136,7 @@ export type FinalId =
   | "powder-run" | "hair-trigger"
   | "tar-run" | "fouled-bay"
   | "bled-hydraulics" | "haulage-bond"
-  | "dead-weight" | "short-measure";
+  | "odd-lots" | "full-rebar";
 
 export interface FinalDef {
   id: FinalId;
@@ -149,6 +154,16 @@ export interface FinalDef {
    *  player who never made the connection is told it once, at the moment it
    *  finally matters. */
   system: UpgradeId;
+  /** This clause states the WHOLE belt: nothing standard ships, the mix sums
+   *  to exactly 1, and apply() carries its own no-refund floors (every
+   *  material at least what the run arrived with). applyFinal's MIX_TOTAL_CAP
+   *  re-cap stands down for it — that cap exists to stop a partial-belt
+   *  clause overfilling a belt that still owes the player standard cargo, and
+   *  a full-belt clause has none to owe. sim/systems.ts holds the pair to
+   *  this contract on every arrival it can construct. Capstone-only by
+   *  design: taking the standard shipment away entirely is the one cost that
+   *  must never be dealt before the ladder's last exam. */
+  fullBelt?: true;
   /** Mutate the final bay's config. Called at most once per run, on a config
    *  that already carries the ship's upgrades and the run's ratchets (see
    *  run.ts's levelForRun) — so a multiplier here compounds on the rig the
@@ -417,10 +432,15 @@ const FOULED_ALLOWANCE = 12;
  * sim/systems.ts pins this: a clause whose delivered rate can exceed its own
  * clean-bay rate must say so on its face.
  */
-/** The most of one material a clause may leave on the belt, ratchet included.
- *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and well
- *  under MIX_TOTAL_CAP so the belt still carries a majority of standard cargo
- *  even at maximum ratchet. */
+/** The most of one material a SCHEDULED clause may leave on the belt, ratchet
+ *  included — and the per-material ceiling Odd Lots fills its full belt under.
+ *  Above hazards.ts's MATERIAL_CAP because a clause is not a notch, and far
+ *  enough under a whole belt that the cargo which can never count (slag —
+ *  theme.ts's countsForLines) stays a minority even at maximum ratchet. Full
+ *  Rebar is the one deliberate exception and does not read it: rebar counts
+ *  for lines and refuses only to SPLIT, so a belt of it stays playable — the
+ *  Full Rebar Contract (contracts.ts) and the mat-rebar drill already ship
+ *  exactly that belt at rate 1. */
 export const FINAL_MATERIAL_CAP = 0.4;
 function schedule(
   cfg: LevelConfig,
@@ -779,60 +799,104 @@ export const FINALS: FinalDef[] = [
   // The capstone opens no axis of its own — it asks for two notches a bay and
   // sends bay 10's bonds to Infinity (level.ts's UNBREAKABLE_MARK), which makes
   // the Bond Breaker the only shatter in the bay. So its inspection is about
-  // the cargo itself, at the two extremes pieces.ts's SIZE_SPEC describes, with
-  // the standard shipment — the thing every run is built around — taken away.
+  // the cargo itself, with the standard shipment — the thing every run is
+  // built around — taken away. Nothing standard ships past the final gate.
   //
-  // Both are the Bond Emitter's exam, and ECONOMY.md already says why for one
-  // of them: a light shipment "lands on top of a mess without ever fixing it —
-  // so a micro build has to buy its compaction some other way, which is what
-  // makes Bond Breakers a build requirement rather than a nice-to-have". The
-  // other end needs the same charge for the opposite reason: at this Tier a
-  // pentomino that lands wrong is a rigid five-cube block that nothing on the
-  // field can break up.
+  // BOTH CLAUSES LEAVE THE SHIPMENT SIZE ALONE, and that is the design change
+  // this pair replaced its predecessor over. The retired fork dealt the two
+  // ends of pieces.ts's SIZE_SPEC — every shipment a domino at 0.6x a launch,
+  // or a pentomino at 1.5x — and once the money was equalised (which those
+  // launch multipliers existed to do), what remained was an exam about the
+  // cannon's unit economics: launches per line, priced per cube. Nine Tiers
+  // of ladder teach nothing about that. What they teach, one axis at a time,
+  // is the material catalogue — and the capstone's own format (the
+  // unbreakable bay) is rebar's rule written over the whole field. So the
+  // exam is the cargo at its two poles, with the comfortable middle — a belt
+  // that is mostly standard — taken away:
   //
-  // PRICED, because the naive version of this clause is wildly lopsided. Cube
-  // count per launch is 2 / 4 / 5, and launches are what a bay actually spends,
-  // so bulk at a flat price is a BENEFIT (0.8x the launches per line) and tiny
-  // at a flat price is a catastrophe (2x). The retired size mods priced exactly
-  // this — micro at 0.6x launch cost, bulk at 1.5x — and these two carry the
-  // same correction, tuned so both land near +3 lines on the bay's demand
-  // (sim/_finalprobe.ts). What is left after the money is equalised is the
-  // PHYSICAL difference, which is the half worth choosing between and the half
-  // no arithmetic here can see.
+  //  - ODD LOTS is the whole ladder at once. All six materials, nothing
+  //    standard: every shipment arrives demanding the answer some Tier spent
+  //    ten bays teaching — strike the cryo, charge the slag, lob the
+  //    volatile, dodge the tar, split the rebar, welcome the magnetic. No
+  //    single demand is deep (each sits near a sixth of the belt, held under
+  //    FINAL_MATERIAL_CAP on every arrival); the cost is that they never
+  //    stop coming, which is the one shape of hard no single Tier could deal.
+  //  - FULL REBAR is the capstone made literal, one material deep. The bay's
+  //    joints are already Infinity; now the cargo is the material that rule
+  //    belongs to, so what lands is what you keep, everywhere — and the Seam
+  //    Splitter's carve-out (pieces.ts keeps weakened types finite on a
+  //    ladder-imposed unbreakable bay) is gone with it, because rebar's
+  //    rigidity outranks the passive by that file's own rule. One row
+  //    misbuilt is one row owed to the Bond Breaker magazine, which is
+  //    exactly the "spend it where it counts most" exam level.ts says the
+  //    capstone is.
+  //
+  // Both are the Bond Emitter's exam — on this bay a charge is the only thing
+  // that unmakes a mistake, whichever card is signed. UNMEASURED by the aim
+  // bot, said plainly rather than implied: the header's three groups show a
+  // material flood collapses it (-45 to -70) while a placement demand reads
+  // free, so it can rank neither pole against the other — Odd Lots would read
+  // as its slag share and Full Rebar as nothing at all. What CAN be stated is
+  // sizing against the ladder: Odd Lots holds every material at or under
+  // rates the ratchet already deals routinely, and Full Rebar's belt is the
+  // Full Rebar Contract's own rate-1 belt (contracts.ts) flown on the bay
+  // whose format already matches it. Which pole is cheaper is legible from
+  // the rig — a Demolition/Bay ship eats Odd Lots' variety, a deep Bond
+  // Emitter magazine eats Full Rebar's rigidity — and only a device playtest
+  // can say more.
   {
-    id: "dead-weight",
-    name: "Dead Weight",
-    desc: "Every shipment is a 5-cube pentomino at 50% more a launch. Dense, rigid — and on this bay nothing comes apart on its own.",
+    id: "odd-lots",
+    name: "Odd Lots",
+    desc: "Nothing standard ships tonight. The belt is all six special materials at once — and whatever the run already ratcheted runs deeper still.",
     tier: 10,
     system: "bonds",
+    fullBelt: true,
     apply: (cfg) => {
-      cfg.pieceSize = "bulk";
-      // The retired Bulk Shipments mod's own launch price, restored. A
-      // pentomino delivers five cubes where a tetromino delivers four, so at a
-      // flat price this clause would be a straight DISCOUNT on the bay's line
-      // demand (contracts.ts's budget model reads it as -2.6 lines) and the
-      // card would be selling a favour. x1.5 is the number the retired mod
-      // already balanced that against.
-      cfg.launchCost = Math.round(cfg.launchCost * 1.5);
+      // Equal top-up, floored at the arrival: every material rises above what
+      // the run walked in with (schedule()'s two rules — no refund, and no
+      // pre-paying a mandatory cost — hold on every axis at once), and the
+      // belt lands at exactly 1, so nothing standard ships. The top-up
+      // respects FINAL_MATERIAL_CAP per material so it cannot pile the
+      // remainder onto a deep-ratcheted axis: without the ceiling, a
+      // slag-only arrival put slag at 0.43 of the belt — dead cargo at a
+      // depth no card priced. Overflow past a capped material re-spreads to
+      // the rest, and six materials at 0.4 hold 2.4 of belt, so the fill
+      // always lands at 1.
+      const keys = Object.keys(cfg.materialMix) as Array<keyof LevelConfig["materialMix"]>;
+      const mix = { ...cfg.materialMix };
+      let leftover = 1 - keys.reduce((a, k) => a + mix[k], 0);
+      let pool = keys.filter((k) => mix[k] < FINAL_MATERIAL_CAP);
+      while (leftover > 1e-9 && pool.length) {
+        const share = leftover / pool.length;
+        leftover = 0;
+        for (const k of pool) {
+          const took = Math.min(share, FINAL_MATERIAL_CAP - mix[k]);
+          mix[k] += took;
+          leftover += share - took;
+        }
+        pool = pool.filter((k) => mix[k] < FINAL_MATERIAL_CAP - 1e-9);
+      }
+      cfg.materialMix = mix;
     },
   },
   {
-    id: "short-measure",
-    name: "Short Measure",
-    desc: "Every shipment is a 2-cube domino at 40% off a launch. Cheap and precise, half the cargo a shot — and far too light to square up anything you land it on.",
+    id: "full-rebar",
+    name: "Full Rebar",
+    desc: "Every standard shipment arrives as rebar. Nothing you land comes apart on its own — a Bond Breaker charge is the only thing that will split it.",
     tier: 10,
     system: "bonds",
+    fullBelt: true,
     apply: (cfg) => {
-      cfg.pieceSize = "tiny";
-      // The retired Micro Shipments mod's own launch price, restored, and for
-      // the mirror-image reason to its partner's: two cubes a launch instead of
-      // four roughly doubles the launches a row costs, and at a flat price the
-      // budget model reads that as +23 lines — not a clause, a wall. x0.6 is
-      // what the retired mod already priced the trade at. Floored at $1: a free
-      // launch removes the bay's whole operating constraint (level.ts's economy
-      // note — the purse IS the pressure), and no clause may hand that back as
-      // a side effect of a discount it gave for another reason.
-      cfg.launchCost = Math.max(1, Math.round(cfg.launchCost * 0.6));
+      // The standard share and no more: a ratcheted material keeps exactly
+      // its arrived rate. Converting those to rebar too would refund the
+      // run's own notches with the easiest cargo in the bay (rebar counts on
+      // landing; cryo owes a strike first, slag never counts at all) — the
+      // same bug schedule() exists to keep out, wearing the opposite coat.
+      // hazards.ts holds the arrived mix to MIX_TOTAL_CAP, so rebar is never
+      // handed less than the belt's majority remainder.
+      const keys = Object.keys(cfg.materialMix) as Array<keyof LevelConfig["materialMix"]>;
+      const others = keys.reduce((a, k) => a + (k === "rebar" ? 0 : cfg.materialMix[k]), 0);
+      cfg.materialMix = { ...cfg.materialMix, rebar: Math.max(0, 1 - others) };
     },
   },
 ];
@@ -890,6 +954,14 @@ export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
   if (!def) return;
   const before = { ...cfg.materialMix };
   def.apply(cfg);
+
+  // A full-belt clause states the whole belt itself: nothing standard ships,
+  // its apply carries the no-refund floors, and the mix deliberately sums to
+  // exactly 1. The re-cap below exists to keep a partial-belt clause from
+  // overfilling a belt that still owes the player standard cargo; here there
+  // is none to owe, and scaling would break the card's promise instead of
+  // keeping it. sim/systems.ts holds these clauses to their own contract.
+  if (def.fullBelt) return;
 
   const keys = Object.keys(cfg.materialMix) as Array<keyof typeof cfg.materialMix>;
   const total = keys.reduce((a, k) => a + cfg.materialMix[k], 0);

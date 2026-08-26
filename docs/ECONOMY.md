@@ -457,7 +457,7 @@ change anything.
 | 7 | Bay Extension | **Powder Run** — 27% of the belt volatile | **Hair Trigger** — 20% volatile, primed 15% finer |
 | 8 | Demolition Rack | **Tar Run** — 18% of the belt tar | **Fouled Bay** — 12% tar, congestion bites 12 cubes earlier |
 | 9 | Press Hydraulics | **Bled Hydraulics** — settle assist at 35% | **Haulage Bond** — spillage billed at 3× |
-| 10 | Bond Emitter | **Dead Weight** — every shipment a pentomino, +50% a launch | **Short Measure** — every shipment a domino, −40% a launch |
+| 10 | Bond Emitter | **Odd Lots** — nothing standard ships: all six materials at once | **Full Rebar** — every standard shipment arrives as rebar |
 
 **Both clauses are meant to be equally bad, and bad differently.** That is what
 makes it a choice rather than a toll, and it is the part that had to be
@@ -506,9 +506,20 @@ clause takes away, all twenty fall into three groups with no exceptions:
 
 | What the clause takes away | Clauses | Bot |
 |---|---|---|
-| **Cubes that can reach a line** | every material clause, plus Cold Weld and Dead Weight | −15 to −70 |
+| **Cubes that can reach a line** | every material clause, plus Cold Weld and the retired Dead Weight | −15 to −70 |
 | **Money** | Rush Order, Rate Cut, Haulage Bond, Bled Hydraulics | −5 to −10 |
-| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, Short Measure | free or better |
+| **Good placements** | Tight Gauge, Tail Gale, Rebar Run, Hair Trigger, Powder Run, the retired Short Measure | free or better |
+
+The Tier 10 pair postdates the table. The size fork it replaced (**Dead
+Weight** / **Short Measure**, the pentomino/domino pair) examined the cannon's
+unit economics — launches per line, priced per cube — which nothing in the
+ladder teaches. The full-belt cargo pair asks what the Tiers actually taught:
+`Odd Lots` deals the whole material catalogue with the standard shipment
+removed, and `Full Rebar` ships the capstone's own unbreakable format as
+cargo. The bot cannot rank the two poles (a material flood collapses it, a
+placement demand reads free), so the sizing argument is against the ladder
+itself and lives in `finals.ts`'s Tier 10 header; only a device playtest can
+say more.
 
 The third group is the finding. The bot does not plan a row — it solves an angle
 and fires on every cooldown — so a clause that shrinks the space of *good*

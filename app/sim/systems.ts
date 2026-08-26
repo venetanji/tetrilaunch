@@ -65,7 +65,7 @@ import {
   newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
 } from "../src/game/run";
 import {
-  FINALS, applyFinal, finalById, finalsForTier, type FinalId,
+  FINALS, FINAL_MATERIAL_CAP, applyFinal, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
 import {
   dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
@@ -5432,8 +5432,22 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
       // ratchet mix is held to 0.55 and a clause may not route around it (see
       // applyFinal's re-cap). A tolerance, not equality, because the scaling is
       // floating point.
+      //
+      // EXCEPT the capstone's full-belt pair, whose whole design is that
+      // nothing standard ships: there the belt must land at exactly 1, and
+      // the playability line is drawn where hazards.ts always drew it — on
+      // cargo that can never count. Slag is the one material whose cubes
+      // cannot fill a slot (theme.ts's countsForLines), so slag is what stays
+      // bounded; and the pair's other promise — the capstone stopped dealing
+      // shipment sizes — is pinned in the same breath.
       const mix = Object.values(cfg.materialMix).reduce((a, b) => a + b, 0);
-      if (mix > MIX_TOTAL_CAP + 1e-9) why.push(`materials sum ${mix.toFixed(3)}`);
+      if (clause.fullBelt) {
+        if (Math.abs(mix - 1) > 1e-9) why.push(`full belt sums ${mix.toFixed(3)}`);
+        if (cfg.materialMix.slag > FINAL_MATERIAL_CAP + 1e-9) why.push(`slag at ${cfg.materialMix.slag.toFixed(3)}`);
+        if (cfg.pieceSize !== "std") why.push(`ships ${cfg.pieceSize} shipments`);
+      } else if (mix > MIX_TOTAL_CAP + 1e-9) {
+        why.push(`materials sum ${mix.toFixed(3)}`);
+      }
       if (why.length) broken.push(`${clause.id}: ${why.join(", ")}`);
      }
     }
@@ -5445,6 +5459,10 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // the bay it just sold them.
     const lied: string[] = [];
     for (const clause of FINALS) {
+      // The full-belt pair's card quotes no per-material rate to hold — its
+      // promise is the belt's SHAPE (nothing standard), held by its own
+      // block below on the same arrivals.
+      if (clause.fullBelt) continue;
       const clean = levelForRun({
         ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
       });
@@ -5475,6 +5493,7 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // arrivals it matters for. "At least" is what makes it true on all of them.
     const bare: string[] = [];
     for (const clause of FINALS) {
+      if (clause.fullBelt) continue; // no numeric rate on the card to outrun
       const clean = levelForRun({
         ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1, final: clause.id,
       });
@@ -5495,6 +5514,45 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     }
     check("a clause that can outrun its own card says \"at least\" on it",
       bare.length === 0, bare.join(", "));
+
+    // THE CAPSTONE PAIR SHIPS NO STANDARD CARGO — on every arrival, and
+    // without refunding anything. "Nothing standard" is each card's whole
+    // promise, so it gets the same treatment the rate cards' numbers get:
+    // checked on the worst arrivals, not just the clean one. And the full
+    // belt must still be the one the run's own ratchets built — a clause that
+    // converted a ratcheted material into easier cargo would be the refund
+    // bug (see finals.ts's schedule()) wearing its third coat.
+    {
+      const pair = finalsForTier(MARK_COUNT);
+      check("the capstone's pair is the full-belt pair, and nothing else is",
+        pair.every((c) => c.fullBelt === true)
+          && FINALS.every((c) => !c.fullBelt || c.tier === MARK_COUNT),
+        FINALS.filter((c) => c.fullBelt).map((c) => `${c.id}@${c.tier}`).join(", "));
+      const partial: string[] = [];
+      const converted: string[] = [];
+      for (const clause of FINALS.filter((c) => c.fullBelt)) {
+        for (const ratchets of [{} as Ratchets, ...arrivals(clause)]) {
+          const base = {
+            ...newRun(7, [], 0, newTiers(), clause.tier),
+            levelIndex: RUN_LEVELS - 1,
+            ratchets,
+          };
+          const before = levelForRun(base);
+          const after = levelForRun({ ...base, final: clause.id });
+          const total = Object.values(after.materialMix).reduce((a, b) => a + b, 0);
+          if (Math.abs(total - 1) > 1e-9) partial.push(`${clause.id} at ${total.toFixed(3)}`);
+          for (const k of Object.keys(after.materialMix) as Array<keyof typeof after.materialMix>) {
+            if (after.materialMix[k] < before.materialMix[k] - 1e-9) {
+              converted.push(`${clause.id} refunds ${k}`);
+            }
+          }
+        }
+      }
+      check("a full belt ships nothing standard on any arrival",
+        partial.length === 0, partial.join(", "));
+      check("a full belt keeps every material the run arrived with",
+        converted.length === 0, converted.join(", "));
+    }
   }
 
   // The wind pair's seam. A locked bay must actually blow the way its card
@@ -5539,9 +5597,10 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     // clause was correct, the number was correct, and the screen still told the
     // player the opposite of the truth.
     //
-    // Some rows going GREEN is fine and deliberate: Short Measure genuinely
-    // makes a launch cheaper, and Dead Weight genuinely buys a bigger payload.
-    // What no clause may do is project a bay that costs nothing anywhere.
+    // Some rows going GREEN is fine and deliberate: the retired size pair
+    // genuinely moved launch money in the player's favour on one half, and a
+    // future clause may trade the same way again. What no clause may do is
+    // project a bay that costs nothing anywhere.
     const painless: string[] = [];
     for (const clause of FINALS) {
       const run = { ...newRun(7, [], 0, newTiers(), clause.tier), levelIndex: RUN_LEVELS - 1 };
