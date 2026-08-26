@@ -245,11 +245,18 @@ const SANDBOX_CONTRACT: SandboxState = {
 
 /** The tower with the whole ladder beaten and the car on the God floor — the
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
- *  save, so this is the only fixture that reaches it. */
+ *  save, so this is the only fixture that reaches it.
+ *
+ *  SEALED AT MARK 10, and that Mark specifically: the seal is stamped in the
+ *  slack between the plate's number and its windows, and 10 is the only
+ *  two-digit number the ladder has — i.e. the narrowest that slack ever gets.
+ *  Without this the seal renders nowhere in the whole matrix and every "no new
+ *  violations" run is measuring a floor that has no stamp on it. */
 const TOWER_TOP: S.TowerState = {
   unlocked: MARK_COUNT,
   selected: S.GOD_TIER,
   god: true,
+  sealed: [MARK_COUNT],
 };
 
 /** The same tower with Tier S open — the tallest the column ever gets, because
