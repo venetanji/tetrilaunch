@@ -38,14 +38,48 @@ that bay downward for a new player and upward for a veteran. The ladder's own
 per-bay climb (`TARGET_PER_BAY`) is unchanged and rides on top — the tier sets
 where the climb starts and steepens it slightly.
 
-| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float |
-|---|---|---|---|---|---|
-| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 |
-| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 |
-| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 |
-| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 |
+| Tier | Target, bay 1 → bay 10 | per bay | Clock | Launch | Float | Spill fine, bay 1 → bay 10 |
+|---|---|---|---|---|---|---|
+| 1 | $600 → $1500 | +$100 | 180s | $20 | $160 | $1 → $1 |
+| 3 | $640 → $1576 | +$104 | 172s | $22 | $176 | $6 → $10 |
+| 6 | $700 → $1690 | +$110 | 160s | $26 | $208 | $14 → $24 |
+| 10 | $780 → $1842 | +$118 | 144s | $30 | $240 | $25 → $43 |
 
-Three things this deliberately does **not** touch:
+### The spill fine rides the ladder too
+
+`penaltyPerLostPiece` was the last flat number on the bay: 25 + 2i at every
+tier. It is billed **per cube**, so one bounced tetromino cost a Tier 1 player
+$100 against a $160 float — 62% of the opening runway on a single bad shot, with
+the bay unrecoverable after two. That is the beginner report; the fine was not
+teaching precision, it was ending the lesson before it started.
+
+It now ramps linearly across the tiers (`level.ts`'s `penaltyPerLostPieceFor`),
+from $1 a cube at Tier 1 to exactly the historical ladder at Tier 10 — two named
+endpoints (`SPILL_FINE_TIER1`, `SPILL_FINE_TOP_BASE`/`_PER_BAY`) and a straight
+line between them, the same shape the other three tier curves have. Not zero at
+the bottom, deliberately: a free spill would delete the rule on the very tier
+the guide teaches it on.
+
+Measured, `sim/sweep.ts`, bays 1-3, 5 seeds, no mods, before → after:
+
+| Tier | Bay | `lob` | `lob-flat` | `aim` | `impatient` |
+|---|---|---|---|---|---|
+| 1 | 1 | 0% → **40%** | 0% → **20%** | 80% → 80% | 60% → 60% |
+| 1 | 2 | 40% → **60%** | 20% → **40%** | 60% → 60% | 60% → **80%** |
+| 1 | 3 | 0% → **40%** | 0% → **40%** | 40% → 40% | 80% → 80% |
+| 2 | 1 | 0% → **40%** | 0% → **40%** | 80% → 80% | 60% → 60% |
+| 2 | 2 | 40% → 40% | 20% → **40%** | 60% → 60% | 60% → **80%** |
+| 2 | 3 | 0% → **40%** | 0% → **60%** | 40% → 40% | 80% → 80% |
+
+The shape is the whole argument, not the deltas: the two SLOPPY bots (fixed lobs
+that spill routinely) go from shut out of bays 1 and 3 entirely to winning some
+of them, while `aim` — the calibration bot — is **byte-identical in all six
+rows**: same win rate, same median seconds, same shots, same lines. The fine
+only ever bit the player who was already missing. Bot caveats as always: no Bond
+Breaker, only `demo` fires charges, fixed arcs never read the pile, so a human
+clears bays these bots lose.
+
+Three things the ladder still deliberately does **not** touch:
 
 - **The mistake budget stays eight launches** (`LAUNCH_BUDGET_SHOTS`). The float
   is derived from it rather than fixed in dollars, so a dearer shot at a high
@@ -54,8 +88,12 @@ Three things this deliberately does **not** touch:
 - **`scorePerLine` stays tier-invariant** (100 + 10/bay). A higher tier is *more
   lines*, not richer ones — which is why the leaderboard is per tier now: a
   shared board would rank the ladder rather than the play.
-- **`penaltyPerLostPiece` stays on the bay index** (25 + 2i). A fourth knob that
-  also punished sloppy play harder would compound the other three into a cliff.
+- **Contracts and drills still charge nothing for a spill** (`levelForContract`
+  and `levelForDrill` both zero the fine). A Contract has a tier, so the ramp
+  *could* reach it — but it has no bankroll, no launch price and no funding
+  target, so a fine has nothing to be measured against. The answer to a spilled
+  cube there is already the harshest the mode has: one fewer shipment left in
+  the launch budget.
 
 ## Three currencies, three horizons
 
@@ -677,7 +715,9 @@ on its face.
 (`lost = lostCubes.length`), so a spilled tetromino costs four times the number
 the field is named for and a spilled pentomino five. The field keeps its name —
 it is threaded through saves, telemetry and the harness — but the projection
-tile now says which unit it is in.
+tile now says which unit it is in. That multiplier is also why the tier ramp
+above matters as much as it does: what the tier really moves is the price of one
+bounced shipment, $4 at the bottom of the ladder and $100 at the top.
 
 ## Tuning
 
