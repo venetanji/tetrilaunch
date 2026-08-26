@@ -201,6 +201,41 @@ export interface TowerState {
    *  floors' windows read it: see floorHTML's note. Absent reads as 0, which
    *  is the honest dark for a caller with no meta to ask. */
   contracts?: number;
+  /** THIS RENDER IS THE UNLOCK CEREMONY (see TOWER_RISE_FROM's note): the car
+   *  rides from the ground floor to `selected`, which the caller has already
+   *  set to the floor that just opened.
+   *
+   *  A boolean rather than the destination floor, deliberately. A second
+   *  number here could disagree with `selected`, and the two disagreeing is
+   *  the one failure this component cannot survive: the car would animate to
+   *  one floor and rest at another, which is not a glitch but a lie about
+   *  which Mark the Deep Run button is about to fly. There is nothing to
+   *  disagree about if there is only one number.
+   *
+   *  Absent reads as no ceremony, so every caller that predates it — the
+   *  fallback tower in menuScreen and every uifit fixture — renders the tower
+   *  it always did, at exactly the geometry it always did. */
+  celebrate?: boolean;
+  /** How far into the ceremony this render already is, in ms.
+   *
+   *  A CEREMONY IS A TIMELINE, NOT A MOUNT. The menu's markup is rewritten
+   *  wholesale on a re-render (the store's entitlement callback does it), which
+   *  restarts every CSS animation in it from frame one — while the timer that
+   *  tears the ceremony down is still counting from when the ride really began.
+   *  A re-render two seconds in would therefore restart a four-second ride with
+   *  two seconds left to run, and the player would watch the car set off and be
+   *  cut off halfway up. (Codex review, PR #110.)
+   *
+   *  Passing the offset makes the ride RESUME instead: it becomes a negative
+   *  animation-delay (app.css), so the replacement tower renders the frame the
+   *  old one was showing and carries on from there. The teardown timer needs no
+   *  adjustment because, as far as the animation is concerned, nothing
+   *  restarted.
+   *
+   *  Absent or 0 is the first mount — the ceremony starting at its beginning,
+   *  which is what every caller that does not re-render mid-ride ever asks
+   *  for. */
+  celebrateElapsed?: number;
 }
 
 /** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
@@ -247,6 +282,112 @@ export function towerIndexOf(tier: number): number {
  */
 export function towerTravelMs(from: number, to: number): number {
   return Math.min(1100, 260 + Math.abs(towerIndexOf(to) - towerIndexOf(from)) * 95);
+}
+
+/* ---------------------------------------------------------------------------
+ * THE UNLOCK RIDE — the one trip the car makes that nobody asked it to.
+ *
+ * A tier completing is the largest thing that happens outside a run, and the
+ * tower is the only surface that can show it as a CLIMB rather than as a
+ * number going up by one. So when the ladder moves (meta.ts's
+ * pendingUnlockMark), the home screen opens with the car on the GROUND FLOOR
+ * and rides it all the way to the floor that just opened.
+ *
+ * WHY THE GROUND FLOOR, when the car was parked one floor below the new one
+ * and a real lift would move exactly one floor. Because one floor is not a
+ * climb. The ride is the only moment the building's whole height is ever
+ * traversed, and starting it at Tier 1 makes the trip say the thing the number
+ * cannot: this is how far you have come, and it took all of that to open this
+ * door. It also gives the ceremony something to GROW with — Tier 2's ride is
+ * one floor and Tier 10's is nine, so the last one is visibly the longest.
+ *
+ * WHY THE DURATION IS NOT towerTravelMs. That function is tuned for
+ * NAVIGATION: it is capped at 1.1s precisely so a pick never reads as a wait,
+ * because the player asked for the car to move and wants to get on with it.
+ * Nobody asked for this trip. It is a ceremony, it is allowed to take its
+ * time, and a ceremony that is over in a third of a second is not one. Same
+ * distance-scaled shape, three times the numbers — see towerCelebrationMs for
+ * the band the total is held inside.
+ * ------------------------------------------------------------------------ */
+
+/** Where the ceremony starts: the bottom of the ladder. Not the floor the car
+ *  was parked on — see the note above. */
+export const TOWER_RISE_FROM = 1;
+
+/** Doors-closed beat before the car moves. Long enough to read as the building
+ *  gathering itself rather than as a dropped frame, short enough that nobody
+ *  wonders whether the animation is broken. It also covers the menu's own
+ *  mount: the ride must not begin in the same frame the screen appears in, or
+ *  the first thing the player sees is already half over. */
+export const TOWER_RISE_HOLD_MS = 450;
+
+/** The ride: a floor-independent base plus a per-floor step. The base is what
+ *  keeps Tier 2's single-floor ride from being a twitch — at towerTravelMs's
+ *  rate one floor is 355ms, which is a lift arriving, not a lift ARRIVING. */
+export const TOWER_RISE_BASE_MS = 900;
+export const TOWER_RISE_PER_FLOOR_MS = 190;
+
+/** Arrival: the plate igniting and the car's lamp blooming and settling. The
+ *  longest phase after the ride itself, because this is the beat the whole
+ *  thing exists to deliver and it must not be snatched away. */
+export const TOWER_ARRIVE_MS = 1500;
+
+/** How long the car spends travelling to `to`. */
+export function towerRiseMs(to: number): number {
+  const floors = Math.abs(towerIndexOf(TOWER_RISE_FROM) - towerIndexOf(to));
+  return TOWER_RISE_BASE_MS + floors * TOWER_RISE_PER_FLOOR_MS;
+}
+
+/**
+ * The whole ceremony, end to end — what main.ts times its teardown and its
+ * music window against.
+ *
+ * Held inside 3–6 seconds for every floor the ladder can open, and both ends
+ * of that band are load-bearing rather than taste. Under about three seconds
+ * the ride does not register as an event at all: the player is still reading
+ * the menu when it finishes, and it reads as a transition. Past about six it
+ * stops being a celebration and becomes something to sit through, on a screen
+ * whose only job is to get out of the way. Tier 2 (one floor) comes out at
+ * 3.04s and the God floor (ten) at 4.75s, so the whole ladder fits with room
+ * at both ends — sim/systems.ts pins that, because the band is invisible from
+ * any one of the three constants it is made of.
+ */
+export function towerCelebrationMs(to: number): number {
+  return TOWER_RISE_HOLD_MS + towerRiseMs(to) + TOWER_ARRIVE_MS;
+}
+
+/**
+ * When the car passes `tier` on a ride to `to`, in ms from the ceremony's
+ * start — or null for a floor the ride never reaches.
+ *
+ * This is what makes the building light up BEHIND the car instead of all at
+ * once: each floor's already-lit windows flare as the car draws level with it
+ * (app.css's tower-window-surge reads it as an animation-delay), so the
+ * ceremony is a wave travelling up the tower rather than a car with a glow
+ * around it. Floors above the destination are never lit by it, because they
+ * are floors the player has not earned and the ride is not a promise.
+ *
+ * Linear in shaft INDEX, not in time: the car's own easing is the car's
+ * business, and matching it here would mean re-stating a cubic-bezier in
+ * arithmetic and keeping the two in step forever. The visible cost is that the
+ * wave leads the car slightly at the ends of the trip and lags it in the
+ * middle, by at most a floor — which nobody has ever noticed in a lighting
+ * effect, and which no amount of matched easing would make worth the coupling.
+ */
+export function towerRisePassMs(to: number, tier: number): number | null {
+  const from = towerIndexOf(TOWER_RISE_FROM);
+  const dest = towerIndexOf(to);
+  const idx = towerIndexOf(tier);
+  // Off the ride: below the ground floor (nothing is) or above the floor that
+  // just opened. Both ends inclusive — the ground floor is where the doors
+  // close and the destination is the arrival itself.
+  if (idx > from || idx < dest) return null;
+  const span = from - dest;
+  // A zero-floor ride cannot be produced by an unlock (the ladder always moves
+  // at least one rung), but a caller that manufactures one gets the arrival
+  // rather than a division by zero.
+  const t = span === 0 ? 1 : (from - idx) / span;
+  return Math.round(TOWER_RISE_HOLD_MS + towerRiseMs(to) * t);
 }
 
 function floorHTML(state: TowerState, tier: number): string {
@@ -300,7 +441,20 @@ function floorHTML(state: TowerState, tier: number): string {
   // distinction half the audience does not get.
   const isSealed = !god && (state.sealed ?? []).includes(tier);
   const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
-  return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"`
+  // THE CEREMONY'S TIMING, per floor and inline — the one thing about this
+  // drawing that cannot be a stylesheet constant, because it depends on where
+  // the floor sits in a trip whose length the ladder decides (towerRisePassMs).
+  //
+  // Custom properties and a class, nothing else: no width, no height, no
+  // margin, nothing app.css does arithmetic with. The resting geometry of the
+  // tower is byte-identical with the ceremony on and off, which is what keeps
+  // sim/uifit's baseline honest about a screen it will never see mid-ride.
+  const pass = state.celebrate && state.selected !== SANDBOX_TIER
+    ? towerRisePassMs(state.selected, tier)
+    : null;
+  if (pass !== null && sel) cls.push("is-arriving");
+  const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
+  return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
     + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
@@ -375,8 +529,32 @@ export function tierTowerHTML(state: TowerState): string {
   // is as far up as it goes.
   const off = state.selected === SANDBOX_TIER;
   const idx = towerIndexOf(off ? GOD_TIER : state.selected);
-  return `<div class="tower${off ? " tower--off" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
-    <div class="tower__shaft" style="--tower-idx:${idx}">
+  // THE CEREMONY (TowerState.celebrate). The car's RESTING position is still
+  // the selected floor — `--tower-idx` is untouched — and the ride is drawn as
+  // an animation that starts at the ground floor and ends at that rest, so the
+  // instant it finishes there is nothing left over to unwind and no JS has to
+  // land anything. Which is also why it degrades to the right thing on its own:
+  // strip the animation (prefers-reduced-motion) and the car is simply already
+  // where it belongs.
+  //
+  // Never while the lift is out of service. Tier S is not a rung, nothing
+  // unlocks it, and a car riding to a floor it does not serve would contradict
+  // the one rule the roof is built on.
+  const rising = state.celebrate === true && !off;
+  const ride = rising
+    ? `;--tower-rise-from:${towerIndexOf(TOWER_RISE_FROM)}`
+      + `;--tower-rise-hold:${TOWER_RISE_HOLD_MS}ms`
+      + `;--tower-rise-dur:${towerRiseMs(state.selected)}ms`
+      + `;--tower-arrive-dur:${TOWER_ARRIVE_MS}ms`
+      // How far in this mount already is — subtracted from every delay below
+      // the shaft, so a tower re-rendered mid-ride resumes rather than restarts
+      // (see TowerState.celebrateElapsed). Clamped at 0 and floored to whole
+      // milliseconds: a negative offset would push the ceremony into the future
+      // and desynchronise it from the timer that ends it.
+      + `;--tower-rise-elapsed:${Math.max(0, Math.floor(state.celebrateElapsed ?? 0))}ms`
+    : "";
+  return `<div class="tower${off ? " tower--off" : ""}${rising ? " tower--rising" : ""}" role="group" aria-label="Tier tower — pick the Mark to fly">
+    <div class="tower__shaft" style="--tower-idx:${idx}${ride}">
       ${towerHeadHTML(state)}
       <div class="tower__rail" aria-hidden="true"></div>
       <div class="tower__car" aria-hidden="true"><span></span></div>

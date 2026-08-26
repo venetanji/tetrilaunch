@@ -443,6 +443,27 @@ export interface MetaState {
    *  wearing a badge. The sim guards that with an explicit check rather than
    *  trusting anyone to read this paragraph. */
   sealedMarks: number[];
+  /** The highest Mark whose UNLOCK has already been celebrated on the home
+   *  screen — the tower's ceremonial ride to the newly opened floor (main.ts's
+   *  armUnlockCelebration, screens.ts's TowerState.celebrate).
+   *
+   *  A HIGH-WATER NUMBER rather than a flag, and it is deliberately the SAME
+   *  shape as `mark`, because the question the menu asks is a comparison
+   *  between the two: the ladder has moved somewhere the ceremony has not
+   *  followed yet exactly when `mark > celebratedMark`. That derivation is what
+   *  makes the celebration fire once per unlock without either of the two
+   *  events that can cause one — a Contract clear, a won Deep Run — having to
+   *  know the home screen exists. Both already persist `mark`; the menu reads
+   *  the difference on its way in, whenever that happens to be.
+   *
+   *  Equal to `mark` on a fresh save (both 0), which is what keeps a new
+   *  player's Tier 1 quiet: Tier 1 is where everyone starts, it was never
+   *  unlocked, and a ceremony for it would celebrate opening the front door.
+   *  A save written before this field existed migrates to `mark` rather than to
+   *  0 (lib/store.ts's loadMeta) — those tiers were unlocked and lived through
+   *  long ago, and replaying nine ceremonies at once on the first launch after
+   *  an update would be a bug wearing a party hat. */
+  celebratedMark: number;
 }
 
 export function newMeta(): MetaState {
@@ -450,6 +471,7 @@ export function newMeta(): MetaState {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), claimedContracts: [], sealedMarks: [],
+    celebratedMark: 0,
   };
 }
 
@@ -669,6 +691,57 @@ export function tierProgressFor(meta: MetaState): TierProgress {
     award: tierSalvage(tier),
     milestone: tierMilestoneSalvage(tier),
   };
+}
+
+/* -------------------------------------------------------------------------
+ * THE UNLOCK CEREMONY — detection, and only detection.
+ *
+ * Completing a tier is the biggest thing that happens outside a run, and until
+ * now it was reported by a line of text on whichever modal the player happened
+ * to be looking at when it landed. The home screen's tower already draws the
+ * whole ladder; the ride to the new floor is that number becoming an event
+ * (main.ts's armUnlockCelebration, app.css's .tower--rising).
+ *
+ * WHAT LIVES HERE is the question "is a ceremony owed", and it is answered
+ * from persisted state rather than raised as a signal at the two places a tier
+ * can complete (recordContractClear from the Contract board, recordRunEnd from
+ * the end of a Deep Run). Derivation beats a signal on three counts, and each
+ * one is a bug the signal version would have shipped:
+ *
+ *  - The ceremony happens on a DIFFERENT SCREEN from the event. A signal has
+ *    to survive the walk from a Contract's end card back to the menu, and any
+ *    route that skips a step — quit to the menu, close the app on the end
+ *    card, a crash — drops it. The comparison cannot be dropped; it is still
+ *    true on the next launch, next week.
+ *  - It fires ONCE by construction rather than by discipline. Consuming it
+ *    writes `celebratedMark`, so re-entering the menu asks the same question
+ *    and gets "no".
+ *  - Neither recorder learns about the home screen, so the completion rule
+ *    stays one function (advanceTier) with one caller-visible result.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * The floor whose unlock is owed a ceremony, or null when none is.
+ *
+ * The answer is `markUnlocked` — the tier that just OPENED — and not the tier
+ * that was completed: a lift rides to where you can now go, not to where you
+ * have been. On a finished ladder (`mark` at MARK_COUNT) markUnlocked
+ * saturates at the top rung, and the floor that actually opened is the God
+ * floor above it; the caller with the tower in hand does that last mapping,
+ * because GOD_TIER is a drawing of the ladder rather than a Mark and this file
+ * has no business knowing it exists.
+ */
+export function pendingUnlockMark(meta: MetaState): number | null {
+  return meta.mark > meta.celebratedMark ? markUnlocked(meta) : null;
+}
+
+/** Burn the pending ceremony. Called when the ride STARTS, not when it ends —
+ *  a player who closes the app mid-ride has seen the tier open, and the
+ *  alternative is a ceremony that replays every launch until it is watched all
+ *  the way through. Idempotent, so a second call (a re-render, a state change
+ *  that re-enters the menu) is free. */
+export function markUnlockCelebrated(meta: MetaState): MetaState {
+  return meta.celebratedMark === meta.mark ? meta : { ...meta, celebratedMark: meta.mark };
 }
 
 /* -------------------------------------------------------------------------

@@ -54,7 +54,8 @@ import {
   type RefitOrder, type UpgradeId, type UpgradeTiers,
 } from "./game/upgrades";
 import {
-  INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked, nextStep,
+  INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked,
+  markUnlockCelebrated, nextStep, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
@@ -199,6 +200,43 @@ const MISFIRE_GUIDE_MIN_GAP_MS = 4000;
  *  disagree the ring lurches the moment the first frame writes the property. */
 const CREST_HEAT_REST = 0.45;
 
+/**
+ * THE BONUS TRACK, and the one other thing in the game that is allowed to
+ * play it.
+ *
+ * It is the Contract board's rare special (contracts.ts's contractBed — one
+ * roll in twenty, the bed that belongs to no bay), REUSED rather than
+ * re-scored, and the reuse is the point rather than an economy. That track is
+ * already the sound of "something out of the ordinary is happening to you",
+ * which is exactly what a tier opening is; a player who has heard it on a
+ * Contract recognises it here, and a player who meets it here first will
+ * recognise it there. A second special written for one four-second ceremony
+ * would be a track most players never hear twice.
+ *
+ * Nothing about the Contract roll changes to make this work — this is a second
+ * READER of the same name, and contracts.ts is not touched.
+ */
+const UNLOCK_BED: ContractBed = "contract-rare";
+
+/**
+ * How long the bonus bed keeps the menu after the car has landed.
+ *
+ * The ride is 3.0–4.8s (screens.ts's towerCelebrationMs), and cutting a piece
+ * of music off at four seconds does not play it — it plays its first bar and
+ * then apologises, which is worse than never starting it. So the bed outlives
+ * the animation by a phrase and only then crossfades back to the lounge, which
+ * is the shape the audio module is built for: playMusic loops beds and fades
+ * between them (lib/audio.ts), it has no notion of a track ENDING, and the
+ * one thing it does have that ends by itself — a stinger — reads from
+ * audio/stingers and would mean moving the file out from under the Contract
+ * roll that still needs it there.
+ *
+ * 6s, so the whole cue is 9–11s: long enough to be a piece of music, short
+ * enough that a player who walks away from the menu does not come back to a
+ * second soundtrack running under the home screen.
+ */
+const UNLOCK_MUSIC_TAIL_MS = 6000;
+
 /** How long a pointer must stay pressed on a Bond Breaker trigger before the
  *  charge is actually spent (see startHold).
  *
@@ -335,6 +373,33 @@ class App {
   /** Timer that auto-advances the bay-clear celebration; cleared if the player
    *  taps through it first. */
   private bayClearTimer: number | null = null;
+  /** The unlock ceremony is running on the menu right now (see
+   *  armUnlockCelebration). Read by towerState, which turns it into the ride,
+   *  and by syncMusic, which turns it into the bonus bed. True only while the
+   *  menu is the state on screen — setState clears it on the way out, so no
+   *  other screen can ever ask the audio for the special. */
+  private celebrating = false;
+  /** When the ceremony began, on the same clock the teardown timer counts from.
+   *
+   *  The ride is a CSS animation and the menu can be re-rendered from under it
+   *  — the store's entitlement callback does exactly that (see restoreScreen),
+   *  and a re-render replaces the tower wholesale, so its animations start over
+   *  from frame one. The teardown timeout, meanwhile, is still counting from
+   *  the original mount, and a re-render late in the ride would strip a
+   *  freshly-restarted one almost immediately.
+   *
+   *  So the ceremony has a START rather than a mount: every render hands the
+   *  tower how far in it already is (screens.ts's TowerState.celebrateElapsed),
+   *  the animations resume at that point instead of restarting, and the one
+   *  timer stays correct because the thing it is timing never actually
+   *  restarted. (Codex review, PR #110.) */
+  private celebrateStart = 0;
+  /** Strips the ceremony's classes out of the live menu when the ride ends. */
+  private celebrateTimer = 0;
+  /** Hands the menu bed back once the bonus track has had its phrase
+   *  (UNLOCK_MUSIC_TAIL_MS). Separate from the visual timer because the two
+   *  deliberately do not end together — see the constant. */
+  private celebrateMusicTimer = 0;
 
   /** The Contract being played, or null in Deep Run. Its presence is what puts
    *  the whole app in Contract mode: no run advances, no salvage is paid, and
@@ -707,8 +772,21 @@ class App {
       window.clearTimeout(this.towerTravel ?? undefined);
       window.clearTimeout(this.denyTimer);
       this.towerTravel = null;
+      // The unlock ceremony belongs to the home screen and dies with it. It has
+      // already been marked seen (armUnlockCelebration), so walking out halfway
+      // up the shaft spends it — which is the honest reading: the player was
+      // shown their new floor and chose to go somewhere else. Clearing
+      // `celebrating` here is also what guarantees no other screen can ask
+      // syncMusic for the bonus bed.
+      this.endUnlockCelebration();
+      window.clearTimeout(this.celebrateMusicTimer);
+      this.celebrateMusicTimer = 0;
     }
     this.state = s;
+    // AFTER the assignment and BEFORE the music and the render, because it
+    // writes both of their inputs: syncMusic reads `celebrating` to pick the
+    // bed, and renderOverlay reads it through towerState to mount the ride.
+    if (s === "menu") this.armUnlockCelebration();
     this.syncMusic(s);
     this.renderOverlay();
     this.overlay.style.pointerEvents = s === "playing" ? "none" : "auto";
@@ -773,10 +851,16 @@ class App {
         playMusic("menu");
         return;
 
-      // Everything out-of-run shares the menu bed.
+      // Everything out-of-run shares the menu bed — except the one visit to
+      // the home screen where a tier has just opened, which gets the bonus
+      // track for the length of the ceremony (UNLOCK_BED, and the tail after
+      // it). `celebrating` is only ever true on the menu (setState clears it on
+      // the way out), so this branch cannot leak the special onto the Workshop
+      // or the Contract board, and the timer that hands the lounge back is the
+      // one in armUnlockCelebration rather than anything here.
       default:
         stopStinger();
-        playMusic("menu");
+        playMusic(this.celebrating ? UNLOCK_BED : "menu");
     }
   }
 
@@ -1095,6 +1179,18 @@ class App {
       // The current floor's window lights (screens.ts's floorHTML): one per
       // first-clear Contract logged on the tier being flown.
       contracts: tierProgressFor(this.meta).contracts,
+      // The ceremony, when one is owed and running (armUnlockCelebration). The
+      // ride's destination is `selected`, which is why the clamp below has to
+      // stay the only thing that can set it — see the note there.
+      celebrate: this.celebrating,
+      // …and how far into it this render is. Zero on the mount that starts it;
+      // a real offset on any re-render that lands mid-ride, which is what lets
+      // the replacement tower pick the ride up rather than start it again (see
+      // celebrateStart). Rounded because it becomes a CSS time and a
+      // sub-millisecond fraction is noise in the markup, not precision.
+      celebrateElapsed: this.celebrating
+        ? Math.max(0, Math.round(performance.now() - this.celebrateStart))
+        : 0,
     };
     // Two conditions, and the SECOND is the one this used to be missing.
     // `tierOpen` only rejects a floor above the unlock, so it catches a save
@@ -1113,6 +1209,84 @@ class App {
       this.pickedAtMark = null;
     }
     return state;
+  }
+
+  /**
+   * THE UNLOCK CEREMONY — arm it, if the ladder has moved since the last one.
+   *
+   * Called on the way INTO the menu, and nowhere else. The two events that can
+   * open a tier (a Contract clear on the board, a won Deep Run) both happen on
+   * other screens and neither of them knows this one exists: they advance the
+   * Mark and persist it, and the question "is a ride owed" is answered here by
+   * comparing two numbers in the save (meta.ts's pendingUnlockMark). Which
+   * means the ceremony cannot be missed by any route home — quitting from the
+   * end card, closing the app on it, coming back tomorrow — and cannot be
+   * fired twice by any route either.
+   *
+   * It also means the celebration WAITS rather than hijacking. The end-of-run
+   * and end-of-Contract cards say what they always said and the player leaves
+   * them when they choose; the tower is what greets them when they do.
+   */
+  private armUnlockCelebration(): void {
+    if (pendingUnlockMark(this.meta) === null) return;
+    // THE LAST UNLOCK IS NOT A MARK. Beating Mark 10 opens the God floor, and
+    // markUnlocked has nowhere left to go — it saturates at MARK_COUNT, which
+    // is the floor the car is already parked on. So for that one unlock the
+    // pick is moved to the roof, and the ceremony rides there: the ride must
+    // end where the car RESTS (screens.ts's tierTowerHTML draws the two as one
+    // number by construction), and a ceremony that celebrated the floor the
+    // player was already standing on would be celebrating nothing.
+    //
+    // Stamped like any other pick, so towerState's freshness clamp accepts it.
+    if (this.meta.mark >= MARK_COUNT) {
+      this.pickedTier = S.GOD_TIER;
+      this.pickedAtMark = this.meta.mark;
+    }
+    // BURNED NOW, before a pixel is drawn, rather than when the ride ends. A
+    // player who closes the app halfway up the shaft has seen their tier open;
+    // the alternative is a ceremony that replays on every launch until it is
+    // watched all the way through, which turns a reward into a toll.
+    this.meta = markUnlockCelebrated(this.meta);
+    saveMeta(this.meta);
+    this.celebrating = true;
+    // The clock every later render measures its offset against, set before
+    // towerState is asked anything — that call already reads it.
+    this.celebrateStart = performance.now();
+    // Asked of towerState rather than of markUnlocked, because the God floor
+    // above makes those two different questions and the ride's length is the
+    // shaft's, not the ladder's.
+    const total = S.towerCelebrationMs(this.towerState().selected);
+    window.clearTimeout(this.celebrateTimer);
+    this.celebrateTimer = window.setTimeout(() => this.endUnlockCelebration(), total);
+    // The bed outlives the ride by a phrase — see UNLOCK_MUSIC_TAIL_MS. Guarded
+    // on the state because leaving the menu already handed the music over to
+    // whatever screen the player went to, and this must not pull it back.
+    window.clearTimeout(this.celebrateMusicTimer);
+    this.celebrateMusicTimer = window.setTimeout(() => {
+      if (this.state === "menu") playMusic("menu");
+    }, total + UNLOCK_MUSIC_TAIL_MS);
+  }
+
+  /**
+   * End the ride: the car is parked, the floor is lit, the menu goes back to
+   * being a menu.
+   *
+   * PATCHED OUT of the live DOM rather than re-rendered. renderOverlay rewrites
+   * the menu's markup wholesale, which would tear down the attract demo's
+   * canvas (the same reason onBeaconTap patches its lamp by hand) — and there
+   * is nothing to re-render anyway: the animations have already landed the car
+   * on its resting position, so removing the one class that gates all of them
+   * leaves exactly the menu that would have been drawn without a ceremony.
+   * That single class is also the whole teardown under prefers-reduced-motion,
+   * where the arrival glow is a held still rather than an animation and this
+   * timer is the only thing that ever takes it down.
+   */
+  private endUnlockCelebration(): void {
+    window.clearTimeout(this.celebrateTimer);
+    this.celebrateTimer = 0;
+    if (!this.celebrating) return;
+    this.celebrating = false;
+    this.overlay.querySelector(".tower--rising")?.classList.remove("tower--rising");
   }
 
   /** The Mark a Deep Run started right now would fly. Re-derived from
@@ -1258,7 +1432,38 @@ class App {
       }
       return;
     }
-    if (tier === state.selected && this.towerTravel === null) return;
+    // A DELIBERATE TAP ENDS THE CEREMONY, and it has to be settled BEFORE the
+    // no-op below rather than after it. The tower is a control before it is a
+    // celebration, and a player who reaches past the ride to touch a floor has
+    // said what they want.
+    //
+    // The floor they are most likely to touch is the one the ride is heading
+    // for — it is lit, it is the thing that just changed, and tapping the
+    // interesting thing on screen is what anyone does. That floor IS
+    // `state.selected`, so with this after the early return the single most
+    // natural way to dismiss the ceremony was the one gesture that did nothing
+    // at all. (Codex review, PR #110.)
+    //
+    // Ending it here also stops the ride and the pick from fighting over the
+    // car's position: the ride's animation outranks the transition this method
+    // drives, so leaving it running would show the car finishing its trip to
+    // the new floor and then snapping to the tapped one. The bed is left
+    // playing out its phrase (see UNLOCK_MUSIC_TAIL_MS); nothing about touching
+    // a floor is a reason to cut a piece of music off.
+    //
+    // Deliberately NOT above the `tierOpen` refusal: a tap on a locked floor is
+    // answered by the floor shaking its head, and that is not the player
+    // choosing anything. The ceremony plays on.
+    const dismissed = this.celebrating;
+    this.endUnlockCelebration();
+
+    if (tier === state.selected && this.towerTravel === null) {
+      // Dismissal only — the car is already parked here, so re-running the
+      // travel machinery below would roll the plate from a floor to itself and
+      // arm a timer to land somewhere it already is.
+      if (dismissed) playUiClick();
+      return;
+    }
 
     const dur = S.towerTravelMs(state.selected, tier);
     this.pickedTier = tier;

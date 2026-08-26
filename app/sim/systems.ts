@@ -59,7 +59,8 @@ import {
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
 } from "../src/game/upgrades";
 import {
-  contractClaimed, markUnlocked, newMeta, recordContractClear, recordRunEnd, safeLoadout,
+  contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
+  recordContractClear, recordRunEnd, safeLoadout,
   tierProgressFor, tierSalvage, tierMilestoneSalvage, TIER_CONTRACTS_REQUIRED, TIER_SALVAGE_BASE,
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
@@ -7335,6 +7336,181 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     "a tower with no seal record draws no seals",
     !S.tierTowerHTML({ unlocked: 3, selected: 3, god: false }).includes("tower__seal"),
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  /** Complete the tier `meta` is currently on, the long way: one won Deep Run
+   *  plus a full board of at-tier first clears, through the real recorders. A
+   *  hand-written `{ ...meta, mark: n }` would pass every check below while
+   *  proving nothing about the path the game actually takes. */
+  const completeTier = (meta: MetaState, tag = ""): MetaState => {
+    const tier = markUnlocked(meta);
+    let out = recordRunEnd(meta, tier, true, RUN_LEVELS).meta;
+    for (let i = 0; i < TIER_CONTRACTS_REQUIRED; i++) {
+      // Ids are unique per call site as well as per tier: a Contract counts
+      // ONCE ever (meta.claimedContracts), so a re-used id would tick nothing
+      // and the tier would silently fail to complete.
+      out = recordContractClear(out, { id: `ceremony${tag}-t${tier}-c${i}`, tier }).meta;
+    }
+    return out;
+  };
+
+  // A NEW PLAYER IS OWED NOTHING. Tier 1 is where everyone starts — it was
+  // never unlocked, and a ceremony for it would celebrate opening the front
+  // door of a building you have been handed the keys to.
+  check("a fresh save owes no ceremony", pendingUnlockMark(newMeta()) === null);
+  check("nothing owed after a lost run",
+    pendingUnlockMark(recordRunEnd(newMeta(), 1, false, 4).meta) === null);
+  check("nothing owed after a half-finished tier",
+    pendingUnlockMark(recordRunEnd(newMeta(), 1, true, RUN_LEVELS).meta) === null);
+
+  const opened = completeTier(newMeta());
+  check("completing a tier owes a ceremony", pendingUnlockMark(opened) !== null);
+  // The ride goes to the floor that OPENED, not the one that was finished — a
+  // lift takes you where you can now go. Tier 1 completing opens Tier 2.
+  check("the ceremony names the floor that opened",
+    pendingUnlockMark(opened) === 2 && opened.mark === 1);
+
+  // ONCE. This is the whole contract with the home screen: the menu is
+  // re-entered constantly (every back button, every Workshop visit), and a
+  // ceremony that re-armed on each one would be a cutscene the player cannot
+  // get out of.
+  const seen = markUnlockCelebrated(opened);
+  check("consuming the ceremony silences it", pendingUnlockMark(seen) === null);
+  check("re-consuming is free and idempotent", markUnlockCelebrated(seen) === seen);
+  // …and PERSISTS as a watermark rather than a flag, so the NEXT unlock is
+  // owed its own ride. A boolean cleared here could never say that.
+  check("the next unlock owes a fresh ceremony",
+    pendingUnlockMark(completeTier(seen)) === 3);
+
+  // COSMETIC BY CONSTRUCTION, the same rule the tower's seal lives under
+  // (docs/DESIGN.md: "Purchasable power: none"). Watching or skipping the
+  // ceremony must leave the save indistinguishable in every number the ladder
+  // reads — otherwise the animation is a progression axis wearing a party hat.
+  check(
+    "celebrating pays nothing and moves nothing",
+    seen.salvage === opened.salvage && seen.mark === opened.mark
+      && seen.tierContracts === opened.tierContracts
+      && seen.tierRunDone === opened.tierRunDone
+      && seen.claimedContracts.length === opened.claimedContracts.length,
+  );
+
+  // THE TOP OF THE LADDER still opens something: beating Mark 10 opens the God
+  // floor. markUnlocked saturates at MARK_COUNT there, which is why main.ts —
+  // the only caller holding a tower — maps that one case onto GOD_TIER rather
+  // than riding to the floor the car is already parked on.
+  let top = newMeta();
+  for (let i = 0; i < MARK_COUNT; i++) top = markUnlockCelebrated(completeTier(top));
+  check("the whole ladder can be climbed", top.mark === MARK_COUNT);
+  const godOpened = completeTier(
+    { ...top, mark: MARK_COUNT - 1, celebratedMark: MARK_COUNT - 1 }, "-god",
+  );
+  check("the last unlock is owed a ceremony too",
+    pendingUnlockMark(godOpened) === MARK_COUNT && godOpened.mark === MARK_COUNT);
+
+  // ------------------------------------------------------------------ the ride
+  //
+  // THE BAND. 3-6 seconds is the design's, and it is invisible from any one of
+  // the four constants it is made of — a hold, a base, a per-floor step and an
+  // arrival — so a plausible-looking tweak to any of them can walk the whole
+  // ladder's ceremonies out of it without a single line looking wrong.
+  const floors = [...Array.from({ length: MARK_COUNT - 1 }, (_, i) => i + 2), S.GOD_TIER];
+  for (const to of floors) {
+    const ms = S.towerCelebrationMs(to);
+    check(
+      `the ${to === S.GOD_TIER ? "God floor" : `Tier ${to}`} ceremony reads as an event (${ms}ms)`,
+      ms >= 3000 && ms <= 6000,
+    );
+  }
+  // Distance is the point of starting at the ground floor: the last unlock's
+  // ride has to be visibly the longest climb in the game.
+  check("a higher floor is a longer climb",
+    floors.every((to, i) => i === 0 || S.towerRiseMs(to) > S.towerRiseMs(floors[i - 1])));
+  check("the ceremony outlasts an ordinary pick",
+    S.towerRiseMs(2) > S.towerTravelMs(1, 2));
+
+  // THE WAVE (towerRisePassMs) lights the building behind the car. Two things
+  // it must never do: light a floor the player has not earned, and light
+  // anything before the doors close.
+  const dest = 7;
+  const passes = Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+    .map((t) => S.towerRisePassMs(dest, t));
+  check("the wave stops at the floor that opened",
+    passes.slice(dest).every((p) => p === null));
+  check("every floor up to it is on the wave",
+    passes.slice(0, dest).every((p) => p !== null));
+  check("the wave starts on the ground floor at the doors",
+    passes[0] === S.TOWER_RISE_HOLD_MS);
+  check("the wave ends when the car arrives",
+    passes[dest - 1] === S.TOWER_RISE_HOLD_MS + S.towerRiseMs(dest));
+  check("the wave travels upward, never down",
+    passes.slice(0, dest).every((p, i) => i === 0 || (p ?? 0) > (passes[i - 1] ?? 0)));
+  check("no floor lights outside the ride",
+    passes.slice(0, dest).every((p) => (p ?? -1) >= S.TOWER_RISE_HOLD_MS
+      && (p ?? Infinity) <= S.towerCelebrationMs(dest)));
+  check("the God floor's wave covers the whole ladder",
+    S.towerRisePassMs(S.GOD_TIER, MARK_COUNT) !== null
+      && S.towerRisePassMs(S.GOD_TIER, S.GOD_TIER) !== null);
+
+  // ------------------------------------------------------------- the markup
+  const resting: S.TowerState = { unlocked: 4, selected: 4, god: false, contracts: 0 };
+  const riding: S.TowerState = { ...resting, celebrate: true };
+  // THE RESTING TOWER IS UNTOUCHED, byte for byte. sim/uifit measures a
+  // building that never celebrates (no fixture passes `celebrate`), so its
+  // baseline is only honest as long as the ceremony is additive — and the
+  // parked car's `--tower-idx` must be the destination either way, because the
+  // ride is an animation ONTO the resting position rather than a second one.
+  check("a tower with no ceremony renders exactly as it always did",
+    S.tierTowerHTML(resting) === S.tierTowerHTML({ ...resting, celebrate: false }));
+  check("the car rests on the new floor with the ride on or off",
+    S.tierTowerHTML(riding).includes(`--tower-idx:${S.towerIndexOf(4)}`)
+      && S.tierTowerHTML(resting).includes(`--tower-idx:${S.towerIndexOf(4)}`));
+  check("the ceremony mounts the ride", S.tierTowerHTML(riding).includes("tower--rising"));
+  check("nothing rides without it", !S.tierTowerHTML(resting).includes("tower--rising"));
+  check("the ride carries its own timing",
+    S.tierTowerHTML(riding).includes(`--tower-rise-dur:${S.towerRiseMs(4)}ms`)
+      && S.tierTowerHTML(riding).includes(`--tower-rise-from:${S.towerIndexOf(S.TOWER_RISE_FROM)}`));
+  // ONE arrival, on the floor the car parks on. Two would mean the plate
+  // ignition and the resting selection had come apart.
+  check("exactly one floor arrives",
+    (S.tierTowerHTML(riding).match(/is-arriving/g) ?? []).length === 1);
+  check("the arriving floor is the one the car parks on",
+    /<button class="[^"]*is-arriving[^"]*"[^>]*data-tier="(-?\d+)"/
+      .exec(S.tierTowerHTML(riding))?.[1] === "4");
+  // Its timing is the arrival itself, not a number of its own to drift from
+  // the ride's — the plate ignites when the car gets there or it is decoration.
+  check("the arrival is timed off the ride",
+    S.tierTowerHTML(riding)
+      .includes(`--tower-pass:${S.towerRisePassMs(4, 4)}ms`));
+  // A TIMELINE, NOT A MOUNT. The menu can be re-rendered from under a running
+  // ceremony (the store's entitlement callback does it), which restarts every
+  // CSS animation in the replacement tower while the teardown timer keeps
+  // counting from the real start. The offset is what reconciles them: it
+  // becomes a negative animation-delay, so the new tower resumes the frame the
+  // old one was showing. Zero on the mount that starts the ride, so a caller
+  // that never re-renders sees exactly the delays the constants read as.
+  check("a fresh ceremony starts at its beginning",
+    S.tierTowerHTML(riding).includes("--tower-rise-elapsed:0ms"));
+  check("a ceremony re-rendered mid-ride resumes where it was",
+    S.tierTowerHTML({ ...riding, celebrateElapsed: 1234 })
+      .includes("--tower-rise-elapsed:1234ms"));
+  // A negative offset would push the ceremony into the FUTURE and desynchronise
+  // it from the one timer that ends it — the ride would still be climbing when
+  // its classes were stripped.
+  check("the ride can never be offset backwards",
+    S.tierTowerHTML({ ...riding, celebrateElapsed: -500 }).includes("--tower-rise-elapsed:0ms"));
+  check("a resting tower carries no offset",
+    !S.tierTowerHTML(resting).includes("--tower-rise-elapsed"));
+
+  // THE LIFT STILL DOES NOT SERVE THE ROOF. Nothing unlocks Tier S — it is
+  // found, not earned — so a ceremony can never ride there, and a build where
+  // one could would contradict the whole rule the headhouse is built on.
+  check("the roof is never ridden to in glory",
+    !S.tierTowerHTML({ ...riding, sandbox: true, selected: S.SANDBOX_TIER })
+      .includes("tower--rising"));
 }
 
 // ---------------------------------------------------------------------------
