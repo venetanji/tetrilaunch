@@ -1024,7 +1024,7 @@ git commit -m "A Deep Run cleared without a restart seals that Mark"
 
 ```ts
 {
-  const base: S.TowerState = { unlocked: 3, selected: 3, god: false, sealed: [2] };
+  const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
   check("a sealed floor is marked", html.includes("tower__seal"));
   check(
@@ -1060,7 +1060,7 @@ In `floorHTML`, after `windows`:
 // and a distinction carried by hue alone is invisible to a red-green viewer.
 // It also joins the floor's accessible name, so it is not a decoration a
 // screen reader has no way to reach.
-const isSealed = !god && (state.sealed ?? []).includes(tier);
+const isSealed = !sky && (state.sealed ?? []).includes(tier);
 const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
 ```
 

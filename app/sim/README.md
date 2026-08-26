@@ -548,7 +548,7 @@ and the numbers quoted in their comments are what the failing run reported.
 
 **What the baseline currently holds.** 139 entries, measured across 19 devices
 x 60 screens (re-run at this commit). 110 of them are one defect wearing ten
-device names: #86's tier tower stacks eleven floors — ten Marks plus God — down
+device names: #86's tier tower stacks eleven floors — ten Marks plus the Skydeck — down
 a landscape phone, and every `.tower__floor` button comes out between 23px and
 32px tall against the 44px tap floor, on every handset row x every menu
 fixture. (`.tower__sub`, Tier S's plate under the slab, fails with it at 26px

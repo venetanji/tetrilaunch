@@ -329,7 +329,7 @@ class App {
    *  syncAttract. */
   private attract = new AttractDemo();
   /** Which floor the menu's tier tower has its car parked on — the Mark the
-   *  next Deep Run flies, or screens.ts's GOD_TIER.
+   *  next Deep Run flies, or screens.ts's SKYDECK_TIER.
    *
    *  Session state, not saved: it exists so a player can drop back down the
    *  ladder for a practice run, and the thing they want on the NEXT launch is
@@ -345,9 +345,9 @@ class App {
    *  Compared against `meta.mark` rather than against `markUnlocked`, because
    *  `mark` is the one number a tier completion actually moves and BOTH of the
    *  tower's gates derive from it — the unlocked Mark (`mark + 1`, saturating)
-   *  and the God floor (`mark >= MARK_COUNT`). Keying on the derived unlock
-   *  would miss the completion that opens God, which is the single most
-   *  significant one on the ladder. */
+   *  and the Skydeck (`mark >= MARK_COUNT`). Keying on the derived unlock
+   *  would miss the completion that opens the Skydeck, which is the single
+   *  most significant one on the ladder. */
   private pickedAtMark: number | null = null;
   /** Set while the car is between floors. The Deep Run button is re-plated on
    *  ARRIVAL rather than on the tap, so the plate and the shaft never disagree
@@ -1232,15 +1232,15 @@ class App {
    * next Deep Run at the OLD Mark — so an out-of-range pick is dropped rather
    * than carried, and the default is always the exam.
    *
-   * The God floor opens on `mark >= MARK_COUNT`, i.e. once the whole ladder
+   * The Skydeck opens on `mark >= MARK_COUNT`, i.e. once the whole ladder
    * has actually been beaten — not on `markUnlocked`, which saturates at
    * MARK_COUNT one clear early.
    */
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
-    const god = this.meta.mark >= MARK_COUNT;
+    const skydeck = this.meta.mark >= MARK_COUNT;
     const state: S.TowerState = {
-      unlocked, selected: unlocked, god,
+      unlocked, selected: unlocked, skydeck,
       // Tier S is a SETTING, not progress — it is drawn under the tower for
       // anyone who has found the beacon and turned nothing else on. Read
       // through sandboxOpen so a sandbox BUILD always shows the door: a
@@ -1305,7 +1305,7 @@ class App {
    */
   private armUnlockCelebration(): void {
     if (pendingUnlockMark(this.meta) === null) return;
-    // THE LAST UNLOCK IS NOT A MARK. Beating Mark 10 opens the God floor, and
+    // THE LAST UNLOCK IS NOT A MARK. Beating Mark 10 opens the Skydeck, and
     // markUnlocked has nowhere left to go — it saturates at MARK_COUNT, which
     // is the floor the car is already parked on. So for that one unlock the
     // pick is moved to the roof, and the ceremony rides there: the ride must
@@ -1315,7 +1315,7 @@ class App {
     //
     // Stamped like any other pick, so towerState's freshness clamp accepts it.
     if (this.meta.mark >= MARK_COUNT) {
-      this.pickedTier = S.GOD_TIER;
+      this.pickedTier = S.SKYDECK_TIER;
       this.pickedAtMark = this.meta.mark;
     }
     // BURNED NOW, before a pixel is drawn, rather than when the ride ends. A
@@ -1328,7 +1328,7 @@ class App {
     // The clock every later render measures its offset against, set before
     // towerState is asked anything — that call already reads it.
     this.celebrateStart = performance.now();
-    // Asked of towerState rather than of markUnlocked, because the God floor
+    // Asked of towerState rather than of markUnlocked, because the Skydeck
     // above makes those two different questions and the ride's length is the
     // shaft's, not the ladder's.
     const total = S.towerCelebrationMs(this.towerState().selected);
@@ -1370,10 +1370,10 @@ class App {
    *  ONLY gate and a stale pick can never reach newRun. */
   private runMark(): number {
     const t = this.towerState().selected;
-    // God flies the top of the ladder. The floor's own rules ("all ten marks
-    // at once") are not specified anywhere in the game yet — see the note on
-    // GOD_TIER in screens.ts — so until they are, it is MARK_COUNT's run.
-    if (t === S.GOD_TIER) return MARK_COUNT;
+    // The Skydeck flies the top of the ladder. The floor's own rules ("all ten
+    // marks at once") are not specified anywhere in the game yet — see the note
+    // on SKYDECK_TIER in screens.ts — so until they are, it is MARK_COUNT's run.
+    if (t === S.SKYDECK_TIER) return MARK_COUNT;
     // Tier S never reaches newRun through here: the button that would start a
     // ladder run opens the level select instead (see the `play` action), and a
     // Tier S launch builds its run from sandbox.ts. Clamped rather than thrown
@@ -1590,9 +1590,9 @@ class App {
     const n = this.overlay.querySelector<HTMLElement>("#menu-play .tier-plate__n");
     if (!n) return;
     const face = (t: number): string =>
-      t === S.GOD_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
-    // A HIGHER tier is a higher floor — GOD_TIER is above every Mark, so the
-    // same comparison covers the God floor with no special case. Tier S is the
+      t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
+    // A HIGHER tier is a higher floor — SKYDECK_TIER is above every Mark, so
+    // the same comparison covers the Skydeck with no special case. Tier S is the
     // one floor whose id does NOT order with its height (it is -1 and sits on
     // the roof), so the direction is taken from the shaft index instead, which
     // is the number the car is actually moving through.
@@ -1663,7 +1663,7 @@ class App {
       ? "Elevator moving…"
       : tier === S.SANDBOX_TIER
         ? "Any Mark, bay or Contract · own board"
-        : tier === S.GOD_TIER
+        : tier === S.SKYDECK_TIER
           ? "All ten marks at once · no mercy"
           : `Clear ${RUN_LEVELS} bays in one run`;
   }
