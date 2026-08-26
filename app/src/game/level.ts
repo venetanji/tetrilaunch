@@ -131,12 +131,13 @@ export interface LevelConfig {
   materialMix: MaterialMix;
   /** Demolition charges granted at the START of this bay — armed with the 💥
    *  control, then fired by the next launch INSTEAD of the loaded piece (see
-   *  game.ts's armBomb/shoot). Charges are free to fire (they do NOT cost
-   *  launchCost) and each cube they vaporize refunds salvagePerCube, which is
-   *  what makes a bomb an economically legible SALVAGE tool rather than the
-   *  old pay-full-price-for-nothing cadence shot: you trade line material you
-   *  were never going to complete for funds back. 0 = the player never drafted
-   *  them. */
+   *  game.ts's armBomb/shoot). Charges cost launchCostNow like any shot —
+   *  free ones made the rack a third income channel, measured at $480-670 a
+   *  bay (see the note in shoot) — and each cube they vaporize refunds
+   *  salvagePerCube, which is what keeps a bomb an economically legible
+   *  SALVAGE tool: it pays for itself from three cubes up, trading line
+   *  material you were never going to complete for funds back. 0 = the
+   *  player never drafted them. */
   bombCharges: number;
   /** Funds refunded per cube a demolition charge vaporizes (see game.ts's
    *  detonate). The economic core of the bomb: a junk pile that can never

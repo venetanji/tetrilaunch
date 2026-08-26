@@ -154,8 +154,8 @@ function systemTopics(): GuideTopic[] {
     summary: u.blurb,
     body:
       `${u.blurb}<br><b>Tier 1</b> ${u.tiers[0]}. <b>Tier ${MAX_TIER}</b> ${u.tiers[MAX_TIER - 1]}.`
-      + ` Tier 1 is bought once with salvage in the Workshop and is yours forever;`
-      + ` tiers 2 and ${MAX_TIER} are bought with scrap at a refit stop and last the run.`,
+      + ` Tiers 1-2 are Workshop purchases — salvage, once, yours forever, on the Mark's`
+      + ` build budget; the rest up to tier ${MAX_TIER} is scrap at a refit stop, for the run.`,
     tier: gate[u.id] ?? 1,
     system: u.id,
     drill: DRILLS[`sys-${u.id}`],
@@ -389,18 +389,20 @@ function buildTopics(mark: number): GuideTopic[] {
     body: `Scrap is the RUN's currency: <b>${lv.scrapPerLine} a line</b> and`
       + ` <b>${lv.scrapPerBay} a bay</b>, spent at the refit stops after bays`
       + ` ${Array.from({ length: Math.floor(RUN_LEVELS / REFIT_EVERY) }, (_, i) => (i + 1) * REFIT_EVERY).join(", ")}`
-      + ` on tiers 2 and ${MAX_TIER} of whatever systems you own.`
+      + ` on whatever rungs your permanent loadout stops short of, up to tier ${MAX_TIER}`
+      + ` of the systems you own.`
       + ` It is gone when the run ends, win or lose — banking scrap is not a strategy, spending it is.`,
   },
   {
     id: "salvage", chapter: "economy", tier: 1,
     name: "Salvage",
     summary: "Paid at tier milestones, spent in the Workshop, kept forever.",
-    body: `Salvage is the only currency that outlives a run. It is paid at <b>tier milestones</b> —`
-      + ` each first-clear Contract, and your first run win at that tier — and spent in the Workshop`
-      + ` on permanent installs.`
-      + ` Salvage buys <b>which systems exist</b> for you to spend a build budget on. It never buys the`
-      + ` budget itself, and it can never raise a tier: a tier is won, never bought.`,
+    body: `Salvage is the only currency that outlives a run. Paid at <b>tier milestones</b> —`
+      + ` each first-clear Contract, and the tier's first run win — and spent in the Workshop`
+      + ` on permanent installs, plus a permanent <b>tier 2</b> of an installed system`
+      + ` (tier ${MAX_TIER} stays the yard's).`
+      + ` It buys <b>which systems exist</b>, never the build budget itself — and never your Tier:`
+      + ` a Tier is won, not bought.`,
   },
   {
     id: "congestion", chapter: "economy", tier: 1,
@@ -503,8 +505,8 @@ function buildTopics(mark: number): GuideTopic[] {
     name: "Refit stops",
     summary: `After bays ${Array.from({ length: Math.floor(RUN_LEVELS / REFIT_EVERY) }, (_, i) => (i + 1) * REFIT_EVERY).join(", ")} you dock and spend scrap on the ship.`,
     body: `Three times a run the bay ends at a <b>refit yard</b> instead of straight into the next bay.`
-      + ` Scrap buys tiers 2 and ${MAX_TIER} of the systems you already own — tier 1 of a system is a`
-      + ` Workshop purchase, made with salvage, between runs.`
+      + ` Scrap buys whatever rungs your permanent loadout stops short of, up to tier ${MAX_TIER} —`
+      + ` tiers 1 and 2 of a system are Workshop purchases, made with salvage, between runs.`
       + ` Everything bought here lasts the whole run and stacks with whatever the tier's build budget`
       + ` let you launch with.`,
   },
@@ -512,10 +514,11 @@ function buildTopics(mark: number): GuideTopic[] {
   {
     id: "demolition-charge", chapter: "rig", tier: 2,
     name: "Demolition charges",
-    summary: `Free to fire, and every cube vaporized refunds $${lv.salvagePerCube}.`,
+    summary: `Costs a full launch fee, and every cube vaporized refunds $${lv.salvagePerCube}.`,
     body: `A charge is <b>armed</b>, then fired by your next launch instead of the loaded`
-      + ` shipment. It costs no launch fee, and every cube it vaporizes refunds`
-      + ` <b>$${lv.salvagePerCube}</b>. Blowing up a junk pile that can never close a row`
+      + ` shipment. It costs a full launch fee, and every cube vaporized refunds`
+      + ` <b>$${lv.salvagePerCube}</b> — it pays for itself from three cubes.`
+      + ` Blowing up a junk pile that can never close a row`
       + ` is a <b>positive-value play</b>; blowing up a row you were two cubes from closing is`
       + ` not. It is also slag's only clean answer.`,
     drill: DRILLS["demolition-charge"],
