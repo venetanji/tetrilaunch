@@ -345,7 +345,7 @@ function measure(cfg: {
   // gesture that opens Tier S (src/lib/devmode.ts) — and its size is a design
   // requirement rather than a shortfall. It sits in the 19px band above the
   // shaft, on a tower that fills its whole row on a phone; a 44px target there
-  // would have to grow into the row above it or down over the God floor, where
+  // would have to grow into the row above it or down over the Skydeck, where
   // it would swallow taps meant for the ladder's top rung. And an easter egg
   // with a large, discoverable hit area is not one. The mode is reachable
   // without the gesture — Settings carries the same toggle, with a real label,

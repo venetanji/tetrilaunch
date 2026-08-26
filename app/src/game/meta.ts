@@ -726,10 +726,10 @@ export function tierProgressFor(meta: MetaState): TierProgress {
  * The answer is `markUnlocked` — the tier that just OPENED — and not the tier
  * that was completed: a lift rides to where you can now go, not to where you
  * have been. On a finished ladder (`mark` at MARK_COUNT) markUnlocked
- * saturates at the top rung, and the floor that actually opened is the God
- * floor above it; the caller with the tower in hand does that last mapping,
- * because GOD_TIER is a drawing of the ladder rather than a Mark and this file
- * has no business knowing it exists.
+ * saturates at the top rung, and the floor that actually opened is the Skydeck
+ * above it; the caller with the tower in hand does that last mapping, because
+ * SKYDECK_TIER is a drawing of the ladder rather than a Mark and this file has
+ * no business knowing it exists.
  */
 export function pendingUnlockMark(meta: MetaState): number | null {
   return meta.mark > meta.celebratedMark ? markUnlocked(meta) : null;

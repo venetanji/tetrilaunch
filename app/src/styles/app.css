@@ -925,7 +925,7 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-size: 12px; font-weight: 800;
   line-height: 1; color: inherit;
 }
-.tower__floor--god .tower__n {
+.tower__floor--sky .tower__n {
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.04em;
 }
 .tower__windows { display: flex; gap: 2px; margin-left: auto; flex: none; }
@@ -1010,7 +1010,7 @@ body.crt-off #app::after { display: none; }
 /* No selected-state brightening of the windows any more: they carry
    information now, and a rule that lit every socket on the selected floor
    would claim Contracts the tier has not logged. */
-.tower__floor--god.is-selected {
+.tower__floor--sky.is-selected {
   border-color: var(--warn); color: var(--warn);
   background: rgba(255, 176, 32, 0.16);
 }
@@ -6344,19 +6344,19 @@ button.panel { color: var(--text); }
 }
 /* Both halves are given a FIXED slot, and that is the whole point of them.
    The plate sizes to its contents, so every string that lands in it moved the
-   button underneath: "1" -> "10" is a digit wider, "Tier" -> "God" is a
+   button underneath: "1" -> "10" is a digit wider, "Tier" -> "Sky" is a
    character narrower, and the elevator's own in-flight placeholder was two
    dots — so riding the car made the primary button visibly grow and shrink
    (reported from a device, 2026-08-24). A monospace face means one slot fits
-   every value it can ever hold: 2ch takes "10" and centres "1" and the God
-   star in the same box, and the pixel label's 4ch takes "TIER" and centres
-   "GOD". Nothing in the plate can change its width again. */
+   every value it can ever hold: 2ch takes "10" and centres "1" and the
+   Skydeck star in the same box, and the pixel label's 4ch takes "TIER" and
+   centres "SKY". Nothing in the plate can change its width again. */
 .tier-plate__lbl {
   font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.08em;
   text-transform: uppercase; line-height: 1; opacity: 0.8;
   /* The tracking counts. A slot of 4ch fits four CHARACTERS but not the four
      letter-spaces stamped after them, so "TIER" still ran 0.3em past a bare
-     4ch and the plate moved when the label became "GOD". */
+     4ch and the plate moved when the label became "SKY". */
   min-width: calc(4ch + 0.32em); text-align: center;
 }
 .tier-plate__n {
@@ -6377,7 +6377,7 @@ button.panel { color: var(--text); }
    the digits never leave their slot.
 
    `overflow: hidden` is applied only while rolling: at rest it would crop the
-   descender-free but slightly tall God star for no reason. */
+   descender-free but slightly tall Skydeck star for no reason. */
 .tier-plate__n.is-rolling { overflow: hidden; height: 1em; }
 .tier-plate__roll { display: flex; flex-direction: column; }
 .tier-plate__roll > b {
@@ -6391,14 +6391,15 @@ button.panel { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .tier-plate__n.is-rolling .tier-plate__roll { transition: none; }
 }
-/* The God floor's plate wears the tower's own warn tint rather than the
+/* The Skydeck's plate wears the tower's own warn tint rather than the
    ladder's cyan — it is the one floor that is not a Mark, and the plate is the
    only place that fact travels to outside the shaft. Background only: the
    border stays `currentColor` so the plate still belongs to whatever button it
    is sitting on. */
-.tier-plate--god { background: rgba(255, 176, 32, 0.22); }
+.tier-plate--sky { background: rgba(255, 176, 32, 0.22); }
 /* Tier S wears the same tint for the same reason — it is the other floor that
-   is not a Mark. God and S are told apart by the glyph in the slot (★ and S),
+   is not a Mark. The Skydeck and S are told apart by the glyph in the slot
+   (★ and S),
    not by colour, which is the rule the rest of this screen follows: the palette
    is full, and a distinction that exists only as a hue is not one everybody
    can see. */
@@ -6451,7 +6452,7 @@ button.panel { color: var(--text); }
 .btn--next { border-color: var(--warn); }
 /* The primary button with Tier S parked. It is still the primary — the floor
    you are on is what the button does — so it keeps its weight and only changes
-   allegiance: the warn border the God floor's plate already established, over
+   allegiance: the warn border the Skydeck's plate already established, over
    the same surface. Deliberately NOT a secondary style: demoting it would say
    the sandbox is a lesser action on a screen where it is the only one selected.
    The border is the change; the label ("Sandbox") is what actually tells you,
