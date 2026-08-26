@@ -221,6 +221,7 @@ const ASSERTIONS = [
   { id: "draghint", desc: "the drag hint's gesture plays clear of the plant panel" },
   { id: "reveal", desc: "the tutorial's first step reveals only what it teaches" },
   { id: "plant", desc: "the HUD plant panel stays inside its design box" },
+  { id: "crest", desc: "the crest ring registers with the panel's own edges" },
   { id: "rail", desc: "the control rail never overlaps the field" },
   { id: "twocol", desc: "the workshop body is two columns, aside fixed" },
   { id: "oneline", desc: "rows designed as one line render on one line" },
@@ -252,8 +253,8 @@ function measure(cfg: {
   const out: Findings = {
     fit: [], scrollers: [], offscreen: [], tap: [], textclip: [],
     clipped: [], overlap: [], spill: [], draghint: [], reveal: [],
-    plant: [], rail: [], twocol: [], oneline: [], rack: [], badge: [], inkline: [],
-    kbdhint: [], warn: [],
+    plant: [], crest: [], rail: [], twocol: [], oneline: [], rack: [], badge: [],
+    inkline: [], kbdhint: [], warn: [],
   };
   const label = (el: Element): string => {
     const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/)[0] : "";
@@ -598,6 +599,76 @@ function measure(cfg: {
     // would demand a coached panel 21% taller than the stylesheet asks for.
     if (h < 0.4296 * fh - 1) {
       out.plant.push(`${Math.round(h)}px — shrank below its ${Math.round(0.4296 * fh)}px footprint`);
+    }
+  }
+
+  // --- crest: the intake ring must start on the edges it dresses -----------
+  // `plant` above asks whether the PANEL is the right size. It has nothing to
+  // say about the seven strips hung off the panel's outside, and that is the
+  // gap this closes: the crest shipped with its left band beginning --bw
+  // inside the panel's top-left corner (app.css's .plant__crest--port took
+  // `top: 0`, the PADDING box, where every sibling strip spells out the
+  // border correction), and the frame read as broken to a player while every
+  // assertion here stayed green.
+  //
+  // The rule is one sentence: every strip's rooted edge sits on the panel's
+  // BORDER box, and the two bands reach the field's wall. The crest's whole
+  // job is dressing that border, so any strip that starts anywhere else is
+  // painting a notch. Deliberately NOT a check on the crenellation — the
+  // tooth runs are hand-authored irregular by design (see app.css's crest
+  // section) and a test that pinned their silhouette would only ever fire on
+  // someone redrawing the art on purpose.
+  //
+  // The tolerance is 0.6px: the offsets are calc() chains over fractional
+  // field dimensions, so a rooted edge lands within a rounding step of the
+  // panel's, and the defect this exists for was --bw = 2px, three times that.
+  const strip = (sel: string): DOMRect | null =>
+    document.querySelector(sel)?.getBoundingClientRect() ?? null;
+  const brow = strip(".plant__crest--brow");
+  if (plant && brow) {
+    const p = plant.getBoundingClientRect();
+    const seat = (name: string, edge: number | undefined, want: number | undefined): void => {
+      if (edge === undefined || want === undefined) return;
+      const d = edge - want;
+      if (Math.abs(d) > 0.6) out.crest.push(`${name} sits ${d > 0 ? "+" : ""}${d.toFixed(1)}px off`);
+    };
+    const cap = strip(".plant__crest--cap");
+    const flank = strip(".plant__crest--flank");
+    const port = strip(".plant__crest--port");
+    const skirt = strip(".plant__crest--skirt");
+    // The top edge is TWO strips at two heights — the brow along the panel's
+    // own top, the cap up over the raised PWR meter — so it is checked as a
+    // handoff (the brow's right edge is the cap's left) rather than as one
+    // band. That step is the design, not a break in the ring; what the ring
+    // must not do is leave a gap at the join.
+    seat("brow left vs panel left", brow.left, p.left);
+    seat("brow bottom vs panel top", brow.bottom, p.top);
+    seat("brow right vs cap left", brow.right, cap?.left);
+    seat("cap right vs panel right", cap?.right, p.right);
+    seat("flank left vs panel right", flank?.left, p.right);
+    seat("flank top vs panel top", flank?.top, p.top);
+    seat("flank bottom vs panel bottom", flank?.bottom, p.bottom);
+    seat("port right vs panel left", port?.right, p.left);
+    seat("port top vs panel top", port?.top, p.top);
+    seat("port bottom vs panel bottom", port?.bottom, p.bottom);
+    seat("skirt left vs panel left", skirt?.left, p.left);
+    seat("skirt right vs panel right", skirt?.right, p.right);
+    seat("skirt top vs panel bottom", skirt?.top, p.bottom);
+    // The two bands' FREE edges. Both are sized to the gap between the panel
+    // and the field border less --crest-wall, so both should clear the glowing
+    // wall by the SAME amount — that equality is the one statement about them
+    // the rooted-edge checks above do not already imply, and it is what fails
+    // if one band is ever given a different clearance from the other, or if
+    // either is left reaching into the letterbox (a negative clearance).
+    if (port && skirt) {
+      const portClear = port.left - cssPx("--field-x");
+      const skirtClear = cssPx("--field-y") + cssPx("--field-h") - skirt.bottom;
+      seat("port tips vs skirt tips (wall clearance)", portClear, skirtClear);
+      if (portClear < 0 || skirtClear < 0) {
+        out.crest.push(
+          `a band reaches past the field border (port ${portClear.toFixed(1)}px, skirt ${skirtClear.toFixed(1)}px)`,
+        );
+      }
     }
   }
 
