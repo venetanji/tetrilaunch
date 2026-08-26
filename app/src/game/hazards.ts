@@ -438,13 +438,16 @@ export function togglePick(
    *  draft keeps the exact rules above. */
   forcedMaterial = false,
 ): HazardId[] {
-  // ON A FORCED HAND THE PARTNER IS CAPPED AT ONE SEAT — found in review. The
-  // capstone's forced hand deals two materials plus the number-axis partner
-  // and asks for two picks, and without this cap two taps on the partner
-  // filled the whole hand and took no material notch at all, quietly voiding
-  // the one guarantee these bays exist for ("one material is forced"). So on
-  // a forced hand a second tap on the picked partner reads as the removal it
-  // already is on every one-pick rung, while a MATERIAL card keeps the
+  // ON A FORCED HAND THE PARTNER IS CAPPED AT ONE SEAT — found in review,
+  // when the capstone's forced hand briefly carried a number-axis partner:
+  // two taps on it filled the whole hand and took no material notch at all,
+  // quietly voiding the one guarantee these bays exist for. materialHand now
+  // deals a partner only beside a LONE material (Mark 4, one pick), where the
+  // cap is a fence rather than a live path — kept because the rule is the
+  // hand-shape invariant itself ("a forced hand's partner may never absorb
+  // the whole quota"), not a patch for one layout. So on a forced hand a
+  // second tap on the picked partner reads as the removal it already is on
+  // every one-pick rung, while a MATERIAL card keeps the
   // "double notch" reading — a doubled material still satisfies the bay. The
   // full-hand replacement below cannot re-create the stack: a tap on a picked
   // axis always takes the removal branch first.
@@ -594,26 +597,27 @@ export function hazardOffers(
   ratchets: Ratchets = {},
 ): HazardDef[] {
   const pool = hazardsForMark(mark);
-  // ALWAYS ONE MORE CARD THAN THERE ARE PICKS. That is what makes a draft a
-  // draft, and at the capstone it was not true: picksPerBay is 2 there and this
-  // read Math.max(count, picksPerBay(mark)), which is 2 — so an ordinary Mark-10
-  // hand dealt two cards and took both, on seven of the ten bays. The ratchet's
-  // whole claim is that "by bay 10 they have authored their own curve"; a hand
-  // the player cannot choose within authors nothing, it just bills them.
+  // TWO CARDS, at every Mark — the capstone included, and that is a
+  // RE-decision worth its history. The hand briefly grew a third card at Mark
+  // 10 on two arguments: that two cards against two picks was a hand "the
+  // player cannot choose within", and that it could force slag (3,924 of
+  // 200,000 measured hands). Both arguments have since lost their footing:
   //
-  // It also had a sharp edge. slag is the one material with no passive counter,
-  // and the ordinary draft's guarantee that it is DODGEABLE rests entirely on
-  // there being a spare seat to dodge into: measured over 200,000 hands at Marks
-  // 6-10, a two-card capstone hand forced slag on 3,924 of them. The forced
-  // hands (materialHand) were given their spare card last pass for exactly this
-  // reason; the ordinary hands are the other half of the same fix.
-  const want = Math.max(count, picksPerBay(mark) + 1);
+  //  - togglePick's DOUBLE notch is the capstone's choice. Two cards at two
+  //    picks is three distinct hands — A twice, one of each, B twice — and
+  //    the draft UI now says so out loud (the pick boxes count xN, the quota
+  //    slots fill per pick, the card's footer offers the double). The choice
+  //    was always there; it was invisible, and invisible reads as absent.
+  //  - Slag is dodged the same way: any hand with a non-slag card can put
+  //    BOTH picks on it. The old measurement counted distinct-card hands
+  //    only. sim/systems.ts re-pins dodgeability with doubles counted.
+  //  - The third card's real price was paid on the phone: the owner's device
+  //    pass found the three-card column pushing the projection into scroll,
+  //    on the screen whose whole job is keeping the numbers beside the cards.
+  const want = Math.max(count, picksPerBay(mark));
 
   if (isMaterialDraft(levelIndex)) {
-    // picksPerBay, not `want`: `want` is the HAND SIZE (two cards, or more if
-    // the Mark asks for more picks than that), and what decides whether the
-    // materials alone would fill every seat is how many picks the player has.
-    const forced = materialHand(pool, picksPerBay(mark), seed, levelIndex, ratchets);
+    const forced = materialHand(pool, seed, levelIndex, ratchets);
     // Marks 1-3 have no material to force. Falling through to the ordinary
     // draft is the only honest answer there: a hand cannot be materials-only
     // when there are no materials, and an empty offer reads as a bug.
@@ -658,34 +662,28 @@ export function hazardOffers(
  * them rather than a single card the player taps to get past. One material plus
  * the run's hardest active axis where it has only one (see hardestActive).
  *
- * IT FORCES EXACTLY ONE MATERIAL, NEVER TWO, and at the capstone that costs a
- * third card. picksPerBay is 2 at Mark 10, so a two-material hand there is not
- * "materials only" — it is materials only AND both of them, which is a different
- * and much heavier promise than the one MATERIAL_DRAFT_BAYS' note makes ("the
- * player meets the problem, plays a bay against it, and walks straight into the
- * shop that answers it": one problem, one bay, one shop). Taking two at a stroke
- * is also how a Tier-10 belt got where the owner found it — bays 2, 5 and 8
- * dealing two material notches apiece is seven of a run's ten notches spent on
- * materials before the player has chosen anything, which is the input side of
- * the flood belt.ts fixes on the output side. Dealing `want + 1` cards with one
- * number axis among them leaves the forced pick forced and gives the second pick
- * somewhere else to go.
+ * AT THE CAPSTONE, BOTH PICKS LAND ON MATERIALS — one of each, or one doubled
+ * (togglePick). An earlier pass judged that "a different and much heavier
+ * promise" than MATERIAL_DRAFT_BAYS' one-problem-one-bay-one-shop note makes,
+ * and dealt a third, non-material card so the second pick had somewhere else
+ * to go. The weight it was guarding against was the belt flooding — and
+ * belt.ts's ceiling has since capped that structurally: the belt holds one
+ * shipment in three however many notches stack, so the capstone's second
+ * material notch RECOMPOSES the belt rather than thickening it. What the
+ * third card still cost was real (the phone's projection scrolled behind the
+ * taller card column), so it is gone, and the hand is two cards everywhere.
  *
  * SLAG IS NEVER THE ONLY MATERIAL ON THE TABLE. It is the one material with no
  * passive counter — a dead cube leaves the field by Demolition or not at all —
  * which is why the ladder puts it two rungs after cryo and rebar and why the
  * ordinary draft guarantees it is dodgeable. Forcing a material is the point
- * here; forcing THAT material, on a rack that may be empty, is a bay that cannot
- * be won by playing well. With two materials dealt and only one pick forced, a
- * player who cannot answer slag always has the other one.
+ * here; forcing THAT material, on a rack that may be empty, is a bay that
+ * cannot be won by playing well. With two materials dealt, a player who cannot
+ * answer slag puts every pick on the other one — the same double that gives
+ * the capstone its choice keeps slag refusable there.
  */
 function materialHand(
   pool: HazardDef[],
-  /** How many notches this bay's draft takes — hazards.ts's picksPerBay, NOT the
-   *  hand size. The two are equal only at the capstone, and telling them apart
-   *  is the whole arithmetic below: the partner card exists to stop the
-   *  materials filling every PICK. */
-  picks: number,
   seed: number,
   levelIndex: number,
   ratchets: Ratchets,
@@ -703,21 +701,26 @@ function materialHand(
   }
 
   // Two materials wherever the Mark has them, so the forced pick is a CHOICE of
-  // material rather than one card to tap past — and one per pick where the bay
-  // takes more than two notches, so a deeper draft still meets a real fork.
-  const hand: HazardDef[] = shuffled.slice(0, Math.min(materials.length, Math.max(2, picks)));
-  // The number axis, added exactly when the materials alone would fill every
-  // PICK. At the one-pick rungs a two-material hand already leaves a seat
-  // unpicked, so nothing is added and the shape is the old one card for card; at
-  // the capstone's two picks it is the third card that keeps the second pick
-  // free. It doubles as the partner for Mark 4, where the single material would
-  // otherwise be a hand of one card, which is not a draft.
+  // material rather than one card to tap past. Two CARDS, full stop — the
+  // capstone included, where both picks therefore land on materials (or one
+  // material doubled). That briefly grew a third, non-material card so the
+  // second pick "had somewhere else to go", and the re-decision has two legs:
   //
-  // hardestActive returns null only for a pool with no number axis at all, which
-  // no Mark that has opened a material can be — at that point the hand is
-  // whatever materials exist, which is the honest fallback rather than a crash.
+  //  - The flood that card guarded against no longer exists. belt.ts's ceiling
+  //    holds the belt to one shipment in three however many notches stack, so
+  //    a second material notch RECOMPOSES the belt rather than thickening it —
+  //    the cost the spare card was priced against is now structurally capped.
+  //  - Slag stays dodgeable without it: the OTHER material takes both picks
+  //    (togglePick's double). What the spare card actually bought at the end
+  //    was a three-card column that scrolled the phone's projection.
+  const hand: HazardDef[] = shuffled.slice(0, Math.min(materials.length, 2));
+  // The number axis, added only when a lone material would make the hand one
+  // card — Mark 4's case — because one card is not a draft. hardestActive
+  // returns null only for a pool with no number axis at all, which no Mark
+  // that has opened a material can be — at that point the hand is whatever
+  // materials exist, which is the honest fallback rather than a crash.
   const partner = hardestActive(pool, ratchets);
-  if (partner && hand.length <= picks) hand.push(partner);
+  if (partner && hand.length < 2) hand.push(partner);
   return hand.sort((a, b) => HAZARDS.indexOf(a) - HAZARDS.indexOf(b));
 }
 

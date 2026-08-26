@@ -4,7 +4,7 @@ import { baseBayFor } from "../game/level";
 import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
-  runNotchTallyHTML, shipPlatesHTML, materialIconHTML,
+  runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph,
 } from "./components";
 import { icon, type IconName } from "./icons";
 import {
@@ -2649,12 +2649,16 @@ function projectionHTML(
  * it is paid, not after.
  */
 export function draftScreen(opts: {
+  /** The 1-based bay just cleared. The bay about to be flown is bayNum + 1 —
+   *  the draft only ever sits between consecutive bays, so the screen derives
+   *  it rather than being handed a second number that could disagree. Bays are
+   *  named by NUMBER alone here: the run's own screens already dropped the
+   *  flavor names (the menu's tower, the HUD), and on this screen the name
+   *  was one more string competing with the numbers the choice is priced in. */
   bayNum: number;
-  bayName: string;
   /** The run's tier (its Mark, in player-facing words) — carried on the
    *  eyebrow so the draft states which rung's pressure is being priced. */
   tier: number;
-  nextBayName: string;
   funds: number;
   /** Overshoot above this bay's target (0 if it ended right at target) —
    *  the only part of `funds` that actually carries into the next bay's
@@ -2678,11 +2682,16 @@ export function draftScreen(opts: {
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
+  /** True on a forced-material hand (hazards.ts's isMaterialDraft): the
+   *  partner card there is capped at one seat (togglePick), so its footer must
+   *  say "undo" where an ordinary card's says "double". */
+  forced?: boolean;
 }): string {
   const banked = totalNotches(opts.ratchets);
   const pending = opts.selected.length;
   const remaining = Math.max(0, opts.picksNeeded - pending);
   const ready = remaining === 0;
+  const nextBay = opts.bayNum + 1;
   const cards = opts.offers
     .map((h) => {
       const picks = opts.selected.filter((p) => p === h.id).length;
@@ -2692,23 +2701,43 @@ export function draftScreen(opts: {
       // The tentative picks count toward the badge too — the card has to show
       // the notch level the projection below it is currently drawing.
       const owned = (opts.ratchets[h.id] ?? 0) + picks;
-      const stack = owned > 0 ? ` <span class="mod-card__stack">at ${owned}</span>` : "";
+      const stack = owned > 0 ? `<span class="mod-card__stack">at ${owned}</span>` : "";
       const kind = h.kind === "content" ? "bane" : "tradeoff";
-      // The card's own footer says what the NEXT tap does, which is not the
-      // same on every card: taps fill the hand while there is room and edit it
-      // once it is full (hazards.ts's togglePick). Without it a selected card
-      // in a one-pick draft looks like a dead end, and the capstone's
-      // double-notch tap is invisible.
-      const mark = `<span class="mod-card__mark">${icon("check", 10)}</span> Selected${picks > 1 ? ` ×${picks}` : ""}`;
+      // The kind is said by the card's GLYPH and colour, not by a word: a
+      // material card wears the material's own belt icon and bane red, a
+      // number card wears the axis's two-letter tally glyph and tradeoff cyan
+      // — the same two vocabularies the plant panel spends a whole run
+      // teaching (components.ts's one-vocabulary rule).
+      const badge = h.material
+        ? materialIconHTML(h.material, 15)
+        : axisGlyph(h.id);
+      // The pick box is the card's selection state said as a control: empty
+      // square, check when picked, ×N when double-picked. aria-pressed
+      // carries the same fact to a screen reader.
+      const box = picks > 1
+        ? `<span class="mod-card__box mod-card__box--on">×${picks}</span>`
+        : picks === 1
+          ? `<span class="mod-card__box mod-card__box--on">${icon("check", 11)}</span>`
+          : `<span class="mod-card__box" aria-hidden="true"></span>`;
+      // The footer says what the NEXT tap does, which is not the same on every
+      // card: taps fill the hand while there is room and edit it once it is
+      // full (hazards.ts's togglePick) — and on a forced hand the partner card
+      // is capped at one seat, so a second tap there undoes rather than
+      // doubles.
+      const canDouble = !ready && !(opts.forced && h.kind !== "content");
       const foot = picks > 0
-        ? ready ? `${mark} — tap to undo` : `${mark} — tap to double`
+        ? canDouble ? "Tap again to double it" : "Tap to undo"
         : ready
           ? "Tap to swap this in"
           : "Tap to preview";
       return `<button class="mod-card mod-card--${kind}${picks > 0 ? " mod-card--picked" : ""}"
         data-action="pick-hazard" data-hazard="${h.id}" aria-pressed="${picks > 0}">
-        <div class="mod-card__kind">${h.kind === "content" ? "material" : "pressure"}${stack}</div>
-        <div class="mod-card__name">${h.material ? `${materialIconHTML(h.material, 14)} ` : ""}${h.name}</div>
+        <div class="mod-card__top">
+          <span class="mod-card__ax" aria-hidden="true">${badge}</span>
+          <span class="mod-card__name">${h.name}</span>
+          ${stack}
+          ${box}
+        </div>
         <p class="mod-card__desc">${h.desc}</p>
         <div class="mod-card__pick">${foot}</div>
       </button>`;
@@ -2716,41 +2745,45 @@ export function draftScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
-      <p class="muted" style="margin-top:-8px">Next up: ${opts.nextBayName} — this sticks for the rest of the run.</p>
+      ${quotaHTML(pending, opts.picksNeeded, opts.offers.length, opts.selected.map((id) => {
+        const h = opts.offers.find((o) => o.id === id);
+        return {
+          glyph: h?.material ? materialIconHTML(h.material, 12) : axisGlyph(id),
+          kind: h?.kind === "content" ? "bane" : "tradeoff",
+        };
+      }), "sticks for the rest of the run")}
       <div class="draft__bank">
-        <div class="chip chip--accent chip--inline">
-          <div class="chip__label">Ended $${opts.funds} — carries</div>
-          <div class="chip__value">$${opts.carry}</div>
-        </div>
-        <div class="chip chip--inline">
-          <div class="chip__label">Notches taken</div>
-          <div class="chip__value" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</div>
-        </div>
-        <div class="chip chip--inline">
-          <div class="chip__label">Scrap${
-            opts.baysToRefit === null
-              ? ""
-              : opts.baysToRefit === 1
-                ? " — refit next bay"
-                : ` — refit in ${opts.baysToRefit} bays`
-          }</div>
-          <div class="chip__value" style="color:var(--warn)">${scrapHTML(opts.scrap, 16)}</div>
-        </div>
+        ${statCellHTML("reactor", "Carry", `$${opts.carry} · ended $${opts.funds}`, "var(--accent)")}
+        <div class="bay-stat">${icon("up", 14)}<span class="bay-stat__txt">
+          <span class="bay-stat__lbl">Notches</span>
+          <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</span>
+        </span></div>
+        ${statCellHTML("scrap", `Scrap${
+          opts.baysToRefit === null
+            ? ""
+            : opts.baysToRefit === 1
+              ? " · refit next bay"
+              : ` · refit in ${opts.baysToRefit}`
+        }`, String(opts.scrap), "var(--warn)")}
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
         ${projectionHTML(
           "draft-preview",
-          `${opts.nextBayName} — projected`,
+          `Bay ${nextBay} — projected`,
           pending > 0 ? "with your selection" : "as it stands",
           opts.preview,
         )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
-          ${ready ? `Lock it in — launch ${opts.nextBayName}` : remaining === 1 ? "Select an axis" : `Select ${remaining} axes`}
+          ${ready
+            ? `Lock it in — launch Bay ${nextBay}`
+            : pending === 0
+              ? opts.picksNeeded === 1 ? "Pick an axis" : `Pick ${opts.picksNeeded} axes`
+              : `Pick ${remaining} more · ${pending}/${opts.picksNeeded}`}
         </button>
         <p class="draft__confirm-note muted">${
           opts.picksNeeded > 1
@@ -2759,6 +2792,51 @@ export function draftScreen(opts: {
         }</p>
       </div>
     </div>
+  </div>`;
+}
+
+/**
+ * The draft's pick quota, said as SLOTS — "pick 2 of 3" as two empty boxes
+ * beside the count, each box filling with the picked axis's own glyph in its
+ * own kind colour as the hand fills.
+ *
+ * This row exists because the screen did not read as a choice. The title said
+ * "Ratchet 2 axes" and the confirm said "Select 2 axes", and playtest still
+ * asked whether the cards were three problems or three options — a quota
+ * stated only in words looks like a headline, where an empty slot is a hole
+ * the eye wants filled. It also carries the "sticks for the rest of the run"
+ * warning, which replaced a whole subtitle line.
+ */
+function quotaHTML(
+  pending: number,
+  need: number,
+  offered: number,
+  filled: { glyph: string; kind: string }[],
+  /** The stakes, in five words or so — the ratchet's "sticks for the rest of
+   *  the run" against the inspection's "rides on the last bay". */
+  note: string,
+): string {
+  const slots = Array.from({ length: need }, (_, i) => {
+    const f = filled[i];
+    return f
+      ? `<span class="draft__slot draft__slot--filled draft__slot--${f.kind}">${f.glyph}</span>`
+      : `<span class="draft__slot"></span>`;
+  }).join("");
+  // The count lives on the INNER slots row, not the container: main.ts's
+  // toggle patch swaps #draft-quota's innerHTML, so a label on the container
+  // would go stale on the first tap.
+  // "Pick 2 of 2" would read as no choice at all, and at the capstone it is
+  // not the truth either: two picks over two cards is a three-way choice —
+  // one of each, or either card doubled (hazards.ts's togglePick). Say that.
+  const ask = need < offered
+    ? `Pick ${need} of ${offered}`
+    : need > 1
+      ? `${need} picks — split or double up`
+      : `Pick ${need} of ${offered}`;
+  return `<div class="draft__quota" id="draft-quota">
+    <span class="draft__quota-n">${ask}</span>
+    <span class="draft__slots" role="img" aria-label="${pending} of ${need} picked">${slots}</span>
+    <span class="draft__quota-note muted">${note}</span>
   </div>`;
 }
 
@@ -2781,11 +2859,11 @@ export function draftScreen(opts: {
  * screen where it can still mean something.
  */
 export function finalScreen(opts: {
+  /** The 1-based bay just cleared — the final bay is bayNum + 1, derived for
+   *  the same reason draftScreen derives it. Numbers only, no bay names. */
   bayNum: number;
-  bayName: string;
   /** The run's Tier — which pair is on the table. */
   tier: number;
-  nextBayName: string;
   funds: number;
   carry: number;
   /** The two clauses. Exactly two at every Tier (finals.ts's finalsForTier). */
@@ -2797,19 +2875,31 @@ export function finalScreen(opts: {
   scrap: number;
 }): string {
   const ready = opts.selected !== null;
+  const nextBay = opts.bayNum + 1;
   const cards = opts.offers
     .map((f) => {
       const picked = opts.selected === f.id;
       const sys = upgradeById(f.system);
+      const box = picked
+        ? `<span class="mod-card__box mod-card__box--on">${icon("check", 11)}</span>`
+        : `<span class="mod-card__box" aria-hidden="true"></span>`;
       const foot = picked
-        ? `<span class="mod-card__mark">${icon("check", 10)}</span> Accepted — tap to undo`
+        ? "Accepted — tap to undo"
         : ready
           ? "Tap to take this one instead"
           : "Tap to preview";
+      // The badge is the SHIP SYSTEM the clause examines (FinalDef.system) —
+      // its icon in the corner and its name on the pill, because the
+      // inspection is the moment the Tier's whole argument gets settled and a
+      // player who never made the connection is told it here, once.
       return `<button class="mod-card mod-card--final${picked ? " mod-card--picked" : ""}"
         data-action="pick-final" data-final="${f.id}" aria-pressed="${picked}">
-        <div class="mod-card__kind">clause${sys ? ` <span class="mod-card__stack">${sys.name}</span>` : ""}</div>
-        <div class="mod-card__name">${f.name}</div>
+        <div class="mod-card__top">
+          <span class="mod-card__ax" aria-hidden="true">${icon(f.system as IconName, 13)}</span>
+          <span class="mod-card__name">${f.name}</span>
+          ${box}
+        </div>
+        ${sys ? `<div class="mod-card__kind">${sys.name}</div>` : ""}
         <p class="mod-card__desc">${f.desc}</p>
         <div class="mod-card__pick">${foot}</div>
       </button>`;
@@ -2817,35 +2907,31 @@ export function finalScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared — ${opts.bayName} · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
       <h2 class="display">Final Inspection</h2>
-      <p class="muted" style="margin-top:-8px">One clause rides on ${opts.nextBayName}, the last bay of the run. Take the one your ship can carry.</p>
+      ${quotaHTML(ready ? 1 : 0, 1, opts.offers.length,
+        ready ? [{ glyph: icon("check", 11), kind: "final" }] : [],
+        `rides on Bay ${nextBay} — the last bay — only`)}
       <div class="draft__bank">
-        <div class="chip chip--accent chip--inline">
-          <div class="chip__label">Ended $${opts.funds} — carries</div>
-          <div class="chip__value">$${opts.carry}</div>
-        </div>
-        <div class="chip chip--inline">
-          <div class="chip__label">Clause</div>
-          <div class="chip__value" id="draft-notches">${ready ? "1" : "0"}<span class="chip__pending">/1</span></div>
-        </div>
-        <div class="chip chip--inline">
-          <div class="chip__label">Scrap — no refit left</div>
-          <div class="chip__value" style="color:var(--warn)">${scrapHTML(opts.scrap, 16)}</div>
-        </div>
+        ${statCellHTML("reactor", "Carry", `$${opts.carry} · ended $${opts.funds}`, "var(--accent)")}
+        <div class="bay-stat">${icon("bond", 14)}<span class="bay-stat__txt">
+          <span class="bay-stat__lbl">Clause</span>
+          <span class="bay-stat__val" style="--stat-tint:var(--accent-2)" id="draft-notches">${ready ? "1" : "0"}/1</span>
+        </span></div>
+        ${statCellHTML("scrap", "Scrap · no refit left", String(opts.scrap), "var(--warn)")}
       </div>
       <div class="draft__body">
-        <div class="draft__cards" id="draft-cards">${cards}</div>
+        <div class="draft__cards draft__cards--pair" id="draft-cards">${cards}</div>
         ${projectionHTML(
           "draft-preview",
-          `${opts.nextBayName} — projected`,
+          `Bay ${nextBay} — projected`,
           ready ? "with the clause" : "as it stands",
           opts.preview,
         )}
       </div>
       <div class="draft__confirm" id="draft-confirm">
         <button class="btn btn--primary btn--block" data-action="confirm-hazards"${ready ? "" : " disabled"}>
-          ${ready ? `Sign it — launch ${opts.nextBayName}` : "Take a clause"}
+          ${ready ? `Sign it — launch Bay ${nextBay}` : "Take a clause"}
         </button>
         <p class="draft__confirm-note muted">Both clauses cost about the same. Which one costs YOU less is what your refits decided.</p>
       </div>

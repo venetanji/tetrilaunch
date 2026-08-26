@@ -2731,14 +2731,15 @@ class App {
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
-      bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really
       // getting (see advanceRun).
       carry: run.carry,
+      // The forced-material hands cap their partner card at one seat
+      // (togglePick), and the card's own footer has to say so.
+      forced: isMaterialDraft(run.levelIndex),
       offers: this.pendingOffers,
       ratchets: run.ratchets,
       selected: this.pendingPicks,
@@ -2773,9 +2774,7 @@ class App {
   private finalHTML(g: Game, run: RunState): string {
     return S.finalScreen({
       bayNum: run.levelIndex,
-      bayName: g.level.name,
       tier: run.mark,
-      nextBayName: makeBaseLevel(run.levelIndex, run.mark).name,
       funds: g.score,
       carry: run.carry,
       offers: this.pendingFinals,
@@ -2820,7 +2819,7 @@ class App {
         : null;
     const tmp = document.createElement("div");
     tmp.innerHTML = this.draftHTML(g);
-    for (const id of ["#draft-cards", "#draft-preview", "#draft-confirm", "#draft-notches"]) {
+    for (const id of ["#draft-cards", "#draft-preview", "#draft-confirm", "#draft-notches", "#draft-quota"]) {
       const live = this.overlay.querySelector(id);
       const fresh = tmp.querySelector(id);
       if (live && fresh) live.innerHTML = fresh.innerHTML;

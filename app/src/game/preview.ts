@@ -1,4 +1,5 @@
 import { HAZARDS, type HazardId, type Ratchets } from "./hazards";
+import { mixTotal } from "./belt";
 import type { LevelConfig } from "./level";
 import { SIZE_SPEC } from "./pieces";
 
@@ -89,10 +90,11 @@ interface Field {
    *  player can see the crosswind they are already flying before deciding to
    *  ratchet it. Anything else appears the moment a pick touches it. */
   showWhen?(baseVal: number): boolean;
-  /** The ratchet axis whose notches make this row's pressure LIVE. A row whose
-   *  axis has banked notches never leaves the projection and is flagged
-   *  active — see PreviewRow.active. */
-  axis?: HazardId;
+  /** The ratchet axis (or axes — the belt row answers for every content axis
+   *  at once) whose notches make this row's pressure LIVE. A row whose axis
+   *  has banked notches never leaves the projection and is flagged active —
+   *  see PreviewRow.active. */
+  axis?: HazardId | readonly HazardId[];
 }
 
 const FIELDS: Field[] = [
@@ -319,18 +321,27 @@ const FIELDS: Field[] = [
     fmt: (v) => `$${Math.round(v)}`,
     higherIsWorse: false,
   },
-  // The content axes, in ladder order, labelled off their own HazardDef so a
-  // new material is still one table row in hazards.ts and nothing here.
-  ...HAZARDS.filter((h) => h.material).map((h): Field => ({
-    id: `mat:${h.material}`,
-    label: `${h.name.replace(/ Contract$/, "")} on the belt`,
-    short: h.name.replace(/ Contract$/, ""),
-    read: (c) => c.materialMix[h.material!] ?? 0,
+  // THE BELT, as ONE tile. This used to be six — a row per content axis — and
+  // a Tier 10 material clause moved all six at once: two extra rows of tiles
+  // on the screen that overflows first (the owner's device pass). The
+  // projection prices the BAY, and belt.ts's ceiling made the TOTAL the number
+  // that prices it: past the ceiling, notches recompose the belt rather than
+  // thicken it, and total density is what waste and congestion actually
+  // charge. WHICH materials make it up is the cards' own copy — the card the
+  // player is holding names its material, and the HUD's belt preview shows
+  // every shipment before it flies.
+  {
+    id: "belt",
+    label: "Special cargo on the belt",
+    short: "Belt",
+    read: (c) => mixTotal(c.materialMix),
     fmt: rate,
     higherIsWorse: true,
     showWhen: (v) => v > 0.005,
-    axis: h.id,
-  })),
+    // Live whenever ANY content axis has banked notches — the belt row is
+    // every material row's heir, so it inherits all of their axes.
+    axis: HAZARDS.filter((h) => h.material).map((h) => h.id),
+  },
 ];
 
 /**
@@ -358,7 +369,9 @@ export function previewRows(
     const from = f.fmt(a);
     const to = f.fmt(b);
     const changed = from !== to;
-    const active = f.axis !== undefined && (banked[f.axis] ?? 0) > 0;
+    const axes: readonly HazardId[] =
+      f.axis === undefined ? [] : typeof f.axis === "string" ? [f.axis] : f.axis;
+    const active = axes.some((x) => (banked[x] ?? 0) > 0);
     if (!changed && !active && !f.always && !(f.showWhen?.(a) ?? false)) continue;
     rows.push({
       id: f.id,
