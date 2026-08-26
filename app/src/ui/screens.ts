@@ -638,7 +638,19 @@ export function menuScreen(
               ? "All ten marks at once · no mercy"
               : `Clear ${RUN_LEVELS} bays in one run`
         }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
+          // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
+          // replaced the run-end "Tier N progress" banner: a sentence about
+          // finishing Contracts on a screen the player wants to leave was
+          // never read, where an unfilled pip flickering on this button is
+          // the same fact at the moment the player can act on it.
+          progress
+            ? `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
+                Array.from({ length: progress.needed }, (_, i) =>
+                  `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
+              }</span>`
+            : ""
+        }</span><span class="btn__sub">${
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
           // the live figures must sit before the prose that can afford to go.
           progress
@@ -669,7 +681,11 @@ export function menuScreen(
       // SHA. Outside a Vite build — sim/systems.ts imports this module
       // straight through tsx — import.meta.env does not exist at all, so the
       // typeof guard is load-bearing, not defensive noise.
-      typeof import.meta.env !== "undefined" ? (import.meta.env.VITE_BUILD_ID as string) : "dev"
+      // ...and ?? "dev" a second time inside the guard: the uifit harness
+      // DOES define import.meta.env (vite-node) without defining
+      // VITE_BUILD_ID, and the footer printed the string "undefined" in
+      // every menu screenshot it took.
+      typeof import.meta.env !== "undefined" ? ((import.meta.env.VITE_BUILD_ID as string | undefined) ?? "dev") : "dev"
     }</div>
   </div>`;
 }
@@ -3123,12 +3139,15 @@ export function endModal(opts: {
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
         · $${Math.max(0, opts.funds)} left
       </div>
-      <!-- Tier progress. Deliberately prominent on a LOSS too: the run ending
-           is not the end of the progression, and the player should see what
-           the ladder still asks of them — or what this end just banked —
-           before they see the leaderboard. Salvage arrives per MILESTONE
-           (meta.ts): a first at-tier win banks its share on the spot, so the
-           progress row can carry a payout line without a completion. -->
+      <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
+           ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap
+           and refit totals — is gone: the owner's device pass read it as a
+           block nobody reads on the one screen the player wants to leave.
+           What survives is NEWS — salvage this end banked — and Tier S's own
+           row, which exists to say practice banks nothing. The ladder's
+           standing lives where the player can act on it instead: the menu's
+           Contracts button wears the tier's contract pips (menuScreen), and
+           the Contracts board keeps its tier chip. -->
       ${
         opts.sandbox
           ? sandboxEndRowHTML(opts.sandboxSetup ?? "", opts.scrapEarned, opts.tiers, demoFoot)
@@ -3138,32 +3157,19 @@ export function endModal(opts: {
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
           <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
-          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship${demoFoot}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
-          : `<div class="salvage-row">
-        <div class="salvage-row__amt salvage-row__amt--tier">${opts.tierSalvage > 0 ? salvageHTML(`+${opts.tierSalvage}`, 16) : `T${opts.progress.tier}`}</div>
+          : opts.tierSalvage > 0
+            ? `<div class="salvage-row">
+        <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
-          <b>Tier ${opts.progress.tier} progress</b>
-          <span class="muted">${opts.tierSalvage > 0 ? `<b>${salvageHTML(`+${opts.tierSalvage}`)} banked</b> for beating the run at this tier. ` : ""}${opts.progress.runDone ? "✓" : "○"} Deep Run beaten · ${opts.progress.contracts >= opts.progress.needed ? "✓" : "○"} Contracts ${opts.progress.contracts}/${opts.progress.needed} — finish both to open Tier ${opts.progress.tier + 1}.</span>
-          <span class="muted salvage-row__foot">${opts.scrapEarned} scrap earned · ${tiersCost(opts.tiers)} refitted into the ship · ${opts.salvageTotal} salvage banked${demoFoot}</span>
+          <b>Salvage banked</b>
+          <span class="muted">First run win at Tier ${opts.progress.tier} — ${opts.salvageTotal} salvage total.</span>
         </div>
-        ${
-          // Only when this end actually BANKED something. The row is a flex
-          // three-up — figure, body, button — and the button is `flex: none`,
-          // so on a run that earned nothing it took width off the one part
-          // carrying information and wrapped the progress sentence into the
-          // cramped block this screen is trying not to be. It was also an
-          // invitation to go shopping with no new money: the Workshop spends
-          // salvage, and a run that banked none has nothing there it did not
-          // have before starting. Tier-complete keeps its button
-          // unconditionally — that branch always carries an award.
-          opts.tierSalvage > 0
-            ? `<button class="btn btn--secondary" data-action="workshop">Workshop</button>`
-            : ""
-        }
+        <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
+            : ""
       }
       ${
         // A15: a completed tier's end names what the NEXT rung actually

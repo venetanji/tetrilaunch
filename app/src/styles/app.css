@@ -6119,6 +6119,39 @@ button.panel { color: var(--text); }
    landscape phone the plain three kept a 44px floor the subtitled three had
    lost, and the upsell chip was explicitly shrunk to 32px. */
 .btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* A button title that carries inline furniture (the Contracts pips) — without
+   this the pips would become their own row of the column flex above. */
+.btn__ttl { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+/* THE TIER'S CONTRACT PIPS — one square per first-clear the tier asks for,
+   on the button that leads to them. They replaced the run-end "Tier N
+   progress" banner (screens.ts's endModal note). Salvage amber, because a
+   first clear banks salvage and the button's own sub quotes that price in
+   the same colour.
+
+   The unfilled pips FLICKER while the tier still owes clears — the nudge is
+   the whole job — and hold still once the set is complete. Staggered delays
+   so three pips read as three sockets, not one blinking cursor (the same
+   call .bay-stat__q makes). Under prefers-reduced-motion they hold still and
+   the fill alone carries the fact — colour is information, motion is not. */
+.tier-pips { display: inline-flex; gap: 4px; flex: none; }
+.tier-pip {
+  width: 7px; height: 7px;
+  border: 1px solid var(--warn);
+  border-radius: 1px;
+  opacity: 0.45;
+}
+.tier-pip--done { background: var(--warn); opacity: 1; }
+.tier-pips--live .tier-pip:not(.tier-pip--done) { animation: pip-flicker 1.8s steps(2, end) infinite; }
+.tier-pips--live .tier-pip:nth-child(2) { animation-delay: 0.4s; }
+.tier-pips--live .tier-pip:nth-child(3) { animation-delay: 0.8s; }
+@keyframes pip-flicker {
+  0%, 55% { opacity: 0.45; box-shadow: none; }
+  65%, 85% { opacity: 1; box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
+  100% { opacity: 0.45; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tier-pips--live .tier-pip { animation: none; }
+}
 .btn__sub {
   font-family: var(--font-ui);
   font-size: 12px;
