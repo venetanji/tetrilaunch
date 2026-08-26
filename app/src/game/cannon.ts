@@ -252,6 +252,18 @@ export class Cannon {
   aimDown() { this.angle = Math.max(-AIM_CONE, this.angle - 0.035); }
   powerUp() { this.power = Math.min(this.speedMax, this.power + 0.4); }
   powerDown() { this.power = Math.max(this.speedMin, this.power - 0.4); }
+  /** Analog variants of the four nudges above, for the gamepad's direct
+   *  mode (gamepad.ts): the same per-frame steps the keyboard takes, scaled
+   *  by stick deflection (-1..1) so a half-tilt trims at half rate. Sharing
+   *  the step constant is the point — a pinned stick and a held key move the
+   *  barrel at exactly the same speed, so switching devices never re-teaches
+   *  the hand. */
+  nudgeAngle(f: number) {
+    this.angle = Math.max(-AIM_CONE, Math.min(AIM_CONE, this.angle + 0.035 * f));
+  }
+  nudgePower(f: number) {
+    this.power = Math.max(this.speedMin, Math.min(this.speedMax, this.power + 0.4 * f));
+  }
   // Canvas y-axis points DOWN, so a POSITIVE angle rotates the piece
   // clockwise on screen. rotateLeft (⟲) must look counter-clockwise, so it
   // subtracts; rotateRight (⟳) adds. 90° steps give the player predictable,
@@ -687,6 +699,18 @@ export function solveAimForTarget(
   frictionAir: number,
   steps: number,
   windAt: (step: number) => number,
+  /** ARC HEIGHT through the same landing point, 0..1 — the owner's device
+   *  pass found the minimum-power arc regularly ploughing straight through
+   *  the compactor bar, with no way to ask for the ball to come DOWN onto
+   *  the spot instead. Every reachable point is reachable by a whole family
+   *  of arcs (the U of required power across the cone: its minimum is the
+   *  flattest hit, and every angle above it up to the last one the speed
+   *  band affords is a steeper arc through the same point). 0 keeps the
+   *  minimum-power arc; 1 is the steepest member of the family; between is a
+   *  linear blend of the two angles. More loft always costs more power and
+   *  never moves the landing point, which is exactly the dial the wheel
+   *  advertises (input.ts's onWheel). */
+  loft = 0,
 ): AimSolution {
   // Nothing behind the muzzle is reachable at any angle in the cone, and a
   // click there is almost always a click on the launcher chrome rather than a
@@ -766,6 +790,29 @@ export function solveAimForTarget(
   // function with infinite shoulders can converge onto a shoulder if the
   // minimum sits hard against the edge of the reachable band, and coming back
   // with Infinity would be a regression against a working answer.
-  if (refined.power <= bestPower) return report(mid, refined.power);
-  return report(bestAngle, bestPower);
+  const aStar = refined.power <= bestPower ? mid : bestAngle;
+  const pStar = Math.min(refined.power, bestPower);
+  if (loft <= 0) return report(aStar, pStar);
+
+  // THE LOB BRANCH — see the loft param's doc. The reachable band is
+  // contiguous (the same quasi-convex U pass 2 leans on: required power rises
+  // monotonically above the minimum until it crosses speedMax or the cone
+  // ends), so its upper edge bisects cleanly: highest angle that still hits.
+  let bLo = aStar;
+  let bHi = AIM_CONE;
+  if (cost(bHi).power !== Infinity) {
+    bLo = bHi;
+  } else {
+    for (let i = 0; i < SOLVE_ANGLE_ITERS; i++) {
+      const m = (bLo + bHi) / 2;
+      if (cost(m).power !== Infinity) bLo = m;
+      else bHi = m;
+    }
+  }
+  const lofted = aStar + (bLo - aStar) * Math.min(1, loft);
+  const s = cost(lofted);
+  // A band too thin to loft inside (the target sits at the very edge of
+  // reach) degrades to the minimum-power answer rather than to a miss.
+  if (s.power === Infinity) return report(aStar, pStar);
+  return report(lofted, s.power);
 }

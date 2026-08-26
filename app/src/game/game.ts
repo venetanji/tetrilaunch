@@ -1245,6 +1245,15 @@ export class Game {
    * had to be handed all of that anyway, and the one thing it must never do is
    * guess at any of it.
    */
+  /** Arc-height dial for the target solver, 0..1 (cannon.ts's loft param —
+   *  0 is the minimum-power arc, 1 the steepest arc through the same point).
+   *  input.ts's wheel writes it and every aimAt reads it, so a raised arc
+   *  STAYS raised across clicks: the owner's pass found the flat default
+   *  ploughing through the compactor bar, and a dial that reset per click
+   *  would need re-raising on every shot. Per-bay by construction — a new
+   *  bay is a new Game. */
+  aimLoft = 0;
+
   aimAt(target: Matter.Vector): number {
     const p = this.previewModel();
     const sol = solveAimForTarget(
@@ -1257,6 +1266,7 @@ export class Game {
       p.frictionAir,
       p.steps,
       p.windAt,
+      this.aimLoft,
     );
     this.cannon.angle = sol.angle;
     this.cannon.power = sol.power;

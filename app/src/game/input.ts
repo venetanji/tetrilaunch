@@ -55,55 +55,60 @@ import { MIN_FIRE_RATIO } from "./cannon";
  * drag-hint guide, placed at the thumb), and the game has no business knowing
  * about CSS pixels.
  *
- * ROTATION ON THE MOUSE (right button and wheel) is what makes the left-click
- * scheme above a COMPLETE control scheme rather than most of one. Aiming and
- * firing were already on the mouse; turning the shipment was not, so a desktop
- * player still had to reach for the keyboard or the on-screen rail between
- * every shot for the one input that decides whether the piece fits. Both new
- * gestures land on the same pair the keyboard, the gamepad and the rail all
- * call (cannon.rotateLeft/rotateRight + updateTrajectory, via `rotate` below),
- * so there is exactly one definition of what "turn it" means.
+ * ROTATION ON THE MOUSE (right button ⟳, middle button ⟲) is what makes the
+ * left-click scheme above a COMPLETE control scheme rather than most of one.
+ * Aiming and firing were already on the mouse; turning the shipment was not,
+ * so a desktop player still had to reach for the keyboard or the on-screen
+ * rail between every shot for the one input that decides whether the piece
+ * fits. Both gestures land on the same pair the keyboard, the gamepad and the
+ * rail all call (cannon.rotateLeft/rotateRight + updateTrajectory, via
+ * `rotate` below), so there is exactly one definition of what "turn it" means.
+ * THE WHEEL'S SCROLL is the arc-height dial instead (see onWheel) — it turned
+ * the piece for one play session, and what that session taught is that the
+ * click-to-target scheme's real missing input was loft, not a third rotate.
  *
- * THEY DO NOT TOUCH THE GESTURE IN PROGRESS. `rotate` reads no drag state and
+ * NONE OF THEM TOUCH THE GESTURE IN PROGRESS. `rotate` reads no drag state and
  * writes none: no dragStart, no dragPointerId, no aimBefore, no pendingTarget.
  * That is the same contract the side-rail rotate buttons already keep (a
  * second finger on the rail leaves the drag alive; only the ✕ cancels it), and
  * it is what lets a player hold the left button on a spot, turn the piece, and
  * watch the arc through that same spot redraw around the new shape.
  *
- * Both are MOUSE-ONLY by construction, and deliberately so — see onDown's
+ * All are MOUSE-ONLY by construction, and deliberately so — see onDown's
  * button guard for why the pointerType test is there rather than a bare
  * `e.button !== 0`. Touch and pen take the identical path they took before.
  */
 
-/** Pixels of wheel travel that earn one rotation, and the unit every device's
- *  delta is converted into. 100 because that is what a physical detent reports
- *  on every clicky wheel worth naming: Chrome and Edge on Windows send
- *  deltaY 100 per notch, Firefox sends deltaMode 1 with deltaY 3 (three lines,
- *  hence WHEEL_STEP_PX / 3 below), and a Windows "one screen at a time"
- *  setting sends deltaMode 2 with deltaY 1. The devices that DON'T land on 100
- *  — Magic Mouse, trackpads, anything with inertia — are exactly the ones that
- *  send a continuous stream of small deltas instead, which is what the
- *  accumulator is for. Getting this wrong in the low direction is much worse
- *  than in the high: a threshold under a real notch spins the piece several
- *  times per flick, and the piece only has four orientations, so an overshoot
- *  is indistinguishable from a random draw. */
+/** Pixels of wheel travel that earn one NOTCH (one loft step), and the unit
+ *  every device's delta is converted into. 100 because that is what a physical
+ *  detent reports on every clicky wheel worth naming: Chrome and Edge on
+ *  Windows send deltaY 100 per notch, Firefox sends deltaMode 1 with deltaY 3
+ *  (three lines, hence WHEEL_STEP_PX / 3 below), and a Windows "one screen at
+ *  a time" setting sends deltaMode 2 with deltaY 1. The devices that DON'T
+ *  land on 100 — Magic Mouse, trackpads, anything with inertia — are exactly
+ *  the ones that send a continuous stream of small deltas instead, which is
+ *  what the accumulator is for. Getting this wrong in the low direction is
+ *  much worse than in the high: a threshold under a real notch spends the
+ *  whole loft range on one flick, so every trackpad scroll would slam the dial
+ *  to an end stop instead of stepping it. */
 const WHEEL_STEP_PX = 100;
-
-/** Which way a wheel-DOWN turn (positive deltaY) turns the shipment. THE ONE
- *  LINE THAT REVERSES THE WHEEL — flip this to false and both directions swap
- *  together, because the ⟲ case below is derived from it rather than written
- *  out separately. There is no convention to inherit here: down-is-clockwise
- *  matches "scroll down, the piece rolls forward under your finger", which is
- *  the reading we picked, and the opposite reading ("the wheel is a dial, down
- *  is anticlockwise") is just as defensible. Typed `boolean` rather than left
- *  to literal inference so flipping it does not make the comparison below a
- *  compile error about an impossible comparison. */
-const WHEEL_DOWN_ROTATES_RIGHT: boolean = true;
 
 export type RotateDir = "left" | "right";
 
-/** One wheel event's worth of rotation, as a pure function of the accumulator
+/** Loft the wheel adds or removes per notch (Game.aimLoft is 0..1, so five
+ *  notches walk the whole family from the flattest arc to the steepest).
+ *  Scroll UP raises the arc — the one mapping with a physical reading. */
+const LOFT_STEP = 0.2;
+
+/** Vertical drag that walks the loft dial end to end under the CLASSIC-WHEEL
+ *  option (settings.wheelRotates — the wheel turns the shipment, so arc
+ *  height moves onto "hold the right button mid-aim and drag up/down").
+ *  150 CSS px ≈ a comfortable wrist stroke: short enough to reach either
+ *  stop without re-gripping, long enough that one px of jitter moves the
+ *  dial under 1%. */
+const LOB_DRAG_PX = 150;
+
+/** One wheel event's worth of NOTCHES, as a pure function of the accumulator
  *  and the event's raw delta, so it can be tested against real device traces
  *  without a browser (sim/systems.ts drives both a detent mouse and a trackpad
  *  flick through it).
@@ -128,20 +133,23 @@ export type RotateDir = "left" | "right";
  *  started. It also means a tiny nudge cannot trip a turn off change banked
  *  from a scroll the player has long since forgotten: every notch starts from
  *  zero. */
-export function wheelRotation(
+export function wheelNotch(
   accum: number,
   deltaY: number,
   deltaMode: number,
-): { accum: number; dir: RotateDir | null } {
+): { accum: number; notch: -1 | 0 | 1 } {
   // deltaMode is the unit the device chose to speak in — 0 px, 1 lines,
   // 2 pages — and it is per-EVENT, not per-device: the same wheel can switch
   // modes when a modifier or an OS setting changes. Normalising here rather
   // than at the call site means the threshold above is one number in one unit.
   const px = deltaY * (deltaMode === 1 ? WHEEL_STEP_PX / 3 : deltaMode === 2 ? WHEEL_STEP_PX : 1);
-  if (px === 0) return { accum, dir: null };
+  if (px === 0) return { accum, notch: 0 };
   const next = Math.sign(px) === Math.sign(accum) ? accum + px : px;
-  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, dir: null };
-  return { accum: 0, dir: (px > 0) === WHEEL_DOWN_ROTATES_RIGHT ? "right" : "left" };
+  if (Math.abs(next) < WHEEL_STEP_PX) return { accum: next, notch: 0 };
+  // +1 is a wheel-DOWN notch (positive deltaY); the caller owns what a
+  // direction means, which is what let this survive the wheel changing jobs
+  // (it turned the shipment once; it lofts the arc now).
+  return { accum: 0, notch: px > 0 ? 1 : -1 };
 }
 
 export class InputController {
@@ -181,28 +189,52 @@ export class InputController {
    *  the first is the press the player is waiting to see answered, and the last
    *  decides where the shot actually goes. */
   private pendingTarget: { x: number; y: number } | null = null;
+  /** The last point applyTarget actually SOLVED, kept for the wheel: the loft
+   *  dial re-solves "the arc I am looking at", and once the button is up that
+   *  is the last clicked point. Paired with the Game it was solved FOR, and
+   *  onWheel checks the pair, because this controller outlives the bay — a
+   *  point remembered in one bay's coordinates is a lie in the next one's,
+   *  and the first scroll of a fresh bay must adjust the dial without
+   *  swinging the barrel at a ghost. */
+  private lastTarget: { x: number; y: number } | null = null;
+  private lastTargetFor: Game | null = null;
+  /** Live lob drag under the classic-wheel option: where the chord started
+   *  (client Y and the loft it found) — null in the default scheme and
+   *  whenever no chord is held. While set, ordinary moves dial Game.aimLoft
+   *  from the vertical delta and the TARGET stays frozen at lobTarget: a
+   *  hand pulling straight down still drifts a few px sideways, and a dial
+   *  that also dragged the landing point would be two controls fighting on
+   *  one gesture. */
+  private lobFrom: { y: number; loft: number } | null = null;
+  private lobTarget: { x: number; y: number } | null = null;
   /** The aim as it stood when the current gesture STARTED, restored if that
    *  gesture turns out to be a misfire. Without it a graze that travels far
    *  enough to move the cannon but not far enough to fire still costs the
    *  player the shot they had lined up — the accident would be free of ammo
    *  and expensive in setup, which is only half a fix. */
   private aimBefore: { angle: number; power: number } | null = null;
-  /** Wheel travel banked toward the next rotation, in normalised px. Lives on
-   *  the controller rather than inside onWheel because a trackpad's notch is
-   *  spread across many events (see wheelRotation). Zeroed whenever the wheel
-   *  arrives on a bay that is not being played, so a half-turn banked before a
-   *  pause cannot fall out of the machine on the first scroll after it. */
+  /** Wheel travel banked toward the next loft notch, in normalised px. Lives
+   *  on the controller rather than inside onWheel because a trackpad's notch
+   *  is spread across many events (see wheelNotch). Zeroed whenever the wheel
+   *  arrives on a bay that is not being played, so a half-notch banked before
+   *  a pause cannot fall out of the machine on the first scroll after it. */
   private wheelAccum = 0;
   private raf = 0;
+
+  /** settings.wheelRotates, read live so the Controls toggle applies without
+   *  a restart — same contract as gamepad.ts's hooks. */
+  private wheelRotates: () => boolean;
 
   constructor(
     canvas: HTMLCanvasElement,
     game: () => Game | null,
     onMisfire?: (clientX: number, clientY: number) => void,
+    wheelRotates: () => boolean = () => false,
   ) {
     this.canvas = canvas;
     this.game = game;
     this.onMisfire = onMisfire;
+    this.wheelRotates = wheelRotates;
 
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
@@ -250,6 +282,8 @@ export class InputController {
     this.dragRatio = 0;
     this.targeting = false;
     this.pendingTarget = null;
+    this.lobFrom = null;
+    this.lobTarget = null;
     // The ✕ deliberately does NOT restore the pre-drag aim, unlike a misfire.
     // The player pulled, watched the arc, and chose to stand down — the aim
     // they are looking at is the one they built, and snapping it back to
@@ -298,6 +332,10 @@ export class InputController {
    *  wanting to say something about it has `hit` available there. */
   private applyTarget(p: { x: number; y: number }): void {
     this.pendingTarget = null;
+    // Remembered for the wheel (see lastTarget). Never read for firing — a
+    // shot still spends the aim the cannon holds.
+    this.lastTarget = p;
+    this.lastTargetFor = this.game();
     this.game()?.aimAt(p);
   }
 
@@ -360,6 +398,14 @@ export class InputController {
       // now; the `!dragging` gate below is what keeps a browser that fires
       // both events for a chord from turning the piece twice.
       if (e.button === 2 && !this.dragging) this.rotate("right");
+      // ⟲ on the middle button — the wheel's PRESS, which stayed free when
+      // the wheel's scroll changed jobs to the loft dial. The pair reads as
+      // one rocker in the hand: right button clockwise, the button to its
+      // left counter-clockwise, and a piece with four faces is never more
+      // than two presses from any orientation whichever one the thumb finds
+      // first. Same `!dragging` double-fire guard as the right button, same
+      // chord path through onMove.
+      else if (e.button === 1 && !this.dragging) this.rotate("left");
       return;
     }
     const g = this.game();
@@ -396,7 +442,50 @@ export class InputController {
     // rotating mid-aim is watching the arc through the held target redraw
     // around the new shape.
     if (e.pointerType === "mouse" && e.button === 2 && (e.buttons & 2) !== 0) {
-      this.rotate("right");
+      if (this.wheelRotates() && this.dragging && this.targeting) {
+        // CLASSIC-WHEEL OPTION: the wheel owns rotation, so this chord is
+        // the arc-height drag instead — anchor it at the loft the dial
+        // currently holds and at the target being aimed, both frozen for
+        // the stroke's whole life.
+        const g = this.game();
+        if (g) {
+          this.lobFrom = { y: e.clientY, loft: g.aimLoft };
+          this.lobTarget = this.pendingTarget ?? this.lastTarget;
+        }
+      } else {
+        this.rotate("right");
+      }
+    } else if (e.pointerType === "mouse" && e.button === 1 && (e.buttons & 4) !== 0) {
+      // The middle button's chord — note `button` 1 but bitmask 4: the
+      // event's `button` numbers the buttons left-to-right while `buttons`
+      // gives the middle bit 4, an asymmetry the spec owns, not this file.
+      // Same job in both wheel modes: nothing else wants the wheel's press.
+      this.rotate("left");
+    }
+    // The lob drag in progress, if any. Ends the moment the right button's
+    // bit clears — the chord's release is itself a pointermove (button 2,
+    // bit gone), and any move after a release missed by the canvas reports
+    // the same cleared mask, so the state cannot wedge on.
+    if (this.lobFrom) {
+      if ((e.buttons & 2) === 0) {
+        this.lobFrom = null;
+        this.lobTarget = null;
+      } else {
+        const g = this.game();
+        if (g && this.lobTarget) {
+          // Pull UP for more loft — the arc rises with the hand. Clamped to
+          // the dial's own range, and routed through pendingTarget so the
+          // rAF tick re-solves once per drawn frame like any other move.
+          const next = Math.min(1, Math.max(0,
+            this.lobFrom.loft + (this.lobFrom.y - e.clientY) / LOB_DRAG_PX));
+          if (next !== g.aimLoft) {
+            g.aimLoft = next;
+            this.pendingTarget = this.lobTarget;
+          }
+        }
+        // The cursor's position is the dial's input now, not the target's.
+        return;
+      }
     }
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
     if (this.targeting) this.pendingTarget = this.worldPoint(e);
@@ -444,7 +533,13 @@ export class InputController {
     // frame ago, which on a fast flick is most of the bay away. Unconditional
     // on a pending move rather than `if (this.pendingTarget)`: re-solving the
     // release position costs one solve and removes the case analysis.
-    if (this.targeting) this.applyTarget(this.worldPoint(e));
+    // ...unless a lob drag is still holding the right button: then the aim
+    // in force is the FROZEN target the height was dialled onto, and firing
+    // at the cursor — which spent the whole stroke as the dial's input, px
+    // from where it started — would launch at a point nobody was aiming at.
+    if (this.targeting) {
+      this.applyTarget(this.lobFrom && this.lobTarget ? this.lobTarget : this.worldPoint(e));
+    }
     const restore = this.aimBefore;
     this.dragging = false;
     this.dragStart = null;
@@ -453,6 +548,8 @@ export class InputController {
     this.targeting = false;
     this.pendingTarget = null;
     this.aimBefore = null;
+    this.lobFrom = null;
+    this.lobTarget = null;
     const g = this.game();
     if (g) g.aiming = false;
     if (misfired) {
@@ -478,9 +575,17 @@ export class InputController {
     if (g) g.shoot(performance.now());
   };
 
-  /** The wheel turns the shipment. See wheelRotation for the accumulator and
-   *  WHEEL_DOWN_ROTATES_RIGHT for which way, both module-level and both
-   *  deliberately outside this method so the direction is one line to reverse.
+  /** THE WHEEL IS THE ARC-HEIGHT DIAL — the owner's play session re-decided
+   *  it (it briefly rotated the shipment; the buttons own rotation now, right
+   *  ⟳ and middle ⟲). The click solves the arc to a point, and the wheel
+   *  chooses WHICH arc of the family through that same point: scroll up and
+   *  the ball comes down steeper onto the spot, scroll down and it flattens
+   *  back toward the minimum-power drive (Game.aimLoft -> cannon.ts's loft).
+   *  This is the control click-to-target was missing: the flat default
+   *  regularly drew its prediction straight through the compactor bar with no
+   *  way to ask for height. The dial persists across clicks within the bay
+   *  and re-solves the held or last target immediately, so a notch answers on
+   *  screen the moment it is spent. See wheelNotch for the accumulator.
    *
    *  NOT WHILE PAUSED, AND NOT ON A FINISHED BAY — and the reason is the
    *  preventDefault rather than the rotation. Killing the page's scroll is a
@@ -511,9 +616,28 @@ export class InputController {
     // that is meant to be the whole viewport. During play the wheel belongs to
     // the game whether or not this particular event earns a rotation.
     e.preventDefault();
-    const r = wheelRotation(this.wheelAccum, e.deltaY, e.deltaMode);
+    const r = wheelNotch(this.wheelAccum, e.deltaY, e.deltaMode);
     this.wheelAccum = r.accum;
-    if (r.dir) this.rotate(r.dir);
+    if (r.notch === 0) return;
+    // CLASSIC-WHEEL OPTION (settings.wheelRotates): the wheel keeps its
+    // original job — a notch turns the shipment, wheel-down clockwise the
+    // way it always did — and the loft dial lives on the right-button chord
+    // drag instead (see onMove). Read live, so flipping the Controls toggle
+    // re-jobs the wheel mid-bay.
+    if (this.wheelRotates()) {
+      this.rotate(r.notch > 0 ? "right" : "left");
+      return;
+    }
+    // Wheel-down is notch +1 and must LOWER the arc, so the loft subtracts.
+    const next = Math.min(1, Math.max(0, g.aimLoft - r.notch * LOFT_STEP));
+    if (next === g.aimLoft) return;
+    g.aimLoft = next;
+    // Re-solve at the target in hand — the one being held, else the last one
+    // clicked — so the dial redraws the arc it is dialling. With no target
+    // yet (a keyboard aimer pre-rolling the wheel) the loft still sticks and
+    // the next click uses it; there is nothing honest to redraw until then.
+    const t = this.pendingTarget ?? (this.lastTargetFor === g ? this.lastTarget : null);
+    if (t) this.applyTarget(t);
   };
 
   /** No context menu on the bay. Electron ships without one, so this is

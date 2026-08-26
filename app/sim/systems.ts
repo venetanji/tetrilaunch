@@ -94,7 +94,7 @@ import {
 import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
-import { InputController, wheelRotation } from "../src/game/input";
+import { InputController, wheelNotch } from "../src/game/input";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -3326,11 +3326,13 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true,
-    leftHandRail: false, stickAssist: true, stickPull: false, devMode: false,
+    leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
     BINDABLE_ACTIONS.every((a) => kb.includes(`data-bind="${a}"`)));
+  check("the keyboard tab carries the wheel-rotates toggle",
+    kb.includes('data-toggle="wheelRotates"'));
   check("a capturing row says so",
     controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: "fire" })
       .includes("Press a key…"));
@@ -7350,8 +7352,8 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
     return best;
   };
 
-  const solve = (t: { x: number; y: number }, min = SPEED_MIN, max = SPEED_MAX, wind = 0) =>
-    solveAimForTarget(origin, CANNON.barrel, t, min, max, G_ACCEL, FRICTION, STEPS, () => wind);
+  const solve = (t: { x: number; y: number }, min = SPEED_MIN, max = SPEED_MAX, wind = 0, loft = 0) =>
+    solveAimForTarget(origin, CANNON.barrel, t, min, max, G_ACCEL, FRICTION, STEPS, () => wind, loft);
 
   // --- The whole point: the dots go where the click went --------------------
   // SWEPT across the playable bay rather than spot-checked, because the failure
@@ -7433,6 +7435,29 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
       `${arcMiss(sol.angle, sol.power, t, 0).toFixed(2)}px`);
   }
 
+  // --- Loft: one landing point, a family of arcs ---------------------------
+  // The wheel's dial (input.ts's onWheel → Game.aimLoft). The contract has
+  // three clauses and each gets its own line: every loft LANDS ON THE SAME
+  // POINT (a dial that moved the landing point would be a second aim control
+  // fighting the first), more loft is a STEEPER arc (that is the whole ask —
+  // come DOWN onto the spot instead of ploughing through the compactor), and
+  // more loft costs MORE POWER (the lob branch of the U, which is what keeps
+  // the PWR meter honest while the dial turns).
+  {
+    const t = { x: 900, y: 620 };
+    const flat = solve(t);
+    const half = solve(t, SPEED_MIN, SPEED_MAX, 0, 0.5);
+    const full = solve(t, SPEED_MIN, SPEED_MAX, 0, 1);
+    check("every loft lands on the same point", flat.hit && half.hit && full.hit,
+      `misses ${flat.miss.toFixed(1)} / ${half.miss.toFixed(1)} / ${full.miss.toFixed(1)}px`);
+    check("more loft is a steeper arc through it",
+      full.angle > half.angle && half.angle > flat.angle,
+      `${flat.angle.toFixed(3)} → ${half.angle.toFixed(3)} → ${full.angle.toFixed(3)} rad`);
+    check("more loft costs more power, still inside the band",
+      flat.power < half.power && half.power < full.power && full.power <= SPEED_MAX + 1e-9,
+      `${flat.power.toFixed(2)} → ${half.power.toFixed(2)} → ${full.power.toFixed(2)} px/step`);
+  }
+
   // --- Out of reach ---------------------------------------------------------
   // Documented behaviour is CLAMP, never refuse: the nearest arc the cannon can
   // throw, at the top of its band, with the miss reported honestly so the
@@ -7482,54 +7507,57 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
 }
 
 // ---------------------------------------------------------------------------
-section("The mouse can rotate, and only the left button fires (input.ts)");
+section("The mouse buttons rotate, the wheel lofts, only the left fires (input.ts)");
 // ---------------------------------------------------------------------------
 // The wheel accumulator first, which is pure and needs nothing but numbers.
-// The point of every case here is that ONE PHYSICAL NOTCH TURNS THE PIECE ONCE
-// no matter what unit the device chose to report it in, and that a continuous
-// device's stream of crumbs is measured by distance rather than by event count.
+// The point of every case here is that ONE PHYSICAL NOTCH IS ONE STEP OF THE
+// DIAL no matter what unit the device chose to report it in, and that a
+// continuous device's stream of crumbs is measured by distance rather than by
+// event count. (The wheel spent these notches on rotation once and spends
+// them on the loft dial now — which is why the function answers in signed
+// notches and owns no opinion about what a notch buys.)
 {
-  check("one Chrome/Edge detent down turns it once, clockwise",
-    wheelRotation(0, 100, 0).dir === "right", String(wheelRotation(0, 100, 0).dir));
-  check("one detent up turns it once, anticlockwise",
-    wheelRotation(0, -100, 0).dir === "left", String(wheelRotation(0, -100, 0).dir));
+  check("one Chrome/Edge detent down is one notch, signed with its deltaY",
+    wheelNotch(0, 100, 0).notch === 1, String(wheelNotch(0, 100, 0).notch));
+  check("one detent up is one notch the other way",
+    wheelNotch(0, -100, 0).notch === -1, String(wheelNotch(0, -100, 0).notch));
   // deltaMode is the half of this that is easiest to write and forget: Firefox
   // reports LINES, so an unnormalised threshold of 100 would need thirty-four
-  // notches per rotation there and the feature would simply not work on it.
-  check("one Firefox line-mode notch (deltaMode 1, 3 lines) also turns it once",
-    wheelRotation(0, 3, 1).dir === "right", String(wheelRotation(0, 3, 1).dir));
-  check("a page-mode notch (deltaMode 2) turns it once too",
-    wheelRotation(0, 1, 2).dir === "right", String(wheelRotation(0, 1, 2).dir));
+  // detents per notch there and the feature would simply not work on it.
+  check("one Firefox line-mode detent (deltaMode 1, 3 lines) also lands",
+    wheelNotch(0, 3, 1).notch === 1, String(wheelNotch(0, 3, 1).notch));
+  check("a page-mode detent (deltaMode 2) lands too",
+    wheelNotch(0, 1, 2).notch === 1, String(wheelNotch(0, 1, 2).notch));
   // THE TRACKPAD CASE, which is the reason the accumulator exists. One flick
-  // is one gesture; without accumulation it is thirty rotations through four
-  // orientations, i.e. a random draw.
+  // is one gesture; without accumulation it is thirty notches — the whole loft
+  // range slammed to an end stop by a scroll that meant one step.
   {
     let accum = 0;
-    let turns = 0;
+    let notches = 0;
     for (let i = 0; i < 30; i++) {
-      const r = wheelRotation(accum, 8, 0);
+      const r = wheelNotch(accum, 8, 0);
       accum = r.accum;
-      if (r.dir) turns += 1;
+      notches += Math.abs(r.notch);
     }
-    check("a 30-event, 240px trackpad flick turns it twice, not thirty times",
-      turns === 2, `${turns} turns`);
+    check("a 30-event, 240px trackpad flick is two notches, not thirty",
+      notches === 2, `${notches} notches`);
   }
   // A reversal has to cost one notch of travel, not two. Banking 90px downward
   // and then pushing back up must not need 190px of up before anything moves.
   {
-    const banked = wheelRotation(0, 90, 0);
-    check("90px of travel alone turns nothing", banked.dir === null);
+    const banked = wheelNotch(0, 90, 0);
+    check("90px of travel alone is no notch yet", banked.notch === 0);
     check("...and a full notch the OTHER way still lands immediately",
-      wheelRotation(banked.accum, -100, 0).dir === "left",
-      String(wheelRotation(banked.accum, -100, 0).dir));
+      wheelNotch(banked.accum, -100, 0).notch === -1,
+      String(wheelNotch(banked.accum, -100, 0).notch));
   }
   // The remainder is DROPPED on a fire, so one event can never be worth more
-  // than one turn however hard it was thrown. Carrying 300px of overflow out
-  // of an inertial fling would spend it on three more turns — all the way back
-  // round to where the piece started, since it only has four faces.
+  // than one notch however hard it was thrown. Carrying 300px of overflow out
+  // of an inertial fling would spend it three more times — most of the loft
+  // range on a gesture that asked for one step.
   {
-    const fling = wheelRotation(0, 400, 0);
-    check("a 400px inertial fling turns it exactly once", fling.dir === "right", String(fling.dir));
+    const fling = wheelNotch(0, 400, 0);
+    check("a 400px inertial fling is exactly one notch", fling.notch === 1, String(fling.notch));
     check("...and banks nothing toward the next one", fling.accum === 0, String(fling.accum));
   }
 }
@@ -7579,13 +7607,17 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
     shots += 1;
     return realShoot(now, auto);
   };
-  new InputController(canvas, () => g);
+  // The classic-wheel toggle, mutable so one controller can be driven through
+  // both schemes — settings.wheelRotates is read live in the app for the same
+  // reason.
+  let wheelRotates = false;
+  new InputController(canvas, () => g, undefined, () => wheelRotates);
 
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
   let prevented = 0;
-  const ptr = (button: number, pointerType = "mouse", clientX = 500, buttons = 0) => ({
-    button, buttons, pointerId: 1, pointerType, clientX, clientY: 260,
+  const ptr = (button: number, pointerType = "mouse", clientX = 500, buttons = 0, clientY = 260) => ({
+    button, buttons, pointerId: 1, pointerType, clientX, clientY,
     preventDefault: () => { prevented += 1; },
   });
   const whl = (deltaY: number, deltaMode = 0, ctrlKey = false) => ({
@@ -7625,16 +7657,16 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
     send(onCanvas, "pointerdown", ptr(2));
     send(onWindow, "pointerup", ptr(2));
   }) === 1);
-  // The middle button has no job here and must therefore do nothing at all —
-  // it went down the same aim-and-fire path as the right one.
-  check("the middle button does nothing", (() => {
-    let t = 0;
-    const s = fired(() => { t = turned(() => {
-      send(onCanvas, "pointerdown", ptr(1));
-      send(onWindow, "pointerup", ptr(1));
-    }); });
-    return s === 0 && t === 0;
-  })());
+  // The middle button is the other half of the rocker — the wheel's press,
+  // freed up when the wheel's scroll became the loft dial.
+  check("a middle-click fires nothing either", fired(() => {
+    send(onCanvas, "pointerdown", ptr(1));
+    send(onWindow, "pointerup", ptr(1));
+  }) === 0);
+  check("a middle-click turns the shipment anticlockwise instead", turned(() => {
+    send(onCanvas, "pointerdown", ptr(1));
+    send(onWindow, "pointerup", ptr(1));
+  }) === -1);
   check("the left button still aims and fires", fired(() => {
     send(onCanvas, "pointerdown", ptr(0));
     send(onWindow, "pointerup", ptr(0));
@@ -7661,6 +7693,16 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
     }); });
     check("right-clicking mid-aim turns the shipment", t === 1, `${t} quarter-turns`);
     check("...without firing the aim being held", early === 0, `${early} shots`);
+    // The middle button's chord, same spec shape: `button` 1 with bit 4 set is
+    // the press (L|M held = 5), the same button 1 with bit 4 cleared is the
+    // release and must not turn it back a second time.
+    let tm = 0;
+    const mEarly = fired(() => { tm = turned(() => {
+      send(onCanvas, "pointermove", ptr(1, "mouse", 400, 5)); // middle pressed: L|M held
+      send(onCanvas, "pointermove", ptr(1, "mouse", 400, 1)); // middle released: L held
+    }); });
+    check("middle-clicking mid-aim turns it back the other way",
+      tm === -1 && mEarly === 0, `${tm} quarter-turns, ${mEarly} shots`);
     // A browser that (against the spec) fires pointerdown for the chord too
     // must neither shoot nor turn the piece a second time — onDown's rotate
     // branch stands down while a drag is live, precisely so the chord has
@@ -7679,17 +7721,34 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
   }
 
   // The wheel, through the real handler this time: the pure function above
-  // proves the arithmetic, this proves it is wired to the cannon and to
-  // preventDefault.
-  check("a wheel notch turns the shipment and swallows the page scroll", (() => {
+  // proves the notch arithmetic; this proves the notch is spent on the LOFT
+  // dial (Game.aimLoft) rather than on the piece, and that spending it
+  // re-solves the arc through the point last clicked — the release that ended
+  // the chord block above left one banked in lastTarget.
+  check("scroll up raises the loft dial, turns nothing, and swallows the scroll", (() => {
     prevented = 0;
-    const t = turned(() => send(onCanvas, "wheel", whl(100)));
-    return t === 1 && prevented === 1;
+    const before = g.aimLoft;
+    const t = turned(() => send(onCanvas, "wheel", whl(-100)));
+    return t === 0 && prevented === 1 && g.aimLoft > before;
+  })());
+  check("...re-solving the last clicked point into a steeper arc", (() => {
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(-100));
+    return g.aimLoft > 0 && g.cannon.angle > a0;
+  })());
+  check("scroll down at the dial's floor changes nothing but still owns the event", (() => {
+    // Walk the dial back to its stop first; the range is five notches.
+    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(100));
+    prevented = 0;
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(100));
+    return g.aimLoft === 0 && prevented === 1 && g.cannon.angle === a0;
   })());
   check("ctrl+wheel is left alone, so browser zoom still works", (() => {
     prevented = 0;
-    const t = turned(() => send(onCanvas, "wheel", whl(100, 0, true)));
-    return t === 0 && prevented === 0;
+    const before = g.aimLoft;
+    send(onCanvas, "wheel", whl(-100, 0, true));
+    return g.aimLoft === before && prevented === 0;
   })());
 
   // TOUCH IS UNTOUCHED, asserted rather than assumed: every guard added here
@@ -7710,15 +7769,49 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
     send(onWindow, "pointerup", ptr(0, "touch", 700));
   }) === 0);
 
-  // A wheel on a paused bay must leave the event completely alone — no
-  // rotation AND no preventDefault, because an overlay the player is reading
-  // may want to scroll.
-  check("a paused bay neither rotates on the wheel nor blocks the scroll", (() => {
+  // THE CLASSIC-WHEEL OPTION (settings.wheelRotates, the Controls toggle):
+  // the wheel turns the shipment again — wheel-down clockwise, as it
+  // originally shipped — and arc height moves onto the right-button chord
+  // drag: hold the left button on a spot, hold right too, and pull up.
+  {
+    wheelRotates = true;
+    check("with the option on, a wheel notch turns the shipment again", (() => {
+      prevented = 0;
+      const loftBefore = g.aimLoft;
+      const t = turned(() => send(onCanvas, "wheel", whl(100)));
+      return t === 1 && prevented === 1 && g.aimLoft === loftBefore;
+    })());
+    // The chord drag, dispatched the way a browser speaks it: right pressed
+    // mid-aim is a pointermove (button 2, bit set), the stroke is ordinary
+    // moves (button -1) with the bit still held, and the left release fires.
+    {
+      g.aimLoft = 0;
+      send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
+      let t = 0;
+      const early = fired(() => { t = turned(() => {
+        send(onCanvas, "pointermove", ptr(2, "mouse", 400, 3));        // chord press anchors the dial
+        send(onCanvas, "pointermove", ptr(-1, "mouse", 400, 3, 185));  // pull up 75px = half the range
+      }); });
+      check("holding right mid-aim and pulling up dials the loft, rotating nothing",
+        t === 0 && early === 0 && g.aimLoft > 0.4 && g.aimLoft < 0.6,
+        `${t} turns, ${early} shots, loft ${g.aimLoft.toFixed(2)}`);
+      const shot = fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400, 2, 185)));
+      check("...and the left release still fires the held aim", shot === 1, `${shot} shots`);
+    }
+    wheelRotates = false;
+    g.aimLoft = 0;
+  }
+
+  // A wheel on a paused bay must leave the event completely alone — no loft
+  // AND no preventDefault, because an overlay the player is reading may want
+  // to scroll.
+  check("a paused bay neither lofts on the wheel nor blocks the scroll", (() => {
     g.paused = true;
     prevented = 0;
-    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    const before = g.aimLoft;
+    send(onCanvas, "wheel", whl(-100));
     g.paused = false;
-    return t === 0 && prevented === 0;
+    return g.aimLoft === before && prevented === 0;
   })());
 
   delete glob.window;
