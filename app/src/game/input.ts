@@ -4,12 +4,49 @@ import { actionForKey, keyFor } from "./bindings";
 import { MIN_FIRE_RATIO } from "./cannon";
 
 /**
- * Angry-Birds-style drag aiming on the canvas + keyboard fallback (web).
- * Dragging from the cannon sets direction (angle) and distance (power); the
- * parabola preview updates live and releasing fires. The drag is bound to
- * the pointer that started it, so on touch a SECOND finger can tap the
- * side-rail buttons mid-aim (rotate keeps the drag alive; the ✕ cancels it
- * via cancelAim) without its release firing the shot.
+ * Canvas aiming + keyboard fallback (web). TWO SCHEMES, split by device.
+ *
+ * MOUSE — point at where you want the shipment to go and click. Holding the
+ * button down keeps the arc glued to the cursor while it moves; releasing
+ * fires. The angle and power are solved backwards out of the forward
+ * ballistics model (game.ts's aimAt → cannon.ts's solveAimForTarget), so the
+ * dotted arc runs through the cursor rather than being something the player
+ * has to construct by feel.
+ *
+ * TOUCH (and pen, and any pointer type the browser will not vouch for) — the
+ * original Angry-Birds drag. Press anywhere, pull away, and the drag vector
+ * sets direction and power with the cannon reversing it 180°, so pulling back
+ * fires forward. The drag is bound to the pointer that started it, so a SECOND
+ * finger can tap the side-rail buttons mid-aim (rotate keeps the drag alive;
+ * the ✕ cancels it via cancelAim) without its release firing the shot.
+ *
+ * WHY TOUCH DOES NOT GET TARGETING, since the obvious question is why the two
+ * halves of one game now hold two different opinions about aiming:
+ *
+ *  1. A FINGER COVERS ITS OWN TARGET. The whole value of pointing at a spot is
+ *     watching the arc arrive there, and on a phone the spot is underneath the
+ *     thumb. The pull-back gesture exists in every slingshot game on the
+ *     platform precisely because it puts the hand somewhere other than the
+ *     thing being aimed at. A mouse cursor is a few px of arrow with the hand
+ *     nowhere near the glass.
+ *  2. THE MISFIRE GATE WOULD HAVE NOTHING LEFT TO READ. MIN_FIRE_RATIO exists
+ *     because a stray touch on the canvas used to fire a full shot at an aim
+ *     nobody chose (see cannon.ts's writeup), and it works by asking how far
+ *     the gesture travelled — a question that only has an answer because the
+ *     gesture has length. Under tap-to-target every graze is simultaneously a
+ *     complete, valid aim and a complete, valid launch, and there is no signal
+ *     left to separate the accident from the intent. That gate is the single
+ *     most valuable thing on the touch input path and this change would delete
+ *     it. The mouse never had it and never needed it: a click is a deliberate
+ *     act at a pixel the player chose, which is the same line drawn here as in
+ *     onUp's pointerType note and in app.css's `pointer: fine` rules.
+ *  3. The onboarding hint, the coach's first card, the guide's Aim & Fire entry
+ *     and the misfire correction all teach the pull-back and are all already
+ *     scoped to touch. Keeping the gesture keeps them true.
+ *
+ * The line is drawn at `pointerType === "mouse"` — the same line onUp's
+ * misfire gate already draws, and for the same stated reason: pen and unknown
+ * pointer types land on touch hardware.
  *
  * A release only counts as a shot once the pull reached MIN_FIRE_RATIO of the
  * ship's power (see cannon.ts) — everything under that is treated as an
@@ -34,6 +71,27 @@ export class InputController {
    *  not a mouse. Recorded at pointerdown because the PWR readout has to mirror
    *  the GATE, and the gate is per-event — see liveDragRatio. */
   private dragGated = false;
+  /** Whether the gesture in progress is TARGETING (mouse) rather than dragging.
+   *  Recorded at pointerdown alongside dragGated and from the same test, so one
+   *  gesture can never be half of each: a pointer that started as a drag stays
+   *  a drag for its whole life even if the browser were to change its mind
+   *  about the device mid-gesture. */
+  private targeting = false;
+  /** World point the most recent pointermove asked the cannon to aim at, held
+   *  until the next animation frame applies it.
+   *
+   *  COALESCED, unlike the drag, and the asymmetry is real work rather than
+   *  tidiness. Applying a drag is one atan2 and one lerp; applying a target is
+   *  a search over the whole aim cone that runs the forward ballistics model
+   *  something like 1,600 times (cannon.ts's solveAimForTarget). That is well
+   *  under a millisecond, but a high-polling-rate mouse can deliver pointermove
+   *  far faster than the display refreshes, and there is nothing to be gained
+   *  from solving an aim for a cursor position that will never be drawn. So
+   *  moves record where the cursor is and the existing rAF tick spends the
+   *  budget once per frame. pointerdown and pointerup apply straight through:
+   *  the first is the press the player is waiting to see answered, and the last
+   *  decides where the shot actually goes. */
+  private pendingTarget: { x: number; y: number } | null = null;
   /** The aim as it stood when the current gesture STARTED, restored if that
    *  gesture turns out to be a misfire. Without it a graze that travels far
    *  enough to move the cannon but not far enough to fire still costs the
@@ -81,6 +139,8 @@ export class InputController {
     this.dragStart = null;
     this.dragPointerId = null;
     this.dragRatio = 0;
+    this.targeting = false;
+    this.pendingTarget = null;
     // The ✕ deliberately does NOT restore the pre-drag aim, unlike a misfire.
     // The player pulled, watched the arc, and chose to stand down — the aim
     // they are looking at is the one they built, and snapping it back to
@@ -119,6 +179,19 @@ export class InputController {
     g.updateTrajectory();
   }
 
+  /** Solve the cannon onto a world point and redraw. The miss the solver
+   *  reports is deliberately dropped on the floor here: the ARC is the report.
+   *  A target outside the cannon's envelope comes back as the nearest arc it
+   *  can throw, drawn short of the cursor with the PWR meter pinned, and that
+   *  is a truer answer than any badge this class could raise — it says how far
+   *  short, in the same picture that says everything else about the shot. See
+   *  cannon.ts's solveAimForTarget for the reasoning, and note that a caller
+   *  wanting to say something about it has `hit` available there. */
+  private applyTarget(p: { x: number; y: number }): void {
+    this.pendingTarget = null;
+    this.game()?.aimAt(p);
+  }
+
   private onDown = (e: PointerEvent): void => {
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) return;
@@ -127,17 +200,25 @@ export class InputController {
     if (this.dragging) return;
     this.dragging = true;
     this.dragGated = e.pointerType !== "mouse";
+    this.targeting = e.pointerType === "mouse";
     this.dragPointerId = e.pointerId;
     this.dragStart = this.worldPoint(e);
     this.dragRatio = 0;
     this.aimBefore = { angle: g.cannon.angle, power: g.cannon.power };
     g.aiming = true;
     this.canvas.setPointerCapture?.(e.pointerId);
+    // The cannon swings on the PRESS, not on the first move after it. A mouse
+    // player's click is usually press-and-release with no move in between, so
+    // waiting for a move would mean the most common gesture on the device fired
+    // the previous shot's aim — the same stale-aim bug the touch path's misfire
+    // gate exists to prevent, arriving through the other door.
+    if (this.targeting) this.applyTarget(this.dragStart);
   };
 
   private onMove = (e: PointerEvent): void => {
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
-    this.applyAim(e);
+    if (this.targeting) this.pendingTarget = this.worldPoint(e);
+    else this.applyAim(e);
   };
 
   private onUp = (e: PointerEvent): void => {
@@ -161,11 +242,21 @@ export class InputController {
     // (app.css hides it under `pointer: fine`). Pen and unknown pointer types
     // stay gated: both land on touch hardware.
     const misfired = e.pointerType !== "mouse" && this.dragRatio < MIN_FIRE_RATIO;
+    // THE RELEASE POINT IS THE AIM, applied here rather than left to the next
+    // animation frame that will never come. onMove only records where the
+    // cursor went (see pendingTarget); a player who flicks the mouse and clicks
+    // inside the same frame would otherwise fire at wherever the cursor was one
+    // frame ago, which on a fast flick is most of the bay away. Unconditional
+    // on a pending move rather than `if (this.pendingTarget)`: re-solving the
+    // release position costs one solve and removes the case analysis.
+    if (this.targeting) this.applyTarget(this.worldPoint(e));
     const restore = this.aimBefore;
     this.dragging = false;
     this.dragStart = null;
     this.dragPointerId = null;
     this.dragRatio = 0;
+    this.targeting = false;
+    this.pendingTarget = null;
     this.aimBefore = null;
     const g = this.game();
     if (g) g.aiming = false;
@@ -243,12 +334,22 @@ export class InputController {
     this.game()?.setAutoHeld(false);
   };
 
-  // Continuous keyboard aim/power (web fallback). The arrows stay as fixed
+  // Continuous keyboard aim/power (web fallback), plus the once-a-frame flush
+  // of a held mouse's target (see pendingTarget). The arrows stay as fixed
   // aliases alongside the bindable letters — they are the convention every
   // keyboard player tries first.
+  //
+  // The two share a tick rather than the aim solve getting its own rAF loop
+  // because they are the same job — "settle what the player is currently
+  // asking for, once per drawn frame" — and because the ORDER matters on a
+  // desktop where both are live at once. The target goes first, so a player
+  // holding the mouse down and nudging W/S gets the keyboard nudge applied on
+  // top of the solved aim rather than under it: the keys stay usable as a trim
+  // on a solved shot instead of being silently overwritten every frame.
   private tickKeys = (): void => {
     const g = this.game();
     if (g && g.status === "playing" && !g.paused) {
+      if (this.pendingTarget) this.applyTarget(this.pendingTarget);
       if (this.keys.has(keyFor("aimUp")) || this.keys.has("arrowup")) g.cannon.aimUp();
       if (this.keys.has(keyFor("aimDown")) || this.keys.has("arrowdown")) g.cannon.aimDown();
       if (this.keys.has(keyFor("powerUp")) || this.keys.has("arrowright")) g.cannon.powerUp();

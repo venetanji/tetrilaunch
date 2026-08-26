@@ -589,6 +589,7 @@ class App {
         return true;
       },
       assist: () => this.settings.stickAssist,
+      pull: () => this.settings.stickPull,
     });
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a

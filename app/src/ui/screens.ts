@@ -975,7 +975,8 @@ export function controlsScreen(opts: {
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
       ${infoRow("Aim & power", "left stick · deflection sets power")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
-      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}`;
+      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
+      ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;
   }
 
   return `<div class="screen neon-backdrop">
@@ -1845,7 +1846,13 @@ export function hintStripHTML(
     if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
     if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
-    part("drag to aim");
+    /* "click to aim", not "drag to aim", and this strip is the one place the
+       change is safe to state flatly. It renders only under `pointer: fine`
+       (see the block below), where the pointer IS a mouse — and the mouse is
+       the device that now aims by pointing at a spot and letting the cannon
+       solve the arc onto it (game/input.ts). A finger still pulls back, and a
+       finger never sees this strip. */
+    part("click to aim");
     /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
        [data-action="pause"]). A gesture nobody is told about is a gesture
        nobody uses.
@@ -1854,7 +1861,7 @@ export function hintStripHTML(
        out of game/bindings.ts — that is the whole reason this function exists
        — and "hold" is a gesture on a button, not a key anyone can rebind. A
        keycap around it would be the one lie the strip is built to make
-       impossible. "drag to aim" above is the same kind of hint and is written
+       impossible. "click to aim" above is the same kind of hint and is written
        the same way. It is also ~49px cheaper on a strip that is width-budgeted
        (mono 12px x 4 chars + the chip's 12px padding and 4px border).
 

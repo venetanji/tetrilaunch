@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
-import { Cannon, predictTrajectory } from "./cannon";
+import { AIM_CONE, CANNON, Cannon, predictTrajectory, solveAimForTarget } from "./cannon";
 import {
   CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
 } from "./chute";
@@ -194,6 +194,19 @@ const TOPOUT_Y = 96;
  * than pinning at full volume. Audio only — nothing here affects simulation. */
 const IMPACT_MIN = 4;
 const IMPACT_FULL = 14;
+
+/** Air damping the preview integrates, and the same figure every launched body
+ *  is created with (pieces.ts's createTetrisPiece, spawnBomb below). Named
+ *  here because the arc solver (previewModel / aimAt) has to be fed the
+ *  identical number and a second literal 0.012 is a second thing to keep in
+ *  step by hand. NOT re-exported from pieces.ts: the preview's job is to
+ *  mirror the body, and a shared constant would hide the day they diverge. */
+const PREVIEW_FRICTION_AIR = 0.012;
+/** Physics steps the dotted arc looks ahead — ~2.3s at 60Hz, which covers an
+ *  ordinary flight and truncates a full-power lob (see chute.ts's pathStrands
+ *  for what reads the truncation). The aim solver searches the same window, so
+ *  it can never hand back an aim whose arc the dots stop short of drawing. */
+const PREVIEW_STEPS = 140;
 
 const AT_REST = 2.5;
 const AT_REST_SQ = AT_REST * AT_REST;
@@ -1168,16 +1181,82 @@ export class Game {
    * estimate a human would read off the HUD indicator.
    */
   updateTrajectory(): void {
-    const wind = this.windCur;
+    const p = this.previewModel();
     this.trajectory = predictTrajectory(
       this.cannon.tip,
       this.cannon.velocity,
       this.gAccel,
-      0.012,
-      140,
-      () => wind,
+      p.frictionAir,
+      p.steps,
+      p.windAt,
     );
     this.trajectoryStrands = pathStrands(this.trajectory, this.strandCutoffX);
+  }
+
+  /**
+   * The forward model's parameters, in one place, because two things now read
+   * them: updateTrajectory, which DRAWS the arc, and aimAt below, which
+   * SEARCHES it. Those two disagreeing is the specific way mouse aiming fails
+   * — the solver returns an aim that lands on the cursor under one air-damping
+   * constant or one wind reading, the preview draws the same aim under
+   * another, and the dots the player is trusting point somewhere the shot is
+   * not going. Handing both callers the same object makes that disagreement
+   * unwriteable instead of merely unlikely.
+   *
+   * The wind is FROZEN here, at the reading the caller sees, for the reason
+   * updateTrajectory's own doc gives: the walk's future is unknowable, its
+   * decorrelation constant (WIND_TAU_SEC, 5s) is long against a ~2s flight, so
+   * the current value held flat is the best estimate available. The solver
+   * inherits that estimate rather than forming its own, which is what makes
+   * "aim where the dots go" true for a windy bay as well as a still one.
+   *
+   * `windCur` and not `windNow`: the preview has always integrated the RAW
+   * walk while applyWind pushes bodies with the stabilizer-adjusted reading
+   * (windNow), so on a hull carrying LAUNCHER windAssist the dotted arc
+   * already overstates the drift the shot will take. That is a pre-existing
+   * discrepancy and fixing it here would change every player's preview as a
+   * side effect of an input change; what matters for this seam is that the
+   * solver agrees with the DOTS, and the dots read windCur.
+   */
+  private previewModel(): {
+    frictionAir: number;
+    steps: number;
+    windAt: (step: number) => number;
+  } {
+    const wind = this.windCur;
+    return { frictionAir: PREVIEW_FRICTION_AIR, steps: PREVIEW_STEPS, windAt: () => wind };
+  }
+
+  /**
+   * Point the cannon so that its arc passes through `target` (world space),
+   * and redraw the preview. Returns the solver's miss in world px — 0 means
+   * the dots go through the cursor, anything large means the point is outside
+   * what this cannon can reach and the aim handed back is the nearest approach
+   * to it (see cannon.ts's solveAimForTarget for the full argument).
+   *
+   * Lives on Game rather than on Cannon because the ballistics the solve has
+   * to invert are the BAY's, not the barrel's: gravity is per-level (gAccel)
+   * and the wind is a live, seeded, per-bay reading. A Cannon.aimAt would have
+   * had to be handed all of that anyway, and the one thing it must never do is
+   * guess at any of it.
+   */
+  aimAt(target: Matter.Vector): number {
+    const p = this.previewModel();
+    const sol = solveAimForTarget(
+      { x: this.cannon.x, y: this.cannon.y },
+      CANNON.barrel,
+      target,
+      this.cannon.speedMin,
+      this.cannon.speedMax,
+      this.gAccel,
+      p.frictionAir,
+      p.steps,
+      p.windAt,
+    );
+    this.cannon.angle = sol.angle;
+    this.cannon.power = sol.power;
+    this.updateTrajectory();
+    return sol.miss;
   }
 
   /**
@@ -1354,7 +1433,7 @@ export class Game {
     // ones, and 0.234 cubes lost to the wrong side per shot against 0.103.
     const aimAngle = this.cannon.angle;
     const aimPower = this.cannon.power;
-    const cone = Math.PI / 3;
+    const cone = AIM_CONE;
     const band = this.cannon.speedMax - this.cannon.speedMin;
     const floor = this.cannon.speedMin + band * AUTO_POWER_FLOOR;
 
