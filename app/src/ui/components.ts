@@ -345,8 +345,13 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
   // Run bay including the first, where no notch has been taken yet, and a row
   // that appears halfway through a run shifts every row above it. Same idiom
   // the pattern manifest uses for an empty queue.
+  //
+  // No · separators between entries any more — they earned their keep between
+  // two-letter TEXT codes, where "WDSL" needed cutting, but an icon chip is
+  // its own boundary and the row's flex gap already spaces them; between
+  // glyphs the dots read as noise (the owner's pass).
   if (!parts.length) return `<span class="pl-notch__none">—</span>`;
-  return parts.join(`<span class="pl-notch__sep" aria-hidden="true">·</span>`);
+  return parts.join("");
 }
 
 /** Format a countdown in ms as "m:ss", ceiling-rounded so the displayed
