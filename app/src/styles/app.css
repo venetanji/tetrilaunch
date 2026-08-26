@@ -3151,7 +3151,15 @@ body.crt-off #app::after { display: none; }
    its design box on the tightest device in the matrix, so it is paid for out
    of air the panel was already spreading between its rows, not out of the box. */
 .pl-notch b {
-  display: flex; align-items: baseline; gap: max(3px, calc(5 * var(--fpx)));
+  /* center, not baseline — the same move .pl-tier b documents below, forced
+     by the same shape: the tally's entries lead with an SVG now (the axis
+     icons), and a flex box whose first content is a replaced element has no
+     text baseline to offer, so baseline alignment seats it on its bottom
+     margin edge and the icons ride high against the ×N counts and the ·
+     separators (the owner's crop caught exactly that). Centering seats
+     icons, counts and separators on one optical line; sim/uifit's inkline
+     probe reads this shape through capMid's wrapper fallback. */
+  display: flex; align-items: center; gap: max(3px, calc(5 * var(--fpx)));
   font-family: var(--font-mono); font-weight: 700;
   white-space: nowrap; overflow-x: auto; scrollbar-width: none;
   overscroll-behavior-x: contain;
@@ -3168,7 +3176,6 @@ body.crt-off #app::after { display: none; }
    the thing the player signed for and the thing biting them are one colour. */
 .pl-notch__ax.k-final { color: var(--accent-2); }
 .pl-notch__n { color: var(--text-dim); font-size: 0.85em; }
-.pl-notch__sep { flex: none; color: var(--text-faint); }
 .pl-notch__none { color: var(--text-faint); }
 
 /* The tier line — the same label-plus-mono-value shell as .pl-notch and
