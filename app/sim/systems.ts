@@ -529,17 +529,59 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     }
   }
   check("the spill fine never falls with the tier or the bay", fineRises);
-  // The fine is a MISTAKE price, not a lose button: a bay whose fine could
-  // outrun its own float would be losable to spillage alone before a line is
-  // ever paid for. One spilled bulk shipment (the biggest the belt carries)
-  // must still leave a Tier 10 bay able to fire.
+  // THE FINE IS A MISTAKE PRICE, NOT A LOSE BUTTON. A bay whose fine can
+  // outrun its own float is losable to one bad shot before a line has ever
+  // been paid for, and "you still have money" is not the bar — game.ts's fire
+  // refuses to launch at all once funds drop below launchCost, so a bankroll
+  // stranded under the price of a shot is a dead bay with a non-zero HUD.
+  //
+  // The invariant is therefore stated in SHOTS, over the worst case a stock
+  // bay can produce: the player is on the opening float, pays for one launch,
+  // and every cube of that shipment spills.
+  //
+  //   startingFunds - launchCost - cubes x fine  >=  launchCost
+  //            ^ float      ^ the shot that spilled       ^ one more shot
+  //
+  // `cubes` is read off the BAY's own pieceSize rather than fixed at four or
+  // maximised over SIZE_SPEC, which is what makes this the invariant rather
+  // than a patch for today's layout: it follows whatever the ladder decides a
+  // shipment is. Every Deep Run bay ships "std" today (mods.ts is the only
+  // writer of bulk/tiny and the game no longer drafts mods; contracts.ts and
+  // drills.ts write it but zero the fine), so what is checked is 4 cubes — and
+  // the day a bay ships bulk this fails on its own, which is the point.
+  //
+  // MEASURED over all 10 bays x 10 tiers. The ramp holds everywhere, tightest
+  // at Tier 10 bay 10: $240 - $30 - 4x$43 = $38 against a $30 shot, $8 of
+  // slack. The FLAT fine this replaced failed in 32 of those 100 bays — from
+  // bay 4 of a Tier 1 run onward ($160 - $20 - 4x$31 = $16 against a $20 shot)
+  // down to -$52 at Tier 1 bay 10, where a single fully-spilled shipment on
+  // the opening float ended the bay outright. The old pin passed anyway
+  // because it asked only whether funds stayed above zero, on one bay, at the
+  // one tier the flat fine happened to survive.
+  //
+  // KNOWN HEADROOM, not a shipped hole: at a bulk shipment's 5 cubes the same
+  // arithmetic gives $240 - $30 - 5x$43 = -$5 at Tier 10 bay 10 (8 of 100 bays
+  // fail, all at Tiers 8-10). Nothing in a Deep Run can ship bulk, so this is
+  // a tripwire for a future feature rather than a live bug — deliberately left
+  // as one instead of moving an endpoint the design decided, and reported to
+  // the owner as a balance finding.
+  let fineLeavesAShot = true;
+  const spillDetail: string[] = [];
+  for (let i = 0; i < RUN_LEVELS; i++) {
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const cfg = makeBaseLevel(i, m);
+      const cubes = SIZE_SPEC[cfg.pieceSize].cubes;
+      const left = cfg.startingFunds - cfg.launchCost - cubes * cfg.penaltyPerLostPiece;
+      if (left < cfg.launchCost) {
+        fineLeavesAShot = false;
+        spillDetail.push(`T${m} bay ${i + 1}: $${left} left, needs $${cfg.launchCost}`);
+      }
+    }
+  }
   check(
-    "one spilled shipment never costs a whole float",
-    (() => {
-      const deep = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
-      const worst = Math.max(...Object.values(SIZE_SPEC).map((s) => s.cubes));
-      return worst * deep.penaltyPerLostPiece < deep.startingFunds;
-    })(),
+    "a fully spilled shipment always leaves the float another launch",
+    fineLeavesAShot,
+    spillDetail.slice(0, 4).join("; "),
   );
   // The scope check, and the one that catches the likeliest way to get this
   // wrong: keying the curve off the BAY index `i` (which carries every other

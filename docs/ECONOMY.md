@@ -79,6 +79,39 @@ only ever bit the player who was already missing. Bot caveats as always: no Bond
 Breaker, only `demo` fires charges, fixed arcs never read the pile, so a human
 clears bays these bots lose.
 
+### The fine must always leave you another shot
+
+The bar is not "you still have money". `game.ts`'s `fire` refuses to launch once
+funds drop below `launchCost`, so a bankroll stranded under the price of a shot
+is a **dead bay with a non-zero HUD**. Stated in shots, over the worst case a
+stock bay can produce — opening float, one launch paid for, every cube of that
+shipment spilled:
+
+```
+startingFunds − launchCost − cubes × fine  ≥  launchCost
+```
+
+Measured over all 10 bays × 10 tiers with the shipment a Deep Run bay actually
+ships (`std`, 4 cubes):
+
+- **After the ramp: 0 violations.** Tightest is Tier 10 bay 10 — $240 − $30 −
+  4×$43 = **$38 against a $30 shot**, $8 of slack.
+- **Before, on the flat fine: 32 of 100 bays failed.** From **bay 4 of a Tier 1
+  run** onward ($160 − $20 − 4×$31 = $16 against a $20 shot) down to **−$52 at
+  Tier 1 bay 10**, where one fully-spilled shipment on the opening float ended
+  the bay outright.
+
+So the flat fine really was the lose button its own comment claimed to prevent,
+and the beginner report was reading a live bug rather than a taste problem.
+
+**Known headroom, not a shipped hole.** At a `bulk` shipment's 5 cubes the same
+arithmetic gives $240 − $30 − 5×$43 = **−$5** at Tier 10 bay 10 (8 of 100 bays
+fail, all at Tiers 8–10). Nothing in a Deep Run ships bulk today — `mods.ts` is
+the only writer and the game no longer drafts mods, while `contracts.ts` and
+`drills.ts` write it but zero the fine. The pin reads `cubes` off the bay's own
+`pieceSize`, so the day a Deep Run bay ships bulk this fails by itself. Left as
+a tripwire deliberately rather than moving an endpoint the design decided.
+
 Three things the ladder still deliberately does **not** touch:
 
 - **The mistake budget stays eight launches** (`LAUNCH_BUDGET_SHOTS`). The float

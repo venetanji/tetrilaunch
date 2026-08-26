@@ -375,8 +375,8 @@ function buildTopics(mark: number): GuideTopic[] {
     name: "Lost cargo",
     summary: `Cubes that never reach the press are fined $${lv.penaltyPerLostPiece} each.`,
     body: `A cube that drops short of the zone, or bounces back out of it, blinks away and costs you`
-      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. It is billed <b>per cube</b>,`
-      + ` so a spilled shipment costs four times that, and the tier sets the price:`
+      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. It is billed <b>per cube</b>`
+      + ` — a standard shipment is ${SIZE_SPEC.std.cubes} of them — and the tier sets the price:`
       + ` $${penaltyPerLostPieceFor(0, 1)} a cube at Tier 1,`
       + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing bay by bay at Tier ${TIER_COUNT}.`
       + ` So the question mid-drag is "does this reach the zone" before "does this fit the row".`,
