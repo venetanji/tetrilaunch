@@ -167,6 +167,42 @@ body.crt-off #app::after { display: none; }
   box-shadow: var(--shadow-hard-lg);
 }
 
+/* ---------- Chrome magnification (game/layout.ts's chromeZoom) ----------
+   THE ONE RULE THAT MAKES A DESKTOP BROWSER A SUPPORTED SIZE.
+
+   Every fixed px in this stylesheet is measured against the solver's authored
+   box, 1000x720 (layout.ts's UI_REF_*). Below it the chrome shrinks and, at
+   the floor, RESTRUCTURES — that is what `density` is for, and it is the half
+   of the problem this file has always answered. Above it nothing happened at
+   all: a 1920x1080 window rendered 11px buttons, a 440px demo panel and a
+   300px action rail at 1:1, and then had 860px of window left over that no
+   rule here could spend. Measured on the menu at that size, the shelf column
+   was using 142px of the 280px it had and the action rail 368px of 544px.
+   The layout was not wrong; it was being shown at two thirds of the size it
+   was drawn at, in a window three times the height it was drawn for.
+
+   `zoom`, not `transform: scale()`, and the difference is the whole point: a
+   transform paints a scaled picture of a box still laid out at viewport size,
+   so the fit-first contract would be measuring one box while the player
+   looked at another. `zoom` scales the LAYOUT — a scaffold at `inset: 0` gets
+   a used size of viewport/zoom and then renders at exactly viewport size, so
+   `.screen` still covers the window to the pixel while its children lay
+   themselves out in the box they were authored for. Every %, fr, clamp() and
+   container query inside resolves against that box, so the hand-measured
+   relationships in this file (the plate that is 170px of a 440px panel, the
+   six 44px rows and five gaps against a 325px column) survive exactly.
+
+   ONLY the screen-anchored roots. `.hud` is deliberately absent and must stay
+   absent: its chrome is positioned and sized off --field-x/y/w/h and --fpx,
+   which are viewport CSS px published by main.ts's onResize, and it tracks the
+   letterboxed field on every window. Zooming it would multiply those px a
+   second time and slide the plant panel off the field it labels.
+
+   Nothing happens on a phone: chromeZoom is 1 at or below the authored box,
+   which is every handset and tablet in sim/uifit's matrix, and `zoom: 1` is
+   inert. This rule can only ever fire on a window bigger than the design. */
+.screen, .modal-scrim, .bayclear, .rotate-guard { zoom: var(--chrome-zoom, 1); }
+
 /* ---------- Screen scaffolds ----------
    FIT-FIRST. A screen does not scroll; it fits. That is the inversion of what
    this rule used to say (`overflow-y: auto`), and it is deliberate: page
@@ -280,6 +316,27 @@ body.crt-off #app::after { display: none; }
   --split-cols: minmax(0, 1fr) var(--tower-w) var(--rail-w);
   --split-gap: var(--sp-4);
   --split-align: stretch;
+  /* Two of the three columns are fixed, so every pixel a window has beyond
+     the row's natural width lands in the brand column — and the brand column
+     has a fixed-width panel in it. On an ultrawide that was 480px of hole
+     between the demo and the tower, with the three columns reading as three
+     unrelated things rather than one screen. Bounding the ROW and centring it
+     spends that width as margin instead, which is what .workshop and .guide
+     already do with theirs.
+
+     The bound is the row at its full size, not a round number: 640 for the
+     demo panel (see the min-height step below) + 118 tower + 300 rail + two
+     sp-4 gaps + this rule's own 60px padding either side, all of which
+     `box-sizing: border-box` puts inside the max-width. So it can only ever
+     bind on a window with more width than the layout has any use for, and
+     every narrower one is untouched.
+
+     Width past this point buys the panel nothing anyway: the panel is 16:9
+     and the column's HEIGHT is what caps it (see the min-height step), so a
+     wider row would only stretch the gap between the columns. */
+  max-width: 1210px;
+  margin-inline: auto;
+  width: 100%;
 }
 /* Two fixed columns and one flexible one means the brand column pays for both
    of them, and on the narrowest landscape phone in the fleet (640x360) it
@@ -615,13 +672,29 @@ body.crt-off #app::after { display: none; }
      of glass, where each floor becomes an 80px band holding a 12px number and
      the building reads as a ladder diagram instead.
 
-     520px, not a rounder number: eleven floors and the shaft's own slack
-     (--tower-slack, 26px) is 44px a floor at exactly 510px, and 44px is the
-     tap floor the rest of this screen is built to. Anywhere with the height to
-     spare — both tablets and the iPad Pro — the tower therefore clears it
-     outright. A 360px-tall phone gives the shaft 313px, where eleven floors
-     cannot each be 44px by arithmetic, and they come out at 26px; see the
-     entries this leaves in sim/uifit/baseline.json.
+     620px, and the number moved for a reason worth recording: the cap used to
+     be 520, which is where eleven floors plus the shaft's own slack
+     (--tower-slack, 26px) first clear the 44px tap floor the rest of this
+     screen is built to. That made it a FLOOR expressed as a ceiling, and it
+     was set when a tablet's menu row really was ~900px tall. It is not any
+     more — chrome magnification pins the layout box to the authored 720
+     (game/layout.ts's chromeZoom), so the row is ~544px on every magnified
+     device, tablets included. Against that row a 520 cap binds by 24px and
+     `align-self: center` splits the difference, which drew the one column in
+     the middle of the screen 12px short at both ends while the demo and the
+     action rail sat flush.
+
+     620 clears every row the magnified box can produce, so the tower is
+     stretched — and flush — on all of them, at 47px a floor. The cap is still
+     here for the cases magnification does not cover: a very tall narrow
+     window, and a 4K panel past the 2x zoom limit, where the row genuinely is
+     900px and eleven floors would otherwise become 80px bands holding a 12px
+     number, reading as a ladder diagram instead of a building.
+
+     A 360px-tall phone gives the shaft 313px, where eleven floors cannot each
+     be 44px by arithmetic, and they come out at 26px; see the entries this
+     leaves in sim/uifit/baseline.json. Unchanged — `100%` wins there and
+     always did.
 
      The cap is RAISED by exactly the basement's own height when Tier S is
      drawn (see .tower--sub), rather than the basement taking its height out of
@@ -632,7 +705,7 @@ body.crt-off #app::after { display: none; }
      exactly as an eleventh floor's worth of anything would: those are the
      phones the tower is already baselined short on.
 
-     The cap is now a flat 520px again. It used to be raised by the basement
+     The cap is a flat number either way. It used to be raised by the basement
      door's own height (--tower-sub-h) when Tier S was open, so the eleven
      climbed floors would not each pay 2.6px for a floor nobody climbs. Tier S
      moved to the headhouse, which is drawn in the gap ABOVE the shaft and takes
@@ -654,7 +727,7 @@ body.crt-off #app::after { display: none; }
      is not a bigger target but a target hanging off the top of the screen. */
   --tower-roof-h: 22px;
   align-self: center;
-  height: min(100%, 520px);
+  height: min(100%, 620px);
   display: flex; flex-direction: column; align-items: stretch;
 }
 @media (min-height: 620px) {
@@ -970,7 +1043,29 @@ body.crt-off #app::after { display: none; }
   justify-content: flex-end;
   width: var(--brand-w);
 }
-.menu__nav > .btn { flex: 0 1 auto; min-height: 44px; max-height: 56px; }
+/* These GROW, where they used to sit at content height and let the column's
+   leftover pool above them. `justify-content: flex-end` was spending that
+   leftover on hanging the stack off the bottom of the column, which is the
+   right answer only while there is nothing better to do with it.
+
+   How much leftover there is depends on the demo panel above, and the panel
+   is 16:9 — so it is the COLUMN'S ASPECT that decides, not the device class.
+   At 792x360 the panel comes out 153px of a 317px column and the three 44px
+   rows fill the remaining 156 exactly, which is why this looked settled. The
+   narrower the column relative to its height, the shorter the panel and the
+   bigger the hole: 27.8px on the 640x360 budget phone, 24px on a 1080p
+   browser, 42px on a 720p one. Growing the rows closes it in all three, and
+   only ever upward — the 44px floor still holds, and the budget phone's rows
+   go to 53px, so this is a bigger target everywhere it changes anything.
+
+   The cap is what keeps them buttons. 96px is the two-entry shelf at the
+   authored box — a build with no store renders only Leaderboard and Settings,
+   so each takes ~89px of the same leftover three rows split ~55 ways — and
+   sizing the cap to the state that needs it most is what stops the entitlement
+   state from deciding whether the column has a hole in it. It reads as
+   generous rather than absurd because it is nearly the proportion the phone
+   already gives these rows: 89 of a 544px column is 16%, against 44 of 317. */
+.menu__nav > .btn { flex: 1 1 auto; min-height: 44px; max-height: 96px; }
 
 /* ---------- The demo panel as the tutorial door ----------
    A bay playing itself IS the explanation, so the panel is the entry to the
@@ -1056,9 +1151,22 @@ body.crt-off #app::after { display: none; }
    out just over the column. Six 44px rows and five sp-2 gaps is 304px against
    the 325px the column gets at compact, so the floor fits with room to spare
    and the grow below spends only what is actually left over. */
+/* The caps, like the shelf's above, are a ceiling on GROWTH and not a height:
+   the phone's rows measure 59-64px against them and never reach either, so
+   these numbers are inert on every handset in the matrix and only decide what
+   the rail does with height a bigger window leaves over.
+   64/84 was that ceiling for a 360px-tall phone read as if it were the whole
+   story. In the authored box the rail gets 544px, its recap takes 116 and the
+   gaps 32, which leaves 132px per row for the three the loop is made of — so
+   the old cap stopped the column 144px short and printed the difference as
+   empty space under WORKSHOP. 132/100 is that arithmetic, and it keeps the
+   1.3125 ratio the pair already had, so a mixed rail still reads as two
+   weights rather than one. Past the zoom cap (a 4K panel, a very tall narrow
+   window) they go on doing the job they were written for: stopping three
+   buttons from becoming three panels. */
 .menu__actions { justify-content: flex-start; gap: var(--sp-2); }
-.menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 64px; }
-.menu__actions > .btn--menu { flex-grow: 1.25; max-height: 84px; }
+.menu__actions > .btn { flex: 1 1 auto; min-height: 44px; max-height: 100px; }
+.menu__actions > .btn--menu { flex-grow: 1.25; max-height: 132px; }
 /* The recap is the column's fixed head; the three buttons share what is left.
    `flex: none` on it rather than a height, so it stays exactly as tall as its
    own content and the loop gets every remaining pixel. */
@@ -3729,6 +3837,11 @@ body.crt-off #app::after { display: none; }
   display: flex;
   overflow-y: auto;
   animation: fade var(--dur) var(--ease);
+  /* Deliberately NO padding, unlike `.screen`. The refit yard asks for
+     `96vw` inline (screens.ts) — wider than a --hud-pad inset would leave —
+     and insetting the scrim would quietly overrule the one modal that was
+     measured to want the extra 3px. `.modal`'s height cap is written to
+     work under either parent instead; see the note on it below. */
 }
 /* `.modal` never exceeds the visible viewport (dvh with a vh fallback for
    WebViews without dvh support), and centers itself with `margin: auto`
@@ -3739,8 +3852,47 @@ body.crt-off #app::after { display: none; }
    failing that, the modal itself. */
 .modal {
   width: min(520px, 92vw);
-  max-height: calc(100vh - (var(--hud-pad) * 2));
-  max-height: calc(100dvh - (var(--hud-pad) * 2));
+  /* Two caps, whichever is tighter, because neither is right on its own once
+     the scrim can be zoomed (see the chrome-magnification note above).
+
+     `100%` is the scrim, which is `inset: 0` and therefore exactly one
+     screen in whatever coordinate space it was laid out in — pure layout, no
+     viewport unit involved, so it means the same thing in every engine at
+     every zoom. That is the half that has to be here: the ENGINES DISAGREE
+     about viewport units inside a zoomed subtree. Chromium resolves 100dvh
+     against the real viewport and then scales it with everything else, so at
+     1.5x it asks for one and a half screens of modal; WebKit resolves it in
+     the zoomed space already. Measured, not assumed — dividing by the zoom
+     fixes Chromium and clamps WebKit's modals 16px inside their own content,
+     which sim/uifit --engine=webkit reports as `fit` and `scrollers`
+     failures across the draft, inspection, refit and end screens on every
+     desktop row.
+
+     The viewport term stays because at zoom 1 — every phone and tablet —
+     it is the TIGHTER of the two under both parents, so it, not the
+     percentage, is what actually caps every modal the handsets render. That
+     is deliberate: it keeps this rule bit-identical on the devices the app
+     ships to, and it is also the only term that can be tighter than the
+     layout viewport, which is what `dvh` buys on a mobile browser whose URL
+     bar is showing (#app is `position: fixed`, so its inset box is 100vh
+     while the visible viewport is shorter).
+
+     Which leaves `100%` doing one job: a backstop that cannot be wrong when
+     the scrim is zoomed. It is never the binding term on a phone, and on a
+     magnified window it is the only one that is right.
+
+     Both parents, one expression, because a modal is mounted two ways: nine
+     screens put one in a `.modal-scrim` and Settings and Leaderboard put one
+     straight into a `.screen.center`. Only the second has padding of its
+     own, so `100%` is a different box under each — which is exactly why the
+     viewport term subtracts --hud-pad and the percentage does not.
+
+     The vw guards on `width` need no such treatment: they are floors for
+     NARROW windows, and a window narrow enough for one to bind is a window
+     the solver never magnifies (chromeZoom takes the smaller of the two
+     axis ratios, so zoom > 1 implies at least 1000px of width). */
+  max-height: min(100%, calc(100vh - (var(--hud-pad) * 2)));
+  max-height: min(100%, calc(100dvh - (var(--hud-pad) * 2)));
   margin: auto;
   padding: clamp(20px, 4vw, 40px);
   text-align: center;
@@ -4599,6 +4751,48 @@ button.panel { color: var(--text); }
      OWN box instead of pushing the column taller, so the entitlement state no
      longer changes the demo's size at all. */
   .menu__brand { --brand-w: min(100%, 360px); }
+}
+/* ...and the step UP, which is the same rule read from the other end. 440px
+   is the width the panel was drawn at in a 720px-tall box, and on anything
+   taller the brand column's height went to the empty band between the panel
+   and the shelf hanging off the bottom of it: 114px of nothing on a 1080p
+   browser, with the hero element of the screen sitting at 37% of the column
+   width it had available.
+
+   Sized against the column's HEIGHT, which is the axis that actually binds:
+   the panel is 16:9, so every pixel of width it gains costs 0.5625 of the
+   height the shelf under it needs. At the 544px the brand column gets in the
+   authored box, 640 puts the panel at 360 and leaves 168 for the shelf — 12
+   more than the three 44px rows and two sp-3 gaps that a full shelf cannot go
+   under. The shelf's own `flex-grow` (see .menu__nav above) spends whatever
+   is left over on the rows, so the column is exactly full at any width up to
+   this one and the panel is simply as big as the height allows.
+
+   Not larger: 660 would put the panel at 371 and leave the shelf 157, inside
+   its 156px floor by a pixel. The 12px here is the margin for a face whose
+   rows measure taller than Chromium's — WebKit's do — before the floor starts
+   pushing the column past its own box.
+
+   WHY min-height, on a screen where every other step is keyed the other way:
+   the query has to test the height of the box the CHROME is laid out in, and
+   above the reference that box is the viewport DIVIDED by --chrome-zoom. The
+   two agree here — zoom is never below 1, so box height <= viewport height,
+   and the solver's own `min` of the two axis ratios makes the converse hold
+   as well (sim/systems asserts both bounds). A viewport at least 700px tall
+   therefore has a box at least 700px tall, which is the thing this is asking
+   about. Mutually exclusive with the 620px step-down above, so the two can
+   never both apply. */
+@media (min-height: 700px) {
+  .menu__brand { --brand-w: min(100%, 640px); }
+  /* The wordmark is sized off the PLATE it sits in (6.8cqw of the panel), and
+     that clamp topped out at 31px — the exact fit for the 440px panel and
+     nothing wider. Left there, a 600px panel would have carried the same 31px
+     wordmark at 78% of the size its own plate was drawn for, which reads as
+     the one element on the screen that did not get the memo. 42px keeps the
+     ~12% side margin the 31px cap was chosen for: Orbitron sets LAUNCH at
+     ~4.97x the font size, i.e. 209px inside the plate's 259px of inner
+     width. */
+  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8cqw, 42px); }
 }
 /* No second step at 460px. The old one took the panel to 280px in a 386px
    column, leaving 106px — 27% of the column — empty to its right while the
@@ -5723,16 +5917,50 @@ button.panel { color: var(--text); }
   letter-spacing: 0.02em;
   text-transform: none;
   opacity: 0.8;
+  /* ONE line at every size, not just compact. A sub that wraps makes its
+     button taller than its siblings and reads as a paragraph in a control —
+     the desktop pass caught the Deep Run button doing exactly that once the
+     chrome zoomed. The copy is already written numbers-first (see the
+     compact note below), so the ellipsis only ever eats prose. */
+  max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* ...but TWO lines where there is height for a second one, which is the same
+   step the demo panel takes at this breakpoint.
+
+   One line is right on a short viewport and the note below says why: a wrapped
+   sub costs the row 21px and three of those is the whole menu overflow. That
+   is a FIT argument, and it does not hold on a desktop — there the rail's rows
+   grow to 132px and use about 55, so the second line is free.
+
+   What it costs to take it anyway is not prose. The rail is 300px wide
+   (--rail-w), which leaves the text column 210px, and these subtitles exist to
+   "state the offer in LIVE numbers" (screens.ts). Measured on the authored box:
+   Contracts wants 332px and Workshop 297px, so at one line the ellipsis lands
+   mid-offer — "1480 — Loader Magazine costs …" drops the price the row is
+   there to quote, and Contracts loses "no launch cost" entirely. The
+   numbers-lead rule saves the leading figure, not the trailing one.
+
+   Clamped at two rather than left to wrap freely, so the concern that put the
+   one-line rule here — a sub growing into a paragraph inside a control —
+   cannot happen either: two lines is the ceiling, the third is still an
+   ellipsis. Same device the guide's drill brief uses for the same reason.
+
+   Keyed on min-height for the reason the demo panel's step is: above the
+   authored box the chrome is laid out in viewport/--chrome-zoom, and zoom is
+   never below 1, so a viewport at least 700px tall has a box at least 700px
+   tall. */
+@media (min-height: 700px) {
+  .btn__sub {
+    white-space: normal;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
 }
 @media (max-height: 460px) {
   /* One line, always: the live-number subtitles (A3) run long, and a wrapped
      sub costs the row 21px — three of those is the whole menu overflow. The
      numbers lead in the copy, so the ellipsis only ever eats prose. */
-  .btn__sub {
-    font-size: 11px; line-height: 1.15;
-    max-width: 100%;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  .btn__sub { font-size: 11px; line-height: 1.15; }
   .btn__txt { gap: 2px; }
   .btn--menu { line-height: 1.2; }
   /* The icon shrinks with the label it sits beside; the BUTTON does not shrink

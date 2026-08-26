@@ -95,6 +95,11 @@ function publishLayout(): void {
   rs.setProperty("--gutter-r", `${Math.max(0, w - l.ox - l.fw)}px`);
   rs.setProperty("--gutter-b", `${Math.max(0, h - l.oy - l.fh)}px`);
   rs.setProperty("--rail-btn", `${l.railSize}px`);
+  // The chrome magnification the screen-anchored scaffolds put into `zoom`.
+  // Load-bearing here for the same reason --fscale is: a harness that left it
+  // at its stylesheet default would measure all 19 device rows at 1:1, which
+  // is precisely the desktop layout this property exists to stop shipping.
+  rs.setProperty("--chrome-zoom", String(l.chromeZoom));
   // Load-bearing, not bookkeeping: app.css's rail rules key the horizontal
   // "tall" strip off :root[data-layout="tall"]. Omitting it left the rail in
   // its vertical form on the two iPad rows and the harness reported an overlap

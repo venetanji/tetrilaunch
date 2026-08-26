@@ -3356,8 +3356,14 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
 {
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
 
-  check("a desktop viewport is never scaled", computeLayout(1600, 900).uiScale === 1);
+  check("a desktop viewport is never shrunk", computeLayout(1600, 900).uiScale === 1);
   check("a desktop viewport is roomy", computeLayout(1600, 900).density === "roomy");
+  // ...and is MAGNIFIED, which is the half that did not exist. 900px of height
+  // against the 720px authored box is 1.25, and the width term (1.6) does not
+  // bind. A desktop that came back at 1 here is the bug this channel fixes:
+  // phone-sized furniture rendered 1:1 in the middle of a 1600px window.
+  check("a desktop viewport is magnified", computeLayout(1600, 900).chromeZoom === 1.25,
+    String(computeLayout(1600, 900).chromeZoom));
 
   // Every landscape phone in the device matrix lands on the floor. That is the
   // finding, not a rounding artifact: below it the answer has to be a
@@ -3383,6 +3389,62 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
 
   check("ui scale never exceeds 1", computeLayout(4000, 3000).uiScale === 1);
   check("ui scale never drops below the floor", computeLayout(320, 200).uiScale === UI_SCALE_MIN);
+
+  // --- the magnification channel (chromeZoom) ------------------------------
+  // Monotonic, bounded, and — the invariant the whole two-channel split rests
+  // on — never simultaneous with a shrink. A viewport is either under the
+  // authored box or over it, so a build where both are off their neutral
+  // value at once means one of the two clamps has been mis-edited.
+  {
+    let prevZoom = 0;
+    for (const h of [360, 480, 600, 720, 800, 900, 1080, 1440, 2160]) {
+      const l = computeLayout(2560, h);
+      check(`chrome zoom is monotonic at ${h}px tall`, l.chromeZoom >= prevZoom,
+        `${l.chromeZoom} < ${prevZoom}`);
+      prevZoom = l.chromeZoom;
+    }
+    for (const [w, h] of [[320, 200], [640, 360], [792, 360], [1000, 720], [1600, 900],
+      [1920, 1080], [2560, 1440], [4000, 3000]] as [number, number][]) {
+      const l = computeLayout(w, h);
+      check(`${w}x${h} never shrinks and magnifies at once`,
+        l.uiScale === 1 || l.chromeZoom === 1, `${l.uiScale} / ${l.chromeZoom}`);
+      check(`${w}x${h} stays inside the zoom bounds`,
+        l.chromeZoom >= 1 && l.chromeZoom <= 2, String(l.chromeZoom));
+    }
+    // Every HANDSET in the device matrix renders at 1:1. Not a rounding
+    // result — a landscape phone is under the authored box on both axes by a
+    // wide margin, so `zoom` is inert on the whole class and this change
+    // cannot reach the devices the chrome was tuned on.
+    for (const [name, w, h] of [
+      ["640x360 budget", 640, 360],
+      ["OnePlus 12", 792, 360],
+      ["Pixel 7", 915, 412],
+      ["iPhone SE 3", 667, 375],
+      ["iPhone 16 Pro Max", 956, 440],
+    ] as [string, number, number][]) {
+      check(`${name} is not magnified`, computeLayout(w, h).chromeZoom === 1,
+        String(computeLayout(w, h).chromeZoom));
+    }
+    // The tablets straddle the box, and the numbers say why the reference is a
+    // reference rather than a ceiling: an iPad mini is 2% over it and an iPad
+    // Pro 37% over. Neither is a phone, and rendering both at the same 1:1 the
+    // 360px handsets get is what left the larger one looking like a screenshot
+    // of the smaller one.
+    check("iPad mini is barely magnified", computeLayout(1024, 768).chromeZoom === 1.024,
+      String(computeLayout(1024, 768).chromeZoom));
+    check("iPad Pro 12.9 is magnified on its width",
+      Math.abs(computeLayout(1366, 1024).chromeZoom - 1.366) < 1e-9,
+      String(computeLayout(1366, 1024).chromeZoom));
+    // The WIDTH term binds too. A tall narrow window has no more room for the
+    // menu's three-column row than a short one does, and magnifying on height
+    // alone would push the action rail off the side of it.
+    check("a tall narrow window is not magnified on height alone",
+      computeLayout(1100, 2000).chromeZoom === 1.1,
+      String(computeLayout(1100, 2000).chromeZoom));
+    // 2560x1440 reaches the cap exactly; nothing past it goes further.
+    check("chrome zoom caps at one doubling", computeLayout(4000, 3000).chromeZoom === 2,
+      String(computeLayout(4000, 3000).chromeZoom));
+  }
 
   // The reason this is solved in JS at all: a media query cannot subtract the
   // notch. An iPhone's landscape insets take ~120px of width and 21px of height,

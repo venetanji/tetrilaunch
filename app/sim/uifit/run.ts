@@ -445,11 +445,41 @@ function measure(cfg: {
       if (clipsY || clipsX) {
         // The overflow clip edge is the PADDING box, not the border box.
         const box = p.getBoundingClientRect();
-        const top = box.top + p.clientTop;
-        const left = box.left + p.clientLeft;
-        const cutY = clipsY ? Math.max(top - r.top, r.bottom - (top + p.clientHeight)) : 0;
-        const cutX = clipsX ? Math.max(left - r.left, r.right - (left + p.clientWidth)) : 0;
-        const cut = Math.max(cutY, cutX);
+        // Same units trap the `spill` assertion documents below, reached by
+        // the other scaling mechanism: getBoundingClientRect is the SCALED
+        // box while clientTop/Left/Width/Height are layout px in the
+        // element's own coordinate space. The screen-anchored scaffolds carry
+        // `zoom: var(--chrome-zoom)` (app.css), so on every viewport bigger
+        // than the solver's authored box the two disagree by that factor —
+        // mixing them put the clip edge a third of the way inside the panel
+        // and reported 271 findings against boxes clipping nothing, on the
+        // rows with the most room of any in the matrix.
+        //
+        // The zoom CHAIN, not `spill`'s rect-over-offsetWidth ratio. That
+        // idiom is right where it is (it has to catch transforms too), but
+        // offsetWidth is rounded to a whole px, and here the error lands on
+        // a threshold rather than on a 20px overflow: at 272.31 real over an
+        // offsetWidth of 272 it reads 1.0011 on a phone that is not zoomed at
+        // all, which was enough to tip a column of hairline findings over the
+        // 1px slack. Computed `zoom` is exact at every level, and clipping
+        // ancestors in this app are not transformed.
+        let pz = 1;
+        for (let a: Element | null = p; a && a !== document.body; a = a.parentElement) {
+          const z = parseFloat(getComputedStyle(a).zoom);
+          if (Number.isFinite(z) && z > 0) pz *= z;
+        }
+        const top = box.top + p.clientTop * pz;
+        const left = box.left + p.clientLeft * pz;
+        const cutY = clipsY ? Math.max(top - r.top, r.bottom - (top + p.clientHeight * pz)) : 0;
+        const cutX = clipsX ? Math.max(left - r.left, r.right - (left + p.clientWidth * pz)) : 0;
+        // Back into the parent's OWN px before the 1px slack is applied. Both
+        // rects are scaled, so a fixed slack in scaled px is a tighter test
+        // the more a row is magnified — `.menu__demo-hit` is `inset: 0` and
+        // therefore its parent's padding box exactly, and it still failed by
+        // a rounding step on the one row whose zoom has a 0.366 fraction.
+        // Dividing puts the threshold back in the units the stylesheet is
+        // written in, which is also what makes the reported number greppable.
+        const cut = Math.max(cutY, cutX) / pz;
         if (cut > 1) {
           out.clipped.push(
             `${label(el)} "${(el.textContent ?? "").trim().slice(0, 12)}" cut ${Math.round(cut)}px by ${label(p)}`,

@@ -142,6 +142,14 @@
   --dur-slow: 420ms;
 
   /* --- Layout --- */
+  /* How far the screen-anchored scaffolds are magnified above the box the
+     chrome is authored in — solved in JS (game/layout.ts's chromeZoom),
+     republished on every resize by main.ts, and consumed by exactly one rule
+     (app.css's `zoom` on .screen/.modal-scrim/.bayclear/.rotate-guard).
+     Declared here so the first paint, and every headless consumer that never
+     runs onResize, gets the neutral value rather than an invalid `zoom`. */
+  --chrome-zoom: 1;
+
   --hud-pad: clamp(12px, 2.2vw, 28px);
   --z-hud: 10;
   --z-overlay: 40;
