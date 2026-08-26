@@ -23,7 +23,7 @@ import {
   CHAPTERS, drillGate, topicsIn, unlockedDrills, type ChapterId, type GuideTopic,
 } from "../game/guide";
 import type { Settings } from "../lib/store";
-import { PAD_BACK } from "./padnav";
+import { PAD_BACK, PAD_CONFIRM, PAD_CONTROLS } from "./padnav";
 import { BOARD_SANDBOX, isLadderBoard, type BoardId, type ScoreEntry } from "../lib/api";
 import type { BeltPreview } from "../game/game";
 import type { PieceSize, PieceType } from "../game/theme";
@@ -976,6 +976,34 @@ export function settingsScreen(
  */
 export type ControlsTab = "touch" | "keyboard" | "gamepad";
 
+/**
+ * Every screen Controls can be opened FROM, named by the `data-action` that
+ * returns to it — the string is the door in both directions, so the Back
+ * button this renders and the B press main.ts routes through it (padBackTarget)
+ * are the same click.
+ *
+ * Two doors were enough while a pointer was the only way in: Settings and the
+ * guide's Controls row. The pad's fixed Controls button (padnav.ts's
+ * PAD_CONTROLS) opens the screen from wherever the player is standing, and a
+ * shortcut that dumped them back in Settings afterwards would move them
+ * somewhere they never asked to go — so the door list is now every menu the
+ * shortcut may be pressed on (main.ts's PAD_CONTROLS_DOORS holds that half).
+ */
+export type ControlsDoor =
+  | "settings" | "howto" | "menu" | "leaderboard" | "workshop" | "contracts" | "sandbox";
+
+/** What the eyebrow calls each door — the screen's own name as the player
+ *  reads it on the way in, so the header says where Done will land. */
+const CONTROLS_DOOR_LABELS: Record<ControlsDoor, string> = {
+  settings: "Settings",
+  howto: "How to Play",
+  menu: "Main Menu",
+  leaderboard: "Leaderboard",
+  workshop: "Workshop",
+  contracts: "Contracts",
+  sandbox: "Tier S",
+};
+
 export function controlsScreen(opts: {
   tab: ControlsTab;
   settings: Settings;
@@ -983,7 +1011,7 @@ export function controlsScreen(opts: {
    *  door and stays the default; the guide is the other one, and a player who
    *  opened this from a How to Play row expects to land back on that row rather
    *  than in Settings. main.ts remembers which door was used. */
-  back?: "settings" | "howto";
+  back?: ControlsDoor;
   /** Detected gamepad id, or null — browsers hide pads until a button is
    *  pressed, and the pane says so instead of reading as broken. */
   padName: string | null;
@@ -1027,8 +1055,19 @@ export function controlsScreen(opts: {
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
       ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}`;
   } else {
+    // THE MENU BUTTONS ARE INFO ROWS, not bind rows, because they are not
+    // bindings: ui/padnav.ts fixes them at their standard-mapping indices and
+    // no rebind can move them (a player who could rebind the D-pad out of a
+    // menu could strand themselves in one). They are stated here anyway —
+    // this is the screen a player opens to learn what their pad does, and the
+    // gestures that carry them through every OTHER screen would otherwise be
+    // written down nowhere. The second row is the way back to this screen
+    // itself, which is what a player who has just made a mess of the table
+    // below needs most.
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
       ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power")}
+      ${infoRow("Menus", `D-pad move · ${padLabel(PAD_CONFIRM)} select · ${padLabel(PAD_BACK)} back`)}
+      ${infoRow("Open Controls", `${padLabel(PAD_CONTROLS)} · from any menu`)}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
       ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
       ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;
@@ -1037,7 +1076,7 @@ export function controlsScreen(opts: {
   return `<div class="screen neon-backdrop">
     <div class="controls">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <div><div class="eyebrow">${back === "howto" ? "How to Play" : "Settings"}</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
+        <div><div class="eyebrow">${CONTROLS_DOOR_LABELS[back]}</div><h2 class="display" style="font-size:var(--fs-h1)">Controls</h2></div>
         <button class="icon-btn" data-action="${back}" aria-label="Back">${icon("close", 18)}</button>
       </div>
       <div class="workshop__tabs" role="tablist">
@@ -1910,6 +1949,31 @@ function hintParts(
     if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
     if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
     part(`${kbd(padLabel(padFor("pause")))} pause`);
+    /* THE MENU GESTURES (ui/padnav.ts): the D-pad moves focus, A activates,
+       B backs out, and Back opens Controls from any menu. Named here because
+       a pad player's whole route through the game runs on them and nothing
+       else on screen says so — the pause modal a player is reading this card
+       on is itself being driven by them.
+
+       PAUSE-CARD ONLY (`full`), for the reason the mouse's two extra lines
+       are: the field strip is width-budgeted onboarding for the BAY, and four
+       more hints wrapped it onto a second row straight into the plant panel
+       (uifit's overlap assertion). The card is the scheme's reference, and it
+       is also the one hint surface that appears on a MENU, which is where
+       these gestures apply — the strip is drawn on a live field, where the
+       D-pad is nudging aim and A is the trigger.
+
+       THE CHIPS ARE FIXED INDICES, not bindings.ts lookups — the one place
+       this table's "every chip is a live binding" rule is deliberately
+       relaxed, because these buttons are the opposite of live: they are the
+       conventions no rebind may touch, and padLabel names the physical
+       button. A chip here cannot go stale, which is what the rule protects. */
+    if (full) {
+      part(`${kbd("D-pad")} move`);
+      part(`${kbd(padLabel(PAD_CONFIRM))} select`);
+      part(`${kbd(padLabel(PAD_BACK))} back`);
+      part(`${kbd(padLabel(PAD_CONTROLS))} opens Controls`);
+    }
   } else {
     part(`${kbd(keyLabel(keyFor("rotl")))}/${kbd(keyLabel(keyFor("rotr")))} rotate`);
     part(`${kbd(keyLabel(keyFor("aimUp")))}/${kbd(keyLabel(keyFor("aimDown")))} aim`);

@@ -658,6 +658,22 @@ export const SCREENS: Record<string, () => string> = {
   pause: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.pauseModal(true, "keyboard", { bond: true, demo: true, auto: true }),
+  // The PAD's reference card, which stopped being a shorter version of the
+  // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
+  // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
+  // The full loadout again, so this is the tallest the block gets on a pad,
+  // and it is measured on the fine-pointer rows for the same reason the
+  // keyboard one is: the block is display:none on coarse pointers.
+  //
+  // It arrives carrying two baseline entries, which is not the usual direction
+  // of travel and is worth stating: they are the 800x600 window's undersized
+  // ability chips and tight rig badges, byte-identical to the ones `pause`
+  // already records, because the HUD UNDER the modal is the same HUD. A new
+  // fixture over known-defective chrome inherits that chrome's known list; the
+  // card itself measures clean on all nineteen rows.
+  "pause-pad": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }) +
+    S.pauseModal(true, "gamepad", { bond: true, demo: true, auto: true }),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
@@ -874,7 +890,8 @@ const HUD_LOADOUT = {
 const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
-    || id === "hud-hints-dismissed" || id === "pause" || id === "bayclear"
+    || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
+    || id === "bayclear"
     ? HUD_LOADOUT
     : NO_RAIL;
 }

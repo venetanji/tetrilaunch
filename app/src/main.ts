@@ -97,7 +97,9 @@ import {
 import { GamepadPoller } from "./game/gamepad";
 import { setRailSide } from "./game/layout";
 import { beltPieceHTML, beltBombHTML, beltSealedHTML, formatMMSS } from "./ui/components";
-import { focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_NAV } from "./ui/padnav";
+import {
+  focusInitial, moveFocus, PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV,
+} from "./ui/padnav";
 import * as S from "./ui/screens";
 import {
   BOARD_SANDBOX, fetchLeaderboard, isLadderBoard, submitScore,
@@ -237,6 +239,41 @@ const HOLD_CLICK_MS = 400;
  *  tick — sub-millisecond — so this only has to be comfortably above that and
  *  comfortably below any deliberate second press. */
 const PAD_WAKE_MS = 50;
+
+/**
+ * The screens the pad's Controls shortcut (padnav.ts's PAD_CONTROLS) may be
+ * pressed on, each mapped to the `data-action` that returns to it — which is
+ * also what the Controls screen renders on its own Back and Done, so the
+ * shortcut is a round trip: press it on the Workshop, press B, and the
+ * Workshop is what comes back.
+ *
+ * A LIST, not "anywhere", and the line it draws is padBackTarget's. Every
+ * screen here is an out-of-run menu that can be re-entered exactly as it was
+ * left — the tower, the guide, the boards, the shops, the Tier S bench (whose
+ * configuration lives on the app, not in its markup). The states that are
+ * absent are absent for the same reason they have no B: a draft and a refit
+ * are the run's mandatory commitment screens, and the end modals are a choice
+ * between exits. Leaving one of those for a settings screen is not a
+ * shortcut, it is a decision made on the player's behalf — and there would be
+ * nothing to click on the way back.
+ *
+ * "playing" is not here either, and could not be: the shortcut is consulted
+ * only outside play (onPadUiButton's playing arm refuses everything but the
+ * coach card), because a bay in flight is not a thing to walk away from
+ * mid-shot. "paused" is the deliberate near-miss — the pause modal is a live
+ * bay held still and has no door that re-opens it, so the card points at
+ * Settings → Controls instead (pauseKeysHTML's note) and a pad player who
+ * wants the screen mid-run quits to the menu and presses the button there.
+ */
+const PAD_CONTROLS_DOORS: Partial<Record<AppState, S.ControlsDoor>> = {
+  menu: "menu",
+  howto: "howto",
+  settings: "settings",
+  leaderboard: "leaderboard",
+  workshop: "workshop",
+  contracts: "contracts",
+  sandbox: "sandbox",
+};
 
 class App {
   private canvas: HTMLCanvasElement;
@@ -523,8 +560,9 @@ class App {
   private controlsTab: S.ControlsTab = "touch";
   private rebinding: BindableAction | null = null;
   /** Which screen Controls was opened FROM, so its Back and Done return there.
-   *  Settings is the historical door; the guide's Controls row is the other. */
-  private controlsBack: "settings" | "howto" = "settings";
+   *  Settings is the historical door; the guide's Controls row is the other;
+   *  the pad's fixed Controls button (PAD_CONTROLS_DOORS) supplies the rest. */
+  private controlsBack: S.ControlsDoor = "settings";
   /** Lifetime bays started (canvas D3) — past three, the finger-drag hint
    *  retires for good. Persisted; cached here so the hot path never reads
    *  localStorage. */
@@ -3642,7 +3680,8 @@ class App {
   }
 
   /** The pad's UI layer (ui/padnav.ts): D-pad or stick flicks move focus, A
-   *  activates, B backs out. Runs for every press edge the poller sees
+   *  activates, B backs out, and Select/Back/View opens Controls from any
+   *  menu with a door back to it. Runs for every press edge the poller sees
    *  (before its playing gate), so the playing arm has to be explicit about
    *  the one press it owns — B dismissing the coach card — and refuse the
    *  rest back to the game.
@@ -3679,6 +3718,22 @@ class App {
     // nothing focusable, so confirm skips it directly, as a tap would.
     if (this.state === "bayclear" && button === PAD_CONFIRM) {
       this.overlay.querySelector<HTMLElement>('[data-action="skip-bayclear"]')?.click();
+      return true;
+    }
+    // THE CONTROLS SHORTCUT (button 8 — Select/Back/View, "…" on a Deck).
+    // Consulted before focus movement so it cannot be shadowed by a screen's
+    // own controls, and after the wake window so the press that woke the pad
+    // still spends itself landing focus rather than teleporting the player to
+    // a settings screen they never asked for. A rebind capture upstream still
+    // wins outright (the poller consults onCapture first), so rebinding an
+    // action ONTO button 8 is still possible — it just cannot be reached from
+    // a menu afterwards, which is the trade the fixed nav buttons exist to
+    // make.
+    if (button === PAD_CONTROLS) {
+      const door = PAD_CONTROLS_DOORS[this.state];
+      if (!door) return false;
+      this.controlsBack = door;
+      this.setState("controls");
       return true;
     }
     const root = this.padNavRoot();
@@ -3826,11 +3881,13 @@ class App {
         this.finishTutorial();
         break;
       case "settings": this.setState("settings"); break;
-      // Two doors into Controls — Settings and the guide's Controls row — and
-      // the screen goes back through whichever one was used. Remembered here
-      // rather than inferred from history: the screen re-renders on every tab
-      // and every rebind, and a back target that changed under the player mid
-      // rebind would be worse than no memory at all.
+      // Two CLICKABLE doors into Controls — Settings and the guide's Controls
+      // row — and the screen goes back through whichever one was used.
+      // Remembered here rather than inferred from history: the screen
+      // re-renders on every tab and every rebind, and a back target that
+      // changed under the player mid rebind would be worse than no memory at
+      // all. The pad's fixed Controls button writes the same field from a
+      // wider set of doors (PAD_CONTROLS_DOORS, onPadUiButton).
       case "controls":
         this.controlsBack = this.state === "howto" ? "howto" : "settings";
         this.setState("controls");

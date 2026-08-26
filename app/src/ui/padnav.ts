@@ -44,6 +44,20 @@ export interface NavRect {
  *  first modal they opened. */
 export const PAD_CONFIRM = 0; // A / Cross
 export const PAD_BACK = 1;    // B / Circle
+/** Select/Back/View — "Back" in Xbox lettering, "Create" on a DualSense, the
+ *  "…" key on a Deck. Opens the Controls screen from any menu that has a door
+ *  back to it (main.ts's PAD_CONTROLS_DOORS).
+ *
+ *  This one is fixed for a sharper reason than A and B are. Every gameplay
+ *  binding on this pad is rebindable, and the screen that undoes a bad rebind
+ *  is reached by driving a menu — so if a rebind ever made a menu awkward to
+ *  drive, the remedy would be behind the problem. A button that opens Controls
+ *  and that no rebind can move is the way out that cannot be rebound away.
+ *  Standard mapping guarantees the index across every pad the browser reports
+ *  as `mapping: "standard"`, Deck included; button 16 (Guide/PS) is claimed by
+ *  the platform overlay and 17 (the DualSense touchpad click) is outside
+ *  standard mapping entirely, so neither is a button the UI may spend. */
+export const PAD_CONTROLS = 8;
 export const PAD_NAV: Record<number, NavDir> = {
   12: "up",
   13: "down",
