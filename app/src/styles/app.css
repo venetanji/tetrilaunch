@@ -2173,36 +2173,44 @@ body.crt-off #app::after { display: none; }
    teeth did before. The physics mouth itself never moved: the chute's lip
    bar and warning heat are still drawn in the world (drawChute), because
    the hazard has to exist on screens with no HUD at all (the attract demo). */
-/* ---------- The heat ramp, and what the music does to it -------------------
+/* ---------- The heat ramp, and what is allowed to move it ------------------
    Every cube in every run below paints from one of seven rungs, --h0..--h6,
    and this is where those rungs come from. Three layers, all declared on
    .plant so syncHud has ONE element to write and the whole ring inherits:
 
      --cell-0..--cell-6   the palette itself, cold steel up to white-hot. The
-                          congestion states swap this out (below) and nothing
-                          else about the ramp has to change.
+                          congestion states swap this out (below), and so does
+                          the loaded material (.plant--mat), and nothing else
+                          about the ramp has to change.
      --ramp-0..--ramp-6   that palette after the music has had it — each rung
                           mixed toward --crest-cold by --crest-heat.
      --h0..--h6           which rung each cube actually paints with. syncHud
                           rotates this mapping, so the bands march the run.
 
-   TWO SIGNALS, not one. lib/audio.ts's musicLevel is tapped once per drawn
-   frame by main.ts's syncHud and split by timescale, because loudness and
-   rhythm are different things and want different jobs:
+   WHAT DRIVES WHAT, and the division is deliberate: the music is allowed to
+   drive how the ring LOOKS, and only the player is allowed to drive when it
+   CHANGES.
 
-     --crest-heat   the SLOW half — the normalised envelope through a ~1s
-                    follower, 0..1. It reads as how hard the machine is
-                    running, so it drives the PALETTE: a quiet passage cools
+     --crest-heat   MUSIC. The normalised envelope through a ~1s follower,
+                    0..1. It reads as how hard the machine is running, so it
+                    drives the PALETTE's temperature: a quiet passage cools
                     the ring toward dead metal, a loud one brings it up to
-                    full molten colour.
-     --h0..--h6     the FAST half — a phase accumulated at a rate set by the
-                    live level, stepping the rotation one rung at a time. It
-                    reads as the beat, so it drives the bands' TRAVEL: the
-                    louder the track, the faster colour walks the run.
-
-   (--crest-beat, the third, is the existing per-frame transient. It keeps
-   the two jobs it already had — brightness, and --crest-h's depth — so the
-   snap of a hit composes with the colour rather than competing with it.)
+                    full molten colour. Continuous — it eases, it never jumps.
+     --crest-beat   MUSIC. The per-frame transient, on brightness and
+                    --crest-h's depth, so the snap of a hit composes with the
+                    colour rather than competing with it. Also continuous.
+     --h0..--h6     THE PLAYER. The rotation steps one rung per shot fired
+                    (main.ts's syncHud reads shotsFired) and holds still in
+                    between. This is the only DISCRETE thing on the ring, and
+                    a discrete change has to be answerable: it used to be a
+                    phase accumulated off the live music level, which meant
+                    the bands jumped whenever the track happened to get loud
+                    — next to a live bay that reads as flicker, not as
+                    machinery.
+     --crest-mat    THE PLAYER, again. The loaded shipment's colour when it is
+                    not standard, re-anchoring the top of the run (see
+                    .plant--mat). Only a launch reloads the cannon, so this
+                    too can only change on a trigger pull.
 
    The 0.45 default is a resting state, not a placeholder. With no audio
    graph yet, with music switched off, or under prefers-reduced-motion —
@@ -2233,6 +2241,14 @@ body.crt-off #app::after { display: none; }
   --cell-4: #3d3d63;      /* --line-strong  */
   --cell-5: #42627f;      /* steel          */
   --cell-6: #5f93a6;      /* toward --accent */
+  /* THE LOADED SHIPMENT'S COLOUR, for .plant--mat's re-anchored run further
+     down (syncHud overwrites it inline whenever a material is at the muzzle).
+     Declared here, at the top rung's own hex, purely as a floor: a custom
+     property accepts any token stream, so a color-mix() reading an UNSET
+     --crest-mat would be accepted and then fail at substitution — taking
+     --ramp-*, --h* and every strip's background-image down with it. With a
+     default present that failure mode does not exist. */
+  --crest-mat: #5f93a6;
   /* Unmixed fallback — the palette at full heat. Overridden immediately
      below anywhere color-mix() exists. */
   --ramp-0: var(--cell-0); --ramp-1: var(--cell-1); --ramp-2: var(--cell-2);
@@ -2637,6 +2653,89 @@ body.crt-off #app::after { display: none; }
    .plant, so their left/top resolve against the cap's box, not the panel's. */
 .pl-pwr .plant__crest--rivet-3 { left: calc(-1 * var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.6s; }
 .pl-pwr .plant__crest--rivet-4 { left: calc(100% + var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.8s; }
+
+/* ---------- WHAT THE MACHINE IS ABOUT TO BE FED ---------------------------
+   The intake wears the colour of the shipment loaded at the muzzle, whenever
+   that shipment is not standard. main.ts's syncHud writes the one anchor
+   (--crest-mat, theme.ts's shipmentAura of the loaded material) and adds this
+   class; everything below is the ramp built from it.
+
+   ONE COLOUR, ONE MOMENT. The anchor is the same colour the belt tile's
+   telegraph glow and the transport's own wash already use for that shipment,
+   so the ring is not a fourth opinion about what is loaded — it is the
+   biggest surface saying what the small ones say. And it can only change when
+   the cannon reloads, which only a launch does: the ring recolours on the
+   player's own trigger pull and holds absolutely still between pulls. That
+   is the whole design. A border that changes on its own schedule sits beside
+   a live bay competing for the same eye, and loses the player nothing but
+   attention.
+
+   NOT THE WHOLE RUN. The bottom three rungs stay base steel and only --cell-3
+   up takes the material, for the reason the base ramp stops short of full
+   --accent: the crest is an edge treatment, and a border flooded end to end
+   in hazard yellow-green outshouts the buttons it is supposed to frame. The
+   material owns the HOT end of the fire, which is the end that moves — the
+   bands the rotation walks and the heat mixes are exactly the top rungs.
+
+   SO THAT SLAG AND TAR STILL SHOW. shipmentAura, not shipmentColor: slag's
+   dead grey-brown and tar's near-black are chosen to read as inert cargo on
+   the bay floor, and painted straight onto an already-dark ring they would
+   read as nothing at all. The aura keeps their hue and lifts their value
+   until the brightest channel clears the floor, so tar's crest is a visible
+   violet and slag's a pale mauve — still theirs, still nobody else's.
+
+   DECLARED BEFORE THE CONGESTION TIERS, at the same specificity, so order is
+   what settles the argument: a strained machine outranks its cargo, and a
+   live strand warning outranks both. The EMBERS below deliberately do not
+   follow that rule — see the note on them. */
+.plant--mat {
+  /* Fallback where color-mix is missing, same gate the base ramp uses: the
+     top two rungs take the material outright and the rest stay steel. Blunter
+     than the mixed run below, and it still says the one thing that matters. */
+  --cell-5: var(--crest-mat);
+  --cell-6: var(--crest-mat);
+}
+@supports (color: color-mix(in oklab, #000, #fff 50%)) {
+  .plant--mat {
+    /* The base ramp's own rungs walked toward the anchor, so the run keeps
+       its shape — cold steel at the bottom, the material at the top — instead
+       of flattening into one bar of cargo colour. The hexes are --line,
+       --line-strong and the steel step, verbatim from .plant above. */
+    --crest-cold: color-mix(in oklab, #0d0d16, var(--crest-mat) 16%);
+    --cell-3: color-mix(in oklab, #2e2e4a, var(--crest-mat) 30%);
+    --cell-4: color-mix(in oklab, #3d3d63, var(--crest-mat) 55%);
+    --cell-5: color-mix(in oklab, #42627f, var(--crest-mat) 80%);
+    --cell-6: var(--crest-mat);
+  }
+}
+/* THE EMBERS TAKE THE CARGO TOO, and unlike the ramp they keep it through
+   congestion. Two channels, two questions: the metal answers "how hard is
+   this machine working" (congestion owns it, and has to — it is the same red
+   the floor rows and the Launch price are wearing at that moment), and the
+   sparks answer "on what". Letting the tiers swallow both would delete the
+   material tell exactly on the bays where knowing what is loaded matters
+   most.
+
+   On .plant__crest::after rather than on .plant, because that is where the
+   four --ember-* are declared and a declaration on the element itself beats
+   anything it would otherwise inherit. */
+.plant--mat .plant__crest::after {
+  --ember-hot: var(--crest-mat);
+  --ember-a: var(--crest-mat);
+  --ember-b: var(--crest-mat);
+  --ember-c: var(--crest-mat);
+}
+@supports (color: color-mix(in oklab, #000, #fff 50%)) {
+  .plant--mat .plant__crest::after {
+    /* One hue, four values — a hot core, the colour itself, and a step either
+       side of it — so a scatter of eight still reads as embers off one
+       material rather than as eight dots of the same flat colour. */
+    --ember-hot: color-mix(in oklab, #fff, var(--crest-mat) 30%);
+    --ember-a: var(--crest-mat);
+    --ember-b: color-mix(in oklab, #1a1420, var(--crest-mat) 62%);
+    --ember-c: color-mix(in oklab, #fff, var(--crest-mat) 72%);
+  }
+}
 
 /* CONGESTION — the machine under strain. Tier 1 heats the metal amber and
    starts a slow rattle with sparks crawling the teeth; tier 2 goes the same
@@ -4040,11 +4139,48 @@ body.crt-off #app::after { display: none; }
 }
 
 /* ---------- Draft modal (mod cards) ---------- */
+/* ONE column: the cards are a hand being chosen from, and a hand reads as a
+   list. The old auto-fit grid packed two cards beside each other and wrapped
+   the third below-left, which is exactly the layout that made playtest ask
+   whether the three cards were three problems or three options — a ragged
+   grid reads as content, a column reads as a menu. (Compact height overrides
+   this below, where the projection needs the rows more than the cards need
+   the shape.) */
 .draft__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
+/* EXCEPT the Final Inspection's pair: two clauses are mutually exclusive
+   readings of one inspection, and alternatives sit side by side — a column
+   would rank them. It is also what keeps the two tall clause cards from
+   setting the modal's height. */
+.draft__cards--pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* The PICK QUOTA — "pick 2 of 3" said as slots that fill with the picked
+   axes' own glyphs (screens.ts's quotaHTML). The empty box is the affordance
+   the words never were: a hole the eye wants filled. */
+.draft__quota {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  flex-wrap: wrap;
+  margin-top: -6px;
+}
+.draft__quota-n {
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.draft__slots { display: flex; gap: 5px; }
+.draft__slot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border: var(--bw) dashed var(--line-strong); border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  background: rgba(255,255,255,0.03);
+}
+.draft__slot--filled { border-style: solid; }
+.draft__slot--bane { border-color: var(--danger); color: var(--danger); background: rgba(255,45,85,0.12); }
+.draft__slot--tradeoff { border-color: var(--accent); color: var(--accent); background: rgba(0,240,255,0.12); }
+.draft__slot--final { border-color: var(--accent-2); color: var(--accent-2); background: rgba(122,92,255,0.14); }
+.draft__quota-note { font-size: 11px; }
 .mod-card {
   /* Explicit resets, NOT `all: unset` (B1): a pressable card is a control on
      the same base as every other control, and `all: unset` silently removed
@@ -4071,6 +4207,59 @@ body.crt-off #app::after { display: none; }
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur) var(--ease);
 }
 .mod-card:hover, .mod-card:focus-visible { transform: translate(-2px, -2px); }
+/* The card's head: kind glyph, name, stack badge, pick box — one row, so the
+   whole state of a card is readable at its top edge. */
+.mod-card__top { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+/* The kind said as a GLYPH: a material card wears its belt icon, a number card
+   its two-letter tally glyph — the same marks the plant panel teaches all run,
+   coloured by the card's own kind rules below. Replaces the "pressure" /
+   "material" word pill, which spent a whole line saying what the colour
+   already said. */
+.mod-card__ax {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  background: rgba(255,255,255,0.06);
+}
+.mod-card--bane .mod-card__ax { color: var(--danger); background: rgba(255,45,85,0.12); }
+.mod-card--tradeoff .mod-card__ax { color: var(--accent); background: rgba(0,240,255,0.12); }
+.mod-card--final .mod-card__ax { color: var(--accent-2); background: rgba(122,92,255,0.14); }
+/* The name WRAPS (clamped at two lines) rather than ellipsizing: beside the
+   glyph, the stack badge and the pick box, a compact card leaves ~40px of
+   name column, and "Fuel Levy" was rendering as "Fue…" — an identity is the
+   one thing on the card that may not give way. */
+.mod-card__top .mod-card__name {
+  flex: 1 1 auto; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.1;
+}
+.mod-card__stack {
+  flex: none;
+  font-family: var(--font-pixel); font-size: 7px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--warn);
+  border: 1px solid rgba(255,176,32,0.5); border-radius: var(--r-sm);
+  padding: 2px 4px;
+}
+/* The PICK BOX — the card's selection state said as a control: empty square,
+   check when picked, ×N when double-picked. It is what makes three cards read
+   as three OPTIONS: a description with a checkbox is an offer, a description
+   alone is a paragraph. Decorative to a screen reader (the button's
+   aria-pressed carries the fact); coloured by the card's kind when lit. */
+.mod-card__box {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px;
+  border: var(--bw) solid var(--line-strong); border-radius: var(--r-sm);
+  font-family: var(--font-pixel); font-size: 8px;
+  color: transparent;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.mod-card--picked .mod-card__box--on { color: var(--accent); border-color: var(--accent); background: rgba(0,240,255,0.14); }
+.mod-card--picked.mod-card--bane .mod-card__box--on { color: var(--danger); border-color: var(--danger); background: rgba(255,45,85,0.14); }
+.mod-card--picked.mod-card--final .mod-card__box--on { color: var(--accent-2); border-color: var(--accent-2); background: rgba(122,92,255,0.16); }
 .mod-card__kind {
   font-family: var(--font-pixel);
   font-size: 8px;
@@ -4290,7 +4479,6 @@ body.crt-off #app::after { display: none; }
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
     overflow: hidden;
   }
-  .modal--draft .mod-card__kind { font-size: 7px; padding: 1px 5px; }
   .modal--draft .mod-card__pick { font-size: 9px; }
   /* The two cards sit SIDE BY SIDE inside their column here, not stacked: at
      ~78px each, stacking them made the cards column 165px against the
@@ -4312,9 +4500,24 @@ body.crt-off #app::after { display: none; }
   .modal--draft h2 { font-size: 17px; }
   .modal--draft > .muted { font-size: 10px; }
   .modal--draft .draft__bank { gap: 6px; }
-  .modal--draft .draft__bank .chip { padding: 2px 8px; min-width: 0; gap: 5px !important; }
-  .modal--draft .draft__bank .chip__label { font-size: 7px; }
-  .modal--draft .draft__bank .chip__value { font-size: 12px; }
+  /* Label BESIDE value here, not stacked: the stacked cell is 5px taller than
+     the chip row it replaced, and on a 360px phone that 5px is projection. */
+  .modal--draft .draft__bank .bay-stat { padding: 1px 6px; gap: 4px; }
+  .modal--draft .draft__bank .bay-stat__txt { flex-direction: row; align-items: baseline; gap: 4px; }
+  .modal--draft .draft__bank .bay-stat__val { font-size: 11px; }
+  /* The quota keeps its slots — they ARE the "this is a choice" affordance the
+     redesign exists for — and gives up its prose tail instead. */
+  .modal--draft .draft__quota { gap: 7px; margin-block: -4px -2px; }
+  .modal--draft .draft__quota-note { display: none; }
+  .modal--draft .draft__slot { width: 15px; height: 15px; font-size: 6px; }
+  /* The clause card's system PILL stands down; the system icon in the card's
+     corner keeps carrying the fact. On a 360px-tall phone the pill's line is
+     a row of projection tiles. */
+  .modal--draft .mod-card__kind { display: none; }
+  .modal--draft .mod-card__ax { width: 18px; height: 18px; font-size: 7px; }
+  .modal--draft .mod-card__box { width: 16px; height: 16px; font-size: 7px; }
+  .modal--draft .mod-card__top { gap: 5px; }
+  .modal--draft .mod-card__stack { font-size: 6px; padding: 1px 3px; }
   /* Kept on one line: wrapped, the projection's own header cost as much height
      as a row of stat tiles. */
   .projection__hd { flex-wrap: nowrap; white-space: nowrap; font-size: 7px; }
@@ -5593,7 +5796,13 @@ button.panel { color: var(--text); }
 }
 
 /* ---------- Draft modal: bank row + end modal: salvage payout ---------- */
-.draft__bank { display: flex; gap: var(--sp-3); justify-content: center; flex-wrap: wrap; }
+/* The bank wears the menu's own stat cells (.bay-stat — the home panel's
+   icon + label + mono-value grammar) rather than a third chip style: the
+   numbers a draft is priced against should look like the numbers the menu
+   quoted. */
+.draft__bank { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
+.draft__bank .bay-stat { flex: 1 1 0; min-width: 0; max-width: 240px; padding: 5px 9px; }
+.draft__bank .bay-stat__val { font-size: 12px; }
 .salvage-row {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: 10px 14px;
@@ -5910,6 +6119,39 @@ button.panel { color: var(--text); }
    landscape phone the plain three kept a 44px floor the subtitled three had
    lost, and the upsell chip was explicitly shrunk to 32px. */
 .btn__txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* A button title that carries inline furniture (the Contracts pips) — without
+   this the pips would become their own row of the column flex above. */
+.btn__ttl { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+/* THE TIER'S CONTRACT PIPS — one square per first-clear the tier asks for,
+   on the button that leads to them. They replaced the run-end "Tier N
+   progress" banner (screens.ts's endModal note). Salvage amber, because a
+   first clear banks salvage and the button's own sub quotes that price in
+   the same colour.
+
+   The unfilled pips FLICKER while the tier still owes clears — the nudge is
+   the whole job — and hold still once the set is complete. Staggered delays
+   so three pips read as three sockets, not one blinking cursor (the same
+   call .bay-stat__q makes). Under prefers-reduced-motion they hold still and
+   the fill alone carries the fact — colour is information, motion is not. */
+.tier-pips { display: inline-flex; gap: 4px; flex: none; }
+.tier-pip {
+  width: 7px; height: 7px;
+  border: 1px solid var(--warn);
+  border-radius: 1px;
+  opacity: 0.45;
+}
+.tier-pip--done { background: var(--warn); opacity: 1; }
+.tier-pips--live .tier-pip:not(.tier-pip--done) { animation: pip-flicker 1.8s steps(2, end) infinite; }
+.tier-pips--live .tier-pip:nth-child(2) { animation-delay: 0.4s; }
+.tier-pips--live .tier-pip:nth-child(3) { animation-delay: 0.8s; }
+@keyframes pip-flicker {
+  0%, 55% { opacity: 0.45; box-shadow: none; }
+  65%, 85% { opacity: 1; box-shadow: 0 0 6px rgba(255, 176, 32, 0.6); }
+  100% { opacity: 0.45; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tier-pips--live .tier-pip { animation: none; }
+}
 .btn__sub {
   font-family: var(--font-ui);
   font-size: 12px;

@@ -2324,8 +2324,16 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   check("picking the sweeper reveals both halves of its notch",
     row(sweep, "sweeper")!.changed && row(sweep, "cells")!.changed);
   check("the press gap closing reads as worse", row(sweep, "cells")!.tone === "worse");
-  check("a material appears on the belt only once its axis is picked",
-    row(idle, "mat:cryo") === undefined && row(rowsFor(["cryo"]), "mat:cryo")!.changed);
+  // ONE belt row, not one per material — the owner's device pass found a Tier
+  // 10 material clause moving six tiles at once, two extra rows on the screen
+  // that overflows first. The total is the number that prices the bay
+  // (belt.ts's ceiling: notches past it recompose rather than thicken); which
+  // material it is lives on the card being tapped.
+  check("the belt row appears only once a content axis is picked",
+    row(idle, "belt") === undefined && row(rowsFor(["cryo"]), "belt")!.changed);
+  check("a second material moves the same one belt row",
+    rowsFor(["cryo", "slag"]).filter((r) => r.id === "belt").length === 1
+      && row(rowsFor(["cryo", "slag"]), "belt")!.changed);
 
   // Two notches at Mark 10 project as one bay, not as two separate promises.
   const both = rowsFor(["cost", "time"]);
@@ -4002,15 +4010,15 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
           continue;
         }
         if (materials.length >= 2) {
-          // TWO materials on offer, and one more card than the hand has picks:
-          // the choice is which material, never whether. This is the whole
-          // feature. Below the capstone that means every card is a material (two
-          // cards, one pick); at the capstone the hand carries a number axis as
-          // its third card so the SECOND pick is free — a hand of exactly two
-          // materials against two picks would force both, which is a heavier
-          // promise than this feature makes (see hazards.ts's materialHand).
-          if (inHand.length < 2) forcedEverywhere = false;
-          if (offer.length !== picksPerBay(m) + 1) forcedEverywhere = false;
+          // TWO materials, two cards, at every Mark: the choice is which
+          // material, never whether. At the capstone both picks land on
+          // materials — one of each, or one doubled — and that is a
+          // RE-decision (see materialHand): the spare number card it briefly
+          // dealt guarded against a belt flood the belt ceiling has since
+          // capped structurally, and its real price was the phone's
+          // projection scrolling behind a three-card column.
+          if (inHand.length !== 2) forcedEverywhere = false;
+          if (offer.length !== 2) forcedEverywhere = false;
           // ...and slag may fill a seat but never the last one — it is the one
           // material with no passive counter, so a hand of nothing but slag is
           // a bay that cannot be won by playing well.
@@ -4043,33 +4051,26 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("slag is never the only thing on offer", !slagEverAlone);
     check("slag is genuinely dealt on forced bays (not quietly excluded)", slagOffered);
     {
-      // At the capstone the hand has one card MORE than it has picks, and the
-      // spare is a number axis. So a forced hand forces exactly ONE material and
-      // the second pick has somewhere else to go — including away from slag, the
-      // one material with no passive counter.
-      //
-      // This used to assert the opposite (hand size == picks, every card a
-      // material, "an edge of this feature, not a defect") and the owner's
-      // Tier-10 playtest is what re-decided it: three forced bays at two
-      // materials apiece is six of a run's ten notches spent on materials before
-      // the player chooses anything, which is how a belt reaches the flood
-      // belt.ts describes. Forcing the player to MEET a material is the feature;
-      // forcing two at a stroke was picksPerBay leaking into it.
+      // The capstone's forced hand is TWO MATERIALS and nothing else — the
+      // "materials only" promise, held at the rung where it briefly grew a
+      // spare number card. That card's history is in materialHand: it guarded
+      // against a belt flood (two material notches a forced bay, three forced
+      // bays a run) that belt.ts's ceiling has since capped structurally —
+      // past one-in-three, notches recompose the belt rather than thicken it
+      // — and what it still cost was the phone's projection scrolling behind
+      // a three-card column. Both picks therefore land on materials: one of
+      // each, or one doubled, which is a real choice of composition and the
+      // reason slag can still be refused (put both picks on the other card).
       const capstoneForced = hazardOffers(4242, MATERIAL_DRAFT_BAYS[0] - 1, CAPSTONE_MARK);
       const picks = picksPerBay(CAPSTONE_MARK);
       const mats = capstoneForced.filter((h) => h.kind === "content");
       check(
-        `a capstone forced hand leaves a pick free (${capstoneForced.length} cards, ${picks} picks)`,
-        capstoneForced.length === picks + 1
-          && mats.length === picks
-          && capstoneForced.some((h) => h.kind !== "content"),
+        `a capstone forced hand is two materials, and only two cards (${picks} picks)`,
+        capstoneForced.length === 2 && mats.length === 2,
         capstoneForced.map((h) => h.id).join(","),
       );
-      // The forcing half still has to hold: with more cards than picks, a player
-      // can only dodge the material entirely if the hand has fewer materials
-      // than picks. It does not.
       check(
-        "a capstone forced hand still cannot be dodged entirely",
+        "a capstone forced hand cannot be dodged entirely",
         capstoneForced.length - mats.length < picks,
         `${mats.length} material(s) among ${capstoneForced.length} cards`,
       );
@@ -4077,18 +4078,20 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     check("ordinary bays are untouched by the forced hands", offBaysUnchanged);
     check("a forced hand still deals at least as many cards as picks", !capstoneShort);
 
-    // EVERY hand is one card bigger than the number of picks — the rule that
-    // makes a draft a draft, pinned on the ORDINARY bays too because that is
-    // where it was broken. picksPerBay is 2 at the capstone and hazardOffers
-    // sized the hand Math.max(count, picksPerBay(mark)) = 2, so seven of the ten
-    // Mark-10 bays dealt two cards and took both.
+    // EVERY hand deals TWO cards (the pool permitting), and two cards is a
+    // real draft at every quota because of togglePick's double: one pick
+    // chooses between them, two picks choose among {A twice, one of each,
+    // B twice}. The hand briefly grew to three at the capstone on the reading
+    // that two-cards-two-picks was no choice — a reading that missed the
+    // double — and the third card's real price was the phone's projection
+    // scrolling behind the card column (the owner's device pass).
     //
-    // The consequence was not just a dull draft. The ordinary draft's promise
-    // that slag is DODGEABLE — it is the one material with no passive counter,
-    // so a bay that ratchets it with an empty bomb rack is quietly unwinnable —
-    // rests entirely on there being a spare seat to dodge into. There was not:
-    // 3,924 of 200,000 hands at Marks 6-10 forced slag on a player who had every
-    // reason to refuse it.
+    // Slag's dodgeability is re-pinned WITH doubles counted, because it is the
+    // rule that actually matters: slag is the one material with no passive
+    // counter, so a bay that ratchets it onto a player with an empty bomb rack
+    // is quietly unwinnable. A hand dodges slag if its non-slag cards can
+    // absorb every pick — any non-slag card can take them all by doubling,
+    // EXCEPT a forced hand's partner, which togglePick caps at one seat.
     {
       let tooSmall: string[] = [];
       let slagForced = 0;
@@ -4097,19 +4100,25 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
           for (let b = 0; b < 10; b++) {
             const offer = hazardOffers(seed, b, m, undefined, { cost: 2, time: 2, wind: 1 });
             const picks = picksPerBay(m);
-            // Marks 1-2 deal the whole pool (two axes, one pick) — a hand cannot
-            // be bigger than the axes that exist, and hazardOffers returns the
-            // pool wholesale there. That is the one honest exception.
-            if (offer.length <= picks && hazardsForMark(m).length > picks) {
-              tooSmall.push(`m${m}b${b}:${offer.length}<=${picks}`);
+            // Marks 1-2 deal the whole pool (two axes, one pick) — a hand
+            // cannot be bigger than the axes that exist, and hazardOffers
+            // returns the pool wholesale there. That is the one honest
+            // exception to the two-card floor.
+            if (offer.length < 2 && hazardsForMark(m).length >= 2) {
+              tooSmall.push(`m${m}b${b}:${offer.length}`);
             }
-            if (offer.filter((h) => h.id !== "slag").length < picks) slagForced += 1;
+            if (offer.length < picks) tooSmall.push(`m${m}b${b}:${offer.length}<${picks}`);
+            const forcedHand = isMaterialDraft(b);
+            const dodgeCapacity = offer
+              .filter((h) => h.id !== "slag")
+              .reduce((cap, h) => cap + (forcedHand && h.kind !== "content" ? 1 : picks), 0);
+            if (dodgeCapacity < picks) slagForced += 1;
           }
         }
       }
-      check("every hand deals more cards than it takes picks",
+      check("every hand deals two cards, and never fewer than its picks",
         tooSmall.length === 0, tooSmall.slice(0, 4).join(" "));
-      check("no hand can force slag on a player who refuses it",
+      check("no hand can force slag on a player who refuses it (doubles counted)",
         slagForced === 0, `${slagForced} forced hands`);
     }
 
