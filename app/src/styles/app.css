@@ -5842,16 +5842,19 @@ button.panel { color: var(--text); }
   letter-spacing: 0.02em;
   text-transform: none;
   opacity: 0.8;
+  /* ONE line at every size, not just compact. A sub that wraps makes its
+     button taller than its siblings and reads as a paragraph in a control —
+     the desktop pass caught the Deep Run button doing exactly that once the
+     chrome zoomed. The copy is already written numbers-first (see the
+     compact note below), so the ellipsis only ever eats prose. */
+  max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 @media (max-height: 460px) {
   /* One line, always: the live-number subtitles (A3) run long, and a wrapped
      sub costs the row 21px — three of those is the whole menu overflow. The
      numbers lead in the copy, so the ellipsis only ever eats prose. */
-  .btn__sub {
-    font-size: 11px; line-height: 1.15;
-    max-width: 100%;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  .btn__sub { font-size: 11px; line-height: 1.15; }
   .btn__txt { gap: 2px; }
   .btn--menu { line-height: 1.2; }
   /* The icon shrinks with the label it sits beside; the BUTTON does not shrink

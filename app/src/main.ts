@@ -1294,7 +1294,7 @@ class App {
         ? "Any Mark, bay or Contract · own board"
         : tier === S.GOD_TIER
           ? "All ten marks at once · no mercy"
-          : `Clear ${RUN_LEVELS} bays at Tier ${tier} in one run`;
+          : `Clear ${RUN_LEVELS} bays in one run`;
   }
 
   private renderOverlay(): void {

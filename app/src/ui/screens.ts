@@ -615,7 +615,7 @@ export function menuScreen(
             ? "Any Mark, bay or Contract · own board"
             : godSel
               ? "All ten marks at once · no mercy"
-              : `Clear ${RUN_LEVELS} bays at Tier ${sel} in one run`
+              : `Clear ${RUN_LEVELS} bays in one run`
         }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt">Contracts<span class="btn__sub">${
           // Numbers lead (A3): at compact the sub is one ellipsized line, so
