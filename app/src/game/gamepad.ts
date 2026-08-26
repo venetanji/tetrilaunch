@@ -8,14 +8,18 @@ import { actionForPad, padFor, type BindableAction } from "./bindings";
  *
  * The mapping is bindings.ts's pad table (rebindable on the Controls
  * screen); aim and power live on the LEFT STICK, deliberately unbindable —
- * a stick is not a button. WHICH WAY the stick points the barrel is the
- * "Slingshot stick" setting (store.ts's stickPull): off, pushing the stick
- * TOWARD the target aims there; on, the stick is pulled BACK the way the
- * touch drag is. Either way the deflection sets the power, mapped onto the
- * same drag-length range the slingshot uses (cannon.aimFromDrag), so a full
- * deflection is a full pull. "Stick aiming assist" (a Controls toggle) smooths the raw stick
- * through a short lerp so analogue jitter doesn't wobble the arc; off, the
- * stick is raw.
+ * a stick is not a button. HOW the stick speaks is the "Slingshot stick"
+ * setting (store.ts's stickPull). OFF — the default, re-decided by the
+ * owner's pad session — the stick is a pair of rate dials: up/down trims the
+ * angle, left/right trims the power, and a centred stick HOLDS the aim, so
+ * the thumb rests between adjustments instead of staying tense to keep a
+ * deflection alive. ON, the stick deflection is the touch drag's pull-back
+ * vector (cannon.aimFromDrag) — the expressive mode that carries angle and
+ * power in one gesture, kept for the players who like it and demoted for
+ * being the tiring one. "Stick aiming assist" (a Controls toggle) smooths
+ * the slingshot's raw stick through a short lerp so analogue jitter doesn't
+ * wobble the arc; the direct mode needs no smoothing — its deadzone rescale
+ * starts every rate from zero.
  */
 
 /** Deadzone below which the stick reads as centred — covers worn sticks. */
@@ -102,22 +106,48 @@ export class GamepadPoller {
       g.setAutoHeld(pressed[padFor("auto")] ?? false);
 
       if (deflected) {
-        const target = { x: ax, y: ay };
-        if (this.hooks.assist()) {
-          this.sx += (target.x - this.sx) * ASSIST_LERP;
-          this.sy += (target.y - this.sy) * ASSIST_LERP;
+        if (!this.hooks.pull()) {
+          // DIRECT (the default) — the stick is a pair of RATE dials, not a
+          // position: push up and the barrel rises, push right and the power
+          // climbs, centre it and everything HOLDS where you left it. This
+          // replaced vector aiming as the default after the owner's pad
+          // session: holding a deflection to hold an aim keeps the thumb
+          // tense for the whole bay, where a dial is touched only to change
+          // something. The rates are the keyboard's own nudge steps scaled
+          // by deflection (cannon.nudgeAngle/nudgePower), so a pinned stick
+          // equals a held key. Per-axis deadzone with the dead span rescaled
+          // away, so motion starts from zero at the deadzone's edge instead
+          // of jumping.
+          const dz = (v: number): number => {
+            const a = Math.abs(v);
+            return a <= DEADZONE ? 0 : Math.sign(v) * ((a - DEADZONE) / (1 - DEADZONE));
+          };
+          const fx = dz(ax);
+          const fy = dz(ay);
+          if (fx !== 0 || fy !== 0) {
+            // Stick up reads negative on the axis and must RAISE the barrel.
+            if (fy !== 0) g.cannon.nudgeAngle(-fy);
+            if (fx !== 0) g.cannon.nudgePower(fx);
+            g.updateTrajectory();
+          }
         } else {
-          this.sx = target.x;
-          this.sy = target.y;
+          // SLINGSHOT (the Controls opt-in, store.ts's stickPull): the stick
+          // deflection IS the pull-back vector, exactly the touch drag spoken
+          // through a thumbstick — aimFromDrag puts the barrel opposite the
+          // pull. Kept as an option because it is the expressive mode (one
+          // gesture carries angle and power together); demoted from default
+          // because it is the tiring one.
+          const target = { x: ax, y: ay };
+          if (this.hooks.assist()) {
+            this.sx += (target.x - this.sx) * ASSIST_LERP;
+            this.sy += (target.y - this.sy) * ASSIST_LERP;
+          } else {
+            this.sx = target.x;
+            this.sy = target.y;
+          }
+          g.cannon.aimFromDrag(this.sx * STICK_DRAG, this.sy * STICK_DRAG);
+          g.updateTrajectory();
         }
-        // aimFromDrag speaks slingshot: it takes the PULL-BACK vector, so the
-        // barrel ends up opposite whatever it is handed. That makes the sign
-        // the whole setting — hand it the raw stick and the stick is a
-        // slingshot; hand it the negated stick and pushing the thumb toward
-        // the target aims there.
-        const sign = this.hooks.pull() ? 1 : -1;
-        g.cannon.aimFromDrag(sign * this.sx * STICK_DRAG, sign * this.sy * STICK_DRAG);
-        g.updateTrajectory();
       } else {
         // Centred stick re-anchors the assist so the next deflection starts
         // from rest instead of the last aim's tail.

@@ -1015,10 +1015,19 @@ export function controlsScreen(opts: {
       ${infoRow("Abilities", "rail buttons · plant chips")}
       ${toggleHTML("leftHandRail", "Left-handed rail", "Mirror the button rail to the left edge", opts.settings.leftHandRail)}`;
   } else if (opts.tab === "keyboard") {
-    pane = BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("");
+    // The mouse rides this tab — keyboard and mouse are one fine-pointer
+    // family (the strip, the coach and app.css all draw that line). Info
+    // rows state the DEFAULT scheme; the toggle's description carries the
+    // whole alternate so the pane is honest in either state without a
+    // re-render on toggle.
+    pane = `${infoRow("Mouse aim", "click where it should land")}
+      ${infoRow("Arc height", "scroll · up comes down steeper")}
+      ${infoRow("Mouse rotate", "right-click ⟳ · wheel press ⟲")}
+      ${BINDABLE_ACTIONS.map((a) => bindRow(a, keyLabel(keyFor(a)))).join("")}
+      ${toggleHTML("wheelRotates", "Wheel rotates", "Scroll turns the shipment instead; arc height moves to holding right-click mid-aim and dragging up/down", opts.settings.wheelRotates)}`;
   } else {
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
-      ${infoRow("Aim & power", "left stick · deflection sets power")}
+      ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power")}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
       ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
       ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;

@@ -520,7 +520,12 @@ class App {
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
 
-    this.input = new InputController(this.canvas, () => this.game, this.onMisfire);
+    this.input = new InputController(
+      this.canvas, () => this.game, this.onMisfire,
+      // Read live, like the gamepad hooks: the Controls toggle re-jobs the
+      // wheel without a restart.
+      () => this.settings.wheelRotates,
+    );
 
     this.overlay.addEventListener("click", this.onClick);
     this.overlay.addEventListener("pointerdown", this.onGamePointerDown);
