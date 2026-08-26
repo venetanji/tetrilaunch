@@ -1703,6 +1703,11 @@ class App {
    *  render (the data-bind restore above, a browser-preserved input). */
   private syncPadFocus(): void {
     if (this.profile !== "gamepad" || this.state === "playing") return;
+    // Nothing to land on yet while a run-end scrim is held back for the dial
+    // collapse: padNavRoot falls back to the whole overlay when no scrim is
+    // up, so focusing now would put the ring on the dead bay's rail. The
+    // hold's own timer calls this again the moment the modal is in.
+    if (this.endScrimTimer !== null) return;
     const root = this.padNavRoot();
     const el = document.activeElement as HTMLElement | null;
     if (el && root.contains(el)) return;
@@ -2631,9 +2636,26 @@ class App {
     // owns the mount and its markup describes the same dead bay, so let it.
     if (this.endScrimTimer !== null) return;
     this.endScrimTimer = window.setTimeout(() => {
+      // Cleared FIRST: everything below reads this as "is the hold still on",
+      // and the two pad guards and syncPadFocus in particular would otherwise
+      // refuse to touch the screen they are being called to finish.
       this.endScrimTimer = null;
       this.overlay.insertAdjacentHTML("beforeend", html);
       this.overlay.style.pointerEvents = "auto";
+      // THE BOARD, REPAINTED. `html` was built one hold ago, out of whatever
+      // this.boards held at the time — and finishRun kicks off refreshBoard()
+      // immediately before the transition that lands here, so on any network
+      // slower than localhost the fetch resolves DURING the hold. It writes
+      // the cache and then repaints through renderBoardRows, which finds no
+      // #lb-body (this modal is still a string) and returns; nothing would
+      // repaint afterwards, so the run-end screen would show the board as it
+      // was before the run that just ended. Repainting here rather than
+      // re-fetching, and through renderBoardRows rather than a re-render, for
+      // the reason that method exists: it patches #lb-body in place, so the
+      // modal cannot pop its entrance animation a second time. Idempotent
+      // when nothing landed — same cache, same rows — so it needs no guard.
+      // The tutorial's failure card has no #lb-body at all and no-ops.
+      this.renderBoardRows(loadName() || undefined);
       // The tail of renderOverlay, for the half of the screen that arrives
       // late: a pad player needs focus to land on the modal's primary action,
       // and the fullscreen control inside a pause-style scrim needs its label.
@@ -3773,6 +3795,26 @@ class App {
     if (performance.now() - this.padWokeAt < PAD_WAKE_MS && this.state !== "playing") {
       return true;
     }
+    // THE DIAL-COLLAPSE HOLD IS DEAD AIR for a pad, deliberately. The bay is
+    // over and the buttons that should answer a press are still a string
+    // (mountEndScrim) — while padNavRoot, finding no `.modal-scrim`, falls
+    // back to the whole overlay, which right now is the dead bay's HUD. That
+    // is precisely the covered-control hazard padNavRoot's own note describes,
+    // arriving from the other side: not a live scrim with the rail hidden
+    // beneath it, but a rail with its scrim not yet arrived. Without this an A
+    // press in the hold toggles fullscreen (pointer-events: none stops
+    // fingers, not synthesised clicks), and a D-pad nudge walks the ring onto
+    // a bay that no longer exists.
+    //
+    // CONSUMED rather than passed through: the states that can hold are all
+    // out-of-play, so there is no gameplay meaning to fall back to, and
+    // swallowing the press keeps this beat inert rather than half-live. Nor is
+    // it queued for replay when the modal lands — a press aimed at a screen
+    // that was not on yet would arrive as a press on the run-end modal's
+    // primary action, which is how a loss screen dismisses itself before the
+    // player has read a word of it. The same argument the pad-wake window
+    // above makes about the press that woke the pad.
+    if (this.endScrimTimer !== null) return true;
     if (this.state === "playing") {
       // The coach's card is the one UI control alive during play, and every
       // face button is spoken for except B — so B is the card's button
