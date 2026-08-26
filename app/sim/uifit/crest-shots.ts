@@ -1,8 +1,9 @@
 /**
  * Eyeball rig for the crest. Boots the UI-fit harness (real app.css, real
- * hudHTML, real layout vars) and shoots the plant panel at a few values of the
- * two things the music drives — --crest-heat and the --h0..--h6 rotation — so
- * the audio colour path can be checked without a soundtrack or a gesture.
+ * hudHTML, real layout vars) and shoots the plant panel across everything that
+ * moves its colour — --crest-heat (the music's slow half), the --h0..--h6
+ * rotation (one step per launch), and the loaded material's re-anchored ramp —
+ * so the whole colour path can be checked without a soundtrack or a gesture.
  *
  *   npx tsx sim/uifit/crest-shots.ts [outDir]
  *
@@ -13,6 +14,8 @@ import { createServer } from "vite";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MATERIAL_ROLL_ORDER } from "../../src/game/belt";
+import { shipmentAura } from "../../src/game/theme";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = process.argv[2] ?? resolve(HERE, "..", "results", "crest");
@@ -25,6 +28,12 @@ const STATES: Array<[string, string]> = [
   ["danger", "plant--congest-danger"],
   ["maw", "plant--maw"],
 ];
+/** The six specials, straight off the belt's own roll order so a seventh
+ *  material is shot here the day it is added. Each gets two pictures — calm,
+ *  and under tier-2 congestion — because that pair is the hierarchy the CSS
+ *  has to get right: the metal goes to the tier, the embers stay with the
+ *  cargo. */
+const MATERIALS = MATERIAL_ROLL_ORDER;
 
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
@@ -66,19 +75,21 @@ async function main(): Promise<void> {
   // two otherwise identical shots differ.
   await page.addStyleTag({ content: `.plant__crest, .plant__crest::before, .plant__crest::after { animation: none !important; }` });
 
-  const drive = async (heat: number, step: number, stateClass: string) => {
+  const drive = async (heat: number, step: number, stateClass: string, mat: string | null = null) => {
     await page.evaluate(
-      ({ heat, step, stateClass }) => {
+      ({ heat, step, stateClass, mat }) => {
         const plant = document.querySelector<HTMLElement>(".plant");
         if (!plant) throw new Error("no .plant");
-        plant.className = ["plant", stateClass].filter(Boolean).join(" ");
+        plant.className = ["plant", stateClass, mat ? "plant--mat" : ""].filter(Boolean).join(" ");
+        if (mat) plant.style.setProperty("--crest-mat", mat);
+        else plant.style.removeProperty("--crest-mat");
         plant.style.setProperty("--crest-heat", String(heat));
         plant.style.setProperty("--crest-beat", "0");
         for (let i = 0; i < 7; i++) {
           plant.style.setProperty(`--h${i}`, `var(--ramp-${(i + step) % 7})`);
         }
       },
-      { heat, step, stateClass },
+      { heat, step, stateClass, mat },
     );
   };
 
@@ -91,6 +102,39 @@ async function main(): Promise<void> {
       await drive(0.85, step, cls);
       await page.screenshot({ path: resolve(OUT, `${name}-step-${step}.png`), clip });
     }
+  }
+
+  // The loaded material's ring, calm and congested. shipmentAura rather than
+  // the raw spec colour, exactly as syncHud writes it — the whole point of
+  // these two shots is that slag and tar are still visible on a dark border.
+  for (const mat of MATERIALS) {
+    const anchor = shipmentAura("I", mat);
+    await drive(0.85, 0, "", anchor);
+    await page.screenshot({ path: resolve(OUT, `mat-${mat}.png`), clip });
+    await drive(0.85, 0, "plant--congest-danger", anchor);
+    await page.screenshot({ path: resolve(OUT, `mat-${mat}-danger.png`), clip });
+  }
+
+  // The same thing for the loaded material's run: the four re-anchored rungs
+  // and the embers they throw, resolved rather than eyeballed. The embers are
+  // the half the shots above CANNOT show — .plant__crest::after rests at
+  // opacity 0 and the rig freezes its animation to keep shots reproducible —
+  // so this is the only place a wrong ember colour is visible at all.
+  for (const mat of MATERIALS) {
+    const rungs = await page.evaluate((anchor) => {
+      const plant = document.querySelector<HTMLElement>(".plant")!;
+      plant.className = "plant plant--mat";
+      plant.style.setProperty("--crest-mat", anchor);
+      const cs = getComputedStyle(plant);
+      const brow = document.querySelector<HTMLElement>(".plant__crest--brow")!;
+      const bs = getComputedStyle(brow, "::after");
+      return {
+        cells: [3, 4, 5, 6].map((i) => cs.getPropertyValue(`--cell-${i}`).trim()),
+        embers: ["hot", "a", "b", "c"].map((k) => bs.getPropertyValue(`--ember-${k}`).trim()),
+      };
+    }, shipmentAura("I", mat));
+    console.log(`${mat.padEnd(9)} ${shipmentAura("I", mat)}  cells ${rungs.cells.join(" ")}`);
+    console.log(`${"".padEnd(9)} ${"".padEnd(7)}  embers ${rungs.embers.join(" ")}`);
   }
 
   // What the ramp actually resolves to, so a wrong colour can be read as a

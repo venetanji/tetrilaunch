@@ -2173,36 +2173,44 @@ body.crt-off #app::after { display: none; }
    teeth did before. The physics mouth itself never moved: the chute's lip
    bar and warning heat are still drawn in the world (drawChute), because
    the hazard has to exist on screens with no HUD at all (the attract demo). */
-/* ---------- The heat ramp, and what the music does to it -------------------
+/* ---------- The heat ramp, and what is allowed to move it ------------------
    Every cube in every run below paints from one of seven rungs, --h0..--h6,
    and this is where those rungs come from. Three layers, all declared on
    .plant so syncHud has ONE element to write and the whole ring inherits:
 
      --cell-0..--cell-6   the palette itself, cold steel up to white-hot. The
-                          congestion states swap this out (below) and nothing
-                          else about the ramp has to change.
+                          congestion states swap this out (below), and so does
+                          the loaded material (.plant--mat), and nothing else
+                          about the ramp has to change.
      --ramp-0..--ramp-6   that palette after the music has had it — each rung
                           mixed toward --crest-cold by --crest-heat.
      --h0..--h6           which rung each cube actually paints with. syncHud
                           rotates this mapping, so the bands march the run.
 
-   TWO SIGNALS, not one. lib/audio.ts's musicLevel is tapped once per drawn
-   frame by main.ts's syncHud and split by timescale, because loudness and
-   rhythm are different things and want different jobs:
+   WHAT DRIVES WHAT, and the division is deliberate: the music is allowed to
+   drive how the ring LOOKS, and only the player is allowed to drive when it
+   CHANGES.
 
-     --crest-heat   the SLOW half — the normalised envelope through a ~1s
-                    follower, 0..1. It reads as how hard the machine is
-                    running, so it drives the PALETTE: a quiet passage cools
+     --crest-heat   MUSIC. The normalised envelope through a ~1s follower,
+                    0..1. It reads as how hard the machine is running, so it
+                    drives the PALETTE's temperature: a quiet passage cools
                     the ring toward dead metal, a loud one brings it up to
-                    full molten colour.
-     --h0..--h6     the FAST half — a phase accumulated at a rate set by the
-                    live level, stepping the rotation one rung at a time. It
-                    reads as the beat, so it drives the bands' TRAVEL: the
-                    louder the track, the faster colour walks the run.
-
-   (--crest-beat, the third, is the existing per-frame transient. It keeps
-   the two jobs it already had — brightness, and --crest-h's depth — so the
-   snap of a hit composes with the colour rather than competing with it.)
+                    full molten colour. Continuous — it eases, it never jumps.
+     --crest-beat   MUSIC. The per-frame transient, on brightness and
+                    --crest-h's depth, so the snap of a hit composes with the
+                    colour rather than competing with it. Also continuous.
+     --h0..--h6     THE PLAYER. The rotation steps one rung per shot fired
+                    (main.ts's syncHud reads shotsFired) and holds still in
+                    between. This is the only DISCRETE thing on the ring, and
+                    a discrete change has to be answerable: it used to be a
+                    phase accumulated off the live music level, which meant
+                    the bands jumped whenever the track happened to get loud
+                    — next to a live bay that reads as flicker, not as
+                    machinery.
+     --crest-mat    THE PLAYER, again. The loaded shipment's colour when it is
+                    not standard, re-anchoring the top of the run (see
+                    .plant--mat). Only a launch reloads the cannon, so this
+                    too can only change on a trigger pull.
 
    The 0.45 default is a resting state, not a placeholder. With no audio
    graph yet, with music switched off, or under prefers-reduced-motion —
@@ -2233,6 +2241,14 @@ body.crt-off #app::after { display: none; }
   --cell-4: #3d3d63;      /* --line-strong  */
   --cell-5: #42627f;      /* steel          */
   --cell-6: #5f93a6;      /* toward --accent */
+  /* THE LOADED SHIPMENT'S COLOUR, for .plant--mat's re-anchored run further
+     down (syncHud overwrites it inline whenever a material is at the muzzle).
+     Declared here, at the top rung's own hex, purely as a floor: a custom
+     property accepts any token stream, so a color-mix() reading an UNSET
+     --crest-mat would be accepted and then fail at substitution — taking
+     --ramp-*, --h* and every strip's background-image down with it. With a
+     default present that failure mode does not exist. */
+  --crest-mat: #5f93a6;
   /* Unmixed fallback — the palette at full heat. Overridden immediately
      below anywhere color-mix() exists. */
   --ramp-0: var(--cell-0); --ramp-1: var(--cell-1); --ramp-2: var(--cell-2);
@@ -2637,6 +2653,89 @@ body.crt-off #app::after { display: none; }
    .plant, so their left/top resolve against the cap's box, not the panel's. */
 .pl-pwr .plant__crest--rivet-3 { left: calc(-1 * var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.6s; }
 .pl-pwr .plant__crest--rivet-4 { left: calc(100% + var(--bw)); top: calc(-1 * var(--bw)); animation-delay: -0.8s; }
+
+/* ---------- WHAT THE MACHINE IS ABOUT TO BE FED ---------------------------
+   The intake wears the colour of the shipment loaded at the muzzle, whenever
+   that shipment is not standard. main.ts's syncHud writes the one anchor
+   (--crest-mat, theme.ts's shipmentAura of the loaded material) and adds this
+   class; everything below is the ramp built from it.
+
+   ONE COLOUR, ONE MOMENT. The anchor is the same colour the belt tile's
+   telegraph glow and the transport's own wash already use for that shipment,
+   so the ring is not a fourth opinion about what is loaded — it is the
+   biggest surface saying what the small ones say. And it can only change when
+   the cannon reloads, which only a launch does: the ring recolours on the
+   player's own trigger pull and holds absolutely still between pulls. That
+   is the whole design. A border that changes on its own schedule sits beside
+   a live bay competing for the same eye, and loses the player nothing but
+   attention.
+
+   NOT THE WHOLE RUN. The bottom three rungs stay base steel and only --cell-3
+   up takes the material, for the reason the base ramp stops short of full
+   --accent: the crest is an edge treatment, and a border flooded end to end
+   in hazard yellow-green outshouts the buttons it is supposed to frame. The
+   material owns the HOT end of the fire, which is the end that moves — the
+   bands the rotation walks and the heat mixes are exactly the top rungs.
+
+   SO THAT SLAG AND TAR STILL SHOW. shipmentAura, not shipmentColor: slag's
+   dead grey-brown and tar's near-black are chosen to read as inert cargo on
+   the bay floor, and painted straight onto an already-dark ring they would
+   read as nothing at all. The aura keeps their hue and lifts their value
+   until the brightest channel clears the floor, so tar's crest is a visible
+   violet and slag's a pale mauve — still theirs, still nobody else's.
+
+   DECLARED BEFORE THE CONGESTION TIERS, at the same specificity, so order is
+   what settles the argument: a strained machine outranks its cargo, and a
+   live strand warning outranks both. The EMBERS below deliberately do not
+   follow that rule — see the note on them. */
+.plant--mat {
+  /* Fallback where color-mix is missing, same gate the base ramp uses: the
+     top two rungs take the material outright and the rest stay steel. Blunter
+     than the mixed run below, and it still says the one thing that matters. */
+  --cell-5: var(--crest-mat);
+  --cell-6: var(--crest-mat);
+}
+@supports (color: color-mix(in oklab, #000, #fff 50%)) {
+  .plant--mat {
+    /* The base ramp's own rungs walked toward the anchor, so the run keeps
+       its shape — cold steel at the bottom, the material at the top — instead
+       of flattening into one bar of cargo colour. The hexes are --line,
+       --line-strong and the steel step, verbatim from .plant above. */
+    --crest-cold: color-mix(in oklab, #0d0d16, var(--crest-mat) 16%);
+    --cell-3: color-mix(in oklab, #2e2e4a, var(--crest-mat) 30%);
+    --cell-4: color-mix(in oklab, #3d3d63, var(--crest-mat) 55%);
+    --cell-5: color-mix(in oklab, #42627f, var(--crest-mat) 80%);
+    --cell-6: var(--crest-mat);
+  }
+}
+/* THE EMBERS TAKE THE CARGO TOO, and unlike the ramp they keep it through
+   congestion. Two channels, two questions: the metal answers "how hard is
+   this machine working" (congestion owns it, and has to — it is the same red
+   the floor rows and the Launch price are wearing at that moment), and the
+   sparks answer "on what". Letting the tiers swallow both would delete the
+   material tell exactly on the bays where knowing what is loaded matters
+   most.
+
+   On .plant__crest::after rather than on .plant, because that is where the
+   four --ember-* are declared and a declaration on the element itself beats
+   anything it would otherwise inherit. */
+.plant--mat .plant__crest::after {
+  --ember-hot: var(--crest-mat);
+  --ember-a: var(--crest-mat);
+  --ember-b: var(--crest-mat);
+  --ember-c: var(--crest-mat);
+}
+@supports (color: color-mix(in oklab, #000, #fff 50%)) {
+  .plant--mat .plant__crest::after {
+    /* One hue, four values — a hot core, the colour itself, and a step either
+       side of it — so a scatter of eight still reads as embers off one
+       material rather than as eight dots of the same flat colour. */
+    --ember-hot: color-mix(in oklab, #fff, var(--crest-mat) 30%);
+    --ember-a: var(--crest-mat);
+    --ember-b: color-mix(in oklab, #1a1420, var(--crest-mat) 62%);
+    --ember-c: color-mix(in oklab, #fff, var(--crest-mat) 72%);
+  }
+}
 
 /* CONGESTION — the machine under strain. Tier 1 heats the metal amber and
    starts a slow rattle with sparks crawling the teeth; tier 2 goes the same

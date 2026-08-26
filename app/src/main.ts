@@ -76,7 +76,7 @@ import {
 } from "./game/sandbox";
 import { sandboxScreen } from "./ui/sandbox-screen";
 import { render } from "./game/render";
-import { shipmentColor } from "./game/theme";
+import { shipmentAura, shipmentColor, type Material } from "./game/theme";
 import { AttractDemo } from "./game/attract";
 import * as telemetry from "./lib/telemetry";
 import {
@@ -357,15 +357,19 @@ class App {
   /** The crest's COLOUR drive (see syncHud) — the slow half of the same tap
    *  the beat comes off. crestHeat is how hot app.css's ramp is mixed (0..1,
    *  a ~1s follower, so it tracks how loud the passage is rather than the
-   *  hits inside it); crestFlow is a phase whose whole steps rotate
-   *  --h0..--h6 through that ramp, which is what makes the colour bands walk
-   *  the run. Both keep a "last written" so a steady passage costs nothing,
-   *  and crestHeat starts at the same 0.45 app.css rests at so the first
+   *  hits inside it). Keeps a "last written" so a steady passage costs
+   *  nothing, and starts at the same 0.45 app.css rests at so the first
    *  frames of a bay do not lurch up from dead cold. */
   private crestHeat = CREST_HEAT_REST;
   private crestHeatShown = -1;
-  private crestFlow = 0;
+  /** Which rung --h0..--h6 currently starts on — the rotation that walks the
+   *  heat bands along the run. Driven by shotsFired now, not by the music, so
+   *  it is the LAUNCH that moves it: see syncHud's "THE MARCH". */
   private crestStepShown = -1;
+  /** The material the crest is currently painted in (see syncHud's "WHAT IS
+   *  LOADED"). null means "nothing written yet" — the remount sentinel, since
+   *  "standard" is itself a value the ring can be sitting on. */
+  private crestMatShown: Material | null = null;
   /** Cached once: the beat is decoration in motion, so it is never driven
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
@@ -1348,6 +1352,7 @@ class App {
     this.crestBeatShown = -1;
     this.crestHeatShown = -1;
     this.crestStepShown = -1;
+    this.crestMatShown = null;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
@@ -3099,12 +3104,47 @@ class App {
       plant.classList.toggle("plant--congest-warn", crestTier === 0);
       plant.classList.toggle("plant--congest-danger", crestTier >= 1);
       plant.classList.toggle("plant--maw", g.strandWarning);
+      // WHAT IS LOADED — the ring takes the colour of the shipment sitting at
+      // the muzzle whenever that shipment is not standard (app.css's
+      // .plant--mat re-anchors the top of the heat ramp and every ember onto
+      // --crest-mat). The intake is painted in what the machine is about to
+      // be fed.
+      //
+      // WHY HERE AND NOT ON A TIMER. This is the same read the belt tile and
+      // the transport's own wash already make (see #hud-belt below, and
+      // theme.ts's shipmentAura for why the glow is the cube's colour LIFTED
+      // rather than the cube's colour): one loaded shipment, one colour, and
+      // it changes on exactly the frame the cannon reloads. A launch is the
+      // only thing that reloads the cannon, so the ring can only ever change
+      // colour on a launch — which is the whole point. It used to drift on
+      // the soundtrack, and a border that recolours itself at moments the
+      // player did not cause reads as noise however pretty it is.
+      //
+      // A BOMB IS NOT A MATERIAL. While one is armed the next trigger pull
+      // fires the bomb and the loaded shipment stays in the breech, so the
+      // ring drops back to base steel rather than advertising cargo that is
+      // not going anywhere — same call #hud-loaded makes when it swaps the
+      // held tile for the bomb tile.
+      //
+      // NOT gated on prefers-reduced-motion, unlike the audio signals below. This is colour, not movement, and it is the same doctrine the
+      // belt's own material telegraph follows (app.css's mat-aura): a player
+      // who asked for less motion has not asked to be told less.
+      const loaded: Material = g.bombArmed ? "standard" : g.cannon.currentMaterial;
+      if (loaded !== this.crestMatShown) {
+        this.crestMatShown = loaded;
+        plant.classList.toggle("plant--mat", loaded !== "standard");
+        if (loaded === "standard") plant.style.removeProperty("--crest-mat");
+        else plant.style.setProperty("--crest-mat", shipmentAura(g.cannon.currentType, loaded));
+      }
       // THE BEAT — the crest breathes with the soundtrack (app.css's
-      // --crest-beat brightness and cube depth). One tap, three signals, split
+      // --crest-beat brightness and cube depth). One tap, two signals, split
       // by timescale below: the beat is the transient, --crest-heat is the
-      // passage's loudness driving the palette, and the --h0..--h6 rotation is
-      // the rate the colour walks the run. musicLevel is the raw RMS off the
-      // audio graph's tap; everything that makes it read as a PULSE happens here:
+      // passage's loudness driving the palette. There used to be a third off
+      // the same tap — the --h0..--h6 rotation — and it is a launch's job
+      // now; see THE MARCH further down.
+      //
+      // musicLevel is the raw RMS off the audio graph's tap; everything that
+      // makes it read as a PULSE happens here:
       // normalised against its own decaying peak (so every bed uses the full
       // range regardless of mastering), scaled up as the bay congests (the
       // machine beats harder, on top of the tier recolour), and shaped by a
@@ -3115,8 +3155,8 @@ class App {
       if (!this.motionMQ?.matches) {
         const raw = musicLevel();
         // A dead tap and a silent one both read 0 (see audio.ts's musicTapLive).
-        // The beat and the march want 0 from either — no music means no pulse
-        // and a still border. The HEAT does not: see below.
+        // The BEAT wants 0 from either — no music means no pulse. The HEAT
+        // does not: see below.
         const tapLive = musicTapLive();
         this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
         const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
@@ -3150,23 +3190,35 @@ class App {
           this.crestHeatShown = h;
           plant.style.setProperty("--crest-heat", String(h));
         }
-        // THE MARCH — a phase advanced at a rate set by the live level, so
-        // the heat bands crawl along the run faster the louder the track gets
-        // and stand still in silence. A phase accumulator rather than onset
-        // detection on purpose: nothing to threshold per bed, nothing to get
-        // stuck on, and a bed with no transients in it still moves.
+        // THE MARCH — the heat bands step one cell along the run on every shot
+        // fired, and stand perfectly still between them.
         //
-        // A CRAWL, not a march. 0.014 puts a loud passage at roughly one cell
-        // a second and a quiet one at a cell every several — slow enough that
-        // the border reads as alive rather than as something asking to be
-        // looked at, which is the job it has next to a live bay.
+        // This was a phase accumulated at a rate set by the live music level,
+        // and the rate was the problem rather than the crawl: the bands moved
+        // whenever the track happened to get loud, so the border changed at
+        // moments with no relationship to anything the player had done. Next
+        // to a live bay that reads as flicker rather than as machinery, and a
+        // border is the last thing on screen that should be asking to be
+        // looked at. Keying it to shotsFired makes every change in the ring
+        // answerable — the machine advanced because you fed it — and it costs
+        // nothing to reason about: no follower, no threshold, no seed. The
+        // modulo is the only state, so the ring's colour is a pure function
+        // of how many times the player has fired this bay and survives a
+        // remount, a pause and a resume with no phase carried across any of
+        // them.
         //
         // What rotates is the MAPPING, not the palette — --h<i> is pointed at
         // a different rung of the ramp, and the rungs themselves stay where
-        // app.css put them. That is what lets the congestion tiers swap the
-        // whole palette underneath without this code knowing they exist.
-        this.crestFlow = (this.crestFlow + target * 0.014) % 7;
-        const step = Math.floor(this.crestFlow);
+        // app.css put them. That is what lets the congestion tiers and the
+        // loaded material swap the whole palette underneath without this code
+        // knowing they exist.
+        //
+        // Still inside the reduced-motion guard with the two audio signals,
+        // where it always was: a step per launch is slight, but it is the run
+        // of cubes visibly moving, and the ring holds the identity mapping
+        // there instead. The material tell above is NOT — that one is colour
+        // rather than movement, and it is information.
+        const step = g.shotsFired % 7;
         if (step !== this.crestStepShown) {
           this.crestStepShown = step;
           for (let i = 0; i < 7; i++) {
