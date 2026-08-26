@@ -140,6 +140,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
+import { runNotchTallyHTML } from "../src/ui/components";
 import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -3375,6 +3376,39 @@ section("Contract plant panel (screens.ts hudHTML)");
       return !run.includes('id="hud-conditions"') && !run.includes('class="pl-tier"')
         && run.includes('id="hud-notches"');
     })());
+}
+
+// ---------------------------------------------------------------------------
+section("The notch line's marks are big enough to read (components.ts)");
+// The tally shipped its marks at 9px — the box the two-letter TEXT code they
+// replaced had used — and on a phone that is four and a half device-independent
+// pixels of stroked line work per axis. The owner's report was that the row
+// read as coloured specks, and the fix was to double the box.
+//
+// Pinned as a NUMBER rather than against an exported constant, on purpose: a
+// test that reads NOTCH_MARK_PX would agree with any value that constant ever
+// takes, including 9 again. What is being defended is the floor itself — 18px,
+// twice what it was — and the cost of it (a 9px-taller row) is what app.css's
+// "one rhythm" note under `.pl-notch b` had to find room for, so a silent
+// shrink back would leave that whole argument dangling.
+{
+  // Both kinds of mark in one line: a NUMBER axis draws an icons.ts glyph
+  // (cost -> levy), a CONTENT axis draws the material's own belt icon
+  // (cryo -> a mat-icon on a 24-unit grid), and the Final Inspection's clause
+  // adds the ship system it examines. Three different drawing paths, one size.
+  const tally = runNotchTallyHTML({ cost: 2, wind: 1, cryo: 1 } as Ratchets, "rush-order");
+  const boxes = [...tally.matchAll(/width="(\d+)" height="(\d+)"/g)]
+    .map((m) => [Number(m[1]), Number(m[2])] as const);
+  check("every axis and the clause draw a mark", boxes.length === 4, `${boxes.length} marks`);
+  check("no mark is under the 18px floor — twice the 9px the owner could not read",
+    boxes.every(([w, h]) => w >= 18 && h >= 18), JSON.stringify(boxes));
+  check("the marks are square, so the 16- and 24-unit grids agree on one box",
+    boxes.every(([w, h]) => w === h));
+  // The material glyph is the one that arrives through a different helper
+  // (materialIconHTML, its own viewBox, its own colours) and so the one a
+  // size change is most likely to miss.
+  check("the material axis's belt icon takes the same box as the stroked ones",
+    tally.includes('class="mat-icon" width="18" height="18"'));
 }
 
 // ---------------------------------------------------------------------------

@@ -287,6 +287,42 @@ const AXIS_GLYPHS: Record<HazardId, string> = {
 };
 
 /**
+ * The mark's box on the notch line, in CSS px.
+ *
+ * 18, and it was 9. A 9px box is what the line inherited from the two-letter
+ * TEXT code it replaced — the icons were sized to be NARROWER than the code
+ * (that is the width argument runNotchTallyHTML's header below makes), and
+ * narrower is the one thing a glyph must not optimise for once it is the only
+ * thing carrying the meaning. A code can be read at 9px because it is two
+ * capitals of a pixel face designed for that size; a 16x16 stroked drawing at
+ * 9px is four and a half device-independent pixels of line work, and on the
+ * owner's phone the eight-axis line read as a row of coloured specks. Doubling
+ * is the ask and doubling is what this is: every axis mark and the Final
+ * Inspection's clause glyph render at 2x their previous box.
+ *
+ * Fixed px rather than an em off the row's own type, deliberately. The row's
+ * font-size is `max(6px, 10.7 * --fpx)` and it BOTTOMS OUT at 6px on exactly
+ * the devices this fix is for (iPhone 13 mini: --fpx 0.376, so the calc asks
+ * for 4px and the floor answers) — an em-sized mark would therefore shrink
+ * fastest precisely where it is already illegible. The floor is the point.
+ *
+ * NOT a size shared with the draft (screens.ts asks axisIconHTML for 15px on a
+ * card and 11px in a quota slot, both their own literals against their own
+ * boxes — there is no one token to move, which is why doubling here could not
+ * silently shrink or grow either of them). It does make the HUD's mark the
+ * biggest in the app, and that is the right way round for once: a card is read
+ * still, once, at arm's length while the game is paused, and this line is read
+ * mid-bay out of the corner of an eye that is watching a falling shipment. The
+ * vocabulary is what has to match between the two surfaces — the same glyph
+ * for the same axis, which is the rule axisIconHTML exists to keep — not the
+ * point size.
+ *
+ * The height this costs is paid out of the panel's own air; app.css's "one
+ * rhythm" note under `.pl-notch b` has the per-device arithmetic.
+ */
+const NOTCH_MARK_PX = 18;
+
+/**
  * The run's ratchets as ONE DENSE LINE for the plant panel — "WD×2 · SW · CR",
  * axes in ladder order (HAZARDS), a ×N on any axis taken more than once.
  *
@@ -300,8 +336,10 @@ const AXIS_GLYPHS: Record<HazardId, string> = {
  * A tally is the same information at a fraction of the width: the chip's
  * 30x25px box carried a 2-letter glyph, a 6-letter name and a badge, and the
  * glyph plus the count is the part that answers "what is this bay doing to
- * me". Five or six axes fit the line on the tightest phone, which covers a
- * real run; a ten-axis Mark 10 scrolls its own tail, which is the same
+ * me". Seven axes fit the line on the tightest phone at the mark's current
+ * size (measured: 180px of tally in the 161px value box of an iPhone 13
+ * mini's eight-axis worst case, so the eighth is the first to go), which
+ * covers a real run; a deeper one scrolls its own tail, which is the same
  * give-way the pattern manifest beside it uses.
  *
  * The kind colouring survives the shrink, because it is the fastest thing in
@@ -315,15 +353,18 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
     const n = ratchets[h.id] ?? 0;
     // The axis's real mark, not its two-letter code — the same glyph the
     // draft's cards deal it by (axisIconHTML), so the bill on the HUD is
-    // written in the vocabulary the player signed it in. Narrower than the
-    // code it replaced (a 9px icon against ~13px of two pixel-font capitals),
-    // so the width story in the header only improves. The kind colour still
-    // rides the k- class: number-axis icons stroke currentColor, and the
-    // material icons keep their own belt colours, which outrank a tint here
-    // for the same one-vocabulary reason everywhere else.
+    // written in the vocabulary the player signed it in. At NOTCH_MARK_PX it
+    // is now WIDER than the code it replaced (18px against ~13px of two
+    // pixel-font capitals) rather than narrower; see that constant for why
+    // that trade is the right way round. The kind colour still rides the k-
+    // class: number-axis icons stroke currentColor, and the material icons
+    // keep their own belt colours, which outrank a tint here for the same
+    // one-vocabulary reason everywhere else.
     const kind = h.kind === "content" ? "bane" : "tradeoff";
     const stack = n > 1 ? `<span class="pl-notch__n">×${n}</span>` : "";
-    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${axisIconHTML(h, 9)}${stack}</span>`;
+    return `<span class="pl-notch__ax k-${kind}" title="${h.name} ×${n}">${
+      axisIconHTML(h, NOTCH_MARK_PX)
+    }${stack}</span>`;
   });
   // The Final Inspection's clause (game/finals.ts) rides the same line, in its
   // own colour, on the one bay it applies to. It belongs here rather than on a
@@ -337,7 +378,7 @@ export function runNotchTallyHTML(ratchets: Ratchets, final: FinalId | null = nu
   if (def) {
     parts.push(
       `<span class="pl-notch__ax k-final" title="Final Inspection — ${def.name}: ${def.desc}">${
-        icon(def.system as IconName, 9)
+        icon(def.system as IconName, NOTCH_MARK_PX)
       }</span>`,
     );
   }

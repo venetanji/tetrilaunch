@@ -3452,14 +3452,18 @@ body.crt-off #app::after { display: none; }
    instant the cannon can fire again (the only state change that matters here).
    The canvas draws the same value as a ring at the muzzle, see
    render.ts's drawReloadRing. */
-.pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); margin-top: max(4px, calc(8 * var(--fpx))); }
+/* NO margin-top (it was `max(4px, calc(8 * var(--fpx)))`) — see the "one
+   rhythm" note under .pl-notch b for why the three per-row nudges in this
+   panel are gone and what their 11px bought. */
+.pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); }
 .pl-load .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); flex: none; }
 .pl-load__track { flex: 1; height: max(4px, calc(7 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
 .pl-load__track i { display: block; height: 100%; width: 0%; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); transition: width 60ms linear; }
 .pl-load.ready .lbl { color: var(--accent); }
 .pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
 
-.pl-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+/* margin-top: 4px gone with .pl-load's — same note, same reason. */
+.pl-meta { display: flex; flex-wrap: wrap; gap: max(3px, calc(8 * var(--fpx))); font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx))); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .pl-meta b { color: var(--piece-o); font-weight: 700; }
 .pl-meta__sep { color: var(--text-faint); }
 /* The Launch price under congestion (level.ts's PILE_TIERS). The plant already
@@ -3491,7 +3495,8 @@ body.crt-off #app::after { display: none; }
    drift apart. What is left on each class below is only what makes it that
    particular row — the manifest tally, the notch tally, or the tier line. */
 .pl-queue, .pl-notch, .pl-tier {
-  margin-top: 2px;
+  /* margin-top: 2px gone with .pl-load's and .pl-meta's — see the "one
+     rhythm" note under .pl-notch b. */
   display: flex; align-items: baseline; gap: max(4px, calc(8 * var(--fpx)));
   font-family: var(--font-pixel); font-size: max(6px, calc(10.7 * var(--fpx)));
   letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
@@ -3522,7 +3527,67 @@ body.crt-off #app::after { display: none; }
 
    The line costs ~9px against the 18.6px of free height the panel had inside
    its design box on the tightest device in the matrix, so it is paid for out
-   of air the panel was already spreading between its rows, not out of the box. */
+   of air the panel was already spreading between its rows, not out of the box.
+
+   ---------- ONE RHYTHM, and where the mark's second 9px came from ----------
+   The mark is 18px now, not 9 (components.ts's NOTCH_MARK_PX — the owner could
+   not read the old one), so the row is 18px tall and costs the panel a SECOND
+   ~9px. Measured with the eight-axis worst case (uifit's `hud-notched`) at the
+   moment the mark doubled, seventeen of the nineteen devices had that 9px
+   sitting in the air `justify-content: space-between` was already spreading
+   between the rows. Two did not: the iPhone 13 mini came up 1.6px short and
+   the 800x600 web window 7.6px, and a panel that grows is a `plant` violation,
+   not a rounding error — the design box is 0.4296 of the field height and the
+   assertion holds it there in both directions.
+
+   Both shortfalls are paid out of air that was already surplus, and neither
+   payment is a new idea; each one finishes a job this stylesheet had started:
+
+   1. THE PER-ROW NUDGES ARE GONE — `.pl-load`'s `max(4px, 8 --fpx)`,
+      `.pl-meta`'s 4px and `.pl-queue/.pl-notch/.pl-tier`'s 2px. That is 11px
+      at 800x600, against the 7.6 needed. They were nudges stacked ON TOP of a
+      distributed gap, which is exactly the argument `.hud--contract
+      .plant__body` used when it zeroed the same four selectors for Contract
+      mode, and `[data-density="compact"]` had already zeroed three of them for
+      its grid. Deep Run at regular/roomy was the last holdout, and it was the
+      uneven one: the drawn gaps ran 10/9/7/5px down the panel where the gap
+      alone says 5. One rhythm now, in every mode, at every density — and the
+      `.hud--contract` and compact zeroing rules that existed only to undo
+      these three declarations went with them.
+
+   2. COMPACT'S PANEL PADDING GIVES 3 --fpx (see
+      `[data-density="compact"] .plant__body` further down). The nudges were
+      already zero there, so the 1.6px had to come from somewhere else, and the
+      compact block's own comment names the budget: "the last few px, taken
+      from DECORATION rather than from type". 12 --fpx of vertical padding to 9
+      is 2.3px on an iPhone 13 mini, and what it spends is inner air, not a
+      legibility floor.
+
+   What is NOT paid for is the tail. At 13 mini the eight-axis line is 180px
+   wide in a 161px box, so the last mark sits half behind the scroll tail this
+   row has always had (the ten-axis Mark 10 was already there). Five to seven
+   axes — a real run — fit whole, and a bigger mark that has to be scrolled to
+   is still worth more than a mark nobody can read in place. */
+/* THE SAME DEFECT ONE BOX OUT, and it only became visible once the mark was
+   18px. `.pl-notch b` fixed the marks against each OTHER (below); this fixes
+   the marks against their LABEL.
+
+   The shared shell above baseline-aligns label and value, and a flex box's
+   baseline is its first item's — which here resolves, through the chip, to the
+   SVG's bottom margin edge, because a replaced element has no text baseline to
+   offer. So NOTCHES sat on the marks' FEET and the whole run towered over it.
+   At 9px that was a ~5px overhang nobody filed; at 18px the row reads as two
+   lines that failed to line up.
+
+   Centre the row instead. The `--pixel-optical-drop` correction goes with the
+   baseline it was correcting — see the note on that rule further down for the
+   per-device measurements that settled it, and for why the answer there is
+   zero rather than a smaller number.
+
+   Deep Run only. A Contract's Bay-conditions row shares this class and its
+   value is plain text, where baseline alignment is exactly right — the same
+   split sim/uifit's `inkline` pairs already model with two scoped entries. */
+.hud:not(.hud--contract) .pl-notch { align-items: center; }
 .pl-notch b {
   /* center, not baseline — the same move .pl-tier b documents below, forced
      by the same shape: the tally's entries lead with an SVG now (the axis
@@ -3652,6 +3717,35 @@ body.crt-off #app::after { display: none; }
    that never calls `capMid` at all. Two people, measuring separately by
    different methods, agree on both the direction and the magnitude. */
 .pl-notch b, .pl-queue b, .pl-tier b { position: relative; top: calc(-1 * var(--pixel-optical-drop)); }
+/* …EXCEPT the Deep Run notch tally, which stopped meeting its label on a
+   baseline (see the centring rule up in the Notches section). The token is a
+   BASELINE correction — 0.125em of Press Start 2P's cap gap plus half the 19%
+   cap-height difference, all of it measured DOWN FROM A SHARED FOOT — and once
+   the two boxes are centred instead, that foot is not where they meet, so
+   paying it is paying twice.
+
+   Measured, not reasoned. `inkline` cannot read this row as it stands (it
+   warns, on every run, that `.pl-notch__ax` is a centred flex box with no
+   direct text to isolate — run.ts's capMid says so out loud rather than
+   guessing), so the readings below came from temporarily pointing that pair
+   at the ×N counts, which ARE plain text on the same optical line:
+
+     correction kept:  1.16px ABOVE the label on an iPhone 13 mini — 0.195em
+                       at that row's 6px floor, i.e. this token exactly.
+     correction zero:  0.03-0.06px on every phone, 0.14-1.01px on the roomy
+                       rows, always the same direction, and NOT a clean per-em
+                       residual (0.016em on an iPad mini against 0.075em on an
+                       iPad Pro) — it is the rasteriser rounding two line
+                       boxes of different size and dpr, not a metric this
+                       stylesheet can correct with one number.
+
+   So: zero, which is the principled answer as well as the measured one. The
+   label lines up with the MARKS — two boxes on one centre — and the counts
+   ride their own marks. Do not re-add the drop here to chase the roomy rows'
+   last half pixel; it is nine times the size of what it would be fixing, and
+   it would put the phones (the reason the mark is 18px at all) a whole pixel
+   out to flatter a desktop. */
+.hud:not(.hud--contract) .pl-notch b { top: 0; }
 /* NOTHING here re-templates the panel for a Contract at regular/roomy density
    any more, and the compact override below is a one-liner for the same reason.
    Contract mode used to run its own two-column grid whose only job was letting
@@ -3714,7 +3808,13 @@ body.crt-off #app::after { display: none; }
    (0,2,0) and, being later, would win the tie against a plain
    `.hud--contract .plant__body`. */
 .hud.hud--contract .plant__body { gap: max(8px, calc(18 * var(--fpx))); }
-.hud--contract :is(.pl-load, .pl-queue, .pl-notch, .pl-tier) { margin-top: 0; }
+/* The `:is(.pl-load, .pl-queue, .pl-notch, .pl-tier) { margin-top: 0 }` that
+   used to close this block is gone, and the paragraph above it is now the
+   whole story rather than half of it: the nudges it zeroed for Contract mode
+   no longer exist in Deep Run either (see the "one rhythm" note under
+   .pl-notch b). A Contract needed the rule because it states its gap and a
+   nudge on top of a stated gap is uneven twice over; Deep Run distributes its
+   gap and a nudge on top of THAT is uneven once. One rhythm settles both. */
 
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
@@ -3886,12 +3986,15 @@ body.crt-off #app::after { display: none; }
   align-content: space-between;
   gap: max(2px, calc(6 * var(--fpx)));
 }
+/* No `margin-top: 0` on the three rows below any more: the base rules stopped
+   nudging (see the "one rhythm" note under .pl-notch b), so undoing it here
+   would be undoing nothing. */
 [data-density="compact"] .pl-read { grid-area: read; }
-[data-density="compact"] .pl-notch { grid-area: notch; margin-top: 0; }
-[data-density="compact"] .pl-load { grid-area: load; margin-top: 0; }
+[data-density="compact"] .pl-notch { grid-area: notch; }
+[data-density="compact"] .pl-load { grid-area: load; }
 /* flex-start, not flex-end: on its own full-width row the line has room to
    spare, and every other row in this panel starts at the same left edge. */
-[data-density="compact"] .pl-meta { grid-area: meta; margin-top: 0; justify-content: flex-start; align-items: center; }
+[data-density="compact"] .pl-meta { grid-area: meta; justify-content: flex-start; align-items: center; }
 [data-density="compact"] .pl-mods { grid-area: mods; }
 /* Contract mode opts OUT of the grid entirely, at every density, and keeps the
    compact gap. The grid above exists to give Deep Run's five rows an explicit
@@ -3927,7 +4030,15 @@ body.crt-off #app::after { display: none; }
   margin-top: max(3px, calc(10 * var(--fpx)));
   height: max(6px, calc(10 * var(--fpx)));
 }
-[data-density="compact"] .plant__body { padding: calc(12 * var(--fpx)) calc(19 * var(--fpx)); }
+/* 9 --fpx vertical, and it was 12. The 3 --fpx is the last of what the 18px
+   notch mark costs (the "one rhythm" note under .pl-notch b does the
+   arithmetic): compact had already zeroed the per-row nudges for its grid, so
+   the iPhone 13 mini's remaining 1.6px shortfall had to come out of this
+   padding, which is the same decoration budget the goal bar's air came out of
+   two rules up. 4.5px -> 3.4px of inner air there; the panel's own 2px border
+   and the crest hang outside it, so nothing gets closer to an edge than the
+   type already was on the 640x360 row. */
+[data-density="compact"] .plant__body { padding: calc(9 * var(--fpx)) calc(19 * var(--fpx)); }
 
 /* Two labels that cost a whole row each once the real webfonts land — both
    found by measuring with `document.fonts.ready` awaited, which is exactly the
