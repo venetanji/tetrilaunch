@@ -38,7 +38,13 @@ export interface LevelConfig {
    *  four times this and a spilled pentomino five. The name is kept because it
    *  is threaded through saves, telemetry and the sim harness, but anything
    *  that QUOTES the number to a player has to say which unit it is in (see
-   *  preview.ts's spill row). */
+   *  preview.ts's spill row).
+   *
+   *  Set from penaltyPerLostPieceFor(i, mark): it is on the TIER LADDER as
+   *  well as the bay index, $1 a cube at Tier 1 up to the full 25 + 2i at
+   *  Tier 10. Contracts and drills overwrite it with 0 (nothing is spent, so
+   *  nothing needs to be earned back) and a Final Inspection clause can treble
+   *  whatever the tier set. */
   penaltyPerLostPiece: number;
   /** Points needed to clear the level. */
   targetScore: number;
@@ -327,11 +333,17 @@ export interface LevelConfig {
 // Launch Bay (i=0) a perfect 8-cube line costs 2 shots ($40) for a $100 payout,
 // so a precise player nets $60/line and grows; at the measured ~2.9
 // launches/line (contracts.ts's PLANNING_EFFICIENCY note) the same line nets
-// $42, and a single piece bounced out of the bay erases more than two of
-// those lines: the $25 is billed PER CUBE (game.ts bills lostCubes.length *
-// penaltyPerLostPiece, and see the field's own doc above), so one spilled
-// tetromino is -$100 at bay 1. So volume does not pay for itself and precision
-// does, which is the puzzle the mode is supposed to be.
+// $42. So volume does not pay for itself and precision does, which is the
+// puzzle the mode is supposed to be — and that is true on the LAUNCH PRICE
+// alone, before the spill fine says anything.
+//
+// The fine is what makes a sloppy bay unrecoverable rather than merely slow,
+// and it now rides the tier (penaltyPerLostPieceFor): billed PER CUBE (game.ts
+// bills lostCubes.length * penaltyPerLostPiece, and see the field's own doc
+// above), one spilled tetromino is -$4 at Tier 1 bay 1 and -$100 at Tier 10's
+// — the same shot erasing a rounding error at the bottom of the ladder and
+// more than two clean lines at the top. The flat $25 charged the beginner the
+// veteran's price on the run where they are still learning to reach the zone.
 //
 // The float was cut rather than the launch priced up, deliberately: a dearer
 // shot taxes the precise player exactly as hard as the careless one, where a
@@ -345,8 +357,9 @@ export interface LevelConfig {
 // Later bays keep the tier's launch price but pay out faster (scorePerLine
 // ramps +10/bay) against a rising target (+TARGET_PER_BAY/bay), so the purse
 // tightens as the ladder climbs and the Reactor float install (upgrades.ts)
-// becomes the deep-run economy answer. The $25+2i lost-piece penalty and
-// wasted shots are what put a sloppy bay out of reach.
+// becomes the deep-run economy answer. The lost-piece penalty (Tier 10's
+// $25+2i, scaled down the ladder to $1 a cube at Tier 1) and wasted shots are
+// what put a sloppy bay out of reach.
 const LEVEL_NAMES = [
   "Launch Bay", "Cargo Dock", "Freight Yard", "Assembly Line", "Foundry",
   "Cryo Bay", "Reactor Deck", "Orbital Ramp", "Gravity Well", "Compactor Core",
@@ -355,12 +368,19 @@ const LEVEL_NAMES = [
 /* ---------------------------------------------------------------------------
  * THE TIER LADDER — what a Mark actually DEMANDS.
  *
- * Three knobs state the bay's opening terms, and all three are a function of
- * the TIER being flown (RunState.mark) rather than constants every tier shares:
+ * Four knobs state the bay's terms, and all four are a function of the TIER
+ * being flown (RunState.mark) rather than constants every tier shares:
  *
  *   targetScore   $600 on Tier 1's first bay, +$20 a tier  -> $780 at Tier 10.
  *   timeLimitSec  180s at Tier 1, -4s a tier               -> 144s at Tier 10.
  *   launchCost    $20 at Tier 1, straight line to          -> $30 at Tier 10.
+ *   spill fine    $1 a cube at Tier 1, straight line to    -> $25+2i at Tier 10.
+ *
+ * The first three are the bay's OPENING terms and are flat inside a run; the
+ * fourth is the price of a mistake and keeps the per-bay climb it has always
+ * had (penaltyPerLostPieceFor). It is the newest of the four and the only one
+ * that reads BOTH the tier and the bay index — see its own note for why it
+ * joined the ladder and why the tier ramp is linear.
  *
  * Why this exists: the ladder had collapsed to a single set of numbers. Tier 1
  * and Tier 10 demanded exactly the same bay, so the only thing a Mark changed
@@ -437,6 +457,32 @@ export const LAUNCH_COST_TOP = 30;
  *  runway costs (sim/systems.ts asserts the 7-9 band at every Mark). */
 export const LAUNCH_BUDGET_SHOTS = 8;
 
+/** THE SPILL FINE at the TOP of the ladder: Tier 10's bay 1, and what each
+ *  further bay inside that run adds to it. These two numbers WERE the whole
+ *  fine, at every tier, from the first build until the ramp below — the ladder
+ *  is unchanged at Tier 10 and every quoted figure in the calibration notes
+ *  still reads true there. */
+export const SPILL_FINE_TOP_BASE = 25;
+export const SPILL_FINE_TOP_PER_BAY = 2;
+
+/** THE SPILL FINE at the BOTTOM of the ladder: $1 a cube on a Tier 1 bay.
+ *
+ *  Why it moved. The fine is billed PER CUBE (game.ts's chargeLostCubes bills
+ *  lostCubes.length x this), so the flat $25 made one bounced tetromino cost
+ *  $100 against Tier 1's $160 float: 62% of the opening runway on a single bad
+ *  shot, and two of them put the bay out of reach before the player has
+ *  finished learning the slingshot. That is the beginner report this ramp
+ *  answers — the fine was not teaching precision, it was ending the lesson. At
+ *  $1 the same spill is -$4: still a red -$ over the spot, still a debit, but
+ *  an acknowledgment rather than a sentence.
+ *
+ *  Not zero, deliberately. A free spill would delete the rule at the exact tier
+ *  the guide teaches it on (guide.ts's "Lost cargo" reads the FLOWN tier's bay
+ *  1), and a player who meets the fine for the first time at Tier 5 meets it as
+ *  a surprise. $1 keeps the mechanic visible and priced at nothing. */
+export const SPILL_FINE_TIER1 = 1;
+
+
 /** Clamp a Mark to the ladder. Callers pass RunState.mark, which is 1-based and
  *  already bounded — but makeBaseLevel is reachable from the sim, the attract
  *  loop and a restored save, so the curves refuse to extrapolate off either
@@ -477,6 +523,53 @@ export function startingFundsFor(mark = 1): number {
   return LAUNCH_BUDGET_SHOTS * launchCostFor(mark);
 }
 
+/**
+ * The per-CUBE fine for cargo the bay loses, at bay `i` (0-based) and `mark`.
+ *
+ * DERIVATION. Two endpoints were decided and everything else is the straight
+ * line between them:
+ *
+ *   fine(i, tier) = SPILL_FINE_TIER1 + (top(i) - SPILL_FINE_TIER1) * t
+ *   top(i)        = SPILL_FINE_TOP_BASE + SPILL_FINE_TOP_PER_BAY * i
+ *   t             = (tier - 1) / (TIER_COUNT - 1)        // 0 at T1, 1 at T10
+ *
+ * so Tier 1 bay 1 is $1 and Tier 10 bay 10 is the historical $43, with e.g.
+ * Tier 5 bay 1 at $12 and Tier 5 bay 10 at $20.
+ *
+ * Interpolating the FINISHED number rather than the base and the per-bay step
+ * separately is not a shortcut — it is the same curve. Expand it:
+ * 1 + t(24 + 2i) = (1 + 24t) + (2t)i, i.e. lerping the endpoint value is
+ * identical to lerping the base from $1 to $25 and the per-bay step from $0 to
+ * $2. Written as one lerp because then the two numbers a play pass actually
+ * argues about — what Tier 1 charges and what Tier 10 charges — are the two
+ * constants above, rather than being recoverable only by doing this algebra.
+ *
+ * WHY LINEAR. The default, and the calibration data does not argue against it:
+ *
+ *  - The other three tier curves (target, clock, launch cost) are all straight
+ *    lines. A fourth on a different curve makes the ladder four stories instead
+ *    of one, and nothing here needs its own story.
+ *  - The MARK SCALING note below records the one measurement that touches this
+ *    knob, and it argues for a GENTLE bottom rather than a fancy shape: press
+ *    speed scaled per Mark was cut because a faster sweep shoves pieces out
+ *    before they settle "so the lost-piece penalty drains the bankroll" — 3/3
+ *    wins became 1/3 at bay 5. That is this fine acting as an erratic
+ *    bankruptcy tax, and it says the knob is SHARP, i.e. the shape that would
+ *    hurt is a convex one that stays near-free through the mid tiers and then
+ *    spikes into exactly that cliff. Linear spends the whole ladder climbing.
+ *  - The mirror shape (concave, most of the rise in the first tiers) front-loads
+ *    the punishment onto precisely the players this change is for.
+ *
+ * Rounded to whole dollars — the HUD, the toast and the projection tile all
+ * quote it as money — and monotone in both arguments after rounding, which
+ * sim/systems.ts pins along with the two endpoints.
+ */
+export function penaltyPerLostPieceFor(i: number, mark = 1): number {
+  const top = SPILL_FINE_TOP_BASE + SPILL_FINE_TOP_PER_BAY * Math.max(0, i);
+  const t = (tierOf(mark) - 1) / (TIER_COUNT - 1);
+  return Math.round(SPILL_FINE_TIER1 + (top - SPILL_FINE_TIER1) * t);
+}
+
 /** What a tier asks of you, as the three numbers a menu has to quote before
  *  you accept it: the FIRST bay's funding target, the shift length and the
  *  price of a shot. A tier the player can't read before pressing Play is just a
@@ -515,8 +608,11 @@ export function tierDemands(mark = 1): {
  *   harder to shatter apart from bad landings.
  * - jointStiffness edges up too (capped at 0.98) so joints stay crisp instead
  *   of rubbery as break-resistance rises.
- * - compactorSpeed and penaltyPerLostPiece creep up so later levels punish
- *   sloppy play faster and harder.
+ * - compactorSpeed creeps up with i so later bays punish sloppy play faster.
+ * - penaltyPerLostPiece creeps up with i too, but the size of that creep is
+ *   the TIER's (penaltyPerLostPieceFor): Tier 1 charges a flat $1 a cube for
+ *   all ten bays, Tier 10 the full 25 + 2i ladder. It is the only knob here
+ *   that reads both i and the mark.
  * - targetScore climbs every bay on its own (TARGET_PER_BAY·i, steepened a
  *   little by the tier); the clock, the launch cost and the opening target are
  *   the TIER's three knobs (see the tier-ladder note above) and are flat inside
@@ -612,10 +708,17 @@ export const SCRAP_PER_BAY = 10;
  * power and every board above Mark 1 would be easier than the one below it.
  *
  * Only the two knobs that state the bay's DEMAND were ever scaled here — the
- * funding target and the press tempo. Deliberately not scaled: launchCost and
- * penaltyPerLostPiece (which would compound with the target into a difficulty
- * cliff), and windMax (weather is the bay's character, and the launcher track
- * is the sanctioned answer to it — see the BALANCE KNOBS note).
+ * funding target and the press tempo. Deliberately not scaled: windMax
+ * (weather is the bay's character, and the launcher track is the sanctioned
+ * answer to it — see the BALANCE KNOBS note).
+ *
+ * launchCost and penaltyPerLostPiece are not scaled HERE either, and the old
+ * reason ("they would compound with the target into a difficulty cliff") is
+ * still the reason there is no multiplier on them. Both now ride the TIER
+ * LADDER instead, which is the opposite move: the ladder states each tier's
+ * number outright on an explicit curve, and both of them read LOWER at the
+ * bottom than the flat number they replaced ($20 and $1 against $25 and $25).
+ * A cliff was never what a gentler Tier 1 needed guarding against.
  *
  * CALIBRATED — and the result was that these knobs do not calibrate anything.
  * Measured with sim/marks.ts (aim bot, 550-point rig, 3 seeds):
@@ -1007,7 +1110,11 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
       : BASE_BREAK_STRETCH * (1 + i / 9) * (1 + BOND_MARK_STEP * marksAbove),
     jointStiffness: Math.min(0.98, 0.9 + i * 0.01),
     scorePerLine: 100 + i * 10,
-    penaltyPerLostPiece: 25 + i * 2,
+    // The one MISTAKE price on the tier ladder: $1 a cube flat at Tier 1,
+    // climbing to the historical 25 + 2i at Tier 10 (penaltyPerLostPieceFor).
+    // It is billed per CUBE, so what the tier really moves is what one bounced
+    // shipment costs — $4 at the bottom of the ladder, $100 at the top.
+    penaltyPerLostPiece: penaltyPerLostPieceFor(i, mark),
     // The TARGET climbs every bay on its own (see targetScoreFor) — that is
     // the ladder's own difficulty curve, and it is deliberately NOT one of the
     // axes the hazard draft can spend a notch on. What the TIER sets is where

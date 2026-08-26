@@ -1238,6 +1238,14 @@ export function levelForContract(c: Contract, rng: () => number = Math.random): 
     cfg.pieceQueue = null;
   }
   // Nothing is spent, so nothing needs to be earned back.
+  //
+  // The spill fine's TIER RAMP (level.ts's penaltyPerLostPieceFor) deliberately
+  // stops here rather than being re-derived off the Contract's own tier. A
+  // Contract has a tier, so it COULD ramp — but it has no bankroll to drain, no
+  // launch price and no funding target, so a fine has nothing to be measured
+  // against and nothing to take away. What a Contract asks for is the pattern,
+  // and the answer to a spilled cube is already the harshest one the mode has:
+  // a launch budget with one fewer shipment left in it.
   cfg.startingFunds = 0;
   cfg.penaltyPerLostPiece = 0;
   // The belt carries EXACTLY what the Contract priced: the base mix is zeroed

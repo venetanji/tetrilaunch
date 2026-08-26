@@ -23,6 +23,7 @@ import {
   TARGET_PER_BAY_PER_TIER, TARGET_PER_TIER, TIER_COUNT, TIME_BASE, TIME_PER_TIER,
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
+  penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
@@ -477,7 +478,8 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     tierDemands(a).targetScore === tierDemands(b).targetScore
       && tierDemands(a).timeLimitSec === tierDemands(b).timeLimitSec
       && tierDemands(a).launchCost === tierDemands(b).launchCost
-      && makeBaseLevel(0, a).startingFunds === makeBaseLevel(0, b).startingFunds;
+      && makeBaseLevel(0, a).startingFunds === makeBaseLevel(0, b).startingFunds
+      && makeBaseLevel(5, a).penaltyPerLostPiece === makeBaseLevel(5, b).penaltyPerLostPiece;
   check("the curve refuses to extrapolate past the ladder",
     sameBar(0, 1) && sameBar(9999, MARK_COUNT));
 
@@ -490,18 +492,103 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "compactor speed does not scale with Mark",
     makeBaseLevel(0, MARK_COUNT).compactorSpeed === makeBaseLevel(0, 1).compactorSpeed,
   );
-  // The loss penalty stays on the BAY index (25 + 2i) and out of the tier
-  // ladder: three knobs state a tier's terms, and a fourth that also punishes
-  // sloppy play harder would compound with them into a cliff.
+  // THE SPILL FINE RAMP (level.ts's penaltyPerLostPieceFor). The fine used to
+  // be Mark-invariant — a flat 25 + 2i on the bay index at every tier — which
+  // billed a beginner $100 for one bounced tetromino against Tier 1's $160
+  // float. It now rides the tier as well: $1 a cube at Tier 1, the historical
+  // ladder at Tier 10.
+  //
+  // The ENDPOINTS are pinned rather than the curve, because the endpoints are
+  // what was decided; the straight line between them is an implementation of
+  // that decision and a play pass is free to re-shape it (see the derivation)
+  // as long as it still starts and ends where the design says.
   check(
-    "the loss penalty is Mark-invariant",
-    makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
+    "the spill fine bottoms out at $1 a cube on every Tier 1 bay",
+    Array.from({ length: RUN_LEVELS }, (_, i) => makeBaseLevel(i, 1).penaltyPerLostPiece)
+      .every((v) => v === SPILL_FINE_TIER1),
+  );
+  check(
+    "the spill fine tops out at the historical 25 + 2i ladder at Tier 10",
+    Array.from({ length: RUN_LEVELS }, (_, i) => makeBaseLevel(i, MARK_COUNT).penaltyPerLostPiece)
+      .every((v, i) => v === SPILL_FINE_TOP_BASE + SPILL_FINE_TOP_PER_BAY * i),
+  );
+  // MONOTONICITY, in both arguments and after rounding — the property that
+  // makes this a ramp rather than a table. A tier never charges less for the
+  // same mistake than the tier below it, and no bay inside a run is cheaper to
+  // spill in than the bay before it. Rounding is where a re-shaped curve would
+  // break this quietly (a step that lands under half a dollar per tier can
+  // round backwards), so it is checked over every (bay, tier) pair rather than
+  // argued from the formula.
+  let fineRises = true;
+  for (let i = 0; i < RUN_LEVELS; i++) {
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const here = penaltyPerLostPieceFor(i, m);
+      if (m > 1 && here < penaltyPerLostPieceFor(i, m - 1)) fineRises = false;
+      if (i > 0 && here < penaltyPerLostPieceFor(i - 1, m)) fineRises = false;
+      if (here !== makeBaseLevel(i, m).penaltyPerLostPiece) fineRises = false;
+    }
+  }
+  check("the spill fine never falls with the tier or the bay", fineRises);
+  // THE FINE IS A MISTAKE PRICE, NOT A LOSE BUTTON. A bay whose fine can
+  // outrun its own float is losable to one bad shot before a line has ever
+  // been paid for, and "you still have money" is not the bar — game.ts's fire
+  // refuses to launch at all once funds drop below launchCost, so a bankroll
+  // stranded under the price of a shot is a dead bay with a non-zero HUD.
+  //
+  // The invariant is therefore stated in SHOTS, over the worst case a stock
+  // bay can produce: the player is on the opening float, pays for one launch,
+  // and every cube of that shipment spills.
+  //
+  //   startingFunds - launchCost - cubes x fine  >=  launchCost
+  //            ^ float      ^ the shot that spilled       ^ one more shot
+  //
+  // `cubes` is read off the BAY's own pieceSize rather than fixed at four or
+  // maximised over SIZE_SPEC, which is what makes this the invariant rather
+  // than a patch for today's layout: it follows whatever the ladder decides a
+  // shipment is. Every Deep Run bay ships "std" today (mods.ts is the only
+  // writer of bulk/tiny and the game no longer drafts mods; contracts.ts and
+  // drills.ts write it but zero the fine), so what is checked is 4 cubes — and
+  // the day a bay ships bulk this fails on its own, which is the point.
+  //
+  // MEASURED over all 10 bays x 10 tiers. The ramp holds everywhere, tightest
+  // at Tier 10 bay 10: $240 - $30 - 4x$43 = $38 against a $30 shot, $8 of
+  // slack. The FLAT fine this replaced failed in 32 of those 100 bays — from
+  // bay 4 of a Tier 1 run onward ($160 - $20 - 4x$31 = $16 against a $20 shot)
+  // down to -$52 at Tier 1 bay 10, where a single fully-spilled shipment on
+  // the opening float ended the bay outright. The old pin passed anyway
+  // because it asked only whether funds stayed above zero, on one bay, at the
+  // one tier the flat fine happened to survive.
+  //
+  // KNOWN HEADROOM, not a shipped hole: at a bulk shipment's 5 cubes the same
+  // arithmetic gives $240 - $30 - 5x$43 = -$5 at Tier 10 bay 10 (8 of 100 bays
+  // fail, all at Tiers 8-10). Nothing in a Deep Run can ship bulk, so this is
+  // a tripwire for a future feature rather than a live bug — deliberately left
+  // as one instead of moving an endpoint the design decided, and reported to
+  // the owner as a balance finding.
+  let fineLeavesAShot = true;
+  const spillDetail: string[] = [];
+  for (let i = 0; i < RUN_LEVELS; i++) {
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const cfg = makeBaseLevel(i, m);
+      const cubes = SIZE_SPEC[cfg.pieceSize].cubes;
+      const left = cfg.startingFunds - cfg.launchCost - cubes * cfg.penaltyPerLostPiece;
+      if (left < cfg.launchCost) {
+        fineLeavesAShot = false;
+        spillDetail.push(`T${m} bay ${i + 1}: $${left} left, needs $${cfg.launchCost}`);
+      }
+    }
+  }
+  check(
+    "a fully spilled shipment always leaves the float another launch",
+    fineLeavesAShot,
+    spillDetail.slice(0, 4).join("; "),
   );
   // The scope check, and the one that catches the likeliest way to get this
   // wrong: keying the curve off the BAY index `i` (which carries every other
   // ramp in makeBaseLevel) instead of off the mark. Only these may differ
   // between the bottom and the top of the ladder — the three the tier states
-  // (target, clock, launch cost), the float derived from the launch cost
+  // (target, clock, launch cost), the spill fine the tier now ramps
+  // (penaltyPerLostPieceFor), the float derived from the launch cost
   // (LAUNCH_BUDGET_SHOTS), the bond ramp a Mark is allowed to move
   // (BOND_MARK_STEP) and the recorded mark itself.
   const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
@@ -511,7 +598,8 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     .sort()
     .join(",");
   check("a tier moves exactly the demand knobs and nothing else",
-    moved === "jointBreakStretch,launchCost,mark,startingFunds,targetScore,timeLimitSec",
+    moved === "jointBreakStretch,launchCost,mark,penaltyPerLostPiece,startingFunds,"
+      + "targetScore,timeLimitSec",
     moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
