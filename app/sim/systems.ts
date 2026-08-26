@@ -7584,8 +7584,8 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
   const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
     (m.get(t) ?? []).forEach((h) => h(e));
   let prevented = 0;
-  const ptr = (button: number, pointerType = "mouse", clientX = 500) => ({
-    button, pointerId: 1, pointerType, clientX, clientY: 260,
+  const ptr = (button: number, pointerType = "mouse", clientX = 500, buttons = 0) => ({
+    button, buttons, pointerId: 1, pointerType, clientX, clientY: 260,
     preventDefault: () => { prevented += 1; },
   });
   const whl = (deltaY: number, deltaMode = 0, ctrlKey = false) => ({
@@ -7640,22 +7640,38 @@ section("The mouse can rotate, and only the left button fires (input.ts)");
     send(onWindow, "pointerup", ptr(0));
   }) === 1);
 
-  // ROTATING MID-AIM. A mouse keeps one pointerId across all its buttons, so
-  // the right button's own pointerup reaches the drag's release path; if that
-  // path does not check the button, turning the piece while holding the aim
-  // launches it. Both halves are asserted: the turn happens, the aim the
-  // player is holding survives it, and the shot waits for the LEFT release.
+  // ROTATING MID-AIM, dispatched as a BROWSER dispatches it — found in
+  // review. Pointer Events fire `pointerdown` only when the FIRST button
+  // takes the mouse from no-buttons to pressed; a button chorded onto a held
+  // one arrives as a `pointermove` whose `button` names the changed button
+  // and whose `buttons` bitmask carries its new state (bit set = press, bit
+  // cleared = release — both report button 2). The first draft of this block
+  // dispatched a chorded pointerdown/pointerup pair no browser emits, and
+  // passed against a handler the real gesture never reached. Both halves are
+  // asserted: the press turns, the release does not turn again, the held aim
+  // survives, and the shot waits for the LEFT button's own release.
   {
     send(onCanvas, "pointerdown", ptr(0, "mouse", 400));
     const heldAngle = g.cannon.angle;
     const heldPower = g.cannon.power;
     let t = 0;
     const early = fired(() => { t = turned(() => {
-      send(onCanvas, "pointerdown", ptr(2, "mouse", 400));
-      send(onWindow, "pointerup", ptr(2, "mouse", 400));
+      send(onCanvas, "pointermove", ptr(2, "mouse", 400, 3)); // right pressed: L|R held
+      send(onCanvas, "pointermove", ptr(2, "mouse", 400, 1)); // right released: L held
     }); });
     check("right-clicking mid-aim turns the shipment", t === 1, `${t} quarter-turns`);
     check("...without firing the aim being held", early === 0, `${early} shots`);
+    // A browser that (against the spec) fires pointerdown for the chord too
+    // must neither shoot nor turn the piece a second time — onDown's rotate
+    // branch stands down while a drag is live, precisely so the chord has
+    // exactly one owner.
+    let t2 = 0;
+    const nonspec = fired(() => { t2 = turned(() => {
+      send(onCanvas, "pointerdown", ptr(2, "mouse", 400, 3));
+      send(onWindow, "pointerup", ptr(2, "mouse", 400, 1));
+    }); });
+    check("...and a non-spec chorded pointerdown neither fires nor double-turns",
+      nonspec === 0 && t2 === 0, `${nonspec} shots, ${t2} turns`);
     check("...and without disturbing the aim itself",
       g.cannon.angle === heldAngle && g.cannon.power === heldPower);
     const late = fired(() => send(onWindow, "pointerup", ptr(0, "mouse", 400)));

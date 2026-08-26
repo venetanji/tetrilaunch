@@ -349,14 +349,17 @@ export class InputController {
       // sit next to each other in a desktop player's head and disagreeing
       // about which way "the rotate one" turns is worse than either choice.
       //
-      // BEFORE the `this.dragging` bail below, so this fires DURING a left-drag
-      // too. That is the gesture the mouse scheme is missing without it: hold
-      // the left button on the gap you want to fill, right-click to turn the
-      // piece until it fits, release. Treating the second button as a
-      // collision and refusing it would leave the player choosing between
-      // holding their aim and turning their shipment, which is the exact
-      // reach-for-the-keyboard this change is here to delete.
-      if (e.button === 2) this.rotate("right");
+      // This branch handles the FRESH right-click only. The mid-aim chord —
+      // hold the left button on the gap, right-click to turn the piece until
+      // it fits — never reaches this handler in a real browser: Pointer
+      // Events fire `pointerdown` only when the FIRST button takes the mouse
+      // from no-buttons to pressed, and a button chorded onto a held one
+      // arrives as a `pointermove` naming the changed button (found in
+      // review; the first draft rotated here "before the dragging bail" and
+      // the gesture it advertised was unreachable). onMove owns the chord
+      // now; the `!dragging` gate below is what keeps a browser that fires
+      // both events for a chord from turning the piece twice.
+      if (e.button === 2 && !this.dragging) this.rotate("right");
       return;
     }
     const g = this.game();
@@ -382,6 +385,19 @@ export class InputController {
   };
 
   private onMove = (e: PointerEvent): void => {
+    // THE MID-AIM CHORD LANDS HERE — see onDown's button-guard note. A button
+    // pressed while another is held is a `pointermove` whose `button` names
+    // the changed button and whose `buttons` bitmask carries its new state;
+    // `buttons & 2` set means the right button just went DOWN (its release
+    // reports the same button 2 with the bit cleared, and must not turn the
+    // piece a second time). An ordinary move reports button -1, so this costs
+    // every other move one integer compare. Falls through rather than
+    // returning: the event still carries a position, and the whole point of
+    // rotating mid-aim is watching the arc through the held target redraw
+    // around the new shape.
+    if (e.pointerType === "mouse" && e.button === 2 && (e.buttons & 2) !== 0) {
+      this.rotate("right");
+    }
     if (!this.dragging || e.pointerId !== this.dragPointerId) return;
     if (this.targeting) this.pendingTarget = this.worldPoint(e);
     else this.applyAim(e);
