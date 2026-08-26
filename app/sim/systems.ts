@@ -1864,6 +1864,20 @@ section("Refit cadence + run economy (run.ts)");
   check("a fresh run has a stock ship", Object.values(run.tiers).every((t) => t === 0));
   check("a fresh run has no scrap without the cache unlock", run.scrap === 0);
   check("scrap-cache seeds starting scrap", newRun(1, [], 30).scrap === 30);
+  check("a fresh run has taken no restarts", newRun(1).restarts === 0);
+  // The seal turns entirely on this surviving a bay boundary. advanceRun
+  // rebuilds the run field by field, so a rebuild that dropped the field would
+  // zero the count at bay 2 and hand the badge to a run that restarted bay 1
+  // three times and then went the distance. Two boundaries, not one, so a
+  // version that carried it across the first and not the second is caught too.
+  const conceded = advanceRun(
+    advanceRun({ ...newRun(5), restarts: 2 }, 800, 800, 0, 0, []), 800, 800, 0, 0, [],
+  );
+  check(
+    "restarts survive the bays they were taken in",
+    conceded.restarts === 2,
+    String(conceded.restarts),
+  );
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
@@ -2523,6 +2537,32 @@ section("Tier milestones pay the salvage (meta.ts)");
     runOnly.salvage === share && runOnly.meta.salvage === share,
   );
 
+  // The seal (meta.ts's sealedMarks): a Deep Run cleared without ever
+  // restarting a bay gets a badge on that floor of the tower, and nothing else.
+  const clean = recordRunEnd(newMeta(), 1, true, 5, 0);
+  check("a run won without a restart is sealed", clean.meta.sealedMarks.includes(1));
+  const messy = recordRunEnd(newMeta(), 1, true, 5, 3);
+  check("a run won after a restart is not sealed", !messy.meta.sealedMarks.includes(1));
+  const lostClean = recordRunEnd(newMeta(), 1, false, 5, 0);
+  check("a run LOST without a restart is not sealed", !lostClean.meta.sealedMarks.includes(1));
+  // Cosmetic BY CONSTRUCTION (docs/DESIGN.md prints "Purchasable power: none"
+  // for both modes — nothing that can be earned a second way may move the
+  // ladder). A seal that paid out would be exactly that second axis, so a
+  // sealed run and an identical unsealed one must be indistinguishable in Mark
+  // and in salvage, both the banked total and the share this call hands back.
+  const unsealed = recordRunEnd(newMeta(), 1, true, 5, 9);
+  check(
+    "sealing pays nothing and moves no Mark",
+    clean.meta.mark === unsealed.meta.mark
+      && clean.meta.salvage === unsealed.meta.salvage
+      && clean.salvage === unsealed.salvage,
+  );
+  // Once per floor. A player who re-flies a Mark they already sealed must not
+  // grow the list, or the tower's per-floor lookup starts scanning duplicates
+  // and any future count of "floors sealed" reads high.
+  const again = recordRunEnd(clean.meta, 1, true, 5, 0);
+  check("re-flying a sealed Mark clean seals it once", again.meta.sealedMarks.length === 1);
+
   let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
   for (const c of board(1)) {
     const r = recordContractClear(contractsOnly.meta, c);
@@ -3019,6 +3059,15 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       !/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u.test(rail), rail.match(/[⛶⏸⟲⟳✕⚡💥↻▶★♻]/u)?.[0] ?? "");
     check("the rail's controls are drawn as inline SVG",
       (rail.match(/<svg/g) ?? []).length >= 7, String((rail.match(/<svg/g) ?? []).length));
+    // TAP pauses, HOLD restarts the bay (main.ts's startHold). The second half
+    // has nowhere else to go on touch: the .kbd-hint strip that names it is
+    // display:none on a coarse pointer AND aria-hidden everywhere, and this
+    // rail carries no visible labels. So the accessible name is the only route
+    // a touch or assistive-technology player has to the gesture, and it is
+    // asserted here because this is where the rail markup already is.
+    check("the pause button's accessible name carries the hold gesture",
+      /aria-label="Pause[^"]*hold to restart/i.test(rail),
+      rail.match(/aria-label="Pause[^"]*"/)?.[0] ?? "no pause button");
     // A4: the run's tier rides the bay banner as the plate's banner size;
     // A5: the transport carries both queue slots and the shipment-class tag.
     check("the bay banner carries the tier plate", hud.includes("tier-plate--banner"));
@@ -6961,6 +7010,228 @@ section("The guide + drills (guide.ts / drills.ts)");
       cfg.scrapPerLine >= 0 && cfg.scrapPerBay >= 0,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+section("Bay end: convergence, not one stroke (game.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DT = 1000 / 60;
+
+  /** A one-line bay whose manifest is a single shipment, with every other
+   *  limit zeroed so `pieces` is the only reachable loss reason — the same
+   *  shape levelForContract gives a pattern Contract.
+   *
+   *  pieceQueue is ["O"] and not []: Cannon's `finite` is
+   *  `!!queue && queue.length > 0` (cannon.ts:132), so a ZERO-LENGTH queue is
+   *  read as a cycling bag and piecesLeft reports Infinity. A bay built with
+   *  `pieceQueue: []` never reaches the exact-inventory branch at all; it
+   *  simply plays on. The queue only goes dry once a shipment has been taken
+   *  off it (cannon.ts's `consumed` moves in markShot and nowhere else), which
+   *  is why both scenarios below fire.
+   *
+   *  penaltyPerLostPiece 0 is not decoration either: the dead bay below throws
+   *  its shipment away deliberately, and a fine for that drops score under
+   *  launchCostNow and opens the BROKE countdown — a different verdict racing
+   *  the one under test, and one whose margin shrinks as this fix lengthens
+   *  the bay. */
+  function spentBay(standingWall: number[]): LevelConfig {
+    const cfg = makeBaseLevel(0);
+    cfg.objectiveLines = 1;
+    cfg.compactorMinLineCells = 6;
+    cfg.compactorOpenCells = 12;
+    cfg.pieceSize = "tiny";
+    cfg.pieceQueue = ["O"];
+    cfg.standingWall = standingWall;
+    cfg.launchBudget = 0;
+    cfg.launchCost = 0;
+    cfg.startingFunds = 0;
+    cfg.penaltyPerLostPiece = 0;
+    cfg.timeLimitSec = 0;
+    cfg.targetScore = Number.MAX_SAFE_INTEGER;
+    cfg.windMax = 0;
+    return cfg;
+  }
+
+  /** Centre of slot column k, counted from the wall outward — the same
+   *  arithmetic createStandingWall lays its cubes on (pieces.ts) and the same
+   *  index lineClear.ts's nearest-slot check reads, so a cube dropped here
+   *  lands ON the grid the line check uses rather than near it. */
+  const slotX = (k: number) => WALL_INNER - CELL / 2 - k * CELL;
+
+  /** Which step the single shipment is fired on.
+   *
+   *  The bar's first full advance on this bay is step 134, and the manifest has
+   *  to run dry BEFORE it so that the stroke which sets strokeDone is one the
+   *  window has already opened over. Measured band on this bay: 100 through
+   *  130 all reproduce the loss. Firing at or below 80 was tried and rejected —
+   *  the cubes land early enough that the row clears at step 123, inside the
+   *  same stroke, and the bay simply wins. Firing at 133 or later was tried and
+   *  rejected too: it wins at step 402, which is the correct outcome reached by
+   *  accident, because today's gate only gets this right when the manifest
+   *  happens to run out AFTER the stroke rather than before it. */
+  const FIRE_STEP = 120;
+
+  /** How high above the floor the shipment is placed.
+   *
+   *  Cubes are placed with setPosition rather than aimed, so the scenario does
+   *  not depend on the cannon's default angle and power, on the trajectory
+   *  solver, or on where a lob happens to bounce. Eight cells is ~26 steps of
+   *  fall: long enough that the pair is still airborne through the full advance
+   *  at 134 and lands after it. Measured band: 4 through 12 cells all reproduce
+   *  the loss, so this is not perched on an edge. */
+  const DROP_CELLS = 8;
+
+  // EXACT INVENTORY, ZERO WASTE — the reported failure verbatim. Four wall
+  // cubes plus a two-cube shipment is exactly the six a line needs, so nothing
+  // may be spent. The shipment lands in the two empty slots and completes the
+  // row on the floor — but only AFTER the stroke that would have counted it.
+  // Today the bay is judged the instant that pair stops moving, because
+  // strokeDone was already true from step 134: lost with the winning six cubes
+  // standing complete and nothing wasted.
+  const g = new Game(spentBay([1, 1, 1, 1, 0, 0]), {}, 7);
+  let now = 0;
+  let steps = 0;
+  let fired = false;
+  while (g.status === "playing" && steps < 4000) {
+    if (!fired && steps === FIRE_STEP) {
+      fired = g.shoot(now);
+      // The shipment's cubes are the two just pushed onto g.cubes by shoot().
+      g.cubes.slice(-2).forEach((c, i) => {
+        Matter.Body.setPosition(c.body, {
+          x: slotX(4 + i),
+          y: WORLD.height - CELL / 2 - CELL * DROP_CELLS,
+        });
+        Matter.Body.setVelocity(c.body, { x: 0, y: 0 });
+        Matter.Body.setAngle(c.body, 0);
+        Matter.Body.setAngularVelocity(c.body, 0);
+        Matter.Sleeping.set(c.body, false);
+      });
+    }
+    now += DT;
+    g.update(now);
+    steps += 1;
+  }
+
+  // The premise, asserted rather than assumed: a scenario that quietly stopped
+  // being an exact-inventory bay would still pass the check below for the
+  // wrong reason, which is exactly how the first draft of it went wrong.
+  check(
+    "the bay under test really has run its manifest dry",
+    fired && g.piecesLeft === 0,
+    `fired ${fired}, piecesLeft ${g.piecesLeft}`,
+  );
+  check(
+    "a row completed after the last stroke still gets its press",
+    g.status === "won" && g.linesTotal === 1,
+    `${g.status}${g.lossReason ? ` (${g.lossReason})` : ""} after ${steps} steps, ` +
+    `${g.linesTotal} lines, ${g.cubes.length} cubes left`,
+  );
+
+  // HANG GUARD, not a regression check: this is green before and after the
+  // convergence change by construction, and it exists so that a later widening
+  // of the window cannot turn a dead bay into a stall. The other half of the
+  // contract — a bay that CANNOT be finished must still end, and not at the
+  // backstop.
+  //
+  // Six cubes over five slots: the row is one slot short of a line however long
+  // the press runs, and the spare is stacked on the wall column where it can
+  // never fill the gap. Six and not five, because five would put cubesAvailable
+  // under cubesRequired and route the bay through objectiveUnreachable's
+  // one-second grace instead, which tests nothing about convergence. The pile
+  // stands clear of the bar's stop, so nothing the press does moves it and the
+  // first quiet stroke settles it.
+  const dead = new Game(spentBay([2, 1, 1, 1, 1]), {}, 7);
+  dead.shoot(0);
+  let deadNow = 0;
+  let deadSteps = 0;
+  while (dead.status === "playing" && deadSteps < 4000) {
+    deadNow += DT;
+    dead.update(deadNow);
+    deadSteps += 1;
+  }
+  check(
+    "a bay that cannot be finished still ends, and not at the cap",
+    dead.status === "lost" && dead.lossReason === "pieces" &&
+      deadSteps < dead.compactor.cycleSteps * 4,
+    `${dead.status} (${dead.lossReason}) after ${deadSteps} steps ` +
+    `(cap ${(dead.compactor.cycleSteps * 6).toFixed(0)})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  // String-only, because this file is: the SHAPE and the 25px offset are
+  // app.css's, and whether they collide with the windows is sim/uifit's
+  // question. What can be asserted here is that the markup says it at all,
+  // says it once, and says it in words as well as in a class name.
+  const base: S.TowerState = { unlocked: 3, selected: 3, god: false, sealed: [2] };
+  const html = S.tierTowerHTML(base);
+  check("a sealed floor is marked", html.includes("tower__seal"));
+  check(
+    "an unsealed floor is not",
+    (html.match(/tower__seal/g) ?? []).length === 1,
+    `${(html.match(/tower__seal/g) ?? []).length} seals for one sealed Mark`,
+  );
+  // The distinction must survive a viewer who cannot separate the hues. The
+  // stamp is a shape and it is aria-hidden, so the floor's accessible NAME is
+  // what carries it to anyone the shape does not reach. Asserted as the whole
+  // label, not as the bare word: `includes("sealed")` passes on an accident —
+  // the class name alone would satisfy it.
+  check(
+    "the seal is named, not merely drawn",
+    html.includes('aria-label="Tier 2 — sealed"'),
+  );
+  // God is not a Mark. meta.ts can never record a seal for it, so a build in
+  // which the God floor could wear one is drawing a state nothing produces.
+  check(
+    "the God floor is never sealed",
+    !S.tierTowerHTML({ ...base, god: true, sealed: [S.GOD_TIER] }).includes("tower__seal"),
+  );
+  // Absent reads as none — menuScreen's fallback tower and every uifit fixture
+  // that predates the seal must render exactly the tower they always did.
+  check(
+    "a tower with no seal record draws no seals",
+    !S.tierTowerHTML({ unlocked: 3, selected: 3, god: false }).includes("tower__seal"),
+  );
+}
+
+// ---------------------------------------------------------------------------
+section("The hint strip names the hold-to-restart gesture (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  // BARE LOADOUT deliberately: with the Autoloader owned the strip already
+  // says "hold to autofire", and /hold.*restart/ would then match across two
+  // separate hints and pass for the wrong reason.
+  const bare = { bond: false, demo: false, auto: false };
+  // Keyboard and touch share one arm, and the strip is drawn on the
+  // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
+  // the keyboard strip is the one that has to name it.
+  check(
+    "the strip names the hold-to-restart gesture",
+    /hold.*restart/i.test(S.hintStripHTML("keyboard", bare)),
+  );
+  check(
+    "touch renders the same strip content",
+    /hold.*restart/i.test(S.hintStripHTML("touch", bare)),
+  );
+  // GUARD, not a regression check — green before this hint existed and green
+  // after. The pad's Start button is a press, not a pointer hold: nothing binds
+  // a held pad button to resetBay, so the gamepad strip must not claim it.
+  check(
+    "the gamepad strip does not name a gesture the pad cannot make",
+    !/hold.*restart/i.test(S.hintStripHTML("gamepad", bare)),
+  );
+  // GUARD, same reason. Every .kbd chip in this strip is a LIVE BINDING
+  // (game/bindings.ts). A keycap around "Hold" would be the strip telling the
+  // player to press a key that does not exist — the exact class of bug the one
+  // hint table exists to make impossible.
+  check(
+    "the hold is not dressed as a keycap",
+    !/<span class="kbd">Hold<\/span>/i.test(S.hintStripHTML("keyboard", bare)),
+  );
 }
 
 console.log(

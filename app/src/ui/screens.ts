@@ -190,6 +190,11 @@ export interface TowerState {
    *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
    *  caller that predates the mode renders the tower it always did. */
   sandbox?: boolean;
+  /** Marks cleared in one run with no bay restart (meta.ts's sealedMarks).
+   *  Absent reads as none, so every caller that predates the seal — and there
+   *  are two, menuScreen's fallback tower and every uifit fixture — renders
+   *  the tower it always did. */
+  sealed?: number[];
 }
 
 /** True when `tier` is a floor the CAR may ride to. The one gate; main.ts
@@ -251,12 +256,28 @@ function floorHTML(state: TowerState, tier: number): string {
   // is a building. They dim with the floor rather than disappearing.
   const windows = `<span class="tower__windows">${"<i></i>".repeat(3)}</span>`;
   const label = god ? "God tier" : `Tier ${tier}`;
+  // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
+  // A SHAPE stamped on the plate, never a tint: the palette is full at 13
+  // swatches and sim/systems.ts fails the build below dE00 10, so there is no
+  // hue left to spend — and a distinction carried by hue alone is invisible to
+  // a red-green viewer anyway. It has to survive a greyscale screenshot.
+  // app.css draws it.
+  //
+  // Never on the God floor. God is not a Mark, meta.ts records no seal for it,
+  // and a stamp there would be a state nothing can ever produce.
+  //
+  // It joins the floor's accessible NAME as well, because the shape itself is
+  // aria-hidden: a distinction a screen reader has no way to reach is a
+  // distinction half the audience does not get.
+  const isSealed = !god && (state.sealed ?? []).includes(tier);
+  const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${god ? "GOD" : tier}</span>`
     + windows
+    + seal
     + `</button>`;
 }
 
@@ -1464,7 +1485,14 @@ export function hudHTML(opts: {
          in .hud__bottom. -->
     <div class="side-rail">
       ${fullscreenSupported ? `<button class="icon-btn" id="fullscreen-btn" data-action="fullscreen" aria-label="Fullscreen">${icon("fullscreen", 22)}</button>` : ""}
-      <button class="icon-btn" data-action="pause" aria-label="Pause">${icon("pause", 22)}</button>
+      <!-- TAP pauses, HOLD restarts the bay (main.ts's startHold). The second
+           half is in the accessible name because it has nowhere else to go on
+           touch: the .kbd-hint strip that names it is display:none on a coarse
+           pointer and aria-hidden everywhere, and this rail carries no visible
+           labels. Costs no pixels on any device and is the only route an
+           assistive-technology user has to a gesture that is otherwise
+           undiscoverable. -->
+      <button class="icon-btn" data-action="pause" aria-label="Pause — hold to restart the bay">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
@@ -1818,6 +1846,31 @@ export function hintStripHTML(
     if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
     if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
     part("drag to aim");
+    /* HOLD THE PAUSE BUTTON TO RESTART THE BAY (main.ts's startHold on
+       [data-action="pause"]). A gesture nobody is told about is a gesture
+       nobody uses.
+
+       PLAIN TEXT, NOT A .kbd CHIP. Every chip in this strip is a live binding
+       out of game/bindings.ts — that is the whole reason this function exists
+       — and "hold" is a gesture on a button, not a key anyone can rebind. A
+       keycap around it would be the one lie the strip is built to make
+       impossible. "drag to aim" above is the same kind of hint and is written
+       the same way. It is also ~49px cheaper on a strip that is width-budgeted
+       (mono 12px x 4 chars + the chip's 12px padding and 4px border).
+
+       NOT GUARDED ON `profile === "touch"`, which is where this hint was first
+       drafted. The strip is `display: none` except under `@media (pointer:
+       fine)` or `[data-profile="gamepad"]` (app.css) — it is hidden on COARSE
+       pointers, where the rail is the control surface — so a touch-only hint
+       renders into markup no touch player ever sees, while a string check on
+       it goes green. The gesture is a pointerdown hold, which a mouse makes as
+       readily as a thumb, so the fine-pointer strip is the one audience that
+       can both read this and perform it. Touch players are told through the
+       pause button's own accessible name instead (see hudHTML's .side-rail).
+
+       NOT IN THE GAMEPAD ARM: Start is a button press, and nothing binds a
+       held pad button to resetBay. */
+    part("hold pause to restart");
   }
   return `<div class="kbd-hint" aria-hidden="true">${parts.join(`\n        ${sep}\n        `)}</div>`;
 }
