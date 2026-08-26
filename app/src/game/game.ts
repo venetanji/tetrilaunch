@@ -1210,20 +1210,25 @@ export class Game {
    * inherits that estimate rather than forming its own, which is what makes
    * "aim where the dots go" true for a windy bay as well as a still one.
    *
-   * `windCur` and not `windNow`: the preview has always integrated the RAW
-   * walk while applyWind pushes bodies with the stabilizer-adjusted reading
-   * (windNow), so on a hull carrying LAUNCHER windAssist the dotted arc
-   * already overstates the drift the shot will take. That is a pre-existing
-   * discrepancy and fixing it here would change every player's preview as a
-   * side effect of an input change; what matters for this seam is that the
-   * solver agrees with the DOTS, and the dots read windCur.
+   * `windNow` and not `windCur` — found in review, and it settles a seam this
+   * model's first draft deliberately left open. The preview had always
+   * integrated the RAW walk while applyWind pushes bodies with the
+   * stabilizer-adjusted reading (windNow), so on a hull carrying LAUNCHER
+   * windAssist the dotted arc overstated the drift by the exact share the
+   * player had PAID to remove. Survivable while the dots were decoration; not
+   * once the mouse promises "the arc lands where you point" — the solver would
+   * pick an angle for wind up to 60% stronger than the shipment meets and
+   * miss the cursor by cells, worst on precisely the rigs that invested in
+   * accuracy. One reading for the dots, the solver and the shot (windNow's own
+   * doc always claimed this; the code now agrees), so all three land together
+   * — which is the entire contract this object exists to enforce.
    */
   private previewModel(): {
     frictionAir: number;
     steps: number;
     windAt: (step: number) => number;
   } {
-    const wind = this.windCur;
+    const wind = this.windNow;
     return { frictionAir: PREVIEW_FRICTION_AIR, steps: PREVIEW_STEPS, windAt: () => wind };
   }
 
