@@ -6895,7 +6895,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
 
   // THE TOWER. Tier S is the floor on the roof: found by the beacon gesture,
   // and from then on picked, parked and flown exactly like a Mark.
-  const shut: S.TowerState = { unlocked: 5, selected: 5, god: false };
+  const shut: S.TowerState = { unlocked: 5, selected: 5, skydeck: false };
   const open: S.TowerState = { ...shut, sandbox: true };
   const parked: S.TowerState = { ...open, selected: S.SANDBOX_TIER };
   check("the roof is shut until the beacon is found", !S.tierOpen(shut, S.SANDBOX_TIER));
@@ -6904,11 +6904,11 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the shaft still holds only the ladder", S.TOWER_FLOORS === MARK_COUNT + 1);
   check("no floor shares Tier S's id",
     !Array.from({ length: S.TOWER_FLOORS }, (_, i) => i + 1).includes(S.SANDBOX_TIER));
-  // The roof is ABOVE God, which is index 0. Nothing rides there — the index
-  // exists so travel time and the plate roll know S is above Mark 10 rather
-  // than, as its raw id would suggest, below Mark 1.
-  check("the roof sits above the God floor",
-    S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.GOD_TIER));
+  // The roof is ABOVE the Skydeck, which is index 0. Nothing rides there — the
+  // index exists so travel time and the plate roll know S is above Mark 10
+  // rather than, as its raw id would suggest, below Mark 1.
+  check("the roof sits above the Skydeck",
+    S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.SKYDECK_TIER));
   // The lift does not serve it: picking S switches the tower off rather than
   // moving the car, so the shaft's index must NOT be the roof's.
   check("the lift goes out of service rather than to the roof",
@@ -6940,7 +6940,54 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // The gates the ladder already had must be untouched by the new floor: an
   // unearned Mark stays shut whether or not the sandbox is open.
   check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
-  check("the God floor still needs the ladder beaten", !S.tierOpen(open, S.GOD_TIER));
+  check("the Skydeck still needs the ladder beaten", !S.tierOpen(open, S.SKYDECK_TIER));
+
+  // THE TOP FLOOR'S NAME, pinned on the two things that can break it.
+  //
+  // ONE NAME ON EVERY SURFACE. The floor is drawn in three places that do not
+  // share a string — the shaft plate (floorHTML), the tier plate on the Deep
+  // Run button (tierPlateHTML) and that button's subtitle — and the accessible
+  // labels are the only place the full name fits, so they are what the player
+  // who cannot read a 7px pixel token gets. A build where the plate and the
+  // shaft disagree about what the floor is called is two floors as far as a
+  // screen reader is concerned.
+  const beaten: S.TowerState = { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true };
+  const topHTML = S.tierTowerHTML(beaten);
+  check("the shaft names the top floor", topHTML.includes('aria-label="Skydeck"'));
+  check("the plate names it the same thing",
+    S.tierPlateHTML(S.SKYDECK_TIER, "menu").includes('aria-label="Skydeck"'));
+  // AND NOTHING ELSE MAY NAME IT. The floor was the "God floor" until an owner
+  // pass caught that the game has no religious frame anywhere else in it and
+  // the name promised one (screens.ts's SKYDECK_TIER). Asserted over the whole
+  // menu rather than over the three call sites, because the failure this
+  // catches is a fourth surface — a subtitle, a guide topic, an aria-label —
+  // reintroducing it somewhere nobody thought to look.
+  const wholeMenu = S.menuScreen(0, 0, undefined, undefined, undefined, beaten);
+  check("no surface calls it anything else", !/\bgods?\b/i.test(wholeMenu));
+
+  // THE TOKEN IS BUDGETED, NOT CHOSEN. The shaft plate's number slot is
+  // Press Start 2P at 7px, which advances exactly 1em per glyph, inside a floor
+  // whose content box is 72px on the narrowest device in sim/uifit's fleet —
+  // 22px car lane, ~14px number, 16px window block, two 4px gaps. That leaves
+  // room for three glyphs where the ladder's own widest number ("10") takes
+  // two, so a longer name does not merely look different: it squeezes
+  // .tower__n and lands as a uifit spill. Pinned as the BUDGET rather than as
+  // the literal "SKY", so the next rename is measured against the shaft rather
+  // than against this line.
+  const TOP_TOKEN_GLYPHS = 3;
+  const token = /<span class="tower__n">([^<]*)<\/span>/.exec(topHTML)?.[1] ?? "";
+  check(`the top floor's token fits its slot ("${token}")`,
+    token.length > 0 && token.length <= TOP_TOKEN_GLYPHS,
+    `${token.length} glyphs against a ${TOP_TOKEN_GLYPHS}-glyph slot`);
+  // The tier plate's label slot is the same face at 4ch (app.css), and it is
+  // shared with "TIER" — the string that sized it. A label longer than that is
+  // the device-reported width wobble coming back.
+  const PLATE_LABEL_CH = 4;
+  const plateLbl = /<span class="tier-plate__lbl">([^<]*)<\/span>/
+    .exec(S.tierPlateHTML(S.SKYDECK_TIER, "menu"))?.[1] ?? "";
+  check(`the plate label fits the slot "TIER" sized ("${plateLbl}")`,
+    plateLbl.length > 0 && plateLbl.length <= PLATE_LABEL_CH,
+    `${plateLbl.length} characters against ${PLATE_LABEL_CH}ch`);
 
   // THE MENU'S PRIMARY BUTTON follows the parked floor: the same button flies a
   // Mark and opens the level select, because the floor decides what it does.
@@ -7479,7 +7526,7 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   // app.css's, and whether they collide with the windows is sim/uifit's
   // question. What can be asserted here is that the markup says it at all,
   // says it once, and says it in words as well as in a class name.
-  const base: S.TowerState = { unlocked: 3, selected: 3, god: false, sealed: [2] };
+  const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
   check("a sealed floor is marked", html.includes("tower__seal"));
   check(
@@ -7496,17 +7543,19 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     "the seal is named, not merely drawn",
     html.includes('aria-label="Tier 2 — sealed"'),
   );
-  // God is not a Mark. meta.ts can never record a seal for it, so a build in
-  // which the God floor could wear one is drawing a state nothing produces.
+  // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
+  // build in which the Skydeck could wear one is drawing a state nothing
+  // produces.
   check(
-    "the God floor is never sealed",
-    !S.tierTowerHTML({ ...base, god: true, sealed: [S.GOD_TIER] }).includes("tower__seal"),
+    "the Skydeck is never sealed",
+    !S.tierTowerHTML({ ...base, skydeck: true, sealed: [S.SKYDECK_TIER] })
+      .includes("tower__seal"),
   );
   // Absent reads as none — menuScreen's fallback tower and every uifit fixture
   // that predates the seal must render exactly the tower they always did.
   check(
     "a tower with no seal record draws no seals",
-    !S.tierTowerHTML({ unlocked: 3, selected: 3, god: false }).includes("tower__seal"),
+    !S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false }).includes("tower__seal"),
   );
 }
 
@@ -7570,18 +7619,18 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
       && seen.claimedContracts.length === opened.claimedContracts.length,
   );
 
-  // THE TOP OF THE LADDER still opens something: beating Mark 10 opens the God
-  // floor. markUnlocked saturates at MARK_COUNT there, which is why main.ts —
-  // the only caller holding a tower — maps that one case onto GOD_TIER rather
-  // than riding to the floor the car is already parked on.
+  // THE TOP OF THE LADDER still opens something: beating Mark 10 opens the
+  // Skydeck. markUnlocked saturates at MARK_COUNT there, which is why main.ts —
+  // the only caller holding a tower — maps that one case onto SKYDECK_TIER
+  // rather than riding to the floor the car is already parked on.
   let top = newMeta();
   for (let i = 0; i < MARK_COUNT; i++) top = markUnlockCelebrated(completeTier(top));
   check("the whole ladder can be climbed", top.mark === MARK_COUNT);
-  const godOpened = completeTier(
-    { ...top, mark: MARK_COUNT - 1, celebratedMark: MARK_COUNT - 1 }, "-god",
+  const skyOpened = completeTier(
+    { ...top, mark: MARK_COUNT - 1, celebratedMark: MARK_COUNT - 1 }, "-sky",
   );
   check("the last unlock is owed a ceremony too",
-    pendingUnlockMark(godOpened) === MARK_COUNT && godOpened.mark === MARK_COUNT);
+    pendingUnlockMark(skyOpened) === MARK_COUNT && skyOpened.mark === MARK_COUNT);
 
   // ------------------------------------------------------------------ the ride
   //
@@ -7589,11 +7638,11 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
   // the four constants it is made of — a hold, a base, a per-floor step and an
   // arrival — so a plausible-looking tweak to any of them can walk the whole
   // ladder's ceremonies out of it without a single line looking wrong.
-  const floors = [...Array.from({ length: MARK_COUNT - 1 }, (_, i) => i + 2), S.GOD_TIER];
+  const floors = [...Array.from({ length: MARK_COUNT - 1 }, (_, i) => i + 2), S.SKYDECK_TIER];
   for (const to of floors) {
     const ms = S.towerCelebrationMs(to);
     check(
-      `the ${to === S.GOD_TIER ? "God floor" : `Tier ${to}`} ceremony reads as an event (${ms}ms)`,
+      `the ${to === S.SKYDECK_TIER ? "Skydeck" : `Tier ${to}`} ceremony reads as an event (${ms}ms)`,
       ms >= 3000 && ms <= 6000,
     );
   }
@@ -7623,12 +7672,12 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
   check("no floor lights outside the ride",
     passes.slice(0, dest).every((p) => (p ?? -1) >= S.TOWER_RISE_HOLD_MS
       && (p ?? Infinity) <= S.towerCelebrationMs(dest)));
-  check("the God floor's wave covers the whole ladder",
-    S.towerRisePassMs(S.GOD_TIER, MARK_COUNT) !== null
-      && S.towerRisePassMs(S.GOD_TIER, S.GOD_TIER) !== null);
+  check("the Skydeck's wave covers the whole ladder",
+    S.towerRisePassMs(S.SKYDECK_TIER, MARK_COUNT) !== null
+      && S.towerRisePassMs(S.SKYDECK_TIER, S.SKYDECK_TIER) !== null);
 
   // ------------------------------------------------------------- the markup
-  const resting: S.TowerState = { unlocked: 4, selected: 4, god: false, contracts: 0 };
+  const resting: S.TowerState = { unlocked: 4, selected: 4, skydeck: false, contracts: 0 };
   const riding: S.TowerState = { ...resting, celebrate: true };
   // THE RESTING TOWER IS UNTOUCHED, byte for byte. sim/uifit measures a
   // building that never celebrates (no fixture passes `celebrate`), so its

@@ -112,14 +112,14 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
 .tier-plate{display:inline-flex;align-items:center;justify-content:center;flex-direction:row;gap:4px;flex:none;
   border:var(--bw) solid currentColor;border-radius:var(--r-md);background:rgba(4,4,10,0.28);padding:3px 6px}
 /* Both halves get a FIXED slot: the plate sizes to its contents, so "1" ->
-   "10" and "Tier" -> "God" each moved the button underneath, and riding the
+   "10" and "Tier" -> "Sky" each moved the button underneath, and riding the
    car made the primary control visibly grow and shrink. A monospace face means
    one slot fits every value it can hold. */
 .tier-plate__lbl{font-family:var(--font-pixel);font-size:6px;letter-spacing:0.08em;text-transform:uppercase;
   line-height:1;opacity:0.8;min-width:calc(4ch + 0.32em);text-align:center}
 .tier-plate__n{font-family:var(--font-mono);font-weight:800;line-height:1;font-size:14px;
   letter-spacing:0;min-width:2ch;text-align:center}
-.tier-plate--god{background:rgba(255,176,32,0.22)}
+.tier-plate--sky{background:rgba(255,176,32,0.22)}
 
 /* ---- the three columns ---- */
 .menu{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 118px 300px;
@@ -218,13 +218,13 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
   font:inherit;cursor:pointer;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
 .tower__gap{width:22px;flex:none}
 .tower__n{font-family:var(--font-mono);font-size:12px;font-weight:800;line-height:1;color:inherit}
-.tower__floor--god .tower__n{font-family:var(--font-pixel);font-size:7px;letter-spacing:0.04em}
+.tower__floor--sky .tower__n{font-family:var(--font-pixel);font-size:7px;letter-spacing:0.04em}
 .tower__windows{display:flex;gap:2px;margin-left:auto;flex:none}
 .tower__windows i{width:4px;height:4px;background:currentColor;border-radius:1px;opacity:0.4}
 .tower__floor.is-selected{border-color:var(--accent);color:var(--accent);background:rgba(0,240,255,0.12);
   box-shadow:inset 0 0 0 1px rgba(0,0,0,0.5)}
 .tower__floor.is-selected .tower__windows i{opacity:0.95}
-.tower__floor--god.is-selected{border-color:var(--warn);color:var(--warn);background:rgba(255,176,32,0.16)}
+.tower__floor--sky.is-selected{border-color:var(--warn);color:var(--warn);background:rgba(255,176,32,0.16)}
 .tower__floor.is-locked{color:var(--text-faint);background:rgba(255,255,255,0.012);opacity:0.55;cursor:not-allowed}
 .tower__floor.is-locked .tower__windows i{opacity:0.18}
 .tower__base{flex:none;height:6px;background:var(--surface-3);border:var(--bw) solid var(--line-strong);
@@ -262,16 +262,16 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text);min-
       </div>
     </div>
 
-    <!-- THE TIER TOWER. Floors run top-down — God, 10, 9 … 1 — because a tower
+    <!-- THE TIER TOWER. Floors run top-down — the Skydeck, 10, 9 … 1 — because a tower
          whose ground floor is not at the bottom is not a tower. The car is
          parked on Tier 5 (--tower-idx 6, counting from the roof); floors 6-10
-         and God are locked, and refuse with a shake rather than a message. -->
+         and the Skydeck are locked, and refuse with a shake rather than a message. -->
     <div class="tower" role="group" aria-label="Tier tower — pick the Mark to fly">
       <div class="tower__shaft" style="--tower-idx:6">
         <div class="tower__head" aria-hidden="true"><i></i><b></b><i></i></div>
         <div class="tower__rail" aria-hidden="true"></div>
         <div class="tower__car" aria-hidden="true"><span></span></div>
-        <button class="tower__floor tower__floor--god is-locked" aria-label="God tier — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">GOD</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
+        <button class="tower__floor tower__floor--sky is-locked" aria-label="Skydeck — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">SKY</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
         <button class="tower__floor is-locked" aria-label="Tier 10 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">10</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
         <button class="tower__floor is-locked" aria-label="Tier 9 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">9</span><span class="tower__windows"><i></i><i></i><i></i></span></button>
         <button class="tower__floor is-locked" aria-label="Tier 8 — locked" aria-disabled="true"><span class="tower__gap"></span><span class="tower__n">8</span><span class="tower__windows"><i></i><i></i><i></i></span></button>

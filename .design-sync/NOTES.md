@@ -34,7 +34,7 @@
     the bay never fills) — a bay playing itself is already the explanation.
     That freed the row under it for the entitlement entry, which is a
     full-size button there rather than the footnote it started as.
-  * CENTRE is the tower: eleven floors, God on the roof, car rides to the
+  * CENTRE is the tower: eleven floors, the Skydeck on top, car rides to the
     tapped floor and sets the Mark the Deep Run flies.
   * RIGHT is the loop in the order you do it: the base-bay recap of the parked
     floor, then Deep Run / Contracts / Workshop.

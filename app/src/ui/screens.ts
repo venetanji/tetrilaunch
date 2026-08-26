@@ -44,16 +44,23 @@ import type { PreviewRow } from "../game/preview";
  * parts, so the ladder has ONE face wherever it shows up.
  * ------------------------------------------------------------------------ */
 export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"): string {
-  // The God floor wears the SAME plate, not a badge of its own — it is a floor
+  // The Skydeck wears the SAME plate, not a badge of its own — it is a floor
   // of the same tower, and the ladder having one face is the whole point of
   // this component. Only the two parts' contents change, plus a tint class.
   // Tier S joined them on the same terms when it became a floor: an "S" in the
   // number slot, which is why that slot is sized in `ch` rather than by digit.
-  const god = tier === GOD_TIER;
+  //
+  // "SKY" IS THE LABEL, NOT "SKYDECK", and the reason is the slot rather than
+  // taste: .tier-plate__lbl is a fixed 4ch of Press Start 2P, which advances
+  // exactly 1em per glyph — anything longer than four characters would grow the
+  // plate and move the button under it, which is the device-reported bug the
+  // fixed slots exist to prevent. The full name rides the accessible label,
+  // where there is no width to spend.
+  const sky = tier === SKYDECK_TIER;
   const sbx = tier === SANDBOX_TIER;
-  const label = god ? "God tier" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
-  const tint = god ? " tier-plate--god" : sbx ? " tier-plate--sbx" : "";
-  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${god ? "God" : "Tier"}</span><span class="tier-plate__n">${god ? "★" : sbx ? "S" : tier}</span></span>`;
+  const label = sky ? "Skydeck" : sbx ? "Tier S — sandbox" : `Tier ${tier}`;
+  const tint = sky ? " tier-plate--sky" : sbx ? " tier-plate--sbx" : "";
+  return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? "★" : sbx ? "S" : tier}</span></span>`;
 }
 
 /* ---------------------------------------------------------------------------
@@ -131,14 +138,31 @@ export function splashScreen(): string {
  * unlock — `open()` below is the gate, and main.ts re-checks it before
  * starting a run, because a DOM attribute is not a permission.
  *
- * FLOOR ORDER is top-down: God, 10, 9 … 1. A tower whose ground floor is not
- * at the bottom is not a tower.
+ * FLOOR ORDER is top-down: the Skydeck, 10, 9 … 1. A tower whose ground floor
+ * is not at the bottom is not a tower.
  * ------------------------------------------------------------------------ */
 
-/** The God floor's index in the shaft. Not a Mark — MARK_COUNT is the top of
- *  the real ladder — so it gets a number above every Mark and is compared by
- *  identity everywhere rather than by "> 10". */
-export const GOD_TIER = MARK_COUNT + 1;
+/**
+ * THE SKYDECK — the floor above the ladder's top rung.
+ *
+ * Its index in the shaft. Not a Mark — MARK_COUNT is the top of the real
+ * ladder — so it gets a number above every Mark and is compared by identity
+ * everywhere rather than by "> 10".
+ *
+ * THE NAME IS THE FLOOR'S POSITION, and that is the whole of it: the top plate
+ * of the shaft, amber where the ladder is cyan, with the headhouse and its
+ * beacon on the roof directly above. It was called the God floor until an owner
+ * pass caught the obvious problem — the game has no deities, no ascension and
+ * no religious frame anywhere else in it, so the name promised a theme the
+ * building does not have and read as a claim about the player rather than a
+ * place in a plant. A deck at the top of a tower is the same reward with no
+ * borrowed meaning, and it is the one name that also survives the shaft's
+ * geometry: "SKY" is three Press Start 2P glyphs, exactly what "GOD" was, so
+ * the floor plate measures byte-identically and sim/uifit's spill budget on the
+ * 640x360 phone (22px car lane + number + 16px window block inside 72px of
+ * content) is untouched.
+ */
+export const SKYDECK_TIER = MARK_COUNT + 1;
 
 /**
  * TIER S — the sandbox, and the floor above the roof.
@@ -174,19 +198,19 @@ export const GOD_TIER = MARK_COUNT + 1;
  */
 export const SANDBOX_TIER = -1;
 
-/** How many floors the shaft holds: the Marks, plus God on the roof. Tier S is
- *  deliberately NOT counted — it is drawn above the shaft's own box, in the
+/** How many floors the shaft holds: the Marks, plus the Skydeck on top. Tier S
+ *  is deliberately NOT counted — it is drawn above the shaft's own box, in the
  *  headhouse, and takes no height from the floors (see SANDBOX_TIER). */
 export const TOWER_FLOORS = MARK_COUNT + 1;
 
 export interface TowerState {
   /** The highest Mark the player may fly (meta.ts's markUnlocked). */
   unlocked: number;
-  /** The floor the car is parked on — a Mark, GOD_TIER, or SANDBOX_TIER once
+  /** The floor the car is parked on — a Mark, SKYDECK_TIER, or SANDBOX_TIER once
    *  the beacon has been found. */
   selected: number;
-  /** Whether the God floor is open (the whole ladder beaten). */
-  god: boolean;
+  /** Whether the Skydeck is open (the whole ladder beaten). */
+  skydeck: boolean;
   /** Whether Tier S is a floor at all (lib/store.ts's Settings.devMode, set by
    *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
    *  caller that predates the mode renders the tower it always did. */
@@ -247,7 +271,7 @@ export interface TowerState {
  *  a floor, so the two questions that used to be separate are one again. */
 export function tierOpen(state: TowerState, tier: number): boolean {
   if (tier === SANDBOX_TIER) return sandboxOpen(state);
-  return tier === GOD_TIER ? state.god : tier >= 1 && tier <= state.unlocked;
+  return tier === SKYDECK_TIER ? state.skydeck : tier >= 1 && tier <= state.unlocked;
 }
 
 /** True when the Tier S door is there to be opened. */
@@ -259,15 +283,15 @@ export function sandboxOpen(state: TowerState): boolean {
  *  position is this one number (app.css does the arithmetic from --tower-idx),
  *  so the travel animation is a single custom property to write.
  *
- *  MINUS ONE for Tier S — above God, which is 0. The CAR never uses it: the
- *  lift does not serve the roof, and tierTowerHTML parks it at the top of the
+ *  MINUS ONE for Tier S — above the Skydeck, which is 0. The CAR never uses
+ *  it: the lift does not serve the roof, and tierTowerHTML parks it at the top of the
  *  shaft and switches it off instead. What does use it is everything that needs
  *  the roof ORDERED against the ladder: towerTravelMs (how long the trip takes)
  *  and the plate roll's direction, both of which have to know that S is above
  *  Mark 10 and not, as its raw id would suggest, below Mark 1. */
 export function towerIndexOf(tier: number): number {
   if (tier === SANDBOX_TIER) return -1;
-  return tier === GOD_TIER ? 0 : MARK_COUNT - tier + 1;
+  return tier === SKYDECK_TIER ? 0 : MARK_COUNT - tier + 1;
 }
 
 /**
@@ -348,7 +372,7 @@ export function towerRiseMs(to: number): number {
  * the menu when it finishes, and it reads as a transition. Past about six it
  * stops being a celebration and becomes something to sit through, on a screen
  * whose only job is to get out of the way. Tier 2 (one floor) comes out at
- * 3.04s and the God floor (ten) at 4.75s, so the whole ladder fits with room
+ * 3.04s and the Skydeck (ten) at 4.75s, so the whole ladder fits with room
  * at both ends — sim/systems.ts pins that, because the band is invisible from
  * any one of the three constants it is made of.
  */
@@ -392,10 +416,10 @@ export function towerRisePassMs(to: number, tier: number): number | null {
 
 function floorHTML(state: TowerState, tier: number): string {
   const open = tierOpen(state, tier);
-  const god = tier === GOD_TIER;
+  const sky = tier === SKYDECK_TIER;
   const sel = tier === state.selected;
   const cls = ["tower__floor"];
-  if (god) cls.push("tower__floor--god");
+  if (sky) cls.push("tower__floor--sky");
   if (sel) cls.push("is-selected");
   if (!open) cls.push("is-locked");
   // The three squares are WINDOWS, and they are LIGHTS now, not decoration:
@@ -404,13 +428,13 @@ function floorHTML(state: TowerState, tier: number): string {
   // cannot be beaten without its Contracts (meta.ts's advanceTier), so the
   // building lights up floor by floor as the player climbs. The current
   // floor shows the tier's live count (TowerState.contracts), floors above
-  // are dark, and God's burn only once the whole ladder has (it has no
-  // Contracts of its own to count). They used to sit at a uniform half-lit
+  // are dark, and the Skydeck's burn only once the whole ladder has (it has
+  // no Contracts of its own to count). They used to sit at a uniform half-lit
   // opacity, which read as "on" for floors the player had not touched — the
   // owner's pass caught it — and a dark socket still does the old job: a
   // dark building is a building.
-  const lit = god
-    ? (state.god ? TIER_CONTRACTS_REQUIRED : 0)
+  const lit = sky
+    ? (state.skydeck ? TIER_CONTRACTS_REQUIRED : 0)
     : tier < state.unlocked
       ? TIER_CONTRACTS_REQUIRED
       : tier === state.unlocked
@@ -419,11 +443,11 @@ function floorHTML(state: TowerState, tier: number): string {
   const windows = `<span class="tower__windows">${
     Array.from({ length: TIER_CONTRACTS_REQUIRED }, (_, i) => `<i${i < lit ? ' class="on"' : ""}></i>`).join("")
   }</span>`;
-  const label = god ? "God tier" : `Tier ${tier}`;
+  const label = sky ? "Skydeck" : `Tier ${tier}`;
   // The current floor's windows are live information, so its accessible name
   // carries the same count — the other floors' lights are implied by
   // locked/open, which the label already states.
-  const contractsNote = !god && tier === state.unlocked
+  const contractsNote = !sky && tier === state.unlocked
     ? ` — Contracts ${lit}/${TIER_CONTRACTS_REQUIRED}`
     : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
@@ -433,13 +457,13 @@ function floorHTML(state: TowerState, tier: number): string {
   // a red-green viewer anyway. It has to survive a greyscale screenshot.
   // app.css draws it.
   //
-  // Never on the God floor. God is not a Mark, meta.ts records no seal for it,
-  // and a stamp there would be a state nothing can ever produce.
+  // Never on the Skydeck. The Skydeck is not a Mark, meta.ts records no seal
+  // for it, and a stamp there would be a state nothing can ever produce.
   //
   // It joins the floor's accessible NAME as well, because the shape itself is
   // aria-hidden: a distinction a screen reader has no way to reach is a
   // distinction half the audience does not get.
-  const isSealed = !god && (state.sealed ?? []).includes(tier);
+  const isSealed = !sky && (state.sealed ?? []).includes(tier);
   const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
   // THE CEREMONY'S TIMING, per floor and inline — the one thing about this
   // drawing that cannot be a stylesheet constant, because it depends on where
@@ -458,7 +482,7 @@ function floorHTML(state: TowerState, tier: number): string {
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
     + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
-    + `<span class="tower__n">${god ? "GOD" : tier}</span>`
+    + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
     + seal
     + `</button>`;
@@ -515,7 +539,7 @@ function towerHeadHTML(state: TowerState): string {
 export function tierTowerHTML(state: TowerState): string {
   // Roof first, ground floor last.
   const floors: string[] = [];
-  for (let t = GOD_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
+  for (let t = SKYDECK_TIER; t >= 1; t--) floors.push(floorHTML(state, t));
   // THE LIFT DOES NOT SERVE THE ROOF. Picking Tier S shuts the building down:
   // the car goes dark where it stands and the beacon takes over, blinking
   // bigger and brighter. It is not a floor the elevator reaches, and animating
@@ -528,7 +552,7 @@ export function tierTowerHTML(state: TowerState): string {
   // when the building is off": wherever it last was, and on a first render that
   // is as far up as it goes.
   const off = state.selected === SANDBOX_TIER;
-  const idx = towerIndexOf(off ? GOD_TIER : state.selected);
+  const idx = towerIndexOf(off ? SKYDECK_TIER : state.selected);
   // THE CEREMONY (TowerState.celebrate). The car's RESTING position is still
   // the selected floor — `--tower-idx` is untouched — and the ride is drawn as
   // an animation that starts at the ground floor and ends at that rest, so the
@@ -664,7 +688,7 @@ function unknownBayPanelHTML(best: number, extras: string): string {
 }
 
 export function baseBayPanelHTML(opts: {
-  /** The floor the panel is describing — a Mark, GOD_TIER, or SANDBOX_TIER. */
+  /** The floor the panel is describing — a Mark, SKYDECK_TIER, or SANDBOX_TIER. */
   tier: number;
   best: number;
   /** The entitlement chips, if this build has any. */
@@ -672,10 +696,10 @@ export function baseBayPanelHTML(opts: {
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
-  const god = opts.tier === GOD_TIER;
-  // God flies the top of the ladder, so it reads off MARK_COUNT's bays — the
-  // floor is a different CONTRACT, not a different bay table.
-  const mark = god ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
+  const sky = opts.tier === SKYDECK_TIER;
+  // The Skydeck flies the top of the ladder, so it reads off MARK_COUNT's bays
+  // — the floor is a different CONTRACT, not a different bay table.
+  const mark = sky ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
   const bay = baseBayFor(mark);
   const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
   // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
@@ -737,7 +761,7 @@ export function menuScreen(
   const twr: TowerState = tower ?? {
     unlocked: progress?.tier ?? 1,
     selected: progress?.tier ?? 1,
-    god: false,
+    skydeck: false,
     contracts: progress?.contracts ?? 0,
   };
   // The Deep Run flies the SELECTED floor, so everything on that button reads
@@ -746,7 +770,7 @@ export function menuScreen(
   // menu — that would tear down the attract demo mid-animation), which is why
   // they carry ids rather than being found by shape.
   const sel = twr.selected;
-  const godSel = sel === GOD_TIER;
+  const skySel = sel === SKYDECK_TIER;
   const sbxSel = sel === SANDBOX_TIER;
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
@@ -842,7 +866,7 @@ export function menuScreen(
         }<span class="btn__txt"><span id="menu-play-ttl">${sbxSel ? "Sandbox" : "Deep Run"}</span><span class="btn__sub" id="menu-play-sub">${
           sbxSel
             ? "Any Mark, bay or Contract · own board"
-            : godSel
+            : skySel
               ? "All ten marks at once · no mercy"
               : `Clear ${RUN_LEVELS} bays in one run`
         }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
