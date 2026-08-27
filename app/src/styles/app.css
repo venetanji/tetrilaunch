@@ -7390,6 +7390,16 @@ button.panel { color: var(--text); }
     70% 100%, 30% 100%, 0% 70%, 0% 30%
   );
 }
+/* HELD: the same solid stamp, with the alarm taken off it. This Mark's stamp is
+   already on the tower (run.ts's sealStateFor "held"), so nothing this screen
+   can do will take it — SOLID because the seal is not gone, MUTED because
+   nothing is at risk. It is the two axes of this glyph pulled apart: the shape
+   says whether you hold a stamp, the wash says whether it is in danger.
+
+   currentColor rather than --danger, which is the only declaration that
+   changes; the box and the clip are the base rule's, so nothing here moves a
+   pixel of layout. */
+.btn__seal--held { background: currentColor; opacity: 0.4; }
 /* BROKEN: struck through and muted. Muted rather than danger-tinted because
    nothing is at risk any more — this is a readout of a price already paid, and
    painting it in the alarm colour would keep asking for attention the state no

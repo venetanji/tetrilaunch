@@ -3,7 +3,7 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
-  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal,
+  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
@@ -2139,6 +2139,10 @@ class App {
       case "won":
       case "lost":
         if (g && this.run) {
+          // Read once, above the modal: the end card needs it twice (whether
+          // to draw the retry at all, and which of its three faces), and it is
+          // the same read the retry's own gate makes.
+          const seal = sealStateFor(this.run, this.meta.sealedMarks);
           this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
           this.mountEndScrim(
             S.endModal({
@@ -2190,19 +2194,18 @@ class App {
               // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
               // its bench one tap away and re-flies the same configuration
               // from the primary; the Skydeck is the day's single attempt, and
-              // a retryable daily is a leaderboard nobody can read. Both are
-              // exactly the runs tracksLadder refuses, which is why the test
-              // is that one rather than two.
+              // a retryable daily is a leaderboard nobody can read.
               //
-              // `sealed` is asked through retryBreaksSeal — the SAME predicate
-              // requestBayRetry gates the confirmation on — so the button's
-              // face and the panel that press opens can never disagree about
-              // whether anything is being spent. It was an inline
-              // `restarts === 0` here and a second inline copy of the same test
-              // there, which is one copy too many for a rule with two readers.
+              // ONE CALL ANSWERS BOTH QUESTIONS. sealStateFor returns null for
+              // exactly the runs tracksLadder refuses, so "is there a seal
+              // question here" and "which of the three is it" are the same
+              // read — and the button's face comes from the SAME function
+              // requestBayRetry gates its confirmation on (retryBreaksSeal is
+              // defined on it), so the face and the panel that press opens can
+              // never disagree about whether anything is being spent.
               retryBay:
-                this.state === "lost" && tracksLadder(this.run)
-                  ? { sealed: retryBreaksSeal(this.run) }
+                this.state === "lost" && seal !== null
+                  ? { seal, mark: this.run.mark }
                   : undefined,
             }),
           );
@@ -3907,18 +3910,27 @@ class App {
    *
    * THE STAKES TEST is what stops the panel firing where there is nothing to
    * charge: a run the ladder does not track keeps no seal at all (Tier S never
-   * increments `restarts`, and the Skydeck is never offered a retry), and a run
-   * that has already retried a bay has already spent it. Quoting a price that
-   * has been paid is how a warning teaches itself to be ignored.
+   * increments `restarts`, and the Skydeck is never offered a retry), a run
+   * that has already retried a bay has already spent it, and a run re-flying a
+   * Mark whose stamp is ALREADY on the tower can never spend anything at all.
+   * Quoting a price that has been paid — or one that cannot be charged — is how
+   * a warning teaches itself to be ignored.
    */
   private requestBayRetry(): void {
     const run = this.run;
     // A RETRY THAT BREAKS NOTHING GOES STRAIGHT THROUGH, and that is the half
     // of this rule that protects the other half. Confirming a free action would
     // train the player to click past the panel, and the one press it has to
-    // stop is the press that spends something. Tier S, the Skydeck and every
-    // retry after the first in a run all land here (run.ts's retryBreaksSeal).
-    if (!run || !retryBreaksSeal(run)) {
+    // stop is the press that spends something. Tier S, the Skydeck, every retry
+    // after the first in a run, and every re-fly of an already-sealed Mark all
+    // land here (run.ts's retryBreaksSeal).
+    //
+    // THE SEALED-MARK CASE was found in review (codex, PR #135) and is the one
+    // this test could not see on its own: recordRunEnd only ever APPENDS to
+    // sealedMarks, so a Mark's stamp survives any later run however messy, and
+    // a fresh re-fly of one was being charged for something no retry can take.
+    // The saved record is what the run alone cannot know, so it is passed in.
+    if (!run || !retryBreaksSeal(run, this.meta.sealedMarks)) {
       this.resetBay();
       return;
     }

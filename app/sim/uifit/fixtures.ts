@@ -1026,7 +1026,19 @@ function endModal(won: boolean, sandbox = false): string {
     // own three, so both of those states are still measured by the other two
     // fixtures rather than being replaced by this one.
     contracts: { remaining: 3, next: !won },
-    retryBay: !won && !sandbox ? { sealed: true } : undefined,
+    // …and the seal line at ITS widest, which is now the "held" state — a
+    // re-fly of an already-sealed Mark (run.ts's sealStateFor, added for the
+    // #135 P2). MEASURED, not guessed, because the last fixture in this file
+    // shipped a wrong guess about exactly this: stripped of tags the three
+    // lines run 113 (held) / 96 (at-stake) / 69 (spent) characters, so the
+    // state this row has to be measured against is the one that names a Mark
+    // and explains why the press is free. Two digits in the Mark for the same
+    // reason the bay number is a worst case.
+    //
+    // The glyph is the same box in all three (same clip, same 11px), so this
+    // choice moves the line and nothing else — which is why one fixture still
+    // covers the row rather than three.
+    retryBay: !won && !sandbox ? { seal: "held" as const, mark: 10 } : undefined,
     // The board a run posts to is its own Mark (main.ts's boardTier).
     boardTier: 1,
     won,

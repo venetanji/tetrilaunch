@@ -86,7 +86,7 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
+  tracksLadder, retryBreaksSeal, sealStateFor, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
 // in this module records — which is exactly what makes runMode safe to import:
@@ -8739,7 +8739,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // They were one button ("Play Again") that only ever meant the fresh start.
   // Two now, because they hand back two different things — and the pair only
   // reads if both halves say which.
-  const lost = end({ retryBay: { sealed: true }, contracts: { remaining: 3, next: true } });
+  const lost = end({ retryBay: { seal: "at-stake", mark: 4 }, contracts: { remaining: 3, next: true } });
   check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
   check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
   check("...and never as one button", !lost.includes(">Play Again<"));
@@ -8764,7 +8764,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // to read back (this run's seal is already gone, further retries are free)
   // was the state with no mark on it. Absence is not something a player can
   // read; two distinct faces are.
-  const spent = end({ retryBay: { sealed: false } });
+  const spent = end({ retryBay: { seal: "spent", mark: 4 } });
   check("a spent seal is drawn, not omitted", spent.includes("btn__seal--broken"));
   check("...and an intact one is drawn differently",
     lost.includes("btn__seal") && !lost.includes("btn__seal--broken"));
@@ -8783,6 +8783,54 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // it is the opposite news, and it is news the player can act on.
   check("the spent state says retries are free now",
     /costs nothing now/.test(spent) && !/breaks this run's seal/.test(spent));
+
+  // ---- THE THIRD FACE: A MARK ALREADY STAMPED ----------------------------
+  // Found in review (codex, PR #135). A re-fly of a sealed Mark was drawn as an
+  // intact seal about to be spent, which is a price no retry can charge.
+  {
+    const held = end({ retryBay: { seal: "held", mark: 3 } });
+    // SOLID, because the stamp is not gone — the glyph means here what it means
+    // on the tower — and MUTED, because nothing is at risk. It is the alarm
+    // taken off the at-stake face, not the struck face reused.
+    check("a held stamp is drawn solid, not struck",
+      held.includes("btn__seal--held") && !held.includes("btn__seal--broken"));
+    check("...and is not the at-stake face either",
+      !/class="btn__seal"/.test(held));
+    // THE COPY IS ABOUT THE MARK, NOT THE RUN, and this is the pin that keeps
+    // it honest: the player is looking at a LOSS, and a line implying this run
+    // sealed something would be flatly untrue.
+    //
+    // Read out of the LINE rather than out of the whole card, because the same
+    // words are in the button's aria-label — a `.test(held)` over the document
+    // passed with the visible line deleted, which is a pin that cannot fail for
+    // the reason it was written. (Caught red-first while checking this block.)
+    const sealLine = (h: string): string =>
+      (/<p class="muted end__seal">([\s\S]*?)<\/p>/.exec(h)?.[1] ?? "")
+        .replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    check("the held line names the Mark whose stamp it is",
+      /Mark 3 is already sealed/.test(sealLine(held)), sealLine(held) || "no line");
+    check("...and says the press is free",
+      /costs nothing/.test(sealLine(held)));
+    // Case-INSENSITIVE, which is not fussiness: the spent line opens with
+    // "This run's seal", so a case-sensitive test passed against the very line
+    // this pin exists to rule out. (Caught red-first, same pass as the scoping
+    // above.)
+    check("...and never claims this run sealed anything",
+      !/this run's seal/i.test(sealLine(held)));
+    // The other two lines are scoped the same way, so all three are held to the
+    // element the player actually reads.
+    check("...where the at-stake line is the one that charges",
+      /breaks this run's seal/.test(sealLine(lost)));
+    check("...and the spent line is the one that reports a price paid",
+      /already broken/.test(sealLine(spent)));
+    // It reaches a screen reader too — the shape is aria-hidden in all three.
+    check("...and the button says so as well",
+      /aria-label="Retry Bay \d+ — Mark 3 is already sealed, so this costs nothing"/.test(held));
+    // The bay is still offered: this is the FORGIVING state, and gating the
+    // button on it would take the retry away exactly where it is free.
+    check("a held seal still offers the bay back",
+      held.includes('data-action="retry-bay"'));
+  }
   // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
   // a run tracksLadder accepts — Tier S re-flies its whole configuration from
   // the primary, and the Skydeck is the day's single attempt, which is the
@@ -8869,33 +8917,83 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   // the button says one thing and the panel does another cannot exist.
   {
     const ladder = newRun(7, [], 0, newTiers(), 4);
-    check("a clean ladder run has a seal to spend", retryBreaksSeal(ladder));
+    /** No Mark sealed — the state every check below is in unless it says so. */
+    const none: number[] = [];
+    check("a clean ladder run has a seal to spend", retryBreaksSeal(ladder, none));
     // TRUE AT MOST ONCE PER RUN — the property that makes confirming EVERY
     // seal-breaking retry cheap rather than nagging, and the reason a panel on
     // every retry is not a toll.
     check("...and only until it is spent",
-      !retryBreaksSeal({ ...ladder, restarts: 1 })
-        && !retryBreaksSeal({ ...ladder, restarts: 9 }));
+      !retryBreaksSeal({ ...ladder, restarts: 1 }, none)
+        && !retryBreaksSeal({ ...ladder, restarts: 9 }, none));
     // A CONFIRMATION FOR A FREE ACTION IS WORSE THAN NONE: it teaches the
     // player to click through the one panel that matters. The modes that keep
     // no seal answer false for the same reason recordRunEnd never seals them.
-    check("Tier S has nothing to confirm", !retryBreaksSeal({ ...ladder, sandbox: true }));
+    check("Tier S has nothing to confirm",
+      !retryBreaksSeal({ ...ladder, sandbox: true }, none));
     check("...and neither has the Skydeck",
-      !retryBreaksSeal(skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)))));
+      !retryBreaksSeal(
+        skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27))), none,
+      ));
     // The rule is exactly the seal's own rule, asked one bay earlier: a run
     // this predicate calls spendable is a run recordRunEnd would still seal.
     check("...and it agrees with what actually seals",
       recordRunEnd(newMeta(), 4, true, RUN_LEVELS, ladder.restarts).meta.sealedMarks.includes(4)
-        === retryBreaksSeal(ladder));
-    // THE CRUX OF THE CHANGE, stated as an independence rather than as a call
-    // site (main.ts's requestBayRetry is where it is read, and no harness can
-    // call that). The confirmation used to be gated on `stakes && watermark`,
-    // so it appeared once per SAVE; it is gated on this predicate alone now, so
-    // it appears once per RUN. A build that folded the watermark back in here
-    // would silently restore the old behaviour, and this is what catches it:
-    // the predicate is a function of the RUN and takes no meta at all.
+        === retryBreaksSeal(ladder, none));
+
+    // ---- A MARK ALREADY SEALED CANNOT BE CHARGED AGAIN -------------------
+    // Found in review (codex, PR #135). A fresh re-fly of a Mark whose stamp is
+    // already on the tower answered "at stake", so the confirmation claimed a
+    // price no retry can take and the end card drew the seal as spendable.
+    //
+    // THE REASON IS meta.ts's OWN APPEND-ONLY RULE, so it is asserted rather
+    // than assumed: the whole finding rests on a stamp being permanent.
+    check("a stamp survives a retried run at the same Mark",
+      recordRunEnd({ ...newMeta(), sealedMarks: [4] }, 4, false, 6, 3)
+        .meta.sealedMarks.includes(4));
+    check("...and a won one, retries and all",
+      recordRunEnd({ ...newMeta(), sealedMarks: [4] }, 4, true, RUN_LEVELS, 3)
+        .meta.sealedMarks.includes(4));
+    // …so the gate must not ask for it.
+    check("a re-fly of a sealed Mark confirms nothing", !retryBreaksSeal(ladder, [4]));
+    check("...however clean the run is",
+      !retryBreaksSeal({ ...ladder, restarts: 0 }, [1, 2, 3, 4, 5]));
+    // THE CONTROL, and the one thing this change must not break: the
+    // seal-hunting re-fly of an UNSEALED Mark is exactly as it shipped. A
+    // player going back for a stamp they do not have still has one to lose.
+    check("...but a re-fly of an UNSEALED Mark is unchanged",
+      retryBreaksSeal(ladder, [1, 2, 3, 5, 6]));
+    // The three states, stated as the states rather than as the predicate, so
+    // the button's faces are pinned as well as the gate.
+    check("a sealed Mark reads held", sealStateFor(ladder, [4]) === "held");
+    check("...and outranks what this run has done",
+      sealStateFor({ ...ladder, restarts: 2 }, [4]) === "held");
+    check("an unsealed Mark on a clean run reads at-stake",
+      sealStateFor(ladder, none) === "at-stake");
+    check("...and reads spent once this run has retried",
+      sealStateFor({ ...ladder, restarts: 1 }, none) === "spent");
+    check("a run with no seal question reads as none at all",
+      sealStateFor({ ...ladder, sandbox: true }, none) === null
+        && sealStateFor({ ...ladder, sandbox: true }, [4]) === null);
+    // One rule, two readers: the gate is DEFINED on the state, so a build that
+    // let them drift would have to do it deliberately.
+    check("the gate is the at-stake state and nothing else",
+      ([none, [4], [1, 2]] as number[][]).every((s) =>
+        [0, 1].every((r) =>
+          retryBreaksSeal({ ...ladder, restarts: r }, s)
+            === (sealStateFor({ ...ladder, restarts: r }, s) === "at-stake"))));
+
+    // THE CRUX OF THE EARLIER CHANGE, stated as an independence rather than as
+    // a call site (main.ts's requestBayRetry is where it is read, and no
+    // harness can call that). The confirmation used to be gated on
+    // `stakes && watermark`, so it appeared once per SAVE; it is gated on this
+    // predicate alone now, so it appears once per RUN. What the predicate may
+    // read has GROWN by exactly one thing — the saved seal record, which is the
+    // #135 fix — and the watermark is still not it: a meta differing only in
+    // `sealBreakSeen` cannot change the answer, because the function is never
+    // handed a meta at all.
     check("whether to confirm does not depend on having confirmed before",
-      retryBreaksSeal.length === 1);
+      retryBreaksSeal.length === 2);
     // …and the watermark still has its own, smaller job: the LESSON.
     check("the watermark now gates only the explainer",
       sealBreakOwed(newMeta()) && !sealBreakOwed(sealBreakShown(newMeta())));

@@ -1,7 +1,7 @@
 import { MATERIAL_SPEC, PIECE_COLORS, PIECE_TYPES, shipmentColor } from "../game/theme";
 import type { LossReason } from "../game/game";
 import { baseBayFor } from "../game/level";
-import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE } from "../game/run";
+import { RUN_LEVELS, SCORE_PER_BAY, SCORE_PER_LINE, type SealState } from "../game/run";
 import {
   toggleHTML, pieceCellsHTML, formatMMSS, beltPieceHTML, beltBombHTML, beltSealedHTML,
   runNotchTallyHTML, shipPlatesHTML, materialIconHTML, axisGlyph, axisIconHTML,
@@ -3783,19 +3783,38 @@ export function endModal(opts: {
    *  a ladder run only — Tier S has its bench one tap away and the Skydeck is
    *  the day's single attempt, which is the whole of what the mode sells.
    *
-   *  `sealed` is whether this run's seal is still INTACT (run.ts's
-   *  retryBreaksSeal). It selects between two states of the button rather than
+   *  `seal` is run.ts's SealState — the SAME read requestBayRetry gates its
+   *  confirmation on, so the button's face and the panel that press opens can
+   *  never disagree. It selects between three states of the button rather than
    *  switching a warning on and off, and that is the change playtest asked
    *  for: the button "should hold the mark of whether the seal has been broken
    *  or not". Absence is not a state a player can read — a button with nothing
-   *  on it looks like a button nobody finished — so both answers are drawn.
+   *  on it looks like a button nobody finished — so every answer is drawn.
    *
-   *   - intact: the stamp, in the danger wash, over a line saying a retry
+   *  THE GLYPH MEANS WHAT IT MEANS ON THE TOWER: a stamp is a seal you hold, a
+   *  struck stamp is one that is gone. The WASH carries the other axis, which
+   *  is whether anything is at risk right now.
+   *
+   *   - at-stake: the stamp, in the danger wash, over a line saying a retry
    *     breaks it. This press costs something.
-   *   - broken: the same stamp struck through and muted, over a line saying so.
-   *     This run's seal is already spent and further retries are free, which is
-   *     a thing worth being able to read at a glance rather than remember. */
-  retryBay?: { sealed: boolean };
+   *   - spent: the same stamp struck through and muted, over a line saying so.
+   *     This run's seal is already gone and further retries are free, which is
+   *     a thing worth being able to read at a glance rather than remember.
+   *   - held: the stamp again, solid but muted — you HOLD this Mark's stamp
+   *     and no press on this screen can take it (run.ts's sealStateFor; found
+   *     in review, codex PR #135). Solid rather than struck because nothing is
+   *     gone, muted rather than danger because nothing is at risk. Its line is
+   *     the one that has to be worded most carefully: it is a fact about the
+   *     MARK, and must not be read as this run having sealed anything. */
+  retryBay?: {
+    seal: SealState;
+    /** The MARK being flown — named by the "held" line, which is a statement
+     *  about that floor's stamp rather than about this run. Passed rather than
+     *  read off `boardTier`: those two agree on every ladder run today, and
+     *  leaning on that would make this copy quietly wrong the first time they
+     *  stop agreeing. */
+    mark: number;
+  };
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   // Demolition recovery, appended to whichever foot line the branch below
@@ -3947,10 +3966,17 @@ export function endModal(opts: {
           // the first one repeated; it is the opposite news, and it is news the
           // player can act on: the price has been paid, and every further retry
           // in this run is free.
+          // THREE READINGS, one per state. The "held" line is a fact about the
+          // MARK — its stamp is on the tower and this screen cannot take it —
+          // and is worded so it cannot be read as this RUN having sealed
+          // something: a re-fly seals nothing until it is won clean, and the
+          // player is looking at a loss.
           opts.retryBay
-            ? opts.retryBay.sealed
+            ? opts.retryBay.seal === "at-stake"
               ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
-              : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
+              : opts.retryBay.seal === "held"
+                ? `<p class="muted end__seal">Mark ${opts.retryBay.mark} is already sealed — its stamp stays on the tower whatever this run does, so retrying a bay costs nothing.</p>`
+                : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
         <button class="btn btn--primary" data-action="restart">${
@@ -4001,12 +4027,20 @@ export function endModal(opts: {
           opts.retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
               aria-label="Retry Bay ${opts.bayNum} — ${
-                opts.retryBay.sealed
+                opts.retryBay.seal === "at-stake"
                   ? "breaks this run's seal"
-                  : "this run's seal is already broken"
+                  : opts.retryBay.seal === "held"
+                    ? `Mark ${opts.retryBay.mark} is already sealed, so this costs nothing`
+                    : "this run's seal is already broken"
               }"
             ><span class="btn__seal${
-              opts.retryBay.sealed ? "" : " btn__seal--broken"
+              // Solid in both of the states where a stamp exists to be drawn,
+              // struck only where one is genuinely gone — and the modifier
+              // carries the wash, so "held" is the same glyph as "at-stake"
+              // with the alarm taken off it.
+              opts.retryBay.seal === "at-stake" ? ""
+                : opts.retryBay.seal === "held" ? " btn__seal--held"
+                  : " btn__seal--broken"
             }" aria-hidden="true"></span>Retry Bay</button>`
             : ""
         }
