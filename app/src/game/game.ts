@@ -35,6 +35,7 @@ import {
   resetLineClear,
   settleZoneCubes,
   wakeNear,
+  nextColdCryo,
   type ClearResult,
   slagBountyFor,
 } from "./lineClear";
@@ -119,6 +120,12 @@ export interface GameEvents {
   /** Fired when the Bond Breaker ability successfully discharges (see
    *  useBondBreaker) — lets the UI play a haptic/SFX cue. */
   onBondBreak?: () => void;
+  /** Fired when a Thaw Lance charge actually lands (see useThawLance) — never
+   *  on a refused call, the same contract onBondBreak keeps. Carries where the
+   *  cube was so the cue can be placed on it: a field-wide shatter reads at the
+   *  centre, one cube thawing has to read AT the cube or the player cannot tell
+   *  which one the lance picked. */
+  onThawLance?: (at: { x: number; y: number }) => void;
   /** Fired the step the bay's funding target is met and the SETTLE window
    *  opens (see update()'s win handling) — the UI stops accepting launches and
    *  shows the settling readout, well before onStatus("won") lands. */
@@ -458,6 +465,11 @@ export class Game {
   /** Demolition charges left this bay (see armBomb/shoot). Seeded from
    *  level.bombCharges — 0 unless the player drafted them. */
   bombCharges: number;
+  /** Thaw Lance charges left (see useThawLance). Seeded from level.thawCharges,
+   *  which run.ts's levelForRun writes from the RUN's stock — so on the ladder
+   *  this opens each bay refilled and on the Skydeck it opens with whatever the
+   *  last bay left, and the Game itself is not the place that knows which. */
+  thawCharges: number;
   /** How many charges the resupply line has already returned this bay. Counts
    *  GRANTS, not charges held, so spending one never re-opens a grant already
    *  paid — see level.ts's bombResupply, which is idempotent against this. */
@@ -709,6 +721,7 @@ export class Game {
     this.autoRng = mulberry32((seed ^ 0x5f356495 ^ (level.id * 0x85ebca6b)) >>> 0);
     this.bondCharges = level.bondBreakerCharges;
     this.bombCharges = level.bombCharges;
+    this.thawCharges = level.thawCharges;
     this.score = level.startingFunds;
     this.timeLeftMs = level.timeLimitSec > 0 ? level.timeLimitSec * 1000 : Infinity;
     this.phys = createPhysics(level);
@@ -1092,6 +1105,56 @@ export class Game {
 
     this.bondCharges -= 1;
     this.events.onBondBreak?.();
+    return true;
+  }
+
+  /**
+   * THAW LANCE — cryo's bought counter (upgrades.ts's `thaw` track).
+   *
+   * Spend one charge and thaw the frozen cube the press is about to reach
+   * (lineClear.ts's nextColdCryo picks it and states why that cube and no
+   * other). The state change is exactly strikeCryo's — the cube is marked
+   * struck and starts counting for lines — MINUS the shipment. That is the
+   * whole system in one sentence, and it is the sentence that makes it a
+   * counter rather than a delete button: cryo's cost is that it "costs a
+   * shipment: land it, then spend a second shot hitting it" (strikeCryo), and
+   * the lance pays that cost out of a charge instead of out of a launch.
+   *
+   * WHAT IT DOES NOT TOUCH, deliberately: shatterColdCryo. A frozen cube the
+   * player ignores still reaches the bar, still breaks, and still knocks its
+   * row off the grid. The lance answers the INERT half of cryo — the row that
+   * will not sell — and leaves the consequence half a real punishment, which is
+   * what keeps the material about sequencing rather than about owning a system.
+   * A rack of six charges is not a bay with no cryo in it.
+   *
+   * ONE CUBE PER CHARGE, so the charge count is comparable to the shipment
+   * count it replaces — the unit the tier ladder was measured in. A field-wide
+   * thaw would be a Bond Breaker for cryo, which is a different and much larger
+   * proposal.
+   *
+   * A no-op returning false — spending nothing — when there are no charges
+   * left, nothing frozen the press can reach, or the game is not actively
+   * playable. Same contract as useBondBreaker, so the HUD can call it blind.
+   * `now` is the caller's wall clock, used only as the FX timestamp.
+   */
+  useThawLance(now: number): boolean {
+    if (this.status !== "playing" || this.paused || this.settling) return false;
+    if (this.thawCharges <= 0) return false;
+    const target = nextColdCryo(this.cubes, this.compactor);
+    // An empty bay must not eat a charge, exactly as an all-welded field must
+    // not eat a Bond Breaker.
+    if (!target) return false;
+
+    target.struck = true;
+    const { x, y } = target.body.position;
+    // A ring at the cube, in the Bond Breaker's own vocabulary at one cube's
+    // scale: the same "a charge discharged here" cue the player already knows,
+    // sized to what this charge actually reaches. The cube's own face carries
+    // the rest — theme.ts draws a struck cryo cube differently from a frozen
+    // one, and that state is the thing worth knowing about it.
+    this.effects.push({ kind: "explosion", x, y, r: CELL * 0.9, t0: now });
+    this.events.onThawLance?.({ x, y });
+    this.thawCharges -= 1;
     return true;
   }
 

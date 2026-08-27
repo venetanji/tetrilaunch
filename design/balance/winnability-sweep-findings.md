@@ -3,6 +3,15 @@
 What `app/sim/winnability.ts` measured on `origin/staging`, and what it is and
 is not entitled to say.
 
+> **§5a RE-MEASURED ON THE SHIPPED THAW LANCE, 2026-08-27.** The lance is no
+> longer a prototype — it is `upgrades.ts`'s `thaw` track, and `sim/counters.ts`'s
+> `thawKit` now grants the real charges and pulls the real trigger. The
+> re-measurement moved two things and is folded into §5a below with the old
+> table kept beside it: the charge ladder shipped at **3/6/9 a bay** rather than
+> 2/4/6, and the numbers are no longer an upper bound on what a lance could be
+> worth — they are what the lance is worth. Every other section of this file is
+> the measurement as taken and is unchanged.
+
 **Re-measured after #124 (Skydeck).** The tables below were first collected at
 the merge of #122; #124 landed a second run mode underneath them, so they were
 re-run on the merged tree. The headline comparisons reproduce **byte for byte** —
@@ -373,7 +382,7 @@ npm run sim:winnability -- --mode counter --marks 5 --bay 5 \
 ```
 
 Tier 5, bay 5 — the bay a run reaches **immediately after** the forced material
-hand at `MATERIAL_DRAFT_BAYS`'s bay 2. 24 paired seeds:
+hand at `MATERIAL_DRAFT_BAYS`'s bay 2. 24 paired seeds, on the PROTOTYPE:
 
 | | cost | win | lines | shots | end $ | losses |
 |---|---:|---:|---:|---:|---:|---|
@@ -407,8 +416,45 @@ Four things at once, and they are all load-bearing:
    the clean bay's 23/24. A ladder that moves one way and stops where the
    hazard stopped is the shape a counter is supposed to have.
 
+### 5a-bis. THE SAME TABLE, ON THE SHIPPED SYSTEM
+
+```sh
+npm run sim:winnability -- --mode counter --marks 5 --bay 5 \
+  --ratchets cryo:1 --counters thaw1,thaw2,thaw3 --seeds 48 --build material
+```
+
+Same command, same rig (`bay2 lau2 hyd2 rea2 bon2 dem2`, 330 pts — the Workshop
+ceiling binds there, not the Mark's allowance, so the eighth track's effect on
+`budgetForMark` moved no control), **48** paired seeds because the first pass at
+24 could not resolve the bottom rung:
+
+| | win | lines | shots | end $ |
+|---|---:|---:|---:|---:|
+| clean control | **46/48** | 8.1 | 25.6 | $1260 |
+| `cryo:1` | **29/48** | 8.3 | 33.3 | $776 |
+| + Lance 1 (2/bay) | 29/48 | 9.4 | 35.8 | $813 |
+| + Lance 2 (4/bay) | 38/48 | 8.0 | 29.6 | $1033 |
+| + Lance 3 (6/bay) | 42/48 | 8.3 | 28.0 | $1149 |
+| **+ Lance 1 (3/bay)** | **35/48** | 8.8 | 32.6 | $962 |
+| **+ Lance 2 (6/bay)** | **42/48** | 8.3 | 28.0 | $1149 |
+| **+ Lance 3 (9/bay)** | **43/48** | 8.2 | 26.9 | $1201 |
+
+**The finding is the first rung.** At the proposal's 2/4/6 the tier-1 lance
+returns 29/48 against an un-lanced 29/48 — a purchase that buys nothing, which
+is the failure `upgrades.ts` names in its own refit-projection note. At 3/6/9 it
+buys six bay-wins, and the ladder is monotone on all three measures: shots fall
+33.3 → 32.6 → 28.0 → 26.9 against the clean bay's 25.6, ending funds climb $776
+→ $962 → $1149 → $1201 against its $1260. **It converges on the control and does
+not reach it** — the hazard survives the counter, which is the shape
+`hazards.ts` asks for and a slightly better one than the prototype's "lands ON
+the control".
+
+*(A 24-seed pass of the shipped 2/4/6 ladder read tier 1 as actively harmful,
+15/24 against 17/24. It is flat, not harmful. That is this document's own rule
+biting: no number at 24 seeds where a 48-seed one exists.)*
+
 **Where it stops working, stated plainly.** The lance is sized for the FIRST
-notch and it does not scale. At three notches (17% of the belt) on a late bay,
+notch. At three notches (17% of the belt) on a late bay, on the PROTOTYPE,
 24 paired seeds:
 
 | Tier 5 bay 10, 24 seeds | win | shots | end $ |
@@ -425,6 +471,27 @@ behaving exactly as `counters.ts` sizes it ("two charges answers a first notch
 and leaves the second notch genuinely unanswered"), and it is also a warning:
 at the belt cap even six charges a bay are under-provisioned, so a run that
 ratchets cryo hard is not rescued by owning the counter.
+
+**AND THE SHIPPED LANCE SCALES FURTHER THAN THE PROTOTYPE DID.** Same bay, 48
+paired seeds, the shipped 9-charge capstone:
+
+| Tier 5 bay 10, 48 seeds | win | lines | shots | end $ |
+|---|---:|---:|---:|---:|
+| clean control | 45/48 | 7.9 | 25.2 | $1760 |
+| `cryo:3` | **21/48** | 6.8 | 34.4 | $846 |
+| `cryo:3` + Lance 3 (9/bay) | **34/48** | 7.4 | 30.8 | $1304 |
+
+Three notches still cost 24 bay-wins in 48, and the maxed lance buys back
+thirteen — a little over half, where the prototype's six charges bought back
+two. Two things did that and they are worth separating: three more charges a
+bay, and a strictly better target. `counters.ts`'s rig thawed the first eligible
+cube in the field list; the shipped lance takes the cube the press is about to
+reach, and the more cryo there is on the floor the more that choice is worth.
+
+The boundary the proposal drew still holds, one notch further out: **the lance
+does not erase a cryo build.** A maxed rack on a belt that is 17% cryo leaves
+the bay eleven wins short of a clean one, and the lower two tiers stay inside
+the noise there. It is an answer to the FORCED first notch, not to a build.
 
 **A note on an earlier reading, kept because it is the kind of mistake this
 harness exists to catch.** At 8 seeds the same comparison came back 4/8 → 2/8,
@@ -513,11 +580,12 @@ finding that a maxed cushion overshoots Hair Trigger to 1.19× stock.
    `run.ts`'s `CARRY_CAP`, and `hazards.ts`'s `ladderStart` slide — and the
    sweep is now the instrument that can price a change to any of them, because
    it measures the *run*, which is the thing they compound over.
-2. **Re-price cryo, or ship the lance.** §5a is the sharpest comparison in this
-   document: 23/24 → 17/24 for one notch, where the same notch on rebar costs
-   nothing and three notches of Shift Cut cost literally nothing. Either
-   `MATERIAL_BASE` is wrong for cryo specifically, or cryo is a material whose
-   counter has not been built. The proposal argues the second.
+2. ~~**Re-price cryo, or ship the lance.**~~ **DONE — the lance shipped.** §5a
+   was the sharpest comparison in this document (23/24 → 17/24 for one notch,
+   where the same notch on rebar costs nothing), and §5a-bis is the same bay
+   with the system on the shelf: 29/48 → 43/48 at the capstone against a 46/48
+   clean control. `MATERIAL_BASE` was left alone; cryo is still the most
+   expensive first notch in the game, and it now has an answer you can buy.
 3. **Re-price volatile.** §5b: a notch that is currently an advantage violates
    the ratchet's founding rule. This is a bug in a number, not a missing system.
 4. **Look at Tier 5's forced hand.** The ladder's cliff (§2) sits exactly at the

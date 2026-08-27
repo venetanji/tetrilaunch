@@ -287,40 +287,13 @@
   "Web · 1269x663 windowed|menu|tap": [
     ".tower__floor 108x43"
   ],
-  "Web · 800x600 window|bayclear-clause|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
-  ],
   "Web · 800x600 window|bayclear-clause|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
-  ],
-  "Web · 800x600 window|bayclear|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|bayclear|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
-  ],
-  "Web · 800x600 window|coach-fail|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|draft-material-picked|scrollers": [
     ".draft__body scrolls 83px"
@@ -337,66 +310,26 @@
   "Web · 800x600 window|draft|scrollers": [
     ".draft__body scrolls 75px"
   ],
-  "Web · 800x600 window|hud-hints-dismissed|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
-  ],
   "Web · 800x600 window|hud-hints-dismissed|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
-  "Web · 800x600 window|hud-notched|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+  "Web · 800x600 window|hud-lance|tap": [
+    "#bond-chip 44x43",
+    "#demo-chip 44x43",
+    "#thaw-chip 44x43"
   ],
   "Web · 800x600 window|hud-notched|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
-  ],
-  "Web · 800x600 window|hud-rich|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|hud-rich|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
-  ],
-  "Web · 800x600 window|hud-stock|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
-  ],
-  "Web · 800x600 window|hud|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|hud|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|inspection-signed|scrollers": [
     ".draft__body scrolls 75px"
@@ -445,47 +378,20 @@
   "Web · 800x600 window|menu|tap": [
     ".tower__floor 108x42"
   ],
-  "Web · 800x600 window|pause-pad|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
-  ],
   "Web · 800x600 window|pause-pad|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
-  ],
-  "Web · 800x600 window|pause|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|pause|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "Web · 800x600 window|refit-staged|scrollers": [
     "#refit-preview scrolls 142px"
   ],
-  "Web · 800x600 window|seal-break|badge": [
-    "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "HYD has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "MAG has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "RCT has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
-    "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
-  ],
   "Web · 800x600 window|seal-break|tap": [
-    "#bond-chip 47x43",
-    "#demo-chip 47x43"
+    "#bond-chip 44x43",
+    "#demo-chip 44x43"
   ],
   "iOS · iPhone 13 mini|menu-first|tap": [
     ".tower__floor 108x25"

@@ -468,7 +468,7 @@ Four new parts, three of them shared modules rather than CLIs:
 | `draft-space.ts` | the reachable notch-combo space, **enumerated** — real hands from `hazardOffers`, only picks `togglePick` accepts — plus the draft POLICIES the sweep samples with |
 | `deeprun.ts` | ten bays end to end through `run.ts`'s own `advanceRun`/`buyUpgrades`. No `--carry` stand-in and no modelled scrap schedule: the couplings are the real ones |
 | `builds.ts` | the loadout vocabulary (`loadoutFor`, `PRIORITY_ORDERS`), lifted out of `marks.ts`, which cannot be imported — it is a CLI with top-level output |
-| `counters.ts` | the counters the bots did not use (`bondHands`) and the ones the game does not have (`cushionKit`, `thawKit`) |
+| `counters.ts` | the counters the bots did not use (`bondHands`, `thawHands` — `thawKit` now drives the SHIPPED Thaw Lance) and the one the game does not have (`cushionKit`) |
 
 ### Covered vs sampled — printed in every run
 

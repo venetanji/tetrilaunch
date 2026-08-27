@@ -379,6 +379,7 @@ export class GamepadPoller {
       case "powerDown": g.cannon.powerDown(); g.updateTrajectory(); break;
       case "bond": g.useBondBreaker(now); break;
       case "demo": g.armBomb(); break;
+      case "thaw": g.useThawLance(now); break;
       // "auto" is held, handled from level state above; null is an unbound
       // button and does nothing.
       default: break;

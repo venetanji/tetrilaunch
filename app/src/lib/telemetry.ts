@@ -79,7 +79,7 @@ export interface BayRecord {
    *  to broke did this get, and when" is invisible in an end-of-bay total. */
   funds: { t: number; v: number }[];
   lineClears: { t: number; lines: number }[];
-  abilities: { t: number; kind: "bond" | "bomb-arm" }[];
+  abilities: { t: number; kind: "bond" | "bomb-arm" | "thaw" }[];
   result: "won" | "lost" | null;
   reason: string | null;
   secs: number;
@@ -266,7 +266,7 @@ export function lineClear(lines: number, t: number): void {
   bay.lineClears.push({ t: Math.round(t), lines });
 }
 
-export function ability(kind: "bond" | "bomb-arm", t: number): void {
+export function ability(kind: "bond" | "bomb-arm" | "thaw", t: number): void {
   if (!bay) return;
   bay.abilities.push({ t: Math.round(t), kind });
 }

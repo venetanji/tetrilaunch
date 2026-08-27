@@ -8,7 +8,7 @@ import { applyFinal, applyFinals, type FinalId } from "./finals";
 // mode knows about the run, the run knows only the SHAPE of the mode's rules.
 import type { SkydeckRules } from "./skydeck";
 import {
-  applyUpgrades, newTiers, nextTierCost, orderRungs, UPGRADES,
+  applyUpgrades, newTiers, nextTierCost, orderRungs, THAW_CHARGES_PER_TIER, UPGRADES,
   type RefitOrder, type UpgradeTiers,
 } from "./upgrades";
 
@@ -110,6 +110,26 @@ export interface RunState {
    *  that tier is refitted mid-run (see buyUpgrade), and decremented by
    *  advanceRun from what the just-played bay actually had left. */
   bondCharges: number;
+  /** Thaw Lance charges the run has IN HAND — cryo's bought counter
+   *  (upgrades.ts's `thaw` track, game.ts's useThawLance).
+   *
+   *  It lives here rather than being derived per bay for one reason, and the
+   *  reason is a mode: a LADDER run's lance is resupplied between bays, so this
+   *  is refilled to the tier's allowance at every bay boundary and the field is
+   *  little more than "what is left in this bay's rack"; a SKYDECK run's is
+   *  not, so the same field is a run-long magazine that only ever falls. Both
+   *  rules are in advanceRun, one line apart, and sim/systems.ts pins each.
+   *
+   *  Derived-per-bay was the shape this ALMOST shipped as — the Demolition
+   *  Rack's, where applyUpgrades writes `bombCharges` onto a fresh base every
+   *  level and the refill is a side effect of the config being rebuilt. That
+   *  cannot express "and not on the Skydeck", which is exactly what the mode's
+   *  no-yard rule asks for (skydeck.ts). A run-scoped field can express both.
+   *
+   *  Seeded in newRun from the loadout's tier, topped up by the DIFFERENCE when
+   *  that tier is refitted mid-run (buyUpgrade), and written back by advanceRun
+   *  from what the just-played bay actually had left. */
+  thawCharges: number;
   /** Ship upgrade tier per system (see upgrades.ts). Seeded at run start from
    *  the player's permanent LOADOUT (meta.ts's safeLoadout, bought against the
    *  Mark's build budget), then raised further by in-run scrap at refit stops.
@@ -264,6 +284,22 @@ export function bondChargesFor(tier: number): number {
   return Math.max(0, Math.floor(tier));
 }
 
+/** Thaw Lance charges a rack of `tier` issues in ONE grant —
+ *  THAW_CHARGES_PER_TIER a tier (upgrades.ts sizes it against the belt).
+ *
+ *  WHAT A GRANT IS depends on the mode, and that is the whole of the Skydeck
+ *  difference: on the ladder a grant is a BAY's rack, re-issued at every bay
+ *  boundary; on the Skydeck it is the RUN's, issued once at undock and never
+ *  again. One number, two horizons — see advanceRun, where the fork is written,
+ *  and skydeck.ts's yard bullet for why the mode has no resupply to offer.
+ *
+ *  A function rather than an inline multiply for bondChargesFor's exact reason:
+ *  three callers had to agree — newRun's grant, buyUpgrade's mid-run top-up and
+ *  advanceRun's ladder refill. */
+export function thawChargesFor(tier: number): number {
+  return Math.max(0, Math.floor(tier)) * THAW_CHARGES_PER_TIER;
+}
+
 export function newRun(
   seed: number,
   unlocks: string[] = [],
@@ -288,6 +324,9 @@ export function newRun(
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
     bondCharges: bondChargesFor(loadout.bonds ?? 0),
+    // The first grant. On a ladder run advanceRun re-issues this at every bay
+    // boundary; on a Skydeck run it is the only one the run will ever get.
+    thawCharges: thawChargesFor(loadout.thaw ?? 0),
     // The permanent loadout is where the ship STARTS, not a bonus on top of a
     // stock one: in-run scrap refits from here at the usual stops. Copied, not
     // aliased — a run must never write back into saved meta state.
@@ -443,6 +482,13 @@ export function levelForRun(run: RunState): LevelConfig {
   applyFinals(cfg, standingClauses(run));
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
   cfg.bondBreakerCharges = Math.max(0, run.bondCharges);
+  // The Thaw Lance's rack, same seam and the same reason: applyUpgrades already
+  // wrote the tier's grant onto this fresh config, and what the RUN has in hand
+  // is the number that counts. On the ladder the two agree at every bay start
+  // (advanceRun refilled it); on the Skydeck they diverge from the first charge
+  // spent, which is the mode's rule and the whole reason this is overwritten
+  // rather than left to the config.
+  cfg.thawCharges = Math.max(0, run.thawCharges);
   return cfg;
 }
 
@@ -481,6 +527,12 @@ export const CARRY_CAP = 150;
  *  stock, so a caller that forgets it under-reports a single bay, where
  *  defaulting to the running total would re-count every bay before it.
  *
+ *  `thawLeft` is the Thaw Lance stock the just-played bay ENDED with
+ *  (Game.thawCharges), and it matters on exactly one mode — see the field
+ *  below. It takes `bondsLeft`'s defensive default for `bondsLeft`'s reason: a
+ *  caller that forgets to thread it leaves a Skydeck pilot's charges alone
+ *  rather than silently confiscating them.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -491,6 +543,7 @@ export function advanceRun(
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
   salvagedFunds = 0,
+  thawLeft: number = run.thawCharges,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -520,6 +573,27 @@ export function advanceRun(
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
+    /* THE THAW LANCE'S ONE FORK, and the only place in the file where the two
+     * modes are handed different arithmetic on the same field.
+     *
+     * A LADDER run docks. Its rack is resupplied between bays, so crossing a
+     * bay boundary re-issues the tier's whole grant — the per-bay unit the
+     * charges were SIZED in (upgrades.ts's THAW_CHARGES_PER_TIER measures each
+     * tier against one bay's worth of frozen shipments), and the same shape the
+     * Demolition Rack already has by construction.
+     *
+     * A SKYDECK run does not. skydeck.ts's yard bullet is the rule verbatim —
+     * "the rig that undocks is the rig that lands" — and a lance that quietly
+     * refilled itself ten times would be a resupply line the mode does not
+     * have. So there the grant is the RUN's: it falls as it is spent and it
+     * never comes back, exactly like the Bond Breaker magazine above.
+     *
+     * The clamp is that magazine's, for the same defensive reason: a bay cannot
+     * hand back more charges than it was issued, however it reports its ending
+     * count. */
+    thawCharges: run.skydeck === null
+      ? thawChargesFor(run.tiers.thaw ?? 0)
+      : Math.max(0, Math.min(run.thawCharges, Math.floor(thawLeft))),
     // Carried, obviously — but worth stating why it is spelled out in a
     // function that rebuilds the run field by field: a run that stopped being
     // a sandbox run at bay 2 would spend the other nine bays quietly earning
@@ -571,6 +645,21 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
     bondCharges: id === "bonds"
       ? run.bondCharges + (bondChargesFor(tier + 1) - bondChargesFor(tier))
       : run.bondCharges,
+    // The Thaw Lance's top-up, the emitter's rule verbatim: the DIFFERENCE
+    // between the two tiers' grants, on top of what is left.
+    //
+    // It is not redundant on the ladder, which is where it is easy to talk
+    // oneself out of it: advanceRun refilled the rack to the OLD tier before
+    // this screen opened, so without the delta a player who bought a rung at
+    // the yard would undock and fly the next bay on the rack they walked in
+    // with. And it must be a delta rather than the new total, so a refit at bay
+    // 9 buys the charges the rung ADDS instead of resetting the ones the
+    // Skydeck's magazine already spent — a mode this path never runs in today
+    // (there is no yard there), and the rule is written so it stays true if one
+    // ever opens.
+    thawCharges: id === "thaw"
+      ? run.thawCharges + (thawChargesFor(tier + 1) - thawChargesFor(tier))
+      : run.thawCharges,
   };
 }
 

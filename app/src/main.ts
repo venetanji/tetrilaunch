@@ -757,7 +757,7 @@ class App {
     // conservative default (a full seven-slot draft) could pick the
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
@@ -1041,6 +1041,13 @@ class App {
     const owned = {
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
     };
     const strip = this.overlay.querySelector(".kbd-hint");
@@ -1082,7 +1089,7 @@ class App {
     this.railKey = null;
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     });
     if (slots !== getRailSlots()) {
@@ -1117,6 +1124,13 @@ class App {
     const slots = railSlotsFor({
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
       finePointer: this.finePointer(),
       fullscreen: fullscreenSupported(),
@@ -1174,6 +1188,8 @@ class App {
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
+      thawOwned: g.level.thawCharges > 0,
+      thawCharges: g.thawCharges,
       ratchets: this.run?.ratchets ?? {},
       // Only on the bay the clause actually applies to (run.ts's levelForRun
       // guards the same boundary): it is banked at the draft BEFORE that bay,
@@ -2054,6 +2070,7 @@ class App {
             S.pauseModal(fullscreenSupported(), this.profile, {
               bond: g.bondCharges > 0,
               demo: g.level.bombCharges > 0,
+              thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
             });
         }
@@ -3239,6 +3256,10 @@ class App {
       // whatever this bay did not spend is what the next one opens with.
       g.bondCharges,
       g.salvagedFunds,
+      // And what the bay left in the LANCE. advanceRun ignores this on the
+      // ladder — the rack is resupplied between bays there — and it is the
+      // whole of the magazine on the Skydeck, where nothing resupplies.
+      g.thawCharges,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1. Asked of the RUN, not of the bay
@@ -4423,6 +4444,9 @@ class App {
     // together via shared classes instead of hardcoded ids per trigger.
     this.syncAbility("bond", g.bondCharges, false);
     this.syncAbility("demo", g.bombCharges, g.bombArmed);
+    // Never armed: the lance fires on the tap rather than riding the next
+    // launch, so it has no armed state for a trigger to reflect.
+    this.syncAbility("thaw", g.thawCharges, false);
 
     if (this.tutorialStep !== null) this.syncCoach(g);
   }
@@ -5306,6 +5330,7 @@ class App {
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
     else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
+    else if (a === "thaw") { if (g.useThawLance(performance.now())) telemetry.ability("thaw", g.elapsedMs); }
     else if (a === "cancel") this.input.cancelAim();
   }
 

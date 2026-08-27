@@ -2101,6 +2101,35 @@ body.crt-off #app::after { display: none; }
   .demo-trigger.armed { animation: none; outline: 2px solid #fff; }
 }
 
+/* Thaw Lance (see screens.ts's hudHTML / game.ts's useThawLance) — the same
+   icon-button treatment in CRYO's own colour (theme.ts's MATERIAL_SPEC reads
+   #9fe8ff for the material), because the one thing a player has to know about
+   this trigger is which cargo it acts on. It is the third accent on the rail
+   and the three must not be confusable: bond is amber, demolition is hazard
+   red, this is ice blue.
+
+   NO .armed STATE, and the absence is the design. A demolition charge rides
+   the NEXT launch, so its trigger has to say "your next shot is a bomb"; the
+   lance fires on the tap and is finished before the finger lifts, so there is
+   nothing between press and effect for an armed state to describe. */
+.thaw-btn {
+  position: relative;
+  color: #9fe8ff;
+  border-color: rgba(159, 232, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(159, 232, 255, 0.24), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(159, 232, 255, 0.3), var(--shadow-hard-sm);
+}
+.thaw-btn:hover { border-color: #9fe8ff; color: #dff5ff; }
+.thaw-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
+.thaw-btn__count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 9px;
+  background: #9fe8ff; color: #04222b;
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
+  text-align: center;
+}
+
 /* Desktop keyboard-hint strip — replaces the touch rail entirely on
    fine-pointer devices (mouse/trackpad). The keys shown are never hardcoded:
    screens.ts's hintStripHTML renders them from game/bindings.ts's LIVE
@@ -2207,13 +2236,15 @@ body.crt-off #app::after { display: none; }
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
 
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain.
+  /* Keyboard covers rotate/bond/demo/thaw/cancel; only fullscreen + pause
+     remain.
      They sit at their conventional top-right anchor for free — the rail is
      top-anchored for everyone now (see .side-rail), which this rule used to
      ask for on its own. */
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
+  .side-rail .thaw-btn,
   .side-rail .auto-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
@@ -3999,7 +4030,14 @@ body.crt-off #app::after { display: none; }
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
 .pl-mods {
-  display: flex; align-items: center; gap: max(5px, calc(10.7 * var(--fpx)));
+  /* GAP 10.7 -> 8.4. The row now carries eleven items where it carried ten —
+     eight rack slots and three ability chips — so it pays its gap eleven times,
+     and at the narrowest ROOMY window in the matrix (800x600, where the plates
+     and the chips are both already sitting on their own floors) that eleventh
+     gap is the difference between the last rack slot being on screen and 18px
+     off it. Taking 2.7 units off each gap gives back more than a slot's width
+     and costs the row nothing a reader can name. */
+  display: flex; align-items: center; gap: max(4px, calc(8 * var(--fpx)));
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   /* headroom so the xN badge (top:-7px) and the B-key tag (bottom:-8px)
      survive this row's own scroll clipping */
@@ -4066,7 +4104,8 @@ body.crt-off #app::after { display: none; }
    gaps against a 209px row is. */
 [data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; gap: max(4px, calc(10.7 * var(--fpx))); }
 [data-density="compact"] .mod--bb,
-[data-density="compact"] .mod--demo { display: none; }
+[data-density="compact"] .mod--demo,
+[data-density="compact"] .mod--thaw { display: none; }
 [data-density="compact"] .pl-mods .mod,
 [data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
@@ -4120,7 +4159,15 @@ body.crt-off #app::after { display: none; }
 
    sim/uifit's `rack` assertion holds the fit; its `badge` assertion holds the
    air inside the box, which is the half that was silent. */
-[data-density="compact"] .pl-mods .ship-plate { width: clamp(26px, calc(65 * var(--fpx)), 30px); }
+/* …and the compact clamp comes down with it. The paragraph above is the
+   arithmetic for SEVEN 3-character codes; eight marks re-run it. The tightest
+   row in the matrix is the iPhone 13 mini's 209px: 8 slots + 7 gaps at the
+   row's 4.03px gap is 8w + 28.2, so w = 22.6 — hence the 22px floor, which the
+   mark can pay for where a 3-character code could not (there is no letter
+   spacing to run out of, only a box). The growth term and cap fall in the same
+   proportion, 65 -> 55 and 30 -> 26, so the shape of the slot is unchanged and
+   only its count moved. */
+[data-density="compact"] .pl-mods .ship-plate { width: clamp(22px, calc(55 * var(--fpx)), 26px); }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -4259,12 +4306,27 @@ body.crt-off #app::after { display: none; }
 .mod.k-bane { border-top-color: var(--danger); }
 
 /* Bond Breaker's plant-panel chip — glowing purple, tappable (reuses the
-   bond-breaker action; see the .bond-trigger note near .bond-btn above). */
+   bond-breaker action; see the .bond-trigger note near .bond-btn above).
+
+   74.7 -> 58 ON ALL THREE ABILITY CHIPS, and the number is the third chip's
+   fault rather than a tidy-up. The build row is BUILD tag + chips + the whole
+   ship rack, and it held two chips beside eight plates and not three: the Thaw
+   Lance's arrival pushed the last two rack slots past the row's visible edge on
+   every roomy device in the matrix (sim/uifit's `rack`, 15-92px over depending
+   on --fpx — it scales, because everything in the row does).
+
+   The width was set by ONE label, "BOND BRK", the longest string any chip
+   carries; `.mod .nm` already wraps at line-height 1.3 inside a 69.3-tall box,
+   so at 58 that label takes two lines and the other two ("DEMO", "THAW") still
+   take one. 58 x 3 gives back 50 --fpx-units against the ~60 the third chip
+   cost, and the plates gave the rest (40 -> 34, components.ts's header).
+
+   The 44px floor is untouched: it is the tap floor, and these are buttons. */
 .mod--bb {
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(122,92,255,.34), rgba(122,92,255,.10));
   border-color: var(--accent-2);
   border-top-color: var(--accent-2);
@@ -4283,7 +4345,7 @@ body.crt-off #app::after { display: none; }
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(255,45,85,.32), rgba(255,45,85,.10));
   border-color: var(--danger);
   border-top-color: var(--danger);
@@ -4297,9 +4359,37 @@ body.crt-off #app::after { display: none; }
 }
 .mod--demo:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 
-/* No keyboard on touch — the chips' "B"/"X" key tags only make sense with one. */
+/* The lance's plant-panel chip — the same treatment in cryo's ice blue, for
+   the reason .thaw-btn states: the accent names the cargo. */
+.mod--thaw {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; margin: 0; padding: 0;
+  cursor: pointer;
+  width: max(44px, calc(58 * var(--fpx)));
+  /* A DEEPER blue than the ink. #9fe8ff at 30% over the panel reads as grey
+     rather than as ice — the material's colour is a highlight, and a highlight
+     is the wrong thing to wash a whole box in. The wash is the same hue two
+     stops down so the chip sits beside the emitter's purple and the rack's red
+     as a third COLOUR, while the glyph, the badge and the border stay the exact
+     #9fe8ff theme.ts gives the cargo. */
+  background: linear-gradient(180deg, rgba(56,178,232,.34), rgba(56,178,232,.10));
+  border-color: #9fe8ff;
+  border-top-color: #9fe8ff;
+}
+.mod--thaw .g { color: #dff5ff; font-size: max(13px, calc(23 * var(--fpx))); text-shadow: 0 0 9px rgba(159,232,255,.75); }
+.mod--thaw .stk { background: #9fe8ff; color: #04222b; }
+.mod--thaw .key {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: max(6px, calc(9.3 * var(--fpx))); background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-dim);
+}
+.mod--thaw:hover:not(:disabled) { border-color: #dff5ff; }
+.mod--thaw:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* No keyboard on touch — the chips' "B"/"X"/"C" key tags only make sense with
+   one. */
 @media (pointer: coarse) {
-  .mod--bb .key, .mod--demo .key { display: none; }
+  .mod--bb .key, .mod--demo .key, .mod--thaw .key { display: none; }
 }
 
 /* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
@@ -4324,14 +4414,52 @@ body.crt-off #app::after { display: none; }
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  width: max(25px, calc(40 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  /* 40 -> 30 with the code swapped for the mark (components.ts's header). The
+     old width was 4.44 glyph-ems around a 3-character code; the mark is one
+     square box, so the plate keeps the same air around a narrower thing —
+     which is what buys the eighth slot its place in the row. 31 rather than the
+     8/7 of 40 the count alone would ask for (35): the row also has to hold a
+     THIRD ability chip now, and the three levers split the bill — the chips
+     gave 50 --fpx-units (74.7 -> 58), the row's gap gave 2.7 x 11 (10.7 -> 8),
+     and the plates gave the rest. The mark still sits in ~0.53em of side air at
+     this width, comfortably over sim/uifit's 0.4em badge floor. */
+  /* FLOOR 18, and it is a different number from the compact clamp's 22 below
+     on purpose: this one is the narrowest ROOMY window (800x600), where the
+     rack shares the row with three ability chips, and that one is the narrowest
+     PHONE, where the chips are hidden and the slots have the row to themselves.
+     18px still leaves the mark 0.45em of side air against sim/uifit's 0.4em
+     badge floor — a mark can be given a tighter box than a three-letter code
+     could, because there is no letter-spacing in it to run out of. */
+  width: max(18px, calc(30 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
   border-top: 2px solid var(--accent);
   box-shadow: var(--shadow-hard-sm);
 }
-.ship-plate__g { font-family: var(--font-pixel); font-size: max(6px, calc(9 * var(--fpx))); color: var(--accent); letter-spacing: 0.02em; }
+/* The mark scales with the plate the way the code used to scale with it: the
+   SVG is sized in px by components.ts and then set to a --fpx-relative box
+   here, so a plate on a small phone gets a small mark rather than a full-size
+   one crammed into a shrunken slot. `color` still does the lighting — the
+   icons stroke currentColor, so .ship-plate--empty's drained state below keeps
+   working untouched. */
+.ship-plate__g {
+  display: flex; color: var(--accent);
+  /* The MARK'S OWN scale, carried as a font-size even though nothing here sets
+     type: sim/uifit's `badge` assertion measures the plate's side air in ems of
+     "the glyph's OWN font size", and with the pixel-font size gone this element
+     would otherwise inherit the body's 16px and read every slot as crowded. So
+     the box is declared once here and the svg takes it in ems. */
+  /* 13.5, which is also components.ts's PLATE_MARK_PX at --fpx 1, so the size
+     the SVG is authored at and the box it lands in agree. The ratio to the
+     slot is what sim/uifit's `badge` floor actually constrains: air is
+     (slot - mark) / 2 and the floor is 0.4 of the mark, so a slot has to be at
+     least 1.8 marks wide. At 30 and 13.5 it is 2.2, which leaves the same room
+     the three-letter code had at regular density and more than it had on a
+     phone. */
+  font-size: max(9px, calc(13.5 * var(--fpx)));
+}
+.ship-plate__g svg { width: 1em; height: auto; }
 .ship-plate__pips { display: flex; gap: 2px; }
 .ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }

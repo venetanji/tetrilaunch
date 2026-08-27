@@ -72,11 +72,13 @@ import { runBay } from "./runner";
  *     It was tier 1 ONLY here, quoting buyInstall's old refusal to stack, and
  *     that refusal is what this harness was measuring the consequences of: the
  *     best build at every Mark from 3 to 10 came out as the same 100-point rig
- *     against a budget climbing to 770, because 140 points was the whole
- *     reachable space. With the Workshop selling tier 2 the ceiling is 385,
- *     so the budget binds again — but only through Mark 3. Measured across the
- *     ladder this function spends 75/77, 150/154, 205/231, then 275 flat
- *     against 308, 385, 462, 539, 616, 693 and 770. Above Mark 3 the binding
+ *     against a budget climbing to 880, because a tier-1-only loadout was the
+ *     whole reachable space. With the Workshop selling tier 2 the ceiling is
+ *     440, so the budget binds again — but only through Mark 3. The figures
+ *     below were measured on the seven-track roster (75/77, 150/154, 205/231,
+ *     then 275 flat against 308 … 770); the eighth track raised every budget by
+ *     an eighth without moving the shape, because the binding constraint above
+ *     Mark 3 is not the budget. Above Mark 3 the binding
  *     constraint is not the budget but the PRIORITY ORDER: each of the four
  *     orders names five tracks, and five at tier 2 is 275. The headroom above
  *     that is real and unmodelled — a property of the calibration vocabulary
@@ -167,9 +169,11 @@ function tiersForBay(
  * measurement to run deliberately, not a default to fold in here.
  *
  * Consequence for anything measured here: these builds top out at 550 of the
- * 770-point ladder (UPGRADES is seven tracks now, so FULL_BUILD_COST is
- * 7 x 110), so a Mark's difficulty is being judged against a rig missing TWO
- * tracks. That biases the result toward "too hard" — a human who spends tempo
+ * 880-point ladder (UPGRADES is eight tracks now, so FULL_BUILD_COST is
+ * 8 x 110), so a Mark's difficulty is being judged against a rig missing THREE
+ * tracks — the Thaw Lance is the third, and no priority order names it, which
+ * is deliberate: adding it would change the CONTROL rig every counter table is
+ * paired against. That biases the result toward "too hard" — a human who spends tempo
  * well, or who opens a jammed bay with a charge, will find a calibrated Mark
  * easier than the number suggests. What those two tracks are really worth needs
  * human playtesting; the sim cannot see it.

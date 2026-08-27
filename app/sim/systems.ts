@@ -45,7 +45,8 @@ import {
 import { greedyRefit, runDeepRun } from "./deeprun";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
-  BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold, thawHands,
+  BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold,
+  thawHands, thawKit,
 } from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -62,7 +63,7 @@ import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  markLostPieces, slagBountyFor,
+  markLostPieces, slagBountyFor, nextColdCryo,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -71,6 +72,7 @@ import {
   clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
+  THAW_CHARGES_PER_TIER,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
@@ -86,7 +88,8 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
+  tracksLadder, thawChargesFor, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY,
+  type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
 // in this module records — which is exactly what makes runMode safe to import:
@@ -328,7 +331,7 @@ section("Ship upgrades (upgrades.ts)");
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
-  check("a full rig now costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  check("a full rig now costs 880", FULL_BUILD_COST === 880, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +399,24 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
     String(FULL_BUILD_COST),
   );
-  check("a full rig costs 770", FULL_BUILD_COST === 770, String(FULL_BUILD_COST));
+  // 770 until the Thaw Lance made it eight tracks. The literal is kept beside
+  // the derivation above rather than deleted as redundant: the derived check
+  // proves FULL_BUILD_COST agrees with TIER_COSTS, and only a typed-out number
+  // catches a roster or a price moving by accident. Both moved on purpose here.
+  check("a full rig costs 880", FULL_BUILD_COST === 880, String(FULL_BUILD_COST));
+  // The Workshop's own ceiling — every track at UPRATE_MAX_TIER — lands exactly
+  // on budgetForMark(5), which is what makes the build budget a real gate for
+  // Marks 1-5 (meta.ts's installAvailable). It is not a coincidence and it does
+  // not need re-deriving per roster size: the ceiling is TRACKS x (20+35) and
+  // the budget is TRACKS x 110 x M/10, so they meet at M = 5 for ANY number of
+  // tracks. Pinned as the RELATIONSHIP, so an eighth track (this one), a ninth,
+  // or a re-priced ladder is checked rather than a number that happens to hold.
+  check(
+    "the Workshop ceiling is exactly the Mark-5 budget, at any roster size",
+    tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER])) as never)
+      === budgetForMark(5),
+    String(tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER])) as never)),
+  );
 
   // Monotone, and the ladder spans "one system" to "everything".
   let monotone = true;
@@ -2287,6 +2307,7 @@ section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
   // nothing, and three tracks used to do exactly that.
   const stopped = { ...newRun(4, [], 0, {
     bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
+    thaw: 1,
   }, 6), levelIndex: 6, scrap: 999 };
   for (const u of UPGRADES) {
     const after = buyUpgrades(stopped, { [u.id]: 1 }, MAX_TIER)!;
@@ -2623,7 +2644,13 @@ section("Draft gating (mods.ts + meta.ts)");
   const liveUnlocks = UNLOCKS.filter((u) => !u.retired);
   const total = liveUnlocks.reduce((a, u) => a + u.cost, 0)
     + INSTALLS.reduce((a, i) => a + i.cost, 0);
-  check(`the shelf costs ${total} salvage`, total === 445, String(total));
+  // 445 until the Thaw Lance added the eighth install at 50. The proposal that
+  // argued for it also argued the ceiling: two more systems at the 70 band
+  // would have taken this to 585 against 600 of tier income and closed the
+  // shelf's slack to nothing. One shipped, priced a band down, and the slack is
+  // 105 — see meta.ts's INSTALLS for why a single-axis counter is not worth a
+  // tier plus its run win.
+  check(`the shelf costs ${total} salvage`, total === 495, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
   const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
@@ -3359,6 +3386,7 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
       target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
       timeLeftMs: 150_000, pieceSize: "std",
       bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+      thawOwned: true, thawCharges: 4,
       autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
     });
     const rail = hud.slice(hud.indexOf('class="side-rail"'), hud.indexOf('class="bay-banner"'));
@@ -3383,46 +3411,75 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   }
 
   check("a bare rail is the four base buttons",
-    railSlotsFor({ bond: false, demo: false, auto: false }) === RAIL_SLOTS_BASE);
+    railSlotsFor({ bond: false, demo: false, thaw: false, auto: false }) === RAIL_SLOTS_BASE);
   check("each drafted ability adds exactly one slot",
-    railSlotsFor({ bond: true, demo: false, auto: false }) === 5 &&
-    railSlotsFor({ bond: true, demo: true, auto: false }) === 6 &&
-    railSlotsFor({ bond: true, demo: true, auto: true }) === RAIL_SLOTS_MAX);
+    railSlotsFor({ bond: true, demo: false, thaw: false, auto: false }) === 5 &&
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: false }) === 6 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: false }) === 7 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: true }) === RAIL_SLOTS_MAX);
+  // THE REACHABLE WORST CASE IS SEVEN, NOT EIGHT, and the distinction is what
+  // keeps the 360dp phone on a vertical rail below.
+  //
+  // railSlotsFor can express four abilities, so RAIL_SLOTS_MAX is 8 and the
+  // clamp has to be. A RUN cannot build four: the Autoloader is written by
+  // exactly one thing (mods.ts's `autoloader`, which sets level.autoLaunchMs),
+  // and nothing in a shipped run calls applyMods any more — hazards.ts's
+  // ratchet draft replaced the mod draft, and neither run.ts's levelForRun nor
+  // contracts.ts's levelForContract touches it. So the deepest live rail is
+  // fullscreen + pause + two rotates + Bond Breaker + Demolition + Thaw Lance.
+  //
+  // Pinned rather than commented, because it is the premise the layout pins
+  // below stand on: if a fourth ability ever becomes reachable, this fails
+  // first and names the reason, instead of a 360dp phone quietly losing its
+  // rail in a build nobody measured.
+  check("the deepest rail a RUN can build is seven slots",
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: false }) === RAIL_SLOTS_MAX - 1);
   check("fine pointers budget only fullscreen + pause",
-    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true }) === 2);
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true }) === 2);
   // Where no fullscreen toggle mounts at all (the native shells, iPhone
   // Safari — platform.ts's fullscreenSupported), the budget must not reserve
   // its slot: screens.ts renders no button there, and an empty slot is field
   // width given away for nothing.
   check("no fullscreen toggle (native shells) frees its slot",
-    railSlotsFor({ bond: false, demo: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
-    railSlotsFor({ bond: true, demo: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
+    railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, fullscreen: false }) === RAIL_SLOTS_BASE - 1 &&
+    railSlotsFor({ bond: true, demo: true, thaw: true, auto: true, fullscreen: false }) === RAIL_SLOTS_MAX - 1);
   check("a fine pointer without fullscreen budgets the pause button alone",
-    railSlotsFor({ bond: true, demo: true, auto: true, finePointer: true, fullscreen: false }) === 1);
-  check("the budget clamps to the seven-slot worst case",
+    railSlotsFor({ bond: true, demo: true, thaw: false, auto: true, finePointer: true, fullscreen: false }) === 1);
+  check("the budget clamps to the eight-slot worst case",
     (setRailSlots(9), getRailSlots() === RAIL_SLOTS_MAX));
   // Floor of ONE: the pause-only rail (fine pointer, no fullscreen toggle) is
   // a real budget and must survive the clamp — see setRailSlots.
   check("the budget clamps at the one-button floor",
     (setRailSlots(0), getRailSlots() === 1));
   check("the pause-only budget survives the clamp",
-    (setRailSlots(railSlotsFor({ bond: false, demo: false, auto: false, finePointer: true, fullscreen: false })),
+    (setRailSlots(railSlotsFor({ bond: false, demo: false, thaw: false, auto: false, finePointer: true, fullscreen: false })),
       getRailSlots() === 1));
 
   // The reported device: a 360dp-tall Android phone (2376x1080 @3x) in
-  // fullscreen Chrome. It must keep the vertical side rail at every loadout —
-  // at the full seven-slot draft the column fits its 360px exactly
-  // (7x44 + 6x6 + 16 = 360).
-  for (const slots of [RAIL_SLOTS_BASE, 5, 6, RAIL_SLOTS_MAX]) {
+  // fullscreen Chrome. It must keep the vertical side rail at every loadout a
+  // RUN CAN BUILD — and at the deepest of those, seven slots, the column fits
+  // its 360px exactly (7x44 + 6x6 + 16 = 360). That equality is the whole
+  // budget: it has no slack, which is why the loop stops at seven and why the
+  // pin above states that seven is the ceiling a run can reach.
+  const LIVE_RAIL_MAX = RAIL_SLOTS_MAX - 1;
+  for (const slots of [RAIL_SLOTS_BASE, 5, 6, LIVE_RAIL_MAX]) {
     setRailSlots(slots);
     const l = computeLayout(792, 360);
     check(`792x360 keeps the side rail with ${slots} buttons`, l.mode === "wide", l.mode);
   }
+  // …and an EIGHTH slot does not fit, which is the arithmetic the budget reform
+  // was built on (8x44 + 7x6 + 16 = 410 against 360). Asserted rather than left
+  // implicit: the reform's own note says a permanently-budgeted worst case
+  // priced the rail off this phone, and this is the line that keeps saying so
+  // while RAIL_SLOTS_MAX is 8 again.
+  setRailSlots(RAIL_SLOTS_MAX);
+  check("792x360 could not hold an eighth", computeLayout(792, 360).mode !== "wide",
+    computeLayout(792, 360).mode);
 
   // A 16:9 phone has no natural gutter: the solver must still prefer the
   // reserved RIGHT band (vertical rail) over the bottom strip while the
   // column fits...
-  setRailSlots(RAIL_SLOTS_MAX);
+  setRailSlots(LIVE_RAIL_MAX);
   check("640x360 reserves a right band, not the bottom", computeLayout(640, 360).mode === "snug",
     computeLayout(640, 360).mode);
   // ...and fall back to the bottom strip only when it genuinely cannot
@@ -3436,7 +3493,7 @@ section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
   // The budget must never move the field mid-aim: the cancel swap keeps the
   // slot count constant, so the same viewport at the same budget is the same
   // layout — aiming state is invisible to the solver by construction.
-  setRailSlots(RAIL_SLOTS_MAX);
+  setRailSlots(LIVE_RAIL_MAX);
 }
 
 section("Contract plant panel (screens.ts hudHTML)");
@@ -3454,6 +3511,7 @@ section("Contract plant panel (screens.ts hudHTML)");
     tier: null, target: 800, score: 200, launchCost: 0, bayNum: 1,
     timeLimitSec: 0, timeLeftMs: 0, pieceSize: "std" as const,
     bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
     autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
   };
   const progress = { tier: 1, runDone: false, contracts: 0, needed: 3, award: 45, milestone: 15 };
@@ -3630,6 +3688,7 @@ section("The dial collapse (screens.ts collapsingDial + app.css)");
     tier: 2, target: 800, score: 40, launchCost: 25, bayNum: 3,
     timeLimitSec: 150, timeLeftMs: 0, pieceSize: "std" as const,
     bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
     autoloaderOwned: false, ratchets: {} as Ratchets, tiers: newTiers(),
     contract: null,
   };
@@ -5812,6 +5871,291 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     "the retreating bar shatters nothing",
     shatterColdCryo(retreat.phys.world, retreat.cubes, retreat.compactor, []).cubes.length === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("THE THAW LANCE — what a charge takes (lineClear.ts / game.ts)");
+// ---------------------------------------------------------------------------
+// The lance is cryo's bought counter, and its whole design is a targeting rule:
+// one charge takes THE CUBE THE PRESS IS ABOUT TO REACH. Everything below is
+// that rule and its three exclusions, each of which is a wasted charge rather
+// than a nicety — a stranded cube would swallow the whole rack, a cube above
+// the bar is never pressed, and a cube in flight is a shipment the player has
+// not landed yet.
+{
+  const lanceLevel = makeBaseLevel(0);
+  /** A row of cubes at the bottom, left-to-right from the wall (k = 0 is
+   *  hard against the wall, higher k is nearer the launcher). The advancing
+   *  face travels toward the wall, so the HIGHEST k is the cube it meets
+   *  first — which is what makes "smallest x" the press-order rule. */
+  const lanceRow = (materials: Material[]) => {
+    const phys = createPhysics(lanceLevel);
+    const compactor = new Compactor(phys.world, lanceLevel);
+    while (compactor.x < compactor.rightX) compactor.update();
+    compactor.dir = 1;
+    const cubes: Cube[] = [];
+    const rowY = WORLD.height - CELL / 2;
+    materials.forEach((material, k) => {
+      const body = Matter.Bodies.rectangle(
+        WALL_INNER - CELL / 2 - k * CELL, rowY, CELL, CELL, { label: "cube" },
+      );
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Composite.add(phys.world, body);
+      cubes.push({
+        body, type: "O", color: "#fff", blinkStart: null,
+        material, struck: material !== "cryo",
+      });
+    });
+    return { phys, compactor, cubes };
+  };
+
+  // --- The targeting rule ---------------------------------------------------
+  {
+    const two = lanceRow(["cryo", "standard", "cryo"]);
+    const picked = nextColdCryo(two.cubes, two.compactor);
+    check("the lance takes the frozen cube the press reaches FIRST",
+      picked === two.cubes[2],
+      picked ? String(Math.round(picked.body.position.x)) : "none");
+    // The negative half, and the one that matters: "first in the array" is the
+    // rule the prototype used, and it is a DIFFERENT cube here.
+    check("...not simply the first frozen cube in the field list",
+      picked !== two.cubes[0]);
+  }
+  check("a bay with nothing frozen offers no target",
+    nextColdCryo(lanceRow(["standard", "standard"]).cubes,
+      lanceRow(["standard"]).compactor) === null);
+  {
+    const done = lanceRow(["cryo"]);
+    done.cubes[0].struck = true;
+    check("an already-thawed cube is not a target",
+      nextColdCryo(done.cubes, done.compactor) === null);
+  }
+  // EXCLUSION 1 — stranded cargo. The bar can never reach it (lineClear.ts's
+  // markLostPieces is what happens to it instead), so it never shatters and a
+  // charge spent on it buys nothing. It is also the cube with the SMALLEST x on
+  // the field, so without the cutoff it would take every charge in the rack —
+  // the exact failure the rule is written to avoid.
+  {
+    const lost = lanceRow(["cryo"]);
+    Matter.Body.setPosition(lost.cubes[0].body, {
+      x: lost.compactor.strandCutoffX - CELL,
+      y: lost.cubes[0].body.position.y,
+    });
+    check("stranded cargo is never the lance's target",
+      nextColdCryo(lost.cubes, lost.compactor) === null);
+    // …and a second, reachable cube is taken INSTEAD of it rather than the
+    // whole call being abandoned.
+    const both = lanceRow(["cryo", "cryo"]);
+    Matter.Body.setPosition(both.cubes[1].body, {
+      x: both.compactor.strandCutoffX - CELL,
+      y: both.cubes[1].body.position.y,
+    });
+    check("...and the reachable one is taken instead",
+      nextColdCryo(both.cubes, both.compactor) === both.cubes[0]);
+  }
+  // EXCLUSION 2 — above the bar's reach, the same `position.y < compactor.top`
+  // test shatterColdCryo makes. The two have to agree: the lance's whole claim
+  // is that it takes the cube that is about to be shattered.
+  {
+    const high = lanceRow(["cryo"]);
+    Matter.Body.setPosition(high.cubes[0].body, {
+      x: high.cubes[0].body.position.x, y: high.compactor.top - CELL * 2,
+    });
+    check("a cube above the bar's reach is not a target",
+      nextColdCryo(high.cubes, high.compactor) === null);
+  }
+  // EXCLUSION 3 — still moving. strikeCryo refuses a cube that is not at rest
+  // ("it is the target, not the projectile"), and a lance that thawed shipments
+  // in flight would delete the sequencing rather than pay for it.
+  {
+    const flying = lanceRow(["cryo"]);
+    Matter.Body.setVelocity(flying.cubes[0].body, { x: 0, y: -12 });
+    check("a shipment still in flight is not a target",
+      nextColdCryo(flying.cubes, flying.compactor) === null);
+  }
+
+  // --- Firing it -----------------------------------------------------------
+  //
+  // Through the real Game, not through the rule alone: what is being asserted
+  // is that a charge is spent, one cube changes state, and NOTHING else does.
+  const armedLevel = { ...makeBaseLevel(0), thawCharges: 2 };
+  const lanceGame = () => {
+    const g = new Game(armedLevel, {}, 5);
+    const row = lanceRow(["cryo", "standard", "cryo"]);
+    g.cubes.push(...row.cubes);
+    return { g, row };
+  };
+  {
+    const { g, row } = lanceGame();
+    let firedAt: { x: number; y: number } | null = null;
+    (g as unknown as { events: { onThawLance?: (at: { x: number; y: number }) => void } })
+      .events.onThawLance = (at) => { firedAt = at; };
+    const before = g.thawCharges;
+    check("a bay opens with the rack the config granted", before === 2, String(before));
+    check("firing the lance reports success", g.useThawLance(0));
+    check("...and spends exactly one charge", g.thawCharges === before - 1, String(g.thawCharges));
+    // The cube nearest the press, and ONLY it. A field-wide thaw would be a
+    // Bond Breaker for cryo, which is a different and much larger system.
+    check("...thaws the cube the press was about to reach",
+      row.cubes[2].struck && !row.cubes[0].struck);
+    check("...and announces where, so the cue can land on the cube",
+      firedAt !== null);
+    // The second charge takes the OTHER one, which is what makes the ladder a
+    // ladder: charges are comparable to the shipments they replace.
+    check("a second charge takes the next cube in press order",
+      g.useThawLance(0) && row.cubes[0].struck);
+    check("...and the rack is empty", g.thawCharges === 0, String(g.thawCharges));
+    check("an empty rack refuses, and reports it", !g.useThawLance(0));
+  }
+  // A bay with nothing frozen must not eat a charge, exactly as an all-welded
+  // field must not eat a Bond Breaker.
+  {
+    const g = new Game(armedLevel, {}, 6);
+    g.cubes.push(...lanceRow(["standard", "standard"]).cubes);
+    check("an empty bay costs no charge", !g.useThawLance(0) && g.thawCharges === 2);
+  }
+  // A ship with no lance cannot fire one, however the button is pressed.
+  check("a stock rig has no lance", !new Game(makeBaseLevel(0), {}, 7).useThawLance(0));
+
+  // THE HALF THE LANCE DOES NOT BUY. shatterColdCryo is cryo's consequence
+  // half, and the design turns on it staying untouched: a rack of six charges
+  // is not a bay with no cryo in it. Asserted through the shatter path itself,
+  // on a cube the lance did not take.
+  {
+    const { g, row } = lanceGame();
+    g.useThawLance(0); // takes cubes[2] — the one at the face
+    // cubes[0] is deeper in and still frozen. Put IT at the face and press.
+    const face = row.compactor.x + row.compactor.width / 2;
+    Matter.Body.setPosition(row.cubes[0].body, { x: face + CELL / 2, y: row.cubes[0].body.position.y });
+    const shattered = shatterColdCryo(row.phys.world, row.cubes, row.compactor, []);
+    check("a frozen cube the lance did not take still shatters at the press",
+      shattered.cubes.length === 1, String(shattered.cubes.length));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("THE THAW LANCE — one grant, two horizons (upgrades.ts / run.ts)");
+// ---------------------------------------------------------------------------
+// The charges are sized PER BAY (upgrades.ts's THAW_CHARGES_PER_TIER measures
+// each tier against one bay's worth of frozen shipments), and the mode decides
+// what a grant is: a ladder run docks and is resupplied between bays, a Skydeck
+// run never docks and flies the rack it launched with. Both rules live in
+// advanceRun, one line apart.
+{
+  check("a tier's grant is THAW_CHARGES_PER_TIER a rung",
+    thawChargesFor(1) === THAW_CHARGES_PER_TIER
+    && thawChargesFor(3) === THAW_CHARGES_PER_TIER * 3,
+    String(thawChargesFor(3)));
+  check("an uninstalled lance grants none", thawChargesFor(0) === 0);
+  // The config layer states the same rule (upgrades.ts's apply), so a single
+  // bay flown headlessly gets the same rack a run's first bay does.
+  {
+    const cfg = makeBaseLevel(0);
+    applyUpgrades(cfg, { ...newTiers(), thaw: 2 });
+    check("the track grants the same charges onto a config",
+      cfg.thawCharges === thawChargesFor(2), String(cfg.thawCharges));
+    const stock = makeBaseLevel(0);
+    applyUpgrades(stock, newTiers());
+    check("an uninstalled track grants none onto a config", stock.thawCharges === 0);
+  }
+
+  const lanced = { ...newTiers(), thaw: 2 };
+  // --- THE LADDER: resupplied between bays ---------------------------------
+  {
+    const run = newRun(3, [], 0, lanced, 5);
+    check("a ladder run undocks with the tier's rack",
+      run.thawCharges === thawChargesFor(2), String(run.thawCharges));
+    check("...and the bay is flown with what the RUN holds",
+      levelForRun(run).thawCharges === run.thawCharges);
+    // Spend the lot, clear the bay, and the next bay opens full again.
+    const next = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 0, 0);
+    check("a cleared bay resupplies the ladder rack in full",
+      next.thawCharges === thawChargesFor(2), String(next.thawCharges));
+    // …and a bay that spent NOTHING is not handed more than the grant.
+    const untouched = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 0, run.thawCharges);
+    check("...and never more than the grant",
+      untouched.thawCharges === thawChargesFor(2), String(untouched.thawCharges));
+  }
+  // --- THE SKYDECK: no yard, no resupply -----------------------------------
+  //
+  // skydeck.ts's rule verbatim — "the rig that undocks is the rig that lands".
+  // A lance that refilled itself ten times would be a supply line the mode does
+  // not have, and it is the one field where the ladder's own correct behaviour
+  // is the bug.
+  {
+    const sky = skydeckRunFor(lanced, [], new Date(Date.UTC(2026, 7, 27)));
+    check("a Skydeck run launches with one rack for the whole run",
+      sky.thawCharges === thawChargesFor(2), String(sky.thawCharges));
+    const spentOne = advanceRun(sky, 900, 600, 4, 0, [], sky.bondCharges, 0, sky.thawCharges - 1);
+    check("a charge spent on the Skydeck is gone at the bay boundary",
+      spentOne.thawCharges === thawChargesFor(2) - 1, String(spentOne.thawCharges));
+    const emptied = advanceRun(sky, 900, 600, 4, 0, [], sky.bondCharges, 0, 0);
+    check("...and an emptied rack stays empty",
+      emptied.thawCharges === 0, String(emptied.thawCharges));
+    check("...for every bay after it, not just the next one",
+      advanceRun(emptied, 900, 600, 4, 0, [], emptied.bondCharges, 0, 0).thawCharges === 0);
+    // The HUD reads the mode through the same field: levelForRun writes the
+    // run's stock onto the bay, so a depleted Skydeck lance opens its next bay
+    // at 0 — which is exactly what hides the trigger (main.ts's hudOpts derives
+    // thawOwned from level.thawCharges > 0).
+    check("a depleted Skydeck lance opens the next bay with a dead rack",
+      levelForRun({ ...emptied, levelIndex: 5 }).thawCharges === 0);
+    // THE WHOLE-RUN BOUND, which is the claim the mode actually makes: ten bays
+    // of a Skydeck run can never issue more than ONE grant, however each bay
+    // reports itself. Walked rather than argued, because the ladder's refill
+    // line sits one branch away.
+    let walk = sky;
+    let issued = walk.thawCharges;
+    for (let i = 0; i < RUN_LEVELS - 1; i++) {
+      walk = advanceRun(walk, 900, 600, 4, 0, [], walk.bondCharges, 0, walk.thawCharges);
+      issued = Math.max(issued, walk.thawCharges);
+    }
+    check("ten Skydeck bays issue exactly one rack between them",
+      issued === thawChargesFor(2), String(issued));
+  }
+  // --- The yard's top-up ----------------------------------------------------
+  //
+  // The Bond Emitter's rule verbatim: a rung issues the DIFFERENCE, on top of
+  // what is left. Not redundant on the ladder — advanceRun refilled to the OLD
+  // tier before the yard opened, so without this a player who bought a rung
+  // would undock flying the rack they walked in with.
+  {
+    const docked = { ...newRun(4, [], 999, lanced, 6), levelIndex: 3 };
+    const raised = buyUpgrades(docked, { thaw: 1 }, MAX_TIER)!;
+    check("a refit rung issues the charges it ADDS",
+      raised.thawCharges === docked.thawCharges + THAW_CHARGES_PER_TIER,
+      String(raised.thawCharges));
+    // …and never resets a magazine the player already spent down.
+    const halfSpent = { ...docked, thawCharges: 1 };
+    check("...on top of what is left, not instead of it",
+      buyUpgrades(halfSpent, { thaw: 1 }, MAX_TIER)!.thawCharges === 1 + THAW_CHARGES_PER_TIER,
+      String(buyUpgrades(halfSpent, { thaw: 1 }, MAX_TIER)!.thawCharges));
+    // A rung on ANOTHER track must not touch the rack.
+    check("another track's rung leaves the lance alone",
+      buyUpgrades(docked, { reactor: 1 }, MAX_TIER) === null
+      || buyUpgrades({ ...docked, tiers: { ...docked.tiers, reactor: 1 } }, { reactor: 1 }, MAX_TIER)!
+        .thawCharges === docked.thawCharges);
+  }
+  // --- The shop -------------------------------------------------------------
+  //
+  // The counter has to be BUYABLE by the player who can be dealt the hazard.
+  // hazards.ts opens cryo at Mark 4 and `requiresMark` counts Marks BEATEN, so
+  // the gate has to be one less than the axis's Mark — the relationship, not the
+  // number, because moving cryo down the ladder must move its counter with it.
+  {
+    const lance = installById("thaw")!;
+    const cryoAxis = HAZARDS.find((h) => h.id === "cryo")!;
+    check("the lance is on the shelf for the Mark that first deals cryo",
+      lance.requiresMark === cryoAxis.mark - 1,
+      `install ${lance.requiresMark} vs axis Mark ${cryoAxis.mark}`);
+    // Priced a band BELOW the two systems that answer every build. A counter
+    // with a measured ceiling is worth a tier of Contracts, not a tier plus its
+    // run win — see meta.ts's INSTALLS.
+    check("...and priced under the two general-purpose systems",
+      lance.cost < installById("bonds")!.cost
+      && lance.cost < installById("demolition")!.cost,
+      String(lance.cost));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -9152,7 +9496,7 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
   // BARE LOADOUT deliberately: with the Autoloader owned the strip already
   // says "hold to autofire", and /hold.*restart/ would then match across two
   // separate hints and pass for the wrong reason.
-  const bare = { bond: false, demo: false, auto: false };
+  const bare = { bond: false, demo: false, thaw: false, auto: false };
   // Keyboard and touch share one arm, and the strip is drawn on the
   // fine-pointer path — where a MOUSE performs the same pointerdown hold. So
   // the keyboard strip is the one that has to name it.
@@ -9185,8 +9529,8 @@ section("The hint strip names the hold-to-restart gesture (screens.ts)");
 section("The hint strip is transient; the pause modal is its reference (screens.ts)");
 // ---------------------------------------------------------------------------
 {
-  const bare = { bond: false, demo: false, auto: false };
-  const full = { bond: true, demo: true, auto: true };
+  const bare = { bond: false, demo: false, thaw: false, auto: false };
+  const full = { bond: true, demo: true, thaw: true, auto: true };
   // The strip mounts in whichever fade state main.ts hands it — the HUD is
   // re-rendered wholesale on every state change, so a pause round-trip on a
   // dismissed strip must come back dismissed (see hudHTML's hintsDismissed).
@@ -9996,7 +10340,9 @@ section("Mouse and touch are taught different aiming (bindings.ts)");
     hintAim("touch"));
   // The fine-pointer strip renders on the same surface and has to agree with it.
   check("the fine-pointer strip names the click too",
-    /click to aim/i.test(S.hintStripHTML("keyboard", { bond: false, demo: false, auto: false })));
+    /click to aim/i.test(
+      S.hintStripHTML("keyboard", { bond: false, demo: false, thaw: false, auto: false }),
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -10923,34 +11269,55 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
       `net ${cfg.volatileTriggerMult.toFixed(3)}x stock`,
     );
   }
-  // The thaw rig's magazine renews per BAY, which is the proposal's one real
-  // disagreement with the Bond Emitter it would sit beside. A wrapper is reused
-  // across the ten bays of a run, so "per bay" has to be noticed at the Game
-  // boundary rather than assumed at construction.
+  // THE THAW LANCE'S HANDS, and what changed when the system shipped.
+  //
+  // This wrapper used to BE the proposal — it marked cubes struck out of a
+  // magazine it counted itself, because there was no system to call. There is
+  // now, so the only thing it may do is pull the trigger: which cube is taken,
+  // whether a charge is spent and what an empty bay costs are the game's rules
+  // (game.ts's useThawLance, pinned above), and a harness that kept its own
+  // copy of any of them would go on measuring the proposal after the
+  // implementation had moved.
+  //
+  // So what is asserted here is exactly the delegation, and NOT a magazine:
+  // `thawHands` no longer takes a charge count, and the per-bay renewal it used
+  // to model is now run.ts's advanceRun — where it is one branch away from the
+  // Skydeck's no-resupply rule, which is the reason the harness must not own it.
   {
     let acts = 0;
+    let pulls = 0;
+    let lastNow = -1;
     const stub = { name: "stub", act: () => { acts += 1; } };
-    const rig = thawHands(stub, 2, "stub+thaw");
-    const frozen = (): Cube => ({
-      body: { position: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } },
-      material: "cryo", struck: false, blinkStart: null,
-    } as unknown as Cube);
-    const bay = (cubes: Cube[]): Game => ({ cubes } as unknown as Game);
-    const bay1 = bay([frozen(), frozen(), frozen()]);
-    for (let i = 0; i < 5; i++) rig.act(bay1, i * 16);
-    check(
-      "a thaw rig spends its whole magazine and no more inside one bay",
-      bay1.cubes.filter((c) => c.struck).length === 2,
-      `${bay1.cubes.filter((c) => c.struck).length} thawed of 3`,
-    );
-    const bay2 = bay([frozen(), frozen(), frozen()]);
-    for (let i = 0; i < 5; i++) rig.act(bay2, i * 16);
-    check(
-      "...and the magazine renews at the next bay, not at the next run",
-      bay2.cubes.filter((c) => c.struck).length === 2,
-      `${bay2.cubes.filter((c) => c.struck).length} thawed of 3`,
-    );
-    check("...while still handing every tick to the bot it wraps", acts === 10, `${acts} acts`);
+    const rig = thawHands(stub);
+    const bay = { useThawLance: (now: number) => { pulls += 1; lastNow = now; return true; } };
+    for (let i = 0; i < 5; i++) rig.act(bay as unknown as Game, i * 16);
+    check("the lance's hands pull the shipped trigger", pulls === 5, `${pulls} pulls`);
+    check("...with the caller's clock, not one of their own", lastNow === 64, String(lastNow));
+    check("...while still handing every tick to the bot it wraps", acts === 5, `${acts} acts`);
+    // A refusal must not stop the bay: useThawLance returns false and spends
+    // nothing on an empty rack, and the tick has to fall through to the shot.
+    let refusedActs = 0;
+    const refusing = thawHands({ name: "stub", act: () => { refusedActs += 1; } });
+    refusing.act({ useThawLance: () => false } as unknown as Game, 0);
+    check("...and a refused charge still lets the bot shoot", refusedActs === 1);
+  }
+  // The kit grants the SHIPPED charge count, from the shipped rule, so a
+  // re-tuned THAW_CHARGES_PER_TIER moves the harness and the game together —
+  // and prices itself on the shared cumulative ladder rather than a table of
+  // its own (upgrades.ts's TIER_COSTS: "a proposal that arrives with its own
+  // price table is a proposal asking not to be compared").
+  {
+    for (const t of [1, 2, 3]) {
+      const cfg = makeBaseLevel(0);
+      thawKit(t).level!(cfg);
+      check(`thaw${t} grants the shipped rack`, cfg.thawCharges === thawChargesFor(t),
+        `${cfg.thawCharges} vs ${thawChargesFor(t)}`);
+    }
+    check("the lance's kit prices itself on the shared cumulative ladder",
+      thawKit(1).cost === TIER_COSTS[0]
+      && thawKit(2).cost === TIER_COSTS[0] + TIER_COSTS[1]
+      && thawKit(3).cost === TIER_COSTS[0] + TIER_COSTS[1] + TIER_COSTS[2],
+      `${thawKit(1).cost}/${thawKit(2).cost}/${thawKit(3).cost}`);
   }
   // Bond hands must not spend the run's rarest consumable on an empty bay.
   {
