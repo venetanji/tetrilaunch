@@ -24,6 +24,7 @@
  * different consent requirements — do not quietly promote this one.
  */
 import type { ShotInfo } from "../game/game";
+import type { RunState } from "../game/run";
 import type { UpgradeTiers } from "../game/upgrades";
 
 const KEY = "tetrilaunch.playtest.v1";
@@ -39,8 +40,20 @@ export interface BayRecord {
   /** Which half of the game this bay came from. A Contract has no clock and no
    *  bankroll, so pooling it with Deep Run bays makes both the clock and the
    *  bankroll analyses meaningless — sim/playtest.ts splits on this. Absent in
-   *  sessions recorded before this field existed; the analyser infers those. */
-  mode: "run" | "contract";
+   *  sessions recorded before this field existed; the analyser infers those.
+   *
+   *  "skydeck" is a THIRD value rather than a flag beside "run", and it earns
+   *  the split the same way "contract" did: that bay was flown on a fixed daily
+   *  seed, with no refit stop behind it and one or more standing Final clauses
+   *  on it (game/skydeck.ts), so its clock slack and its low-water mark are
+   *  answers to a different question from a Mark-10 Deep Run bay's. Pooled,
+   *  they would move the medians the ladder is tuned against — which is exactly
+   *  the corruption this field was added to prevent, one mode later.
+   *
+   *  Old recordings stay parseable: nothing before this change ever wrote
+   *  "skydeck", and the analyser's inference (no clock => contract) is
+   *  unchanged and still correct for every session that predates it. */
+  mode: "run" | "contract" | "skydeck";
   target: number;
   timeLimitSec: number;
   cooldownMs: number;
@@ -179,8 +192,21 @@ export function startRun(mark: number, loadout: UpgradeTiers, unlocks: string[])
   persist();
 }
 
+/**
+ * The mode tag for a bay of the Deep Run family (BayRecord.mode).
+ *
+ * Here rather than inline at main.ts's one call site because sim/playtest.ts's
+ * whole grouping turns on it and sim/systems.ts has to be able to pin that the
+ * two modes are distinguishable at all. A Skydeck bay carries mark 10 and a
+ * clock, so nothing else about the record tells them apart — which is exactly
+ * how they came to be pooled (PR #124 review).
+ */
+export function runMode(run: RunState): "run" | "skydeck" {
+  return run.skydeck ? "skydeck" : "run";
+}
+
 export function startBay(cfg: {
-  bay: number; mark: number; seed: number; mode: "run" | "contract";
+  bay: number; mark: number; seed: number; mode: "run" | "contract" | "skydeck";
   target: number; timeLimitSec: number;
   cooldownMs: number; launchCost: number; scorePerLine: number;
   compactorSpeed: number; compactorOpenCells: number; compactorMinLineCells: number;

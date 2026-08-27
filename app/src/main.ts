@@ -2,12 +2,14 @@ import "./styles/app.css";
 import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
-  newRun, advanceRun, levelForRun, finalRunScore, isRefitBay, isFinalDraft, baysUntilRefit,
-  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
+  newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
+  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, buyUpgrades, bayMusic,
+  RUN_LEVELS, type RunState,
 } from "./game/run";
+import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
-  hazardOffers, hazardById, isMaterialDraft, picksPerBay, togglePick, HAZARDS,
+  hazardOffers, hazardById, isMaterialDraft, togglePick, HAZARDS,
   type HazardDef, type HazardId, type Ratchets,
 } from "./game/hazards";
 import { previewRows } from "./game/preview";
@@ -40,6 +42,18 @@ function drillSeed(id: string): number {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h;
+}
+
+/** The 1-based BAY the run's next standing clause arms on, or null when they
+ *  are all signed (and on every ladder run, which has none).
+ *
+ *  A function rather than an expression at the one call site because
+ *  StandingClause.from is a 0-based levelIndex and the cell that reads this
+ *  prints a bay NUMBER — an off-by-one that is invisible in review and glaring
+ *  in play, which is the same reason run.ts states isFinalDraft as a predicate. */
+function nextClauseBay(run: RunState): number | null {
+  const next = run.skydeck?.clauses.find((c) => c.from > run.levelIndex);
+  return next ? next.from + 1 : null;
 }
 
 /** A run's ratchets flattened to "axis:notches" for telemetry, in ladder order
@@ -871,8 +885,21 @@ class App {
       // celebration you get is the run's own milestone logic: isRefitBay is
       // true on bays 3, 6 and 9 — the ones that open the shop — so the bigger
       // refit theme marks a checkpoint and the shorter one marks a bay.
+      //
+      // Asked of the RUN (run.ts's refitAfterBay), so the Skydeck — which has
+      // no yard — does not ring the shop's fanfare over a door that will not
+      // open. Its checkpoint is the same three bays wearing the other coat: a
+      // clause arms on each of them, and the bay-clear card announces it.
       case "bayclear":
-        playStinger(this.run && isRefitBay(this.run.levelIndex) ? "refit" : "bayClear");
+        playStinger(
+          this.run
+            && (refitAfterBay(this.run, this.run.levelIndex)
+              // +1 because the run has NOT advanced yet at this state (see
+              // afterBayClear): the clause about to arm is the next bay's.
+              || this.clauseAt(this.run.levelIndex + 1) !== null)
+            ? "refit"
+            : "bayClear",
+        );
         return;
 
       // …and keeps ringing across the refit and the hazard draft, which follow
@@ -1383,6 +1410,40 @@ class App {
     return t;
   }
 
+  /** The bay-clear card's third stat on a Skydeck run, or undefined on a ladder
+   *  run (where it stays the scrap payout).
+   *
+   *  Two faces, because a stop is three bays out of ten: at a stop it names the
+   *  clause that just armed, and everywhere else it counts the ones already
+   *  riding — the same tally the draft's bank cell carries, so the two screens
+   *  either side of the boundary agree. */
+  private baySlot(): { value: string; label: string } | undefined {
+    const run = this.run;
+    if (!run?.skydeck) return undefined;
+    // +1: the run has not advanced yet at the bayclear state (afterBayClear).
+    const arming = this.clauseAt(run.levelIndex + 1);
+    if (arming) return { value: arming.name, label: `clause \u00b7 from Bay ${arming.bay}` };
+    const active = standingClauses(run).length;
+    return { value: `${active}/${run.skydeck.clauses.length}`, label: "clauses standing" };
+  }
+
+  /** The Skydeck clause that ARMS on the bay at `levelIndex`, or null — for
+   *  every other run and for a bay no clause starts on.
+   *
+   *  Takes the index explicitly rather than reading the run's, because the two
+   *  callers are on opposite sides of advanceRun: the bay-clear card asks about
+   *  the bay it is about to hand over to (levelIndex + 1, the run not yet
+   *  advanced) and anything after the draft asks about the bay it is projecting
+   *  (levelIndex, already advanced). An implicit answer would be right on
+   *  exactly one of them. */
+  private clauseAt(levelIndex: number): { name: string; desc: string; bay: number } | null {
+    const rules = this.run?.skydeck;
+    if (!rules) return null;
+    const arming = clauseArmingAt(rules, levelIndex);
+    const def = arming ? finalById(arming.id) : undefined;
+    return def ? { name: def.name, desc: def.desc, bay: levelIndex + 1 } : null;
+  }
+
   /** Whether Tier S can be entered at all. The setting is the door; the build
    *  flag is a second, independent way in that only exists where the cheats
    *  do, so a developer never has to perform the gesture to reach the tool. */
@@ -1640,18 +1701,25 @@ class App {
     // NEXT STEP badge comes off with it: the guide is pointing at the ladder,
     // and Tier S is not on it.
     const ttl = this.overlay.querySelector<HTMLElement>("#menu-play-ttl");
-    if (ttl) ttl.textContent = sbx ? "Sandbox" : "Deep Run";
+    if (ttl) ttl.textContent = sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
     if (sbx) btn?.classList.remove("btn--next");
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
-    const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
+    // The DAY'S CLAUSE LIST is deliberately NOT carried across with the extras
+    // below: it is the roof's own row, so a ride down from the Skydeck has to
+    // drop it and a ride up has to add it. Lifting it with the extras would
+    // leave Tier 6's recap advertising tonight's inspection schedule.
+    const extras = panel.querySelector<HTMLElement>(".base-bay__extras .sky-rules")
+      ? Array.from(panel.querySelectorAll<HTMLElement>(".base-bay__extras > :not(.sky-rules)"))
+        .map((n) => n.outerHTML).join("")
+      : panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
     // Tier S reads its OWN board's best — the panel is the recap of the floor
     // the car is on, and a ladder best printed over a sandbox panel would be
     // the one number on it that belonged to somewhere else.
     const best = sbx ? loadBest(BOARD_SANDBOX) : loadBest();
-    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras });
+    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras, skydeck: this.skydeckRules() });
   }
 
   /** The primary button's subtitle for `tier`, or the in-flight line when it
@@ -1664,8 +1732,20 @@ class App {
       : tier === S.SANDBOX_TIER
         ? "Any Mark, bay or Contract · own board"
         : tier === S.SKYDECK_TIER
-          ? "All ten marks at once · no mercy"
+          ? `Today's run · no refits · ${this.skydeckRules().length} standing clauses`
           : `Clear ${RUN_LEVELS} bays in one run`;
+  }
+
+  /** Today's Skydeck clauses as the menu prints them — bay number and card
+   *  name (game/skydeck.ts).
+   *
+   *  Re-derived per render rather than cached on the app, because the one thing
+   *  that can change it is the DATE, and a session left open across midnight
+   *  must not offer yesterday's contract on a run that will fly today's. It is
+   *  three table lookups and a seeded coin per stop, which is cheaper than the
+   *  staleness would be. */
+  private skydeckRules(): { bay: number; name: string }[] {
+    return clauseDefs(skydeckRulesFor()).map((c) => ({ bay: c.bay, name: c.def.name }));
   }
 
   private renderOverlay(): void {
@@ -1708,6 +1788,11 @@ class App {
             firstLaunch: !this.settings.seenTutorial,
           },
           this.towerState(),
+          // The roof's own row on the recap panel and the count on the primary
+          // button. Passed rather than reached for inside the screen, so the
+          // markup stays a pure function of its arguments (screens.ts's
+          // skydeckRulesHTML says why that matters to sim/uifit).
+          this.skydeckRules(),
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;
@@ -1862,7 +1947,15 @@ class App {
               funds: g.score,
               target: g.target,
               lines: g.linesTotal,
-              scrap: g.scrapEarned + g.level.scrapPerBay,
+              // The Skydeck declines the bay's scrap (see afterBayClear), so
+              // the card must not quote a payout the run is about to refuse —
+              // a 0 in the same slot is the honest reading of "no yard".
+              scrap: this.run.skydeck ? 0 : g.scrapEarned + g.level.scrapPerBay,
+              // The third stat, on a Skydeck run only: the clause ARMING on
+              // the next bay at one of the three stops, and the running tally
+              // everywhere else. The scrap payout it displaces is a permanent
+              // 0 on that mode (see afterBayClear), so the slot was free.
+              slot: this.baySlot(),
             });
         }
         break;
@@ -2114,23 +2207,36 @@ class App {
     // change this run's draft pool, and the run never has to reach back into
     // localStorage.
     const startingScrap = this.meta.unlocks.includes("scrap-cache") ? 30 : 0;
-    this.run = newRun(
-      Date.now() >>> 0,
-      this.meta.unlocks,
-      startingScrap,
-      safeLoadout(this.meta),
-      // The floor the tower's car is parked on, not simply the unlocked Mark.
-      // Flying a Mark already beaten earns nothing and advances nothing —
-      // meta.ts's recordRunEnd gates its tier bookkeeping on
-      // `runMark === markUnlocked(meta)` — so the lower floors are practice
-      // and no rule had to change to make them safe.
-      //
-      // The LOADOUT stays the one bought against the unlocked Mark's budget
-      // (safeLoadout above). Re-validating it against the picked floor would
-      // mean dropping to a stock rig to fly an easier tier, which is the
-      // opposite of what picking one is for.
-      this.runMark(),
-    );
+    // THE SKYDECK IS A DIFFERENT RUN, not a Mark-10 run with a flag on it —
+    // the day writes its clauses, the yard never opens and a bay costs one
+    // notch (game/skydeck.ts). Built by that module for the same reason a Tier
+    // S run is built by sandbox.ts: newRun states what a run IS, and a mode is
+    // a small set of overrides on top of it.
+    //
+    // The LOADOUT is the one thing it shares with the ladder — safeLoadout,
+    // bought against Mark 10's build budget. That is the whole of "you play
+    // with the rig you have".
+    if (this.towerState().selected === S.SKYDECK_TIER) {
+      this.run = skydeckRunFor(safeLoadout(this.meta), this.meta.unlocks);
+    } else {
+      this.run = newRun(
+        Date.now() >>> 0,
+        this.meta.unlocks,
+        startingScrap,
+        safeLoadout(this.meta),
+        // The floor the tower's car is parked on, not simply the unlocked Mark.
+        // Flying a Mark already beaten earns nothing and advances nothing —
+        // meta.ts's recordRunEnd gates its tier bookkeeping on
+        // `runMark === markUnlocked(meta)` — so the lower floors are practice
+        // and no rule had to change to make them safe.
+        //
+        // The LOADOUT stays the one bought against the unlocked Mark's budget
+        // (safeLoadout above). Re-validating it against the picked floor would
+        // mean dropping to a stock rig to fly an easier tier, which is the
+        // opposite of what picking one is for.
+        this.runMark(),
+      );
+    }
     this.contract = null;
     this.contractMusic = null;
     this.drill = null;
@@ -2186,7 +2292,11 @@ class App {
       bay: this.run.levelIndex + 1,
       mark: this.run.mark,
       seed: this.run.seed,
-      mode: "run",
+      // The Skydeck is its own mode to the analyser, not a Mark-10 Deep Run
+      // with different numbers: fixed daily seed, no refit behind it, standing
+      // clauses on it. sim/playtest.ts groups on this, and pooling the two
+      // would move the medians the ladder is tuned against.
+      mode: telemetry.runMode(this.run),
       target: cfg.targetScore,
       timeLimitSec: cfg.timeLimitSec,
       cooldownMs: cfg.cooldownMs,
@@ -2792,7 +2902,7 @@ class App {
         // player accepts. A ratchet taken here would be a permanent commitment
         // one bay before permanence expires, which is the whole reason the last
         // draft deals something else.
-        if (isFinalDraft(this.run.levelIndex)) {
+        if (finalDraftFor(this.run)) {
           this.pendingFinals = finalsForTier(this.run.mark);
           this.pendingOffers = [];
         } else {
@@ -2925,7 +3035,7 @@ class App {
 
   /** End of the bay-clear celebration: bank the bay into the run, then route to
    *  a REFIT stop if this clear earned one (every REFIT_EVERY-th bay — see
-   *  run.ts's isRefitBay), otherwise straight to the modifier draft. Both paths
+   *  run.ts's refitAfterBay), otherwise straight to the modifier draft. Both paths
    *  end at the draft, so the refit is an extra stop rather than a replacement:
    *  ship upgrades and drafted contracts are different decisions and the player
    *  makes both. Idempotent — a tap-through and the timer both land here. */
@@ -2946,20 +3056,29 @@ class App {
       g.score,
       g.target,
       g.linesTotal,
-      g.scrapEarned + g.level.scrapPerBay,
+      // NO SCRAP ON THE SKYDECK. There is no yard to spend it in (run.ts's
+      // refitAfterBay), and a currency that only ever accumulates is a number
+      // on a screen pretending to be a decision — worse, it is a number that
+      // looks like a decision the player is failing to make. The bay still
+      // PAYS it into g.scrapEarned; this is where the run declines it, in the
+      // one place a run's income is banked, rather than by zeroing rates all
+      // over level.ts for one mode.
+      this.run.skydeck ? 0 : g.scrapEarned + g.level.scrapPerBay,
       [],
       // What the bay ENDED with: Bond Breakers are the run's consumable, so
       // whatever this bay did not spend is what the next one opens with.
       g.bondCharges,
       g.salvagedFunds,
     );
-    // isRefitBay takes the just-CLEARED bay's index, which advanceRun has
-    // already stepped past — hence the -1.
+    // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
+    // already stepped past — hence the -1. Asked of the RUN, not of the bay
+    // number: the Skydeck's yard is shut for the whole run (skydeck.ts), so
+    // this is also the one line that keeps it shut.
     // A fresh yard ticket every stop: an order is tentative by construction, so
     // one that survived a bay would be scrap queued against a rig and a bankroll
     // that have both moved since.
     this.refitOrder = {};
-    this.setState(isRefitBay(this.run.levelIndex - 1) ? "refit" : "draft");
+    this.setState(refitAfterBay(this.run, this.run.levelIndex - 1) ? "refit" : "draft");
   }
 
   /** Common run-end path for both a bay-10 win and any loss: record the run
@@ -2984,6 +3103,39 @@ class App {
       telemetry.endRun(won, 0);
       saveBest(score, BOARD_SANDBOX);
       void this.refreshBoard(BOARD_SANDBOX);
+      this.setState(won ? "won" : "lost");
+      return;
+    }
+    // THE SKYDECK: a real run, a real score, and NO LADDER BOOKKEEPING — the
+    // same gate Tier S gets above, for a different reason and with a different
+    // exception.
+    //
+    // The reason. recordRunEnd ticks the tier whose Deep Run half is not yet
+    // done, and the tier it asks about is markUnlocked(meta), which SATURATES
+    // at MARK_COUNT (meta.ts). The Skydeck opens only once the whole ladder is
+    // beaten, so every player who can reach it is already parked on that
+    // saturated tier — which means an unguarded Skydeck win would set
+    // tierRunDone, bank a salvage milestone and print Tier 10 completion copy,
+    // EVERY DAY, forever. A daily that pays the ladder's once-per-tier reward
+    // on repeat is a salvage faucet, and it would also quietly claim the
+    // Mark-10 seal (recordRunEnd's `sealed` is deliberately NOT gated on the
+    // Mark being current) for a run flown under rules Mark 10 does not have.
+    //
+    // The exception. Unlike Tier S this run is NOT filed apart: it flies Mark
+    // 10's bays on a loadout bought against Mark 10's budget, so its score is
+    // comparable to a Mark-10 Deep Run's and goes to that board (runBoard, and
+    // the end modal's submit). A harder run on the same board can only ever
+    // under-rank itself, which is the safe direction; a per-day board is a
+    // schema change and is recorded as an open in docs/DESIGN.md.
+    //
+    // lastTier stays null so the end modal prints no tier line at all — the
+    // completion copy is the visible half of the bug above, and the modal
+    // already renders nothing when there is no result to render.
+    if (!tracksLadder(this.run)) {
+      this.lastTier = null;
+      telemetry.endRun(won, 0);
+      saveBest(score);
+      void this.refreshBoard();
       this.setState(won ? "won" : "lost");
       return;
     }
@@ -3201,7 +3353,7 @@ class App {
    *  under each candidate before the player spends the notch.
    *
    *  The toggle rules themselves live in hazards.ts's togglePick, next to the
-   *  picksPerBay quota they depend on and where the sim can reach them.
+   *  picksForRun quota they depend on and where the sim can reach them.
    *
    *  There is still no skip: confirming is gated on a full hand (see
    *  onConfirmHazards), so the ratchet remains the mandatory price of the bay
@@ -3213,7 +3365,7 @@ class App {
     // must not let a player ratchet an axis their Mark has not opened.
     if (!this.pendingOffers.some((h) => h.id === id)) return;
     this.pendingPicks = togglePick(
-      this.pendingPicks, id as HazardId, picksPerBay(this.run.mark),
+      this.pendingPicks, id as HazardId, picksForRun(this.run),
       // A forced-material hand caps its partner card at one seat — see
       // togglePick. The draft edits the hand dealt after clearing
       // run.levelIndex, the same index pendingOffers was dealt from.
@@ -3264,7 +3416,7 @@ class App {
       offers: this.pendingOffers,
       ratchets: run.ratchets,
       selected: this.pendingPicks,
-      picksNeeded: picksPerBay(run.mark),
+      picksNeeded: picksForRun(run),
       // Both sides of the projection come from levelForRun, so what the player
       // reads here is the config the bay is actually built from — run.ts stays
       // the single source of a bay's numbers, and a notch's effect is never
@@ -3281,7 +3433,19 @@ class App {
       // Bay-CLEARS until the next refit stop, counting the bay about to be
       // played; 1 means "clear this one and you dock". Null late in a run when
       // no stop remains.
-      baysToRefit: baysUntilRefit(run.levelIndex),
+      baysToRefit: baysUntilRefitFor(run),
+      // The Skydeck's tally, which takes the scrap cell's slot (screens.ts).
+      // Counted off the run's own schedule rather than kept as a second
+      // number, so it cannot disagree with what levelForRun is applying.
+      standing: run.skydeck
+        ? {
+            active: standingClauses(run).length,
+            total: run.skydeck.clauses.length,
+            // +1 because StandingClause.from is a 0-based levelIndex and the
+            // cell prints a BAY. The one place this off-by-one is invisible.
+            nextBay: nextClauseBay(run),
+          }
+        : undefined,
     });
   }
 
@@ -3370,7 +3534,7 @@ class App {
       this.startLevel();
       return;
     }
-    if (this.pendingPicks.length < picksPerBay(this.run.mark)) return;
+    if (this.pendingPicks.length < picksForRun(this.run)) return;
     this.run = { ...this.run, ratchets: withPicks(this.run.ratchets, this.pendingPicks) };
     this.pendingPicks = [];
     this.startLevel();

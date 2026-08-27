@@ -13,7 +13,8 @@ the browser. The three questions the first tools here were built to answer:
 
 Everything after those three arrived as one specific number a design argument
 needed and could not remember, and each has its own section below: the Mark
-ladder (`marks.ts`), the congestion tax (`pile.ts` and `pile-metrics.ts`),
+ladder (`marks.ts`), the Skydeck's standing-clause stack (`skydeck.ts`), the
+congestion tax (`pile.ts` and `pile-metrics.ts`),
 whether the non-physics systems are wired up at all (`systems.ts`), whether a
 pattern Contract can actually be built (`patterns.ts`), what a human's session
 looks like next to a bot's (`playtest.ts`), and whether every screen fits every
@@ -248,6 +249,45 @@ both are inherited from the bots: they never fire Bond Breaker or Demolition,
 so those tracks measure as worthless and bomb-carrying builds are undersold,
 and they hold an arc rather than reading the pile. A human clears bays these
 bots lose.
+
+## `skydeck.ts` — the daily run's clause stack
+
+The sweep the Skydeck (`src/game/skydeck.ts`) cannot be shipped without. That
+mode changes three things about a Mark-10 Deep Run — no refit stops, one notch
+a bay instead of two, and three *standing* Final clauses instead of one — and
+the first two make it easier while the third makes it harder. Nothing about
+that trade can be asserted.
+
+```sh
+npx tsx sim/skydeck.ts --mark 6 --bays 1,4,7,10 --seeds 3 --stops all --rigs economy
+npx tsx sim/skydeck.ts --mark 10 --days 14
+```
+
+Every row is the best of the rigs flown, exactly as `marks.ts` judges a Mark by
+its best build. Two controls print above the rest: the shipped **ladder** run at
+the same Mark (refits, two notches, one clause on bay 10), and the Skydeck
+**bare** — the mode with the clauses taken out, which is what isolates the
+clause stack from the two rules that make the mode easier.
+
+`--stops all` flies every combination the bands can deal (80 at the shipped
+bands) and reports the worst, median and best day plus a per-clause report card.
+The worst day is the number that decides whether a band is sized right; an
+average hides exactly that. `--days N` is the cheaper sample — the next N real
+days, i.e. what a player will actually meet.
+
+**`--mark` defaults to 10 and 10 is where this instrument has no resolution
+left.** `docs/DESIGN.md` publishes Mark 10 at 0% run-clear with the `aim` bot
+and a spread ratchet, and says why. A control already on the floor cannot say
+whether a change pushed it further down, so price the STACK at `--mark 6`
+(16% in that same table) and read the Mark-10 rows for the sign rather than the
+size. Both are worth printing; the commit that added the mode quotes both.
+
+The usual pessimism applies and bites hardest here: no bot fires a Bond Breaker,
+only `demo` fires a charge, and fixed arcs never read the pile — so every row
+carrying a standing MATERIAL clause is a floor. That bias is also what found the
+mode's one hard rule: a slag clause took bays 7 and 10 to 0% and stayed there,
+which is `theme.ts`'s `countsForLines` showing up as a measurement, and
+`skydeck.ts` now refuses to deal dead cargo as a standing rule at all.
 
 ## `pile.ts` — congestion-tax sweep
 
