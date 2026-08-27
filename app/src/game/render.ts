@@ -1,8 +1,8 @@
 import Matter from "matter-js";
-import { CELL, WORLD } from "./engine";
+import { CELL, SKY, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
 import { CHUTE, chuteMouth, chuteRightEdge } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
-import { computeLayout } from "./layout";
+import { computeLayout, skyTop } from "./layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, glyphInk, MATERIAL_GLYPH, PIECE_COLORS,
   shade, shipmentAura, shipmentColor,
@@ -108,6 +108,21 @@ export interface Scene {
    *  sits over the field. A DOM cue would be hidden by the thing it is warning
    *  about. */
   strandWarning: boolean;
+  /**
+   * HOW FAR INTO THE STEP NOW IN PROGRESS this frame sits, 0..1 — main.ts's
+   * leftover accumulator over one STEP. Every physics body is drawn between
+   * where it stood at the end of the last step and where it stands now, so a
+   * panel refreshing faster than the 60Hz simulation gets a fresh position per
+   * frame instead of the same one twice. See engine.ts's markPrevStep for the
+   * whole argument, including what it costs.
+   *
+   * OPTIONAL, DEFAULTING TO 1 — "draw the world exactly as it is right now",
+   * which is what the renderer did before interpolation existed and what every
+   * caller that does not run an accumulator wants. sim/renderperf and
+   * sim/uifit both step and draw in lockstep, so 1 is the honest answer there
+   * and their pixels are unchanged by any of this.
+   */
+  alpha?: number;
 }
 
 /**
@@ -166,16 +181,20 @@ function seamStrength(breakStretch: number | undefined): number {
 }
 
 /** Graphite -> amber -> red by strain. */
-function seamColor(strain: number, alpha: number): string {
+function seamColor(strain: number, opacity: number): string {
   const seg = strain < 0.5 ? 0 : 1;
   const k = strain < 0.5 ? strain / 0.5 : (strain - 0.5) / 0.5;
   const a = seg === 0 ? SEAM_REST : SEAM_WARM;
   const b = seg === 0 ? SEAM_WARM : SEAM_HOT;
   const ch = (i: number): number => Math.round(a[i] + (b[i] - a[i]) * k);
-  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${alpha.toFixed(3)})`;
+  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${opacity.toFixed(3)})`;
 }
 
-function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] | undefined): void {
+function drawJointSeams(
+  ctx: CanvasRenderingContext2D,
+  cs: Matter.Constraint[] | undefined,
+  alpha: number,
+): void {
   if (!cs?.length) return;
   ctx.save();
   ctx.lineCap = "butt";
@@ -183,17 +202,25 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
     const a = c.bodyA;
     const b = c.bodyB;
     if (!a || !b) continue;
+    // Both ends read at the frame's own point in the step, like the cubes they
+    // join (drawCube). Reading them live while the cubes interpolate would peel
+    // every seam off its own weld for the frames between steps — the one place
+    // in the scene where a mismatch is unmissable, because a seam is drawn
+    // exactly on the join it describes.
+    const ax = lerpX(a, alpha);
+    const ay = lerpY(a, alpha);
+    const bx = lerpX(b, alpha);
+    const by = lerpY(b, alpha);
     const meta = c as unknown as { restLength?: number; breakStretch?: number };
-    const rest = meta.restLength
-      ?? Math.hypot(a.position.x - b.position.x, a.position.y - b.position.y);
+    const rest = meta.restLength ?? Math.hypot(ax - bx, ay - by);
     // CELL, not a measurement off the body's vertices: pieces.ts builds cubes
     // with `chamfer: { radius: 3 }`, so a cube has EIGHT vertices and v[0]->v[1]
     // is a 3px chamfer chord rather than its side. Reading it that way makes
     // every rest length look like a diagonal and draws no seams at all.
     if (rest > CELL * 1.35) continue;
     const t = seamStrength(meta.breakStretch);
-    const dx = b.position.x - a.position.x;
-    const dy = b.position.y - a.position.y;
+    const dx = bx - ax;
+    const dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
     // How far this joint is toward its OWN breaking point right now. Referenced
     // against min(breakStretch, 3) so rebar — Infinity — still shows strain
@@ -205,8 +232,8 @@ function drawJointSeams(ctx: CanvasRenderingContext2D, cs: Matter.Constraint[] |
     const px = -dy / len;
     const py = dx / len;
     const half = CELL * (0.2 + 0.16 * t);
-    const mx = (a.position.x + b.position.x) / 2;
-    const my = (a.position.y + b.position.y) / 2;
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
     ctx.strokeStyle = seamColor(strain, 0.55 + 0.35 * t);
     ctx.lineWidth = 1.4 + 3.6 * t;
     ctx.beginPath();
@@ -329,6 +356,7 @@ export function render(
   viewport?: Viewport,
 ): void {
   const vp = viewport ?? computeViewport(cssW, cssH);
+  const alpha = scene.alpha ?? 1;
   syncSpriteScale(vp.scale * dpr);
 
   // Backdrop, field gradient, grid, wall glow AND the congestion floor are
@@ -339,23 +367,30 @@ export function render(
   ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0, 0);
 
   ctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
-  // Clip to the world rect
+  // Clip to the world rect, OPENED UPWARD to the top of the canvas (layout.ts's
+  // skyTop). The world is authored 720 tall but its ceiling is not a wall —
+  // engine.ts leaves the top boundary open so a lofted shot can apex ~250 world
+  // px above y=0 and fall back in. Clipping at y=0 made those frames a lie:
+  // the piece the player just launched vanished at the field's top edge, waited
+  // out its arc in a black band, and reappeared. The sides and floor are not
+  // opened with it — those are real walls, and cargo that reaches them stops.
+  const sky = skyTop(vp.scale, vp.oy);
   ctx.save();
   ctx.beginPath();
-  ctx.rect(0, 0, WORLD.width, WORLD.height);
+  ctx.rect(0, sky, WORLD.width, WORLD.height - sky);
   ctx.clip();
 
   // The plant's intake, under everything: cargo falling in has to draw OVER
   // the mouth it is falling into, and the arc has to draw over both.
   drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
-  drawCompactor(ctx, scene.compactor);
-  drawPistons(ctx, scene.compactor);
-  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now);
+  drawCompactor(ctx, scene.compactor, alpha);
+  drawPistons(ctx, scene.compactor, alpha);
+  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now, alpha);
   // Over the cubes, not under: a seam between adjacent cubes is covered by the
   // very cubes it joins, so drawing it underneath draws nothing.
-  drawJointSeams(ctx, scene.constraints);
-  for (const bomb of scene.bombs) drawBomb(ctx, bomb);
+  drawJointSeams(ctx, scene.constraints, alpha);
+  for (const bomb of scene.bombs) drawBomb(ctx, bomb, alpha);
   drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now, scene.strandWarning);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
@@ -771,7 +806,12 @@ let bgLayerKey = "";
 /** Letterbox backdrop + field gradient + grid + glowing walls, composited
  *  once per viewport into an opaque device-resolution layer. Re-baked only
  *  when the canvas size or world placement changes (resize, rotation, dpr
- *  change); every frame in between is a single full-canvas drawImage. */
+ *  change); every frame in between is a single full-canvas drawImage.
+ *
+ *  The sky (see layout.ts's skyTop) needs no new cache key: it is a pure
+ *  function of vp.scale and vp.oy, both of which are already in the key
+ *  below, so any viewport that changes how far up the sky reaches changes the
+ *  key that reaches it. */
 function getBackgroundLayer(
   cssW: number,
   cssH: number,
@@ -794,12 +834,13 @@ function getBackgroundLayer(
   bctx.fillStyle = COLORS.bg;
   bctx.fillRect(0, 0, w, h);
   bctx.setTransform(vp.scale * dpr, 0, 0, vp.scale * dpr, vp.ox * dpr, vp.oy * dpr);
+  const sky = skyTop(vp.scale, vp.oy);
   bctx.save();
   bctx.beginPath();
-  bctx.rect(0, 0, WORLD.width, WORLD.height);
+  bctx.rect(0, sky, WORLD.width, WORLD.height - sky);
   bctx.clip();
-  drawBackground(bctx);
-  drawWalls(bctx);
+  drawBackground(bctx, sky);
+  drawWalls(bctx, sky);
   // Over the walls' glow and under everything else, which is exactly where
   // this used to run when it ran live — see the note above drawCongestionRows.
   if (rows) drawCongestionRows(bctx, rows);
@@ -808,7 +849,23 @@ function getBackgroundLayer(
   return bgLayer;
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D): void {
+/**
+ * `top` is the world-y the sky reaches (layout.ts's skyTop, <= 0) — the field
+ * gradient and the grid are painted from there rather than from 0.
+ *
+ * The gradient's bright core was ALREADY authored above the field: its inner
+ * circle is centred at y=-80, eighty world px over the world's own top edge.
+ * Painting only from y=0 meant the field was lit by the outskirts of a glow
+ * whose middle nobody ever saw, and the letterbox band above it was flat
+ * backdrop — so the brightest part of the scene was the sliver just under the
+ * hard edge of a black bar. Filling from `top` puts the core back on screen and
+ * the atmosphere reads as depth above the shaft instead of a lid over it.
+ *
+ * The grid starts at the first CELL multiple at or above `top`, which keeps
+ * every line on the same lattice y=0 always sat on — the sky's rows line up
+ * with the field's rows, because they are the same rows.
+ */
+function drawBackground(ctx: CanvasRenderingContext2D, top: number): void {
   const g = ctx.createRadialGradient(
     WORLD.width * 0.5, -80, 80,
     WORLD.width * 0.5, WORLD.height * 0.4, WORLD.width * 0.8,
@@ -816,35 +873,52 @@ function drawBackground(ctx: CanvasRenderingContext2D): void {
   g.addColorStop(0, "#161636");
   g.addColorStop(1, "#07070f");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+  ctx.fillRect(0, top, WORLD.width, WORLD.height - top);
 
   ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 0; x <= WORLD.width; x += CELL) {
-    ctx.moveTo(x, 0);
+    ctx.moveTo(x, top);
     ctx.lineTo(x, WORLD.height);
   }
-  for (let y = 0; y <= WORLD.height; y += CELL) {
+  for (let y = Math.ceil(top / CELL) * CELL; y <= WORLD.height; y += CELL) {
     ctx.moveTo(0, y);
     ctx.lineTo(WORLD.width, y);
   }
   ctx.stroke();
 }
 
-/** Left/bottom/right glow only — the top is physically open (pieces can fly
- *  above the frame and fall back in), so the visuals leave the sky open too. */
-function drawWalls(ctx: CanvasRenderingContext2D): void {
+/**
+ * Left/bottom/right glow only — the top is physically open (pieces fly above
+ * the frame and fall back in), so the visuals leave the sky open too.
+ *
+ * What the side rails now do is FOLLOW that sky up. They used to stop at y=2,
+ * which is where the drawn field stopped, not where the wall is: engine.ts
+ * builds the left and right bodies spanning y=-SKY..H precisely so a lofted
+ * shot cannot drift sideways out of the shaft while it is off the top of the
+ * field. Ending the neon at the field's top edge drew a shaft that visibly
+ * opened out into nothing, while the collider that piece would bounce off ran
+ * on for another 600 world px. Clamped to -SKY for the same reason: past there
+ * the walls genuinely are absent, and drawing them would be the opposite lie.
+ */
+function drawWalls(ctx: CanvasRenderingContext2D, top: number): void {
+  // No sky: the authored 2px inset, unchanged. Sky: the sky's OWN top edge,
+  // not `top + 2`. The stroke is butt-capped, so starting it two world px down
+  // would leave a couple of device px of unlit sky above each rail — a
+  // hairline gap at the exact edge of the screen, which is the smallest
+  // possible version of the lid this change removes.
+  const y0 = top < 0 ? Math.max(top, -SKY) : 2;
   ctx.save();
   ctx.strokeStyle = COLORS.aim;
   ctx.shadowColor = COLORS.wallGlow;
   ctx.shadowBlur = 18;
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(2, 2);
+  ctx.moveTo(2, y0);
   ctx.lineTo(2, WORLD.height - 2);
   ctx.lineTo(WORLD.width - 2, WORLD.height - 2);
-  ctx.lineTo(WORLD.width - 2, 2);
+  ctx.lineTo(WORLD.width - 2, y0);
   ctx.stroke();
   ctx.restore();
 }
@@ -1099,11 +1173,11 @@ function getBarSprite(w: number, h: number): HTMLCanvasElement {
   });
 }
 
-function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor): void {
+function drawCompactor(ctx: CanvasRenderingContext2D, c: Compactor, alpha: number): void {
   const sprite = getBarSprite(c.width, c.height);
   ctx.drawImage(
     sprite,
-    c.x - c.width / 2 - BAR_PAD,
+    lerpX(c.body, alpha) - c.width / 2 - BAR_PAD,
     c.top - BAR_PAD,
     c.width + BAR_PAD * 2,
     c.height + BAR_PAD * 2,
@@ -1313,7 +1387,7 @@ const PISTON_HEAD_W = 17;
 const PISTON_HEAD_H = 51;
 const PISTON_Y_FRACS = [0.27, 0.73]; // fraction down the compactor's [top, top+height] band — mockup's two mounts
 
-function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
+function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor, alpha: number): void {
   // Mount the rig at the mockup's 616 when the bay allows, but slide it left
   // for wide bays: the barrel tip must stay clear of the bar's LEFTMOST face
   // (c.leftX is the open stop) plus the head's width, or the head would
@@ -1328,7 +1402,11 @@ function drawPistons(ctx: CanvasRenderingContext2D, c: Compactor): void {
     const y = c.top + c.height * frac;
     const barrelX0 = mountX;
     const barrelX1 = barrelX0 + PISTON_BARREL_LEN;
-    const headX = c.x - c.width / 2; // the bar's left face — where the piston pushes it
+    // The bar's left face — where the piston pushes it. Interpolated on the
+    // same terms as the bar itself (drawCompactor), because a rod that tracked
+    // the live position while the bar it drives tracked the drawn one would
+    // visibly detach from its own head at every step boundary.
+    const headX = lerpX(c.body, alpha) - c.width / 2;
     const rodX0 = barrelX1;
     const rodX1 = Math.max(rodX0, headX - PISTON_HEAD_W / 2);
 
@@ -1435,7 +1513,12 @@ function getPistonHeadSprite(): HTMLCanvasElement {
   });
 }
 
-function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void {
+function drawCube(
+  ctx: CanvasRenderingContext2D,
+  cube: Cube,
+  now: number,
+  alpha: number,
+): void {
   if (!blinkVisible(cube, now)) return;
   const blinking = cube.blinkStart !== null;
   const color = blinking ? "#ff6464" : cube.color;
@@ -1462,8 +1545,8 @@ function drawCube(ctx: CanvasRenderingContext2D, cube: Cube, now: number): void 
   // one size would scale most of them.
   const half = sprite.half;
   ctx.save();
-  ctx.translate(b.position.x, b.position.y);
-  ctx.rotate(b.angle);
+  ctx.translate(lerpX(b, alpha), lerpY(b, alpha));
+  ctx.rotate(lerpAngle(b, alpha));
   ctx.drawImage(sprite.canvas, -half, -half, half * 2, half * 2);
   ctx.restore();
 }
@@ -1513,11 +1596,11 @@ function drawFrost(ctx: CanvasRenderingContext2D, o: number, size: number): void
 
 /** A live flying/rolling bomb — dark sphere with a subtle red glow and a
  *  small fuse-spark highlight, so it reads as distinct from a cube in flight. */
-function drawBomb(ctx: CanvasRenderingContext2D, body: Matter.Body): void {
+function drawBomb(ctx: CanvasRenderingContext2D, body: Matter.Body, alpha: number): void {
   const r = CELL * 0.45;
   ctx.save();
-  ctx.translate(body.position.x, body.position.y);
-  ctx.rotate(body.angle);
+  ctx.translate(lerpX(body, alpha), lerpY(body, alpha));
+  ctx.rotate(lerpAngle(body, alpha));
   ctx.shadowColor = "#ff2d55";
   ctx.shadowBlur = 14;
   const grad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);

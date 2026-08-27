@@ -351,6 +351,16 @@ body.crt-off #app::after { display: none; }
   max-width: 1210px;
   margin-inline: auto;
   width: 100%;
+  /* The row is a SIZE container so the brand column can size its 16:9 panel
+     off the height it actually has (see --brand-w below). Both of this box's
+     own dimensions are already definite and content-independent — `height:
+     100%` of the .screen flex line, `width: 100%` capped by the max-width
+     above — so `contain: size` takes nothing away that was ever being used,
+     and the layout containment it comes with is inert here: every absolutely
+     positioned thing inside the menu (the demo's hit layer and badge, the
+     tower's rail and car) already resolves against a `position: relative`
+     ancestor of its own, well inside this box. */
+  container-type: size;
 }
 /* Two fixed columns and one flexible one means the brand column pays for both
    of them, and on the narrowest landscape phone in the fleet (640x360) it
@@ -389,10 +399,104 @@ body.crt-off #app::after { display: none; }
    Declaring it once here means the two can never drift apart again; the media
    queries below step this token instead of stepping each child. `100%`
    resolves against .menu__brand's content box for both, so they always agree. */
+/* WHAT THE SHELF UNDER THE PANEL CANNOT GO WITHOUT, in the panel's own budget.
+   Three rows is the shelf at its tallest (an entitlement entry above
+   Leaderboard and Settings), 44px is the tap floor the whole screen is built
+   to, two --sp-3 gaps sit between them: 3x44 + 2x12 = 156. The 12 on top is
+   the margin for a face whose rows measure taller than Chromium's — WebKit's
+   do — and the --sp-4 is .menu__brand's own gap, which is spent whether the
+   shelf is at its floor or not. */
 .menu__brand {
   display: flex; flex-direction: column; gap: var(--sp-4);
   container-type: inline-size;
+  --shelf-floor: calc(3 * 44px + 2 * var(--sp-3));
+  --brand-reserve: calc(var(--shelf-floor) + 12px + var(--sp-4));
+  /* THE PANEL IS AS BIG AS THE COLUMN'S HEIGHT ALLOWS, which is one equation
+     and not a staircase.
+
+     It used to be a staircase: 360px under a 620px-tall box, 640px at 700 and
+     over, and this 440px default in between. Read as a function of height that
+     middle step is only reachable in a 79px band — box heights 621 to 699 —
+     and no device in sim/uifit/devices.ts has one. A WINDOW does: a 1280x720
+     desktop shell window minus its titlebar is ~1269x663, which is the size
+     the report came in at. There the brand column is 658px wide and the panel
+     drew itself 440, leaving a THIRD of the column empty beside it, and the
+     shelf below hit its 96px per-row cap and printed the rest as a hole. The
+     three columns stopped agreeing about vertical rhythm because one of them
+     had stopped answering to its own height.
+
+     The equation is the one the old 640px step's comment already derived, just
+     solved for every box instead of one: the panel is 16:9, so the height it
+     costs is 9/16 of the width it takes, and what is left has to cover the
+     shelf. Give the shelf its floor first and the panel gets the rest —
+
+         width = (column height - shelf reserve) * 16/9, capped by the column
+
+     — which reproduces the authored numbers exactly rather than replacing
+     them. At the 544px the brand column gets in the authored 1280x720 box
+     that is (544 - 184) * 16/9 = 640, and the column there is 640 wide, so
+     the magnified rows (every tablet, 1512x945, 1920x1080, 2560x1080) land on
+     the same 640 they landed on before. At 1269x663 it is 572, and the shelf
+     gets 168 instead of a hole.
+
+     `100cqh` is the .menu row's content box (the rule above makes it a size
+     container), which IS this column's height: the grid has one row and
+     stretches it. Container units are used rather than `vh` because above the
+     reference box the chrome is magnified with `zoom`, and `vh` would measure
+     the viewport while everything here is laid out in the divided box.
+
+     WHICH IS WHY THE STAIRCASE IS STILL HERE, one step per rule below, and why
+     the equation sits behind an @supports instead of on top of it. This app's
+     iOS deployment target is 15.0 (ios/App/App.xcodeproj), and container
+     queries did not reach WKWebView until 16. So a supported device runs this
+     stylesheet with no container units at all, and it needs the steps.
+
+     It cannot get them from the cascade. Writing the fallback as two
+     declarations of the same custom property — the shape .menu__title's `vw`
+     line uses one rule down — DOES NOT WORK, and fails in the worst direction.
+     A custom property's value is parsed as an untyped token stream, so an
+     engine that has never heard of `cqh` still accepts the declaration and
+     still lets it win on source order. The unit is only rejected later, when
+     `width: var(--brand-w)` is substituted, and an invalid-at-computed-value
+     -time `width` does not fall back to the earlier declaration — it falls back
+     to the property's initial value, `auto`. Measured in a browser with the
+     unit stubbed out: `font-size` keeps its 20px fallback, while the same
+     two-declaration pattern on a custom property leaves the box at `auto` and
+     it stretches to the full column. iOS 15 would not have got the old 440px
+     panel; it would have got no width at all.
+
+     @supports is the only construct that asks the question before the value is
+     committed, so the steps below are the real base and the equation is an
+     enhancement layered over them. Strip the @supports block and this screen is
+     byte-for-byte what it was before the equation existed — which is exactly
+     what sim/systems asserts, so the fallback cannot rot. */
   --brand-w: min(100%, 440px);
+}
+/* The two steps the equation replaces on modern engines and restores on old
+   ones. 360 under a 620px-tall viewport, 640 at 700 and over, 440 in the band
+   between; keyed on VIEWPORT height, which above the authored box is not the
+   same as the layout box (chromeZoom divides it) — the imprecision the
+   equation exists to remove, and the exact behaviour iOS 15 had. */
+@media (max-height: 620px) { .menu__brand { --brand-w: min(100%, 360px); } }
+@media (min-height: 700px) { .menu__brand { --brand-w: min(100%, 640px); } }
+/* ...and the enhancement, for engines that can measure the column. Scoped away
+   from the stacked branch because `100cqh` is the whole .menu row, and the row
+   is the brand column ONLY while the grid has one row — which is the landscape
+   three-column case. Stacked, the column is one of three auto rows sharing that
+   height and the equation would size the panel off roughly three times the
+   height it has. `not all and (...)` rather than a min-aspect-ratio twin so the
+   two branches cannot both match on an exactly square window. */
+@supports (width: 1cqh) {
+  @media not all and (max-aspect-ratio: 1/1) {
+    .menu__brand { --brand-w: min(100%, calc((100cqh - var(--brand-reserve)) * 16 / 9)); }
+    /* The phone tier's pin, argued in full down beside the compact block. Short
+       version: down here the shelf already sits exactly on its 44px floor, so
+       the 12px of headroom --brand-reserve keeps for taller faces would come
+       out of the PANEL rather than out of slack the row does not have. 360 is
+       what the phones already draw, and it is what the base step above gives
+       them too — so this pin only has to exist inside the enhancement. */
+    @media (max-height: 460px) { .menu__brand { --brand-w: min(100%, 360px); } }
+  }
 }
 .menu__title {
   font-size: clamp(30px, 6.2vw, 66px);
@@ -496,8 +600,19 @@ body.crt-off #app::after { display: none; }
      ~12%, which is both a visible inset and the margin the fallback face needs
      to not blow straight through the border while a slow webfont loads (the
      base .menu__title rule's overflow-wrap is the backstop if it still does —
-     same treatment, and same reasoning, as the headline title it came from). */
-  font-size: clamp(8px, 6.8cqw, 31px);
+     same treatment, and same reasoning, as the headline title it came from).
+
+     ONE cap, where there used to be a second one of 42px keyed to a 700px-tall
+     viewport. The pair was a staircase mirroring the panel's, and the panel is
+     an equation now (see --brand-w), so the wordmark cannot go on stepping
+     where the thing it is measured against has stopped. 42 keeps the same ~12%
+     margin at the top of the range — Orbitron sets LAUNCH at ~4.97x the font
+     size, i.e. 209px inside the plate's 259px of inner width — and it changes
+     nothing anywhere the old 31 applied: 6.8cqw only reaches 31px on a 456px
+     panel, and every viewport the 31 was reachable on capped the panel at 440
+     or less. What it buys is the range BETWEEN, which is precisely the
+     windowed-desktop band that had no step of its own. */
+  font-size: clamp(8px, 6.8cqw, 42px);
   line-height: 0.95;
   pointer-events: none;
 }
@@ -5532,84 +5647,48 @@ button.panel { color: var(--text); }
   /* Centered layout: the demo centres with everything else. Left-aligned (the
      two-column default) it stays flush with the title above it. */
   .menu__demo.is-live { margin-inline: auto; }
+  /* No --brand-w here. The equation does not hold in this branch — see the
+     `not all and (max-aspect-ratio: 1/1)` guard on the @supports block up at
+     .menu__brand — so this branch is simply never handed it, and the stepped
+     base applies exactly as it did before the equation existed. Overriding the
+     token here instead would have had to sit AFTER the @supports block to win,
+     and a rule that has to be downstream of an enhancement to undo it is the
+     fragile half of the same idea. */
 }
 
-/* The demo is the one block on the menu whose height is a fixed fraction of
-   its width, so on a short viewport it is the first thing to push the chips
-   off the bottom — the very clipping the rule above was written to fix.
-   Capping its WIDTH is what shrinks it: a max-height would fight the
-   aspect-ratio and just letterbox the world inside a box still taking the
-   same room.
+/* The panel's two width STEPS used to live here — 360px under a 620px-tall
+   viewport, 640px at 700 and over, with the 440px default filling the band
+   between. They have MOVED, not gone: they sit beside .menu__brand now, where
+   the equation that supersedes them on modern engines can be layered over them
+   in an @supports block instead of racing them down the file. Both step values
+   fall straight out of that equation on the viewports that used to be keyed to
+   them, so on an engine with container units the steps decide nothing — and on
+   iOS 15, which this app still deploys to and which has no container units,
+   they decide everything.
 
-   These steps have room they did not before: the eyebrow and the headline
-   title above the panel are both gone (the wordmark moved inside it), giving
-   the brand column back ~90px of height on a desktop and ~60px on a landscape
-   phone. So the demo still steps down here, just less steeply than when it was
-   competing with a headline — and it can't shrink far now that it carries the
-   wordmark, which has to stay legible. */
-@media (max-height: 620px) {
-  /* ONE width now, where the status strip needed two. The strip's extra store
-     row (the ★ Unlock upsell before purchase, the ★ UNLIMITED badge after) was
-     ~52px taken straight out of the demo panel's height budget, so the column
-     had to narrow the panel by 80px whenever the row existed just to stay
-     inside a 360px-tall viewport. Those entries now ride the base-bay panel's
-     last row, and that panel is `flex: 1 1 0` — it absorbs the row out of its
-     OWN box instead of pushing the column taller, so the entitlement state no
-     longer changes the demo's size at all. */
-  .menu__brand { --brand-w: min(100%, 360px); }
-}
-/* ...and the step UP, which is the same rule read from the other end. 440px
-   is the width the panel was drawn at in a 720px-tall box, and on anything
-   taller the brand column's height went to the empty band between the panel
-   and the shelf hanging off the bottom of it: 114px of nothing on a 1080p
-   browser, with the hero element of the screen sitting at 37% of the column
-   width it had available.
+   What is left here is the one case the equation cannot cover — the phone
+   tier, pinned inside the @supports block and in the max-height:460px block
+   below, and worth stating at length where the steps used to be.
 
-   Sized against the column's HEIGHT, which is the axis that actually binds:
-   the panel is 16:9, so every pixel of width it gains costs 0.5625 of the
-   height the shelf under it needs. At the 544px the brand column gets in the
-   authored box, 640 puts the panel at 360 and leaves 168 for the shelf — 12
-   more than the three 44px rows and two sp-3 gaps that a full shelf cannot go
-   under. The shelf's own `flex-grow` (see .menu__nav above) spends whatever
-   is left over on the rows, so the column is exactly full at any width up to
-   this one and the panel is simply as big as the height allows.
+   On a landscape phone the shelf is not merely NEAR its floor, it is ON it:
+   measured at 792x360, 851x393 and 852x393 the three rows come out 44.0px
+   each, exactly the tap minimum, and the panel fills the column's width. That
+   is the same equation this rule solves, with one difference — a phone has no
+   margin above the floor at all, so the 12px of WebKit headroom the equation
+   reserves would be taken out of the panel instead of out of the slack, and
+   the panel would lose 35px of width to buy headroom the row never had. The
+   phones are pinned to the number they already draw, and the equation governs
+   everything above them.
 
-   Not larger: 660 would put the panel at 371 and leave the shelf 157, inside
-   its 156px floor by a pixel. The 12px here is the margin for a face whose
-   rows measure taller than Chromium's — WebKit's do — before the floor starts
-   pushing the column past its own box.
+   Keying that pin on max-height:460px is exact rather than approximate: the
+   solver's chromeZoom is max(1, min(uh/720, uw/1000)), so a viewport 460px
+   tall or shorter can never magnify (uh/720 <= 0.64), which makes the box the
+   chrome is laid out in the viewport itself. Viewport height and box height
+   are the same number down there, so a viewport query is a box query.
 
-   WHY min-height, on a screen where every other step is keyed the other way:
-   the query has to test the height of the box the CHROME is laid out in, and
-   above the reference that box is the viewport DIVIDED by --chrome-zoom. The
-   two agree here — zoom is never below 1, so box height <= viewport height,
-   and the solver's own `min` of the two axis ratios makes the converse hold
-   as well (sim/systems asserts both bounds). A viewport at least 700px tall
-   therefore has a box at least 700px tall, which is the thing this is asking
-   about. Mutually exclusive with the 620px step-down above, so the two can
-   never both apply. */
-@media (min-height: 700px) {
-  .menu__brand { --brand-w: min(100%, 640px); }
-  /* The wordmark is sized off the PLATE it sits in (6.8cqw of the panel), and
-     that clamp topped out at 31px — the exact fit for the 440px panel and
-     nothing wider. Left there, a 600px panel would have carried the same 31px
-     wordmark at 78% of the size its own plate was drawn for, which reads as
-     the one element on the screen that did not get the memo. 42px keeps the
-     ~12% side margin the 31px cap was chosen for: Orbitron sets LAUNCH at
-     ~4.97x the font size, i.e. 209px inside the plate's 259px of inner
-     width. */
-  .menu__demo.is-live .menu__title { font-size: clamp(8px, 6.8cqw, 42px); }
-}
-/* No second step at 460px. The old one took the panel to 280px in a 386px
-   column, leaving 106px — 27% of the column — empty to its right while the
-   status strip below still spanned the full width, so the column read as
-   ragged rather than as one stack. It also cost the brand column the height
-   that made the two columns line up: measured on a OnePlus at 792x360, the
-   360px panel puts the brand column at 310.2px against the action rail's
-   311.1px, which aligns their top AND bottom edges to within half a pixel.
-   The 280px step put it 45.9px short, and `align-items: center` split that
-   into ~23px of mismatch at each end. Keeping the 620px step all the way down
-   spends the room on a bigger, more legible demo and squares the columns. */
+   The wordmark's own step went the same way — see the clamp on
+   .menu__demo.is-live .menu__title, which is one number now for the same
+   reason the panel is. */
 
 /* Short viewports: the menu's binding constraint is HEIGHT, and nothing keyed
    off it. A 1080p phone at dpr 3 is 792x360 CSS px — too wide to trip the
@@ -5628,6 +5707,14 @@ button.panel { color: var(--text); }
      `align-items: center` can actually centre it — 24.4px above, 24.4px below.
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
+  /* The gap only. The phone tier's --brand-w pin lives inside the @supports
+     block beside .menu__brand, not here, and it has to: this query is far
+     downstream of that block, so a --brand-w set here would win over the
+     equation on EVERY engine — including the landscape-phone case the
+     equation is deliberately kept away from and the desktop case it exists
+     for. Its 360 is also what the stepped base already hands a viewport this
+     short (max-height:620px covers max-height:460px), so there is nothing for
+     the old engines to miss either. */
   .menu__brand { gap: var(--sp-2); }
   /* The base-bay panel's budget on a 360px phone is what the 16:9 demo above
      it leaves — 146px at 792x360 — against 149px of content at the desktop
@@ -6819,10 +6906,15 @@ button.panel { color: var(--text); }
    cannot happen either: two lines is the ceiling, the third is still an
    ellipsis. Same device the guide's drill brief uses for the same reason.
 
-   Keyed on min-height for the reason the demo panel's step is: above the
-   authored box the chrome is laid out in viewport/--chrome-zoom, and zoom is
-   never below 1, so a viewport at least 700px tall has a box at least 700px
-   tall. */
+   Keyed on min-height, and this is now the last rule on this screen that is:
+   the demo panel's matching step is gone, solved from the row's own height
+   instead (see --brand-w). The premise both were written on still holds and is
+   what makes the query safe — above the authored box the chrome is laid out in
+   viewport/--chrome-zoom, and zoom is never below 1, so a viewport at least
+   700px tall has a box at least 700px tall. The difference is that a wrapped
+   subtitle is a THRESHOLD (there is either room for a second line or there is
+   not) where the panel's width was a continuum, and a threshold is the one
+   thing a step is the right shape for. */
 @media (min-height: 700px) {
   .btn__sub {
     white-space: normal;

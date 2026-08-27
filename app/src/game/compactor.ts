@@ -1,5 +1,5 @@
 import Matter from "matter-js";
-import { WORLD, CELL, WALL_INNER } from "./engine";
+import { WORLD, CELL, WALL_INNER, markPrevStep } from "./engine";
 import type { LevelConfig } from "./level";
 
 /**
@@ -142,5 +142,11 @@ export class Compactor {
     this.dir = 1;
     this.strokes = 0;
     Matter.Body.setPosition(this.body, { x: this.leftX, y: this.yCenter });
+    // A reset is the one move this bar makes that it does not TRAVEL, so it
+    // opts out of being drawn as travel (engine.ts's markPrevStep). Without
+    // this the first frame of the new bay lerps the bar from wherever the last
+    // one left it — and because main.ts zeroes its accumulator on the same
+    // beat, that frame draws at alpha 0, i.e. at the OLD position exactly.
+    markPrevStep(this.body);
   }
 }
