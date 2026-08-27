@@ -123,6 +123,7 @@ import {
   railSlotsFor,
   setRailSlots,
   setSafeAreaInsets,
+  skyTop,
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
@@ -3144,6 +3145,71 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Open sky above the field (layout.ts skyTop)");
+// The reported bug: fullscreen on a 16:9 desktop or TV drew a black band across
+// the top of the screen and the field stopped short of it. Nothing was broken
+// in the solver — the band IS the letterbox, and at exactly 16:9 it exists
+// because "snug" reserves a rail band out of the WIDTH, which costs height when
+// the world is refitted. The renderer then clipped every layer to the world
+// rect, so the band could only ever be backdrop colour.
+//
+// engine.ts's top boundary is deliberately OPEN (pieces fly above y=0 and fall
+// back in, the side walls span y=-SKY..H to keep them in the shaft), so the
+// band was capping a shaft the physics treats as unbounded. skyTop is how far
+// above the world's own top edge the canvas reaches, in world px — the number
+// the background bake and the render clip open upward by, so the sky reaches
+// the top of the screen at every aspect.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+  const cases: [string, number, number][] = [
+    ["1080p fullscreen", 1920, 1080],
+    ["4K fullscreen", 3840, 2160],
+    ["960x540 window", 960, 540],
+    ["16:10 laptop", 1600, 1000],
+    ["4:3 tablet", 1024, 768],
+    ["21:9 phone", 2400, 1080],
+    ["19.5:9 phone", 2556, 1179],
+    ["short phone", 960, 400],
+  ];
+  for (const [name, w, h] of cases) {
+    const l = computeLayout(w, h);
+    const top = skyTop(l.scale, l.oy);
+    // THE invariant: map the sky's top edge back through the very transform
+    // render() draws with. It must land at or above the canvas's first row —
+    // if it lands below, that difference is the black band the player sees.
+    const topCss = l.oy + top * l.scale;
+    check(`${name} paints the sky to the canvas top`, topCss <= 0, `${topCss.toFixed(2)}px of bare backdrop`);
+    // ...and it may only ever open UPWARD. A positive skyTop would crop the
+    // world's own first rows, which is the same bug pointing the other way.
+    check(`${name} never crops the world's top`, top <= 0, String(top));
+    // Nothing is opened that the viewport does not actually show: the sky is
+    // the letterbox band converted to world px and one px of overdraw, never a
+    // fixed slab bolted above the field.
+    const band = l.oy / l.scale;
+    check(`${name} opens only the band it has`, -top <= band + 2 + 1e-9, `${(-top).toFixed(2)} world px for a ${band.toFixed(2)} px band`);
+  }
+
+  // Why this is not a rounding curiosity: 1920x1080 is the world's OWN aspect,
+  // and it still letterboxes, because the rail band comes out of the width
+  // before the world is fitted. 23.6 CSS px at 1080p, and the same 23.6 at 4K
+  // — a band that survives every resolution the player might pick.
+  check("16:9 fullscreen still letterboxes (this is why the sky exists)",
+    computeLayout(1920, 1080).oy > 20, String(computeLayout(1920, 1080).oy));
+  // A viewport whose height is fully used has no band to open, and opens
+  // EXACTLY nothing — every landscape phone comes out of this pixel-identical,
+  // rather than pixel-identical-plus-a-rounding-margin.
+  const wide = computeLayout(2400, 1080);
+  check("a height-filling viewport opens no sky at all", wide.oy === 0 && skyTop(wide.scale, wide.oy) === 0,
+    `${wide.oy} / ${skyTop(wide.scale, wide.oy)}`);
+  // The world is 1280x720 and the sky is measured in the same units — a sanity
+  // rail against a future change that starts returning CSS px here.
+  check("the sky is measured in world px", Math.abs(skyTop(1, 100) - -101) < 1 + 1e-9, String(skyTop(1, 100)));
+  check("the sky scales with the field", skyTop(2, 100) > skyTop(1, 100), `${skyTop(2, 100)} vs ${skyTop(1, 100)}`);
+  check("the world's own height is untouched by the sky", WORLD.height === 720);
 }
 
 // ---------------------------------------------------------------------------
