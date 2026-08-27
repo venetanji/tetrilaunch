@@ -145,7 +145,7 @@ money".
 ## The ship (FTL layer)
 
 The compactor rig **is** the ship: fixed stock size, refitted with scrap at
-**refit stops after bays 3, 6 and 9**. Seven systems, three tiers each, one
+**refit stops after bays 3, 6 and 9**. Nine systems, three tiers each, one
 shared price ladder of **20 / 35 / 55** scrap (110 for a full track).
 
 | Track | Tiers | What it's for |
@@ -158,6 +158,7 @@ shared price ladder of **20 / 35 / 55** scrap (110 for a full track).
 | **BONDS** | +1/2/3 Bond Breaker charges **per run** · T2/T3 stamp S/Z bonds 30/50% weaker | Compaction for builds whose pieces don't flatten their own pile. The magazine belongs to the run, not the bay (`run.ts` overwrites the per-config grant with what's actually left), and the Seam Splitter passive is what the higher tiers newly pay for. |
 | **DEMOLITION** | +2/4/6 charges per bay · T3 also returns +1 charge every 4 lines | Slag's only clean answer, and the salvage tool that gives a dead pile a price. |
 | **THAW** | +3/6/9 Thaw Lance charges per bay | **Cryo's only bought answer.** A charge thaws the frozen cube the press is about to reach — `strikeCryo`'s sequencing cost paid out of a charge instead of out of a launch. It does not touch `shatterColdCryo`: a cube you ignore still breaks and still knocks its row off the grid, which is what keeps cryo about sequencing rather than about owning a system. **On the Skydeck the rack does not renew** — no yard, no resupply, so the charges are a run-long magazine there and a per-bay one on the ladder. |
+| **CUSHION** | a shock liner 4/6/8 cells deep at the wall, softening arrivals ×1.15/1.30/1.40 | **Volatile's only bought answer**, and the only track whose effect is POSITIONAL — cargo landing in the lined slots takes a much harder shot before it goes off, and cargo landing short of them is untouched. The depths are sized from where detonations actually happen (41,393 measured first-contacts; a liner 8 cells deep covers 98% of them) and the top rung is `compactorMinLineCells` — the liner covers the slots a line is made in. It buys back the ARRIVAL and nothing else: a cube still goes off when something lands hard on top of it, still goes off outside the liner, and still bills the bay for every live cube it takes. Passive, so it has no charges and the Skydeck's no-resupply rule does not reach it. |
 
 **The stop is a plan, not a checkout.** Tapping a track *stages* a tier into an
 order; nothing is paid for until **Undock**, which installs the lot in one
@@ -374,7 +375,7 @@ Unlocks add **options**, never flat stat bumps: the bay's wind gets surveyed
 before you launch, the first refit stop opens with 30 scrap already banked.
 (Those two are the whole live shelf. The other eight entries in `meta.ts`'s
 `UNLOCKS` sold a card into the retired modifier draft and are refunded on load.
-Demolition, the Bond Emitter and the Thaw Lance are ship systems bought through `INSTALLS`; the
+Demolition, the Bond Emitter, the Thaw Lance and the Impact Cushion are ship systems bought through `INSTALLS`; the
 bulk and micro shipment sizes are Deep Run finals clauses now.) That constraint
 keeps a veteran's run harder-won rather than merely bigger-numbered.
 

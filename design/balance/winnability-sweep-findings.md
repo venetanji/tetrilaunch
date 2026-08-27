@@ -565,6 +565,69 @@ counters finally costs something.
 The crosswind case sharpened too — `volatile:3 wind:3` at bay 10 over 8 seeds
 now reads 5/8 bare against 8/8 cushioned, where before it was 6/8 against 8/8.
 
+---
+
+### 5b-bis. THE SAME TABLE, ON THE SHIPPED SYSTEM
+
+Everything above measured a **field-wide** multiplier standing in for a system
+nobody had built, and `counters.ts` said so in as many words: *"every cushion
+number this harness prints reads: this is the most a cushion could possibly be
+worth."* The Impact Cushion has since shipped as `upgrades.ts`'s ninth track,
+positional — a liner 4/6/8 cells deep at the wall, softening ×1.15/×1.30/×1.40
+— and `cushionKit` now installs it through `applyUpgrades`. So these are the
+same flags against the real thing, at 48 seeds rather than 16.
+
+Tier 7 bay 10, material rig, `demo+bond` pilot, 48 paired seeds:
+
+| | win | lines | shots | end $ | detonation bill |
+|---|---:|---:|---:|---:|---:|
+| clean control | 45/48 | 8.5 | 26.4 | $1866 | $0 |
+| `volatile:6` bare | **27/48** | 6.6 | 41.8 | $1190 | $632 |
+| + Cushion 1 (20 pts) | 38/48 | 8.4 | 42.6 | $1602 | $542 |
+| + Cushion 2 (55) | 42/48 | 9.2 | 37.5 | $1757 | $270 |
+| + Cushion 3 (110) | **46/48** | 10.0 | 31.0 | $1913 | $36 |
+
+**The ladder is real, and the upper bound is what hid it.** The proposal's §3b
+open item was that "tier 1 already restores the baseline on its own, so the
+three-tier ladder as specified is not what the data asks for" — true of a
+cushion covering the whole floor, false of one covering a quarter of it. Every
+rung now buys wins, and the detonation bill falls by roughly half at each.
+
+**It converges on the control without becoming it.** 46 against 45 is one seed
+on a sample whose standard error is two, and the bay is still visibly a volatile
+bay: 31.0 shots against the control's 26.4, and $36 a bay still going to
+detonations that a maxed liner does not reach.
+
+**Where the value is at the notch counts a player actually meets.** One or three
+notches barely cost wins at all (46/48 and 44/48 against 45/48), so at the
+shallow end the cushion buys *efficiency*, not survival:
+
+| | shots bare → maxed | detonation bill bare → maxed |
+|---|---:|---:|
+| `volatile:1` | 31.2 → 26.2 | $106 → $5 |
+| `volatile:3` | 37.3 → 28.7 | $295 → $17 |
+
+**THE CROSSWIND CLAIM ABOVE DOES NOT SURVIVE.** `wind:3` on its own is
+**byte-identical at every cushion tier** — 44/48, 9.7 lines, 29.5 shots, $1838 —
+because the only thing this system touches is the speed a volatile cube goes off
+at, and wind alone detonates nothing. The `volatile:3 wind:3` result is real and
+reproduces (40/48 bare → 44 → 46 → 44), but it is the single-axis case: the
+combo's damage runs *through* volatile. This is what moved the shipped price out
+of the 70 band and down beside the Thaw Lance at 50.
+
+**Two more boundaries, same table.** A clean bay is byte-identical at every tier
+(45/48, 8.5 lines, 26.4 shots, $1866) — the system is inert where there is no
+volatile to soften. So is a `cryo:3` bay, at 18/48 across all four rows. Under
+**Powder Run** (27% volatile) it works fully: 21/48 → 37 → 43 → 43.
+
+**Under Hair Trigger it is worth about two bay-wins**, 27/48 bare against
+25/29/29, and that is by construction: `lineClear.ts`'s `cushionedTrigger`
+floors a cushioned bay at stock wherever a clause has primed it finer, so the
+exam can be paid off and not walked past. It is also the least informative row
+here — at the belt cap Hair Trigger costs nothing over stock (27/48 either way),
+because a belt already one-third volatile detonates constantly whatever the
+threshold is.
+
 
 ---
 

@@ -480,7 +480,20 @@ export function btn(action: string, label: string, variant = "secondary", extra 
 const PLATE_MARK_PX = 13;
 
 export function shipPlatesHTML(tiers: UpgradeTiers): string {
-  return UPGRADES.map((u) => {
+  // ONE BLOCK, not N siblings of the ability chips, and that is how the NINTH
+  // slot is paid for. The rack is a single readout — "what I have built" — and
+  // the chips beside it are controls; at seven slots the row could afford to
+  // space the two identically, and at nine it cannot. Grouping lets the gaps
+  // BETWEEN plates fall to a hairline, because they now separate cells of one
+  // object, while the row's own gap still holds that object clear of the
+  // controls at full width.
+  //
+  // Measured on the two windows that overflowed: the narrowest phone panel in
+  // the matrix (209px) was 21px short, and 800x600 — the one window that shows
+  // three ability chips beside a full rack — was 18px short. Eight gaps at
+  // 4.03px became eight at 2px, which is 16px, and the compact clamp below it
+  // pays the rest.
+  const plates = UPGRADES.map((u) => {
     const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < tier ? "on" : ""}"></i>`,
@@ -499,4 +512,5 @@ export function shipPlatesHTML(tiers: UpgradeTiers): string {
         <span class="ship-plate__pips">${pips}</span>
       </div>`;
   }).join("");
+  return `<div class="ship-rack">${plates}</div>`;
 }

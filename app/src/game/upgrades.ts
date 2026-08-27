@@ -1,6 +1,7 @@
 import {
   DEMO_BLAST_MULT, DEMO_RESUPPLY_LINES, DEMO_SALVAGE_MULT, type LevelConfig,
 } from "./level";
+import { VOLATILE_TRIGGER_SPEED } from "./lineClear";
 
 /**
  * SHIP UPGRADES — the FTL layer of the run.
@@ -28,7 +29,7 @@ import {
  */
 export type UpgradeId =
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
-  | "thaw";
+  | "thaw" | "cushion";
 
 export const MAX_TIER = 3;
 
@@ -89,6 +90,68 @@ export const MAX_TIER = 3;
  * reading of a naive rig.)
  */
 export const THAW_CHARGES_PER_TIER = 3;
+
+/**
+ * The Impact Cushion's ladder: how deep the liner runs and how soft it lands.
+ *
+ * A liner at the DEEP END of the bay, so the two numbers are not one knob split
+ * in two — `cells` is how much of the floor is protected and `mult` is how hard
+ * a shot the protected part will take. A tier buys both, and the sizing of each
+ * comes from a different measurement.
+ *
+ * DEPTH, from where volatile actually goes off. Instrumented over 24 bays at
+ * Tier 7 bay 10 with the belt at the volatile cap, across three pilot profiles
+ * — 41,393 volatile first-contacts, of which 731 cleared the stock trigger.
+ * The ones that DETONATE are far more tightly clustered than arrivals in
+ * general, because a detonating arrival is a hard shot and a hard shot carries
+ * deep:
+ *
+ *   depth from wall (cells)   p25    median   p75    p90    max
+ *   all first-contacts        2.19   4.49     6.66   8.45   16.61
+ *   detonating ones           3.81   5.24     6.37   7.34    9.10
+ *
+ * so a liner N cells deep covers this share of detonations: 4 cells 27%,
+ * 6 cells 69%, 8 cells 98%, 10 cells 100%. The three rungs are placed on that
+ * curve — a quarter, two thirds, effectively all of it — and the top rung is
+ * `compactorMinLineCells` (8) rather than the round 10 the data would also
+ * allow, because that is the landmark it should be: THE LINER COVERS THE SLOTS
+ * A LINE IS MADE IN. Past it a cushion is protecting cargo that is not yet
+ * being sold, and the 2% of detonations beyond the line zone are the deep,
+ * hardest shots this system is not meant to make free.
+ *
+ * SOFTNESS, from the arrival distribution lineClear.ts's VOLATILE_TRIGGER_SPEED
+ * was placed against: "first-contact relative speed runs 17.3 to 30.8", median
+ * 19.5 on the softest lob and 25.5 at full power, threshold 22. Softening a
+ * blow by a factor and raising the threshold by that factor are the same
+ * arithmetic on the same comparison, so:
+ *
+ *   x1.15 -> 25.3, a hair under the full-power MEDIAN: inside the liner, a hard
+ *            shot becomes a coin flip instead of a detonation.
+ *   x1.30 -> 28.6, inside the top decile of the range.
+ *   x1.40 -> 30.8, the measured MAXIMUM: inside the liner, no launch the cannon
+ *            can produce sets a cube off ON ARRIVAL.
+ *
+ * The capstone stops exactly at the top of the range and not past it, and
+ * pairing it with a liner that stops at the line zone is what keeps it a
+ * counter rather than a delete button. hazards.ts's rule is that a system makes
+ * one hazard cheap for you, it does not erase it — and after a maxed cushion
+ * volatile still detonates when something lands hard ON it (the neighbour case,
+ * which is the material's whole identity), still detonates outside the liner,
+ * and still bills the bay for every live cube it takes.
+ */
+export const CUSHION_TIERS = [
+  { cells: 4, mult: 1.15 },
+  { cells: 6, mult: 1.30 },
+  { cells: 8, mult: 1.40 },
+] as const;
+
+/** The trigger speed a cushion tier produces inside its liner on a stock bay.
+ *  Derived so the shop copy, the guide and the docs quote the constants rather
+ *  than a number typed beside them. Tier 0 is the bare threshold. */
+export function cushionThreshold(tier: number): number {
+  const t = Math.max(0, Math.min(CUSHION_TIERS.length, Math.floor(tier)));
+  return VOLATILE_TRIGGER_SPEED * (t === 0 ? 1 : CUSHION_TIERS[t - 1].mult);
+}
 
 /** Scrap cost to go from tier t-1 to tier t, for every track. One shared
  *  ladder rather than per-track pricing: the tracks are meant to be balanced
@@ -369,6 +432,36 @@ export const UPGRADES: UpgradeDef[] = [
       cfg.thawCharges += THAW_CHARGES_PER_TIER * tier;
     },
   },
+  {
+    id: "cushion",
+    name: "Impact Cushion",
+    glyph: "CSH",
+    blurb: "A shock liner across the deep slots — volatile lands there without going off.",
+    tiers: [
+      `${CUSHION_TIERS[0].cells} cells of liner · sets off at ${cushionThreshold(1).toFixed(0)} instead of ${VOLATILE_TRIGGER_SPEED}`,
+      `${CUSHION_TIERS[1].cells} cells · ${cushionThreshold(2).toFixed(0)}`,
+      `${CUSHION_TIERS[2].cells} cells — the whole line zone · ${cushionThreshold(3).toFixed(0)}, above any launch`,
+    ],
+    current: (t) => (t === 0
+      ? "bare floor"
+      : `${CUSHION_TIERS[t - 1].cells} cells lined · sets off at ${cushionThreshold(t).toFixed(0)}`),
+    step: (t) => (t + 1 >= MAX_TIER
+      ? { dir: "up", text: "a deeper liner, and no launch sets one off inside it" }
+      : { dir: "up", text: "a deeper liner and a softer landing" }),
+    apply(cfg, tier) {
+      if (tier <= 0) return;
+      const rung = CUSHION_TIERS[Math.min(CUSHION_TIERS.length, tier) - 1];
+      cfg.cushionCells = rung.cells;
+      // ASSIGNED, not multiplied onto what is there. Nothing else writes these
+      // two fields — finals.ts's Hair Trigger drives volatileTriggerMult, which
+      // is the field-wide seam and stays separate on purpose (see the config
+      // field's own note) — so a tier states the liner the rig has rather than
+      // compounding with a liner nobody sold. The two meet at the collision
+      // side, in lineClear.ts's cushionedTrigger, which is also where the floor
+      // that stops a maxed cushion walking past Hair Trigger lives.
+      cfg.cushionMult = rung.mult;
+    },
+  },
 ];
 
 export type UpgradeTiers = Record<UpgradeId, number>;
@@ -376,7 +469,7 @@ export type UpgradeTiers = Record<UpgradeId, number>;
 export function newTiers(): UpgradeTiers {
   return {
     bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0,
-    thaw: 0,
+    thaw: 0, cushion: 0,
   };
 }
 

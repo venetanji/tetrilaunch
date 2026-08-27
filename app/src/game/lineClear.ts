@@ -145,6 +145,70 @@ export const VOLATILE_TRIGGER_SPEED = 22;
  *  cube itself — volatile takes its NEIGHBOURS, not a crater. */
 export const VOLATILE_BLAST_CELLS = 1.6;
 
+/** A bay with no Impact Cushion aboard: no liner, no softening. Passed by every
+ *  caller that does not have a rig, so the positional branch below is exercised
+ *  identically whether or not the track exists. */
+export const NO_CUSHION: CushionSpec = { cells: 0, mult: 1 };
+
+/** The Impact Cushion as the collision side sees it: a liner `cells` deep
+ *  measured from the wall, softening arrivals inside it by `mult`. */
+export interface CushionSpec {
+  /** Depth of the liner from WALL_INNER, in cells. 0 = no liner. */
+  cells: number;
+  /** Multiplier on the trigger speed for cargo landing inside it. 1 = none. */
+  mult: number;
+}
+
+/**
+ * The x a cushion liner's near edge sits at — the boundary cargo is softened
+ * ACROSS.
+ *
+ * Lives here rather than at each of its two readers for exactly the reason
+ * Compactor.strandCutoffX does, and that note says it best: the readers "all
+ * have to agree on it exactly", because "a warning drawn against one number and
+ * a penalty charged against another is a game lying about its own rules". This
+ * one has two readers and they are the two halves of that sentence —
+ * volatileBlast decides whether an impact was softened, and render.ts's
+ * drawCushion draws the line the player aims against.
+ */
+export function cushionEdgeX(cells: number): number {
+  return WALL_INNER - cells * CELL;
+}
+
+/**
+ * The trigger multiplier one arrival actually meets.
+ *
+ * Two independent things write it and they compose by multiplication, which is
+ * the arithmetic softening a blow and raising a threshold already share: the
+ * comparison is `rel < VOLATILE_TRIGGER_SPEED * mult`, so a liner that takes
+ * 30% off an impact and a liner that lifts the threshold 30% are the same
+ * statement. `clauseMult` is finals.ts's Hair Trigger, field-wide and below 1;
+ * `cushionMult` is the rig's liner, positional and above 1.
+ *
+ * THE FLOOR IS THE WHOLE REASON THIS IS A FUNCTION. A clause is an exam: the
+ * Tier-7 pair is what a Tier-7 rig is asked to answer, and Hair Trigger asks it
+ * by priming volatile finer than stock. A cushion should be able to SIT that
+ * exam — buy the bay back up to an ordinary one, which is a real purchase and
+ * exactly the trade the clause is offering — but a maxed cushion multiplies
+ * 0.85 by 1.40 and lands at 1.19, walking past the exam into a bay *safer than
+ * one with no clause at all*. The proposal that specified this system found the
+ * overshoot in its own prototype and called the arithmetic unavoidable, because
+ * it is: any cushion that reaches its stated job (30.8/22 = 1.40, no arrival
+ * detonates) clears 1/0.85 = 1.176 on the way there.
+ *
+ * So the fix goes on the clause side, as a FLOOR rather than a re-sizing:
+ * where something has primed the bay finer than stock, a cushion may lift it
+ * back to stock and no further. Under Hair Trigger a maxed cushion is worth
+ * exactly the clause — 0.85 → 1.00 — and the bay is ordinary, never gentle.
+ * Written as a rule about any sub-stock multiplier rather than about Hair
+ * Trigger by name, so a second clause that primes volatile inherits it.
+ */
+export function cushionedTrigger(clauseMult: number, cushionMult: number): number {
+  const clause = clauseMult > 0 ? clauseMult : 1;
+  const combined = clause * (cushionMult > 0 ? cushionMult : 1);
+  return clause < 1 ? Math.min(1, combined) : combined;
+}
+
 /**
  * Which cubes a volatile impact destroys, if any.
  *
@@ -173,13 +237,29 @@ export function volatileBlast(
    *  before the knob existed. Below 1 the material is primed finer — see the
    *  field's doc for why this is a multiplier rather than an absolute speed. */
   triggerMult = 1,
+  /** The rig's liner (level.ts's cushionCells / cushionMult). Defaults to none,
+   *  so every existing caller keeps the field-wide behaviour it had. */
+  cushion: CushionSpec = NO_CUSHION,
 ): Cube[] {
-  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
-  if (rel < VOLATILE_TRIGGER_SPEED * (triggerMult > 0 ? triggerMult : 1)) return [];
+  // WHICH CUBE, BEFORE HOW FAST — the order is load-bearing now and was not
+  // before. The threshold this impact has to clear depends on WHERE the
+  // volatile cube is, so the speed test cannot be made until the primed cube is
+  // known. A pair with nothing volatile in it still costs one find() and
+  // leaves, exactly as it did when the speed test came first.
   const primed = cubes.find(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );
   if (!primed) return [];
+  // Inside the liner or outside it, measured on the cube that would go off. A
+  // hard edge rather than a ramp: the player has to be able to look at the bay
+  // and know whether a slot is lined, and a soft falloff would make the same
+  // shot detonate or not for reasons nothing on screen explains.
+  const lined = cushion.cells > 0
+    && primed.body.position.x >= cushionEdgeX(cushion.cells);
+  const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
+  if (rel < VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, lined ? cushion.mult : 1)) {
+    return [];
+  }
   const r = VOLATILE_BLAST_CELLS * CELL;
   const p = primed.body.position;
   return cubes.filter((c) => {

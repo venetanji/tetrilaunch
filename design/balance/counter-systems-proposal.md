@@ -3,31 +3,33 @@
 Companion to [`winnability-sweep-findings.md`](./winnability-sweep-findings.md),
 which is the measurement. This is the argument built on it.
 
-> **STATUS, 2026-08-27 — one of the two shipped.**
+> **STATUS, 2026-08-27 — both shipped.**
 >
 > - **§2b THE THAW LANCE: SHIPPED**, as the eighth ship system
 >   (`upgrades.ts`'s `thaw` track). What changed on the way in is recorded in
 >   §2b itself and re-measured in the findings' §5a; the short version is that
 >   the charge ladder went from 2/4/6 a bay to **3/6/9**, because the first
 >   rung at two measured as buying nothing at all.
-> - **§2a THE IMPACT CUSHION: still not built** — but no longer for the reason
->   this line was first written with. The blocker §3b named was volatile being
->   worth *not* neutralising, and the re-price that removed it has since landed
->   (`level.ts`'s `VOLATILE_LOSS_SHARE`). §3b now reads "the blocker is cleared
->   — it now has a job". Nothing about the lance turns on that; the two are
->   adjacent systems that shipped from one document in two branches, and the
->   cushion is the one still owed.
+> - **§2a THE IMPACT CUSHION: SHIPPED**, as the ninth (`upgrades.ts`'s
+>   `cushion` track). Three things this document argued for did not survive
+>   contact with the implementation, and each is marked where it is made:
+>   the tiers ladder on **depth as well as softness** (§2a said softness
+>   alone); the Hair Trigger overshoot is fixed **and the fix is a floor**
+>   rather than a re-sized clause (§3c proposed re-sizing); and the price is
+>   **50, not the 70 band** — the two-axis argument in §2a is wrong, measured
+>   (§3b).
 >
 > Everything below the two verdict blocks is the argument as it was made, kept
 > as the argued record rather than rewritten to match what shipped. Where the
 > implementation disagreed with the proposal, the proposal is left standing and
 > the disagreement is marked.
 
-The prototypes lived in `app/sim/counters.ts`. The cushion still does — it
-mutates a `LevelConfig` seam and ships no gameplay. The lance's prototype has
-been **retired**: `thawKit` there now grants the real `LevelConfig.thawCharges`
-and its hands pull the real `Game.useThawLance`, so the CLI that priced the
-proposal now prices the system, on the same flags.
+The prototypes lived in `app/sim/counters.ts`. **Both are now retired.**
+`thawKit` grants the real `LevelConfig.thawCharges` and its hands pull the real
+`Game.useThawLance`; `cushionKit` installs the real `cushion` track through
+`applyUpgrades`. So the CLI that priced the proposals now prices the systems, on
+the same flags — and the cushion's numbers below are no longer an upper bound
+standing in for a system nobody had built.
 
 The order of the sections is the order the argument has to be made in, and the
 first one is the one it is easiest to skip:
@@ -78,11 +80,12 @@ proof.
 
 ## 2a. THE IMPACT CUSHION — volatile's counter
 
-> **Verdict first (§3b): specified, prototyped, measured — and NOT to be built
-> until volatile is re-priced.** The prototype does exactly what this section
-> describes. What it revealed is that the hazard it counters is currently an
-> ADVANTAGE, so the system would be a correct answer to a question the game is
-> not asking. The specification stands; the order of work changes.
+> **SHIPPED** (`upgrades.ts`'s `cushion` track, ninth system, 50 salvage,
+> `requiresMark: 6`). The specification below is the argued record and three
+> of its claims did not survive the implementation — see the SHIPPED blocks in
+> "The tiers", "Where it sits in the shop" and "The finding this prototype
+> produced on its own". The blocker this block used to name (volatile being
+> worth *not* neutralising) was removed by `level.ts`'s `VOLATILE_LOSS_SHARE`.
 
 ### What it is
 
@@ -116,6 +119,24 @@ placed on that measured range, not on round numbers:
 
 Price: the shared ladder, 20 / 55 / 110 cumulative — `TIER_COSTS` unchanged.
 
+> **SHIPPED — the tiers ladder on TWO axes, not one.** The table above is the
+> softness half and it shipped intact (×1.15 / ×1.30 / ×1.40). What it is
+> missing is that a rung also buys **depth**, and depth is what makes the ladder
+> a ladder: this section's own §3b open item was that "tier 1 already restores
+> the baseline on its own, so the three-tier ladder as specified is not what the
+> data asks for". That was true of a FIELD-WIDE cushion. Positionally it is not,
+> because tier 1 lines a quarter of the bay.
+>
+> The depths are **4 / 6 / 8 cells from the wall**, and they are sized from a
+> measurement this document did not have. Instrumented over 24 bays at Tier 7
+> bay 10 at the volatile cap, across three pilot profiles: **41,393 volatile
+> first-contacts, 731 of them above the stock trigger.** Detonating arrivals are
+> much more tightly clustered than arrivals in general (p25 3.81, median 5.24,
+> p90 7.34, max 9.10 cells from the wall), so a liner N cells deep covers
+> 27% / 69% / 98% / 100% of them at N = 4 / 6 / 8 / 10. The top rung is 8
+> because that is `compactorMinLineCells` — **the liner covers the slots a line
+> is made in** — and not the round 10 the data would also allow.
+
 **Tier 3 stops exactly at the top of the range, and that is the design.** Past
 it the material is inert and the cushion is a delete button. At ×1.40 volatile
 still detonates when something lands hard *on top of it* — which is the
@@ -130,6 +151,18 @@ problem, plays a bay against it, and walks straight into the shop that answers
 it"* — so the cushion belongs on the refit menu from Mark 7, and in the Workshop
 as an install at the price band `meta.ts` reserves for a late system (70
 salvage, beside Bond Emitter and Demolition Rack), gated `requiresMark: 6`.
+
+> **SHIPPED at 50, not 70, and the gate is unchanged.** The 70 band is "answers
+> every build". The argument for putting the cushion there was that it answers
+> volatile *and* crosswind — and that is **wrong, measured**. At Tier 7 bay 10
+> over 48 paired seeds a `wind:3` bay is byte-identical at every cushion tier
+> (44/48, 9.7 lines, 29.5 shots, $1838): the only thing this system touches is
+> the speed a VOLATILE cube goes off at, and wind on its own detonates nothing.
+> The crosswind evidence in §3b was a `volatile:3 wind:3` bay, where the damage
+> runs THROUGH volatile — which is the single-axis case, not a second axis.
+>
+> So it is priced with the Thaw Lance, in the band for a counter that answers
+> one axis. The shelf totals **545 against 600 of tier income**, 55 of slack.
 
 ### The finding this prototype produced on its own
 
@@ -377,17 +410,40 @@ It lands **on** the clean control (14/16 against 14/16, 15/16 against 15/16),
 never past it — which is exactly the §1 test: a system makes one hazard cheap
 for you, it does not delete it.
 
-**What is still owed before it ships**, unchanged by any of this:
+> **SHIPPED — and the table above is a field-wide UPPER BOUND, so here is the
+> real one.** Tier 7 bay 10, material rig, 48 paired seeds, `demo+bond` pilot,
+> against a **45/48 clean control**:
+>
+> | `volatile:6` | win | lines | shots | end $ | billed by detonations |
+> |---|---:|---:|---:|---:|---:|
+> | bare | 27/48 | 6.6 | 41.8 | $1190 | $632 |
+> | + Cushion 1 | 38/48 | 8.4 | 42.6 | $1602 | $542 |
+> | + Cushion 2 | 42/48 | 9.2 | 37.5 | $1757 | $270 |
+> | + Cushion 3 | 46/48 | 10.0 | 31.0 | $1913 | $36 |
+>
+> Every rung buys wins, which is what the field-wide model could not show and
+> what closes open item 1 below. It lands on the clean control at the top (46
+> against 45 is one seed on a sample whose standard error is two) and the bay is
+> still not a clean bay: 31.0 shots against 26.4, and $36 a bay still going to
+> detonations.
+>
+> **Where the value actually is at ordinary notch counts.** One and three
+> notches barely cost WINS at all — 46/48 and 44/48 against the control's 45/48
+> — so what the cushion buys there is efficiency, not survival: at `volatile:1`
+> shots fall 31.2 → 26.2 and the detonation bill $106 → $5; at `volatile:3`,
+> 37.3 → 28.7 and $295 → $17. The win-rate case only appears at the cap.
+>
+> **The boundaries, all measured on the same table.** A clean bay is
+> byte-identical at every tier (45/48, 8.5 lines, 26.4 shots, $1866) — the
+> system is inert where there is no volatile. So is a `cryo:3` bay (18/48 at
+> every tier) and a `wind:3` bay (44/48 at every tier). Under **Powder Run**,
+> which raises the belt to 27% volatile, it works fully: 21/48 → 37 → 43 → 43.
+>
+> **The three open items below are closed by the implementation:** the ladder is
+> real because the liner is positional (item 1), the field-wide gap IS the
+> positional system now (item 2), and §3c's overshoot has a floor (item 3).
 
-1. Tier 1 already restores the baseline on its own, so the three-tier ladder as
-   specified in §2a is not what the data asks for. Either the tiers need
-   re-sizing against the re-priced axis, or the system is one purchase rather
-   than a track.
-2. The model is still **field-wide** where the proposal is rear-bay only. That
-   gap is stated in `sim/counters.ts` and is unchanged: these numbers remain the
-   most a cushion could be worth.
-3. §3c's Hair Trigger overshoot still stands and still wants fixing on the
-   clause side.
+**What was still owed before it shipped**, and how each was answered:
 
 ### 3c. The Hair Trigger overshoot
 
@@ -399,7 +455,28 @@ on the clause side. `finals.ts` already carries a standing `TODO: re-size it` on
 the Tier-1 pair for a neighbouring reason; this is a second instance of the same
 class: **a clause sized against a rig that did not yet exist.**
 
----
+> **SHIPPED — closed, as a FLOOR rather than a re-sized clause.** This section
+> offered two candidates and both put the fix on `finals.ts`. What shipped is
+> the first one generalised: `lineClear.ts`'s `cushionedTrigger` states that
+> **where anything has primed the bay finer than stock, a cushion may buy it
+> back to stock and no further.** Written about any sub-stock multiplier rather
+> than about Hair Trigger by id, so a second clause that primes volatile
+> inherits it and no `finals.ts` number moved at all.
+>
+> The pin that recorded the bug asserted `> 1` and was headed `KNOWN`. It now
+> asserts `=== 1`, alongside the property that keeps the clause worth accepting:
+> the cushion must still *be* worth something under Hair Trigger, or the floor
+> would have solved the overshoot by deleting the purchase.
+>
+> **What the floor costs, measured.** Tier 7 bay 10, `volatile:6` + Hair
+> Trigger, 48 paired seeds: 27/48 bare, 25/48 / 29/48 / 29/48 across the three
+> tiers. So under the clause the cushion is worth about two bay-wins — inside
+> the noise — where uncapped it would have been worth nineteen. That is the
+> intended shape and it is also the least informative comparison in this
+> document: at the belt cap Hair Trigger costs nothing over stock (27/48 either
+> way), because a belt already one-third volatile detonates constantly whatever
+> the threshold is. The clause's own re-sizing question is therefore still open;
+> what is closed is the cushion walking past it.
 
 ## 4. Where the data says the problem is NOT a missing system
 

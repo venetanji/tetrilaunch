@@ -322,6 +322,25 @@ export const INSTALLS: InstallDef[] = [
   // MATERIAL_DRAFT_BAYS itself is built on ("meet the problem, play a bay
   // against it, walk into the shop that answers it").
   { id: "thaw", cost: 50, requiresMark: 3 },
+  // THE NINTH, and it is priced a band ABOVE the eighth for a measured reason
+  // rather than because it arrived later. The band is what the system is: 70 is
+  // "answers every build" (Bond Emitter, Demolition Rack) and 50 is "answers
+  // one axis with a measured ceiling" (the Thaw Lance above). The cushion
+  // answers TWO — it is volatile's counter, and because its subject is the
+  // speed cargo arrives at, it is also the only thing on the shelf that helps
+  // a bay full of crosswind, where a blown shipment lands hard and sets off
+  // whatever it hits. upgrades.ts's CUSHION_TIERS carries both tables. Two
+  // axes for one purchase is the 70 band's own definition read honestly, and
+  // the alternative — pricing it at 50 beside a strictly narrower system —
+  // would make the shelf's bands mean nothing.
+  //
+  // The shelf now totals 565 against 600 of tier income, i.e. 35 of slack
+  // where the lance left 105. That is the tightest this shelf has been and it
+  // is the reason this is the LAST install the roster can absorb at these
+  // prices: a tenth system needs either a re-priced shelf or a second income,
+  // and the note above ("slack enough to make a wrong purchase survivable")
+  // is the line it would cross.
+  { id: "cushion", cost: 50, requiresMark: 6 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
