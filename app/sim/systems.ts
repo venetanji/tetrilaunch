@@ -8837,10 +8837,52 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   {
     const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
     const listed = clauseDefs(rules);
-    check("the menu lists one row per stop", listed.length === CLAUSE_STOPS.length);
-    check("...naming the bay each arms on",
+    check("the day arms one clause per stop", listed.length === CLAUSE_STOPS.length);
+    check("...each on the bay it is scheduled for",
       listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
       listed.map((r) => r.bay).join(","));
+
+    // ---- AND THE MENU GIVES NONE OF THEM AWAY ------------------------------
+    // These two pins are the inverse of the ones they replace. The recap panel
+    // used to list the day's clauses by name and bay — "the menu lists one row
+    // per stop", "…naming the bay each arms on" — so that the whole day could
+    // be planned before the first launch. The owner's call is that the Skydeck
+    // is a run you fly rather than a schedule you read: the clauses are a
+    // surprise now, met at the stops that arm them.
+    //
+    // Asserted over the WHOLE menu rather than over the recap panel, and for
+    // the same reason the "no surface calls it anything else" pin below is: the
+    // failure worth catching is a leak somewhere nobody thought to look — an
+    // aria-label, a title, a button subtitle, a tooltip. Every name and every
+    // "Bay N" the day deals is checked against all of it.
+    const roofMenu = S.menuScreen(
+      98_760, 1_480, { available: true, unlimited: false }, undefined, undefined,
+      { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2 },
+      listed.length,
+    );
+    //
+    // EVERY clause the roof can deal, not just the three this fixed day rolled:
+    // the menu is built from today's date in the app, so a pin that only knew
+    // one day's names would pass on the three hundred and sixty-four it did not
+    // check.
+    const dealable = CLAUSE_STOPS.flatMap((_, i) => dealableAt(i));
+    const named = dealable.filter((d) => roofMenu.includes(d.name));
+    check("the menu names no clause before the run",
+      named.length === 0, named.map((d) => d.name).join(", "));
+    const bayed = listed.filter((r) => roofMenu.includes(`Bay ${r.bay}`));
+    check("...nor the bay any of them arms on",
+      bayed.length === 0, bayed.map((r) => `Bay ${r.bay}`).join(", "));
+    // The list's own markup is gone with it — a stylesheet hook left behind
+    // would be the next person's invitation to fill it back in.
+    check("...and the panel it lived on has no clause row left",
+      !roofMenu.includes("sky-rules"));
+    // WHAT STAYS PUBLIC IS THE COUNT. "Three standing clauses" is the terms of
+    // the run; which three is the run. Compared against menuPlaySub's own
+    // output rather than against a copy of its words, so this pin still holds
+    // when that line is reworded — the rule is that the number reaches the
+    // button, not that the sentence never changes.
+    check("...while how MANY there are is still on the button",
+      roofMenu.includes(menuPlaySub(S.SKYDECK_TIER, listed.length, null)));
     // The draft's third bank cell is the clause tally INSTEAD of scrap, because
     // a scrap readout on a mode with no yard can only ever be 0.
     // S.SKYDECK_TIER, not MARK_COUNT — mirroring the fixed caller
@@ -8868,7 +8910,11 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     });
     check("...and the ladder draft still counts scrap", /Scrap/.test(ladderDraft));
     // The bay-clear card is the ONE screen between the bay that earned a clause
-    // and the projection whose numbers it has already moved.
+    // and the projection whose numbers it has already moved — and, since the
+    // menu stopped listing them, it is also where the player MEETS the clause.
+    // The pin was always here; what changed is what it is load-bearing for. A
+    // reveal that is nowhere is not a surprise, it is a missing feature, so the
+    // two halves are asserted together: no name on the menu, the name here.
     const armed = S.bayClearScreen({
       bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 0,
       slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },
