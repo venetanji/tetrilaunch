@@ -3643,6 +3643,30 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // — so the row that describes the stick has to say it.
   check("...and the aim row states that a centred stick holds",
     padPane.includes("centre holds"));
+  // THE AIM ROW DESCRIBES THE MODE THAT IS ON. Found in review: the row said
+  // "centre holds" whatever the toggle underneath it was set to, so a player
+  // who chose the slingshot was told the centre holds by the same screen whose
+  // next row told them releasing lets the pull go. Two opposite answers to
+  // "what happens when I let go", on one pane, one of them false.
+  const slingPane = controlsScreen({
+    tab: "gamepad",
+    settings: { ...ctrlSettings, stickSling: true },
+    padName: null,
+    rebinding: null,
+  });
+  check("the slingshot's aim row describes the slingshot",
+    slingPane.includes("pull back to aim") && slingPane.includes("release lets go"));
+  check("...and does not also claim the centre holds",
+    !slingPane.includes("centre holds"));
+  check("...while the dials' row still claims it and not the pull",
+    padPane.includes("centre holds") && !padPane.includes("pull back to aim"));
+  // The assist only ever smoothed the SLINGSHOT's stick (gamepad.ts) — the
+  // dials need none. Unqualified, the row offered a dial player a control that
+  // does nothing. It names its scope instead of switching, so one string is
+  // true in both modes.
+  check("the assist toggle names the mode it actually smooths",
+    padPane.includes("Smooth the slingshot stick")
+      && slingPane.includes("Smooth the slingshot stick"));
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.

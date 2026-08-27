@@ -1757,6 +1757,15 @@ class App {
     // per-action attribute, so the place is recorded here and restored below.
     const focusedBind = (document.activeElement as HTMLElement | null)
       ?.closest("[data-bind]")?.getAttribute("data-bind") ?? null;
+    // TOGGLES need the same treatment, and needed it the moment one of them
+    // started causing a re-render (onToggle's stickSling branch). A pad player
+    // flipping Slingshot stick presses A on a row that this rewrite is about to
+    // detach; without the restore below, focus falls back to the screen's
+    // primary action and the thumb that meant to flip one switch is suddenly
+    // hovering Back. Recorded by KEY, which is stable across the rewrite in
+    // exactly the way the row element is not.
+    const focusedToggle = (document.activeElement as HTMLElement | null)
+      ?.closest("[data-toggle]")?.getAttribute("data-toggle") ?? null;
     // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
     // screen is about to be replaced by a fresh one carrying none of the crest
     // variables syncHud wrote inline. Those writes are guarded by a "last value
@@ -2026,6 +2035,8 @@ class App {
       this.overlay
         .querySelector<HTMLElement>(`[data-action="rebind"][data-bind="${focusedBind}"]`)
         ?.focus();
+    } else if (focusedToggle) {
+      this.overlay.querySelector<HTMLElement>(`[data-toggle="${focusedToggle}"]`)?.focus();
     }
     this.syncPadFocus();
     this.syncFullscreenButtons();
@@ -4998,6 +5009,16 @@ class App {
     // The rail mirror re-solves the layout on the spot; stickAssist is read
     // live by the gamepad poller and needs nothing here.
     if (key === "leftHandRail") this.applyRailSide();
+    // A toggle that changes what a SCREEN SAYS, not only what the game does,
+    // has to redraw the screen saying it. stickSling is the only one: the
+    // gamepad pane's aim row describes the mode that is on, so leaving the old
+    // row up would have the pane contradict the switch the player just flipped
+    // (see screens.ts). Everything else here is read live by whatever consumes
+    // it and the in-place aria-checked write above is the whole update, which
+    // is why this is one named key rather than a blanket re-render — the
+    // Settings screen's toggles must not rebuild their pane out from under a
+    // pointer that is still on them.
+    if (key === "stickSling" && this.state === "controls") this.renderOverlay();
     void tapHaptic();
     // After syncAudioSettings on purpose: switching Sound OFF clicks into
     // silence (playFx already gates on the new state) and switching it ON
