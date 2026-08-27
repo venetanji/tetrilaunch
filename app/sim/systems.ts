@@ -4470,6 +4470,64 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       `bays ${MATERIAL_DRAFT_BAYS.join(",")} carry ${carriedBays.join(",")}`,
     );
   }
+
+  // ---- The draft card's title row belongs to the NAME ----------------------
+  //
+  // A player on a 792x360 phone reported "Volatile Contract" rendering as
+  // "Volatile Contrac". The cause was furniture: the notch-level badge and the
+  // pick box shared the title row with the name, and on a phone the two cards
+  // sit side by side, so the name was negotiating for ~100px against ~50px of
+  // badge and box. Both now ride the card's FOOTER (screens.ts's
+  // `.mod-card__foot`), and this pins the arrangement rather than the symptom —
+  // an overflow assertion cannot see a `-webkit-line-clamp` eating a word, so
+  // the uifit harness never would have caught this and did not.
+  //
+  // Structural, in both directions: the title row must not contain the badge or
+  // the box, and the footer must contain both, on the ratchet card AND on the
+  // Final Inspection's clause card. The two screens are deliberately one shell
+  // (see finalScreen's note), and a fix applied to only one of them is how that
+  // sameness gets lost.
+  {
+    const between = (html: string, open: string, close: string): string => {
+      const i = html.indexOf(open);
+      return i < 0 ? "" : html.slice(i, html.indexOf(close, i));
+    };
+    const run = { ...newRun(25, [], 400, undefined, 10), levelIndex: 7, carry: 120, scrap: 340 };
+    const marks: Ratchets = { volatile: 1, magnetic: 1 };
+    const draft = S.draftScreen({
+      bayNum: 8, tier: 10, funds: 1_820, carry: 120,
+      offers: hazardOffers(25, 7, 10, 2, marks),
+      ratchets: marks, selected: ["volatile"], picksNeeded: 2,
+      preview: previewRows(levelForRun(run), levelForRun(run), marks),
+      scrap: 340, baysToRefit: 1, forced: true,
+    });
+    const inspection = S.finalScreen({
+      bayNum: 9, tier: 10, funds: 1_820, carry: 120,
+      offers: finalsForTier(10), selected: finalsForTier(10)[0].id,
+      preview: previewRows(levelForRun(run), levelForRun(run), marks),
+      scrap: 340,
+    });
+    for (const [name, html] of [["ratchet", draft], ["inspection", inspection]] as const) {
+      const top = between(html, `<div class="mod-card__top">`, `</div>`);
+      const foot = between(html, `<div class="mod-card__foot">`, `</div>`);
+      check(`the ${name} card's title row carries no pick box`,
+        top !== "" && !top.includes("mod-card__box"), top);
+      check(`the ${name} card's footer carries the pick box, bottom-right`,
+        foot.includes("mod-card__box") && foot.includes("mod-card__state"), foot);
+    }
+    // The level badge is the ratchet card's alone (a clause has no notches),
+    // and it belongs beside the box, not beside the name.
+    const draftTop = between(draft, `<div class="mod-card__top">`, `</div>`);
+    const draftFoot = between(draft, `<div class="mod-card__foot">`, `</div>`);
+    check("the notch level rides the footer, not the title row",
+      !draftTop.includes("mod-card__lvl") && draftFoot.includes("mod-card__lvl"), draftFoot);
+    // And the name is emitted whole. This one passed before the fix too — the
+    // clipping was CSS, not the template — and it is here so that a future
+    // "just truncate it in the string" never becomes the answer.
+    check("the card names the hazard in full",
+      draft.includes(`<span class="mod-card__name">Volatile Contract</span>`));
+  }
+
   check("totalNotches counts every axis",
     totalNotches({ target: 2, slag: 1, wind: 3 }) === 6 && totalNotches({}) === 0);
   check("hazardById resolves every id and rejects junk",

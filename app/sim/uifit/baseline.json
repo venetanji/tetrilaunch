@@ -231,6 +231,9 @@
     "BND has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
     "DEM has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)"
   ],
+  "Web · 800x600 window|draft-material-picked|scrollers": [
+    ".draft__body scrolls 83px"
+  ],
   "Web · 800x600 window|draft-picked|scrollers": [
     ".draft__body scrolls 83px"
   ],
