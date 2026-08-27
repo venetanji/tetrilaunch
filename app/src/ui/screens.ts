@@ -16,7 +16,7 @@ import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
-  mountedIds, stowedIds, slotPrice, slotsFor, SLOT_CAP,
+  maskLoadout, mountedIds, stowedIds, slotPrice, slotsFor,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -3395,7 +3395,16 @@ export function workshopScreen(meta: MetaState): string {
   const rackHTML = `<section class="rack">
       <div class="rack__hdr">
         <span class="workshop__aside-label">rack</span>
-        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots${slots < SLOT_CAP ? "" : " · full width"}</span>
+        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots<span class="price__sep">·</span>${
+          // THE POINTS ABOARD, beside the budget's own readout in the aside and
+          // deliberately a different number from it. The budget counts what is
+          // OWNED, which is right — a tier you paid for is spent whether or not
+          // it undocks — but at the top of the ladder a rig can own 550 points
+          // and fly 220 of them, and a screen that only ever printed the first
+          // number would be describing a rig nobody flies. This is the one the
+          // bay actually meets.
+          tiersCost(maskLoadout(meta.loadout, aboard))
+        } pts aboard</span>
         ${slotFoot}
       </div>
       <div class="rack__row">${aboard.map((id) => slotBtn(id, true)).join("")}${openSlots}</div>
