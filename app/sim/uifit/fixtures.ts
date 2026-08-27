@@ -94,6 +94,56 @@ function draft(selected: HazardId[]): string {
   });
 }
 
+/**
+ * The FORCED-MATERIAL ratchet (hazards.ts's MATERIAL_DRAFT_BAYS) at Tier 10 —
+ * the draft's worst case for the CARD TITLE, which is a different worst case
+ * from `draft()`'s and needs its own fixture.
+ *
+ * Every material axis is named "<Substance> Contract", and the substances run
+ * to eight letters, so a materials-only hand is the only hand that can deal
+ * TWO seventeen-character names at once. The ordinary hand cannot: it deals at
+ * most one content card, and the number axes are all short ("Fuel Levy",
+ * "Shift Cut"). A player's report is what found this — on a 792x360 phone the
+ * two cards sit side by side, and "Volatile Contract" was rendering as
+ * "Volatile Contrac" with the tail clipped away.
+ *
+ * Seed 25 rather than the file's usual 20_260_815, asked of the generator
+ * rather than asserted: it is the lowest seed whose bay-8 hand at Tier 10 is
+ * Volatile + Magnetic, the two longest names in HAZARDS. Bay 8 because
+ * MATERIAL_DRAFT_BAYS forces one there, and Tier 10 because `forced` only
+ * matters where picksPerBay is 2 — the partner card is capped at one seat, so
+ * its footer says "undo" where the material's says "double".
+ *
+ * This does NOT replace `draft()`, which is the worst case for the PROJECTION
+ * (four banked axes, every row pinned ACTIVE) and stays the fixture that
+ * measures the modal's height. Two different worst cases, two fixtures.
+ */
+function materialDraft(selected: HazardId[]): string {
+  const SEED = 25;
+  const LEVEL_INDEX = 7;
+  const run = { ...newRun(SEED, [], 400, undefined, 10), levelIndex: LEVEL_INDEX, carry: 120, scrap: 340 };
+  const withPicks: Ratchets = { ...HUD_BASE.ratchets };
+  for (const id of selected) withPicks[id] = (withPicks[id] ?? 0) + 1;
+  return S.draftScreen({
+    bayNum: LEVEL_INDEX + 1,
+    tier: 10,
+    funds: 1_820,
+    carry: 120,
+    offers: hazardOffers(SEED, LEVEL_INDEX, 10, 2, HUD_BASE.ratchets),
+    ratchets: HUD_BASE.ratchets,
+    selected,
+    picksNeeded: 2,
+    preview: previewRows(
+      levelForRun({ ...run, ratchets: HUD_BASE.ratchets }),
+      levelForRun({ ...run, ratchets: withPicks }),
+      HUD_BASE.ratchets,
+    ),
+    scrap: 340,
+    baysToRefit: 1,
+    forced: true,
+  });
+}
+
 /** The FINAL INSPECTION (game/finals.ts) — the run's last draft.
  *
  *  Tier 10 deliberately: its clauses carry the longest copy in the table and
@@ -699,6 +749,14 @@ export const SCREENS: Record<string, () => string> = {
   // two-pick hand moves the most rows at once. Measured as its own screen so a
   // projection that fits empty and overflows selected cannot pass.
   "draft-picked": () => draft(["cost", "sweeper"]),
+
+  // The forced-material hand, PICKED — one fixture, not the pair the ordinary
+  // draft ships. This one measures the card's title row, and after the badge
+  // and the box moved to the footer that row is name-and-glyph in every state:
+  // an unpicked twin would measure the same geometry twice. Picked rather than
+  // empty because it is the state the player reported, and the state whose
+  // footer carries the most (a lit box AND the level badge the pick created).
+  "draft-material-picked": () => materialDraft(["volatile", "magnetic"]),
 
   // The Final Inspection, both states, for the same reason the draft ships
   // both: accepting a clause grows a struck-through old value on every row it

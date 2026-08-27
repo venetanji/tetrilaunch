@@ -3224,11 +3224,9 @@ export function draftScreen(opts: {
       // The tentative picks count toward the badge too — the card has to show
       // the notch level the projection below it is currently drawing.
       const owned = (opts.ratchets[h.id] ?? 0) + picks;
-      // The level rides the card's RIGHT edge as an icon and a number (the
-      // same up-triangle the bank's Notches cell wears), not as an "at N"
-      // word badge in the title row — the words were what clipped "Crosswind"
-      // to "Cros" on a compact card: ~45px of badge in a ~100px name column
-      // (the owner's pass caught it).
+      // The level is an icon and a number (the same up-triangle the bank's
+      // Notches cell wears), not an "at N" word badge. It rides the card's
+      // FOOTER, not its title row — see the __foot note below.
       const stack = owned > 0
         ? `<span class="mod-card__lvl" aria-label="notched at ${owned}">${icon("up", 9)}${owned}</span>`
         : "";
@@ -3258,16 +3256,29 @@ export function draftScreen(opts: {
         : ready
           ? "Tap to swap this in"
           : "Tap to preview";
+      // The level badge and the pick box ride the FOOTER, right-aligned beside
+      // the "tap to…" line — not the title row. In the title row they were
+      // three flex items competing for one line, and the name is the item that
+      // lost: on a 792x360 phone, where the two cards sit side by side, the
+      // forced-material hand rendered "Volatile Contract" as "Volatile Contrac"
+      // (a player's report). The badge and the box are ~50px of furniture; the
+      // footer already had that width spare, because "Tap to undo" is the
+      // shortest line on the card. So the name now gets the card's whole width
+      // and the state cluster gets a column nothing else wants, and — the part
+      // that matters for a screen whose cards toggle — the geometry is the same
+      // in every state: the box is always present (empty when unpicked), so a
+      // card does not change shape when it is tapped.
       return `<button class="mod-card mod-card--${kind}${picks > 0 ? " mod-card--picked" : ""}"
         data-action="pick-hazard" data-hazard="${h.id}" aria-pressed="${picks > 0}">
         <div class="mod-card__top">
           <span class="mod-card__ax" aria-hidden="true">${badge}</span>
           <span class="mod-card__name">${h.name}</span>
-          ${stack}
-          ${box}
         </div>
         <p class="mod-card__desc">${h.desc}</p>
-        <div class="mod-card__pick">${foot}</div>
+        <div class="mod-card__foot">
+          <span class="mod-card__pick">${foot}</span>
+          <span class="mod-card__state">${stack}${box}</span>
+        </div>
       </button>`;
     })
     .join("");
@@ -3423,16 +3434,27 @@ export function finalScreen(opts: {
       // its icon in the corner and its name on the pill, because the
       // inspection is the moment the Tier's whole argument gets settled and a
       // player who never made the connection is told it here, once.
+      //
+      // Same shell as the ratchet card, footer included: the pick box sits
+      // bottom-right beside the "tap to…" line so the clause name has the
+      // card's whole width. The clause names are shorter than the materials'
+      // ("Bled Hydraulics" is the longest in FINALS), but these two cards are
+      // ALWAYS side by side (draft__cards--pair) rather than only on a short
+      // viewport, so the row they share is the narrower one. And divergence
+      // would cost the deliberate sameness of the two screens, which is worth
+      // more than either card's own best arrangement (see this function's note).
       return `<button class="mod-card mod-card--final${picked ? " mod-card--picked" : ""}"
         data-action="pick-final" data-final="${f.id}" aria-pressed="${picked}">
         <div class="mod-card__top">
           <span class="mod-card__ax" aria-hidden="true">${icon(f.system as IconName, 13)}</span>
           <span class="mod-card__name">${f.name}</span>
-          ${box}
         </div>
         ${sys ? `<div class="mod-card__kind">${sys.name}</div>` : ""}
         <p class="mod-card__desc">${f.desc}</p>
-        <div class="mod-card__pick">${foot}</div>
+        <div class="mod-card__foot">
+          <span class="mod-card__pick">${foot}</span>
+          <span class="mod-card__state">${box}</span>
+        </div>
       </button>`;
     })
     .join("");
