@@ -3405,7 +3405,7 @@ export function draftScreen(opts: {
       // doubles.
       const canDouble = !ready && !(opts.forced && h.kind !== "content");
       const foot = picks > 0
-        ? canDouble ? "Tap again to double it" : "Tap to undo"
+        ? canDouble ? "Tap again for 2x" : "Tap to undo"
         : ready
           ? "Tap to swap this in"
           : "Tap to preview";
