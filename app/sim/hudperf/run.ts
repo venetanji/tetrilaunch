@@ -134,15 +134,30 @@ const metrics = async (): Promise<Record<string, number>> => {
 
 await page.evaluate("window.__hudperf.start()");
 
+/**
+ * One arm.
+ *
+ * EVERY ARM RESTARTS THE BAY. The arms run sequentially in one page, and the
+ * live one fires whenever the cannon is loaded and banks nothing — so it hands
+ * on a bay with the funds spent, the pile congested and `.pl-stat--danger`
+ * (which is a running `pulse-danger`) on the readouts. An arm inheriting that
+ * is not measuring the condition in its own name. It is not optional per arm
+ * for the same reason a control is not optional: the numbers are compared with
+ * each other, and `fresh` is what makes them comparable.
+ */
 const run = async (
   fire: boolean,
   still = false,
 ): Promise<CensusResult & { style: number; layout: number }> => {
+  const opts = { frames: FRAMES, fire, still, fresh: true };
+  // Setup FIRST and outside the counter bracket — see the probe's `prepare`.
+  await page.evaluate(`window.__hudperf.prepare(${JSON.stringify(opts)})`);
   const before = await metrics();
   const r = (await page.evaluate(
-    `window.__hudperf.census(${JSON.stringify({ frames: FRAMES, fire, still })})`,
+    `window.__hudperf.census(${JSON.stringify(opts)})`,
   )) as CensusResult;
   const after = await metrics();
+  await page.evaluate("window.__hudperf.teardown()");
   return {
     ...r,
     style: (after.RecalcStyleDuration ?? 0) - (before.RecalcStyleDuration ?? 0),
@@ -189,19 +204,37 @@ console.log(
 );
 console.log(`Inline-style properties written: ${live.styleProps.join(", ") || "(none)"}\n`);
 
-// THE ATTRIBUTION ARM. Same idle bay, every CSS animation and transition on
-// the page stilled, so the style recalculation left over after syncHud has
-// stopped writing can be told apart from syncHud's own. Never a proposal — the
-// game's motion is deliberate and its reduced-motion story is separate — only
-// a pointer at what the next measurement should be aimed at.
+// THE ATTRIBUTION ARM. An idle bay again — a FRESH one, not the spent bay the
+// live arm above hands on — with every CSS animation and transition on the page
+// stilled, so the style recalculation left over after syncHud has stopped
+// writing can be told apart from syncHud's own. Never a proposal: the game's
+// motion is deliberate and its reduced-motion story is separate. Only a pointer
+// at what the next measurement should be aimed at.
+//
+// ITS CONTROL IS THE IDLE ARM, which is why the two have to have started from
+// the same place, and why `startsMatch` below is asserted rather than assumed.
+// The first version of this arm ran third on the live arm's leftovers — funds
+// spent, pile congested, `.pl-stat--danger` and its running `pulse-danger` on
+// the readouts — and attributed that whole difference to `animation: none`.
 const stilled = await run(false, true);
+// The share of an idle bay's style recalculation that stilling the keyframes
+// removes. Worth printing rather than leaving to the reader's arithmetic,
+// because this ratio is the number the design doc quotes.
+const keyframeShare = idle.style > 0 ? (idle.style - stilled.style) / idle.style : 0;
 console.log(
-  `## The same idle bay with every CSS animation stilled\n\n` +
-    `RecalcStyle ${(stilled.style * 1000).toFixed(1)}ms against the live idle bay's ` +
+  `## A FRESH idle bay with every CSS animation stilled\n\n` +
+    `RecalcStyle ${(stilled.style * 1000).toFixed(1)}ms against the animated idle bay's ` +
     `${(idle.style * 1000).toFixed(1)}ms; Layout ${(stilled.layout * 1000).toFixed(1)}ms ` +
-    `against ${(idle.layout * 1000).toFixed(1)}ms. Whatever the gap is, it is ` +
-    `running keyframes rather than DOM writes.\n`,
+    `against ${(idle.layout * 1000).toFixed(1)}ms.\n\n` +
+    `${(keyframeShare * 100).toFixed(1)}% of the idle bay's style recalculation is ` +
+    `running keyframes rather than DOM writes. Layout is unchanged either way, ` +
+    `which is what a HUD whose animations stay on transform/opacity/colour should ` +
+    `look like.\n`,
 );
+// The evidence for the sentence above, not decoration: the subtraction is only
+// worth the comparability of its terms, so the report shows its terms.
+console.log(`Started from — idle: ${JSON.stringify(idle.start)}`);
+console.log(`            stilled: ${JSON.stringify(stilled.start)}\n`);
 
 const fresh = (await page.evaluate("window.__hudperf.freshness()")) as FreshnessResult;
 console.log(`A funds payout reached the readout in ${fresh.framesToShow} frame(s).\n`);
@@ -245,7 +278,35 @@ if (ASSERT) {
     "no HUD write names a layout property",
     `wrote ${layouty.join(", ")} (saw: ${live.styleProps.join(", ")})`,
   );
-  // PIN 4. Change-driven, not time-driven: a payout has to be on screen the
+  // PIN 4. THE ARMS THAT ARE COMPARED STARTED FROM THE SAME BAY.
+  //
+  // The attribution arm's whole claim is a subtraction — animated idle minus
+  // stilled idle — and a subtraction is only worth the comparability of its two
+  // terms. The arms run sequentially in one page, and the live arm between them
+  // spends the bay: it fires whenever the cannon is loaded, banks nothing, and
+  // hands on drained funds, a congested pile and `.pl-stat--danger` on the
+  // readouts, which is a running `pulse-danger` — an animation, in the arm that
+  // exists to measure animations. Every arm restarts the bay for that reason,
+  // and this pin is what stops the restart from being quietly dropped: it
+  // compares what each arm REPORTS having started from, so an arm that stops
+  // restarting fails here instead of publishing a flattering ratio.
+  //
+  // EQUIVALENT, NOT IDENTICAL, and the distinction is deliberate. `startGame()`
+  // seeds each run off the wall clock, so the two bays draft different pieces
+  // and the arms cannot be made bit-identical without reaching into the run
+  // builder for a harness's convenience. What this pin holds equal is the two
+  // things that actually move the number being subtracted: what syncHud has to
+  // write (state, score, shots) and which keyframes are running (the panel's
+  // congestion classes, the funds block's and the launches chip's
+  // `.pl-stat--danger`, an end scrim). A different bag of next pieces changes
+  // the belt's hues and nothing about how many animated elements the page has.
+  const startsMatch = JSON.stringify(idle.start) === JSON.stringify(stilled.start);
+  check(
+    startsMatch && idle.start.state === "playing",
+    "the two idle arms are measured from equivalent bays",
+    `idle ${JSON.stringify(idle.start)} vs stilled ${JSON.stringify(stilled.start)}`,
+  );
+  // PIN 5. Change-driven, not time-driven: a payout has to be on screen the
   // next frame. A time gate would show it up to eight frames late and this is
   // the pin that refuses one.
   check(

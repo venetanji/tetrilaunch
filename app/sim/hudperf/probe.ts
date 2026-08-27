@@ -47,6 +47,51 @@ export interface CensusOptions {
    *  thing. Nothing here proposes shipping with animations off; the game's
    *  reduced-motion story is a separate and deliberate one (app.css). */
   still?: boolean;
+  /**
+   * Restart the bay before the window, so this arm begins where a fresh bay
+   * begins rather than where the last arm left off.
+   *
+   * REQUIRED OF ANY ARM WHOSE NUMBER IS COMPARED WITH ANOTHER'S, and the
+   * attribution arm is the reason it exists. It used to run third, on the bay
+   * the LIVE arm had just spent: seven shots fired, funds drained toward the
+   * broke loss, the pile congested enough to put `.plant--congest-*` on the
+   * panel and `.pl-stat--danger` on the launches chip — and those danger
+   * classes carry `animation: pulse-danger`, which is the very thing the arm
+   * claims to be measuring the absence of. So the arm was comparing a quiet
+   * fresh bay against a loud spent one and attributing the whole gap to
+   * `animation: none`. The probe's own freshness() already had to restart the
+   * bay for the same reason and that should have been the tell.
+   *
+   * Every arm reports the state it actually started from (see `start` on the
+   * result) so the comparison can be checked rather than trusted.
+   */
+  fresh?: boolean;
+}
+
+/**
+ * What a census arm was looking at when it began counting.
+ *
+ * Everything here either changes what syncHud writes or changes which CSS
+ * animations are running, which are the two things an arm-to-arm comparison
+ * has to hold equal. Recorded per arm and asserted across the arms that are
+ * compared, because "I restarted the bay" is an intention and this is the
+ * evidence.
+ */
+export interface StartState {
+  /** The App's screen. Anything but "playing" means syncHud is not running at
+   *  all, which no arm can afford to discover halfway through. */
+  state: string;
+  score: number;
+  shots: number;
+  /** The panel's own state classes — congestion tier, maw, loaded material. */
+  plant: string;
+  /** The funds block's, which is where `.pl-stat--danger` (a running
+   *  `pulse-danger`) and `.dial-collapse` land. */
+  funds: string;
+  /** The launches chip's, same reason. */
+  launches: string;
+  /** A run-end scrim over the bay is a whole second screen of animation. */
+  scrim: boolean;
 }
 
 export interface CensusResult {
@@ -71,6 +116,8 @@ export interface CensusResult {
   loadMoved: number;
   loadReloading: number;
   shots: number;
+  /** Where this arm started, for comparing arms against each other. */
+  start: StartState;
 }
 
 export interface FreshnessResult {
@@ -81,8 +128,26 @@ export interface FreshnessResult {
 }
 
 interface HudProbeApi {
+  /** Boot the page out of the menu and into a bay, once, before any arm runs.
+   *
+   *  Every arm restarts the bay for itself now, so this is no longer where the
+   *  measured state comes from. It stays for two reasons: it makes the very
+   *  first `startGame()` — the menu-to-playing one, the only transition that
+   *  also mounts the HUD from nothing — happen OUTSIDE every arm's window, so
+   *  all three arms' restarts are the same kind of restart; and a page that
+   *  cannot reach "playing" at all fails here rather than halfway through a
+   *  census. */
   start(): Promise<void>;
+  /** Put the page into the condition an arm measures — a fresh bay, animations
+   *  stilled — and settle it. Separate from `census` so the node half can read
+   *  Chromium's counters AROUND the measurement window alone: a restart is a
+   *  whole overlay rewrite and 60 frames of settling, and stilling the page is
+   *  a full style recalc, so doing either inside the bracket would bill the arm
+   *  for its own setup and flatten every ratio in the report. */
+  prepare(opts: CensusOptions): Promise<void>;
   census(opts: CensusOptions): Promise<CensusResult>;
+  /** Undo whatever `prepare` installed. */
+  teardown(): Promise<void>;
   freshness(): Promise<FreshnessResult>;
 }
 
@@ -137,19 +202,82 @@ function label(n: Node): string {
   return parts.join(">");
 }
 
+/**
+ * Put the app on a fresh bay with the full panel showing, and let it settle.
+ *
+ * THE COACH HAS TO GO, and not as a convenience. A first-ever bay runs the
+ * tutorial, and `.hud[data-coach="0"]` hides the reload row and the launches
+ * chip outright (app.css's coach reveal) — so a census taken there would be
+ * counting writes into a `display: none` subtree, which costs the layout engine
+ * nothing and would flatter every number in the table. Every bay after the
+ * player's first shows the full panel, and that is the panel the device
+ * measurement was taken against.
+ *
+ * The 60-frame settle is the second half: a freshly mounted HUD churns for a
+ * few frames (the coach hook coming off, the drag hint's entrance) and none of
+ * that is the steady state under test.
+ */
+async function freshBay(): Promise<void> {
+  const tl = window.__tl;
+  tl.startGame();
+  tl.finishTutorial();
+  await settle(60);
+}
+
+/** The state an arm is about to measure from — see StartState. */
+function readStart(): StartState {
+  const tl = window.__tl;
+  // getAttribute rather than `.className`: the crest ornaments under `.plant`
+  // are `<i>` today but the panel has picked up inline SVG before, and an SVG
+  // element's `className` is an SVGAnimatedString whose toString() is
+  // "[object SVGAnimatedString]" — a value that compares equal across two arms
+  // no matter what the classes actually are, which is the one failure mode a
+  // pin built on this comparison must not have.
+  const cls = (sel: string): string =>
+    tl.overlay.querySelector(sel)?.getAttribute("class")?.trim() ?? "";
+  return {
+    state: tl.state,
+    score: tl.game?.score ?? -1,
+    shots: tl.game?.shotsFired ?? -1,
+    plant: cls(".plant"),
+    funds: cls(".pl-funds"),
+    launches: cls("#hud-launches-chip"),
+    scrim: tl.overlay.querySelector(".modal-scrim") !== null,
+  };
+}
+
+/** The stylesheet the `still` arm installs, held so teardown can drop it. */
+let stiller: HTMLStyleElement | null = null;
+
 const api: HudProbeApi = {
   async start(): Promise<void> {
-    const tl = window.__tl;
-    if (tl.state !== "playing") tl.startGame();
-    // THE COACH HAS TO GO, and not as a convenience. A first-ever bay runs the
-    // tutorial, and `.hud[data-coach="0"]` hides the reload row and the
-    // launches chip outright (app.css's coach reveal) — so a census taken
-    // there would be counting writes into a `display: none` subtree, which
-    // costs the layout engine nothing and would flatter every number in the
-    // table. Every bay after the player's first shows the full panel, and that
-    // is the panel the device measurement was taken against.
-    tl.finishTutorial();
-    await settle(60);
+    await freshBay();
+  },
+
+  async prepare(opts: CensusOptions): Promise<void> {
+    if (opts.fresh) await freshBay();
+    if (opts.still) {
+      // Idempotent: a second stiller left over from a skipped teardown would
+      // still still the page, so the arm would pass while the report quietly
+      // stopped describing what it ran.
+      stiller?.remove();
+      stiller = document.createElement("style");
+      stiller.textContent = `*, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }`;
+      document.head.appendChild(stiller);
+      // Frames for the engine to tear the running animations down AND for the
+      // full-page style recalc that installing this rule costs to land, so the
+      // window measures the stilled page rather than the act of stilling it.
+      await settle(30);
+    }
+  },
+
+  async teardown(): Promise<void> {
+    stiller?.remove();
+    stiller = null;
+    await settle(2);
   },
 
   async census(opts: CensusOptions): Promise<CensusResult> {
@@ -158,18 +286,9 @@ const api: HudProbeApi = {
     const tally = new Map<string, number>();
     const styleProps = new Set<string>();
 
-    let stiller: HTMLStyleElement | null = null;
-    if (opts.still) {
-      stiller = document.createElement("style");
-      stiller.textContent = `*, *::before, *::after {
-        animation: none !important;
-        transition: none !important;
-      }`;
-      document.head.appendChild(stiller);
-      // Two frames for the engine to tear the running animations down, so the
-      // window measures the stilled page rather than the act of stilling it.
-      await settle(2);
-    }
+    // Read once the page is in whatever condition this arm is measuring, and
+    // before a single frame is counted.
+    const start = readStart();
 
     let pending: MutationRecord[] = [];
     const obs = new MutationObserver((recs) => {
@@ -226,7 +345,6 @@ const api: HudProbeApi = {
       lastLoad = now;
     }
     obs.disconnect();
-    stiller?.remove();
 
     return {
       frames: opts.frames,
@@ -238,21 +356,20 @@ const api: HudProbeApi = {
       loadMoved,
       loadReloading,
       shots: tl.game?.shotsFired ?? 0,
+      start,
     };
   },
 
   async freshness(): Promise<FreshnessResult> {
     const tl = window.__tl;
-    // A FRESH BAY IF THE LAST ONE DIED. The census arms fire whenever the
-    // cannon is loaded and never bank anything, so half a minute of that goes
-    // broke — and a bay that has ended stops running syncHud at all, which
-    // would read as a staleness this pin is not about. Asked rather than
-    // assumed, so the order of the arms above stays free to change.
-    if (tl.state !== "playing") {
-      tl.startGame();
-      tl.finishTutorial();
-      await settle(60);
-    }
+    // ALWAYS A FRESH BAY, on the same rule the census arms follow: the live arm
+    // fires whenever the cannon is loaded and banks nothing, so it can leave
+    // the bay broke — and a bay that has ended stops running syncHud at all,
+    // which would read as a staleness this pin is not about. Unconditional
+    // rather than `if (state !== "playing")`, because a bay that is still
+    // technically playing but nearly spent is the same confound in a quieter
+    // form, and because it leaves the order of the arms above free to change.
+    await freshBay();
     const g = tl.game;
     // Re-queried after the possible restart above, since that rewrote the
     // overlay and the old node is detached.
