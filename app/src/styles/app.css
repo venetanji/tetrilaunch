@@ -288,6 +288,92 @@ body.crt-off #app::after { display: none; }
 .modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
 .pl-mods, .guide__tabs { overscroll-behavior-x: contain; }
 
+/* ---------- The scrollbar, on the engines that draw one ----------
+   Reported from a windowed desktop build: the refit stop's shelf wearing the
+   stock Chromium scrollbar — a 15px light-grey track, a bevelled thumb and an
+   arrow button at each end, straight through a panel whose every other edge is
+   a 1px neon line. It is the one piece of chrome in the app that was still the
+   platform's rather than the game's, and it shows up on every scroller the
+   game has, not just that one: the refit shelf, the workshop shelf, the
+   leaderboard body, the controls grid, the guide list, the sandbox columns and
+   the draft body's backstop.
+
+   WHY THIS IS BEHIND `pointer: fine`, which is the load-bearing decision here.
+   A touch engine gives these panes an OVERLAY scrollbar: it floats over the
+   content, fades out, and costs the layout nothing. Authoring any
+   `::-webkit-scrollbar` rule with a width opts that scroller OUT of overlay
+   and into a classic one that takes real inline space. Measured in Chromium at
+   both pointer types: a coarse-pointer scroller is 0px of gutter unstyled and
+   10px styled; gated like this it stays 0. Ten pixels off the inline size of
+   every allowlisted pane on a 360px-tall phone is a real cost for chrome that
+   phone never shows, so the phones and both WebViews keep exactly what they
+   have and only the pointer that can actually hover a thumb gets one.
+
+   Nothing in sim/uifit would have caught that: Playwright launches headless
+   Chromium with `--hide-scrollbars`, so the harness measures every device row
+   as if no scrollbar existed — which is also why this whole area went unstyled
+   for so long, and why the numbers above were taken by hand with that flag
+   turned back off.
+
+   WEBKIT PSEUDO-ELEMENTS, NOT `scrollbar-color`, and the two cannot be mixed:
+   Chromium gives `scrollbar-color` precedence and DISCARDS the pseudo-element
+   rules when both are set, so declaring the standards pair "as a fallback"
+   here would silently throw away everything below it on the exact engine the
+   report came from. The pseudo-elements are also the only half that can do the
+   two things the report actually asks for — square corners and no arrow
+   buttons. Chromium and WebKit cover every shell this game ships in (Electron,
+   Android WebView, iOS WKWebView, Chrome, Edge, Safari), so the standards pair
+   is scoped to the engines with no pseudo-element at all — Firefox on the web
+   build — where `thin` is the same 10px Chromium resolves and the colours are
+   the closest two the property can carry. */
+@media (pointer: fine) {
+  /* 10px because that is what Chromium's own `scrollbar-width: thin` resolves
+     to, so the Firefox branch below lands on the same measurement rather than
+     a near-miss. `height` as well as `width`: the same channel has to serve a
+     horizontal scroller, and the four strips that deliberately hide theirs
+     (.pl-queue b, .pl-notch b, .pl-mods, .guide__tabs) all say `display: none`
+     from a class selector, which outranks this and keeps them hidden. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  /* The track is a channel CUT INTO the panel, so it goes darker than any
+     surface token rather than lighter — the opposite of the platform's
+     light-grey trough, which is what made it read as a foreign control. */
+  *::-webkit-scrollbar-track { background: var(--bg-deep); }
+  /* Muted accent at rest, and it climbs on hover rather than changing hue: the
+     thumb is chrome until you reach for it. --r-sm is 2px, which on a 10px bar
+     is a corner rather than a pill — the rounded default was the other half of
+     why the stock bar looked borrowed, in a design system whose largest radius
+     anywhere is 3px. The transparent border plus padding-box clip insets the
+     thumb to 6px inside its 10px channel, so the track reads as a rail the
+     thumb rides in and not as a second, wider thumb. */
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.22);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--r-sm);
+  }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.45); background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:active { background: var(--accent); background-clip: padding-box; }
+  /* The arrow buttons the report names. They are a scroll affordance from an
+     era of 1px-precision mice, they are under the 44px tap floor this app
+     holds everywhere else, and every pane here is also reachable by wheel,
+     drag and keyboard. */
+  *::-webkit-scrollbar-button { display: none; }
+  /* Where a vertical and a horizontal bar meet, the default corner is another
+     patch of platform grey. */
+  *::-webkit-scrollbar-corner { background: var(--bg-deep); }
+
+  /* Firefox, which has no ::-webkit-scrollbar at all. Kept in its own feature
+     query rather than declared alongside: set unconditionally, `scrollbar-color`
+     wins over the pseudo-elements in Chromium and undoes the block above. */
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: rgba(0, 240, 255, 0.35) var(--bg-deep); }
+    /* ...and the four strips that hide their bar keep hiding it, since the
+       `display: none` they rely on is a pseudo-element rule this engine also
+       cannot see. */
+    .pl-queue b, .pl-notch b, .pl-mods, .guide__tabs { scrollbar-width: none; }
+  }
+}
+
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
    actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):

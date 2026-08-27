@@ -4265,6 +4265,96 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
 }
 
 // ---------------------------------------------------------------------------
+section("The scrollbar's chrome (app.css ::-webkit-scrollbar)");
+// Every assertion here guards something sim/uifit STRUCTURALLY CANNOT SEE, and
+// that is the reason the section exists rather than a preference for reading
+// CSS. Playwright launches headless Chromium with `--hide-scrollbars`
+// (node_modules/playwright-core/.../chromium.js), so across all 20 device rows
+// and every fixture the harness measures a layout in which no scrollbar is
+// drawn and none takes space. It cannot tell a styled bar from an unstyled one,
+// and — the part that matters — it cannot tell a bar that costs a phone 10px of
+// pane width from one that costs nothing. Measured by hand with that flag
+// turned back off: a coarse-pointer scroller is 0px of gutter unstyled and 10px
+// once any ::-webkit-scrollbar width exists; a fine-pointer one is 15px stock
+// and 10px styled.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Brace-match the @media (pointer: fine) block that holds the scrollbar
+  // rules, so the checks below can ask what is INSIDE it rather than merely
+  // what is somewhere in the file.
+  const gateAt = bare.search(/@media\s*\(pointer:\s*fine\)\s*\{(?=[\s\S]{0,600}::-webkit-scrollbar)/);
+  check("the scrollbar chrome is gated behind pointer: fine", gateAt >= 0,
+    "no `@media (pointer: fine)` block contains the scrollbar rules — every " +
+    "touch pane would swap its free overlay bar for a 10px one");
+  let gated = "";
+  if (gateAt >= 0) {
+    let depth = 0, j = bare.indexOf("{", gateAt);
+    for (; j < bare.length; j++) {
+      if (bare[j] === "{") depth++;
+      else if (bare[j] === "}" && --depth === 0) break;
+    }
+    gated = bare.slice(gateAt, j + 1);
+  }
+
+  // The report named the arrow buttons specifically. They are also the one part
+  // of the stock bar that is a CONTROL — under the 44px floor this app holds
+  // everywhere else, and redundant with wheel, drag and keyboard.
+  check("the stock arrow buttons are gone",
+    /::-webkit-scrollbar-button\s*\{[^}]*display:\s*none/.test(gated),
+    "no ::-webkit-scrollbar-button { display: none } inside the gate");
+
+  // THE TRAP, pinned. Chromium gives `scrollbar-color` precedence over the
+  // pseudo-elements and discards them when both are set, so declaring the
+  // standards pair "as a fallback" alongside would silently throw the whole
+  // block away on the exact engine the report came from. It is therefore only
+  // legal inside a feature query that Chromium fails.
+  const colourDecls = [...bare.matchAll(/scrollbar-color\s*:/g)].length;
+  const inSupports = [...bare.matchAll(
+    /@supports\s+not\s+selector\(\s*::-webkit-scrollbar\s*\)\s*\{[\s\S]*?scrollbar-color\s*:/g,
+  )].length;
+  check("scrollbar-color is only ever set where ::-webkit-scrollbar does not exist",
+    colourDecls > 0 && colourDecls === inSupports,
+    `${colourDecls} declaration(s), ${inSupports} inside the feature query`);
+
+  // The four strips that scroll horizontally BY DESIGN and hide their bar — the
+  // piece queue, the notch tally, the mods row and the guide's tab rail. The
+  // blanket `*::-webkit-scrollbar` would give all four a visible channel; what
+  // stops it is that each says `display: none` from a class selector, which
+  // outranks `*`. That is a specificity argument, and a specificity argument
+  // that nothing checks is a specificity argument waiting to be lost.
+  for (const sel of [".pl-queue b", ".pl-notch b", ".pl-mods", ".guide__tabs"]) {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    check(`${sel} still hides its own scrollbar`,
+      new RegExp(`${esc}(,[^{]*)?::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare)
+        || new RegExp(`[^{]*,\\s*${esc}::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare),
+      "the blanket rule would give it a visible channel");
+  }
+
+  // Colours come from the palette, not from fresh values invented in this
+  // section — the same rule the rest of the stylesheet is held to. The track and
+  // corner take a surface token; the thumb takes the accent, either as a token
+  // or as the rgba() of it the stylesheet already uses for accent washes.
+  const scrollbarBgs = [...gated.matchAll(/background(?:-color)?:\s*([^;]+);/g)].map((m) => m[1].trim());
+  const ACCENT_RGBA = "rgba(0, 240, 255";
+  const fromPalette = (v: string): boolean =>
+    v.startsWith("var(--") || v.startsWith(ACCENT_RGBA) || v === "transparent";
+  const strays = scrollbarBgs.filter((v) => !fromPalette(v));
+  check("the scrollbar's colours all come from the palette",
+    scrollbarBgs.length > 0 && strays.length === 0, strays.join(" | "));
+
+  // Square, not a pill. The largest radius anywhere in tokens.css is 3px, and a
+  // rounded thumb was half of why the stock bar read as borrowed chrome.
+  const radii = [...gated.matchAll(/border-radius:\s*var\(--r-(sm|md)\)/g)].length;
+  check("the thumb keeps the design system's square corner", radii > 0,
+    "the thumb's border-radius is not one of the --r-* tokens");
+}
+
+// ---------------------------------------------------------------------------
 section("HUD readout widths (the $1000+ wrap regression)");
 // ---------------------------------------------------------------------------
 {
