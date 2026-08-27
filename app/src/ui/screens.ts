@@ -15,7 +15,7 @@ import {
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
-  tierProgressFor, uprateCost, TIER_CONTRACTS_REQUIRED,
+  tierProgressFor, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -209,13 +209,17 @@ export interface TowerState {
   /** The floor the car is parked on — a Mark, SKYDECK_TIER, or SANDBOX_TIER once
    *  the beacon has been found. */
   selected: number;
-  /** Whether the Skydeck is open (the whole ladder beaten). */
+  /** Whether the Skydeck is open — the whole ladder beaten AND every Mark
+   *  sealed (meta.ts's skydeckOpen). Passed rather than derived from `sealed`
+   *  below, because the ladder half of that rule is not in this shape and a
+   *  screen that guessed at it would open the roof for a player holding ten
+   *  seals and two owed Contracts. */
   skydeck: boolean;
   /** Whether Tier S is a floor at all (lib/store.ts's Settings.devMode, set by
    *  the beacon gesture — see lib/devmode.ts). Absent reads as off, so every
    *  caller that predates the mode renders the tower it always did. */
   sandbox?: boolean;
-  /** Marks cleared in one run with no bay restart (meta.ts's sealedMarks).
+  /** Marks cleared in one run with no bay retry (meta.ts's sealedMarks).
    *  Absent reads as none, so every caller that predates the seal — and there
    *  are two, menuScreen's fallback tower and every uifit fixture — renders
    *  the tower it always did. */
@@ -450,6 +454,14 @@ function floorHTML(state: TowerState, tier: number): string {
   const contractsNote = !sky && tier === state.unlocked
     ? ` — Contracts ${lit}/${TIER_CONTRACTS_REQUIRED}`
     : "";
+  // THE ROOF'S PRICE, in words, because the stamps below it are a shape and a
+  // shape has no accessible name. A locked Skydeck says exactly how many of the
+  // ladder's Marks are sealed — the one number that decides whether the car
+  // will go there (meta.ts's skydeckOpen), and the number a screen-reader user
+  // has no other way to count. Open, it says nothing extra: the price has been
+  // paid and the label is the floor's name, which is what the sim pins.
+  const sealsHeld = (state.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
+  const sealsNote = sky && !open ? ` — ${sealsHeld} of ${MARK_COUNT} Marks sealed` : "";
   // THE SEAL — a Mark that fell in one unbroken run (meta.ts's sealedMarks).
   // A SHAPE stamped on the plate, never a tint: the palette is full at 13
   // swatches and sim/systems.ts fails the build below dE00 10, so there is no
@@ -457,14 +469,37 @@ function floorHTML(state: TowerState, tier: number): string {
   // a red-green viewer anyway. It has to survive a greyscale screenshot.
   // app.css draws it.
   //
-  // Never on the Skydeck. The Skydeck is not a Mark, meta.ts records no seal
-  // for it, and a stamp there would be a state nothing can ever produce.
+  // Never a FILLED stamp on the Skydeck. The Skydeck is not a Mark, meta.ts
+  // records no seal for it, and a stamp there would be a state nothing can ever
+  // produce.
   //
   // It joins the floor's accessible NAME as well, because the shape itself is
   // aria-hidden: a distinction a screen reader has no way to reach is a
   // distinction half the audience does not get.
   const isSealed = !sky && (state.sealed ?? []).includes(tier);
-  const seal = isSealed ? `<span class="tower__seal" aria-hidden="true"></span>` : "";
+  // THE EMPTY SOCKET — the same stamp, unpressed, on a floor that still owes
+  // one. It is what makes "all seals open the roof" legible without a sentence
+  // anywhere on the menu: the building shows its own bill. Tapping the locked
+  // roof flares exactly these (main.ts's pickTier adds `is-owed`), so the
+  // refusal answers "which ones" in the tower the player is already reading,
+  // rather than in a toast over it — the same argument .tower__floor.is-denied
+  // has always made.
+  //
+  // ON THE ROOF TOO, and that is not the contradiction it looks like. The
+  // socket there is not "the Skydeck is unsealed"; it is the floor stating what
+  // it is waiting for, in the one glyph the building uses for seals. It is
+  // drawn only while the roof is shut, so an open Skydeck carries no stamp of
+  // any kind and the rule above still holds.
+  //
+  // ONLY ON FLOORS THE PLAYER MAY FLY. A Mark above the unlock has no seal
+  // question yet — it has a Mark question — and ten sockets on a Mark-1 tower
+  // would be a bill for a mode that player cannot see the door of.
+  const owesSeal = sky ? !open : open && !isSealed;
+  const seal = isSealed
+    ? `<span class="tower__seal" aria-hidden="true"></span>`
+    : owesSeal
+      ? `<span class="tower__seal tower__seal--owed" aria-hidden="true"></span>`
+      : "";
   // THE CEREMONY'S TIMING, per floor and inline — the one thing about this
   // drawing that cannot be a stylesheet constant, because it depends on where
   // the floor sits in a trip whose length the ladder decides (towerRisePassMs).
@@ -480,7 +515,7 @@ function floorHTML(state: TowerState, tier: number): string {
   const rideAt = pass === null ? "" : ` style="--tower-pass:${pass}ms"`;
   return `<button class="${cls.join(" ")}" type="button" data-action="pick-tier" data-tier="${tier}"${rideAt}`
     + ` aria-pressed="${sel}"${open ? "" : ' aria-disabled="true"'}`
-    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${contractsNote}">`
+    + ` aria-label="${label}${open ? "" : " — locked"}${isSealed ? " — sealed" : ""}${sealsNote}${contractsNote}">`
     + `<span class="tower__gap" aria-hidden="true"></span>`
     + `<span class="tower__n">${sky ? "SKY" : tier}</span>`
     + windows
@@ -3116,7 +3151,27 @@ export function workshopScreen(meta: MetaState): string {
             : `<div class="workshop__grid">${shelf}</div>`
         }${haveStrips}</div>
       </div>
-      <button class="btn btn--primary btn--lg" data-action="play" style="align-self:center">${icon("play")}Start Run</button>
+      <div class="row workshop__go">
+        <!-- THE SHOP'S OTHER DOOR (playtest feedback). The Workshop is where a
+             player finds out they are short of salvage — every greyed price on
+             the shelf above says so — and until now the only way out of that
+             discovery was back through the home screen. Contracts are what pay
+             salvage (the blurb at the top of this screen says so in the same
+             breath), so the door belongs on the screen that creates the want.
+
+             SECONDARY, beside the primary rather than replacing it: Start Run
+             is still what the Workshop is FOR, and a shop whose loudest button
+             sends you shopping somewhere else has lost the plot. The badge is
+             meta.ts's nextStep, exactly as on the home screen and the run-end
+             card — and it can never collide with this screen's OTHER badge,
+             the next-step install card above, because those two states are the
+             same rule's two branches: an affordable install makes the Workshop
+             the next step, and nothing else makes Contracts it. -->
+        <button class="btn btn--secondary btn--lg${nextStep(meta) === "contracts" ? " btn--next" : ""}" data-action="contracts">${
+          icon("contracts")
+        }Contracts${nextStep(meta) === "contracts" ? nextBadgeHTML() : ""}</button>
+        <button class="btn btn--primary btn--lg" data-action="play">${icon("play")}Start Run</button>
+      </div>
     </div>
   </div>`;
 }
@@ -3716,6 +3771,25 @@ export function endModal(opts: {
   /** The board this run's score lands on (lib/api.ts's BoardId): the run's own
    *  Tier, or BOARD_SANDBOX for Tier S. */
   boardTier: number;
+  /** TODAY'S CONTRACT BOARD, as the end card needs to know it: how many of the
+   *  three are still uncleared, and whether Contracts are the loop's ONE next
+   *  step right now (meta.ts's nextStep — the same call the home screen's
+   *  button asks, so the two surfaces can never point at different doors).
+   *
+   *  Absent means "no board to speak of" and the route is not drawn — which is
+   *  what every caller that predates it gets, uifit fixtures included. */
+  contracts?: { remaining: number; next: boolean };
+  /** The bay the run died in can be handed back (main.ts's retryBay), and this
+   *  run has not retried one yet. Two facts in one flag because the button is
+   *  drawn on exactly the runs where both hold: a ladder run only — Tier S has
+   *  its bench one tap away and the Skydeck is the day's single attempt, which
+   *  is the whole of what the mode sells.
+   *
+   *  `sealed` is the SEAL still being on the table, which is what the button's
+   *  subtitle warns about. False once this run has already spent it: a second
+   *  retry costs nothing that is not already gone, and a warning repeated after
+   *  the thing it warns about has happened is noise. */
+  retryBay?: { sealed: boolean };
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
   // Demolition recovery, appended to whichever foot line the branch below
@@ -3845,6 +3919,28 @@ export function endModal(opts: {
         <div id="lb-body" data-scroll>${opts.rows}</div>
       </div>
       <div class="row end__actions">
+        ${
+          // THE PRICE OF THE MERCY, spelled out over the button that charges
+          // it. The glyph on that button is the tower's own seal with a bar
+          // through it, and a glyph is not a sentence — this is the sentence,
+          // and it is the half that says the thing a player most needs to hear:
+          // the seal is what breaks, NOT the tier. A player who thinks a retry
+          // costs them the tier will quit a run they could still win.
+          //
+          // INSIDE the row, as a full-width flex item that pushes the buttons
+          // onto the next line, rather than as a sibling above it. The landscape
+          // grid places .end__actions by AREA (app.css: "main side" / "actions
+          // side"), so a paragraph beside it is an unplaced grid child and lands
+          // in an implicit row under the whole panel — which is where this line
+          // first rendered, three inches below the button it prices.
+          //
+          // Drawn only while the seal is still on the table. Once this run has
+          // spent it there is nothing left to warn about, and a warning that
+          // outlives its cost is the line people learn to stop reading.
+          opts.retryBay?.sealed
+            ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
+            : ""
+        }
         <button class="btn btn--primary" data-action="restart">${
           // A15: the bay-10 primary carries the tier plate (the 26px size of
           // the one component) and names the rung it flies next.
@@ -3852,12 +3948,46 @@ export function endModal(opts: {
           // A sandbox run's primary re-flies the SAME configuration, which is
           // what practice is: main.ts's restart routes on RunState.sandbox, so
           // this button never has to know which mode it is in.
+          //
+          // "Retry Run" rather than "Play Again" on a loss with the bay retry
+          // beside it: the two are now a PAIR and the pair only reads if both
+          // halves say what they hand back. It stays the primary, and that is a
+          // decision rather than an inheritance — see the retry button below.
           opts.sandbox
             ? "Fly it again"
             : opts.runComplete
               ? `${tierPlateHTML(opts.progress.tier, "button")}Run Tier ${opts.progress.tier} →`
-              : "Play Again"
+              : opts.retryBay
+                ? "Retry Run"
+                : "Play Again"
         }</button>
+        ${
+          // RETRY BAY — the forgiving half, and deliberately NOT the primary.
+          //
+          // Three reasons, in the order they decided it. (1) The Deep Run is
+          // the permadeath exam (docs/DESIGN.md); the mode's own answer to a
+          // loss is another run, and the retry is a mercy offered beside it
+          // rather than the default the screen assumes. (2) padnav's
+          // focusInitial lands a pad on `.btn--primary`, so whichever button
+          // wears it is what a stray A after a loss presses — and this is the
+          // only button on the screen that can spend something permanent. A
+          // mis-press must never cost the seal. (3) The fresh start keeps the
+          // slot "Play Again" already held, so no player's muscle memory is
+          // repurposed into a cost they did not ask for.
+          //
+          // It sits FIRST after the primary all the same: it is the thing that
+          // hands back the bay they just lost, and burying it under Menu would
+          // be hiding the feature this row exists to add.
+          opts.retryBay
+            ? `<button class="btn btn--secondary" data-action="retry-bay"
+              aria-label="Retry Bay ${opts.bayNum}${opts.retryBay.sealed ? " — breaks this run's seal" : ""}"
+            >Retry Bay${
+              opts.retryBay.sealed
+                ? `<span class="btn__seal" aria-hidden="true"></span>`
+                : ""
+            }</button>`
+            : ""
+        }
         ${
           // Back to the bench, not to the menu — the thing a player wants
           // after a practice run is almost always the next configuration, and
@@ -3867,7 +3997,112 @@ export function endModal(opts: {
             ? `<button class="btn btn--secondary" data-action="sandbox">Tier S</button>`
             : ""
         }
+        ${
+          // THE CONTRACTS ROUTE (playtest feedback: the end card is where a
+          // player decides what to do next, and the only thing it offered was
+          // the run again or the menu).
+          //
+          // Drawn when today's board still has an uncleared card, which is the
+          // honest reading of "there is something here to do" — a board of
+          // three ticks is a door onto free practice, and the end of a run is
+          // not where to advertise that.
+          //
+          // The BADGE is meta.ts's nextStep and nothing else, so the rule that
+          // exactly one surface carries it holds across the screen boundary
+          // too: the badge appears here only when the loop's one next step
+          // really is Contracts, which is precisely when the tier still owes
+          // them and salvage cannot yet buy anything. When salvage CAN buy
+          // something the Workshop is the next step, and it already has a
+          // button on this modal — inside the salvage row that just paid out.
+          // Two badges on one card would be the screen arguing with itself.
+          opts.contracts && opts.contracts.remaining > 0
+            ? `<button class="btn btn--secondary${opts.contracts.next ? " btn--next" : ""}" data-action="contracts">${
+                icon("contracts")
+              }Contracts${opts.contracts.next ? nextBadgeHTML() : ""}</button>`
+            : ""
+        }
         <button class="btn btn--ghost" data-action="menu">Menu</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/**
+ * THE SEAL-BREAK NOTICE — said once, ever, and then never again.
+ *
+ * A bay retry has always cost the run's seal (meta.ts's recordRunEnd) and has
+ * always cost it SILENTLY: the pause modal's Restart Bay, the held pause
+ * button and now the game-over card's Retry Bay all hand the bay back without
+ * mentioning that the stamp on the tower floor has just gone. That was
+ * survivable while the seal was decoration. It is not survivable now that the
+ * seals are the Skydeck's key (meta.ts's skydeckOpen) — a cost that opens a
+ * door has to be quoted before it is charged.
+ *
+ * ONE PANEL, ONCE, ON A WATERMARK (MetaState.sealBreakSeen), rather than a
+ * confirmation every time. A dialog in front of a retry is a toll: the player
+ * who has understood the trade pays it on every restart for the rest of their
+ * life with the game, and the tenth one is read by nobody. What survives after
+ * this panel is the glyph on the button and the line above it (endModal), which
+ * is the right permanent weight for a cost the player now knows.
+ *
+ * THE SECOND PARAGRAPH IS THE WHOLE POINT. The first says what breaks; the
+ * second says what does NOT, and it is the half a player will otherwise get
+ * wrong. A retried run still counts, still banks its salvage share, still ticks
+ * the tier — the seal is a record of HOW a Mark fell, not a condition on
+ * whether it fell. Without that sentence the panel reads as "restarting forfeits
+ * your tier", and a player who believes that will abandon runs they could win.
+ */
+export function sealBreakModal(opts: {
+  /** The 1-based bay about to be handed back. */
+  bayNum: number;
+  /** The MARK being flown (RunState.mark) — whose stamp is on the table. Not
+   *  the player's high-water tier: a re-fly of Mark 3 puts Mark 3's seal at
+   *  stake and nothing else, and naming the wrong floor here is naming the
+   *  wrong cost. */
+  mark: number;
+  /** The tier this run can still open (meta.ts's tierOpenableBy), or null when
+   *  it can open none — a re-fly of a beaten Mark, or a run at the top of a
+   *  finished ladder. The promise is only made where it is true; see the
+   *  branch below for what is said instead. */
+  tier: number | null;
+  /** Marks sealed so far, out of the ladder — the price of the roof, stated in
+   *  the same numbers the tower draws. */
+  sealed: number;
+}): string {
+  return `<div class="modal-scrim" id="scrim">
+    <div class="panel modal seal-note pop">
+      <div class="eyebrow" style="color:var(--danger)">Seal</div>
+      <h2 class="display">Retrying breaks the seal</h2>
+      <p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
+      in one run without retrying a single one. The tower stamps that floor, and the
+      <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>
+      <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Mark ${opts.mark}</b> cannot be
+      sealed by this run. ${
+        // THE PROMISE, ONLY WHERE IT IS TRUE. On the frontier the thing a
+        // player most fears losing is the tier, so the tier is named. On a
+        // re-fly of a beaten Mark — or at the top of a finished ladder — there
+        // is no tier to open, and naming one would be a lie told to reassure.
+        // What is true on every run is the rest of the sentence, so that is
+        // what the fallback keeps: the run is not wasted, only the stamp is.
+        opts.tier !== null
+          ? `<b>Tier ${opts.tier} still opens.</b> The run counts, the salvage banks, and the`
+          : `<b>Everything else this run can earn, it still earns</b> — the run counts and its`
+            + ` salvage banks. The`
+      }
+      seal can be taken on any later run — including a re-fly of a Mark you have
+      already beaten.</p>
+      <!-- KEEPING THE SEAL IS THE PRIMARY, on the same reasoning the run-end
+           card's own row uses: padnav's focusInitial lands a pad on the
+           primary button, and the button a stray press finds must never be
+           the one that spends something permanent. It is also the honest
+           default for a panel the player did not ask to see — they pressed a
+           retry, they are being told what it costs, and the answer the panel
+           assumes should be the reversible one. -->
+      <div class="row">
+        <button class="btn btn--primary" data-action="seal-break-back">Keep the seal</button>
+        <button class="btn btn--secondary" data-action="seal-break-go"
+          aria-label="Retry Bay ${opts.bayNum} — breaks this run's seal"
+        >Retry Bay<span class="btn__seal" aria-hidden="true"></span></button>
       </div>
     </div>
   </div>`;

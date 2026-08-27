@@ -44,10 +44,11 @@ export interface RunState {
   ratchets: Ratchets;
   /** Cumulative cleared lines across all completed levels. */
   linesTotal: number;
-  /** Bay restarts taken this run. Written by main.ts's resetBay — the pause
-   *  modal's "Restart Bay", the held pause button, AND the tutorial failure
-   *  card's retry, which all route through that one call — and read once at
-   *  the end (meta.ts's recordRunEnd) to decide the seal.
+  /** Bay retries taken this run. Written by main.ts's resetBay — the pause
+   *  modal's "Restart Bay", the held pause button, the tutorial failure card's
+   *  retry AND the game-over card's "Retry Bay", which all route through that
+   *  one call — and read once at the end (meta.ts's recordRunEnd) to decide the
+   *  seal.
    *
    *  It lives on the run rather than being derived, because a restart leaves
    *  no other trace: resetBay rebuilds the bay from the same un-advanced
@@ -62,6 +63,24 @@ export interface RunState {
    *  boundary and seal every run that only ever restarted a bay it went on to
    *  clear — i.e. very nearly all of them. */
   restarts: number;
+  /** This run's end has already been FILED against the ladder (meta.ts's
+   *  recordRunEnd), and the next filing must not count it as a second run.
+   *
+   *  It exists because a Deep Run can now end twice. The game-over card's
+   *  "Retry Bay" hands the same RunState back at the same un-advanced
+   *  levelIndex (main.ts's retryBay), so a run that dies at bay 7 and goes on
+   *  to win at bay 10 reaches recordRunEnd once as a loss and once as a win.
+   *  Every consequence there is already idempotent under that — bestBay is a
+   *  max, the salvage share and the tier tick are false→true edges, and the
+   *  seal is gated on `restarts` — except the lifetime run COUNT, which is a
+   *  count of runs and not of endings.
+   *
+   *  A field on the run rather than a set in main.ts, because it has to survive
+   *  advanceRun's field-by-field rebuild for the same reason `restarts` does:
+   *  a rebuild that dropped it would re-count the run at the next bay boundary.
+   *  Never true on a run the ladder does not track — those are never filed at
+   *  all (run.ts's tracksLadder, main.ts's finishRun). */
+  filed: boolean;
   /** UNSPENT scrap — the in-run upgrade currency (level.ts's SCRAP_PER_LINE /
    *  SCRAP_PER_BAY earn it, refit stops spend it). Distinct from `carry`:
    *  carry is operating cash that funds the next bay's launches, scrap is
@@ -259,6 +278,8 @@ export function newRun(
     ratchets: {},
     linesTotal: 0,
     restarts: 0,
+    // Nothing has ended yet, so nothing has been filed.
+    filed: false,
     scrap: startingScrap,
     scrapEarned: startingScrap,
     // No starting-scrap equivalent: nothing has been blown up yet.
@@ -487,6 +508,12 @@ export function advanceRun(
     // `sandbox` below is — this function names every field, so anything it
     // omits is zeroed rather than carried.
     restarts: run.restarts,
+    // Carried for the same reason, and it is the field a resumed run depends
+    // on: a run that lost bay 7, retried it and cleared it has already been
+    // filed once, and every bay it clears after that rebuilds it through here.
+    // Dropping the flag would re-count the run in the lifetime total the moment
+    // it cleared the bay it came back from.
+    filed: run.filed,
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,

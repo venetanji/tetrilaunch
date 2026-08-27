@@ -430,18 +430,22 @@ export interface MetaState {
    *  Contract once keeps the subscription buying throughput rather than power,
    *  and leaves replaying a cleared Contract as free practice. */
   claimedContracts: string[];
-  /** Marks beaten in a single run with ZERO bay restarts — the seal, drawn on
+  /** Marks beaten in a single run with ZERO bay retries — the seal, drawn on
    *  that floor of the tower.
    *
    *  A list rather than a flag because `mark` is a high-water number and the
    *  tower draws every floor: each one needs its own answer, and a player who
    *  sealed Mark 3 keeps that after Mark 4 falls messily.
    *
-   *  Cosmetic by construction. It must never feed salvage, a loadout budget or
-   *  `mark` — docs/DESIGN.md's mode table prints "Purchasable power: none" for
-   *  both modes, and a seal that paid out would be a second progression axis
-   *  wearing a badge. The sim guards that with an explicit check rather than
-   *  trusting anyone to read this paragraph. */
+   *  IT PAYS NOTHING, and that has not changed. The seal must never feed
+   *  salvage, a loadout budget or `mark` — docs/DESIGN.md's mode table prints
+   *  "Purchasable power: none" for both modes, and a seal that paid out would
+   *  be a second progression axis wearing a badge. What it now decides is
+   *  ACCESS to one mode and nothing else (skydeckOpen below): the Skydeck is
+   *  the game's only permanent, unrefittable, un-retryable run, so the thing
+   *  that opens it is the record that says you can fly one. The sim guards the
+   *  payout rule with an explicit check rather than trusting anyone to read
+   *  this paragraph. */
   sealedMarks: number[];
   /** The highest Mark whose UNLOCK has already been celebrated on the home
    *  screen — the tower's ceremonial ride to the newly opened floor (main.ts's
@@ -464,6 +468,34 @@ export interface MetaState {
    *  long ago, and replaying nine ceremonies at once on the first launch after
    *  an update would be a bug wearing a party hat. */
   celebratedMark: number;
+  /** The player has been told, once, that retrying a bay breaks the run's seal
+   *  — and that the tier still opens anyway.
+   *
+   *  A WATERMARK, the same shape and for the same reason as celebratedMark
+   *  above: the thing being remembered is "this has been said", and the surface
+   *  that says it (main.ts's seal-break notice) must be able to answer "is it
+   *  owed" from the save alone, without the three doors into a bay retry — the
+   *  pause modal, the held pause button, the game-over card — each keeping
+   *  their own copy of the answer.
+   *
+   *  FALSE on a fresh save, and false on a save written before the field
+   *  existed, which is the opposite of celebratedMark's migration and is
+   *  deliberate. A returning player has never seen this message; showing it
+   *  once on their next bay retry is the whole point, and it costs them one
+   *  panel. celebratedMark migrates the other way because replaying a ceremony
+   *  per tier is nine panels for something that already happened. */
+  sealBreakSeen: boolean;
+  /** The Skydeck's own opening has been celebrated (main.ts's tower ride).
+   *
+   *  A SECOND watermark rather than a value folded into celebratedMark,
+   *  because the roof no longer opens on the same event the ladder does. It
+   *  used to: beating Mark 10 was the last unlock, so `mark > celebratedMark`
+   *  covered the roof as well, and armUnlockCelebration simply redirected that
+   *  one ride upward. Now the roof opens on the last SEAL (skydeckOpen), which
+   *  can land many runs after the Mark did — or, for a save that already holds
+   *  every seal, on the first launch after this build. Those are two different
+   *  events on two different axes, and one number cannot remember both. */
+  skydeckCelebrated: boolean;
 }
 
 export function newMeta(): MetaState {
@@ -471,8 +503,134 @@ export function newMeta(): MetaState {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
     loadout: newTiers(), claimedContracts: [], sealedMarks: [],
-    celebratedMark: 0,
+    celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
   };
+}
+
+/* -------------------------------------------------------------------------
+ * THE SEAL, AND WHAT IT NOW OPENS.
+ *
+ * A Mark is SEALED by a run that was won, tracked the ladder (run.ts's
+ * tracksLadder — never Tier S, never the Skydeck) and retried no bay. That
+ * rule is recordRunEnd's and is unchanged; what changed is that the seals are
+ * now the Skydeck's key rather than a stamp on a plate.
+ *
+ * WHY THE ROOF ASKS FOR THEM. The Skydeck is the one run in the game with no
+ * yard, no chosen difficulty and no second chance (skydeck.ts) — everyone flies
+ * the same day's rules and the board ranks the flying. "You beat the ladder"
+ * was the wrong ticket for that door, because the ladder can be beaten with a
+ * retry on every bay: a player could hold the roof's key without ever having
+ * flown a bay they could not restart. A full set of seals is the same ten bays
+ * again with the retry taken away, which is exactly the thing the roof is going
+ * to ask for on the day.
+ *
+ * IT PAYS NOTHING STILL. Access is not power: the Skydeck banks no salvage,
+ * ticks no tier and raises no Mark (run.ts's tracksLadder), so a seal remains
+ * unable to make any future run numerically stronger. sim/systems.ts pins that.
+ * ---------------------------------------------------------------------- */
+
+/** Marks the player has NOT sealed, low to high — what the roof is still
+ *  waiting for, and what the tower draws an empty socket on.
+ *
+ *  Derived from the ladder's length rather than from the save, so a build that
+ *  lengthens the ladder asks for the new floors' seals without anyone
+ *  remembering this function exists. */
+export function unsealedMarks(meta: MetaState): number[] {
+  return Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+    .filter((m) => !meta.sealedMarks.includes(m));
+}
+
+/**
+ * Is the Skydeck open?
+ *
+ * TWO CONDITIONS, and the second is not redundant. Every seal implies a win at
+ * that Mark, so a full set very nearly implies a beaten ladder — but not
+ * quite: a Mark-10 win seals Mark 10 the moment it lands, while `mark` only
+ * reaches MARK_COUNT once that tier's Contracts land too (advanceTier). A
+ * player sitting on ten seals and two owed Contracts has not finished the
+ * ladder, and the mode's whole premise ("the floor above the ladder") says the
+ * ladder comes first. The ladder half is also what markUnlocked's saturation
+ * depends on — finishRun's Skydeck gate is argued on the roof only being
+ * reachable from the top of the ladder — so keeping it stated here keeps that
+ * argument true by construction rather than by coincidence.
+ */
+export function skydeckOpen(meta: MetaState): boolean {
+  return meta.mark >= MARK_COUNT && unsealedMarks(meta).length === 0;
+}
+
+/** True while the seal-break notice is still owed — the one-time panel that
+ *  says a retry costs the seal and not the tier. Asked at every door into a
+ *  bay retry, answered from the save, so no screen keeps its own copy. */
+export function sealBreakOwed(meta: MetaState): boolean {
+  return !meta.sealBreakSeen;
+}
+
+/**
+ * The tier a run at `runMark` can still OPEN, or null when it can open none.
+ *
+ * The seal-break notice's second sentence is a promise — "Tier N still opens" —
+ * and a promise has to be true of the run in front of the player, not of their
+ * high-water mark. It first read `tierProgressFor(meta).tier`, which is
+ * markUnlocked: on a re-fly of Mark 3 by a player who has reached Mark 10 that
+ * printed "Tier 10 still opens" about a run that cannot move Tier 10 or
+ * anything else. (Found in review, codex PR #134.)
+ *
+ * TWO CONDITIONS, because there are two ways for a run to have no tier to open.
+ *
+ *  - **It is not the frontier.** recordRunEnd's tier bookkeeping is gated on
+ *    `runMark === markUnlocked(meta)`, so a re-fly of an already-beaten Mark
+ *    ticks nothing by construction. The predicate is written against that same
+ *    comparison rather than beside it, so the copy cannot promise something the
+ *    recorder refuses.
+ *  - **The ladder is finished.** At `mark === MARK_COUNT` markUnlocked
+ *    saturates, so a Mark-10 run passes the frontier test — but there is no
+ *    Tier 11 for it to open, and naming Tier 10 would name a floor that is
+ *    already open. Such a run still banks salvage, which is what the notice's
+ *    fallback sentence says instead.
+ *
+ * Returning the TIER rather than a boolean so the caller has nothing left to
+ * derive: null is "say the fallback", a number is "name this one".
+ */
+export function tierOpenableBy(meta: MetaState, runMark: number): number | null {
+  if (meta.mark >= MARK_COUNT) return null;
+  const tier = markUnlocked(meta);
+  return runMark === tier ? tier : null;
+}
+
+/**
+ * Does the ladder owe the tower a RIDE — a floor that was not flyable before?
+ *
+ * `pendingUnlockMark` answers a different question: whether the Mark has moved
+ * somewhere the ceremony has not followed. Below saturation the two agree,
+ * because every Mark that moves opens `mark + 1`. At the top they come apart,
+ * and that gap was a bug: completing Tier 10 leaves `mark > celebratedMark`
+ * with markUnlocked already sitting at MARK_COUNT, so the ceremony armed a
+ * ~4.5s ride to the floor the car was already parked on and the player was
+ * already allowed to fly. (Found in review, codex PR #134.)
+ *
+ * The roof is deliberately NOT part of this. It opens on the seals now
+ * (pendingSkydeck), which is a different axis and a different watermark;
+ * main.ts asks both and either one arms the same ride.
+ */
+export function pendingLadderRide(meta: MetaState): boolean {
+  return pendingUnlockMark(meta) !== null && meta.mark < MARK_COUNT;
+}
+
+/** Burn the seal-break watermark. Idempotent, so the three doors can each call
+ *  it without checking first. */
+export function sealBreakShown(meta: MetaState): MetaState {
+  return meta.sealBreakSeen ? meta : { ...meta, sealBreakSeen: true };
+}
+
+/** True when the roof has opened and the car has not yet ridden to it —
+ *  pendingUnlockMark's twin, on the seal axis. */
+export function pendingSkydeck(meta: MetaState): boolean {
+  return skydeckOpen(meta) && !meta.skydeckCelebrated;
+}
+
+/** Burn the roof's ceremony watermark. Idempotent, same as the Mark's. */
+export function skydeckCelebrated(meta: MetaState): MetaState {
+  return meta.skydeckCelebrated ? meta : { ...meta, skydeckCelebrated: true };
 }
 
 /** The Mark the player may currently attempt: one above their best clear, held
@@ -605,14 +763,25 @@ function advanceTier(meta: MetaState): TierResult {
  * the run was flown at (RunState.mark) — a stale save replaying an
  * already-beaten Mark cannot tick the current tier.
  *
- * A run flown with zero restarts also SEALS its Mark (`sealedMarks`) — a badge
- * on the tower floor and nothing else. `restarts` defaults to 0 so a caller
- * that predates the field reads as a clean run rather than throwing; the only
- * caller that can actually seal anything is main.ts's finishRun, which threads
- * RunState.restarts through.
+ * A run flown with zero retries also SEALS its Mark (`sealedMarks`) — a badge
+ * on the tower floor, and the Skydeck's key (skydeckOpen). `restarts` defaults
+ * to 0 so a caller that predates the field reads as a clean run rather than
+ * throwing; the only caller that can actually seal anything is main.ts's
+ * finishRun, which threads RunState.restarts through.
+ *
+ * `refiled` IS THE GAME-OVER RETRY, and it exists because a run can now end
+ * twice. Retrying a bay from the loss card resumes the very same RunState
+ * (main.ts's retryBay), so the run that dies at bay 7, retries, and dies again
+ * at bay 9 reaches this function twice — and every field here is already
+ * idempotent under that except `runs`, which is a count of RUNS and not of
+ * endings. So the second filing says so, and the counter stays honest. Nothing
+ * else is skipped: bestBay is a max, the salvage share and the tier tick are
+ * false→true edges, and the seal is gated on `restarts` being 0, which a
+ * retried run's never is again.
  */
 export function recordRunEnd(
   meta: MetaState, runMark: number, won: boolean, bayReached: number, restarts = 0,
+  refiled = false,
 ): TierResult {
   const tier = markUnlocked(meta);
   const newlyDone = !meta.tierRunDone && won && runMark === tier;
@@ -626,7 +795,7 @@ export function recordRunEnd(
     : meta.sealedMarks;
   const next: MetaState = {
     ...meta,
-    runs: meta.runs + 1,
+    runs: meta.runs + (refiled ? 0 : 1),
     bestBay: Math.max(meta.bestBay, bayReached),
     salvage: meta.salvage + share,
     tierRunDone: meta.tierRunDone || newlyDone,

@@ -366,11 +366,49 @@ Beyond the tier ladder above and the existing `makeBaseLevel(i)` ramp:
 - **Materials** — one new type per Mark, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
 
+## The seal — and what it opens
+
+A Mark is **sealed** by a run that was won, tracked the ladder, and retried no
+bay (`meta.ts`'s `sealedMarks`, written in `recordRunEnd`). The tower stamps
+that floor; floors that still owe one draw an empty socket in the same glyph, so
+the building states its own bill without a sentence anywhere on the menu.
+
+**A retry costs the seal and nothing else.** The run still counts, the salvage
+still banks, the tier still opens. This is the half a player gets wrong on their
+own — someone who believes a restart forfeits the tier will abandon runs they
+could win — so it is said in as many words the first time a bay is ever retried
+(a one-time panel on a watermark, `MetaState.sealBreakSeen`) and then carried by
+a struck-through seal glyph on the button and one line above it. Retries are
+counted at one place, `main.ts`'s `resetBay`, which every door into a bay retry
+goes through: the pause modal, the held ⏸, the tutorial's failure card and the
+game-over card's **Retry Bay**.
+
+**The seals are the Skydeck's key.** They pay nothing and raise nothing — the
+mode table above prints "Purchasable power: none" for both modes and that is
+unchanged, because the Skydeck itself banks no salvage and ticks no tier. What
+they buy is *access*, and the argument is that the roof asks for exactly what a
+seal records. The Skydeck has no yard, no chosen difficulty and one attempt at
+each bay; "you beat the ladder" was the wrong ticket for that door, because the
+ladder can be beaten with a retry on every bay. A full set of seals is the same
+ten bays with the retry taken away.
+
+**Migration.** The gate tightened; nothing was erased. `sealedMarks` has been
+recorded since the seal shipped, so a player who beat the ladder with clean runs
+already holds those seals and the roof opens on their first launch — with the
+tower's ride to it, since the roof now has its own ceremony watermark
+(`skydeckCelebrated`, false on every existing save precisely so that ride is
+not skipped). A player who beat the ladder messily finds the roof shut, and
+every seal it wants is re-earnable at any time: a clean win on an
+already-beaten Mark seals it (`recordRunEnd`'s `sealed` is deliberately not
+gated on the Mark being current), and the tower flies any beaten floor. No run,
+no salvage, no loadout and no Mark is touched.
+
 ## The Skydeck — the day's run
 
 The floor above the ladder (`src/game/skydeck.ts`), open once every Mark is
-beaten. It is a Mark-10 Deep Run with three rules changed, and each of the three
-takes away a lever the rest of the game hands the player:
+beaten **and every Mark is sealed** (see *The seal* below). It is a Mark-10 Deep
+Run with three rules changed, and each of the three takes away a lever the rest
+of the game hands the player:
 
 | | **Deep Run** | **Skydeck** |
 |---|---|---|
@@ -440,7 +478,8 @@ only once the ladder is beaten, so every player who can reach the roof is parked
 on that saturated tier. Unguarded, a daily win would set `tierRunDone`, bank a
 tier milestone's salvage and print Tier 10 completion copy *every day*, and
 would claim the Mark-10 seal besides (`sealed` is deliberately not gated on the
-Mark being current). So a Skydeck ending skips the bookkeeping entirely —
+Mark being current — which is also what lets a beaten Mark be re-sealed, see
+*The seal* above). So a Skydeck ending skips the bookkeeping entirely —
 `run.ts`'s `tracksLadder` is the one statement of it, shared with Tier S — and
 keeps only the score. Its telemetry is tagged `mode: "skydeck"` for the same
 class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
