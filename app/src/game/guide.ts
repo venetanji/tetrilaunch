@@ -1,6 +1,8 @@
 import { HAZARDS, MATERIAL_CAP, materialRate, type HazardId } from "./hazards";
 import { MATERIAL_GAP } from "./belt";
-import { makeBaseLevel, PILE_TIERS, type LevelConfig } from "./level";
+import {
+  makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
+} from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
 import { SIZE_SPEC } from "./pieces";
@@ -372,10 +374,12 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "lost", chapter: "economy", tier: 1,
     name: "Lost cargo",
     summary: `Cubes that never reach the press are fined $${lv.penaltyPerLostPiece} each.`,
-    body: `A cube that drops short of the compaction zone, or bounces back out of it, blinks away and`
-      + ` costs you <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot.`
-      + ` It is the same money as a third of a launch, and it is why the useful question mid-drag is`
-      + ` "does this reach the zone" before "does this fit the row".`,
+    body: `A cube that drops short of the zone, or bounces back out of it, blinks away and costs you`
+      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. It is billed <b>per cube</b>`
+      + ` — a standard shipment is ${SIZE_SPEC.std.cubes} of them — and the tier sets the price:`
+      + ` $${penaltyPerLostPieceFor(0, 1)} a cube at Tier 1,`
+      + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing bay by bay at Tier ${TIER_COUNT}.`
+      + ` So the question mid-drag is "does this reach the zone" before "does this fit the row".`,
   },
   {
     id: "clock", chapter: "economy", tier: 1,

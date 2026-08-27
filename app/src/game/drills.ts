@@ -403,6 +403,12 @@ export function levelForDrill(id: string, spec: DrillSpec): LevelConfig {
     // are the lesson, so stripping them would leave a drill for the economy
     // with no economy in it. The clock still goes — one pressure at a time is
     // the whole premise of a drill.
+    //
+    // The spill fine is kept too, at whatever makeBaseLevel(0) hands over —
+    // which is Tier 1's $1 a cube now that the fine rides the tier ladder
+    // (level.ts's penaltyPerLostPieceFor). Not re-derived at the flown tier on
+    // purpose: a drill is a Tier 1 bay by construction, and a lesson that
+    // charges veteran prices is a lesson that ends early.
     cfg.timeLimitSec = 0;
     cfg.objectiveLines = 0;
     cfg.launchBudget = 0;

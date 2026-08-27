@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, WORLD } from "./engine";
-import { CHUTE, chuteRightEdge } from "./chute";
+import { CHUTE, chuteMouth, chuteRightEdge } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { computeLayout } from "./layout";
 import {
@@ -1145,9 +1145,66 @@ const CHUTE_LIP_H = 11;
  *  maw is a warning nobody sees. This is the one band of open canvas the cue
  *  can occupy. */
 const CHUTE_WARN_RISE = 58;
+/**
+ * How far in from each end of the mouth the heat's alpha ramps up from nothing.
+ *
+ * THE RISE ITSELF, because the plume has to be as soft sideways as it is
+ * upward or it stops reading as gas. A rect of heat has four edges and only its
+ * top one was ever fading: the band ran the mouth's full width at full strength
+ * and then simply stopped, which above the panel's top — where 35 of those 58px
+ * are open canvas with nothing occluding them — is a straight red line standing
+ * in the air. Worst at the RIGHT end, where the raised PWR cap's shoulder
+ * climbs past the panel's top edge and the cut runs up the cap's flank beside
+ * the readout, which is exactly where the owner's screenshot caught it.
+ *
+ * A ramp this wide leaves 487 of the mouth's 603px at full strength on a stock
+ * bay, so the cue itself is untouched — what changes is only the last ~10% at
+ * each end, where there was an edge and there is now a falloff.
+ */
+const CHUTE_WARN_SPREAD = CHUTE_WARN_RISE;
 /** Warning breath, ms — slow enough to read as a machine idling hot rather
  *  than an alarm strobing. */
 const CHUTE_WARN_MS = 900;
+/** The heat's alpha where it meets the lip, at the top of the breath. */
+const CHUTE_WARN_ALPHA = 0.34;
+
+/**
+ * The heat plume, baked: alpha fading to nothing upward AND in from both ends
+ * of the mouth.
+ *
+ * That product of two ramps is not a shape any one canvas gradient makes, and
+ * the obvious two-fill version double-blends the corners it exists to soften.
+ * So it is composed ONCE into an offscreen canvas — the vertical gradient laid
+ * down, then the horizontal one multiplied into its alpha through
+ * `destination-in`, which is a mask rather than a second coat of paint — and
+ * stamped per frame with the breath riding globalAlpha. Same arithmetic as the
+ * live fill it replaces (baked at the peak, multiplied by a breath of
+ * 0.62..1), one drawImage instead of a per-frame gradient over the same band.
+ *
+ * Keyed by width because Bay Extension T3 walks the mouth's right edge left
+ * (chute.ts's chuteRightEdge), and a bay only ever has a handful of widths.
+ */
+function getWarnPlumeSprite(w: number): HTMLCanvasElement {
+  return getSprite(`maw-heat|${w}`, w, CHUTE_WARN_RISE, (ctx) => {
+    const rise = ctx.createLinearGradient(0, 0, 0, CHUTE_WARN_RISE);
+    rise.addColorStop(0, "rgba(255,45,85,0)");
+    rise.addColorStop(1, `rgba(255,45,85,${CHUTE_WARN_ALPHA})`);
+    ctx.fillStyle = rise;
+    ctx.fillRect(0, 0, w, CHUTE_WARN_RISE);
+    // The ends, multiplied into the alpha already there. Capped at half the
+    // mouth so a mouth narrower than two spreads fades to a peak in the middle
+    // instead of the stops crossing over and inverting the ramp.
+    const t = Math.min(0.5, CHUTE_WARN_SPREAD / w);
+    const ends = ctx.createLinearGradient(0, 0, w, 0);
+    ends.addColorStop(0, "rgba(0,0,0,0)");
+    ends.addColorStop(t, "rgba(0,0,0,1)");
+    ends.addColorStop(1 - t, "rgba(0,0,0,1)");
+    ends.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.fillStyle = ends;
+    ctx.fillRect(0, 0, w, CHUTE_WARN_RISE);
+  });
+}
 
 function drawChute(
   ctx: CanvasRenderingContext2D,
@@ -1155,13 +1212,19 @@ function drawChute(
   now: number,
   rightEdge: number,
 ): void {
-  const { x0, y0 } = CHUTE;
+  const { y0 } = CHUTE;
   // The MOUTH is what gets drawn, at whatever width this bay's press leaves it
   // (chute.ts's chuteRightEdge — Bay Extension T3 narrows it). Nothing below
   // the lip is drawn at all now: the throat is internal machinery, behind the
   // panel at every panel height, so painting it is painting in a sealed box.
-  const x1 = rightEdge;
-  const w = x1 - x0;
+  //
+  // It starts at the PANEL's left edge, not at the rect's (chute.ts's
+  // chuteMouth): the rect runs on to the wall so the dead sliver beside the
+  // machine still shreds, and drawing to there put the lip bar — bright red
+  // under a warning — straight across the field's glowing left wall, out past
+  // the corner the crest turns.
+  const { x0, w } = chuteMouth(rightEdge);
+  if (w <= 0) return;
   ctx.save();
 
   // NO RECESS WASH. There used to be a flat rgba(4,4,10,0.55) fill across the
@@ -1185,9 +1248,10 @@ function drawChute(
   // amount of maw for a screen with no machine bolted into it.
 
   // Heat rising out of the mouth while the current aim feeds it. Drawn BEFORE
-  // the lip so the bar stays crisp against it, and as a linear gradient rather
-  // than shadowBlur — the value breathes every frame, so it can't be baked, and
-  // a live Gaussian pass at 60Hz is exactly the cost this renderer avoids.
+  // the lip so the bar stays crisp against it, and as a baked plume rather than
+  // shadowBlur — a live Gaussian pass at 60Hz is exactly the cost this renderer
+  // avoids, and what breathes here is one scalar, which globalAlpha carries for
+  // free over a sprite whose shape never changes.
   if (strands) {
     // Frozen under reduced motion at what the pulse spends its time reaching,
     // the same way the ghost aura's telegraph is: the heat is INFORMATION —
@@ -1197,11 +1261,11 @@ function drawChute(
     const breath = prefersReducedMotion()
       ? 1
       : 0.62 + 0.38 * (0.5 + 0.5 * Math.cos((now / CHUTE_WARN_MS) * Math.PI * 2));
-    const g = ctx.createLinearGradient(0, y0 - CHUTE_WARN_RISE, 0, y0);
-    g.addColorStop(0, "rgba(255,45,85,0)");
-    g.addColorStop(1, `rgba(255,45,85,${(0.34 * breath).toFixed(3)})`);
-    ctx.fillStyle = g;
-    ctx.fillRect(x0, y0 - CHUTE_WARN_RISE, w, CHUTE_WARN_RISE);
+    // Put back before the lip: the bar below draws inside this same save block
+    // and is not part of what breathes.
+    ctx.globalAlpha = breath;
+    ctx.drawImage(getWarnPlumeSprite(w), x0, y0 - CHUTE_WARN_RISE, w, CHUTE_WARN_RISE);
+    ctx.globalAlpha = 1;
   }
 
   // The lip bar, with the same top highlight the plant panel wears, so the two

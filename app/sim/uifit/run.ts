@@ -26,6 +26,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVICES } from "./devices";
+import { CHUTE, CHUTE_MOUTH_X0 } from "../../src/game/chute";
+import { WORLD } from "../../src/game/engine";
 import type { Insets } from "../../src/game/layout";
 // Type-only: pulls in harness.ts's `declare global` so window.__uifit is typed
 // inside page.evaluate. Erased at runtime — the harness module itself only ever
@@ -207,6 +209,20 @@ const NO_OVERLAP: [string, string][] = [
   [".kbd-hint", ".plant"],
 ];
 
+/**
+ * The CANVAS half of the panel's own edge, as world fractions of the field.
+ *
+ * The harness draws nothing into its canvas — it never has — so this is not a
+ * pixel check and cannot be one. It does not need to be: drawChute's mouth is
+ * authored geometry, and the question the crest assertion is already asking of
+ * every DOM strip ("does this edge sit on the panel's border box") is the same
+ * question, with the same answer available from the constants the painter uses.
+ * Read them here, hand them to the page as fractions of the world, and the
+ * browser side maps them through the live --field-* rect exactly as the
+ * viewport transform does.
+ */
+const MOUTH = { x0: CHUTE_MOUTH_X0 / WORLD.width, x1: CHUTE.x1 / WORLD.width };
+
 /** `id` is what the baseline keys off, so these are stable API — renaming one
  *  silently invalidates its baseline entries. */
 const ASSERTIONS = [
@@ -246,8 +262,10 @@ function measure(cfg: {
   /** The fixture being measured — a couple of assertions are about one
    *  screen's own design contract rather than a rule that holds everywhere. */
   screen: string;
+  /** The chute mouth's drawn span, as fractions of the world — see MOUTH. */
+  mouth: { x0: number; x1: number };
 }): Findings {
-  const { allowedScrollers, decorative, singleLine, noOverlap, screen } = cfg;
+  const { allowedScrollers, decorative, singleLine, noOverlap, screen, mouth } = cfg;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const out: Findings = {
@@ -345,7 +363,7 @@ function measure(cfg: {
   // gesture that opens Tier S (src/lib/devmode.ts) — and its size is a design
   // requirement rather than a shortfall. It sits in the 19px band above the
   // shaft, on a tower that fills its whole row on a phone; a 44px target there
-  // would have to grow into the row above it or down over the God floor, where
+  // would have to grow into the row above it or down over the Skydeck, where
   // it would swallow taps meant for the ladder's top rung. And an easter egg
   // with a large, discoverable hit area is not one. The mode is reachable
   // without the gesture — Settings carries the same toggle, with a real label,
@@ -612,9 +630,11 @@ function measure(cfg: {
   // assertion here stayed green.
   //
   // The rule is one sentence: every strip's rooted edge sits on the panel's
-  // BORDER box, and the two bands reach the field's wall. The crest's whole
-  // job is dressing that border, so any strip that starts anywhere else is
-  // painting a notch. Deliberately NOT a check on the crenellation — the
+  // BORDER box, the two bands reach the field's wall, and the canvas's own
+  // half of that silhouette — the intake mouth drawn under the panel's top —
+  // ends on the same two vertical edges (see the mouth clause at the bottom).
+  // The crest's whole job is dressing that border, so anything that starts
+  // anywhere else is painting a notch. Deliberately NOT a check on the crenellation — the
   // tooth runs are hand-authored irregular by design (see app.css's crest
   // section) and a test that pinned their silhouette would only ever fire on
   // someone redrawing the art on purpose.
@@ -697,6 +717,28 @@ function measure(cfg: {
         );
       }
     }
+    // THE OTHER HALF OF THE SAME EDGE. The ring is not the only thing drawn on
+    // the panel's silhouette: render.ts's drawChute paints the intake's lip bar
+    // along the panel's top, in world space, on the canvas underneath — and
+    // under a strand warning it paints it bright red. The seven strips above
+    // can each be perfectly seated while that bar runs on past the corner they
+    // turn, which is exactly what shipped: the mouth was drawn from the chute
+    // RECT (world x 0, the field's left wall) rather than from the panel's own
+    // left edge, laying a crimson bar across the field's glowing wall for the
+    // 21 world px the ring does not cover. #115 read the same band in a
+    // screenshot, correctly attributed it to the canvas, and left it there.
+    //
+    // Nothing draws in this harness, so this asserts the GEOMETRY the painter
+    // is handed rather than pixels: the mouth's two ends, mapped through the
+    // live field rect the same way the viewport transform maps them, land on
+    // the panel's own left and right border-box edges. That is a statement no
+    // DOM measurement can make and no unit test can either — the constant
+    // lives in world px and the panel lives in CSS fractions, and this is the
+    // one place both are on screen at once.
+    const fieldX = cssPx("--field-x");
+    const fieldW = cssPx("--field-w");
+    seat("chute mouth left vs panel left", fieldX + mouth.x0 * fieldW, p.left);
+    seat("chute mouth right vs panel right", fieldX + mouth.x1 * fieldW, p.right);
   }
 
   // --- rack: the seven system slots must all be reachable at a glance -------
@@ -1298,6 +1340,7 @@ for (const device of devices) {
       singleLine: SINGLE_LINE,
       noOverlap: NO_OVERLAP,
       screen,
+      mouth: MOUTH,
     });
     for (const { id } of ASSERTIONS) {
       if (res[id]?.length) found[`${device.name}|${screen}|${id}`] = res[id];

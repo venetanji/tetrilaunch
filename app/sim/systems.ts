@@ -23,6 +23,7 @@ import {
   TARGET_PER_BAY_PER_TIER, TARGET_PER_TIER, TIER_COUNT, TIME_BASE, TIME_PER_TIER,
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
+  penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
@@ -42,7 +43,9 @@ import {
   AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
-import { CHUTE, CHUTE_SURFACE_Y, chuteRightEdge, inChute, pathStrands } from "../src/game/chute";
+import {
+  CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+} from "../src/game/chute";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -137,6 +140,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
+import { runNotchTallyHTML } from "../src/ui/components";
 import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -477,7 +481,8 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     tierDemands(a).targetScore === tierDemands(b).targetScore
       && tierDemands(a).timeLimitSec === tierDemands(b).timeLimitSec
       && tierDemands(a).launchCost === tierDemands(b).launchCost
-      && makeBaseLevel(0, a).startingFunds === makeBaseLevel(0, b).startingFunds;
+      && makeBaseLevel(0, a).startingFunds === makeBaseLevel(0, b).startingFunds
+      && makeBaseLevel(5, a).penaltyPerLostPiece === makeBaseLevel(5, b).penaltyPerLostPiece;
   check("the curve refuses to extrapolate past the ladder",
     sameBar(0, 1) && sameBar(9999, MARK_COUNT));
 
@@ -490,18 +495,103 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     "compactor speed does not scale with Mark",
     makeBaseLevel(0, MARK_COUNT).compactorSpeed === makeBaseLevel(0, 1).compactorSpeed,
   );
-  // The loss penalty stays on the BAY index (25 + 2i) and out of the tier
-  // ladder: three knobs state a tier's terms, and a fourth that also punishes
-  // sloppy play harder would compound with them into a cliff.
+  // THE SPILL FINE RAMP (level.ts's penaltyPerLostPieceFor). The fine used to
+  // be Mark-invariant — a flat 25 + 2i on the bay index at every tier — which
+  // billed a beginner $100 for one bounced tetromino against Tier 1's $160
+  // float. It now rides the tier as well: $1 a cube at Tier 1, the historical
+  // ladder at Tier 10.
+  //
+  // The ENDPOINTS are pinned rather than the curve, because the endpoints are
+  // what was decided; the straight line between them is an implementation of
+  // that decision and a play pass is free to re-shape it (see the derivation)
+  // as long as it still starts and ends where the design says.
   check(
-    "the loss penalty is Mark-invariant",
-    makeBaseLevel(5, MARK_COUNT).penaltyPerLostPiece === makeBaseLevel(5, 1).penaltyPerLostPiece,
+    "the spill fine bottoms out at $1 a cube on every Tier 1 bay",
+    Array.from({ length: RUN_LEVELS }, (_, i) => makeBaseLevel(i, 1).penaltyPerLostPiece)
+      .every((v) => v === SPILL_FINE_TIER1),
+  );
+  check(
+    "the spill fine tops out at the historical 25 + 2i ladder at Tier 10",
+    Array.from({ length: RUN_LEVELS }, (_, i) => makeBaseLevel(i, MARK_COUNT).penaltyPerLostPiece)
+      .every((v, i) => v === SPILL_FINE_TOP_BASE + SPILL_FINE_TOP_PER_BAY * i),
+  );
+  // MONOTONICITY, in both arguments and after rounding — the property that
+  // makes this a ramp rather than a table. A tier never charges less for the
+  // same mistake than the tier below it, and no bay inside a run is cheaper to
+  // spill in than the bay before it. Rounding is where a re-shaped curve would
+  // break this quietly (a step that lands under half a dollar per tier can
+  // round backwards), so it is checked over every (bay, tier) pair rather than
+  // argued from the formula.
+  let fineRises = true;
+  for (let i = 0; i < RUN_LEVELS; i++) {
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const here = penaltyPerLostPieceFor(i, m);
+      if (m > 1 && here < penaltyPerLostPieceFor(i, m - 1)) fineRises = false;
+      if (i > 0 && here < penaltyPerLostPieceFor(i - 1, m)) fineRises = false;
+      if (here !== makeBaseLevel(i, m).penaltyPerLostPiece) fineRises = false;
+    }
+  }
+  check("the spill fine never falls with the tier or the bay", fineRises);
+  // THE FINE IS A MISTAKE PRICE, NOT A LOSE BUTTON. A bay whose fine can
+  // outrun its own float is losable to one bad shot before a line has ever
+  // been paid for, and "you still have money" is not the bar — game.ts's fire
+  // refuses to launch at all once funds drop below launchCost, so a bankroll
+  // stranded under the price of a shot is a dead bay with a non-zero HUD.
+  //
+  // The invariant is therefore stated in SHOTS, over the worst case a stock
+  // bay can produce: the player is on the opening float, pays for one launch,
+  // and every cube of that shipment spills.
+  //
+  //   startingFunds - launchCost - cubes x fine  >=  launchCost
+  //            ^ float      ^ the shot that spilled       ^ one more shot
+  //
+  // `cubes` is read off the BAY's own pieceSize rather than fixed at four or
+  // maximised over SIZE_SPEC, which is what makes this the invariant rather
+  // than a patch for today's layout: it follows whatever the ladder decides a
+  // shipment is. Every Deep Run bay ships "std" today (mods.ts is the only
+  // writer of bulk/tiny and the game no longer drafts mods; contracts.ts and
+  // drills.ts write it but zero the fine), so what is checked is 4 cubes — and
+  // the day a bay ships bulk this fails on its own, which is the point.
+  //
+  // MEASURED over all 10 bays x 10 tiers. The ramp holds everywhere, tightest
+  // at Tier 10 bay 10: $240 - $30 - 4x$43 = $38 against a $30 shot, $8 of
+  // slack. The FLAT fine this replaced failed in 32 of those 100 bays — from
+  // bay 4 of a Tier 1 run onward ($160 - $20 - 4x$31 = $16 against a $20 shot)
+  // down to -$52 at Tier 1 bay 10, where a single fully-spilled shipment on
+  // the opening float ended the bay outright. The old pin passed anyway
+  // because it asked only whether funds stayed above zero, on one bay, at the
+  // one tier the flat fine happened to survive.
+  //
+  // KNOWN HEADROOM, not a shipped hole: at a bulk shipment's 5 cubes the same
+  // arithmetic gives $240 - $30 - 5x$43 = -$5 at Tier 10 bay 10 (8 of 100 bays
+  // fail, all at Tiers 8-10). Nothing in a Deep Run can ship bulk, so this is
+  // a tripwire for a future feature rather than a live bug — deliberately left
+  // as one instead of moving an endpoint the design decided, and reported to
+  // the owner as a balance finding.
+  let fineLeavesAShot = true;
+  const spillDetail: string[] = [];
+  for (let i = 0; i < RUN_LEVELS; i++) {
+    for (let m = 1; m <= MARK_COUNT; m++) {
+      const cfg = makeBaseLevel(i, m);
+      const cubes = SIZE_SPEC[cfg.pieceSize].cubes;
+      const left = cfg.startingFunds - cfg.launchCost - cubes * cfg.penaltyPerLostPiece;
+      if (left < cfg.launchCost) {
+        fineLeavesAShot = false;
+        spillDetail.push(`T${m} bay ${i + 1}: $${left} left, needs $${cfg.launchCost}`);
+      }
+    }
+  }
+  check(
+    "a fully spilled shipment always leaves the float another launch",
+    fineLeavesAShot,
+    spillDetail.slice(0, 4).join("; "),
   );
   // The scope check, and the one that catches the likeliest way to get this
   // wrong: keying the curve off the BAY index `i` (which carries every other
   // ramp in makeBaseLevel) instead of off the mark. Only these may differ
   // between the bottom and the top of the ladder — the three the tier states
-  // (target, clock, launch cost), the float derived from the launch cost
+  // (target, clock, launch cost), the spill fine the tier now ramps
+  // (penaltyPerLostPieceFor), the float derived from the launch cost
   // (LAUNCH_BUDGET_SHOTS), the bond ramp a Mark is allowed to move
   // (BOND_MARK_STEP) and the recorded mark itself.
   const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
@@ -511,7 +601,8 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     .sort()
     .join(",");
   check("a tier moves exactly the demand knobs and nothing else",
-    moved === "jointBreakStretch,launchCost,mark,startingFunds,targetScore,timeLimitSec",
+    moved === "jointBreakStretch,launchCost,mark,penaltyPerLostPiece,startingFunds,"
+      + "targetScore,timeLimitSec",
     moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
@@ -3285,6 +3376,39 @@ section("Contract plant panel (screens.ts hudHTML)");
       return !run.includes('id="hud-conditions"') && !run.includes('class="pl-tier"')
         && run.includes('id="hud-notches"');
     })());
+}
+
+// ---------------------------------------------------------------------------
+section("The notch line's marks are big enough to read (components.ts)");
+// The tally shipped its marks at 9px — the box the two-letter TEXT code they
+// replaced had used — and on a phone that is four and a half device-independent
+// pixels of stroked line work per axis. The owner's report was that the row
+// read as coloured specks, and the fix was to double the box.
+//
+// Pinned as a NUMBER rather than against an exported constant, on purpose: a
+// test that reads NOTCH_MARK_PX would agree with any value that constant ever
+// takes, including 9 again. What is being defended is the floor itself — 18px,
+// twice what it was — and the cost of it (a 9px-taller row) is what app.css's
+// "one rhythm" note under `.pl-notch b` had to find room for, so a silent
+// shrink back would leave that whole argument dangling.
+{
+  // Both kinds of mark in one line: a NUMBER axis draws an icons.ts glyph
+  // (cost -> levy), a CONTENT axis draws the material's own belt icon
+  // (cryo -> a mat-icon on a 24-unit grid), and the Final Inspection's clause
+  // adds the ship system it examines. Three different drawing paths, one size.
+  const tally = runNotchTallyHTML({ cost: 2, wind: 1, cryo: 1 } as Ratchets, "rush-order");
+  const boxes = [...tally.matchAll(/width="(\d+)" height="(\d+)"/g)]
+    .map((m) => [Number(m[1]), Number(m[2])] as const);
+  check("every axis and the clause draw a mark", boxes.length === 4, `${boxes.length} marks`);
+  check("no mark is under the 18px floor — twice the 9px the owner could not read",
+    boxes.every(([w, h]) => w >= 18 && h >= 18), JSON.stringify(boxes));
+  check("the marks are square, so the 16- and 24-unit grids agree on one box",
+    boxes.every(([w, h]) => w === h));
+  // The material glyph is the one that arrives through a different helper
+  // (materialIconHTML, its own viewBox, its own colours) and so the one a
+  // size change is most likely to miss.
+  check("the material axis's belt icon takes the same box as the stroked ones",
+    tally.includes('class="mat-icon" width="18" height="18"'));
 }
 
 // ---------------------------------------------------------------------------
@@ -6646,8 +6770,33 @@ section("Misfire prevention");
       check("the chute's lip sits at the plant panel's top edge",
         CHUTE.y0 === Math.round((bottom - height) * WORLD.height),
         `${CHUTE.y0} vs ${Math.round((bottom - height) * WORLD.height)}`);
+      // WHAT IS DRAWN IS NOT THE RECT. The two above pin the physics box
+      // against the stylesheet; this pins the FACE — the span render.ts's
+      // drawChute actually paints the lip bar and the strand heat across.
+      //
+      // The rect deliberately runs 21px further left than the panel does (see
+      // CHUTE's own note: the sliver beside the machine is dead space a cube
+      // must never rest in). Drawing from there is a different claim, and a
+      // false one: it put a machined bar — bright red under a strand warning —
+      // out across the field's glowing left wall, above the panel's top-left
+      // corner, in the one strip of field the crest's port band is dressing.
+      // The owner saw a crimson toothed band crossing the wall; this is the
+      // half of it the canvas was painting.
+      const stock = chuteMouth(chuteRightEdge(new Game(makeBaseLevel(0), {}, 5).strandCutoffX));
+      check("the mouth is DRAWN from the panel's left edge, not from the wall",
+        Math.abs(stock.x0 - left * WORLD.width) < 0.5,
+        `${stock.x0} vs ${left * WORLD.width}`);
+      check("...which is inside the rect the physics enforces",
+        stock.x0 > CHUTE.x0, `${stock.x0} vs ${CHUTE.x0}`);
+      check("...and it still ends where the panel does",
+        Math.abs(stock.x0 + stock.w - (left + width) * WORLD.width) < 0.5,
+        `${stock.x0 + stock.w} vs ${(left + width) * WORLD.width}`);
     }
   }
+  // A press that reaches inside the panel's own left edge is not a mouth to
+  // draw inside out — the span clamps rather than going negative.
+  check("a mouth narrower than nothing draws nothing",
+    chuteMouth(CHUTE_MOUTH_X0 - 40).w === 0);
   check("the chute reaches the floor", CHUTE.y1 === WORLD.height);
   check("the chute reaches the left wall", CHUTE.x0 === 0);
   check("the cannon is not standing in its own chute", !inChute(CANNON.x, CANNON.y));
@@ -6895,7 +7044,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
 
   // THE TOWER. Tier S is the floor on the roof: found by the beacon gesture,
   // and from then on picked, parked and flown exactly like a Mark.
-  const shut: S.TowerState = { unlocked: 5, selected: 5, god: false };
+  const shut: S.TowerState = { unlocked: 5, selected: 5, skydeck: false };
   const open: S.TowerState = { ...shut, sandbox: true };
   const parked: S.TowerState = { ...open, selected: S.SANDBOX_TIER };
   check("the roof is shut until the beacon is found", !S.tierOpen(shut, S.SANDBOX_TIER));
@@ -6904,11 +7053,11 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("the shaft still holds only the ladder", S.TOWER_FLOORS === MARK_COUNT + 1);
   check("no floor shares Tier S's id",
     !Array.from({ length: S.TOWER_FLOORS }, (_, i) => i + 1).includes(S.SANDBOX_TIER));
-  // The roof is ABOVE God, which is index 0. Nothing rides there — the index
-  // exists so travel time and the plate roll know S is above Mark 10 rather
-  // than, as its raw id would suggest, below Mark 1.
-  check("the roof sits above the God floor",
-    S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.GOD_TIER));
+  // The roof is ABOVE the Skydeck, which is index 0. Nothing rides there — the
+  // index exists so travel time and the plate roll know S is above Mark 10
+  // rather than, as its raw id would suggest, below Mark 1.
+  check("the roof sits above the Skydeck",
+    S.towerIndexOf(S.SANDBOX_TIER) < S.towerIndexOf(S.SKYDECK_TIER));
   // The lift does not serve it: picking S switches the tower off rather than
   // moving the car, so the shaft's index must NOT be the roof's.
   check("the lift goes out of service rather than to the roof",
@@ -6940,7 +7089,54 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   // The gates the ladder already had must be untouched by the new floor: an
   // unearned Mark stays shut whether or not the sandbox is open.
   check("Tier S does not unlock the ladder", !S.tierOpen(open, 6));
-  check("the God floor still needs the ladder beaten", !S.tierOpen(open, S.GOD_TIER));
+  check("the Skydeck still needs the ladder beaten", !S.tierOpen(open, S.SKYDECK_TIER));
+
+  // THE TOP FLOOR'S NAME, pinned on the two things that can break it.
+  //
+  // ONE NAME ON EVERY SURFACE. The floor is drawn in three places that do not
+  // share a string — the shaft plate (floorHTML), the tier plate on the Deep
+  // Run button (tierPlateHTML) and that button's subtitle — and the accessible
+  // labels are the only place the full name fits, so they are what the player
+  // who cannot read a 7px pixel token gets. A build where the plate and the
+  // shaft disagree about what the floor is called is two floors as far as a
+  // screen reader is concerned.
+  const beaten: S.TowerState = { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true };
+  const topHTML = S.tierTowerHTML(beaten);
+  check("the shaft names the top floor", topHTML.includes('aria-label="Skydeck"'));
+  check("the plate names it the same thing",
+    S.tierPlateHTML(S.SKYDECK_TIER, "menu").includes('aria-label="Skydeck"'));
+  // AND NOTHING ELSE MAY NAME IT. The floor was the "God floor" until an owner
+  // pass caught that the game has no religious frame anywhere else in it and
+  // the name promised one (screens.ts's SKYDECK_TIER). Asserted over the whole
+  // menu rather than over the three call sites, because the failure this
+  // catches is a fourth surface — a subtitle, a guide topic, an aria-label —
+  // reintroducing it somewhere nobody thought to look.
+  const wholeMenu = S.menuScreen(0, 0, undefined, undefined, undefined, beaten);
+  check("no surface calls it anything else", !/\bgods?\b/i.test(wholeMenu));
+
+  // THE TOKEN IS BUDGETED, NOT CHOSEN. The shaft plate's number slot is
+  // Press Start 2P at 7px, which advances exactly 1em per glyph, inside a floor
+  // whose content box is 72px on the narrowest device in sim/uifit's fleet —
+  // 22px car lane, ~14px number, 16px window block, two 4px gaps. That leaves
+  // room for three glyphs where the ladder's own widest number ("10") takes
+  // two, so a longer name does not merely look different: it squeezes
+  // .tower__n and lands as a uifit spill. Pinned as the BUDGET rather than as
+  // the literal "SKY", so the next rename is measured against the shaft rather
+  // than against this line.
+  const TOP_TOKEN_GLYPHS = 3;
+  const token = /<span class="tower__n">([^<]*)<\/span>/.exec(topHTML)?.[1] ?? "";
+  check(`the top floor's token fits its slot ("${token}")`,
+    token.length > 0 && token.length <= TOP_TOKEN_GLYPHS,
+    `${token.length} glyphs against a ${TOP_TOKEN_GLYPHS}-glyph slot`);
+  // The tier plate's label slot is the same face at 4ch (app.css), and it is
+  // shared with "TIER" — the string that sized it. A label longer than that is
+  // the device-reported width wobble coming back.
+  const PLATE_LABEL_CH = 4;
+  const plateLbl = /<span class="tier-plate__lbl">([^<]*)<\/span>/
+    .exec(S.tierPlateHTML(S.SKYDECK_TIER, "menu"))?.[1] ?? "";
+  check(`the plate label fits the slot "TIER" sized ("${plateLbl}")`,
+    plateLbl.length > 0 && plateLbl.length <= PLATE_LABEL_CH,
+    `${plateLbl.length} characters against ${PLATE_LABEL_CH}ch`);
 
   // THE MENU'S PRIMARY BUTTON follows the parked floor: the same button flies a
   // Mark and opens the level select, because the floor decides what it does.
@@ -7479,7 +7675,7 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   // app.css's, and whether they collide with the windows is sim/uifit's
   // question. What can be asserted here is that the markup says it at all,
   // says it once, and says it in words as well as in a class name.
-  const base: S.TowerState = { unlocked: 3, selected: 3, god: false, sealed: [2] };
+  const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
   check("a sealed floor is marked", html.includes("tower__seal"));
   check(
@@ -7496,17 +7692,19 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     "the seal is named, not merely drawn",
     html.includes('aria-label="Tier 2 — sealed"'),
   );
-  // God is not a Mark. meta.ts can never record a seal for it, so a build in
-  // which the God floor could wear one is drawing a state nothing produces.
+  // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
+  // build in which the Skydeck could wear one is drawing a state nothing
+  // produces.
   check(
-    "the God floor is never sealed",
-    !S.tierTowerHTML({ ...base, god: true, sealed: [S.GOD_TIER] }).includes("tower__seal"),
+    "the Skydeck is never sealed",
+    !S.tierTowerHTML({ ...base, skydeck: true, sealed: [S.SKYDECK_TIER] })
+      .includes("tower__seal"),
   );
   // Absent reads as none — menuScreen's fallback tower and every uifit fixture
   // that predates the seal must render exactly the tower they always did.
   check(
     "a tower with no seal record draws no seals",
-    !S.tierTowerHTML({ unlocked: 3, selected: 3, god: false }).includes("tower__seal"),
+    !S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false }).includes("tower__seal"),
   );
 }
 
@@ -7570,18 +7768,18 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
       && seen.claimedContracts.length === opened.claimedContracts.length,
   );
 
-  // THE TOP OF THE LADDER still opens something: beating Mark 10 opens the God
-  // floor. markUnlocked saturates at MARK_COUNT there, which is why main.ts —
-  // the only caller holding a tower — maps that one case onto GOD_TIER rather
-  // than riding to the floor the car is already parked on.
+  // THE TOP OF THE LADDER still opens something: beating Mark 10 opens the
+  // Skydeck. markUnlocked saturates at MARK_COUNT there, which is why main.ts —
+  // the only caller holding a tower — maps that one case onto SKYDECK_TIER
+  // rather than riding to the floor the car is already parked on.
   let top = newMeta();
   for (let i = 0; i < MARK_COUNT; i++) top = markUnlockCelebrated(completeTier(top));
   check("the whole ladder can be climbed", top.mark === MARK_COUNT);
-  const godOpened = completeTier(
-    { ...top, mark: MARK_COUNT - 1, celebratedMark: MARK_COUNT - 1 }, "-god",
+  const skyOpened = completeTier(
+    { ...top, mark: MARK_COUNT - 1, celebratedMark: MARK_COUNT - 1 }, "-sky",
   );
   check("the last unlock is owed a ceremony too",
-    pendingUnlockMark(godOpened) === MARK_COUNT && godOpened.mark === MARK_COUNT);
+    pendingUnlockMark(skyOpened) === MARK_COUNT && skyOpened.mark === MARK_COUNT);
 
   // ------------------------------------------------------------------ the ride
   //
@@ -7589,11 +7787,11 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
   // the four constants it is made of — a hold, a base, a per-floor step and an
   // arrival — so a plausible-looking tweak to any of them can walk the whole
   // ladder's ceremonies out of it without a single line looking wrong.
-  const floors = [...Array.from({ length: MARK_COUNT - 1 }, (_, i) => i + 2), S.GOD_TIER];
+  const floors = [...Array.from({ length: MARK_COUNT - 1 }, (_, i) => i + 2), S.SKYDECK_TIER];
   for (const to of floors) {
     const ms = S.towerCelebrationMs(to);
     check(
-      `the ${to === S.GOD_TIER ? "God floor" : `Tier ${to}`} ceremony reads as an event (${ms}ms)`,
+      `the ${to === S.SKYDECK_TIER ? "Skydeck" : `Tier ${to}`} ceremony reads as an event (${ms}ms)`,
       ms >= 3000 && ms <= 6000,
     );
   }
@@ -7623,12 +7821,12 @@ section("The unlock ceremony — detection (meta.ts) and the ride (screens.ts)")
   check("no floor lights outside the ride",
     passes.slice(0, dest).every((p) => (p ?? -1) >= S.TOWER_RISE_HOLD_MS
       && (p ?? Infinity) <= S.towerCelebrationMs(dest)));
-  check("the God floor's wave covers the whole ladder",
-    S.towerRisePassMs(S.GOD_TIER, MARK_COUNT) !== null
-      && S.towerRisePassMs(S.GOD_TIER, S.GOD_TIER) !== null);
+  check("the Skydeck's wave covers the whole ladder",
+    S.towerRisePassMs(S.SKYDECK_TIER, MARK_COUNT) !== null
+      && S.towerRisePassMs(S.SKYDECK_TIER, S.SKYDECK_TIER) !== null);
 
   // ------------------------------------------------------------- the markup
-  const resting: S.TowerState = { unlocked: 4, selected: 4, god: false, contracts: 0 };
+  const resting: S.TowerState = { unlocked: 4, selected: 4, skydeck: false, contracts: 0 };
   const riding: S.TowerState = { ...resting, celebrate: true };
   // THE RESTING TOWER IS UNTOUCHED, byte for byte. sim/uifit measures a
   // building that never celebrates (no fixture passes `celebrate`), so its

@@ -239,7 +239,7 @@ const SANDBOX_CONTRACT: SandboxState = {
   target: { kind: "pattern", variant: "blind" },
 };
 
-/** The tower with the whole ladder beaten and the car on the God floor — the
+/** The tower with the whole ladder beaten and the car on the Skydeck — the
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
  *  save, so this is the only fixture that reaches it.
  *
@@ -250,8 +250,8 @@ const SANDBOX_CONTRACT: SandboxState = {
  *  violations" run is measuring a floor that has no stamp on it. */
 const TOWER_TOP: S.TowerState = {
   unlocked: MARK_COUNT,
-  selected: S.GOD_TIER,
-  god: true,
+  selected: S.SKYDECK_TIER,
+  skydeck: true,
   sealed: [MARK_COUNT],
 };
 
@@ -345,7 +345,7 @@ export const SCREENS: Record<string, () => string> = {
   "menu-nostore-live": () =>
     live(S.menuScreen(98_760, 1_480, { available: false, unlimited: false }, PROGRESS, GUIDE)),
   // The tier tower at the TOP of the ladder, which is the widest every string
-  // on the base-bay panel gets: "God tier · Base bay" for the eyebrow, "×1.9 ∞"
+  // on the base-bay panel gets: "Skydeck · Base bay" for the eyebrow, "×1.9 ∞"
   // for the bond multiplier (UNBREAKABLE_MARK's capstone), and "6/6 · 2 picks"
   // for the belt count (all six materials dealt, and CAPSTONE_MARK's second
   // ratchet). PROGRESS above is a Mark-0 save, so every other menu fixture
