@@ -921,8 +921,23 @@ export const SCREENS: Record<string, () => string> = {
   // rather than a control that decides whether it fits, and it is the only
   // panel in the game a player is expected to read every word of.
   //
-  // The widest numbers it can hold: a two-digit bay, the top tier, and a seal
-  // count one short of the ladder.
+  // The widest numbers it can hold: a two-digit bay, a two-digit Mark, and a
+  // seal count one short of the ladder — with `tier: null`, which is the LONGER
+  // of the two second paragraphs the panel can print and therefore the one this
+  // fixture has to measure.
+  //
+  // MEASURED, not assumed. The obvious guess is the other way round — the
+  // frontier branch adds a whole "Tier N still opens." sentence the re-fly
+  // branch drops — and it is wrong: stripped of tags, the frontier paragraph
+  // runs 457 characters against the fallback's 487, because what replaces that
+  // sentence ("Everything else this run can earn, it still earns — the run
+  // counts and its salvage banks.") is longer than it is. This comment shipped
+  // asserting the opposite for exactly one commit, which is why the number is
+  // written down here instead of the claim.
+  //
+  // It is also the branch a Mark-10 save really produces (meta.ts's
+  // tierOpenableBy returns null on a finished ladder), so the worst case and
+  // the honest case are the same panel here.
   //
   // It arrives carrying two baseline entries, exactly as `pause-pad` did and
   // for the identical reason: they are the 800x600 window's undersized ability
@@ -932,7 +947,7 @@ export const SCREENS: Record<string, () => string> = {
   // measures clean on all nineteen rows.
   "seal-break": () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) + S.sealBreakModal({
-      bayNum: RUN_LEVELS, tier: MARK_COUNT, sealed: MARK_COUNT - 1,
+      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1,
     }),
 
   // TIER S itself, in all three of the shapes it takes. The mode ships, so

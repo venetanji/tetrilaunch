@@ -565,6 +565,57 @@ export function sealBreakOwed(meta: MetaState): boolean {
   return !meta.sealBreakSeen;
 }
 
+/**
+ * The tier a run at `runMark` can still OPEN, or null when it can open none.
+ *
+ * The seal-break notice's second sentence is a promise — "Tier N still opens" —
+ * and a promise has to be true of the run in front of the player, not of their
+ * high-water mark. It first read `tierProgressFor(meta).tier`, which is
+ * markUnlocked: on a re-fly of Mark 3 by a player who has reached Mark 10 that
+ * printed "Tier 10 still opens" about a run that cannot move Tier 10 or
+ * anything else. (Found in review, codex PR #134.)
+ *
+ * TWO CONDITIONS, because there are two ways for a run to have no tier to open.
+ *
+ *  - **It is not the frontier.** recordRunEnd's tier bookkeeping is gated on
+ *    `runMark === markUnlocked(meta)`, so a re-fly of an already-beaten Mark
+ *    ticks nothing by construction. The predicate is written against that same
+ *    comparison rather than beside it, so the copy cannot promise something the
+ *    recorder refuses.
+ *  - **The ladder is finished.** At `mark === MARK_COUNT` markUnlocked
+ *    saturates, so a Mark-10 run passes the frontier test — but there is no
+ *    Tier 11 for it to open, and naming Tier 10 would name a floor that is
+ *    already open. Such a run still banks salvage, which is what the notice's
+ *    fallback sentence says instead.
+ *
+ * Returning the TIER rather than a boolean so the caller has nothing left to
+ * derive: null is "say the fallback", a number is "name this one".
+ */
+export function tierOpenableBy(meta: MetaState, runMark: number): number | null {
+  if (meta.mark >= MARK_COUNT) return null;
+  const tier = markUnlocked(meta);
+  return runMark === tier ? tier : null;
+}
+
+/**
+ * Does the ladder owe the tower a RIDE — a floor that was not flyable before?
+ *
+ * `pendingUnlockMark` answers a different question: whether the Mark has moved
+ * somewhere the ceremony has not followed. Below saturation the two agree,
+ * because every Mark that moves opens `mark + 1`. At the top they come apart,
+ * and that gap was a bug: completing Tier 10 leaves `mark > celebratedMark`
+ * with markUnlocked already sitting at MARK_COUNT, so the ceremony armed a
+ * ~4.5s ride to the floor the car was already parked on and the player was
+ * already allowed to fly. (Found in review, codex PR #134.)
+ *
+ * The roof is deliberately NOT part of this. It opens on the seals now
+ * (pendingSkydeck), which is a different axis and a different watermark;
+ * main.ts asks both and either one arms the same ride.
+ */
+export function pendingLadderRide(meta: MetaState): boolean {
+  return pendingUnlockMark(meta) !== null && meta.mark < MARK_COUNT;
+}
+
 /** Burn the seal-break watermark. Idempotent, so the three doors can each call
  *  it without checking first. */
 export function sealBreakShown(meta: MetaState): MetaState {

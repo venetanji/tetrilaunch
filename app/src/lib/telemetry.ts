@@ -124,6 +124,27 @@ const SAMPLE_MS = 1000;
 
 let session: Session | null = null;
 let run: RunRecord | null = null;
+/**
+ * The record endRun just closed, held in case that run turns out not to have
+ * ended — the game-over card's Retry Bay hands the same RunState back
+ * (main.ts's resetBay), so the run keeps flying after it was filed.
+ *
+ * A RUN THAT RESUMES MUST RESUME INTO ITS OWN RECORD, not into a second one.
+ * `run` is what startBay writes into and endRun nulls, so without this the
+ * retried bay and every bay after it were dropped on the floor — startBay's
+ * `!run` guard silently discarded them, and the second endRun no-oped, leaving
+ * the analyser a run that ended at the bay it lost with nothing after it. That
+ * is also exactly the double-count the other direction would have caused: a
+ * fresh startRun would have filed the continuation as a SECOND run, disagreeing
+ * with meta.ts's own count (recordRunEnd's `refiled`, which exists to keep the
+ * lifetime total a count of runs rather than of endings). One record, one run,
+ * on both sides of the save.
+ *
+ * Held as the exact record rather than "the last one in the session" so it can
+ * only ever re-open the run that was just closed, and only once — resumeRun
+ * clears it, and startRun clears it too.
+ */
+let closed: RunRecord | null = null;
 let bay: BayRecord | null = null;
 let lastSample = 0;
 
@@ -178,6 +199,9 @@ function persist(): void {
 export function startRun(mark: number, loadout: UpgradeTiers, unlocks: string[]): void {
   if (!recording()) return;
   const s = load();
+  // A genuinely new run supersedes any record still waiting to be resumed: the
+  // player left the loss card by the other door, and that run is over.
+  closed = null;
   run = {
     startedAt: Date.now(),
     mark,
@@ -277,8 +301,37 @@ export function endRun(won: boolean, salvage: number): void {
   if (!run) return;
   run.won = won;
   run.salvage = salvage;
+  closed = run;
   run = null;
   bay = null;
+  persist();
+}
+
+/**
+ * Re-open the run endRun just closed, because it is still being flown.
+ *
+ * The one caller is main.ts's resetBay, on the retry that comes back from the
+ * game-over card. Everything the resumed run does from here — its bays, its
+ * refits, its outcome — lands in the record it was already writing, which is
+ * what keeps the analyser's run count agreeing with the save's (see `closed`).
+ *
+ * `won` GOES BACK TO NULL, and that is the whole of what re-opening changes.
+ * The loss that closed the record has been reversed by the player continuing;
+ * leaving it set would have the export report a run that both lost and, a few
+ * bays later, won. `salvage` is deliberately left alone: a losing filing banks
+ * nothing (meta.ts's recordRunEnd pays only on a false→true tier edge), so the
+ * value sitting there is 0 and the next endRun overwrites it with the real one.
+ *
+ * Idempotent, and narrow. A run already open is left alone — a resumed run that
+ * later restarts a bay from the PAUSE modal comes through resetBay again, and
+ * that one has nothing to re-open. With recording off it does nothing at all,
+ * like everything else here.
+ */
+export function resumeRun(): void {
+  if (!recording() || run || !closed) return;
+  run = closed;
+  closed = null;
+  run.won = null;
   persist();
 }
 

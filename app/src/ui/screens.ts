@@ -4055,8 +4055,16 @@ export function endModal(opts: {
 export function sealBreakModal(opts: {
   /** The 1-based bay about to be handed back. */
   bayNum: number;
-  /** The tier the run is climbing — what the notice promises is still open. */
-  tier: number;
+  /** The MARK being flown (RunState.mark) — whose stamp is on the table. Not
+   *  the player's high-water tier: a re-fly of Mark 3 puts Mark 3's seal at
+   *  stake and nothing else, and naming the wrong floor here is naming the
+   *  wrong cost. */
+  mark: number;
+  /** The tier this run can still open (meta.ts's tierOpenableBy), or null when
+   *  it can open none — a re-fly of a beaten Mark, or a run at the top of a
+   *  finished ladder. The promise is only made where it is true; see the
+   *  branch below for what is said instead. */
+  tier: number | null;
   /** Marks sealed so far, out of the ladder — the price of the roof, stated in
    *  the same numbers the tower draws. */
   sealed: number;
@@ -4068,8 +4076,19 @@ export function sealBreakModal(opts: {
       <p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
       in one run without retrying a single one. The tower stamps that floor, and the
       <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>
-      <p class="seal-note__body">Retry bay ${opts.bayNum} and this run cannot be sealed.
-      <b>Tier ${opts.tier} still opens.</b> The run counts, the salvage banks, and the
+      <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Mark ${opts.mark}</b> cannot be
+      sealed by this run. ${
+        // THE PROMISE, ONLY WHERE IT IS TRUE. On the frontier the thing a
+        // player most fears losing is the tier, so the tier is named. On a
+        // re-fly of a beaten Mark — or at the top of a finished ladder — there
+        // is no tier to open, and naming one would be a lie told to reassure.
+        // What is true on every run is the rest of the sentence, so that is
+        // what the fallback keeps: the run is not wasted, only the stamp is.
+        opts.tier !== null
+          ? `<b>Tier ${opts.tier} still opens.</b> The run counts, the salvage banks, and the`
+          : `<b>Everything else this run can earn, it still earns</b> — the run counts and its`
+            + ` salvage banks. The`
+      }
       seal can be taken on any later run — including a re-fly of a Mark you have
       already beaten.</p>
       <!-- KEEPING THE SEAL IS THE PRIMARY, on the same reasoning the run-end

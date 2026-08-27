@@ -69,9 +69,9 @@ import {
 } from "./game/upgrades";
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked,
-  markUnlockCelebrated, nextStep, pendingSkydeck, pendingUnlockMark,
+  markUnlockCelebrated, nextStep, pendingLadderRide, pendingSkydeck, pendingUnlockMark,
   recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
-  skydeckCelebrated, skydeckOpen, tierProgressFor, unlockAvailable, unsealedMarks,
+  skydeckCelebrated, skydeckOpen, tierOpenableBy, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -1395,7 +1395,26 @@ class App {
     // in the other's watermark, so both are asked here and either arms the
     // same ride.
     const roof = pendingSkydeck(this.meta);
-    if (pendingUnlockMark(this.meta) === null && !roof) return;
+    // A LADDER RIDE NEEDS A FLOOR THAT WAS NOT FLYABLE BEFORE, which is not the
+    // same question as "has the Mark moved" — see meta.ts's pendingLadderRide.
+    // The two part company at the top: completing Tier 10 leaves the watermark
+    // owing while markUnlocked has already been sitting at MARK_COUNT, so this
+    // used to arm a four-and-a-half-second ride to the floor the car was
+    // already parked on and the player was already allowed to fly. (Codex
+    // review, PR #134.)
+    const rung = pendingLadderRide(this.meta);
+    if (!rung && !roof) {
+      // THE WATERMARK IS STILL BURNED. The ladder really did move — there is
+      // simply no floor to ride to — and leaving it unburned would re-ask this
+      // question on every visit to the menu for the rest of the save, which is
+      // the state that comes back the day the last seal lands and turns one
+      // ceremony into two.
+      if (pendingUnlockMark(this.meta) !== null) {
+        this.meta = markUnlockCelebrated(this.meta);
+        saveMeta(this.meta);
+      }
+      return;
+    }
     // THE ROOF IS NOT A MARK, so the ride is redirected to it. This used to be
     // `mark >= MARK_COUNT` on the argument that beating Mark 10 IS the roof
     // opening; that argument has been replaced by the seals, so the test is
@@ -2087,7 +2106,16 @@ class App {
             S.hudHTML(this.hudOpts(g)) +
             S.sealBreakModal({
               bayNum: this.run.levelIndex + 1,
-              tier: tierProgressFor(this.meta).tier,
+              // THE RUN'S OWN MARK, not the player's high-water tier. It is
+              // this floor's stamp the retry spends, and on a re-fly of a
+              // beaten Mark those two numbers are different.
+              mark: this.run.mark,
+              // …and the tier this run can actually open, which on that same
+              // re-fly is none at all. It used to be tierProgressFor().tier,
+              // i.e. markUnlocked, so a Mark-3 re-fly by a Mark-10 player was
+              // promised "Tier 10 still opens" about a run that can move
+              // nothing. (Codex review, PR #134.)
+              tier: tierOpenableBy(this.meta, this.run.mark),
               // Counted off the ladder rather than off the list's length: a
               // save can hold a Mark the ladder no longer has (lib/store.ts
               // clamps values, not range), and "11 of 10 sealed" is the kind
@@ -3789,6 +3817,22 @@ class App {
     if (this.run && !this.run.sandbox) {
       this.run = { ...this.run, restarts: this.run.restarts + 1 };
     }
+    // …and the ONE place a FILED run is un-filed for the recorder. A retry that
+    // arrives here on a run finishRun already closed (RunState.filed — only the
+    // game-over card's Retry Bay can produce that) is the run carrying on, so
+    // the recorder has to carry on with it: telemetry.endRun nulled its
+    // module-level run, which makes startBay's `!run` guard silently drop the
+    // retried bay and every bay after it, and makes the run's real ending
+    // no-op. Found in review (codex, PR #134).
+    //
+    // resumeRun rather than startRun, and the reason is the same one `refiled`
+    // exists for one layer up: the continuation is the SAME run, so it must be
+    // the same record. A second startRun would file it as a second run and put
+    // the analyser's count at odds with meta.runs. Idempotent and self-gating —
+    // a resumed run that later restarts a bay from the pause modal comes back
+    // through here with nothing left to re-open — so it needs no test beyond
+    // the field itself, and none at all when recording is off.
+    if (this.run?.filed) telemetry.resumeRun();
     // A drill restarts from its own fixed seed (drillSeed), so pausing and
     // restarting hands back the identical lesson — same reasoning as the
     // Contract below.

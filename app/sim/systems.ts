@@ -79,7 +79,8 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
-  pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated, skydeckOpen, unsealedMarks,
+  pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
+  skydeckOpen, tierOpenableBy, unsealedMarks,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -8772,7 +8773,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
 
   // ---- THE ONE-TIME NOTICE ------------------------------------------------
   {
-    const note = S.sealBreakModal({ bayNum: 7, tier: 4, sealed: 3 });
+    const note = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3 });
     // The second paragraph is the whole point of the panel: a player who thinks
     // a retry forfeits the tier will abandon runs they could still win.
     check("the notice promises the tier still opens", /Tier 4 still opens/.test(note));
@@ -8784,6 +8785,73 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // reversible answer is the one a pad lands on.
     const keep = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(note)?.[1];
     check("keeping the seal is the default answer", keep === "seal-break-back", keep ?? "none");
+
+    // THE PROMISE IS ONLY MADE WHERE IT IS TRUE (codex review, PR #134). The
+    // panel quoted the player's HIGH-WATER tier, so a Mark-3 re-fly by a
+    // Mark-10 player read "Tier 10 still opens" about a run that can move
+    // nothing at all. It names the run's own Mark now, and drops the tier
+    // clause entirely when there is no tier to open.
+    const refly = S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9 });
+    check("a re-fly names the Mark whose seal is actually at stake",
+      /Mark 3<\/b> cannot be\s+sealed/.test(refly) && !/Mark 10/.test(refly));
+    check("...and promises no tier it cannot open", !/Tier \d+ still opens/.test(refly));
+    // …and still says the run is not wasted, which is the half that is true on
+    // every run and the half the player is actually afraid of losing.
+    check("...but still says the run is not thrown away",
+      /still earns/.test(refly) && /salvage banks/.test(refly));
+    // The frontier panel names the Mark too — the two numbers agree there, and
+    // a build that printed the tier in the seal sentence would pass the re-fly
+    // check above by accident.
+    check("the frontier panel names its Mark as well", /Mark 4<\/b> cannot be/.test(note));
+  }
+
+  // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------
+  // The predicate behind the copy above, written against the same comparison
+  // recordRunEnd's tier bookkeeping uses, so the panel cannot promise something
+  // the recorder refuses.
+  {
+    const at = (mark: number): MetaState => ({ ...newMeta(), mark });
+    check("a run at the frontier opens its tier", tierOpenableBy(at(3), 4) === 4);
+    check("...and a re-fly of a beaten Mark opens none", tierOpenableBy(at(9), 3) === null);
+    // The saturated top: markUnlocked stops moving at MARK_COUNT, so a Mark-10
+    // run passes the frontier test and there is still no Tier 11 to name.
+    check("...and a finished ladder opens none either",
+      tierOpenableBy(at(MARK_COUNT), MARK_COUNT) === null);
+    // The control: the recorder agrees. A run the predicate says opens nothing
+    // must be a run recordRunEnd ticks nothing for, or the copy and the
+    // bookkeeping have drifted.
+    const beaten = at(9);
+    check("...and the recorder agrees about the re-fly",
+      recordRunEnd(beaten, 3, true, RUN_LEVELS).meta.tierRunDone === false
+        && recordRunEnd(beaten, 10, true, RUN_LEVELS).meta.tierRunDone === true);
+  }
+
+  // ---- A RIDE NEEDS A FLOOR THAT WAS NOT FLYABLE BEFORE --------------------
+  // pendingUnlockMark asks whether the MARK has moved somewhere the ceremony
+  // has not followed; the tower needs to know whether there is a FLOOR to ride
+  // to. Below saturation those are the same question. At the top they are not,
+  // and the gap armed a ~4.5s ride to the floor the car was already parked on
+  // every time Tier 10 completed with seals still owed. (Codex review, #134.)
+  {
+    const rung = (mark: number, celebrated: number): MetaState =>
+      ({ ...newMeta(), mark, celebratedMark: celebrated });
+    check("an ordinary tier completion still owes a ride", pendingLadderRide(rung(3, 2)));
+    check("...and a celebrated one does not", !pendingLadderRide(rung(3, 3)));
+    // THE BUG, stated as the state that produced it: the ladder finished, the
+    // ceremony has not been told, and markUnlocked has nowhere left to go.
+    const top = rung(MARK_COUNT, MARK_COUNT - 1);
+    check("the ladder's last rung opens no new floor",
+      markUnlocked(top) === markUnlocked(rung(MARK_COUNT - 1, MARK_COUNT - 1)));
+    check("...so it owes no ladder ride", !pendingLadderRide(top));
+    check("...while the watermark it still owes is real",
+      pendingUnlockMark(top) !== null);
+    // …and the roof is the OTHER axis, unchanged by any of this: the ride it
+    // owes is asked for separately and arms the same ceremony.
+    const sealedTop: MetaState = {
+      ...top, sealedMarks: Array.from({ length: MARK_COUNT }, (_, i) => i + 1),
+    };
+    check("...and the roof still owes its own ride when the seals land",
+      !pendingLadderRide(sealedTop) && pendingSkydeck(sealedTop));
   }
 
   // ---- THE WORKSHOP'S OTHER DOOR ------------------------------------------
@@ -8808,6 +8876,97 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     check("...and not when the shelf is the next step",
       route(rich).length > 0 && !route(rich).includes("next-badge")
         && rich.includes("shop-card--next"));
+  }
+
+  // ---- THE RECORDER FOLLOWS THE RUN BACK ----------------------------------
+  // A run that is retried from the game-over card has already been FILED
+  // (main.ts's finishRun), and telemetry.endRun nulls its module-level run —
+  // so startBay's `!run` guard silently dropped the retried bay and every bay
+  // after it, and the run's real ending no-oped. With playtest recording on,
+  // the export showed a run that stopped at the bay it lost. (Codex review,
+  // PR #134.)
+  //
+  // This is the one block in the file that has to make telemetry actually
+  // RECORD, so it stands up the same localStorage stub the settings-migration
+  // section uses, and puts the real one back afterwards. Everything else here
+  // relies on recording() being false under Node (see this file's header).
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+    try {
+      telemetry.enable(true);
+      check("the harness can make the recorder record", telemetry.recording());
+
+      const bayCfg = (bay: number) => ({
+        bay, mark: 4, seed: 1, mode: "run" as const, target: 1_000, timeLimitSec: 180,
+        cooldownMs: 900, launchCost: 20, scorePerLine: 100, compactorSpeed: 26,
+        compactorOpenCells: 4, compactorMinLineCells: 8, tiers: newTiers(),
+        notches: [], pieceSize: "standard",
+      });
+      const flyBay = (bay: number, result: "won" | "lost") => {
+        telemetry.startBay(bayCfg(bay));
+        telemetry.endBay({
+          result, reason: result === "lost" ? "broke" : null,
+          secs: 90, lines: 8, lostPieces: 2, endScore: 900,
+        });
+      };
+
+      telemetry.startRun(4, newTiers(), []);
+      flyBay(1, "won");
+      flyBay(2, "lost");
+      // The loss card. finishRun files the run; the player then presses Retry
+      // Bay, which is where main.ts's resetBay calls resumeRun.
+      telemetry.endRun(false, 0);
+      const filed = telemetry.summary();
+      check("a lost run files the bays it flew", filed.runs === 1 && filed.bays === 2,
+        `${filed.runs} runs / ${filed.bays} bays`);
+      // THE CONTROL, and the whole finding: without the resume, this bay is
+      // dropped on the floor.
+      flyBay(2, "won");
+      check("a bay flown after a filed loss is dropped without a resume",
+        telemetry.summary().bays === 2, `${telemetry.summary().bays} bays`);
+
+      telemetry.resumeRun();
+      flyBay(3, "won");
+      flyBay(4, "won");
+      const resumed = telemetry.summary();
+      check("...and kept once the recorder is told the run goes on",
+        resumed.bays === 4, `${resumed.bays} bays`);
+      // ONE RUN, which is the half that matters as much as the bays. A fresh
+      // startRun would have kept the bays too and filed a SECOND run, putting
+      // the analyser at odds with meta.runs — the very count recordRunEnd's
+      // `refiled` exists to keep honest.
+      check("...as ONE run, not two", resumed.runs === 1, `${resumed.runs} runs`);
+
+      telemetry.endRun(true, 40);
+      check("...whose ending is the one it actually reached",
+        telemetry.summary().runs === 1);
+      // The outcome is re-openable in both directions: the loss that was
+      // reversed must not survive alongside the win.
+      const exported = JSON.parse(
+        globalThis.localStorage.getItem("tetrilaunch.playtest.v1") ?? "{}",
+      ) as { runs?: { won: boolean | null; bays: unknown[] }[] };
+      check("a resumed run reports the outcome it ended on",
+        exported.runs?.length === 1 && exported.runs[0].won === true
+          && exported.runs[0].bays.length === 4,
+        JSON.stringify(exported.runs?.map((r) => ({ won: r.won, bays: r.bays.length }))));
+      // …and a resume with nothing to resume is inert, which is what lets
+      // resetBay call it on the pause modal's restart without a second test.
+      telemetry.resumeRun();
+      check("resuming with nothing open opens nothing", telemetry.summary().runs === 1);
+    } finally {
+      telemetry.enable(false);
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+    }
   }
 }
 
