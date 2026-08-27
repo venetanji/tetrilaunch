@@ -4742,8 +4742,16 @@ body.crt-off #app::after { display: none; }
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), border-color var(--dur) var(--ease);
 }
 .mod-card:hover, .mod-card:focus-visible { transform: translate(-2px, -2px); }
-/* The card's head: kind glyph, name, stack badge, pick box — one row, so the
-   whole state of a card is readable at its top edge. */
+/* The card's head: kind glyph and NAME, and nothing else. It used to carry the
+   stack badge and the pick box too, on the reasoning that the whole state of a
+   card should read at its top edge — and the price of that was paid by the
+   name. Three flex items on one line is a negotiation, and the name is the item
+   with nothing to give: on a 792x360 phone, where the cards column splits into
+   two ~180px cards, ~50px of badge and box left the name ~100px and the
+   forced-material hand rendered "Volatile Contract" as "Volatile Contrac" (a
+   player's report — hazards.ts's materials are all "<Substance> Contract", so
+   that hand is the only one that can deal two seventeen-character names at
+   once). Both moved to __foot; the head is now the name's alone. */
 .mod-card__top { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 /* The kind said as a GLYPH: a material card wears its belt icon, a number card
    its two-letter tally glyph — the same marks the plant panel teaches all run,
@@ -4761,21 +4769,22 @@ body.crt-off #app::after { display: none; }
 .mod-card--bane .mod-card__ax { color: var(--danger); background: rgba(255,45,85,0.12); }
 .mod-card--tradeoff .mod-card__ax { color: var(--accent); background: rgba(0,240,255,0.12); }
 .mod-card--final .mod-card__ax { color: var(--accent-2); background: rgba(122,92,255,0.14); }
-/* The name WRAPS (clamped at two lines) rather than ellipsizing: beside the
-   glyph, the stack badge and the pick box, a compact card leaves ~40px of
-   name column, and "Fuel Levy" was rendering as "Fue…" — an identity is the
-   one thing on the card that may not give way. */
+/* The name WRAPS (clamped at two lines) rather than ellipsizing: an identity is
+   the one thing on the card that may not give way, and "Fuel Levy" rendering as
+   "Fue…" is worse than "Fuel Levy" on two lines. With the badge and box gone
+   from this row the clamp is a backstop rather than the working case — the two
+   longest names in HAZARDS both fit one line of a side-by-side card now — but
+   it stays, because the row is one flex line and a name that outgrew it would
+   otherwise push the glyph out of the card. */
 .mod-card__top .mod-card__name {
   flex: 1 1 auto; min-width: 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden;
   line-height: 1.1;
 }
-/* The notch LEVEL, riding the right edge beside the pick box: the ratchet's
-   own up-triangle (the bank's Notches cell wears the same one) plus the
-   count. This replaced an "at N" word pill in the title row — ~45px of
-   badge that clipped "Crosswind" to "Cros" in a compact card's ~100px name
-   column. An icon and a digit say the same thing in ~22px. */
+/* The notch LEVEL: the ratchet's own up-triangle (the bank's Notches cell wears
+   the same one) plus the count. Icon and digit rather than an "at N" word pill,
+   which is ~45px of badge where this is ~22px. */
 .mod-card__lvl {
   flex: none;
   display: inline-flex; align-items: center; gap: 2px;
@@ -4854,11 +4863,31 @@ body.crt-off #app::after { display: none; }
   background: linear-gradient(180deg, rgba(122,92,255,0.18), rgba(12,12,24,0.97));
   box-shadow: 4px 4px 0 rgba(122,92,255,0.5), inset 0 0 0 1px rgba(122,92,255,0.35);
 }
-/* The card's footer says what the NEXT tap does, which is not the same on a
-   selected card as on an empty one. Pinned to the bottom so the two cards'
-   footers line up however long their descriptions run. */
-.mod-card__pick {
+/* The card's FOOTER ROW: what the next tap does on the left, the card's state
+   — notch level and pick box — on the right. Pinned to the bottom so the cards'
+   footers line up however long their descriptions run.
+
+   The state cluster is here rather than in the title row because this row had
+   the width to spare and that one did not: "Tap to undo" is the shortest line
+   on the card, and it is the line a PICKED card shows, which is exactly the
+   state that also has the most furniture to place (a lit box, and a level badge
+   the pick itself may have just created). The two never collide because they
+   are laid out, not stacked: `space-between` on one flex line, the text taking
+   the slack and the cluster taking only what it needs.
+
+   Bottom-RIGHT specifically, and not floated over the corner: a card that
+   re-renders on every tap must not change shape when it does, so the box is
+   always in the flow (empty when unpicked) and the row reserves its height in
+   every state. */
+.mod-card__foot {
   margin-top: auto;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; width: 100%; min-width: 0;
+}
+/* Nothing to the right of the box, so the cluster hugs the card's right edge. */
+.mod-card__state { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.mod-card__pick {
+  flex: 1 1 auto; min-width: 0;
   font-size: 10px;
   line-height: 1.3;
   color: var(--text-muted);
