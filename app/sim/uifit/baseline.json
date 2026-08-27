@@ -245,6 +245,48 @@
   "Android · Pixel 7|menu|tap": [
     ".tower__floor 108x29"
   ],
+  "Web · 1269x663 windowed|draft-picked|scrollers": [
+    ".draft__body scrolls 16px"
+  ],
+  "Web · 1269x663 windowed|menu-first|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-nostore-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-nostore|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-skydeck-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-skydeck|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-tier-s-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-tier-s|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-tower-top-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-tower-top|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-unlimited-live|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu-unlimited|tap": [
+    ".tower__floor 108x43"
+  ],
+  "Web · 1269x663 windowed|menu|tap": [
+    ".tower__floor 108x43"
+  ],
   "Web · 800x600 window|bayclear-clause|badge": [
     "BAY has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
     "LCH has 0.39em of side air (2.3px in a 25px slot, floor 0.4em)",
