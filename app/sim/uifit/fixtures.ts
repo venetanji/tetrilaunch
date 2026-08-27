@@ -1183,6 +1183,12 @@ function endModal(won: boolean, sandbox = false): string {
     // tops out around $43/cube (level.ts), so a run that ate detonations all
     // the way down is in this range and nothing is above it.
     volatileLosses: 10_240,
+    // ...and the Incinerator's saving, which lands on the SAME breakdown row
+    // immediately after it — so this fixture measures the row at its widest
+    // realistic content rather than at one segment of it. Five digits again,
+    // and the bound is the same one: the hood can never remit more than the
+    // bills beside it charged.
+    incineratedFunds: 10_240,
     tiers: HUD_BASE.tiers,
   });
 }

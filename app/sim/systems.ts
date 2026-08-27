@@ -9705,7 +9705,7 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     boardTier: BOARD_SANDBOX,
     runComplete: false, tierCompleted: null, tierSalvage: 0,
     progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 20,
-    salvagedFunds: 0, volatileLosses: 0,
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0,
     tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
   });
   check("a Tier S end says nothing was banked", sEnd.includes("No salvage"));
@@ -10183,7 +10183,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       funds: 300, best: 50_000, name: "PILOT", rows: "", reason: "broke",
       bayNum: 7, bayName: "Cryo Vault", tierCompleted: null, tierSalvage: 0,
       progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
-      salvagedFunds: 0, volatileLosses: 0, tiers: newTiers(), boardTier: 1,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(), boardTier: 1,
       ...o,
     });
 

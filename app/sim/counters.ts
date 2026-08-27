@@ -33,6 +33,8 @@
  * kind licenses proposing a new system.
  */
 import type { LevelConfig } from "../src/game/level";
+import { chuteRightEdge, inChute } from "../src/game/chute";
+import { MATERIAL_SPEC } from "../src/game/theme";
 import { thawChargesFor } from "../src/game/run";
 import { applyUpgrades, MAX_TIER, newTiers, TIER_COSTS } from "../src/game/upgrades";
 import type { Bot } from "./bots";
@@ -237,6 +239,116 @@ export function thawKit(tier: number): CounterKit {
   };
 }
 
+/* --- 1c. EXISTING — the INTAKE, which no bot has ever aimed at ------------ */
+
+/**
+ * THE DELIBERATE DISCARD, which is a move the game has always offered and the
+ * harness has never made.
+ *
+ * `chute.ts` states it as one of the two reasons the intake exists: *"It also
+ * gives the deliberate discard a home. Dumping a slag shipment when there's no
+ * demolition charge to spare was already possible by firing it short; now it's
+ * a visible, aimable move."* Every bot in `bots.ts` aims at a LANDING SLOT — the
+ * gap targeter's whole vocabulary is where in the compaction zone to put cargo
+ * — so none of them has ever fired a shipment at the machine on purpose. That
+ * is an instrument gap of exactly the kind `bondHands` and `demo` closed, and it
+ * was a harmless one until the Incinerator: the hood discounts losses, and a
+ * pilot that never chooses to take one measures the hood at zero forever.
+ *
+ * THE RULE, held to `bondHands`'s bar — the simplest honest one: dump a
+ * shipment that can never complete a row. `countsForLines` is the test, not
+ * `material === "slag"`, for the same reason `slagBountyFor` gives for using it
+ * — the flag IS the argument, and a future dead material inherits the policy.
+ * Nothing else is dumped: a volatile or tar shipment is playable cargo the
+ * pilot is merely unhappy about, and a wrapper that threw those away would be
+ * measuring a policy rather than a system.
+ *
+ * WHAT IT COSTS, and this is why it is a wrapper and not a change to `aimBot`:
+ * a dump is a launch that buys nothing and is FINED for the privilege
+ * (`penaltyPerLostPiece` a cube). It is not obviously a good move, and against
+ * a pilot holding demolition charges it is often a worse one. That is the
+ * point — this pilot is the one the hood is FOR, and putting it beside the
+ * un-dumping pilot is what turns "the Incinerator discounts a bill" into a
+ * measurement of whether the bill is worth incurring.
+ *
+ * PESSIMISM, in the ledger's own direction: the aim search below is coarse (a
+ * fixed grid, no wind re-solve beyond what `updateTrajectory` folds in) and it
+ * dumps on the tick the shipment loads rather than weighing it against the
+ * board. A human dumps better and dumps less often.
+ */
+const DUMP_ANGLES_DEG = [-50, -40, -30, -20, -10, 0, 10, 20];
+const DUMP_POWER_RATIOS = [0, 0.15, 0.3, 0.45, 0.6];
+
+export function dumpHands(base: Bot, name?: string): Bot {
+  return {
+    name: name ?? `${base.name}+dump`,
+    act(g, now) {
+      if (!g.cannon.canShoot(now) || g.score < g.level.launchCost) {
+        base.act(g, now);
+        return;
+      }
+      if (MATERIAL_SPEC[g.cannon.currentMaterial].countsForLines) {
+        base.act(g, now);
+        return;
+      }
+      const rightEdge = chuteRightEdge(g.strandCutoffX);
+      const span = g.cannon.speedMax - g.cannon.speedMin;
+      for (const deg of DUMP_ANGLES_DEG) {
+        for (const ratio of DUMP_POWER_RATIOS) {
+          g.cannon.angle = (deg * Math.PI) / 180;
+          g.cannon.power = g.cannon.speedMin + ratio * span;
+          g.updateTrajectory();
+          // The arc's own samples, tested against the machine's own rect — the
+          // same function the strand warning and the shredder read, so what the
+          // pilot aims at and what the maw takes cannot disagree.
+          if (g.trajectory.some((p) => inChute(p.x, p.y, rightEdge))) {
+            g.shoot(now);
+            return;
+          }
+        }
+      }
+      // No arc found (a gust, a clamped press). Fall through rather than force
+      // a shot: an un-dumped slag shipment is a bad landing, and a dump aimed
+      // at nothing is a bad landing plus a fine.
+      base.act(g, now);
+    },
+  };
+}
+
+/* --- 1d. THE INCINERATOR -------------------------------------------------- */
+
+/** Ladder price per hood tier — the shared cumulative TIER_COSTS, derived for
+ *  the same reason THAW_TIER_COST is. */
+export const INCIN_TIER_COST = THAW_TIER_COST;
+
+/**
+ * The shipped Incinerator, as a counter kit. Config only: the hood is passive
+ * and positional, so there is nothing for a pair of hands to pull — what a
+ * pilot does about it is a POLICY (`dumpHands` above), and keeping the two
+ * separate is what lets a table hold one fixed while the other moves.
+ */
+export function incinKit(tier: number): CounterKit {
+  const t = Math.max(1, Math.min(MAX_TIER, Math.floor(tier)));
+  return {
+    id: `incin${t}`,
+    name: `Incinerator ${t}`,
+    cost: INCIN_TIER_COST[t - 1],
+    level(cfg) {
+      applyUpgrades(cfg, { ...newTiers(), incinerator: t });
+    },
+  };
+}
+
+/** The discard policy as a kit, so `--counters` can compose it with a hood the
+ *  same way it composes anything else. Costs nothing: it is a way of playing,
+ *  not a purchase, and pricing it would put a ladder number on a decision. */
+export const dumpKit: CounterKit = {
+  id: "dump",
+  name: "deliberate discard",
+  cost: 0,
+  hands: (bot) => dumpHands(bot),
+};
+
 /** Every kit the CLI can name, by id. */
 export const COUNTER_KITS: Record<string, CounterKit> = {
   cushion1: cushionKit(1),
@@ -245,6 +357,13 @@ export const COUNTER_KITS: Record<string, CounterKit> = {
   thaw1: thawKit(1),
   thaw2: thawKit(2),
   thaw3: thawKit(3),
+  incin1: incinKit(1),
+  incin2: incinKit(2),
+  incin3: incinKit(3),
+  dump: dumpKit,
+  "dump+incin1": combineKits([dumpKit, incinKit(1)]),
+  "dump+incin2": combineKits([dumpKit, incinKit(2)]),
+  "dump+incin3": combineKits([dumpKit, incinKit(3)]),
 };
 
 /** Fold a set of kits into one — the config mutations compose in order, the

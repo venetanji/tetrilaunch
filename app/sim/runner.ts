@@ -44,6 +44,13 @@ export interface BayOutcome {
    *  for the same reason: the money already left the bay's score when the
    *  blast settled. The number a volatile sweep is actually asking about. */
   volatileLosses: number;
+  /** What the INCINERATOR saved this bay (`Game.incineratedFunds`) — the third
+   *  READOUT beside the two above, and the one that totals money that never
+   *  moved. It is the only handle a headless sweep has on a passive positional
+   *  system: nothing else about the hood shows up in a bay's outcome except as
+   *  the absence of a charge, which is indistinguishable from never having been
+   *  charged at all. */
+  incineratedFunds: number;
 }
 
 /**
@@ -98,6 +105,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     bondsLeft: g.bondCharges,
     salvagedFunds: g.salvagedFunds,
     volatileLosses: g.volatileLosses,
+    incineratedFunds: g.incineratedFunds,
   };
 
   g.destroy();
