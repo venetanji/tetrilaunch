@@ -182,7 +182,44 @@ TABLE_LANCE
 
 ## 5. THE CHEAPEST WINNING STRATEGY, WITH A FOURTH LEVER
 
-TABLE_CHEAPEST
+`winnability.ts`'s cheapest-strategy search walked three levers — the loadout
+ladder, the refit stance, the draft — and held a fourth fixed without saying so.
+`--strategies` makes the pilot a dimension of the answer, paired on the same
+seeds, and the search now reports the cheapest clear across every arm and names
+which one found it.
+
+Two `--build` orders exist so the dimension can mean anything: **`liner`**
+(Impact Cushion first) and **`chill`** (Thaw Lance first). No other priority
+order installs either track, so a cushion-aware pilot flown on `spatial` is a
+pilot with no hands — the third time this harness has made that mistake, after
+`demo` on a rig with no charges and `bondHands` on a rig with no emitter.
+
+```sh
+npm run sim:winnability -- --mode cheapest --marks 7 --seeds 3 \
+  --build liner --strategies naive,cushion --policies max:volatile
+```
+
+**Tier 7, `liner` order, `max:volatile` draft, 3 seeds:**
+
+| refit | aim | pts | clears | rig |
+|---|---|---:|---:|---|
+| none | naive | 330 | **1/3** | bay2 lau2 hyd2 rea2 bon2 cus2 |
+| greedy:wide | naive | — | 0/3 | none found |
+| none | cushion | — | 0/3 | none found |
+| greedy:wide | cushion | — | 0/3 | none found |
+
+**This is a null result and it is the one the tool predicted.** `winnability.ts`
+already states why a run cannot price a counter: *"a counter changes the
+physics, the physics changes where every subsequent shipment lands, and ten bays
+of that is a different run — so the wall moves by more than the counter is worth
+and the measurement is swamped by its own leverage."* A strategy is a bigger
+perturbation than a counter, not a smaller one. Three seeds cannot see past it.
+
+So the fourth lever is now **wired and reported**, and the honest statement
+about it is that at this sample size it does not separate — while the same
+strategy at bay level, on the same rig and 96 seeds, is worth +38 wins. The
+resolution lives at the bay. Read §3 for the answer and this section for the
+plumbing.
 
 ## 6. THE INCINERATOR
 
