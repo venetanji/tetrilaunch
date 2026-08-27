@@ -563,17 +563,46 @@ export class InputController {
    *  aim simply stops moving while the cursor is over the plant panel instead
    *  of tracking behind it.
    *
-   *  What IS in here is the state the canvas can be in while still receiving
-   *  moves: a paused bay (the pause card is drawn over a live field), a bay
-   *  whose target is met and is only waiting for the last shipments to settle,
-   *  and a bay with nothing left to fire. All three are cases where an arc
-   *  that follows the cursor would be advertising a shot the bay has already
-   *  refused — Game.shoot's own list, minus the parts that recover by
-   *  themselves (the reload, the launch budget), because an aim is worth
-   *  drawing while you wait for the cooldown and worth drawing while you count
-   *  whether you can afford the next one. */
+   *  What IS in here is every state the canvas can be in while still
+   *  receiving moves AND while Game.shoot has already stopped accepting: a
+   *  paused bay (the pause card is drawn over a live field), and shoot's four
+   *  TERMINAL refusals — target met and settling, clock out, budget spent,
+   *  queue dry. Its other two are deliberately absent, because they come back
+   *  on their own: the reload ticks down by itself, and the price of a launch
+   *  is met by the next payout. An aim is worth drawing while you wait for the
+   *  cooldown, and worth drawing while you count whether you can afford the
+   *  next one. It is not worth drawing for a shot that can never happen.
+   *
+   *  THE CLOCK AND THE BUDGET WERE MISSING (found in review on #126, and the
+   *  first draft of this comment argued for their absence — it filed the
+   *  launch BUDGET with the reload as something that "recovers by itself",
+   *  which is exactly backwards: the budget is the one number in the bay that
+   *  only ever goes down). What that cost is the whole of overtime. Both
+   *  endings keep `status` at "playing" for as long as the press takes to
+   *  converge — update()'s launch-budget and time-up branches wait on
+   *  settleDone, which is many cycles, not a frame — while shoot() has been
+   *  refusing every launch since the instant the clock or the budget hit zero.
+   *  For all of that time the arc went on following the cursor, promising a
+   *  shot the bay had already declined.
+   *
+   *  IT FREEZES THE BARREL, NOT JUST THE ARC, because on this path they are
+   *  one act: the hover's only effect is the aimAt that swings the cannon and
+   *  redraws the dots off it, so refusing the hover refuses both, and a
+   *  cannon that keeps tracking the mouse reads as live whether or not the
+   *  dots move with it. CLICK-AIM IS LEFT EXACTLY AS IT WAS — onDown still
+   *  admits a press during overtime, still swings, and still gets its honest
+   *  nothing from shoot() on release. The two differ because the gestures
+   *  differ: a click is a REQUEST, and answering a request with a refusal is
+   *  information the player asked for. A hover is the game volunteering
+   *  "here is where your next shot goes" when there is no next shot, which is
+   *  the only one of the two that is a lie. Changing the press would also
+   *  change the touch slingshot, which shares onDown/onUp and is not what
+   *  this review found. */
   private hoverAimable(g: Game): boolean {
-    return g.status === "playing" && !g.paused && !g.settling
+    return g.status === "playing" && !g.paused
+      && !g.settling
+      && g.timeLeftMs > 0
+      && g.launchesLeft > 0
       && (g.piecesLeft > 0 || g.bombArmed);
   }
 

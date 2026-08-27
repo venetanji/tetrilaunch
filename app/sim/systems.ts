@@ -9721,6 +9721,66 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     g.status = "playing";
   }
 
+  // OVERTIME, which is the case that does not look like an ending. Both the
+  // clock and the launch budget END A BAY BY CONVERGENCE, not by verdict:
+  // update() leaves `status` at "playing" and waits on settleDone so the
+  // shipments already in the air get to land, get pressed and get paid. That
+  // is many cycles, and for every one of them Game.shoot has already been
+  // refusing — timeLeftMs <= 0 and launchesLeft <= 0 are the second and third
+  // guards it checks. The hover predicate did not check either (found in
+  // review on #126), so the arc went on following the cursor through the whole
+  // of overtime, advertising a launch the bay had declined before the player
+  // moved the mouse.
+  //
+  // Asserted as a PAIR each time — shoot refuses AND the preview stays put —
+  // because the bug was precisely the two disagreeing, and a pin that only
+  // watched the aim would pass just as well against a bay that had quietly
+  // started accepting launches again.
+  {
+    const held = aim();
+    // The shot counter is a record of what the CONTROLLER did; the two calls
+    // below are this pin talking to the Game directly, to establish what
+    // shoot() says at this moment. Put back afterwards so the click pin at the
+    // end of this block still counts from the same zero.
+    const attempts = shots;
+    const clock = g.timeLeftMs;
+
+    g.timeLeftMs = 0;
+    // The precondition, stated rather than assumed: this is a bay that still
+    // calls itself playable. If either of these ever flips, the gap this pin
+    // guards has closed somewhere else and the pin is measuring nothing.
+    check("overtime is still status \"playing\", and not `settling`",
+      g.status === "playing" && !g.settling && !g.paused);
+    check("...but the clock being out already refuses every shot",
+      g.shoot(performance.now()) === false);
+    move(600, 380);
+    frame();
+    check("...so a hover in clock overtime moves neither barrel nor arc", same(held));
+    g.timeLeftMs = clock;
+
+    // The budget's overtime, same shape. launchesLeft is derived from the
+    // level's budget and the shots taken, so it is spent by giving the bay a
+    // budget of one and telling it one has gone.
+    const budget = g.level.launchBudget;
+    const spent = g.shotsFired;
+    g.level.launchBudget = 1;
+    g.shotsFired = 1;
+    check("a spent launch budget refuses every shot too",
+      g.launchesLeft === 0 && g.shoot(performance.now()) === false);
+    move(640, 400);
+    frame();
+    check("...and a hover in budget overtime is refused with it", same(held));
+    g.level.launchBudget = budget;
+    g.shotsFired = spent;
+    shots = attempts;
+
+    // ...and the bay tracks again the moment the refusal lifts, so this is a
+    // gate rather than a one-way latch.
+    move(680, 420);
+    frame();
+    check("a bay that is playable again tracks the cursor again", !same(held));
+  }
+
   // A BAY THAT ENDS BETWEEN THE MOVE AND THE FRAME. The two are up to 16ms
   // apart, and the frame must re-ask rather than spend a cursor position that
   // outlived its bay. This is the case the pump exists to state.
