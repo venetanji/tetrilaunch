@@ -2490,6 +2490,20 @@ class App {
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
       },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
+      },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -2923,6 +2937,7 @@ class App {
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => { void impactHaptic(); playBondBreak(); },
+      onThawLance: () => { void tapHaptic(); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -2979,6 +2994,20 @@ class App {
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -5379,7 +5408,11 @@ class App {
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
     else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
-    else if (a === "thaw") { if (g.useThawLance(performance.now())) telemetry.ability("thaw", g.elapsedMs); }
+    // No telemetry here: the record rides onThawLance (see startLevel), which
+    // every input path reaches. Recording at this one call site was the defect
+    // codex caught on the first push — it counted the rail and the chip and
+    // missed the keyboard and the pad.
+    else if (a === "thaw") g.useThawLance(performance.now());
     else if (a === "cancel") this.input.cancelAim();
   }
 

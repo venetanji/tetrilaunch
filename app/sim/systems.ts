@@ -6045,6 +6045,39 @@ section("THE THAW LANCE — what a charge takes (lineClear.ts / game.ts)");
   // A ship with no lance cannot fire one, however the button is pressed.
   check("a stock rig has no lance", !new Game(makeBaseLevel(0), {}, 7).useThawLance(0));
 
+  /* THE EVENT IS THE ONLY HONEST PLACE TO COUNT A USE, and this pin is here
+   * because the first push of this system got it wrong.
+   *
+   * The lance has FOUR triggers — the rail button, the plant chip, the keyboard
+   * binding and the pad binding — and only the first two go through the DOM.
+   * main.ts recorded the use at that DOM handler, so every keyboard and gamepad
+   * activation went uncounted and any input-profile comparison drawn from the
+   * telemetry would have under-reported the lance on exactly the profiles that
+   * use it most. (Caught in review on 393fb08; the Bond Breaker never had the
+   * bug because it is recorded on onBondBreak.)
+   *
+   * What can be pinned headlessly is the contract that makes the fix possible:
+   * the event fires once per SUCCESSFUL charge and never on a refusal. A
+   * listener wired to it therefore counts uses exactly, from any path — which
+   * is the property main.ts now relies on. Which module calls useThawLance is
+   * not reachable from here, and the comments in input.ts/gamepad.ts say why
+   * they need no record of their own. */
+  {
+    let fired = 0;
+    const armed = { ...makeBaseLevel(0), thawCharges: 1 };
+    const g = new Game(armed, { onThawLance: () => { fired += 1; } }, 9);
+    check("a bay with no target fires no event and spends nothing",
+      !g.useThawLance(0) && fired === 0 && g.thawCharges === 1);
+    g.cubes.push(...lanceRow(["cryo", "standard"]).cubes);
+    check("a landed charge fires the event exactly once",
+      g.useThawLance(0) && fired === 1, String(fired));
+    // The rack is empty now, so the refusal path is exercised with a target
+    // still on the field — the case a naive "fire if a cube is frozen" listener
+    // would miscount.
+    check("...and an empty rack fires nothing, with a target still standing",
+      !g.useThawLance(0) && fired === 1, String(fired));
+  }
+
   // THE HALF THE LANCE DOES NOT BUY. shatterColdCryo is cryo's consequence
   // half, and the design turns on it staying untouched: a rack of six charges
   // is not a bay with no cryo in it. Asserted through the shatter path itself,
