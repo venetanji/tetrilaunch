@@ -33,7 +33,7 @@
  */
 
 import {
-  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost,
+  budgetForMark, buyLoadoutTier, loadoutLegal, MARK_COUNT, newTiers, tiersCost, UPGRADES,
   type UpgradeId, type UpgradeTiers,
 } from "./upgrades";
 
@@ -486,7 +486,25 @@ export function buyInstall(meta: MetaState, id: UpgradeId): MetaState | null {
   // here touches meta.mark, and safeLoadout re-validates at run start.
   const loadout = buyLoadoutTier(meta.loadout, id, markUnlocked(meta));
   if (!loadout) return null;
-  return { ...meta, salvage: meta.salvage - cost, loadout };
+  // A NEW system lands in the SHED when the rack is already full, and the
+  // purchase still goes through. Both halves matter.
+  //
+  // Going through matters because a slot is not an ownership gate (see the
+  // SYSTEM SLOTS header): refusing the sale would make the fifth install
+  // unbuyable rather than unmounted, which is the trap that model was rejected
+  // for. Landing in the shed matters because the alternative is
+  // `mountedIds`'s slice quietly deciding which four of five fly — a rack that
+  // silently drops the thing you just paid for. Stowed, the player is told
+  // where it went and swaps it in themselves.
+  //
+  // Only a track going 0 -> 1 can be stowed by this: an UPRATE of something
+  // already aboard leaves the shed exactly as it was.
+  const isNewInstall = (meta.loadout[id] ?? 0) === 0;
+  const rackFull = mountedIds(meta).length >= slotsFor(meta);
+  const stowed = isNewInstall && rackFull && !(meta.stowed ?? []).includes(id)
+    ? [...(meta.stowed ?? []), id]
+    : (meta.stowed ?? []);
+  return { ...meta, salvage: meta.salvage - cost, loadout, stowed };
 }
 
 export interface MetaState {
@@ -507,8 +525,28 @@ export interface MetaState {
   mark: number;
   /** The permanent loadout — the upgrade tiers a Deep Run STARTS from, bought
    *  against the current Mark's build budget (upgrades.ts's budgetForMark).
-   *  In-run scrap still refits on top of this at the usual stops. */
+   *  In-run scrap still refits on top of this at the usual stops.
+   *
+   *  What is OWNED. What is FLOWN is this masked to the rack — see safeLoadout
+   *  and the SYSTEM SLOTS block above. */
   loadout: UpgradeTiers;
+  /** Slots in the rack: how many owned systems a run may carry (SLOT_BASE up to
+   *  SLOT_CAP, bought with salvage — see buySlot).
+   *
+   *  Read through `slotsFor` rather than directly, which is also what makes the
+   *  field's ABSENCE meaningful: a save written before slots existed has no
+   *  value here, and lib/store.ts's loadMeta grandfathers it to the number of
+   *  systems that save already owns rather than to SLOT_BASE. Nobody's rig
+   *  shrinks on the first launch after an update. */
+  slots: number;
+  /** Systems owned but left in the SHED — not aboard for the next run.
+   *
+   *  THE EXCLUSION, not the inclusion, and that choice is the whole migration:
+   *  an empty shed means "fly everything you own", which is what every save
+   *  written before this field existed did. A `mounted` list would have had to
+   *  be back-filled for every save in the world, and any save it missed would
+   *  have undocked with an empty rack. */
+  stowed: UpgradeId[];
   /** Whether the CURRENT tier's Deep Run has been beaten (reset to false each
    *  time the Mark advances). One half of tier completion — see recordRunEnd. */
   tierRunDone: boolean;
@@ -596,7 +634,8 @@ export function newMeta(): MetaState {
   return {
     salvage: 0, unlocks: [], runs: 0, bestBay: 0, mark: 0,
     tierRunDone: false, tierContracts: 0,
-    loadout: newTiers(), claimedContracts: [], sealedMarks: [],
+    loadout: newTiers(), slots: SLOT_BASE, stowed: [],
+    claimedContracts: [], sealedMarks: [],
     celebratedMark: 0, sealBreakSeen: false, skydeckCelebrated: false,
   };
 }
@@ -764,12 +803,233 @@ export function markBudget(meta: MetaState): number {
   return budgetForMark(markUnlocked(meta));
 }
 
-/** The loadout to actually fly, with an illegal one (a stale save from before a
- *  re-price, or a hand-edited localStorage entry) falling back to stock rather
- *  than being flown as-is. Cheating the budget is the one thing that would make
- *  a Mark clear mean nothing, so it's checked at the point of use. */
+/* -------------------------------------------------------------------------
+ * SYSTEM SLOTS — how many of the systems you own can be ABOARD at once.
+ *
+ * The roster is ten systems and the Workshop will eventually sell all of them.
+ * Owning ten and flying ten are now different things: the rack has a fixed
+ * number of slots, salvage buys more, and which systems occupy the ones you
+ * have is a decision made before every run.
+ *
+ * WHY THE SLOT GATES THE LOADOUT AND NOT THE PURCHASE. The owner's ask —
+ * "limit the amounts of systems a rig can have and pay salvage to get more
+ * system slots" — reads two ways, and only one of them is a decision.
+ *
+ *  - GATING OWNERSHIP (the Workshop refuses an eleventh purchase) makes every
+ *    install irreversible and unbuyable-back. A player who bought the Thaw
+ *    Lance before meeting a volatile tier would be locked out of the Impact
+ *    Cushion by a purchase made three tiers earlier with no way to know. That
+ *    is not an identity, it is a trap; and it duplicates the build budget's
+ *    job — capping how strong a rig may be — at the one layer DESIGN.md says
+ *    salvage must never touch ("Contracts unlock what you may spend it on.
+ *    Only beating Mark N raises the budget").
+ *  - GATING THE LOADOUT costs nothing already paid for. Everything you own
+ *    stays owned; what a slot rations is how many answers you can carry INTO
+ *    one run. Choosing four of ten before a cryo-heavy tier is a real decision
+ *    with a real cost and no permanent loser, and it is where "rigs that can
+ *    have certain systems and not others" starts.
+ *
+ * SLOTS CANNOT OUTRUN THE MARK, which is the invariant that makes them safe to
+ * sell for a grindable currency. A mounted rig is a SUBSET of the owned one, so
+ * `tiersCost(mounted) <= tiersCost(owned) <= budgetForMark(mark)` by
+ * construction: a slot can only ever move a rig back UP toward the ceiling the
+ * Mark already granted, never past it. Salvage still buys which systems exist
+ * to spend budget on; the Mark still caps how much can be spent at all.
+ *
+ * WHAT A SLOT IS WORTH, and why the ladder is priced the way it is, is
+ * `SLOT_PRICES`. What a slot COSTS in bays is measured, not asserted — see
+ * design/balance/system-slots.md.
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Slots a rig starts with.
+ *
+ * MEASURED, at the width where the ladder is still survivable and the choice is
+ * already real (design/balance/system-slots.md §2). The short version: four is
+ * the narrowest rack that reaches bay 10 at every Tier measured, and it is one
+ * narrower than the rig every existing balance table in design/balance/ was
+ * flown on — `builds.ts`'s priority orders run five to seven tracks, so the
+ * record this design has to not break is itself a five-slot record.
+ *
+ * It is also the width at which the mount decision first BITES rather than
+ * being free: the Workshop's ceiling is `slots x 55` ladder points against a
+ * budget of `110 x mark`, so a four-slot rack spends its whole allowance
+ * through Mark 2 and starts leaving points on the table at Mark 3 — which is
+ * exactly the tier where the shelf first has more systems on it than a new
+ * player has salvage for.
+ */
+export const SLOT_BASE = 4;
+
+/**
+ * The widest rack there is.
+ *
+ * Ten because the roster is ten and the owner's standing ruling is that "for
+ * now we leave the endgame to max out all the systems" — the last slot has to
+ * be able to hold the last system. It is ALSO the widest rack the device matrix
+ * fits: app.css's compact clamp records that ten plates at 19px against an
+ * iPhone 13 mini's 209px "ends the clamp… there is no growth left in it".
+ *
+ * Those two facts are equal today and are not the same fact, which is the whole
+ * point of stating both. When an eleventh system lands, the roster grows and
+ * this does not: the rack stays ten slots wide, the eleventh system competes
+ * for one of them, and that is the "different rack" PR #156 asked for — the
+ * rack is sized by the RIG, not by the catalogue. Nothing here needs to change
+ * for that to happen, which is why nothing pins the two together.
+ */
+export const SLOT_CAP = 10;
+
+/**
+ * What the 5th, 6th … SLOT_CAP-th slot costs in salvage.
+ *
+ * PRICED IN THE SHELF'S OWN CURRENCY, which INSTALLS states as days: "30 is
+ * most of a tier's contracts, 50 is a tier, 70 is a tier plus its run win". A
+ * tier pays 60 (TIER_SALVAGE_BASE), so the ladder below reads
+ *
+ *   50   a tier                 the fifth slot
+ *   70   a tier and its win     the sixth
+ *   100  most of two tiers      the seventh
+ *   140  more than two          the eighth
+ *   180  three                  the ninth
+ *   240  four                   the tenth
+ *
+ * ESCALATING, because each slot is worth less than the one before it and a flat
+ * price would be a worse deal every rung. The measurement says so in bays:
+ * widening a rack from 4 to 6 is worth about as much as widening it from 6 to
+ * 10 (design/balance/system-slots.md §3), so the back half of the ladder has to
+ * charge more for less or the last slots would be the obvious buy.
+ *
+ * 780 IN TOTAL, AGAINST 600 OF LADDER INCOME, and that inequality is the
+ * feature rather than an oversight. The ten-tier ladder pays 600 once; the
+ * shelf it has to cover is already 575 (INSTALLS' own arithmetic), which left
+ * "25 of slack… the eleventh needs the re-price or the second income that note
+ * asked for". This is the second income's other half: a full rack is NOT
+ * affordable inside one climb of the ladder, and it is not meant to be. It is
+ * what the endgame faucet — a finished ladder still paying 60 a cycle for three
+ * Contracts and a run win (advanceTier at MARK_COUNT) — finally has to buy.
+ * Thirteen cycles for the whole thing, and the first two slots inside the climb.
+ */
+export const SLOT_PRICES: readonly number[] = [50, 70, 100, 140, 180, 240];
+
+/** Slots the save actually has, clamped. Read through this rather than off the
+ *  field: `meta.slots` round-trips through localStorage like everything else
+ *  here, and a rack of -3 or of 40 must read as a rack. */
+export function slotsFor(meta: MetaState): number {
+  const n = Number.isFinite(meta.slots) ? Math.floor(meta.slots) : SLOT_BASE;
+  return Math.max(SLOT_BASE, Math.min(SLOT_CAP, n));
+}
+
+/** Salvage price of the NEXT slot for a rig that has `slots`, or null at the
+ *  cap. Indexed off SLOT_BASE so the ladder is stated once and a re-based rack
+ *  cannot silently re-price it. */
+export function slotPrice(slots: number): number | null {
+  const i = Math.max(SLOT_BASE, Math.min(SLOT_CAP, Math.floor(slots))) - SLOT_BASE;
+  return i < SLOT_PRICES.length ? SLOT_PRICES[i] : null;
+}
+
+/** Buy one more slot. Null when the rack is already at the cap or the salvage
+ *  is short. Never mutates.
+ *
+ *  Deliberately UNGATED by Mark, unlike every install past the on-ramp. A slot
+ *  grants no power on its own — it is room for a system the player has already
+ *  bought against the Mark's own budget — so gating it would be gating the
+ *  same purchase twice. The monetization invariant survives because of the
+ *  subset argument in the header: a wider rack cannot fly a rig the Mark has
+ *  not already paid for. */
+export function buySlot(meta: MetaState): MetaState | null {
+  const price = slotPrice(slotsFor(meta));
+  if (price === null || meta.salvage < price) return null;
+  return { ...meta, salvage: meta.salvage - price, slots: slotsFor(meta) + 1 };
+}
+
+/** Every system the player OWNS, in rack order (UPGRADES). */
+export function ownedTracks(meta: MetaState): UpgradeId[] {
+  return UPGRADES.filter((u) => (meta.loadout[u.id] ?? 0) > 0).map((u) => u.id);
+}
+
+/**
+ * The systems actually ABOARD — what a run flies and what the rack draws.
+ *
+ * Owned, minus whatever is in the shed, capped at the slot count. The cap is a
+ * `slice` rather than a validation error on purpose: `stowed` round-trips
+ * through localStorage, so "owned six, stowed none, four slots" is a state a
+ * hand-edited save can reach and a state an OLD BUILD's save reaches honestly.
+ * Both have to fly something sensible, and rack order is the one answer that is
+ * the same on every device and every load.
+ *
+ * Kept ordered by UPGRADES rather than by when the player mounted them, for the
+ * reason shipPlatesHTML gives for fixed slots: "a readout whose items move is
+ * one the eye has to re-find rather than glance at".
+ */
+export function mountedIds(meta: MetaState): UpgradeId[] {
+  const shed = new Set(meta.stowed ?? []);
+  return ownedTracks(meta).filter((id) => !shed.has(id)).slice(0, slotsFor(meta));
+}
+
+/** Owned but not aboard — the shed. Derived from mountedIds rather than from
+ *  `stowed` directly, so a system the slice dropped reads as stowed on every
+ *  surface instead of appearing owned-and-flying on one and missing on another. */
+export function stowedIds(meta: MetaState): UpgradeId[] {
+  const aboard = new Set(mountedIds(meta));
+  return ownedTracks(meta).filter((id) => !aboard.has(id));
+}
+
+/** True when `id` is aboard. */
+export function isMounted(meta: MetaState, id: UpgradeId): boolean {
+  return mountedIds(meta).includes(id);
+}
+
+/**
+ * Move one owned system between the rack and the shed.
+ *
+ * Returns null when the move is impossible: the system is not owned, or the
+ * rack is full and this would be an eleventh thing in ten slots. A FULL RACK
+ * REFUSES rather than evicting something to make room — the evicted system
+ * would be chosen by this function and not by the player, which is the one
+ * thing a loadout screen must never do.
+ *
+ * `stowed` is written as the EXCLUSION rather than the inclusion, and that is
+ * what makes this feature free to ship over every existing save: a save with no
+ * shed flies everything it owns, which is exactly what it flew yesterday.
+ */
+export function toggleMount(meta: MetaState, id: UpgradeId): MetaState | null {
+  if ((meta.loadout[id] ?? 0) <= 0) return null;
+  const shed = (meta.stowed ?? []).filter((s) => s !== id);
+  if (isMounted(meta, id)) return { ...meta, stowed: [...shed, id] };
+  if (mountedIds(meta).length >= slotsFor(meta)) return null;
+  return { ...meta, stowed: shed };
+}
+
+/** `tiers` with everything not in `aboard` set to 0 — the rig a run actually
+ *  gets.
+ *
+ *  A MASK RATHER THAN A DELETE, and the difference is what keeps the rest of
+ *  the game from having to learn that slots exist. A stowed system reads as
+ *  tier 0 everywhere downstream, which is already the vocabulary for "the ship
+ *  does not carry this": run.ts's buyUpgrade refuses to raise a tier-0 track,
+ *  so a refit stop cannot sell scrap rungs on a system that is not aboard;
+ *  applyUpgrades skips it, so it grants nothing; and the rack draws it dark.
+ *  Not one of those three had to be taught the rule. */
+export function maskLoadout(tiers: UpgradeTiers, aboard: readonly UpgradeId[]): UpgradeTiers {
+  const set = new Set(aboard);
+  const out = newTiers();
+  for (const u of UPGRADES) out[u.id] = set.has(u.id) ? Math.max(0, tiers[u.id] ?? 0) : 0;
+  return out;
+}
+
+/** The loadout to actually fly: the owned tiers MASKED to what is aboard, with
+ *  an illegal one (a stale save from before a re-price, or a hand-edited
+ *  localStorage entry) falling back to stock rather than being flown as-is.
+ *  Cheating the budget is the one thing that would make a Mark clear mean
+ *  nothing, so it's checked at the point of use.
+ *
+ *  Legality is asked of the OWNED loadout, not of the masked one, and that
+ *  ordering is deliberate: masking only ever removes tiers, so a masked rig is
+ *  never more expensive than the rig it came from. Asking the mask would let a
+ *  hand-edited over-budget save fly, simply by stowing enough of itself to duck
+ *  under the cap. */
 export function safeLoadout(meta: MetaState): UpgradeTiers {
-  return loadoutLegal(meta.loadout, markUnlocked(meta)) ? { ...meta.loadout } : newTiers();
+  if (!loadoutLegal(meta.loadout, markUnlocked(meta))) return newTiers();
+  return maskLoadout(meta.loadout, mountedIds(meta));
 }
 
 /* -------------------------------------------------------------------------

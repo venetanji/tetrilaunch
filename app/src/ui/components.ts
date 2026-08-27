@@ -425,27 +425,39 @@ export function btn(action: string, label: string, variant = "secondary", extra 
 }
 
 /**
- * Compact ship-refit readout for the HUD: one small plate per system, tier as
- * pips, in UPGRADES order.
+ * Compact ship-refit readout for the HUD: one small plate per SLOT, tier as
+ * pips, mounted systems in UPGRADES order followed by the open slots.
  *
- * EVERY track renders, installed or not — the rack is the ship's full slate of
- * systems and an empty slot is information ("nothing in the magazine yet"), not
- * an absence. It used to filter to bought tracks only, on the reasoning that a
- * stock ship should show nothing rather than seven empty plates, and that reads
- * well for exactly one moment: the start of a run, before there is anything to
- * compare against. What it cost was every moment after. The rack re-flowed on
- * each purchase — a refit inserted a plate in UPGRADES order, so buying the
- * Magazine pushed Reactor, Bonds and Demolition sideways — and a readout whose
- * items move is one the eye has to re-find rather than glance at. The player
- * also could not see what they had NOT built, which is half of what a build
- * readout is for at a refit stop.
+ * THE RACK IS THE RIG NOW, NOT THE CATALOGUE, and that is the change PR #156
+ * asked for in as many words. Every track used to render, installed or not, on
+ * the reasoning that an unbought plate is information ("nothing in the magazine
+ * yet"). That reasoning was right while the roster and the rack were the same
+ * object; it stopped being right when the roster reached ten and the stylesheet
+ * had to record that proportional shaving was finished — "the eleventh system
+ * needs a different rack".
  *
- * Fixed slots make both work: the rack is the same eight positions from the
- * first bay to the last, each one either lit or waiting, and a purchase lights
- * a plate where the player was already looking. All of them fit the panel
- * without scrolling on every device in the matrix (see app.css's .ship-plate
- * and sim/uifit) — which is the constraint the fixed count has to earn, and the
- * EIGHTH is what made the plate pay for it a second time.
+ * A slot-limited rack IS that different rack. The row's width is now the RIG's
+ * slot count (game/meta.ts's SLOT_BASE..SLOT_CAP) instead of `UPGRADES.length`,
+ * so the roster is free to grow past ten without the row growing at all — the
+ * eleventh system competes for a slot rather than for 19 more pixels on an
+ * iPhone 13 mini. And at every width below the cap the row gets AIR back: a
+ * four-slot rack is four plates where the same panel was drawing ten.
+ *
+ * WHAT SURVIVES from the fixed-slot argument, because it is the half that was
+ * never about the count. The rack must not RE-FLOW mid-run — "a readout whose
+ * items move is one the eye has to re-find rather than glance at" — and it
+ * cannot: the mounted set is fixed at undock (meta.ts's safeLoadout masks the
+ * loadout once, and run.ts's buyUpgrade refuses to install at a refit stop), so
+ * a purchase at the yard lights a pip on a plate that was already there.
+ *
+ * AN OPEN SLOT IS STILL INFORMATION, and better information than the old empty
+ * plate was. That one named a system the player had not bought; this one says
+ * the rig has room, which is a thing they can act on before the next undock.
+ *
+ * `slots` is a FLOOR on the width, never a cap: the row draws every mounted
+ * system whatever it says, and only the trailing open slots come from it. So
+ * the worst this argument can be wrong about is a missing empty box — the rack
+ * can never hide a system the rig is carrying. sim/systems.ts pins that.
  *
  * WHY THE PLATE WEARS THE TRACK'S ICON AND NOT ITS THREE-LETTER CODE. Seven
  * codes fit; eight did not, by 17px on the tightest phone and 29px on a tablet
@@ -488,7 +500,7 @@ export function btn(action: string, label: string, variant = "secondary", extra 
  *  constraint on a screen that does not have one. */
 const PLATE_MARK_PX = 11;
 
-export function shipPlatesHTML(tiers: UpgradeTiers): string {
+export function shipPlatesHTML(tiers: UpgradeTiers, slots = 0): string {
   // ONE BLOCK, not N siblings of the ability chips, and that is how the NINTH
   // slot is paid for. The rack is a single readout — "what I have built" — and
   // the chips beside it are controls; at seven slots the row could afford to
@@ -502,24 +514,36 @@ export function shipPlatesHTML(tiers: UpgradeTiers): string {
   // three ability chips beside a full rack — was 18px short. Eight gaps at
   // 4.03px became eight at 2px, which is 16px, and the compact clamp below it
   // pays the rest.
-  const plates = UPGRADES.map((u) => {
+  // ABOARD is "tier > 0", which is the same test the rest of the run already
+  // uses for "the ship carries this" (run.ts's buyUpgrade refuses to raise a
+  // tier-0 track). Nothing here has to know what a slot is — meta.ts's
+  // safeLoadout has already masked the stowed systems to 0 on the way into the
+  // run, so a rack drawn from the tiers is the rack the rig undocked with.
+  const aboard = UPGRADES.filter((u) => (tiers[u.id] ?? 0) > 0);
+  const plates = aboard.map((u) => {
     const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
     const pips = Array.from({ length: MAX_TIER }, (_, i) =>
       `<i class="${i < tier ? "on" : ""}"></i>`,
     ).join("");
-    // The empty state is a MODIFIER on the same box, not a different element:
-    // the slot has to occupy exactly the space its installed self will, or the
-    // rack moves the moment the track is bought and the fixed slots buy
-    // nothing.
-    const empty = tier === 0 ? " ship-plate--empty" : "";
-    const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — tier ${tier}`;
     // The id IS the icon name, the convention every other track surface uses
     // (icons.ts's note on the upgrade block, and refitScreen's card header,
     // which casts at the call site exactly like this).
-    return `<div class="ship-plate${empty}" title="${title}">
+    return `<div class="ship-plate" title="${u.name} — tier ${tier}">
         <span class="ship-plate__g">${icon(u.id as IconName, PLATE_MARK_PX)}</span>
         <span class="ship-plate__pips">${pips}</span>
       </div>`;
   }).join("");
-  return `<div class="ship-rack">${plates}</div>`;
+  // The trailing OPEN slots. Clamped to the cap at the top and to what is
+  // already aboard at the bottom, so the width is a floor rather than a
+  // truncation (see the header) and no arithmetic here can draw a negative
+  // number of boxes.
+  const width = Math.min(UPGRADES.length, Math.max(aboard.length, Math.floor(slots)));
+  // The same box, drained, and carrying NO mark — which is the one way this
+  // differs from the old unbought plate. That one wore the glyph of the system
+  // the player had not bought yet, because the slot WAS that system's slot. An
+  // open slot belongs to no system, so a mark on it would be naming one
+  // arbitrarily; the box itself is the whole message.
+  const open = `<div class="ship-plate ship-plate--open" title="Open slot — nothing mounted"></div>`
+    .repeat(Math.max(0, width - aboard.length));
+  return `<div class="ship-rack">${plates}${open}</div>`;
 }

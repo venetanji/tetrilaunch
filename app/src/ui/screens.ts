@@ -16,6 +16,7 @@ import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
   tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
+  mountedIds, stowedIds, slotPrice, slotsFor, SLOT_CAP,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -1913,6 +1914,15 @@ export function hudHTML(opts: {
    *  rack would be ugly in a Contract: main.ts's hudOpts passes `{}` there,
    *  so every plate would be permanently empty. */
   tiers: UpgradeTiers;
+  /** How many SLOTS the rig's rack has (game/meta.ts's slotsFor) — the width
+   *  the row draws, filled with the mounted systems and then with open boxes.
+   *
+   *  A FLOOR rather than a count: `shipPlatesHTML` draws every mounted system
+   *  whatever this says and only the trailing open slots come from it, so the
+   *  worst a wrong value here can do is draw one empty box too few. Defaulted
+   *  and optional for that reason, and because the two surfaces that pass no
+   *  rack at all — a Contract and a Drill — have no rig to have slots. */
+  slots?: number;
   /** The run's tier, for the bay banner's plate (canvas A4). Null in
    *  Contract mode, whose banner names the Contract instead. */
   tier?: number | null;
@@ -2024,6 +2034,7 @@ export function hudHTML(opts: {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
     thawOwned, thawCharges, tier, loaded, contract, drill, fullscreenSupported = true,
+    slots = 0,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -2126,7 +2137,7 @@ export function hudHTML(opts: {
     : "";
   // The ship rack is a Deep Run readout. See the build row below for why a
   // Contract does not get one.
-  const plates = contract || drill ? "" : shipPlatesHTML(tiers);
+  const plates = contract || drill ? "" : shipPlatesHTML(tiers, slots);
   // BAY BANNER — the run position, top-center of the field. Playtest feedback:
   // "Bay 1/10" as small muted text inside the plant title read as part of the
   // level name, so players didn't know they were 1 bay into a 10-bay run. The
@@ -3283,6 +3294,12 @@ export function workshopScreen(meta: MetaState): string {
   // is what left budgetForMark with nothing to gate — 140 points of reachable
   // loadout against a budget that climbs to 880.
   const onShelf = (i: InstallDef): boolean => (meta.loadout[i.id] ?? 0) < UPRATE_MAX_TIER;
+  // HONEST COPY FOR A SYSTEM THAT CANNOT MOUNT YET. A full rack does not refuse
+  // the sale (meta.ts's buyInstall says why), so nothing on the card is
+  // disabled and nothing else on screen would tell the player their new system
+  // is going straight into the shed. This sentence is the whole difference
+  // between a purchase and a surprise.
+  const rackFull = mountedIds(meta).length >= slotsFor(meta);
   const nextId = INSTALLS.filter(onShelf)
     .filter((i) => installAvailable(meta, i) && meta.salvage >= uprateCost(i))
     .sort((a, b) => uprateCost(a) - uprateCost(b))[0]?.id;
@@ -3307,7 +3324,8 @@ export function workshopScreen(meta: MetaState): string {
         <div class="shop-card__name">${icon(i.id as IconName, 13)}${def.name}${i.id === nextId ? nextBadgeHTML() : ""}</div>
         <p class="shop-card__desc">${def.blurb} ${
           owned === 0
-            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.`
+            ? `Installs at tier 1; the Workshop raises it to ${UPRATE_MAX_TIER}, refit stops to ${MAX_TIER}.${
+                rackFull ? " The rack is full — this one waits in the shed until you free a slot or buy one." : ""}`
             : `Owned at tier ${owned}. Tier ${MAX_TIER} is scrap, at a refit stop.`
         }</p>
       </div>
@@ -3315,6 +3333,75 @@ export function workshopScreen(meta: MetaState): string {
     </div>`;
     })
     .join("");
+
+  /* ---- The rack ----------------------------------------------------------
+   * WHAT A RUN CARRIES, and the one screen where that is a decision.
+   *
+   * It sits ABOVE the shelf and inside the scroller, and both placements are
+   * arguments rather than defaults.
+   *
+   * Above, because it is what the shelf is FOR. The Workshop's whole ordering
+   * rule is "lead with the decision you came here to make" (see the owned-
+   * collapse note above), and once a player owns more systems than they can
+   * mount, which four fly is a bigger decision than which fifth to buy — it is
+   * remade before every run, where a purchase is made once.
+   *
+   * Inside the scroller rather than pinned in the aside beside the build
+   * budget, because the two constraints do different things to the shelf. The
+   * budget GREYS CARDS — it is the usual reason a purchase is refused, so
+   * scrolling it away from the cards it explains would be the one thing this
+   * pane must not do (the aside's own note). A full rack refuses nothing: the
+   * purchase still goes through and the system lands in the shed
+   * (meta.ts's buyInstall). A constraint that never disables a button does not
+   * need to be pinned beside the buttons.
+   */
+  const slots = slotsFor(meta);
+  const aboard = mountedIds(meta);
+  const shed = stowedIds(meta);
+  const nextSlot = slotPrice(slots);
+  // ONE CONTROL PER SYSTEM, and it is the same control in both rows: tap to
+  // move it across. The refit yard settled this idiom for the same reason
+  // (upgrades.ts's clearTrack — "the tap floor leaves room for one"), and here
+  // it also means the shed is not a second kind of thing to learn; it is the
+  // rack's other half.
+  const slotBtn = (id: string, on: boolean): string => {
+    const def = upgradeById(id)!;
+    const tier = Math.min(MAX_TIER, meta.loadout[id as keyof UpgradeTiers] ?? 0);
+    const pips = Array.from({ length: MAX_TIER }, (_, i) =>
+      `<i class="${i < tier ? "on" : ""}"></i>`).join("");
+    return `<button class="rack-slot${on ? "" : " rack-slot--shed"}" data-action="mount" data-mount="${id}"
+      title="${def.name} — tier ${tier}. ${on ? "Aboard; tap to stow." : "In the shed; tap to mount."}"
+      aria-label="${def.name}, ${on ? "aboard" : "in the shed"}">
+      <span class="rack-slot__g">${icon(id as IconName, 15)}</span>
+      <span class="ship-plate__pips">${pips}</span>
+    </button>`;
+  };
+  // An OPEN slot is a button too, and a disabled one — not a bare div. It is
+  // the target a player's thumb goes for after tapping something in the shed,
+  // and a control that is sometimes an element and sometimes not is a row that
+  // re-flows under the finger.
+  const openSlots = `<span class="rack-slot rack-slot--open" aria-hidden="true"></span>`
+    .repeat(Math.max(0, slots - aboard.length));
+  const slotFoot = nextSlot === null
+    ? `<span class="rack__full">every slot bought</span>`
+    : `<button class="btn btn--primary" data-action="buy-slot"${meta.salvage >= nextSlot ? "" : " disabled"}>+1 slot<span class="price__sep">·</span>${icon("salvage", 11)}${nextSlot}</button>`;
+  const rackHTML = `<section class="rack">
+      <div class="rack__hdr">
+        <span class="workshop__aside-label">rack</span>
+        <span class="rack__count">${aboard.length}<span class="price__sep">/</span>${slots} slots${slots < SLOT_CAP ? "" : " · full width"}</span>
+        ${slotFoot}
+      </div>
+      <div class="rack__row">${aboard.map((id) => slotBtn(id, true)).join("")}${openSlots}</div>
+      ${shed.length
+        ? `<div class="rack__shed"><span class="rack__shed-label">shed</span>${
+            shed.map((id) => slotBtn(id, false)).join("")}</div>`
+        : ""}
+      <p class="rack__note muted">${
+        shed.length
+          ? "Systems in the shed keep every tier you paid for — they just don't undock. A refit stop can only raise what is aboard."
+          : "Every system you own is aboard. Buy a slot before the roster outgrows the rack."
+      }</p>
+    </section>`;
 
   const installedStrip = INSTALLS.filter((i) => (meta.loadout[i.id] ?? 0) > 0)
     .map((i) => `<span class="workshop__owned-item">${upgradeById(i.id)!.name} ${"I".repeat(Math.min(MAX_TIER, meta.loadout[i.id] ?? 0))}</span>`)
@@ -3392,7 +3479,7 @@ export function workshopScreen(meta: MetaState): string {
       }</div>
       <div class="workshop__body">
         ${aside}
-        <div class="workshop__shop" data-scroll>${
+        <div class="workshop__shop" data-scroll>${rackHTML}${
           shelfEmpty
             ? `<p class="muted" style="margin:0">Every system your tier allows is installed. Complete this tier to open the next one.</p>`
             : `<div class="workshop__grid">${shelf}</div>`

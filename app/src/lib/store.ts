@@ -1,7 +1,9 @@
 // Small persisted settings + player-name + meta-progression store (localStorage).
 import { BOARD_SANDBOX, type BoardId } from "./api";
-import { newMeta, refundRetiredUnlocks, type MetaState } from "../game/meta";
-import { newTiers, type UpgradeTiers } from "../game/upgrades";
+import {
+  newMeta, ownedTracks, refundRetiredUnlocks, SLOT_BASE, SLOT_CAP, type MetaState,
+} from "../game/meta";
+import { newTiers, type UpgradeId, type UpgradeTiers } from "../game/upgrades";
 
 export interface Settings {
   sound: boolean;
@@ -275,6 +277,36 @@ export function loadMeta(): MetaState {
       }
       meta.loadout = tiers;
     }
+    /* THE RACK, and the one migration in this file that hands something out.
+     *
+     * `slots` is read AFTER the loadout above, because the grandfather rule is
+     * a function of it. Like `celebratedMark`, the field's ABSENCE cannot be
+     * allowed to read as its default: a save written before slots existed flew
+     * every system it owned, and defaulting it to SLOT_BASE would confiscate
+     * the fifth, sixth and seventh system a player had already paid salvage
+     * for. So a save that predates the field gets a slot for every system it
+     * owns — its rig is byte-identical to the one it undocked with yesterday,
+     * which is the whole promise (meta.ts's SYSTEM SLOTS header, and
+     * sim/systems.ts pins it as an equality against the pre-slot rig).
+     *
+     * It is a ONE-TIME migration and not a floor: the value is written back on
+     * the next save, so buying an eighth system later does not quietly hand out
+     * an eighth slot with it. A rig grandfathered at six pays SLOT_PRICES for
+     * the seventh exactly like everybody else.
+     *
+     * `stowed` needs no migration at all, which is the point of storing the
+     * SHED rather than the rack (meta.ts's field note): absent reads as empty
+     * reads as "fly everything you own". It gets the same fail-closed
+     * validation as every other list here — a corrupt value stows nothing,
+     * which flies MORE systems rather than fewer, and the slot count is still
+     * enforced at the point of use by mountedIds. */
+    const rawSlots = (raw as Record<string, unknown>).slots;
+    meta.slots = typeof rawSlots === "number" && Number.isFinite(rawSlots)
+      ? Math.max(SLOT_BASE, Math.min(SLOT_CAP, Math.floor(rawSlots)))
+      : Math.max(SLOT_BASE, Math.min(SLOT_CAP, ownedTracks(meta).length));
+    if (!Array.isArray(meta.stowed)) meta.stowed = [];
+    meta.stowed = meta.stowed.filter((s): s is UpgradeId =>
+      typeof s === "string" && s in meta.loadout);
     // Last: hand back the salvage any RETIRED unlock took (meta.ts's note on
     // UnlockDef.retired — the mod-pool cards sold no-ops once the hazard
     // ratchet replaced the modifier draft). Pure and idempotent, so a save
