@@ -6,6 +6,37 @@ import { SIZE_SPEC } from "./pieces";
 import { BeltSchedule } from "./belt";
 import type { LevelConfig } from "./level";
 
+/**
+ * ONE 60Hz FRAME, in ms — the unit Cannon's nudge steps are authored in.
+ *
+ * `angle + 0.035` and `power + 0.4` were tuned as per-frame amounts on a 60Hz
+ * display, back when every held control charged one step per rendered frame.
+ * That made the trim rate a property of the PANEL: the same pinned stick
+ * crossed the whole aim cone in a second at 60Hz and in half of one at 120Hz.
+ * A control whose speed depends on the screen it is drawn to is not a tuned
+ * control, so the held paths charge TIME and divide it by this. At a 16.667ms
+ * cadence the quotient is 1 and every nudge is exactly the step it always was,
+ * to the bit.
+ *
+ * Lives here rather than in either caller because it is a property of the
+ * STEP, not of the device driving it — gamepad.ts's dials and input.ts's held
+ * keys must scale by the same number or the two devices drift apart, which is
+ * the one thing sharing the step constant exists to prevent.
+ */
+export const NUDGE_FRAME_MS = 1000 / 60;
+/**
+ * The longest gap a single tick may charge a held control for.
+ *
+ * A backgrounded tab, a garbage-collection stall or a tabbed-away TV hands the
+ * next timestamp seconds after the last one, and an unclamped dt would spend
+ * all of it in one step — the player comes back to a barrel pinned at the cone
+ * limit by a key or a stick they were merely still holding. Six frames' worth
+ * is long enough that ordinary jank is charged honestly (nothing a 120Hz
+ * display does comes close) and short enough that the worst case is a nudge
+ * that can be watched happening rather than a jump that can only be undone.
+ */
+export const NUDGE_MAX_STEP_MS = 100;
+
 // Launch speeds in px/step (matter velocity units). Drag distance maps here.
 export const SPEED_MIN = 9;
 // 28, not 26: reach analysis (sim/ tuning) showed max-power landings topped
@@ -252,22 +283,23 @@ export class Cannon {
   aimDown() { this.angle = Math.max(-AIM_CONE, this.angle - 0.035); }
   powerUp() { this.power = Math.min(this.speedMax, this.power + 0.4); }
   powerDown() { this.power = Math.max(this.speedMin, this.power - 0.4); }
-  /** Analog variants of the four nudges above, for the gamepad's rate dials
-   *  (gamepad.ts): the same per-frame steps the keyboard takes, scaled by
-   *  stick deflection (-1..1) so a half-tilt trims at half rate. Sharing the
-   *  step constant is the point — a pinned stick and a held key move the
-   *  barrel at exactly the same speed, so switching devices never re-teaches
-   *  the hand.
+  /** Analog variants of the four nudges above — the rate path BOTH held
+   *  controls now take: the gamepad's stick dials (gamepad.ts) and the
+   *  keyboard's held aim/power keys (input.ts's tickKeys). Same per-frame
+   *  steps the discrete nudges take, scaled by `f`. Sharing the step constant
+   *  is the point — a pinned stick and a held key move the barrel at exactly
+   *  the same speed, so switching devices never re-teaches the hand.
    *
-   *  `f` IS NO LONGER JUST THE DEFLECTION. The poller multiplies it by the
-   *  elapsed frames since its last poll, so the factor can exceed 1 on a
-   *  stalled frame and sits below 1 on anything faster than 60Hz — which is
-   *  why both clamp rather than assume a bounded input. The equivalence above
-   *  is therefore exact at 60Hz and, on a faster display, the KEYBOARD is now
-   *  the one that drifts: input.ts's tickKeys still charges a whole step per
-   *  rAF, so a held W trims twice as fast on a 120Hz panel as on a 60Hz one.
-   *  Same bug, same fix, different module — left for its own change rather
-   *  than smuggled in with the pad's. */
+   *  `f` IS NOT A DEFLECTION, it is a deflection times ELAPSED FRAMES
+   *  (NUDGE_FRAME_MS). Both callers multiply by the time since their last
+   *  tick, so the factor exceeds 1 on a stalled frame and sits below 1 on
+   *  anything faster than 60Hz — which is why both methods clamp rather than
+   *  assume a bounded input. A held key passes a deflection of exactly 1 and
+   *  is therefore the same trim rate on a 60Hz phone and a 120Hz TV, which it
+   *  was not until this took the keyboard over: tickKeys used to charge a
+   *  whole step per rAF, so a held W trimmed twice as fast on a 120Hz panel.
+   *  The pad was fixed first and this comment carried the keyboard's half as a
+   *  known defect; it is now closed on the same terms. */
   nudgeAngle(f: number) {
     this.angle = Math.max(-AIM_CONE, Math.min(AIM_CONE, this.angle + 0.035 * f));
   }

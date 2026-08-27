@@ -1,5 +1,7 @@
 import Matter from "matter-js";
-import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
+import {
+  CELL, WALL_INNER, WORLD, createPhysics, markPrevStep, stepPhysics, type PhysicsWorld,
+} from "./engine";
 import {
   AIM_CONE, AIM_LOFT_DEFAULT, CANNON, Cannon, predictTrajectory, solveAimForTarget,
 } from "./cannon";
@@ -1513,8 +1515,49 @@ export class Game {
     this.liveBombs.push({ body, bornStep: this.stepCount });
   }
 
+  /**
+   * COLLAPSE THE INTERPOLATION WINDOW — every drawn body's previous transform
+   * becomes its current one, so the next frame draws the world exactly as it
+   * stands whatever alpha it is handed.
+   *
+   * For whoever zeroes the accumulator on a bay that is ALREADY RUNNING, which
+   * in practice means resuming from a pause (main.ts's resume). alpha 0 means
+   * "one step ago", and one step ago is not where a paused bay was left — the
+   * frames under the pause card were drawn part-way through a step, and
+   * arriving back at 0 would walk everything in flight backwards by the
+   * remainder before it moved on again. A few px for a single frame, but on
+   * exactly the beat the player is looking for the bay to resume.
+   *
+   * Not needed where the accumulator is zeroed for a NEW bay: its cubes are
+   * new objects that have never been marked, and Compactor.reset marks its own.
+   */
+  collapseStepWindow(): void {
+    for (const cube of this.cubes) markPrevStep(cube.body);
+    for (const bomb of this.liveBombs) markPrevStep(bomb.body);
+    markPrevStep(this.compactor.body);
+  }
+
   update(now: number): void {
     if (this.status !== "playing") return;
+
+    // INTERPOLATION'S ANCHOR (engine.ts's markPrevStep). Every body the
+    // renderer draws records where it is before this step moves it, so a
+    // display refreshing faster than the 60Hz simulation can paint the frames
+    // between two steps at two different places instead of twice at the same
+    // one.
+    //
+    // FIRST THING IN THE STEP, ahead of every mutation in it: the clock, the
+    // press, the line-clear grind and the solver all move things, and the pair
+    // this records has to be "the world the last frame drew" against "the
+    // world the next frame draws". Recording it anywhere later would leave
+    // whatever ran before it un-interpolated — a visible stutter on exactly
+    // the cubes the press is squaring up, which is where the eye already is.
+    //
+    // Three writes per cube per step, over a field whose p90 is ~71 cubes
+    // (sim/pile-metrics.ts's census). Against a step that costs 0.9ms at 300
+    // cubes it does not register, and it buys the frame that would otherwise
+    // be a duplicate.
+    this.collapseStepWindow();
 
     if (this.timeLeftMs !== Infinity) {
       this.timeLeftMs = Math.max(0, this.timeLeftMs - DT);

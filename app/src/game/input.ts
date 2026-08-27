@@ -1,7 +1,7 @@
 import { Game } from "./game";
 import { screenToWorld } from "./render";
 import { actionForKey, keyFor } from "./bindings";
-import { MIN_FIRE_RATIO } from "./cannon";
+import { MIN_FIRE_RATIO, NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 import { WORLD } from "./engine";
 
 /**
@@ -229,6 +229,9 @@ export class InputController {
    *  the first is the press the player is waiting to see answered, and the last
    *  decides where the shot actually goes. */
   private pendingTarget: { x: number; y: number } | null = null;
+  /** The previous tick's timestamp, for the held keys' dt (see tickKeys).
+   *  null until the first tick, which is seeded to one frame. */
+  private lastKeyTick: number | null = null;
   /** The last point applyTarget actually SOLVED, kept for the wheel: the loft
    *  dial re-solves "the arc I am looking at", and once the button is up that
    *  is the last clicked point. Paired with the Game it was solved FOR, and
@@ -844,7 +847,25 @@ export class InputController {
   // holding the mouse down and nudging W/S gets the keyboard nudge applied on
   // top of the solved aim rather than under it: the keys stay usable as a trim
   // on a solved shot instead of being silently overwritten every frame.
-  private tickKeys = (): void => {
+  private tickKeys = (ts: number): void => {
+    // HELD KEYS CHARGE TIME, NOT FRAMES — the same correction the pad's rate
+    // dials already got (gamepad.ts's DIAL_FRAME_MS), on the same shared
+    // constants (cannon.ts's NUDGE_FRAME_MS/NUDGE_MAX_STEP_MS), for the same
+    // reason: this is an rAF tick, so charging a whole nudge per call made the
+    // trim rate a property of the panel. A held W crossed the aim cone in a
+    // second on a 60Hz phone and in half of one on a 120Hz shell, which is the
+    // owner's own primary surface. At a 16.667ms cadence the factor is exactly
+    // 1 and 60Hz is unchanged to the bit.
+    //
+    // UPDATED BEFORE THE PLAYING GUARD, not inside it. The loop runs in every
+    // state, and a clock that only advanced while playing would hand the first
+    // tick after a pause card the whole length of the pause — clamped, but
+    // still a visible jump on a key the player was merely still resting on.
+    // The first tick of a session is seeded to one frame rather than zero, so
+    // even it matches what the per-frame code charged.
+    const elapsed = this.lastKeyTick === null ? NUDGE_FRAME_MS : ts - this.lastKeyTick;
+    this.lastKeyTick = ts;
+    const f = Math.min(NUDGE_MAX_STEP_MS, Math.max(0, elapsed)) / NUDGE_FRAME_MS;
     const g = this.game();
     if (!g || g.status !== "playing" || g.paused) {
       // A QUEUED TARGET DOES NOT WAIT OUT A PAUSE. This branch used to be an
@@ -868,10 +889,15 @@ export class InputController {
         if (this.dragging || this.hoverAimable(g)) this.applyTarget(this.pendingTarget);
         else this.pendingTarget = null;
       }
-      if (this.keys.has(keyFor("aimUp")) || this.keys.has("arrowup")) g.cannon.aimUp();
-      if (this.keys.has(keyFor("aimDown")) || this.keys.has("arrowdown")) g.cannon.aimDown();
-      if (this.keys.has(keyFor("powerUp")) || this.keys.has("arrowright")) g.cannon.powerUp();
-      if (this.keys.has(keyFor("powerDown")) || this.keys.has("arrowleft")) g.cannon.powerDown();
+      // The analog nudges rather than the discrete ones, at a deflection of a
+      // full 1: a held key IS the stick pinned to its stop, and routing both
+      // through the same pair is what keeps them the same speed. The discrete
+      // aimUp/powerUp remain the API for a single press — the pad's D-pad,
+      // which is edge-triggered and charges one step per press by definition.
+      if (this.keys.has(keyFor("aimUp")) || this.keys.has("arrowup")) g.cannon.nudgeAngle(f);
+      if (this.keys.has(keyFor("aimDown")) || this.keys.has("arrowdown")) g.cannon.nudgeAngle(-f);
+      if (this.keys.has(keyFor("powerUp")) || this.keys.has("arrowright")) g.cannon.nudgePower(f);
+      if (this.keys.has(keyFor("powerDown")) || this.keys.has("arrowleft")) g.cannon.nudgePower(-f);
       if (this.keys.size) g.updateTrajectory();
     }
     this.raf = requestAnimationFrame(this.tickKeys);
