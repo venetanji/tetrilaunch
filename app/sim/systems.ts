@@ -9338,6 +9338,12 @@ section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
   // pin precisely because it is SHORT. The claim being guarded is that the
   // driver is deterministic and walks the real ladder, and neither needs ten
   // bays of physics to state.
+  // A bare ladder RunState at `mark`, for asking run.ts's run-aware schedule
+  // questions the same way the driver does. `newRun` writes skydeck: null, so
+  // this is a ladder run by construction — which is the point: the pins below
+  // check that the driver reads the RUN rather than the bay index, and a
+  // ladder run is the one where a wrong reading would still pass.
+  const deepRunAt = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
   const loadout = loadoutFor(PRIORITY_ORDERS.spatial, 10);
   const opts = {
     mark: 10, seed: 1, bot: BOTS.aim, loadout, draft: spreadPolicy,
@@ -9366,9 +9372,14 @@ section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
       );
     }),
   );
+  // Asked of the RUN's own reading (run.ts's picksForRun), not of the ladder's
+  // picksPerBay. The two agree on a ladder run and #124 pins that they do; what
+  // this guards is that the DRIVER asks the run-aware one, so pointing it at a
+  // mode that charges differently cannot silently over-charge the draft.
   check(
-    "the driver takes picksPerBay notches at every draft it reached",
-    a.bays.slice(0, Math.max(0, a.bays.length - 1)).every((rec) => rec.picks.length === picksPerBay(10)),
+    "the driver takes exactly the notches the RUN charges, at every draft it reached",
+    a.bays.slice(0, Math.max(0, a.bays.length - 1))
+      .every((rec) => rec.picks.length === picksForRun(deepRunAt(10))),
     a.bays.map((r) => r.picks.length).join(","),
   );
 
@@ -9388,8 +9399,9 @@ section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
     long.bays.map((r) => `${r.carryIn}`).join(","),
   );
   check(
-    "scrap is only ever spent at a refit stop (run.ts's isRefitBay)",
-    long.bays.every((rec) => rec.refitSpend === 0 || isRefitBay(rec.bay - 1)),
+    "scrap is only ever spent at a stop the RUN opens (run.ts's refitAfterBay)",
+    long.bays.every((rec) => rec.refitSpend === 0
+      || refitAfterBay(deepRunAt(1), rec.bay - 1)),
     long.bays.filter((r) => r.refitSpend > 0).map((r) => `bay${r.bay}:${r.refitSpend}`).join(" "),
   );
   check(

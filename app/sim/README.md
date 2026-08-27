@@ -515,6 +515,35 @@ cooldown. **The exception**: `spatial` carries no DEMOLITION, so a slag row
 measured on it is measuring a rig with no answer — re-run slag on
 `--build material`.
 
+### It could fly the Skydeck, and deliberately does not yet
+
+`deeprun.ts` asks `run.ts`'s **run-aware** schedule — `finalDraftFor`,
+`picksForRun`, `refitAfterBay` — rather than their ladder twins, because #124's
+note on those functions names each difference as "a place where a caller that
+forgot to ask would silently fly the wrong mode". So the driver is already
+mode-correct: hand it a `RunState` built by `skydeck.ts`'s `skydeckRunFor`
+instead of by `newRun` and it would shut the yard, skip the drafted inspection
+and charge one notch at the capstone, because it asks the run and the run
+answers.
+
+**That is a possibility, not a feature, and nothing here has been pointed at a
+daily.** Three things would have to be decided first, and all three are design
+questions rather than plumbing:
+
+- **What "winnable" means for a mode with no refit stop.** The wall statistic
+  and `MARGINAL_WALL` are both argued from the ladder's three refit stops ("a
+  run that has been handed the scrap lever and used it"). A Skydeck run is
+  handed no lever, so the threshold means something else there.
+- **What the cheapest-strategy search would even search.** Two of its three
+  levers — the loadout ladder and the refit stance — collapse to one on a mode
+  where the rig that undocks is the rig that lands.
+- **Whether one day's seed is a sample at all.** The whole point of the daily
+  is that everyone flies the same board; a sweep over seeds is measuring
+  something the mode does not have.
+
+`skydeck.ts`'s own harness answers the questions that mode actually raises. The
+note is here so the option is on the record rather than rediscovered.
+
 ### Findings
 
 Live in `design/balance/` — `winnability-sweep-findings.md` (what the sweep

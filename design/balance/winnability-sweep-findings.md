@@ -1,7 +1,19 @@
 # WINNABILITY SWEEP — which notch combos a Deep Run cannot survive
 
-What `app/sim/winnability.ts` measured on the tree at `origin/staging` (the
-merge of #122), and what it is and is not entitled to say. The counter-system
+What `app/sim/winnability.ts` measured on `origin/staging`, and what it is and
+is not entitled to say.
+
+**Re-measured after #124 (Skydeck).** The tables below were first collected at
+the merge of #122; #124 landed a second run mode underneath them, so they were
+re-run on the merged tree. The headline comparisons reproduce **byte for byte** —
+Tier 5 bay 5 over 24 paired seeds is 23/24 clean, 17/24 at `cryo:1`, 20/21/23
+across the thaw tiers at the same shot counts and the same ending funds; Tier 7
+bay 10 over 16 seeds is 14/16 clean, 16/16 at `volatile:6`, and 14/16 cushioned
+at 28.1 shots and $1694, identical to the clean control. The ladder re-runs
+agree too: Tier 4 comes back 1/8 clears, wall 10, `winnable`, exactly as §2
+records it. That is the expected result rather than a lucky one: a Skydeck run's standing clauses reach a config
+through `standingClauses(run)`, which returns nothing for a ladder run, so #124
+moves no number the walls below are made of. The counter-system
 argument built on this lives in
 [`counter-systems-proposal.md`](./counter-systems-proposal.md); this file is the
 measurement, and every table names the command that reproduces it.

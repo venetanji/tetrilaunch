@@ -143,13 +143,27 @@ export function withPicks(ratchets: Ratchets, picks: HazardId[]): Ratchets {
  * one with. Threaded rather than recomputed globally because of the Mark-4
  * dependency described on `DraftSpace`.
  */
-export function rungFor(seed: number, mark: number, levelIndex: number, ratchets: Ratchets): DraftRung | null {
+export function rungFor(
+  seed: number,
+  mark: number,
+  levelIndex: number,
+  ratchets: Ratchets,
+  /** Notches this rung charges. Defaults to the LADDER's own rule
+   *  (`hazards.ts`'s picksPerBay). A caller holding a RunState should pass
+   *  `run.ts`'s picksForRun instead — the two agree on every ladder run and
+   *  differ on a Skydeck one, which charges one notch at the capstone Mark
+   *  where the ladder charges two. The default is the ladder because that is
+   *  what `enumerateSpace` is enumerating; overriding it is how a driver stays
+   *  honest about the mode it is actually flying. */
+  need = picksPerBay(mark),
+): DraftRung | null {
   if (levelIndex >= RUN_LEVELS - 1) return null;
   // The last draft deals the Final Inspection, not a notch — a clause is not a
-  // member of this space and finals.ts prices it as its own exam.
+  // member of this space and finals.ts prices it as its own exam. Stated with
+  // the ladder's own predicate because enumerateSpace has no run to ask; a
+  // driver that holds one asks run.ts's finalDraftFor before it gets here.
   if (isFinalDraft(levelIndex)) return null;
   const hand = hazardOffers(seed, levelIndex, mark, undefined, ratchets);
-  const need = picksPerBay(mark);
   const forced = isMaterialDraft(levelIndex);
   return {
     bay: levelIndex + 1,

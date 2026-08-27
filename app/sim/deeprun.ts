@@ -34,8 +34,8 @@ import {
 import { finalsForTier, type FinalDef, type FinalId } from "../src/game/finals";
 import { type HazardId, type Ratchets } from "../src/game/hazards";
 import {
-  advanceRun, buyUpgrades, isFinalDraft, isRefitBay, levelForRun, newRun,
-  RUN_LEVELS, type RunState,
+  advanceRun, buyUpgrades, finalDraftFor, levelForRun, newRun, picksForRun,
+  refitAfterBay, RUN_LEVELS, type RunState,
 } from "../src/game/run";
 import type { LevelConfig } from "../src/game/level";
 import type { Bot } from "./bots";
@@ -249,12 +249,20 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
     }
 
     // --- the draft dealt after clearing bay i -----------------------------
+    //
+    // Asked of the RUN, not of the bay index — `run.ts`'s run-aware readings
+    // (finalDraftFor / picksForRun / refitAfterBay) rather than their ladder
+    // twins (isFinalDraft / picksPerBay / isRefitBay). For a ladder run the two
+    // agree exactly; for a Skydeck run they do not, and #124's note on those
+    // functions names each difference as "a place where a caller that forgot to
+    // ask would silently fly the wrong mode". A harness that asked the ladder
+    // would be one of those callers the day it was pointed at a daily.
     let picks: HazardId[] = [];
     let chosenFinal: FinalId | null = null;
-    if (isFinalDraft(i)) {
+    if (finalDraftFor(run)) {
       chosenFinal = pickFinal(finalsForTier(run.mark), run);
     } else {
-      const rung = rungFor(run.seed, run.mark, i, run.ratchets);
+      const rung = rungFor(run.seed, run.mark, i, run.ratchets, picksForRun(run));
       // `rungFor` returns null only past the last ratchet draft, which
       // `isFinalDraft` has already claimed — so a null here is a ladder that
       // moved under this driver, and a silent empty pick would hide it.
@@ -285,7 +293,7 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
     if (chosenFinal) run = { ...run, final: chosenFinal };
 
     // --- the refit stop, if this clear opened one -------------------------
-    if (isRefitBay(i)) {
+    if (refitAfterBay(run, i)) {
       const order = refit.order(run);
       const before = run.scrap;
       const next = buyUpgrades(run, order, MAX_TIER);
