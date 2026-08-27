@@ -4,7 +4,7 @@ import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
-  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
+  buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
 import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
@@ -1123,6 +1123,25 @@ class App {
     return this.contract !== null || (this.drill !== null && g.level.objectiveLines > 0);
   }
 
+  /**
+   * The seal state the bay-retry controls wear, or null where the run has no
+   * seal question (run.ts's sealStateFor: Tier S, the Skydeck) and on every
+   * screen with no run behind it at all (a Contract, a drill).
+   *
+   * ONE READ FOR EVERY DOOR. Three controls can start a bay retry — the pause
+   * modal's Restart Bay, the held ⏸ and the loss card's Retry Bay — and the
+   * gate that confirms the press reads the same function (requestBayRetry via
+   * retryBreaksSeal). Routing all of them through this getter is what keeps a
+   * button from advertising a price the gate will not charge, which is the
+   * class of bug review has already caught once here (the sealed-Mark re-fly,
+   * codex PR #135).
+   */
+  private sealFace(): { state: SealState; mark: number } | undefined {
+    if (!this.run) return undefined;
+    const state = sealStateFor(this.run, this.meta.sealedMarks);
+    return state ? { state, mark: this.run.mark } : undefined;
+  }
+
   /** Shared hudHTML() input for every state that renders the HUD — keeps the
    *  bay/time/next-piece fields consistent across playing/paused/draft/end.
    *  Also the one choke point where the rail's button set is decided, so it
@@ -1227,6 +1246,11 @@ class App {
       // A drill names itself in the banner and drops the tier row and the ship
       // rack (see screens.ts's `drill` opt for why all three go together).
       drill: this.drill?.drill ? { name: this.drill.drill.name } : null,
+      // The ⏸ hold restarts the bay, so the price of that gesture rides its
+      // accessible name — the same words the two retry BUTTONS wear, from the
+      // same read (sealFace). Null on a Contract or a drill, where this.run is
+      // null and no seal is in play.
+      seal: this.sealFace(),
       contract: this.drill
         ? // A LINES-shaped drill fills the Contract block, because it is that
           // bay: a line goal and a launch budget, read out of exactly the same
@@ -2101,7 +2125,7 @@ class App {
               demo: g.level.bombCharges > 0,
               thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
-            });
+            }, this.sealFace());
         }
         break;
       case "bayclear":

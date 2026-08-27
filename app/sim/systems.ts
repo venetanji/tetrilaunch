@@ -91,7 +91,7 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor,
+  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor, type SealState,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
@@ -9664,6 +9664,105 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // button on it would take the retry away exactly where it is free.
     check("a held seal still offers the bay back",
       held.includes('data-action="retry-bay"'));
+  }
+
+  // ---- EVERY DOOR WEARS THE FACE, NOT JUST THE LOSS CARD ------------------
+  // Owner playtest, with a screenshot of the pause modal: Restart Bay is the
+  // same irreversible action through a different door and it went out with a
+  // bare label. A cost visible from one door and invisible from another is
+  // worse than invisible from both — it teaches the player that the plain
+  // button is the safe one, and the plain button was the one that charged.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (seal?: { state: SealState; mark: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, seal);
+    /** Just the Restart Bay button, so a glyph counted here is that button's.
+     *  Resume, Fullscreen and Quit share the row and `includes` cannot tell
+     *  them apart. */
+    const restart = (h: string): string =>
+      /<button[^>]*data-action="restart-bay"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+
+    check("the pause modal still has its Restart Bay", restart(paused()).length > 0);
+    // ALL THREE STATES, the same three the loss card draws — and the SAME
+    // markup, because both buttons now render through sealFaceHTML. A second
+    // face tuned to this modal is exactly how the two would drift into saying
+    // almost-the-same thing.
+    check("at-stake wears the stamp about to be spent",
+      /class="btn__seal"/.test(restart(paused({ state: "at-stake", mark: 4 }))));
+    check("...spent wears the struck stamp",
+      restart(paused({ state: "spent", mark: 4 })).includes("btn__seal--broken"));
+    check("...and held wears the solid muted one",
+      restart(paused({ state: "held", mark: 4 })).includes("btn__seal--held"));
+    // …and the three are genuinely different faces rather than one class name
+    // that happens to substring-match the others.
+    check("the three faces are three faces", new Set(
+      (["at-stake", "spent", "held"] as SealState[])
+        .map((state) => /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1]),
+    ).size === 3);
+    // THE GLYPH IS aria-hidden, here as everywhere, so the words have to reach
+    // the other half of the audience — and they are the SAME words the loss
+    // card uses, from sealFaceLabel.
+    check("the button names the cost as well as drawing it",
+      restart(paused({ state: "at-stake", mark: 4 }))
+        .includes('aria-label="Restart Bay — breaks this run\'s seal"'));
+    check("...and names the Mark in the held state",
+      restart(paused({ state: "held", mark: 3 }))
+        .includes("Mark 3 is already sealed, so this costs nothing"));
+    // ONE RULE, TWO CALLERS. The loss card and the pause modal must produce
+    // byte-identical faces for the same state, which is the property that
+    // makes "don't fork a second face" checkable rather than a comment.
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const fromEnd = /class="(btn__seal[^"]*)"/
+        .exec(end({ retryBay: { seal: state, mark: 4 } }))?.[1];
+      const fromPause = /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1];
+      check(`the ${state} face is the same on both doors`,
+        !!fromEnd && fromEnd === fromPause, `${fromEnd} vs ${fromPause}`);
+      check(`...and so are the ${state} words`,
+        S.sealFaceLabel(state, 4).length > 0
+          && restart(paused({ state, mark: 4 })).includes(S.sealFaceLabel(state, 4))
+          && end({ retryBay: { seal: state, mark: 4 } }).includes(S.sealFaceLabel(state, 4)));
+    }
+    // NO SEAL, NO FACE. A Contract, a drill, Tier S and the Skydeck all pause
+    // with no seal question, and a glyph there would be a claim about a cost
+    // that does not exist. Absence also has to leave the button exactly as it
+    // was, so every caller that predates the argument is unmoved.
+    check("a run with no seal question draws no glyph",
+      !restart(paused()).includes("btn__seal"));
+    check("...and no aria-label it did not have before",
+      !restart(paused()).includes("aria-label"));
+
+    // THE HELD ⏸ IS THE THIRD DOOR, and it takes the WORDS without the glyph:
+    // a 22px icon button on a live field is not where a cost readout goes (the
+    // rail is width-budgeted, and the hint strip's own note argues the same
+    // point from the other side). The gesture is deliberate, it has its own
+    // meter, and requestBayRetry confirms it like every other door — so what
+    // the name buys is the half that has nowhere else to go.
+    const railBtn = (h: string): string =>
+      /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const hud = (seal?: { state: SealState; mark: number } | null): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        seal,
+      });
+    check("the hold's name carries the price when there is one",
+      /hold to restart the bay, which breaks this run's seal/
+        .test(railBtn(hud({ state: "at-stake", mark: 4 }))));
+    check("...and says so when the press is free",
+      /already sealed, so this costs nothing/
+        .test(railBtn(hud({ state: "held", mark: 3 }))));
+    check("...and is the name it always had when no seal is in play",
+      railBtn(hud()).includes('aria-label="Pause — hold to restart the bay"'));
+    // …and NOT a glyph, on any of them. This is the pin that keeps a later
+    // "make it consistent" pass from painting the rail.
+    check("the rail never grows a seal glyph",
+      (["at-stake", "spent", "held"] as SealState[])
+        .every((state) => !railBtn(hud({ state, mark: 4 })).includes("btn__seal")));
   }
   // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
   // a run tracksLadder accepts — Tier S re-flies its whole configuration from
