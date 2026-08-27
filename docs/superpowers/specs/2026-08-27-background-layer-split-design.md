@@ -29,8 +29,18 @@ else identical:
 | 792x360 (quarter area) | **108.4** | 8.3ms |
 | 1584x720 (restored) | 90.1 | 8.3ms |
 
-**~20fps sits in fill.** That is the prize, and it is the whole reason this
-document exists.
+**~20fps sits in fill — but this measurement cannot say WHOSE fill.** Halving
+both backing dimensions quarters the pixels rasterized for *every* draw in
+`render()` — cubes, seams, effects and chrome alike, not just the background
+blit this spec proposes to split out. So 20fps is the raster bill for the
+whole frame at full resolution, and the background's share of it is unknown
+from this table alone. Found in review.
+
+The measurement that does isolate it is the validation step below run first:
+same backing resolution, background blit alone removed (draw the frame over
+garbage instead of the cached layer — wrong pixels, right cost). Whatever
+that buys is the prize; if it is small, the split is not worth building and
+this document ends at the validation step.
 
 ## Where the cost is NOT
 
@@ -98,9 +108,20 @@ re-rasters the foreground's transparent pixels at the same cost as opaque ones,
 this buys nothing and adds a DOM element plus a resize path. That is a real
 possibility and it is cheap to find out.
 
-**Validate before building the whole thing.** A throwaway page with two stacked
-canvases at 1584x720, one static and one cleared-and-drawn per frame, measured
-with the same rAF sampler used above, settles it in minutes. Do that first.
+**Validate before building the whole thing.** Two measurements, both on a
+throwaway page, both with the rAF sampler used above, both in minutes:
+
+1. **Size the prize at full resolution first.** One canvas at 1584x720
+   drawing the real frame minus the background blit (over garbage — wrong
+   pixels, right cost). The delta against the full frame is the background's
+   actual share of the ~20fps; the quarter-area table above cannot provide
+   it, because shrinking the backing store cheapens every layer at once.
+2. **Then prove the split keeps it.** Two stacked canvases at 1584x720, one
+   static and one cleared-and-drawn per frame. If the WebView composites them
+   back into one layer, this number collapses toward the full-frame cost.
+
+If (1) is small, stop — the split is not worth building. If (1) is real and
+(2) loses it, the compositor ate the win and the spec's premise fails cheaply.
 
 ## Open questions for a human
 
