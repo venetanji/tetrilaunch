@@ -121,7 +121,11 @@ const layerRows: { label: string; p50Ms: number; deltaMs: number }[] = [];
 interface ProbeRow {
   count: number; cubesDrawn: number;
   callsPerFrame: number; drawImage: number; switches: number;
-  sources: number; sets: number; redundantSets: number; spriteMp: number;
+  sources: number; sets: number; redundantSets: number;
+  /** Every sprite in a busy frame, background blit excluded. */
+  spriteMp: number;
+  /** The CUBE LAYER alone, isolated by delta — the honest pile number. */
+  cubeMp: number;
   cargoPx: number; bakes: number;
   calls: Record<string, number>; propSets: Record<string, number>;
   redundantByProp: Record<string, number>;
@@ -214,16 +218,37 @@ if (PROBE) {
   const canvasPx = Math.round(CSS_W * DPR) * Math.round(CSS_H * DPR);
 
   console.log("| N asked | cubes drawn | calls/frame | drawImage | src switches | distinct srcs | " +
-    "state sets | redundant | save/restore | sprite fill MP | overdraw× | bakes/frame |");
-  console.log("|---|---|---|---|---|---|---|---|---|---|---|---|");
+    "state sets | redundant | save/restore | cube fill MP | per cube | vs cube face | bakes/frame |");
+  console.log("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
   for (const count of COUNTS) {
     const c = await page.evaluate(
       (o) => window.__renderperf.probe(o),
       { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
     );
-    // Cargo coverage, from the snapshot path: device pixels the cubes+seams
-    // actually change. Sum-of-stamps over that is the overdraw factor the spec
-    // asked for — how many times the frame paints the same pixel.
+    // THE CUBE LAYER, ISOLATED BY DELTA — the same ladder --breakdown walks.
+    //
+    // Every probe frame is a BUSY frame, so its drawImage area carries the
+    // chute plume, the piston rig, the cannon, ~47 trajectory dots and a full
+    // set of effects alongside the cargo. Subtracting only the background blit
+    // and calling the remainder "the sprite pass" was wrong in the direction
+    // that flatters the pile: it charged the cubes for every other sprite in
+    // the frame. So the numerator is the difference between two otherwise
+    // identical censuses, one carrying cubes and one carrying none, which
+    // leaves exactly the cube stamps.
+    const bare = await page.evaluate(
+      (o) => window.__renderperf.probe(o),
+      {
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
+        layers: { cubes: false, seams: false, trajectory: true, effects: true },
+      },
+    );
+    const cubesOnly = await page.evaluate(
+      (o) => window.__renderperf.probe(o),
+      {
+        count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
+        layers: { cubes: true, seams: false, trajectory: true, effects: true },
+      },
+    );
     const s = await page.evaluate(
       (o) => window.__renderperf.snapshot(o),
       { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
@@ -233,31 +258,40 @@ if (PROBE) {
     const calls = Object.values(c.calls).reduce((a: number, b: number) => a + b, 0);
     const sets = Object.values(c.sets).reduce((a: number, b: number) => a + b, 0);
     const redundant = Object.values(c.redundantSets).reduce((a: number, b: number) => a + b, 0);
-    // The background blit is subtracted out on the spec's authority: its cost
-    // was measured at zero on the device, so counting its 2.96 MP inside the
-    // sprite pass's fill would drown the number this table exists to show.
-    const spriteArea = c.drawImageDeviceArea - c.fullCanvasBlitArea;
-    const spriteMp = spriteArea / f / 1e6;
+    const cubeArea = (cubesOnly.drawImageDeviceArea - bare.drawImageDeviceArea) / cubesOnly.frames;
+    const cubeMp = cubeArea / 1e6;
+    const n = Math.max(1, cubesOnly.cubesDrawn);
+    // What one cube's own FACE covers on this canvas: CELL world px squared,
+    // through the world-to-device scale. The ratio of stamped area to that is
+    // the honest "how much does a cube blend beyond itself" — glow margin and
+    // pile overlap together, bounded above, and computed rather than read back
+    // so no congestion-floor light can creep into the denominator.
+    const worldToDevice = Math.min((CSS_W * DPR) / 1280, (CSS_H * DPR) / 720);
+    const faceArea = 40 * 40 * worldToDevice * worldToDevice;
     console.log(
       `| ${count} | ${c.cubesDrawn} | ${per(calls)} | ${per(c.calls.drawImage ?? 0)} | ${per(c.drawImageSwitches)} | ` +
       `${c.drawImageSources} | ${per(sets)} | ${per(redundant)} | ` +
-      `${per(c.calls.save ?? 0)}/${per(c.calls.restore ?? 0)} | ${spriteMp.toFixed(3)} | ` +
-      `${(spriteArea / f / Math.max(1, s.cargoPx)).toFixed(2)} | ${per(c.canvasesCreated)} |`,
+      `${per(c.calls.save ?? 0)}/${per(c.calls.restore ?? 0)} | ${cubeMp.toFixed(3)} | ` +
+      `${(cubeArea / n).toFixed(0)} px | ${(cubeArea / n / faceArea).toFixed(2)}x | ` +
+      `${per(c.canvasesCreated)} |`,
     );
     probeRows.push({
       count, cubesDrawn: c.cubesDrawn,
       callsPerFrame: calls / f, drawImage: (c.calls.drawImage ?? 0) / f,
       switches: c.drawImageSwitches / f, sources: c.drawImageSources,
       sets: sets / f, redundantSets: redundant / f,
-      spriteMp, cargoPx: s.cargoPx, bakes: c.canvasesCreated / f,
+      spriteMp: (c.drawImageDeviceArea - c.fullCanvasBlitArea) / f / 1e6,
+      cubeMp, cargoPx: s.cargoPx, bakes: c.canvasesCreated / f,
       calls: c.calls, propSets: c.sets, redundantByProp: c.redundantSets,
     });
   }
   console.log(
-    `\nCanvas is ${(canvasPx / 1e6).toFixed(2)} MP. "sprite fill" excludes the full-canvas ` +
-    `background blit (measured at zero cost on device); "overdraw×" is sprite fill over the ` +
-    `device pixels the cargo actually changes. "bakes/frame" counts canvases created inside ` +
-    `the frame loop — a hot sprite cache creates none.`,
+    `\nCanvas is ${(canvasPx / 1e6).toFixed(2)} MP. "cube fill" is the CUBE LAYER alone, isolated ` +
+    `as the difference between two otherwise identical censuses (a busy frame's drawImage area ` +
+    `also carries the chute, pistons, cannon, arc and effects, and charging those to the pile ` +
+    `overstates it). "vs cube face" is what one stamp blends over what one cube's face covers — ` +
+    `glow margin and pile overlap together. "bakes/frame" counts canvases created inside the ` +
+    `frame loop; a hot sprite cache creates none.`,
   );
 
   // The full per-method table for the largest pile — the one that says WHICH

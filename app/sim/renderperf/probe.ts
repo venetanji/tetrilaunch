@@ -50,12 +50,20 @@ export interface DrawCensus {
    * distinct source objects the frame touched at all.
    *
    * WHAT THIS COUNTER FOUND, AND THE ONE EXPERIMENT LEFT TO RUN. On the
-   * `mixed` scene at 146 cubes (844x390, dpr 3) a frame makes 181.8 drawImage
-   * calls across 35 distinct source canvases with 63.2 switches. Packing every
+   * `mixed` scene at 152 cubes (844x390, dpr 3) a frame makes 181.9 drawImage
+   * calls across 59 distinct source canvases with 64.5 switches. Packing every
    * baked cube face into ONE atlas canvas and stamping cells out of it with the
-   * 9-argument form takes that to 11 sources and 11.9 switches — a 5.3x cut,
+   * 9-argument form takes that to 14 sources and 17.0 switches — a 3.8x cut,
    * and precisely the "many small draws, not one big one" conversion the
    * background-split spec's device work ended by asking for.
+   *
+   * Note which of those two numbers material variety moves and which it does
+   * not. Fixing the `mixed` variant's material stride (it was walking a
+   * subgroup and only ever producing two of six materials) took distinct
+   * sources from 35 to 59 and left switches almost exactly where they were,
+   * 63.2 to 64.5. Switches track the number of PIECE RUNS, not the size of the
+   * sprite alphabet: a shipment's four cubes are adjacent in `cubes` and share
+   * a face, so the frame rebinds once per shipment however many faces exist.
    *
    * It was built, measured, and NOT shipped, for two reasons that belong
    * together. It bought nothing here: interleaved against the unchanged
@@ -63,9 +71,11 @@ export interface DrawCensus {
    * that is expected — headless Chromium rasterises in software, where a
    * texture bind costs nothing and the frame is bound by fill. And it is not
    * free: a sub-rect stamp of a face inset in a larger surface resamples
-   * differently from a whole-canvas stamp of the same pixels, worth 0.005% of
-   * channel samples by at most 3/255 at N=300 (a whole-surface 9-argument draw
-   * is byte-identical, so the atlas, not the argument count, is the cause).
+   * differently from a whole-canvas stamp of the same pixels, worth 0.0074% of
+   * channel samples by at most 7/255 at N=300 on `mixed` (a whole-surface
+   * 9-argument draw is byte-identical, so the atlas, not the argument count, is
+   * the cause — and the deviation grows with the number of distinct faces,
+   * which is why it is quoted on the variant that has the most).
    *
    * So the atlas is a change with a real pixel cost and no demonstrated
    * benefit on any machine reachable from here — which is exactly the shape of

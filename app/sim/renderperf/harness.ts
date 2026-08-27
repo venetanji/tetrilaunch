@@ -115,8 +115,8 @@ function placeLoose(g: Game, n: number, rng: () => number): void {
  * and the same material, so render.ts's sprite cache answers all of them from
  * ONE baked face. That is a fine scene for timing fill and a misleading one for
  * counting rasteriser state: a played bay stacks shipments of seven types in
- * seven materials, and each is a different baked canvas for the rasteriser to
- * bind. sim/renderperf --probe counts source switches, and against a monochrome
+ * six materials, and each combination is a different baked canvas for the
+ * rasteriser to bind. sim/renderperf --probe counts source switches, and against a monochrome
  * pile that count is a property of the harness rather than of the game.
  *
  * So "mixed" varies the cargo the way a bay does — per PIECE, not per cube,
@@ -129,10 +129,14 @@ const MIXED_MATERIALS: Material[] = ["standard", "cryo", "rebar", "volatile", "t
 
 function cliqueCargo(index: number, mixed: boolean): { type: PieceType; color: string; material: Material } {
   if (!mixed) return { type: "O", color: PIECE_COLORS.O, material: "standard" };
-  // Co-prime strides so type and material do not march in lockstep and collapse
-  // back into a handful of combinations.
+  // The material stride must be COPRIME WITH THE LIST LENGTH, or it walks a
+  // subgroup instead of the whole list. Six materials with a stride of 3 visits
+  // indices {0, 3} and nothing else — standard and volatile forever — which is
+  // the bug this comment used to describe itself as avoiding. Five is coprime
+  // with six, so every material appears, and 5 against the 7 types gives 42 of
+  // the 42 possible pairings rather than 14.
   const type = MIXED_TYPES[index % MIXED_TYPES.length];
-  const material = MIXED_MATERIALS[(index * 3) % MIXED_MATERIALS.length];
+  const material = MIXED_MATERIALS[(index * 5) % MIXED_MATERIALS.length];
   return { type, color: shipmentColor(type, material), material };
 }
 
