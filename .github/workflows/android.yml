@@ -37,6 +37,16 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      # A dispatch is a rehearsal unless whoever starts it says otherwise. The
+      # Actions UI lets a human pick an existing v* tag as the ref, and the
+      # publish gate below reads the ref — so without this input, choosing a
+      # tag to rehearse against would turn the rehearsal into a release.
+      # desktop.yml's release job passes it explicitly; a human has to tick it.
+      publish:
+        description: "Publish the bundle to the Play internal track (tag refs only)"
+        type: boolean
+        default: false
 
 jobs:
   apk:
@@ -137,20 +147,33 @@ jobs:
   # Signed .aab for Play. Manual dispatch and tags only — every push building a
   # release would burn versionCodes (Play rejects a code it has already seen, so
   # they are a one-way ratchet) and would touch the signing secrets far more
-  # often than necessary.
+  # often than necessary. A tag build also publishes to the INTERNAL track; a
+  # dispatch is a rehearsal — it proves the signed bundle builds and leaves the
+  # artifact to inspect, but pushing rehearsals to a track the owner's phone
+  # auto-updates from would make every rehearsal a release. Production stays a
+  # deliberate click in the Play Console: promotion is the irreversible half.
   #
-  # Requires four repo secrets; without them the job fails at the keystore step
-  # rather than silently uploading an unsigned artifact:
+  # The secrets live in the `android-build` ENVIRONMENT, not at repo scope —
+  # same credential class, same job, and an environment can carry protection
+  # rules (required reviewers, tag restrictions) that repo secrets cannot.
+  # Without them the job fails at its guard steps rather than silently
+  # uploading an unsigned artifact:
   #
-  #   ANDROID_KEYSTORE_BASE64   base64 of the upload keystore (.jks)
+  #   VITE_REVENUECAT_ANDROID_KEY  store key, inlined by Vite at build time
+  #   ANDROID_KEYSTORE_BASE64      base64 of the upload keystore (.jks)
   #   ANDROID_KEYSTORE_PASSWORD
   #   ANDROID_KEY_ALIAS
-  #   ANDROID_KEY_PASSWORD
+  #   ANDROID_KEY_PASSWORD         optional — PKCS12 reuses the store password
+  #   PLAY_SERVICE_ACCOUNT_JSON    Google Cloud service account, granted
+  #                                "Release to testing tracks" on this app only
   #
-  #   base64 -w0 upload-keystore.jks | gh secret set ANDROID_KEYSTORE_BASE64
+  #   base64 -w0 upload-keystore.jks | gh secret set ANDROID_KEYSTORE_BASE64 --env android-build
   bundle:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # Without this the job cannot see the android-build secrets at all — an
+    # unbound job reads every one of them as empty and dies at the first guard.
+    environment: android-build
     defaults:
       run:
         working-directory: app
@@ -248,8 +271,43 @@ jobs:
         if: always()
         run: rm -f android/upload-keystore.jks
 
+      # The artifact upload stays even though tags also publish below: a
+      # publish that fails should still leave the bundle downloadable.
       - uses: actions/upload-artifact@v4
         with:
           name: tetrilaunch-release-bundle
           path: app/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+
+      # Same fail-loudly shape as "Require store keys": a missing secret should
+      # report itself, not surface as an auth error from inside the action.
+      #
+      # The gate needs BOTH halves. The ref alone is not enough: the Actions UI
+      # lets a dispatch pick an existing v* tag as its ref, and "a dispatch is
+      # a rehearsal" must survive that — so a dispatch publishes only when its
+      # publish input was ticked. desktop.yml's release job ticks it; its
+      # tag-pinned dispatch is the automated path this gate exists to keep.
+      # A release event arrives with the tag ref and no inputs, and publishes.
+      - name: Require the Play service account
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        env:
+          PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$PLAY_JSON" ]; then
+            echo "::error::PLAY_SERVICE_ACCOUNT_JSON is not set — the bundle is built but cannot be published."
+            exit 1
+          fi
+
+      # serviceAccountJsonPlainText, not serviceAccountJson: the latter wants a
+      # path and fails unhelpfully when handed the JSON the secret holds. The
+      # path is repo-root-relative because the action reads it directly — the
+      # job's working-directory applies only to run: steps.
+      - name: Publish to the internal track
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch' || inputs.publish)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tetrilaunch.app
+          releaseFiles: app/android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
