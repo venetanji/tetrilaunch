@@ -185,6 +185,41 @@ const STEP = 1000 / 60;
 const MAX_CATCHUP_STEPS = 2;
 
 /**
+ * ONE HUD REFRESH EVERY N DRAWN FRAMES — about 15Hz on a 120Hz panel.
+ *
+ * syncHud writes the HUD's DOM, and on this hardware the browser's repaint of
+ * that overlay is the single largest item in the frame. Measured on a OnePlus
+ * CPH2573 in a live bay, conditions interleaved every 400ms inside one window
+ * (both arms medianing an 8.3ms rAF gap, so the panel held 120Hz throughout):
+ * the HUD painted every frame runs 85.4fps and makes 65.8% of its 8.33ms
+ * deadlines; the same bay with the HUD left present and laid out but never
+ * PAINTED runs 112fps at 93.7%. Drawing the whole canvas scene, by contrast,
+ * prices at about 3fps. The overlay's paint is the wall, not the game's.
+ *
+ * WHY EIGHT AND NOT MORE. The divisor was swept in one window: every frame
+ * 85.4fps, ~60Hz 93.8, ~30Hz 100.5, ~15Hz 107.4, ~8Hz 107.3, ~4Hz 109.8. Each
+ * halving buys roughly 7fps down to 15Hz and then the curve flattens — 15Hz,
+ * 8Hz and 4Hz are one answer within noise. Eight is therefore the knee AND the
+ * highest rate that still captures the whole win; throttling harder only makes
+ * the readouts steppier in exchange for nothing.
+ *
+ * WHAT THIS DOES NOT FIX, and why it is the simple version. A flat gate slows
+ * every readout equally, including the two that genuinely move every frame —
+ * the reload ring and the PWR bar. The better shape keeps those two smooth
+ * through transform/opacity (which the compositor can animate without
+ * repainting at all) and puts only the text on this tick. It also cannot reach
+ * 120: the sweep saturates at 108-110fps, and the rest is the cost of each
+ * individual repaint rather than how often one happens.
+ *
+ * See docs/superpowers/specs/2026-08-27-background-layer-split-design.md.
+ */
+const HUD_UPDATE_EVERY = 8;
+
+/** Drawn-frame counter for HUD_UPDATE_EVERY. Module scope because the pacing
+ *  belongs to the loop rather than to any one run. */
+let hudFrame = 0;
+
+/**
  * States whose overlay covers the canvas outright, so the field behind it is
  * not worth drawing — see the loop()'s render gate.
  *
@@ -4369,7 +4404,9 @@ class App {
       // (game.ts no longer recomputes it per step; aim changes refresh it
       // through input.ts, and the sim bots refresh it themselves).
       if (stepped) g.updateTrajectory();
-      this.syncHud(g);
+      // Every frame would be ~8x this rate and costs ~22fps for readouts a
+      // player cannot read that fast. See HUD_UPDATE_EVERY.
+      if (hudFrame++ % HUD_UPDATE_EVERY === 0) this.syncHud(g);
     }
     this.last = now;
 
