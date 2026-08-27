@@ -4396,6 +4396,89 @@ section("The odometer (app.css .roll — the lift's readouts)");
   }
   check("...while every adjacent Mark step changes all four", movedEverywhere,
     "some adjacent pair shares a readout, so a normal ride would hold one still");
+
+  // --- THE ROLL RUNS ON THE LIFT'S CLOCK ------------------------------------
+  // The half of this mechanism that lives in main.ts, and the one a screenshot
+  // cannot catch: WHEN the tracks start and when they are allowed to be taken
+  // away. `pickTier` starts the car and registers the landing timeout in one
+  // tick, and the tracks used to arm two requestAnimationFrames later — so
+  // every ride tore the five tracks down before their own transitions had
+  // finished, by exactly the arming delay. Measured on the built app before the
+  // fix, riding four floors at 640ms: the transitions began at t+64.6ms and
+  // would have ended at t+704.6, while setSelectedTier rebuilt the panel at
+  // t+649.0, and `transitionend` never fired at all because removal cancels it.
+  //
+  // The delay is not a fixed two frames either; it is however long two frames
+  // happen to take, on a menu that is simultaneously running the attract demo's
+  // physics. That is the case worth pinning: at a steady 60Hz the theft is
+  // ~33ms and barely visible, and on a stuttering frame it is whatever the
+  // stutter was.
+  //
+  // Read out of main.ts because it is a SOURCE property — there is no rAF, no
+  // transition and no compositor in this process, so what can be asserted is
+  // that the code cannot reintroduce the shape that caused it.
+  const mainTs = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const bodyOf = (name: string): string => {
+    const at = mainTs.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = mainTs.indexOf("{", at);
+    const start = i;
+    for (; i < mainTs.length; i++) {
+      if (mainTs[i] === "{") depth++;
+      else if (mainTs[i] === "}" && --depth === 0) return mainTs.slice(start, i + 1);
+    }
+    return "";
+  };
+  const rollFn = bodyOf("roll").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const armBody = bodyOf("armRolls").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const pickBody = bodyOf("pickTier").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  check("the roll builder exists and no longer arms on a frame callback",
+    rollFn.length > 0 && !/requestAnimationFrame/.test(rollFn),
+    "roll() still defers `is-rolled` to requestAnimationFrame");
+  // Arming is one synchronous flush for all five, which is what makes "the
+  // plate and the four readouts start on the same tick" a property rather than
+  // a coincidence. Two forced reads: one to commit the start offset (what the
+  // rAF pair was really for), one to create the transitions inside this task.
+  check("...they are armed together, synchronously, by armRolls",
+    armBody.length > 0 && !/requestAnimationFrame/.test(armBody)
+      && /is-rolled/.test(armBody),
+    "armRolls() is missing or does not add is-rolled itself");
+  check("...with a forced reflow either side of the arm",
+    (armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length >= 2,
+    `${(armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length} forced layout reads in armRolls`);
+
+  // ORDER, inside pickTier: arm, then register the landing timer. Registering
+  // first would spend part of the ride's budget before the tracks exist.
+  const armAt = pickBody.indexOf("this.armRolls()");
+  const timerAt = pickBody.search(/setTimeout\(\s*land/);
+  check("pickTier arms the rolls before it starts the landing timer",
+    armAt >= 0 && timerAt >= 0 && armAt < timerAt, `arm@${armAt} timer@${timerAt}`);
+
+  // THE PROPERTY ITSELF: the teardown asks the tracks whether they are done.
+  // A transition created inside a task is not given its start time until the
+  // next rendering update, so even a synchronous arm finishes up to a frame
+  // after `setTimeout(dur)` fires — this is what closes that last frame, at any
+  // refresh rate rather than at 60Hz only.
+  check("the landing waits out whatever travel the rolls still owe",
+    /rollRemainingMs\(\)/.test(pickBody) && /setTimeout\(\s*land/.test(pickBody),
+    "pickTier lands on a bare timer with no completion check");
+  const remBody = bodyOf("rollRemainingMs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("...measured off the animations themselves, counting only running ones",
+    /getAnimations\(\)/.test(remBody) && /playState/.test(remBody),
+    "rollRemainingMs does not read the tracks' own animations");
+  // Only RUNNING animations may count, and that is what keeps the two states
+  // with no travel from waiting forever for one: reduced motion sets
+  // `transition: none` (so there is no animation at all) and a transition
+  // cancelled by a second tap is not running either. A version that waited on
+  // `transitionend` instead would hang on both.
+  check("...so reduced motion and cancelled rolls land on time",
+    /playState\s*!==\s*"running"/.test(remBody),
+    "rollRemainingMs counts animations that are not running");
 }
 
 // ---------------------------------------------------------------------------

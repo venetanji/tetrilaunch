@@ -1770,12 +1770,32 @@ class App {
     // odometer spinning on arrival would be the screen animating its own
     // initial state.
     this.rollBayStats(state.selected, tier, dur);
+    // ARM THE FIVE TOGETHER, and do it BEFORE the landing timer is registered.
+    // Both halves matter. Arming synchronously is what puts the tracks on the
+    // same clock as the car (see armRolls); registering the timeout after it is
+    // what guarantees the teardown can only ever be LATE — `setTimeout(dur)`
+    // fires no earlier than `dur` after this line, and the transitions are
+    // already running by the time it is written, so completion cannot fall on
+    // the far side of it.
+    this.armRolls();
     this.setPlaySub(null);
     window.clearTimeout(this.towerTravel ?? undefined);
-    this.towerTravel = window.setTimeout(() => {
+    // The car's clock decides WHEN the screen lands; the rolls get to say the
+    // last word on whether they are done. `rollRemainingMs` is normally a frame
+    // or less (see armRolls and rollRemainingMs for why it is never quite
+    // zero), so this re-arms at most once and the ride does not get visibly
+    // longer — it just stops ending early.
+    const land = (): void => {
+      const left = this.rollRemainingMs();
+      if (left > 0) {
+        this.towerTravel = window.setTimeout(land, Math.ceil(left));
+        return;
+      }
       this.towerTravel = null;
+      this.rollArmed = [];
       this.setSelectedTier(tier);
-    }, dur);
+    };
+    this.towerTravel = window.setTimeout(land, dur);
   }
 
   /**
@@ -1839,14 +1859,100 @@ class App {
     el.innerHTML = `<span class="roll">${cells.map((c) => `<b>${c}</b>`).join("")}</span>`;
     // Cleared before the new track is armed. A second tap while the first roll
     // is still running would otherwise find `is-rolled` already set, so the
-    // fresh track would render at its END offset immediately and the rAF pair
-    // below would have nothing left to transition — the value would snap.
+    // fresh track would render at its END offset immediately and `armRolls`
+    // would have nothing left to transition — the value would snap.
     el.classList.remove("is-rolled");
     el.classList.add("is-rolling");
-    // Two frames, not one: the track has to be laid out AT the start offset
-    // before the end offset can transition from it, and a single rAF still
-    // lands inside the same style flush on WebKit.
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("is-rolled")));
+    // Prepared, not armed. Every track built in one tick is armed together by
+    // armRolls below, which is what puts all five on the car's own clock.
+    this.rollPending.push(el);
+  }
+
+  /** Tracks built by `roll` this tick, waiting to be armed together. */
+  private rollPending: HTMLElement[] = [];
+
+  /**
+   * Start every prepared roll, synchronously, in this task.
+   *
+   * THIS IS THE LIFT'S CLOCK, and getting the five onto it is the whole job.
+   * `pickTier` starts the car's transition and registers the landing timeout
+   * (`setSelectedTier` after `dur`) in one tick; the tracks used to arm two
+   * `requestAnimationFrame`s later. A transition that starts late finishes
+   * late, and the timeout does not know that — so the teardown landed on the
+   * tracks BEFORE they finished, by exactly the arming delay, every single
+   * ride. Measured on the built app, riding four floors at `--roll-dur: 640ms`:
+   * the transitions began at t+64.6ms and would have ended at t+704.6, while
+   * the panel was rebuilt at t+649.0. The last 56ms of travel never happened —
+   * and it is the part that matters, because the curve
+   * (`--roll-ease`, cubic-bezier(0.34, 1.28, 0.64, 1)) spends its tail settling
+   * back out of the overshoot. `transitionend` never fired at all; removal
+   * cancels it. On a 60Hz display the theft is ~33ms and on 120Hz ~17ms, but it
+   * is never zero and it is never in the player's favour.
+   *
+   * Two forced reflows, and both are load-bearing:
+   *
+   *  - the first commits every prepared track AT its start offset, which is
+   *    what the old rAF pair was really for — a transition needs a committed
+   *    "before" value to move away from, and a single rAF still lands inside
+   *    the same style flush on WebKit. A synchronous layout read is strictly
+   *    stronger than either: it IS the flush, and it happens now.
+   *  - the second commits the end offset, which creates the transitions inside
+   *    this task rather than at the next frame. Without it the tracks would
+   *    still start one frame after the car, and the teardown would still be one
+   *    frame early.
+   *
+   * One flush for all five rather than one each, so "the plate and the four
+   * readouts start on the same tick" is a property of the mechanism rather than
+   * something that happens to be true — and so a ride costs two layouts instead
+   * of ten.
+   */
+  private armRolls(): void {
+    if (this.rollPending.length === 0) return;
+    void this.overlay.offsetHeight;
+    for (const el of this.rollPending) el.classList.add("is-rolled");
+    void this.overlay.offsetHeight;
+    this.rollArmed = this.rollPending;
+    this.rollPending = [];
+  }
+
+  /** The tracks armed for the ride in flight — what `rollRemainingMs` asks. */
+  private rollArmed: HTMLElement[] = [];
+
+  /**
+   * How much travel the armed rolls still owe, in ms. 0 when nothing is moving.
+   *
+   * The last frame of the race, and the one synchronous arming cannot win. A
+   * CSS transition created inside a task does not START in that task: it is
+   * assigned a start time at the next rendering update, so its clock begins up
+   * to one frame after `setTimeout(dur)` began counting and it finishes that
+   * much after the timer fires. Measured after arming was made synchronous, the
+   * rolls were still cut off at 0.937 of their travel — 599.9ms of a 640ms ride
+   * — because the timer's 640ms was spent from a moment 40ms before the
+   * transitions' own zero.
+   *
+   * So the landing ASKS rather than assumes. This is read at the moment the
+   * timer fires, off the animations themselves, and `pickTier` waits out
+   * whatever is left. That makes "the teardown never precedes completion" true
+   * by construction at any refresh rate, rather than true at 60Hz and false on
+   * a 120Hz phone.
+   *
+   * Only RUNNING animations count, which is what keeps the two states that have
+   * no travel from waiting for one: under `prefers-reduced-motion` the track
+   * has `transition: none` and there is no animation to find, and a transition
+   * cancelled by a second tap is no longer running either. Both answer 0 and
+   * land on time.
+   */
+  private rollRemainingMs(): number {
+    let most = 0;
+    for (const el of this.rollArmed) {
+      for (const a of el.getAnimations()) {
+        if (a.playState !== "running") continue;
+        const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
+        const now = Number(a.currentTime ?? 0);
+        most = Math.max(most, end - now);
+      }
+    }
+    return most;
   }
 
   /**
