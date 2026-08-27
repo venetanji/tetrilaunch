@@ -35,6 +35,7 @@
     "test:uifit": "tsx sim/uifit/run.ts",
     "test:uifit:shots": "tsx sim/uifit/run.ts --shots",
     "sim:balance": "tsx sim/sweep.ts",
+    "sim:winnability": "tsx sim/winnability.ts",
     "sim:pile": "tsx sim/pile.ts",
     "sim:perf": "tsx sim/perf.ts",
     "sim:renderperf": "tsx sim/renderperf/run.ts",

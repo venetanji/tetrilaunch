@@ -394,6 +394,93 @@ true is that **this model** excludes content axes, so a `spread` number prices
 the ladder's arithmetic and not its cargo. To price a material, ratchet it
 explicitly and fly `aim` against `demo` on a rig that carries charges.
 
+## `winnability.ts` — which notch combos can a Deep Run survive?
+
+The question no per-bay sweep can be asked. `sweep.ts` prices a bay, `marks.ts`
+prices a Mark, `pile.ts` prices the congestion tax — and a *build of the run* is
+eight ratchet picks whose entire cost is that they compound, which both existing
+sweeps deliberately replace with `ratchet-model.ts`'s average-run model (content
+axes excluded, and it says so).
+
+```sh
+npm run sim:winnability                                   # marks 5,10 · 2 seeds
+npm run sim:winnability -- --marks 1,5,10 --seeds 4 --trace
+npm run sim:winnability -- --marks 7 --mode cheapest --seeds 3
+npm run sim:winnability -- --mode counter --marks 7 --bay 10 \
+  --ratchets volatile:6 --counters cushion1,cushion2,cushion3 --seeds 8
+```
+
+Three modes, and the third one exists because the first could not answer its
+question. `--mode combos` sweeps the notch space; `--mode cheapest` walks the
+loadout ladder upward; **`--mode counter`** prices ONE kit against ONE bay under
+an EXPLICIT `--ratchets` stack, paired on the same seeds. A counter changes the
+physics, the physics changes where every later shipment lands, and ten bays of
+that moves the wall by more than the counter is worth — measured at Tier 7 on
+`max:volatile`, the three cushion tiers came back identical to each other and
+two bays from the baseline in the *wrong* direction. That is run-level leverage,
+not an effect. The paired single-bay comparison is the shape `pile.ts` already
+uses for the congestion tax, and it has the resolution.
+
+Four new parts, three of them shared modules rather than CLIs:
+
+| file | what it is |
+|---|---|
+| `draft-space.ts` | the reachable notch-combo space, **enumerated** — real hands from `hazardOffers`, only picks `togglePick` accepts — plus the draft POLICIES the sweep samples with |
+| `deeprun.ts` | ten bays end to end through `run.ts`'s own `advanceRun`/`buyUpgrades`. No `--carry` stand-in and no modelled scrap schedule: the couplings are the real ones |
+| `builds.ts` | the loadout vocabulary (`loadoutFor`, `PRIORITY_ORDERS`), lifted out of `marks.ts`, which cannot be imported — it is a CLI with top-level output |
+| `counters.ts` | the counters the bots did not use (`bondHands`) and the ones the game does not have (`cushionKit`, `thawKit`) |
+
+### Covered vs sampled — printed in every run
+
+The combo space is **exhaustively enumerated** and only **partly played**, and
+the banner prints both numbers because the gap is the result's main caveat.
+Enumerating is free (2^8 = 256 reachable paths below the capstone, 3^8 = 6561 at
+it — milliseconds either way); playing one combo costs seconds.
+
+- **Covered exhaustively**: the CORNERS — one `max:<axis>` policy per axis the
+  Mark deals. A cliff is found by walking to the edge, not by sampling the
+  middle.
+- **Sampled**: the interior — `spread`, `dodge`, and `--random N` seeded walks.
+- **Not covered at all**: policies that change their mind mid-run; the second
+  Final Inspection clause unless `--finals both`; seeds beyond `--seeds`.
+
+### The verdict reads the WALL, not the clear rate
+
+A run needs every bay, so — `marks.ts`'s own arithmetic — 90% a bay is 35% of
+runs and 80% a bay is 11%. At any seed count this tool can afford, 0 clears is
+exactly what a correctly-tuned ladder looks like, so a clear rate cannot tell a
+correct Tier from an impossible one. What can is **where the run stops**: dying
+on bay 2 every seed and dying on bay 9 every seed both score zero and are
+nothing alike. So `wall` is the median bay a run died in, `MARGINAL_WALL` is 6
+(the bay after the second refit stop — a run that has been handed every lever
+and is still going is failing on play), and a clear only promotes.
+
+### The pessimism ledger
+
+Two of `sim/README.md`'s oldest caveats are **closed** here: the pilot fires
+demolition charges (`bots.ts`'s `demo`) *and* Bond Breakers
+(`counters.ts`'s `bondHands`). Still open: no lookahead, a fixed landing target,
+no reading of the pile, no re-planning of the draft. So a combo this tool calls
+**winnable is winnable**; a combo it calls **unwinnable beat a competent pair of
+hands holding every existing counter**, which is the strongest claim the
+instrument can make and still not a proof.
+
+### `--build` is measured, not chosen
+
+`spatial` by default. At Mark 5 over 6 seeds under `dodge` the four orders wall
+at bay 5 (spatial), 4 (material), 4 (economy), 3 (full); at Mark 7, spatial 6 vs
+material 5. `full` is last because it is the only order reaching MAGAZINE, which
+`marks.ts` already records as a self-inflicted wound to a bot that fires on every
+cooldown. **The exception**: `spatial` carries no DEMOLITION, so a slag row
+measured on it is measuring a rig with no answer — re-run slag on
+`--build material`.
+
+### Findings
+
+Live in `design/balance/` — `winnability-sweep-findings.md` (what the sweep
+found) and `counter-systems-proposal.md` (what to build about it). Both quote
+the numbers a re-run reproduces; neither is a substitute for re-running it.
+
 ## `perf.ts` — physics step-cost sweep
 
 For each cube count `N` in `--counts`, builds a fresh bay-1 `Game`
