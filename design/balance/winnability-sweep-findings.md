@@ -784,22 +784,43 @@ indistinguishable from a bay that was never charged.
 | counter | cost | win | lines | shots | end $ | saved $ |
 |---|---:|---:|---:|---:|---:|---:|
 | none | 0 | 4/48 | 3.8 | 38.3 | $197 | $0 |
-| Incinerator 3 alone | 110 | 4/48 | 3.8 | 38.4 | $195 | **$7** |
+| Incinerator 3 alone | 110 | 4/48 | 3.8 | 38.4 | $195 | **$6** |
 | discard alone | 0 | 29/48 | 14.1 | 50.6 | $1188 | $0 |
-| discard + Incinerator 1 | 20 | 35/48 | 13.9 | 48.3 | $1411 | $232 |
+| discard + Incinerator 1 | 20 | 35/48 | 13.9 | 48.3 | $1411 | $231 |
 | discard + Incinerator 2 | 55 | 39/48 | 14.6 | 49.8 | $1581 | $476 |
-| discard + Incinerator 3 | 110 | **41/48** | 13.5 | 46.3 | $1676 | $705 |
+| discard + Incinerator 3 | 110 | **41/48** | 13.5 | 46.3 | $1676 | $701 |
 
 Read the second row first. **A maxed hood on a pilot that never aims into it is
-worth $7 a bay and zero wins** — byte-identical to no hood at all on every other
+worth $6 a bay and zero wins** — byte-identical to no hood at all on every other
 column. The system has no passive floor; it is the first track on the shelf of
 which that is true.
+
+> **THE `saved$` COLUMN WAS CORRECTED AFTER REVIEW** (codex, PR #156), and the
+> figures above are the corrected ones. The discount is applied BEFORE the
+> balance clamp — `settleBlast`'s own note argues why it must be — and the
+> ledger had quietly inherited that rule for a different question. A bay holding
+> $10 that meets a $40 gross fine loses the same $10 with or without a maxed
+> hood, because the clamp was taking everything either way; the old arithmetic
+> scaled the nominal $30 discount by the share of the *discounted* bill that
+> landed and reported a saving. The rule now is: clamp both bills
+> independently, subtract (`lineClear.ts`'s `reliefRealised` / `blastRelief`).
+>
+> **Nothing else in either table moved** — win counts, lines, shots and ending
+> funds are byte-identical, because this is a readout and never touched the
+> bankroll. What moved is the money the readout CLAIMED: at Tier 7 $7 → $6 and
+> $705 → $701, and at Tier 10 $191 → $176, which is the largest correction and
+> is exactly where the reviewer predicted it — the near-broke losing rows, whose
+> ending funds are $180-$197.
+>
+> The correction makes the section's own argument slightly stronger rather than
+> weaker: the row that saves the most while buying nothing now claims less.
 
 Then the ladder. The discard alone is worth 25 bay-wins and is still losing 17
 bays to `broke`, because a dump is a launch that buys nothing and is *fined* for
 the privilege. Each hood rung buys wins on top of it — 29 / 35 / 39 / 41 — and
-the bill falls in exactly the proportion the ladder promises: $232 / $476 / $705
-is 1 : 2 : 3. The top row lands **under** the 45/48 clean control, which is the
+the bill falls in very nearly the proportion the ladder promises: $231 / $476 /
+$701 is 1 : 2.06 : 3.03 — the drift is the rounding on a per-cube quarter, plus
+the bays where the clamp took the charge before the hood could reduce it. The top row lands **under** the 45/48 clean control, which is the
 shape `hazards.ts` asks a counter to have: it converges on a clean bay without
 reaching one.
 
@@ -810,23 +831,23 @@ reaching one.
 | counter | cost | win | lines | shots | end $ | saved $ |
 |---|---:|---:|---:|---:|---:|---:|
 | none | 0 | 4/48 | 5.3 | 39.9 | $180 | $0 |
-| Incinerator 3 alone | 110 | 4/48 | 5.4 | 41.9 | $186 | $191 |
+| Incinerator 3 alone | 110 | 4/48 | 5.4 | 41.9 | $186 | $176 |
 | discard alone | 0 | 18/48 | 14.3 | 48.9 | $902 | $0 |
-| discard + Incinerator 1 | 20 | 30/48 | 15.4 | 51.4 | $1376 | $395 |
-| discard + Incinerator 2 | 55 | 36/48 | 15.5 | 52.4 | $1557 | $781 |
-| discard + Incinerator 3 | 110 | **38/48** | 13.7 | 47.9 | $1616 | $1115 |
+| discard + Incinerator 1 | 20 | 30/48 | 15.4 | 51.4 | $1376 | $390 |
+| discard + Incinerator 2 | 55 | 36/48 | 15.5 | 52.4 | $1557 | $773 |
+| discard + Incinerator 3 | 110 | **38/48** | 13.7 | 47.9 | $1616 | $1109 |
 
 The owner's sentence was *"this makes tier 10 bay 10 with all special materials
 more playable"*, and 4/48 → 38/48 is that, measured. Note the second row again,
 and note that it is a **stronger** null than Tier 7's: at Tier 10 the hood saves
-$191 a bay without the discard policy — the bills are bigger and this pilot
+$176 a bay without the discard policy — the bills are bigger and this pilot
 strays more cargo into the maw — and it still buys **not one win**. Money saved
 is not the same as a bay won, and this is the row that says so.
 
 #### The boundaries, on the same instrument
 
 - **A clean bay is untouched.** Tier 7 bay 10 with no notches: 45/48 at every
-  tier, 8.5 lines, 26.4 shots, and $2 a bay saved. Tier 10 clean: 48/48 either
+  tier, 8.5 lines, 26.4 shots, and $1 a bay saved. Tier 10 clean: 48/48 either
   way. Where there is no cargo to write off, the hood does nothing — and the
   discard policy does nothing either, because there is nothing dead to discard.
   (Tier 10 clean ends $30 poorer with a hood aboard on identical wins; that is
@@ -835,7 +856,7 @@ is not the same as a bay won, and this is the row that says so.
 - **It is NOT a second volatile counter.** Tier 7 bay 10 at `volatile:6`, the
   Impact Cushion's own test bed: 27/48 at every hood tier, ending funds $1190 /
   $1190 / $1190 / $1191 — **one dollar across 48 bays.** Tier 10 at the same cap:
-  11/48 / 11 / 11 / 10, saving $2 / $4 / $6. Volatile detonates at the pile, and
+  11/48 / 11 / 11 / 10, saving $2 / $3 / $5. Volatile detonates at the pile, and
   the pile is below the flue. The two positional systems on the shelf do not
   overlap at all, which is the thing a tenth track most needed to prove.
 - **One notch is efficiency, not survival**, exactly as the cushion's is. Tier 7

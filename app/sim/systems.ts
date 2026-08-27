@@ -69,7 +69,7 @@ import { createPhysics, SKY, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  volatileLossFor, settleBlast, chargeAfterRelief,
+  volatileLossFor, settleBlast, chargeAfterRelief, reliefRealised, blastRelief,
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
@@ -12924,6 +12924,94 @@ section("The Incinerator's flue (chute.ts / upgrades.ts / lineClear.ts / game.ts
       `${brokeHood.charged} vs ${brokeBare.charged}`);
     check("...and the settlement still never drives the balance below zero",
       0 + brokeHood.net >= 0, String(brokeHood.net));
+  }
+
+  /* -------------------------------------------------------------------------
+   * 7b. CHARGED LESS IS NOT THE SAME AS KEPT MORE.
+   *
+   * The saving is NOT the discount. The discount is applied before the clamp
+   * (§7, and settleBlast's own argument for why it must be); the SAVING is the
+   * difference in money that actually moved, which means clamping both bills
+   * independently and subtracting. Found in review (codex, PR #156) — the
+   * ledger had inherited §7's rule for a question §7 does not answer.
+   *
+   * The example is the reviewer's, verbatim, and it is the one case where every
+   * wrong version of this arithmetic is visibly wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    // $10 in the bank, a $40 gross fine, a maxed hood that cuts it to $10. Both
+    // bays lose the same $10 — the clamp was taking everything either way — so
+    // the hood saved NOTHING.
+    check("a near-broke bay saves nothing, because the clamp was taking it all anyway",
+      reliefRealised(10, 40, 10) === 0, String(reliefRealised(10, 40, 10)));
+    // Solvent: the whole nominal discount is real, because both bills land whole.
+    check("...a solvent bay keeps the whole discount",
+      reliefRealised(500, 40, 10) === 30, String(reliefRealised(500, 40, 10)));
+    // PARTLY clamped, which is the case the old scaling got closest to and still
+    // missed: at $25 the gross bill would have taken 25 and the discounted one
+    // takes 10, so 15 was kept — not the 30 the discount nominally was, and not
+    // the 12 that scaling 30 by (10/10) or by (25/40) would have produced.
+    check("...and a partly-clamped bay keeps exactly the difference the clamp let through",
+      reliefRealised(25, 40, 10) === 15, String(reliefRealised(25, 40, 10)));
+    check("relief realised is never negative, whatever it is handed",
+      reliefRealised(0, 40, 10) === 0 && reliefRealised(10, 10, 10) === 0
+        && reliefRealised(-5, 40, 10) === 0);
+
+    // THE SAME RULE ON THE BLAST PATH, through settleBlast's own ceiling
+    // (funds + bounty) rather than a second copy of it. game.ts settles the
+    // blast TWICE — once bare, once hooded — and takes the difference of what
+    // each actually charged; this is that, on the reviewer's numbers.
+    const perLive = 40;
+    const blast = [cube("standard", 900, 0)];
+    const burn = (): number => 0.75;
+    {
+      // No slag in the blast, so the ceiling is the bare bankroll: $10.
+      const bare = settleBlast(blast, 10, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(blast, 10, perLive, SLAG_BOUNTY, burn);
+      // Through blastRelief, which is game.ts's ONE call site for this — the
+      // scaling the review found would read \$30 here, on a bay that kept
+      // nothing. The alternative formula is spelled out beside it so the pin
+      // documents the wrong answer as well as the right one.
+      const scaled = hooded.owed > 0
+        ? Math.round(((bare.owed - hooded.owed) * hooded.charged) / hooded.owed) : 0;
+      check("a near-broke BLAST saves nothing either, on the same example",
+        bare.charged === 10 && hooded.charged === 10 && blastRelief(bare, hooded) === 0
+          && scaled === 30,
+        `realised ${blastRelief(bare, hooded)}, scaled would be ${scaled}`);
+    }
+    {
+      const bare = settleBlast(blast, 500, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(blast, 500, perLive, SLAG_BOUNTY, burn);
+      check("...and a solvent blast saves the whole discount",
+        blastRelief(bare, hooded) === 30, String(blastRelief(bare, hooded)));
+    }
+    {
+      // The bounty is part of the ceiling, which is exactly why game.ts does not
+      // re-derive it: a blast that catches slag can pay a charge a bare bankroll
+      // could not, so the two settlements have to be run rather than modelled.
+      const mixed = [cube("standard", 900, 0), cube("slag", 900, 0)];
+      const bare = settleBlast(mixed, 0, perLive, SLAG_BOUNTY);
+      const hooded = settleBlast(mixed, 0, perLive, SLAG_BOUNTY, burn);
+      check("a blast at $0 still saves what its own bounty let the hood keep",
+        bare.charged === Math.min(SLAG_BOUNTY, 40) && hooded.charged === Math.min(SLAG_BOUNTY, 10)
+          && bare.charged - hooded.charged === bare.charged - hooded.charged,
+        `${bare.charged} vs ${hooded.charged}`);
+    }
+
+    // END TO END: a bay too poor to pay its gross fine must report no saving,
+    // whatever the hood is. Driven through the real Game so the pin covers the
+    // wiring and not only the helper.
+    {
+      const cfg = makeBaseLevel(9, 10);
+      applyUpgrades(cfg, { ...newTiers(), incinerator: MAX_TIER });
+      const flown = applyRatchets(cfg, { slag: 3 });
+      // A bankroll that cannot cover one shipment's gross fine, so every loss
+      // this bay takes clamps identically with and without the hood.
+      flown.startingFunds = flown.launchCost;
+      const out = runBay(flown, dumpHands(bondHands(BOTS.demo(3))), 3);
+      check("a bay that never had the money never reports a saving",
+        out.incineratedFunds === 0, String(out.incineratedFunds));
+    }
   }
 
   /* -------------------------------------------------------------------------

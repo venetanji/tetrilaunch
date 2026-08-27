@@ -39,7 +39,8 @@ import {
   type ClearResult,
   settleBlast,
   chargeAfterRelief,
-  volatileLossFor,
+  reliefRealised,
+  blastRelief,
 } from "./lineClear";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -1029,21 +1030,22 @@ export class Game {
     // already return them, because the "−$" toast needed to know where the
     // cargo went before the ledger did.
     let owed = 0;
-    let saved = 0;
     const rightEdge = chuteRightEdge(this.strandCutoffX);
     for (const p of lost) {
       const relief = this.reliefFor(p.x, p.y, rightEdge);
-      const charge = chargeAfterRelief(this.level.penaltyPerLostPiece, relief);
-      owed += charge;
-      saved += this.level.penaltyPerLostPiece - charge;
+      owed += chargeAfterRelief(this.level.penaltyPerLostPiece, relief);
     }
+    // What the same batch would have cost with no hood aboard. Computed rather
+    // than accumulated as a running "saved" because the two numbers have to meet
+    // the clamp SEPARATELY — see lineClear.ts's reliefRealised for the near-broke
+    // case that separates them, and preview.ts for the same stance stated
+    // generally ("a projection that models numbers separately from the game would
+    // eventually lie"). The hood is priced by running the bill twice, not by
+    // modelling its delta.
+    const gross = n * this.level.penaltyPerLostPiece;
     const deducted = Math.min(this.score, owed);
+    this.incineratedFunds += reliefRealised(this.score, gross, owed);
     this.score -= deducted;
-    // Counted on what was BILLED, not on what was paid: the clamp below forgives
-    // a broke bay's charge, and a hood cannot claim to have saved money the
-    // clamp had already written off. Scaled by the share that actually landed,
-    // so a partially-clamped batch reports a partially-realised saving.
-    this.incineratedFunds += owed > 0 ? Math.round((saved * deducted) / owed) : 0;
     this.events.onPieceLost?.(n);
     return deducted;
   }
@@ -2405,7 +2407,6 @@ export class Game {
       // out, so this is where "per cube, at the moment of destruction" earns its
       // keep: a detonation that catches a shipment in the air over the machine
       // and three cubes down in the pile discounts the one and bills the three.
-      const owedGross = volatileLossFor(razed, this.level.volatileLoss);
       const settled = settleBlast(
         razed, this.score, this.level.volatileLoss, this.level.slagBounty,
         (cube) => {
@@ -2413,16 +2414,25 @@ export class Game {
           return this.reliefFor(p.x, p.y, chuteRightEdge(this.strandCutoffX));
         },
       );
+      // THE SAME BLAST SETTLED AGAIN WITH NO HOOD, and the difference in what
+      // each one actually TOOK is what the hood saved. Two settlements rather
+      // than arithmetic on one, for the reason preview.ts gives for running
+      // levelForRun twice: a number modelled separately from the thing it
+      // describes eventually lies, and this one already had. The clamp here is
+      // `funds + bounty` rather than `funds` (settleBlast's own rule, and the
+      // whole point of its netting argument), so re-deriving the ceiling at this
+      // call site would be a second copy of the very formula most likely to move.
+      //
+      // Found in review (codex, PR #156): the old version scaled the nominal
+      // discount by the share of the discounted bill that landed, which reports
+      // a saving on a bay that saved nothing — see lineClear.ts's reliefRealised
+      // for the $10-bankroll case that separates "charged less" from "kept more".
+      const bare = settleBlast(
+        razed, this.score, this.level.volatileLoss, this.level.slagBounty,
+      );
       this.score += settled.net;
       this.volatileLosses += settled.charged;
-      // What the hood saved on this blast, measured against the same clamp the
-      // spill fine's saving is: `owed` is what the discounted bill came to and
-      // `charged` is what the bay could actually pay, so a saving is only real
-      // to the extent the bill it came off was.
-      if (settled.owed > 0 && owedGross > settled.owed) {
-        this.incineratedFunds
-          += Math.round(((owedGross - settled.owed) * settled.charged) / settled.owed);
-      }
+      this.incineratedFunds += blastRelief(bare, settled);
       if (settled.bounty > 0) {
         // Reuses the bomb's salvage toast rather than inventing a second one:
         // it is the same statement ("that wreckage was worth something") and

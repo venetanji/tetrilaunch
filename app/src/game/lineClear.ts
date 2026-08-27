@@ -471,6 +471,55 @@ export function chargeAfterRelief(perCube: number, relief: number): number {
   return Math.round(perCube * (1 - r));
 }
 
+/**
+ * What a relief actually SAVED the bay — the difference between the two charges
+ * after each has met the same clamp.
+ *
+ * THE DISTINCTION THIS EXISTS FOR, found in review (codex, PR #156). The
+ * discount is applied BEFORE the clamp, and settleBlast's own note argues at
+ * length why it must be: after the clamp it would remit money that never moved,
+ * and would be worth nothing to the near-broke player the hood was asked for.
+ * That is the right rule for what the bay is CHARGED, and the ledger then
+ * quietly inherited it for what the bay SAVED — which is a different question
+ * with a different answer.
+ *
+ * The case that separates them: a bay holding $10 meets a $40 gross fine, and a
+ * maxed hood cuts it to $10. Both bays lose the same $10 — the clamp was going
+ * to take everything either way — so the hood saved NOTHING, and the readout
+ * was reporting $30. Scaling the nominal discount by the share of the bill that
+ * landed (the old `saved * deducted / owed`) is exactly wrong here, because the
+ * discounted bill landed in FULL while the gross one would not have.
+ *
+ * So: clamp both, independently, and subtract. `ceiling` is whatever the caller's
+ * clamp is measured against — the bankroll for a spill fine, the bankroll plus
+ * the blast's own bounty for a detonation — and passing it in is what keeps this
+ * one rule usable by both bills without either re-deriving the other's clamp.
+ *
+ * Never negative by construction: min() is monotone and `discounted <= gross`
+ * whenever the relief is in range (chargeAfterRelief clamps it there).
+ */
+export function reliefRealised(ceiling: number, gross: number, discounted: number): number {
+  return Math.min(ceiling, gross) - Math.min(ceiling, discounted);
+}
+
+/**
+ * The same rule for a DETONATION: what the hood saved is the difference between
+ * what the same blast actually charged with and without it.
+ *
+ * A named function rather than a subtraction at the call site, because it is the
+ * one place the blast path can be pinned. It takes two SETTLEMENTS rather than
+ * two bills and a ceiling, and that is the whole reason it is not
+ * `reliefRealised` with different arguments: a blast's clamp is measured against
+ * `funds + bounty` (settleBlast's netting rule), so re-deriving the ceiling
+ * anywhere outside settleBlast would be a second copy of the formula most likely
+ * to move. Handed two settlements of the same blast at the same funds, the
+ * ceiling is identical by construction and cancels — this IS `reliefRealised`,
+ * evaluated by the function that owns the clamp.
+ */
+export function blastRelief(bare: BlastSettlement, hooded: BlastSettlement): number {
+  return bare.charged - hooded.charged;
+}
+
 /** What one detonation actually moves on the bay's ledger. */
 export interface BlastSettlement {
   /** Paid for the dead cargo — the gross figure, before anything is taken. */
