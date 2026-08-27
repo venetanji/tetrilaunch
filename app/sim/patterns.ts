@@ -28,7 +28,7 @@
 import { isBuildable, type BuildModel } from "../src/game/buildable";
 import {
   dealPatternQueue, generateContract, levelForContract, PATTERN_SLOT, VARIANTS,
-  type Contract,
+  SKYDECK_CONTRACT_TIER, type Contract,
 } from "../src/game/contracts";
 import { SIZE_SPEC } from "../src/game/pieces";
 import { tilesRegion } from "../src/game/tiling";
@@ -57,7 +57,17 @@ const SEEDS = Number(arg("seeds", "400"));
  *  everything" when it did not is worse than a slower table. */
 const PER_VARIANT = Number(arg("per-variant", "60"));
 const ORDERS = Number(arg("orders", "60"));
-const TIERS = arg("tiers", "1,2,3,4,5,6,7,8,9").split(",").map(Number);
+/**
+ * Tiers swept by default — the ladder, and THE ROOF.
+ *
+ * SKYDECK_CONTRACT_TIER is on this list rather than left to `--tiers` because
+ * it is the only rung whose variant (Wide Gauge) exists nowhere else, and a
+ * default sweep that skipped it would report "every variant packs" over a table
+ * missing the one variant whose geometry is new. It is derived rather than
+ * typed so a floor added above it is not silently dropped the same way.
+ */
+const TIERS = arg("tiers", `1,2,3,4,5,6,7,8,9,${SKYDECK_CONTRACT_TIER}`)
+  .split(",").map(Number);
 /** tuck% is off by default. A tuck solve explores every pocket on the board
  *  rather than one landing per column, and at sixteen dominoes that is 77
  *  seconds for a single order — enough to turn this sweep from minutes into

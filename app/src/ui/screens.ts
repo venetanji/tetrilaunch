@@ -856,6 +856,45 @@ export function menuPlayBadged(
   return tier >= 1 && tier <= MARK_COUNT && !sealed;
 }
 
+/**
+ * The Contracts entry's PIPS and SUBTITLE — one copy of each rule, for exactly
+ * the reason menuPlaySub is a function rather than an expression: main.ts
+ * rewrites both nodes IN PLACE while the elevator travels (setSelectedTier),
+ * because re-rendering the menu mid-ride would tear down the attract demo. A
+ * rule stated only inside the markup is a rule that stops applying the moment
+ * the player taps a floor.
+ *
+ * They became per-floor at the same moment the Contract board did. The board is
+ * the PARKED FLOOR's (main.ts's contractsTier), and the roof deals one of its
+ * own: pentomino cargo, and no salvage, because a Skydeck Contract is not on
+ * the ladder and meta.ts's recordContractClear banks nothing for it. Both of
+ * those are things the door has to say before it is opened — a button
+ * advertising a milestone the board behind it cannot pay is worse than a button
+ * that says nothing.
+ *
+ * The pips go entirely on the roof. They are a claim about a TIER's quota
+ * (`progress.contracts` of `needed`), and drawing a tier's progress over a
+ * board that cannot move it would be the same lie in a smaller font.
+ */
+export function menuContractsPips(tier: number, progress?: TierProgress): string {
+  if (!progress || tier === SKYDECK_TIER) return "";
+  return `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
+    Array.from({ length: progress.needed }, (_, i) =>
+      `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
+  }</span>`;
+}
+
+export function menuContractsSub(tier: number, progress?: TierProgress): string {
+  // Numbers lead (A3): at compact the sub is one ellipsized line, so the live
+  // figures must sit before the prose that can afford to go. On the roof the
+  // count is still the lead number and what follows it is what is DIFFERENT
+  // about this board — the cargo, and the terms.
+  if (tier === SKYDECK_TIER) return `${DAILY_COUNT} today · pentomino cargo · no salvage`;
+  return progress
+    ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
+    : "Short challenges · retry freely";
+}
+
 export function menuPlaySub(
   tier: number | null, clauses: number, seal: SealPrompt | null,
 ): string {
@@ -1083,24 +1122,21 @@ export function menuScreen(
           // node by id and two copies of it would drift — see the note there.
           menuPlaySub(sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
-        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
-          // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
-          // replaced the run-end "Tier N progress" banner: a sentence about
-          // finishing Contracts on a screen the player wants to leave was
-          // never read, where an unfilled pip flickering on this button is
-          // the same fact at the moment the player can act on it.
-          progress
-            ? `<span class="tier-pips${progress.contracts < progress.needed ? " tier-pips--live" : ""}" role="img" aria-label="Tier ${progress.tier} Contracts: ${progress.contracts} of ${progress.needed} cleared">${
-                Array.from({ length: progress.needed }, (_, i) =>
-                  `<span class="tier-pip${i < progress.contracts ? " tier-pip--done" : ""}"></span>`).join("")
-              }</span>`
-            : ""
-        }</span><span class="btn__sub">${
-          // Numbers lead (A3): at compact the sub is one ellipsized line, so
-          // the live figures must sit before the prose that can afford to go.
-          progress
-            ? `${DAILY_COUNT} today · ${salvageHTML(progress.milestone, 10)} each · no clock, no launch cost`
-            : "Short challenges · retry freely"
+        <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts<!--
+          THE TIER'S CONTRACT PIPS, on the button that leads to them. They
+          replaced the run-end "Tier N progress" banner: a sentence about
+          finishing Contracts on a screen the player wants to leave was never
+          read, where an unfilled pip flickering on this button is the same
+          fact at the moment the player can act on it.
+
+          Both faces carry ids for the same reason the primary button's two do:
+          the ride rewrites them in place rather than re-rendering the menu.
+          The wrapper is what holds the id, because the pips themselves are
+          ABSENT on the roof and a node that can vanish is a node the ride
+          cannot find again. -->
+          <span id="menu-contracts-pips">${menuContractsPips(sel, progress)}</span>
+        </span><span class="btn__sub" id="menu-contracts-sub">${
+          menuContractsSub(sel, progress)
         }</span></span>${guide?.step === "contracts" ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "workshop" ? " btn--next" : ""}" data-action="workshop">${icon("workshop")}<span class="btn__txt">Workshop<span class="btn__sub">${
           guide
@@ -4587,6 +4623,17 @@ export function contractsScreen(opts: {
   progress?: TierProgress;
   /** The cheapest installable system, for the WHY strip's target price (A9). */
   nextInstall?: { name: string; cost: number } | null;
+  /** The board's floor, when it is not one of the ladder's — "Skydeck".
+   *
+   *  A NAME rather than a flag, and passed rather than derived from `tier`, for
+   *  the reason every other cross-module label on this screen is: the sentinel
+   *  belongs to the tower (SKYDECK_TIER) and the tier number belongs to the
+   *  generator (contracts.ts's SKYDECK_CONTRACT_TIER), and a screen that
+   *  compared one against the other would be a third place those two have to
+   *  agree. The eyebrow is the only thing it changes — a board that is not on
+   *  the ladder cannot say "Tier N", and saying nothing at all would leave the
+   *  player no way to tell the roof's board from the tier-10 one. */
+  floor?: string;
 }): string {
   // Whether a first clear still banks anything. A tier pays its milestone share
   // for only the first TIER_CONTRACTS_REQUIRED Contracts (meta.ts), so once the
@@ -4670,7 +4717,11 @@ export function contractsScreen(opts: {
           <!-- The tier lives in the chip opposite when there is one, so the
                eyebrow does not repeat it — it only names the thing the chip
                cannot, which is that the board is regenerated every day. -->
-          <div class="eyebrow">${opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`}</div>
+          <div class="eyebrow">${
+            opts.floor
+              ? `${opts.floor} · resets daily`
+              : opts.progress ? "Resets daily" : `Tier ${opts.tier} · resets daily`
+          }</div>
           <h2 class="display">Contracts</h2>
           <p class="contracts__sub muted">No rush, do it right.</p>
         </div>
@@ -4817,6 +4868,23 @@ export function contractEndModal(opts: {
    *  exits back at the sandbox — a practice Contract has no board to return
    *  to, and the daily board is not it. */
   sandbox?: boolean;
+  /** The attempt came off the SKYDECK's board (contracts.ts's
+   *  SKYDECK_CONTRACT_TIER), which is not a tier.
+   *
+   *  Same shape as `sandbox` above and for the same reason, which is the
+   *  precedent this file already set: a mode whose clear banks nothing gets a
+   *  row that SAYS so, rather than borrowing the ladder's. Without it a first
+   *  roof clear arrives here with `award.firstClear` true and takes the ladder
+   *  branch below — captioning a clear that moved nothing as "Tier 10 ·
+   *  Contracts 0/3" with three more owed and a Deep Run to fly. The settlement
+   *  was never wrong (recordContractClear banks and ticks nothing off the
+   *  ladder); the card was. It is the third time in this repo that the
+   *  celebration has outrun the state it was celebrating.
+   *
+   *  It differs from `sandbox` in exactly one way, and the difference is real:
+   *  a Tier S Contract has no board to go back to, and a Skydeck one does. So
+   *  the exits are untouched here. */
+  skydeck?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
@@ -4884,6 +4952,28 @@ export function contractEndModal(opts: {
             salvage and logs no clear — re-roll it and fly it again.</span>
         </div>
         <button class="btn btn--secondary" data-action="sandbox">Tier S</button>
+      </div>`
+      : opts.skydeck
+      // THE ROOF'S OWN WIN, ahead of every award branch below rather than
+      // folded into one of them. All three of those read `progress`, which is
+      // markUnlocked's tier — a number this clear cannot move and therefore
+      // cannot honestly caption. The quiet "Already logged" replay row is no
+      // safer: its one claim is that the Contract "counted on your first
+      // clear", and off the ladder it never counted for anything.
+      //
+      // So the roof gets one row for both the first clear and every replay,
+      // because on this floor there is no difference between them worth
+      // drawing — nothing banked either time. It reuses `--quiet`'s styling
+      // (nothing moved, so nothing shouts) and the tower's own ★, which is the
+      // face the plate already wears for this floor.
+      ? `<div class="salvage-row salvage-row--quiet">
+        <div class="salvage-row__amt">★</div>
+        <div class="salvage-row__body">
+          <b>Skydeck · logged</b>
+          <span class="muted">The roof's board is not a rung, so this clear banks nothing and
+            moves no quota — the ladder is already behind you. It is on the day's record, and
+            it stays replayable.</span>
+        </div>
       </div>`
       : opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">

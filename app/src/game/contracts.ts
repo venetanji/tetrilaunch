@@ -35,9 +35,80 @@ import { makeBaseLevel, NO_MATERIALS, WIND_GUST_FRACTION, type LevelConfig } fro
 import { SIZE_SPEC } from "./pieces";
 import { tilingQueue } from "./tiling";
 import { bayMusic, RUN_LEVELS, type BayTrack } from "./run";
+import { MARK_COUNT } from "./upgrades";
 import {
   MATERIAL_SPEC, PIECE_TYPES, type Material, type PieceSize, type PieceType,
 } from "./theme";
+
+/**
+ * THE SKYDECK'S OWN BOARD — one rung above the ladder, and the only board that
+ * is not a Mark.
+ *
+ * A Contract tier IS the Mark it is generated against everywhere else
+ * (contractMaterialsFor), and markUnlocked saturates at MARK_COUNT, so the
+ * ladder can never produce this number. That is exactly what makes it usable as
+ * the roof's key: the Skydeck is a floor, not a rung (skydeck.ts), and its
+ * board has to be addressable by the same (seed, tier, slot) function every
+ * other board is or it stops being reproducible, shareable and cacheable.
+ *
+ * The consequences of it being off the ladder are all the right ones and none
+ * of them needed new code:
+ *
+ *  - meta.ts's recordContractClear banks a milestone share only when
+ *    `contract.tier === markUnlocked(meta)`, which this never equals. So a
+ *    Skydeck Contract pays no salvage and ticks no tier — the same rule the
+ *    Skydeck run already keeps (skydeckRunFor grants no scrap), for the same
+ *    reason: the ladder is finished, and a mode that only ever accumulates is
+ *    a number pretending to be a decision.
+ *  - Contract ids embed the tier, so the roof's board never collides with the
+ *    tier-10 board in `claimedContracts`. A player can still clear their
+ *    tier-10 quota by parking the car back on the ladder.
+ *
+ * screens.ts's SKYDECK_TIER is the same integer, arrived at independently as a
+ * tower sentinel; sim/systems.ts pins that the two agree, because a UI floor
+ * that addressed a different board than the generator deals would be a screen
+ * showing someone else's Contracts.
+ */
+export const SKYDECK_CONTRACT_TIER = MARK_COUNT + 1;
+
+/** True for the roof's board. A predicate rather than `=== SKYDECK_CONTRACT_TIER`
+ *  at four call sites, because every one of them is asking the same design
+ *  question — "is this the floor that ships pentominoes" — and a comparison
+ *  repeated is a comparison that gets one of its copies wrong. */
+export function isSkydeckBoard(tier: number): boolean {
+  return Math.floor(tier) >= SKYDECK_CONTRACT_TIER;
+}
+
+/**
+ * The line width a PENTOMINO pattern Contract is played at, and the whole
+ * reason bulk cargo is finally dealable at all.
+ *
+ * A zero-waste inventory makes the goal a `goal` x `lineCells` rectangle
+ * (tiling.ts), and no set of 5-cube pieces fills an area that is not a multiple
+ * of 5. At the bay's own 8-cell line that is true only when the goal is itself a
+ * multiple of 5 — a 40-cube, 8-shipment monster or nothing, which is why
+ * patternSize refused bulk outright and said "it becomes available the day a
+ * wider line does". Ten is that day: `goal * 10` divides by 5 at EVERY goal, so
+ * the divisibility loop in patternGoal never has to move a Wide Gauge goal, and
+ * the tier's own ladder decides the size of the puzzle instead of arithmetic.
+ *
+ * Divisibility is necessary and not sufficient — an area that counts right can
+ * still tile nothing (the [I,O,J,J] bug was exactly that) — so it was measured
+ * against the shipped shape table rather than argued from the arithmetic.
+ * PENTA_SHAPES holds seven genuine pentominoes fitted to a 4x4 box with no
+ * straight I-pentomino among them (theme.ts says why), and over 30 seeds per
+ * goal at four distinct shapes, tilingQueue found a tiling for goals 2, 3, 4, 5
+ * and 6 on all 30 — and `tilesRegion`, the independent checker, agreed with
+ * every one. At 8 cells only goal 5 tiles at all.
+ *
+ * It also fits the bay it will be played in without touching the ladder: the
+ * press opens at compactorOpenCells = 12 and closes to 8, so ten is a width the
+ * compaction zone already passes through. levelForContract writes it as the
+ * bay's min-line stop, which leaves the press two cells of travel — narrower
+ * than stock, wider than the floor levelForContract enforces, and strictly more
+ * cubes a row than any other Contract in the game asks for.
+ */
+export const PENTOMINO_LINE_CELLS = 10;
 
 /**
  * What a Contract can play under: one of the Deep Run's beds, borrowed, or the
@@ -119,6 +190,16 @@ export function contractSlotBed(tier: number, slot: number): BayTrack {
  *     in 5/4 and a pentomino is five cubes. It outranks the slot bed because it
  *     is about what you are LAUNCHING rather than which card you tapped, and
  *     the whole point is that it lines up.
+ *
+ *     This rule was written before anything could satisfy it — the pentomino
+ *     was removed from the pool in the same pass that added it. The SKYDECK
+ *     BOARD is what finally does (see SKYDECK_CONTRACT_TIER and patternSize),
+ *     and it reaches this bed by the rule as written rather than by a floor
+ *     check: nothing below knows the roof exists, it only knows what is on the
+ *     belt. The cost is that the roof's three cards all sound like each other,
+ *     where the slot window exists to keep a board's three apart — and that is
+ *     the right trade on exactly this floor, because there the belt IS the
+ *     board's identity, which is the claim rule 2 already makes.
  *  3. **The slot's bed in the tier's window** — see contractSlotBed.
  *
  * `rng` defaults to Math.random — UNSEEDED, deliberately, the same call this
@@ -200,9 +281,12 @@ export type ContractMaterial = Exclude<Material, "standard" | "slag">;
  *              settles, so the physics stops fighting the plan and what is left
  *              is planning alone. The gentlest thing on this list, and it lands
  *              at the TOP of the ladder anyway — see variantsFor.
+ *  - "wide"    10-cell lines, and PENTOMINOES. The roof's variant, and the
+ *              only one that changes the cargo as well as the rule — the two
+ *              are one decision, not two, and patternSize explains why.
  */
 export type ContractVariant =
-  | "plain" | "single" | "short" | "rebar" | "salvage" | "blind" | "guided";
+  | "plain" | "single" | "short" | "rebar" | "salvage" | "blind" | "guided" | "wide";
 
 export interface VariantSpec {
   id: ContractVariant;
@@ -214,6 +298,15 @@ export interface VariantSpec {
   material: ContractMaterial | null;
   /** Cells a line spans, or null to use the bay's own width. */
   lineCells: number | null;
+  /** The payload this variant FORCES, or null to let patternSize roll one.
+   *
+   *  Only "wide" sets it, and it has to: a pentomino inventory is exact only
+   *  where `goal * lineCells` divides by 5, so the cargo and the width are one
+   *  decision. A variant that carried the width and left the payload to a roll
+   *  would deal an untileable region two thirds of the time — see patternGoal's
+   *  divisibility loop, which would silently walk the goal somewhere else
+   *  instead of failing. */
+  size: PieceSize | null;
   /** Lines added to the shared goal ladder. */
   goalBonus: number;
   /** Force the inventory to a single shipment type. */
@@ -235,15 +328,42 @@ export interface VariantSpec {
  * on the list and would make a lovely tier-2 on-ramp, but magnetic is Mark 9's
  * hazard, and a Contract that spends it at tier 2 has spoiled Mark 9's reveal to
  * save a new player four minutes. Rebar is Mark 5's, so `rebar` is tier 5's.
+ *
+ * WIDE GAUGE is the one rung that is not a Mark, because the floor it belongs
+ * to is not one either (SKYDECK_CONTRACT_TIER). It is also the only variant the
+ * board never rolls AGAINST anything: on the roof the pattern slot is dealt
+ * Wide Gauge every day, the way the Skydeck run's clauses are dealt rather than
+ * drafted (skydeck.ts). A floor whose whole premise is "nobody tunes this to
+ * their taste" does not then offer a menu.
  */
 export const VARIANTS: VariantSpec[] = [
-  { id: "plain", name: "Standard", tier: 1, material: null, lineCells: null, goalBonus: 0, oneShape: false, salvage: false, blind: false },
-  { id: "single", name: "Single Stock", tier: 3, material: null, lineCells: null, goalBonus: 1, oneShape: true, salvage: false, blind: false },
-  { id: "short", name: "Narrow Gauge", tier: 4, material: null, lineCells: 6, goalBonus: 0, oneShape: false, salvage: false, blind: false },
-  { id: "rebar", name: "Full Rebar", tier: 5, material: "rebar", lineCells: null, goalBonus: -1, oneShape: false, salvage: false, blind: false },
-  { id: "salvage", name: "Part Load", tier: 6, material: null, lineCells: null, goalBonus: 0, oneShape: false, salvage: true, blind: false },
-  { id: "blind", name: "Blackout", tier: 7, material: null, lineCells: null, goalBonus: 0, oneShape: false, salvage: false, blind: true },
-  { id: "guided", name: "Guided", tier: 9, material: "magnetic", lineCells: null, goalBonus: 1, oneShape: false, salvage: false, blind: false },
+  { id: "plain", name: "Standard", tier: 1, material: null, lineCells: null, size: null, goalBonus: 0, oneShape: false, salvage: false, blind: false },
+  { id: "single", name: "Single Stock", tier: 3, material: null, lineCells: null, size: null, goalBonus: 1, oneShape: true, salvage: false, blind: false },
+  { id: "short", name: "Narrow Gauge", tier: 4, material: null, lineCells: 6, size: null, goalBonus: 0, oneShape: false, salvage: false, blind: false },
+  { id: "rebar", name: "Full Rebar", tier: 5, material: "rebar", lineCells: null, size: null, goalBonus: -1, oneShape: false, salvage: false, blind: false },
+  { id: "salvage", name: "Part Load", tier: 6, material: null, lineCells: null, size: null, goalBonus: 0, oneShape: false, salvage: true, blind: false },
+  { id: "blind", name: "Blackout", tier: 7, material: null, lineCells: null, size: null, goalBonus: 0, oneShape: false, salvage: false, blind: true },
+  { id: "guided", name: "Guided", tier: 9, material: "magnetic", lineCells: null, size: null, goalBonus: 1, oneShape: false, salvage: false, blind: false },
+  // goalBonus 0 — the shared ladder, unmodified, which at this tier is 4 rows.
+  // That is 40 cubes in 8 pentomino shipments, and the number was MEASURED
+  // rather than chosen. The obvious pick was -1: 3 rows of 10 is 30 cubes in 6
+  // shipments, one notch under the ladder's hardest tetromino pattern (tier 9,
+  // 32 cubes in 8), and it reads like the cautious first cut of a new variant.
+  //
+  // It is unshippable, and for a reason nothing about difficulty would have
+  // caught: a 3x10 rectangle has almost no distinct pentomino tilings. Over 30
+  // seeds, tilingQueue at four shapes produced FOUR distinct inventories — a
+  // "daily" board that deals the same puzzle every third day forever. At 4 rows
+  // the same sweep produced 24 of 30 distinct, which is the ladder's own figure
+  // (tier-9 Standard: 27 of 30). Region area is what buys a generated board its
+  // variety, and 30 cells is simply below the knee.
+  //
+  // The cost is paid where a Contract can afford it. The share of RANDOM
+  // arrival orders finishable by straight drops runs 24.7% here against the
+  // tier-9 tetromino pattern's 57.5% — but a player is never handed a random
+  // order (dealPatternQueue proves one before the bay opens), retrying is free,
+  // and packing badly is the exam on this floor rather than the accident.
+  { id: "wide", name: "Wide Gauge", tier: SKYDECK_CONTRACT_TIER, material: null, lineCells: PENTOMINO_LINE_CELLS, size: "bulk", goalBonus: 0, oneShape: false, salvage: false, blind: false },
 ];
 
 export function variantSpec(id: ContractVariant): VariantSpec {
@@ -359,8 +479,14 @@ const COST = { wind: 2, micro: 2, material: 2, tightLaunches: 2 } as const;
  *  (tiers 1-12, 3000 seeds each, both daily lines slots). Kept so the plant
  *  panel's conditions row can never collapse to nothing if a future budget or
  *  gating change opens a path to zero complications. */
-function linesConditions(notes: readonly string[]): string {
-  return notes.length ? notes.join(" · ") : "clean bay";
+function linesConditions(notes: readonly string[], cargo?: string): string {
+  // `cargo` leads, because it is not a complication the budget bought — it is
+  // what the floor ships, so it is true of the bay before any roll happens.
+  // Passed in rather than pushed onto `notes` by the caller so it cannot spend
+  // one of maxComplications' slots: a standing property that crowded out a
+  // rolled one would make the roof's cards LESS varied than the ladder's.
+  const all = cargo ? [cargo, ...notes] : notes;
+  return all.length ? all.join(" · ") : "clean bay";
 }
 
 /**
@@ -436,20 +562,42 @@ const SLACK_TIGHT = 1.02;
  * budget model accounts for them") and which replaced the bulk-pentomino
  * complication outright.
  *
- * Pentominoes were removed on playtest feedback: they pack visibly worse than
- * tetrominoes, so a bulk Contract read as a dice roll rather than a puzzle —
- * the exact failure a Contract must not have. Bulk remains a Deep Run draft
- * choice (mods.ts), where the player OPTS INTO it for its payout; a Contract
- * deals it to you, which is a different, worse offer.
+ * Pentominoes were removed from the LADDER's pool on playtest feedback: they
+ * pack visibly worse than tetrominoes, so a bulk Contract read as a dice roll
+ * rather than a puzzle — the exact failure a Contract must not have. Bulk was
+ * also a Deep Run draft choice (mods.ts), where the player OPTS INTO it for its
+ * payout; a Contract deals it to you, which is a different, worse offer.
  *
- * A material is priceable where a worse-packing shape is not: a shape changes
+ * THAT RULE STILL STANDS, AND IT IS A RULE ABOUT THE LADDER. Tiers 1 through
+ * MARK_COUNT ship no pentomino, and sim/systems.ts pins it at every one of
+ * them. What changed is that the game grew a floor that is not a tier: the
+ * SKYDECK board (SKYDECK_CONTRACT_TIER), whose audience has beaten all ten
+ * Marks and sealed every one of them to get the door open (meta.ts's
+ * skydeckOpen). The objection above is an ON-RAMP objection — "deals it to
+ * you", "reads as a dice roll" — and both halves of it dissolve on a floor
+ * where nothing is an on-ramp and packing badly is the exam rather than the
+ * accident. The roof's Contracts are dealt for the same reason its clauses are
+ * (skydeck.ts): it is the one place in the game nobody tunes to their own
+ * taste.
+ *
+ * The dice-roll half is also answered mechanically and not only rhetorically.
+ * A Contract is a dice roll when the model that budgets it cannot see what it
+ * is budgeting, and two things now close that gap: SIZE_EFFICIENCY prices a
+ * pentomino's worse packing from a measurement on a lines Contract, and Wide
+ * Gauge gives a pattern Contract a width at which the exact inventory is
+ * PROVEN to tile (PENTOMINO_LINE_CELLS). Neither existed when the removal was
+ * argued.
+ *
+ * A material is priceable where a worse-packing shape was not: a shape changes
  * the geometry of every landing in a way the closed-form model can't see,
  * while a countable material is a per-shipment risk with a per-cube cost. The
  * model: a material shipment arrives at `materialRate`, and MATERIAL_WASTE
  * says what fraction of such a shipment's cubes the budget assumes are lost
  * beyond the standard PLANNING_EFFICIENCY waste. The budget then simply prices
  * fired cubes at the reduced effective efficiency — same closed form, one more
- * factor, still provable in sim/systems.ts.
+ * factor, still provable in sim/systems.ts. SIZE_EFFICIENCY is that same trick
+ * applied to the shape, and what makes it possible now is that the number was
+ * measured instead of assumed.
  * ---------------------------------------------------------------------- */
 
 /**
@@ -515,15 +663,55 @@ export function contractMaterialRate(m: ContractMaterial, tier: number): number 
 }
 
 /**
- * The share of launched cubes the budget model assumes reach a completed line,
- * for a belt carrying `material` at `rate`. The material-free case is exactly
- * PLANNING_EFFICIENCY. Exported so sim/systems.ts asserts feasibility against
- * the same model the generator priced with — the whole guarantee is that these
- * are one formula, not two copies.
+ * How much of PLANNING_EFFICIENCY a payload size actually delivers — the factor
+ * that lets the closed-form budget price a SHAPE, which is the thing it could
+ * not do when bulk was removed.
+ *
+ * MEASURED, on a bay-10 Contract bay stripped exactly the way levelForContract
+ * strips one (no clock, no launch cost, no fine, clean belt), 40 launches a bay
+ * across 12 seeds a condition, reading the ratio the budget is priced on:
+ * cubes landing in a completed line, over cubes fired.
+ *
+ *     bot       std     bulk    bulk/std
+ *     aim       0.738   0.620   0.841
+ *     lob-flat  0.554   0.610   1.101
+ *
+ * Two things in that table are worth stating out loud. First, the pentomino is
+ * NOT uniformly worse: the fixed-arc bot does better with it, because a bulk
+ * shipment lands at 1.35x cube density and 1.6x joint strength (pieces.ts's
+ * SIZE_SPEC) and its weight squares the pile under it — which is worth more to
+ * a bot that cannot aim than the packing costs it. Second, the aiming bot
+ * loses 16%, and that is the number a budget has to believe, because the
+ * player it models is the one who can actually place a piece and is therefore
+ * the one the extra cube gets in the way of.
+ *
+ * So bulk is set to 0.85 — the worse of the two ratios, rounded toward the
+ * pessimistic side, which is the same asymmetry argument PLANNING_EFFICIENCY
+ * itself is set on: a low number is a slightly dull Contract, a high one is an
+ * unwinnable one. tiny measured 0.717/0.683 against std's 0.738/0.554 — the
+ * same or better per cube — so it stays at 1, and std is 1 by definition. Those
+ * two being 1 is what makes this table a provable NO-OP for every ladder tier;
+ * sim/systems.ts pins that too.
  */
-export function contractEfficiency(material: ContractMaterial | null, rate: number): number {
+export const SIZE_EFFICIENCY: Record<PieceSize, number> = {
+  tiny: 1, std: 1, bulk: 0.85,
+};
+
+/**
+ * The share of launched cubes the budget model assumes reach a completed line,
+ * for a belt carrying `material` at `rate`, shipping `size` payloads. The
+ * material-free std case is exactly PLANNING_EFFICIENCY. Exported so
+ * sim/systems.ts asserts feasibility against the same model the generator
+ * priced with — the whole guarantee is that these are one formula, not two
+ * copies.
+ */
+export function contractEfficiency(
+  material: ContractMaterial | null,
+  rate: number,
+  size: PieceSize = "std",
+): number {
   const waste = material ? MATERIAL_WASTE[material] : 0;
-  return PLANNING_EFFICIENCY * (1 - rate * waste);
+  return PLANNING_EFFICIENCY * SIZE_EFFICIENCY[size] * (1 - rate * waste);
 }
 
 /**
@@ -668,12 +856,26 @@ function patternGoal(
  * the telemetry says delivery is where Contracts actually fail (26 of 35 losses
  * were "ran out of pieces", not a queue nobody could arrange).
  *
- * Bulk is deliberately absent. Pentominoes tile a 10-wide line at every goal
- * from 2 to 6, but at the 8-wide line every tier actually ships, `goal * 8`
- * divides by 5 only at goal 5 — a 40-cube, 8-shipment monster or nothing. It
- * becomes available the day a wider line does.
+ * Bulk is no longer absent, and the condition this note set is exactly the one
+ * that was met. It read: "Pentominoes tile a 10-wide line at every goal from 2
+ * to 6, but at the 8-wide line every tier actually ships, `goal * 8` divides by
+ * 5 only at goal 5 — a 40-cube, 8-shipment monster or nothing. It becomes
+ * available the day a wider line does." Wide Gauge is that wider line
+ * (PENTOMINO_LINE_CELLS), so bulk arrives WITH it and only with it: a variant
+ * carries the payload rather than this roll, which is why VariantSpec.size
+ * exists. Nothing on the ladder sets it, so no tier's roll can reach bulk —
+ * the removal stands where it was argued, and is lifted only on the floor that
+ * is not a tier (see the CONTRACT MATERIALS note above for why that floor is
+ * different).
+ *
+ * The forced size is checked BEFORE the two inert-variant returns below, not
+ * after. Wide Gauge is neither oneShape nor blind, so ordering makes no
+ * difference today — it is written this way because the alternative is a
+ * variant that quietly ships tetrominoes on a 10-wide line, which is a legal
+ * tiling and a completely different Contract from the one on the card.
  */
 function patternSize(tier: number, rng: () => number, spec: VariantSpec): PieceSize {
+  if (spec.size) return spec.size;
   // Two variants are INERT on a domino belt, because pieceCells returns one
   // fixed domino whatever the type (pieces.ts):
   //
@@ -846,7 +1048,18 @@ function generatePatternContract(
 ): Contract {
   const rng = mulberry32(seed + slot * 7919);
   const pool = variantsFor(tier);
-  let spec = forced ? variantSpec(forced) : pool[Math.floor(rng() * pool.length)];
+  // The roof DEALS its exam rather than rolling one, the same way skydeck.ts
+  // deals the standing clauses instead of drafting them, and for the reason
+  // stated there: a floor whose seed is the day's is only a shared board if
+  // every player on it flew the same thing. Wide Gauge is also the only variant
+  // whose inventory is provably exact — a rolled Standard on this floor would
+  // be tetrominoes at the 8-wide line, i.e. an ordinary tier-9 Contract wearing
+  // the Skydeck's name, and the pentomino would never appear at all.
+  let spec = forced
+    ? variantSpec(forced)
+    : isSkydeckBoard(tier)
+      ? variantSpec("wide")
+      : pool[Math.floor(rng() * pool.length)];
   const lineCells = spec.lineCells ?? lineCellsForTier(tier);
   const size = patternSize(tier, rng, spec);
   const goal = patternGoal(tier, lineCells, size, spec.goalBonus);
@@ -916,9 +1129,18 @@ function patternConditions(
   // makes one tetromino pattern harder than another. Tiny has exactly one shape
   // by construction, so "1 shape" there would read as a bug rather than a
   // difficulty — it names the payload instead.
+  //
+  // Bulk needs BOTH. The shape count still grades the puzzle (seven distinct
+  // pentominoes, unlike the domino's one), and the payload still has to be
+  // named, because a player reading "4 shapes" on the roof has no other way to
+  // learn that the four are five cubes each — and five-cube cargo is the single
+  // biggest thing about the bay they are accepting.
+  const shapeWord = `${shapes} shape${shapes === 1 ? "" : "s"}`;
   const cargo = size === "tiny"
     ? "dominoes"
-    : `${shapes} shape${shapes === 1 ? "" : "s"}`;
+    : size === "bulk"
+      ? `pentominoes, ${shapeWord}`
+      : shapeWord;
   switch (spec.id) {
     case "single":
       // Never names the TYPE on a domino belt: every domino is the same tile,
@@ -938,6 +1160,13 @@ function patternConditions(
       return `${cargo}, no preview, no waste`;
     case "guided":
       return `magnetic, self-squaring, no waste`;
+    case "wide":
+      // Width first, because it is the thing that is different about this bay
+      // and the thing the inventory is sized to. `cargo` supplies "pentominoes"
+      // on its own here — the size branch above is what names it, so this case
+      // never has to, and cannot end up saying it twice if the cargo wording
+      // ever changes.
+      return `${spec.lineCells}-cell lines, ${cargo}, no waste`;
     default:
       return `${cargo}, no waste`;
   }
@@ -967,7 +1196,13 @@ export function generateContract(
   // deeper. Low tiers are untouched — below the cap the ramp is identical.
   const goal = 3 + Math.floor(rng() * 3) + Math.min(4, Math.floor(tier / 2));
 
-  let pieceSize: PieceSize = "std";
+  // THE ROOF'S STANDING CARGO. Not a complication and not a roll: the Skydeck
+  // board ships pentominoes the way the Skydeck run flies without refits — it
+  // is what the floor IS, so it costs no difficulty budget and cannot fail to
+  // appear. Set before the complication loop because two of the four options
+  // gate on the payload (micro and material both read `pieceSize`), and a cargo
+  // decided afterwards would let the roll contradict the floor.
+  let pieceSize: PieceSize = isSkydeckBoard(tier) ? "bulk" : "std";
   let windMax = 0;
   let slack = SLACK;
   let material: ContractMaterial | null = null;
@@ -1041,8 +1276,27 @@ export function generateContract(
     // material's waste per STD shipment, and the cannon's size-normalized roll
     // (cannon.ts's rollMaterial) would double a domino belt's rate under the
     // same mix. One twist per card is also just a more legible offer.
+    //
+    // Micro still refuses any payload that is not std, which is now what keeps
+    // it off the roof: a Skydeck card is a pentomino card, and a complication
+    // that swapped the cargo for dominoes would delete the floor's whole
+    // identity to spend two budget points.
     if (opt.id === "micro" && (pieceSize !== "std" || material !== null)) continue;
-    if (opt.id === "material" && pieceSize !== "std") continue;
+    // MATERIAL refuses a payload SMALLER than standard, where it used to refuse
+    // anything that was not standard — and the change is a provable no-op on
+    // every ladder tier, because below the roof the only thing that can move
+    // pieceSize is micro and the two predicates are then the same one.
+    //
+    // Written as a cube comparison rather than as `!== "tiny"` because that is
+    // what the argument above actually says: it is a DOMINO argument on both
+    // counts, and both counts are about the cube count. A domino belt doubles
+    // the shipments under one mix, and a domino halves the cubes a priced
+    // shipment carries. A pentomino moves both the other way, and MATERIAL_WASTE
+    // is a FRACTION of a shipment's cubes, so contractEfficiency prices it
+    // correctly at any size at or above standard. Refusing here would leave the
+    // roof — the deepest board in the game — as the one board that never ships
+    // a material.
+    if (opt.id === "material" && SIZE_SPEC[pieceSize].cubes < SIZE_SPEC.std.cubes) continue;
     // Micro stays rare even when it leads — see the note on the option itself.
     if (opt.id === "micro" && !lead.includes("micro")) continue;
     if (opt.id === "micro" && rng() > 0.4) continue;
@@ -1056,9 +1310,15 @@ export function generateContract(
   // to strand, so a budget fixed before it would be wrong for every Contract
   // that drew micro or a material.
   const launches = launchesFor(
-    goal, SIZE_SPEC[pieceSize].cubes, slack, contractEfficiency(material, materialRate),
+    goal, SIZE_SPEC[pieceSize].cubes, slack,
+    contractEfficiency(material, materialRate, pieceSize),
   );
-  const conditions = linesConditions(notes);
+  // The payload is named on the card only where it is not the default one. A
+  // domino card already says "micro dominoes" as a complication note it paid
+  // for; a pentomino card says it here, because nothing bought it.
+  const conditions = linesConditions(
+    notes, pieceSize === "bulk" ? "pentomino shipments" : undefined,
+  );
 
   return {
     id: `${seed}-${tier}-${slot}`,
