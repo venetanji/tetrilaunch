@@ -50,12 +50,13 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
+import { screenToWorld } from "../src/game/render";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -120,7 +121,8 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller } from "../src/game/gamepad";
+import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { loadSettings } from "../src/lib/store";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -3625,7 +3627,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
-    leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -3642,6 +3644,40 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes('data-toggle="leftHandRail"'));
   check("the gamepad tab carries the stick-assist toggle",
     padPane.includes('data-toggle="stickAssist"'));
+  // The toggle's KEY is what main.ts's generic onToggle writes into settings,
+  // so a pane still naming the retired stickPull would flip a field nothing
+  // reads and leave the mode stuck — silently, since neither end would error.
+  check("the slingshot toggle writes the field the poller reads",
+    padPane.includes('data-toggle="stickSling"') && !padPane.includes("stickPull"));
+  // The dials' defining property is the one a player cannot discover by
+  // pushing the stick — you find out a centred stick holds by NOT touching it
+  // — so the row that describes the stick has to say it.
+  check("...and the aim row states that a centred stick holds",
+    padPane.includes("centre holds"));
+  // THE AIM ROW DESCRIBES THE MODE THAT IS ON. Found in review: the row said
+  // "centre holds" whatever the toggle underneath it was set to, so a player
+  // who chose the slingshot was told the centre holds by the same screen whose
+  // next row told them releasing lets the pull go. Two opposite answers to
+  // "what happens when I let go", on one pane, one of them false.
+  const slingPane = controlsScreen({
+    tab: "gamepad",
+    settings: { ...ctrlSettings, stickSling: true },
+    padName: null,
+    rebinding: null,
+  });
+  check("the slingshot's aim row describes the slingshot",
+    slingPane.includes("pull back to aim") && slingPane.includes("release lets go"));
+  check("...and does not also claim the centre holds",
+    !slingPane.includes("centre holds"));
+  check("...while the dials' row still claims it and not the pull",
+    padPane.includes("centre holds") && !padPane.includes("pull back to aim"));
+  // The assist only ever smoothed the SLINGSHOT's stick (gamepad.ts) — the
+  // dials need none. Unqualified, the row offered a dial player a control that
+  // does nothing. It names its scope instead of switching, so one string is
+  // true in both modes.
+  check("the assist toggle names the mode it actually smooths",
+    padPane.includes("Smooth the slingshot stick")
+      && slingPane.includes("Smooth the slingshot stick"));
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.
@@ -8630,7 +8666,7 @@ section("A held direction repeats into the menus (gamepad.ts)");
     onCapture: () => false,
     onUiButton: (b) => { ui.push(b); return true; },
     assist: () => false,
-    pull: () => false,
+    sling: () => false,
   });
   /** Polls the stub at 60Hz from `t0` for `ms`, as main.ts's loop does. */
   const run = (t0: number, ms: number): number => {
@@ -8667,6 +8703,310 @@ section("A held direction repeats into the menus (gamepad.ts)");
   playing = false;
 
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+}
+
+// ---------------------------------------------------------------------------
+section("The stick's rate dials hold the aim at centre (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// The play-test report these exist for, verbatim: "the gamepad controls still
+// reset the aim when the stick goes to the center ... a resting stick should
+// not modify the aim". Every check below is a behaviour run through the REAL
+// poller against a REAL Game, because the property is about what happens over
+// many frames of doing nothing — which no reading of a constant can state.
+{
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  let axes = [0, 0];
+  let buttons: number[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: "stub", connected: true, mapping: "standard",
+        axes: axes.slice(),
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+
+  /** One pad wired to one bay, with the stick mode supplied per case.
+   *
+   *  `stepMs` is the POLL CADENCE — main.ts polls once per rendered frame, so
+   *  this is the display's refresh, and the whole point of some of the checks
+   *  below is that it stops mattering. Defaults to 60Hz, the rate everything
+   *  was tuned at. */
+  const rig = (sling: boolean, stepMs = 1000 / 60, assist = false) => {
+    const shots: { angle: number; power: number }[] = [];
+    const g = new Game(makeBaseLevel(0), { onShoot: (s) => shots.push({ angle: s.angle, power: s.power }) }, 7);
+    const pad = new GamepadPoller({
+      game: () => g,
+      playing: () => true,
+      onActivity: () => {},
+      onPause: () => {},
+      onCapture: () => false,
+      onUiButton: () => false,
+      assist: () => assist,
+      sling: () => sling,
+    });
+    let t = 0;
+    const frames = (n: number): void => {
+      for (let i = 0; i < n; i++) { pad.poll(t); t += stepMs; }
+    };
+    /** Skip the clock forward WITHOUT polling — a backgrounded tab, a stall. */
+    const skip = (ms: number): void => { t += ms; };
+    return { g, shots, frames, skip, now: () => t };
+  };
+  const aim = (g: Game) => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }, b: { angle: number; power: number }) =>
+    a.angle === b.angle && a.power === b.power;
+
+  // THE RATE FUNCTION. Zero everywhere inside the deadzone including its exact
+  // edge, and rescaled so the first live rate is a hair off zero rather than a
+  // fifth of full speed.
+  check("a centred axis asks for no rate at all", stickRate(0) === 0);
+  check("...and neither does one resting inside the deadzone",
+    stickRate(0.2) === 0 && stickRate(-0.2) === 0 && stickRate(0.22) === 0);
+  check("the rate starts from zero at the deadzone's edge",
+    stickRate(0.23) > 0 && stickRate(0.23) < 0.02, String(stickRate(0.23)));
+  check("a pinned axis asks for the full rate, signed",
+    Math.abs(stickRate(1) - 1) < 1e-9 && Math.abs(stickRate(-1) + 1) < 1e-9);
+
+  // THE REPORT ITSELF, on the default mode: deflect, let go, and wait a long
+  // time. Five seconds of polling is far longer than any pause between shots.
+  {
+    const r = rig(false);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    check("the dials move the aim while the stick is deflected",
+      held.angle > Math.PI / 9 && held.power > 9, `${held.angle.toFixed(3)}/${held.power.toFixed(2)}`);
+    axes = [0, 0];
+    r.frames(300);
+    check("a centred stick holds the aim, indefinitely", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+
+    // A stick that rests off true zero — worn, or just a pad's idle bias. This
+    // one clears a CIRCULAR 0.22 gate (0.28 from centre) while sitting inside
+    // both axes' own deadzones, which is precisely the case a shared radial
+    // test would wave through into the aim path.
+    axes = [0.2, -0.2];
+    r.frames(300);
+    check("a resting stick off true zero still modifies nothing", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)}`);
+
+    // …and the trigger spends the aim the player left there, with the stick
+    // still at rest. Firing must never require a deflection to be alive.
+    buttons = [padFor("fire")];
+    r.frames(2);
+    buttons = [];
+    r.frames(2);
+    check("the trigger fires the held aim with the stick centred",
+      r.shots.length === 1 && same(r.shots[0], held),
+      r.shots.length ? `${r.shots[0].angle.toFixed(4)}/${r.shots[0].power.toFixed(3)}` : "no shot");
+    check("...and the aim survives its own shot", same(aim(r.g), held));
+  }
+
+  // THE TWO AXES ARE INDEPENDENT DIALS. A stick pushed straight up must not
+  // touch the power, which is what makes them dials rather than a vector.
+  {
+    const r = rig(false);
+    const before = aim(r.g);
+    axes = [0, -0.9];
+    r.frames(20);
+    check("Y alone trims the angle and leaves the power alone",
+      r.g.cannon.angle > before.angle && r.g.cannon.power === before.power);
+    const mid = aim(r.g);
+    axes = [0.9, 0];
+    r.frames(20);
+    check("X alone trims the power and leaves the angle alone",
+      r.g.cannon.power > mid.power && r.g.cannon.angle === mid.angle);
+    axes = [0, 0.9];
+    r.frames(20);
+    check("...and pulling back down lowers the barrel again",
+      r.g.cannon.angle < mid.angle);
+  }
+
+  // THE DIALS CHARGE TIME, NOT POLLS. main.ts polls once per rendered frame, so
+  // a per-poll rate is the display's refresh in disguise — and the owner's own
+  // surface is the Electron shell on a TV, measured at ~8.3ms pacing in #116's
+  // tests, i.e. the dials ran at twice their tuned speed for the one player who
+  // reported them.
+  //
+  // Both rigs are handed the SAME WALL-CLOCK WINDOW and must trim the same
+  // amount. One warm-up poll first, so the seeded first frame (see the poller's
+  // lastPoll) is spent before the measurement starts and each rig then charges
+  // exactly 1000ms: 60 x 16.667 against 120 x 8.333. Deflection is 0.4 rather
+  // than a pin, deliberately — a pinned stick saturates against the cone and
+  // the power ceiling inside a second, and two runs agreeing because both hit
+  // the same wall would prove nothing at all.
+  {
+    const HZ_WINDOW_MS = 1000;
+    const measure = (stepMs: number) => {
+      const r = rig(false, stepMs);
+      axes = [0.4, -0.4];
+      r.frames(1);                                  // warm-up: spends the seed frame
+      const from = aim(r.g);
+      r.frames(Math.round(HZ_WINDOW_MS / stepMs));  // exactly one second of polls
+      return {
+        dAngle: r.g.cannon.angle - from.angle,
+        dPower: r.g.cannon.power - from.power,
+        angle: r.g.cannon.angle,
+        power: r.g.cannon.power,
+        ceiling: r.g.cannon.speedMax,
+      };
+    };
+    const at60 = measure(1000 / 60);
+    const at120 = measure(1000 / 120);
+    // FIRST, that neither run ended against a wall. Checked BEFORE the two are
+    // compared, because a clamped run and a correct run agree perfectly at the
+    // limit — under the per-poll code 120Hz overshot the cone and stopped dead
+    // on it, and an equality check alone would have called that a match.
+    check("neither cadence's second of trim ends pinned against a limit",
+      at60.angle < AIM_CONE - 1e-6 && at120.angle < AIM_CONE - 1e-6
+        && at60.power < at60.ceiling - 1e-6 && at120.power < at120.ceiling - 1e-6,
+      `60Hz ${at60.angle.toFixed(4)}/${at60.power.toFixed(3)} · 120Hz ${at120.angle.toFixed(4)}/${at120.power.toFixed(3)}`);
+    check("a second of stick is a second of trim at 60Hz",
+      at60.dAngle > 0.4 && at60.dAngle < 0.55 && at60.dPower > 5 && at60.dPower < 6,
+      `${at60.dAngle.toFixed(4)}rad/${at60.dPower.toFixed(3)}`);
+    check("...and 120Hz trims the same amount in the same second",
+      Math.abs(at120.dAngle - at60.dAngle) < 1e-9 && Math.abs(at120.dPower - at60.dPower) < 1e-9,
+      `120Hz ${at120.dAngle.toFixed(6)}/${at120.dPower.toFixed(4)} vs 60Hz ${at60.dAngle.toFixed(6)}/${at60.dPower.toFixed(4)}`);
+  }
+
+  // A DROPPED FRAME MUST NOT SLAM THE AIM. A backgrounded tab hands the next
+  // poll a timestamp seconds later, and an unclamped dt would spend all of it
+  // in one step — alt-tab back with a stick leaning and find the barrel pinned.
+  {
+    const r = rig(false);
+    axes = [0.9, -0.9];
+    r.frames(1);
+    const before = aim(r.g);
+    r.skip(5000);      // five seconds away
+    r.frames(1);       // one poll charging that gap
+    const jump = Math.abs(r.g.cannon.angle - before.angle);
+    // The clamp is 100ms — six frames — so the worst one poll can do is six
+    // frames of trim, comfortably under a tenth of the cone.
+    check("a five-second stall charges the dials six frames, not five seconds",
+      jump > 0 && jump < 6.5 * 0.035, `${jump.toFixed(4)}rad`);
+    // …and a clock that goes backwards unwinds nothing.
+    const held = aim(r.g);
+    r.skip(-3000);
+    r.frames(1);
+    check("...and a backwards timestamp charges nothing rather than unwinding",
+      r.g.cannon.angle >= held.angle);
+  }
+
+  // THE SLINGSHOT'S AIM NEEDS NO CLOCK — confirmed, not assumed. aimFromDrag is
+  // an absolute map, so the same deflection is the same aim however often it is
+  // asked; only the ASSIST lerp was a per-poll time constant, and that now
+  // compounds over elapsed frames.
+  {
+    const held = (stepMs: number, assist: boolean, holdMs: number) => {
+      const r = rig(true, stepMs, assist);
+      axes = [-0.6, 0.45];
+      r.frames(1);
+      r.frames(Math.round(holdMs / stepMs));
+      return aim(r.g);
+    };
+    check("the slingshot lands the same aim at 60Hz and 120Hz, raw",
+      same(held(1000 / 60, false, 600), held(1000 / 120, false, 600)));
+    // MEASURED MID-SETTLE, at ~50ms, not after the lerp has converged. Both
+    // cadences arrive at the same place eventually — a lerp cannot run away —
+    // so a check taken at rest agrees to six decimals whether or not the time
+    // constant is honest. Halfway there is where a per-poll factor shows: at
+    // 0.3 a frame, 120Hz took six bites of the gap in the time 60Hz took three,
+    // and the "smoothing" the toggle promises was half as much smoothing on
+    // the fast panel that needs it most.
+    const a60 = held(1000 / 60, true, 50);
+    const a120 = held(1000 / 120, true, 50);
+    check("...and the assist is the same distance along after the same 50ms",
+      Math.abs(a120.angle - a60.angle) < 1e-3 && Math.abs(a120.power - a60.power) < 0.05,
+      `${a120.angle.toFixed(5)}/${a120.power.toFixed(4)} vs ${a60.angle.toFixed(5)}/${a60.power.toFixed(4)}`);
+  }
+
+  // THE SLINGSHOT STILL WORKS WHEN CHOSEN — and still lets the pull go on the
+  // way back to centre, which is what a slingshot IS. Pinned here rather than
+  // fixed: the option is "fire from the held pull", the way a finger does, and
+  // this collapse is the measured reason it is not the default.
+  {
+    const r = rig(true);
+    axes = [-0.85, 0.5];
+    r.frames(20);
+    const pulled = aim(r.g);
+    check("the slingshot option still aims from the pull vector",
+      pulled.angle > 0 && r.g.cannon.powerRatio > 0.99,
+      `${(pulled.angle * 180 / Math.PI).toFixed(1)}deg/${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+    // A real stick springs back over several frames rather than snapping.
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [-0.85 * k, 0.5 * k];
+      r.frames(1);
+    }
+    r.frames(60);
+    check("...and letting it go lets the pull go with it",
+      r.g.cannon.powerRatio < 0.3, `${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+  }
+
+  // THE MIGRATION. `stickPull` asked which DIRECTION the vector aiming ran;
+  // `stickSling` asks whether to use vector aiming at all. A save that answered
+  // the first must not be read as answering the second — that re-reading is
+  // what left the reporter on the slingshot and produced the report above.
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      store: new Map<string, string>(),
+      getItem(k: string) { return this.store.get(k) ?? null; },
+      setItem(k: string, v: string) { this.store.set(k, v); },
+      removeItem(k: string) { this.store.delete(k); },
+    },
+  });
+  const ls = globalThis.localStorage;
+  check("a fresh save lands on the rate dials", loadSettings().stickSling === false);
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  check("a pre-dials save does not answer the question the dials ask",
+    loadSettings().stickSling === false);
+  check("...and the answer it did give stops riding along in the save",
+    !("stickPull" in (loadSettings() as unknown as Record<string, unknown>)));
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ stickSling: true }));
+  check("a save that chose the slingshot for THIS build keeps it",
+    loadSettings().stickSling === true);
+
+  // THE REPORT, END TO END, THROUGH THE SETTINGS THE APP ACTUALLY READS. The
+  // rig above proves the dials hold; this proves a player carrying a pre-dials
+  // save REACHES them. Same save, same poller main.ts wires, and a spring-back
+  // over several frames rather than a snap, because that decay is where the
+  // slingshot loses the shot.
+  //
+  // The bound is what separates the two schemes rather than a fudge. A rate
+  // dial's release is SELF-LIMITING: the rate falls with the deflection, so the
+  // last few frames of travel add ~0.02rad and ~0.23px/step and then stop for
+  // good. An absolute map has no such tail — it keeps restating the whole aim
+  // from a deflection that is on its way to zero, and hands back a quarter of
+  // the power the player was holding. Half a power step and three degrees is
+  // comfortably above the first and nowhere near the second.
+  const RELEASE_ANGLE_TOL = 0.05;
+  const RELEASE_POWER_TOL = 0.5;
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  {
+    const r = rig(loadSettings().stickSling);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [0.7 * k, -0.7 * k];
+      r.frames(1);
+    }
+    r.frames(300);
+    const after = aim(r.g);
+    check("a pad carried over from before the dials keeps the aim it was holding",
+      Math.abs(after.angle - held.angle) < RELEASE_ANGLE_TOL
+        && Math.abs(after.power - held.power) < RELEASE_POWER_TOL,
+      `${after.angle.toFixed(4)}/${after.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+  }
+
+  if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+  else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+  else delete (globalThis as unknown as Record<string, unknown>).navigator;
 }
 
 // ---------------------------------------------------------------------------
@@ -8814,6 +9154,50 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
     check("more loft costs more power, still inside the band",
       flat.power < half.power && half.power < full.power && full.power <= SPEED_MAX + 1e-9,
       `${flat.power.toFixed(2)} → ${half.power.toFixed(2)} → ${full.power.toFixed(2)} px/step`);
+    // WHICH END OF THAT FAMILY THE PLAYER STARTS ON — flipped to the top
+    // (cannon.ts's AIM_LOFT_DEFAULT). Pinned here, beside the family it picks
+    // out of, because the two facts that make the flip safe are the two
+    // asserted directly above: the steep member lands on the SAME point, and
+    // it pays for the height inside the ship's speed band rather than off the
+    // end of it.
+    check("the dial's shipped default is the steepest member of that family",
+      AIM_LOFT_DEFAULT === 1 && full.hit,
+      `default ${AIM_LOFT_DEFAULT}, miss ${full.miss.toFixed(1)}px`);
+    // AND IT COSTS NO REACH, which is the one claim that would sink the flip
+    // if it were false: a default that quietly made part of the bay
+    // unhittable would be a worse bug than the compactor bar it was flipped
+    // to dodge. Swept rather than spot-checked, because "unreachable at the
+    // top of the dial" would be a BAND of the field, not a total loss.
+    {
+      let flatHits = 0;
+      let loftHits = 0;
+      let lost = "";
+      for (let x = 420; x <= 1240; x += 60) {
+        for (let y = 200; y <= 680; y += 80) {
+          const p = { x, y };
+          const a = solve(p).hit;
+          const b = solve(p, SPEED_MIN, SPEED_MAX, 0, AIM_LOFT_DEFAULT).hit;
+          if (a) flatHits += 1;
+          if (b) loftHits += 1;
+          if (a && !b) lost = `${x},${y}`;
+        }
+      }
+      check("...and the whole bay stays as reachable from the top of the dial",
+        loftHits === flatHits && lost === "",
+        `${flatHits} flat vs ${loftHits} lofted; first lost ${lost || "none"}`);
+    }
+    // ...and the SOLVER's own default is untouched at 0. Nothing that isn't a
+    // human with a mouse should inherit the preference: sim/bots.ts and the
+    // autopilot call this with no loft argument and want the cheapest answer
+    // to "can this be reached", not the prettiest one.
+    {
+      const bare = solveAimForTarget(
+        origin, CANNON.barrel, t, SPEED_MIN, SPEED_MAX, G_ACCEL, FRICTION, STEPS, () => 0,
+      );
+      check("...while the solver's own default stays the cheap arc for the bots",
+        bare.angle === flat.angle && bare.power === flat.power,
+        `${bare.angle.toFixed(4)}rad @ ${bare.power.toFixed(2)} vs flat ${flat.angle.toFixed(4)}rad @ ${flat.power.toFixed(2)}`);
+    }
   }
 
   // --- Out of reach ---------------------------------------------------------
@@ -9083,24 +9467,33 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // dial (Game.aimLoft) rather than on the piece, and that spending it
   // re-solves the arc through the point last clicked — the release that ended
   // the chord block above left one banked in lastTarget.
-  check("scroll up raises the loft dial, turns nothing, and swallows the scroll", (() => {
+  // DIRECTION FLIPPED WITH THE DEFAULT (cannon.ts's AIM_LOFT_DEFAULT). These
+  // two lines used to read "scroll UP raises the dial / into a steeper arc",
+  // and they failed the moment the dial started at the top — which is the
+  // whole point of asserting the default at all: a fresh bay opens on the
+  // steepest arc, so the only travel the wheel has is DOWNWARD, and the notch
+  // that used to be the interesting one is now the one that hits a stop.
+  check("a fresh bay opens on the steepest arc, not the flattest",
+    g.aimLoft === AIM_LOFT_DEFAULT && AIM_LOFT_DEFAULT === 1,
+    `dial at ${g.aimLoft}`);
+  check("scroll down lowers the loft dial, turns nothing, and swallows the scroll", (() => {
     prevented = 0;
     const before = g.aimLoft;
-    const t = turned(() => send(onCanvas, "wheel", whl(-100)));
-    return t === 0 && prevented === 1 && g.aimLoft > before;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    return t === 0 && prevented === 1 && g.aimLoft < before;
   })());
-  check("...re-solving the last clicked point into a steeper arc", (() => {
-    const a0 = g.cannon.angle;
-    send(onCanvas, "wheel", whl(-100));
-    return g.aimLoft > 0 && g.cannon.angle > a0;
-  })());
-  check("scroll down at the dial's floor changes nothing but still owns the event", (() => {
-    // Walk the dial back to its stop first; the range is five notches.
-    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(100));
-    prevented = 0;
+  check("...re-solving the last clicked point into a flatter arc", (() => {
     const a0 = g.cannon.angle;
     send(onCanvas, "wheel", whl(100));
-    return g.aimLoft === 0 && prevented === 1 && g.cannon.angle === a0;
+    return g.aimLoft < 1 && g.cannon.angle < a0;
+  })());
+  check("scroll up at the dial's ceiling changes nothing but still owns the event", (() => {
+    // Walk the dial back to its stop first; the range is five notches.
+    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(-100));
+    prevented = 0;
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(-100));
+    return g.aimLoft === 1 && prevented === 1 && g.cannon.angle === a0;
   })());
   check("ctrl+wheel is left alone, so browser zoom still works", (() => {
     prevented = 0;
@@ -9171,6 +9564,290 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     g.paused = false;
     return g.aimLoft === before && prevented === 0;
   })());
+
+  delete glob.window;
+  glob.requestAnimationFrame = prevRaf;
+}
+
+// ===========================================================================
+// THE HOVER AIM (input.ts's onMove hover branch + onLeave).
+//
+// Its own harness rather than more lines on the block above, for one reason
+// that matters: this one has to DRIVE THE FRAME. A hovered target is recorded
+// by the move and spent by the rAF tick (input.ts's pendingTarget — the solve
+// is a search over the whole cone and there is nothing to gain from running it
+// for a cursor position that will never be drawn), so a stub that swallows
+// requestAnimationFrame the way the block above does would prove only that
+// nothing crashes. This one keeps the callback and runs it on demand, which is
+// also what lets the "a bay that ended between the move and the frame" case be
+// stated at all.
+// ===========================================================================
+{
+  type Handler = (e: unknown) => void;
+  const onCanvas = new Map<string, Handler[]>();
+  const onWindow = new Map<string, Handler[]>();
+  const bind = (m: Map<string, Handler[]>, t: string, h: Handler) => {
+    const a = m.get(t) ?? [];
+    a.push(h);
+    m.set(t, a);
+  };
+  const canvas = {
+    addEventListener: (t: string, h: Handler) => bind(onCanvas, t, h),
+    removeEventListener: () => {},
+    getBoundingClientRect: () => ({ width: 800, height: 450, left: 0, top: 0 }),
+    setPointerCapture: () => {},
+  } as unknown as HTMLCanvasElement;
+
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevRaf = glob.requestAnimationFrame;
+  glob.window = {
+    addEventListener: (t: string, h: Handler) => bind(onWindow, t, h),
+    removeEventListener: () => {},
+  };
+  // The frame pump. The controller re-arms at the END of every tick, so
+  // holding the newest callback and calling it is exactly one drawn frame.
+  let frameCb: ((t: number) => void) | null = null;
+  glob.requestAnimationFrame = (cb: (t: number) => void) => { frameCb = cb; return 0; };
+
+  const g = new Game(makeBaseLevel(0), {}, 7);
+  g.status = "playing";
+  let shots = 0;
+  const realShoot = g.shoot.bind(g);
+  g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
+  new InputController(canvas, () => g, undefined, () => false);
+  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+
+  const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
+    (m.get(t) ?? []).forEach((h) => h(e));
+  const move = (clientX: number, clientY: number, pointerType = "mouse", buttons = 0) =>
+    send(onCanvas, "pointermove", {
+      button: -1, buttons, pointerId: 1, pointerType, clientX, clientY,
+      preventDefault: () => {},
+    });
+  /** Where the cursor at (clientX, clientY) lands in the bay — the SAME
+   *  transform the controller uses, so a pin can talk about world points
+   *  without re-deriving the letterbox fit. */
+  const world = (clientX: number, clientY: number) =>
+    screenToWorld(800, 450, 0, 0, clientX, clientY);
+  /** Closest approach of the drawn arc to a world point. The arc travels
+   *  15-25px between dots, so this measures against the SEGMENTS for the same
+   *  reason cannon.ts's segDistSq does. */
+  const arcMissTo = (p: { x: number; y: number }): number => {
+    let best = Infinity;
+    for (let i = 1; i < g.trajectory.length; i++) {
+      const a = g.trajectory[i - 1];
+      const b = g.trajectory[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+    }
+    return best;
+  };
+  const aim = () => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }) =>
+    g.cannon.angle === a.angle && g.cannon.power === a.power;
+
+  // THE FEATURE. A cursor over the bay with NOTHING HELD DOWN aims the cannon
+  // at the spot it is over, and the dots go through that spot — the arc is a
+  // readout the player can move around the bay, not something a press has to
+  // buy. Both halves asserted: the barrel moved, and it moved to the right
+  // place.
+  {
+    const before = aim();
+    move(560, 300);
+    check("a hover queues an aim rather than solving it on the spot",
+      same(before), "the solve belongs to the frame, not to the move");
+    frame();
+    const t = world(560, 300);
+    check("a hover with no button held aims the cannon at the cursor",
+      !same(before) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+    // The whole point of tracking on hover is that it costs nothing. If this
+    // ever fires, the feature is a way to lose a launch by moving the mouse.
+    check("...and fires nothing at all", shots === 0, `${shots} shots`);
+    // g.aiming drives the HUD's aim state (main.ts swaps ⏸ for ✕ off it).
+    // A hover is not a gesture in progress and must not dress the chrome as
+    // though one were — there is nothing to cancel.
+    check("...and leaves the HUD's aim state alone", g.aiming === false);
+  }
+
+  // Moving on keeps re-solving: the second spot answers as readily as the
+  // first, which is what makes it a sweep rather than a one-shot preview.
+  {
+    const first = aim();
+    move(300, 380);
+    frame();
+    const t = world(300, 380);
+    check("sweeping the cursor re-solves at each new spot",
+      !same(first) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // OUT OF THE FIELD. The bay is 16:9 and a viewport is not, so a cursor in
+  // the letterbox band maps to a world point outside the bay. A CLICK there
+  // still means something (the solver clamps it to the nearest honest arc); a
+  // hover there is a mouse on its way to a menu, and answering it would swing
+  // the barrel at the bay's edge every time one crossed.
+  {
+    const held = aim();
+    move(5000, 300);
+    frame();
+    check("a hover past the field's edge leaves the aim where it was", same(held));
+    move(-400, 300);
+    frame();
+    check("...on the near side too", same(held));
+  }
+
+  // THE CURSOR LEAVES. The queued solve is dropped so it cannot land a frame
+  // later from outside the field — and the AIM STAYS PUT, because the player
+  // has gone to press a rail button and snapping the barrel back to some
+  // earlier position would be motion carrying no information.
+  {
+    const held = aim();
+    move(700, 260);
+    send(onCanvas, "pointerleave", { pointerId: 1, pointerType: "mouse" });
+    frame();
+    check("leaving the canvas drops the queued hover instead of landing it late",
+      same(held));
+  }
+
+  // NOT WHILE THE BAY IS REFUSING. A paused bay is a live field under a card,
+  // and it still delivers moves to the canvas; a bay that is over, or has run
+  // dry, would be drawing an arc for a shot nothing will accept.
+  {
+    const held = aim();
+    g.paused = true;
+    move(420, 240);
+    frame();
+    check("a paused bay does not track the cursor", same(held));
+    g.paused = false;
+    g.status = "won";
+    move(430, 250);
+    frame();
+    check("...and neither does a finished one", same(held));
+    g.status = "playing";
+  }
+
+  // OVERTIME, which is the case that does not look like an ending. Both the
+  // clock and the launch budget END A BAY BY CONVERGENCE, not by verdict:
+  // update() leaves `status` at "playing" and waits on settleDone so the
+  // shipments already in the air get to land, get pressed and get paid. That
+  // is many cycles, and for every one of them Game.shoot has already been
+  // refusing — timeLeftMs <= 0 and launchesLeft <= 0 are the second and third
+  // guards it checks. The hover predicate did not check either (found in
+  // review on #126), so the arc went on following the cursor through the whole
+  // of overtime, advertising a launch the bay had declined before the player
+  // moved the mouse.
+  //
+  // Asserted as a PAIR each time — shoot refuses AND the preview stays put —
+  // because the bug was precisely the two disagreeing, and a pin that only
+  // watched the aim would pass just as well against a bay that had quietly
+  // started accepting launches again.
+  {
+    const held = aim();
+    // The shot counter is a record of what the CONTROLLER did; the two calls
+    // below are this pin talking to the Game directly, to establish what
+    // shoot() says at this moment. Put back afterwards so the click pin at the
+    // end of this block still counts from the same zero.
+    const attempts = shots;
+    const clock = g.timeLeftMs;
+
+    g.timeLeftMs = 0;
+    // The precondition, stated rather than assumed: this is a bay that still
+    // calls itself playable. If either of these ever flips, the gap this pin
+    // guards has closed somewhere else and the pin is measuring nothing.
+    check("overtime is still status \"playing\", and not `settling`",
+      g.status === "playing" && !g.settling && !g.paused);
+    check("...but the clock being out already refuses every shot",
+      g.shoot(performance.now()) === false);
+    move(600, 380);
+    frame();
+    check("...so a hover in clock overtime moves neither barrel nor arc", same(held));
+    g.timeLeftMs = clock;
+
+    // The budget's overtime, same shape. launchesLeft is derived from the
+    // level's budget and the shots taken, so it is spent by giving the bay a
+    // budget of one and telling it one has gone.
+    const budget = g.level.launchBudget;
+    const spent = g.shotsFired;
+    g.level.launchBudget = 1;
+    g.shotsFired = 1;
+    check("a spent launch budget refuses every shot too",
+      g.launchesLeft === 0 && g.shoot(performance.now()) === false);
+    move(640, 400);
+    frame();
+    check("...and a hover in budget overtime is refused with it", same(held));
+    g.level.launchBudget = budget;
+    g.shotsFired = spent;
+    shots = attempts;
+
+    // ...and the bay tracks again the moment the refusal lifts, so this is a
+    // gate rather than a one-way latch.
+    move(680, 420);
+    frame();
+    check("a bay that is playable again tracks the cursor again", !same(held));
+  }
+
+  // A BAY THAT ENDS BETWEEN THE MOVE AND THE FRAME. The two are up to 16ms
+  // apart, and the frame must re-ask rather than spend a cursor position that
+  // outlived its bay. This is the case the pump exists to state.
+  {
+    const held = aim();
+    move(520, 300);
+    g.status = "lost";
+    frame();
+    check("a hover queued before the bay ended is not spent after it", same(held));
+    g.status = "playing";
+  }
+
+  // AND IT DOES NOT WAIT OUT THE PAUSE. Found by these pins rather than by
+  // reasoning: the frame that lands during a pause used to return without
+  // touching the queue, so the cursor position recorded on the last frame
+  // before the card went up was still sitting there when play resumed and
+  // swung the barrel on the first frame after it — an aim made before an
+  // interruption, applied after it, at a moment when the player's hand had
+  // moved on. The tick drops the queue now (input.ts's tickKeys).
+  {
+    const held = aim();
+    move(540, 320);
+    g.paused = true;
+    frame();
+    g.paused = false;
+    frame();
+    check("a hover queued before a pause does not swing the barrel on resume",
+      same(held));
+  }
+
+  // TOUCH HAS NO HOVER, and the guard is belt-and-braces: a finger off the
+  // glass sends nothing, so this is really asserting that a pen or an
+  // unknown pointer type — both of which land on touch hardware, per this
+  // file's standing line — cannot pick up the mouse's scheme by accident.
+  {
+    const held = aim();
+    move(560, 300, "touch");
+    frame();
+    check("a touch move with nothing held aims nothing", same(held));
+    move(560, 300, "pen");
+    frame();
+    check("...and a hovering pen keeps the slingshot too", same(held));
+  }
+
+  // AND THE CLICK STILL FIRES, at the point clicked. Hover made the press
+  // optional, not decorative: the release is still the launch, and it still
+  // solves the release position rather than the last frame's.
+  {
+    const down = { button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", clientX: 600,
+      clientY: 300, preventDefault: () => {} };
+    send(onCanvas, "pointerdown", down);
+    send(onWindow, "pointerup", { ...down, buttons: 0 });
+    check("a click still fires, after all that hovering", shots === 1, `${shots} shots`);
+    const t = world(600, 300);
+    check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
 
   delete glob.window;
   glob.requestAnimationFrame = prevRaf;

@@ -2,16 +2,35 @@ import { Game } from "./game";
 import { screenToWorld } from "./render";
 import { actionForKey, keyFor } from "./bindings";
 import { MIN_FIRE_RATIO } from "./cannon";
+import { WORLD } from "./engine";
 
 /**
  * Canvas aiming + keyboard fallback (web). TWO SCHEMES, split by device.
  *
- * MOUSE — point at where you want the shipment to go and click. Holding the
- * button down keeps the arc glued to the cursor while it moves; releasing
- * fires. The angle and power are solved backwards out of the forward
- * ballistics model (game.ts's aimAt → cannon.ts's solveAimForTarget), so the
- * dotted arc runs through the cursor rather than being something the player
- * has to construct by feel.
+ * MOUSE — point at where you want the shipment to go and the arc follows the
+ * cursor, button or no button; clicking fires it. The angle and power are
+ * solved backwards out of the forward ballistics model (game.ts's aimAt →
+ * cannon.ts's solveAimForTarget), so the dotted arc runs through the cursor
+ * rather than being something the player has to construct by feel.
+ *
+ * HOVER AIMS, and that is the newer half. The scheme originally only tracked
+ * the cursor while the button was HELD, which meant the answer to "where would
+ * this shot go" cost a press — and a press on this device is also a launch, so
+ * the only way to ask the question was to commit to the answer. Tracking on
+ * plain movement makes the arc a readout instead of a transaction: the player
+ * moves over the bay, reads where each spot puts the shipment, and clicks the
+ * one they wanted. See onMove's hover branch for what "a valid position" means
+ * and hoverAimable for when the bay will answer at all.
+ *
+ * IT IS A REAL AIM, not a ghost drawn beside the committed one. The cannon
+ * swings, cannon.angle/power move, and a keyboard Fire pressed mid-hover
+ * launches exactly the arc on screen. A second "preview aim" that the dots
+ * showed and the shot did not use would break the one contract this whole file
+ * and cannon.ts's solver exist to keep (dots == solver == shot), and it would
+ * break it in the direction that costs launches. The cost of that choice is
+ * that sweeping the cursor across the bay on the way to a rail button leaves
+ * the barrel wherever it left the field — which is visible, in the arc, before
+ * anything is spent.
  *
  * TOUCH (and pen, and any pointer type the browser will not vouch for) — the
  * original Angry-Birds drag. Press anywhere, pull away, and the drag vector
@@ -152,6 +171,27 @@ export function wheelNotch(
   return { accum: 0, notch: px > 0 ? 1 : -1 };
 }
 
+/**
+ * Is this world point somewhere the player could be pointing AT?
+ *
+ * The bay is 16:9 and the viewport is not, so screenToWorld happily returns
+ * points out in the letterbox bands and in the strip the control rail is
+ * parked over (render.ts's computeViewport reserves it). A CLICK out there is
+ * still a click — the player pressed the button, they meant something by it,
+ * and the solver's clamps turn it into the nearest honest arc. A HOVER out
+ * there is just a mouse on its way somewhere, and answering it would swing the
+ * barrel at the bay's edge every time the cursor crossed the band on its way
+ * to a menu.
+ *
+ * Hence: the same path for both, one extra test on the hover. The world rect
+ * rather than the playable interior (WALL_INNER) because the walls, the chute
+ * mouth and the floor are all things a player legitimately aims at the face
+ * of, and half a cube of slop at the boundary is smaller than the payload.
+ */
+function inField(p: { x: number; y: number }): boolean {
+  return p.x >= 0 && p.x <= WORLD.width && p.y >= 0 && p.y <= WORLD.height;
+}
+
 export class InputController {
   private canvas: HTMLCanvasElement;
   private game: () => Game | null;
@@ -238,6 +278,12 @@ export class InputController {
 
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
+    // The hover aim's off-switch. pointerleave and not pointerout: leave
+    // fires once when the pointer actually exits the canvas, where out also
+    // fires on every move between a child and its parent — the canvas has no
+    // children today, but a handler that drops the aim on an event that means
+    // "moved inside" is a trap for whoever adds one.
+    canvas.addEventListener("pointerleave", this.onLeave);
     // ON THE CANVAS, NOT ON WINDOW, and that placement is the whole answer to
     // "does the wheel break scrolling anywhere". A wheel listener only runs
     // when the event's target is the element or a descendant, the canvas has no
@@ -261,6 +307,7 @@ export class InputController {
   destroy(): void {
     this.canvas.removeEventListener("pointerdown", this.onDown);
     this.canvas.removeEventListener("pointermove", this.onMove);
+    this.canvas.removeEventListener("pointerleave", this.onLeave);
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     window.removeEventListener("pointerup", this.onUp);
@@ -487,9 +534,90 @@ export class InputController {
         return;
       }
     }
-    if (!this.dragging || e.pointerId !== this.dragPointerId) return;
+    if (!this.dragging) {
+      // THE HOVER AIM. Mouse only — the line this file draws everywhere else,
+      // and here it is not a judgement call but a fact about the hardware:
+      // touch has no hover to read, a finger that is not touching the glass
+      // reports nothing at all, so the touch scheme is untouched by
+      // construction rather than by a guard someone has to remember.
+      if (e.pointerType !== "mouse") return;
+      const g = this.game();
+      // Anything the bay will not answer clears the queued solve rather than
+      // leaving it to fall out of the next frame — see hoverAimable.
+      const p = g && this.hoverAimable(g) ? this.worldPoint(e) : null;
+      this.pendingTarget = p && inField(p) ? p : null;
+      return;
+    }
+    if (e.pointerId !== this.dragPointerId) return;
     if (this.targeting) this.pendingTarget = this.worldPoint(e);
     else this.applyAim(e);
+  };
+
+  /** Whether a hover should move the barrel at all.
+   *
+   *  THE MODALS ARE NOT IN HERE, and that is structural rather than an
+   *  oversight: main.ts sets the overlay to `pointer-events: none` only while
+   *  the app state is "playing", so a draft card, a refit modal or a run-end
+   *  screen swallows every pointermove before the canvas can see it. The HUD's
+   *  own controls do the same locally (app.css's `.hud > *`), which is why the
+   *  aim simply stops moving while the cursor is over the plant panel instead
+   *  of tracking behind it.
+   *
+   *  What IS in here is every state the canvas can be in while still
+   *  receiving moves AND while Game.shoot has already stopped accepting: a
+   *  paused bay (the pause card is drawn over a live field), and shoot's four
+   *  TERMINAL refusals — target met and settling, clock out, budget spent,
+   *  queue dry. Its other two are deliberately absent, because they come back
+   *  on their own: the reload ticks down by itself, and the price of a launch
+   *  is met by the next payout. An aim is worth drawing while you wait for the
+   *  cooldown, and worth drawing while you count whether you can afford the
+   *  next one. It is not worth drawing for a shot that can never happen.
+   *
+   *  THE CLOCK AND THE BUDGET WERE MISSING (found in review on #126, and the
+   *  first draft of this comment argued for their absence — it filed the
+   *  launch BUDGET with the reload as something that "recovers by itself",
+   *  which is exactly backwards: the budget is the one number in the bay that
+   *  only ever goes down). What that cost is the whole of overtime. Both
+   *  endings keep `status` at "playing" for as long as the press takes to
+   *  converge — update()'s launch-budget and time-up branches wait on
+   *  settleDone, which is many cycles, not a frame — while shoot() has been
+   *  refusing every launch since the instant the clock or the budget hit zero.
+   *  For all of that time the arc went on following the cursor, promising a
+   *  shot the bay had already declined.
+   *
+   *  IT FREEZES THE BARREL, NOT JUST THE ARC, because on this path they are
+   *  one act: the hover's only effect is the aimAt that swings the cannon and
+   *  redraws the dots off it, so refusing the hover refuses both, and a
+   *  cannon that keeps tracking the mouse reads as live whether or not the
+   *  dots move with it. CLICK-AIM IS LEFT EXACTLY AS IT WAS — onDown still
+   *  admits a press during overtime, still swings, and still gets its honest
+   *  nothing from shoot() on release. The two differ because the gestures
+   *  differ: a click is a REQUEST, and answering a request with a refusal is
+   *  information the player asked for. A hover is the game volunteering
+   *  "here is where your next shot goes" when there is no next shot, which is
+   *  the only one of the two that is a lie. Changing the press would also
+   *  change the touch slingshot, which shares onDown/onUp and is not what
+   *  this review found. */
+  private hoverAimable(g: Game): boolean {
+    return g.status === "playing" && !g.paused
+      && !g.settling
+      && g.timeLeftMs > 0
+      && g.launchesLeft > 0
+      && (g.piecesLeft > 0 || g.bombArmed);
+  }
+
+  /** The cursor left the field: drop the queued solve so the last hover cannot
+   *  land a frame later, from outside. The AIM ITSELF STAYS — the barrel holds
+   *  the last position the cursor asked for rather than snapping back to some
+   *  earlier one. Snapping would be motion that carries no information (the
+   *  player is looking at the rail, not the arc) and would land the barrel
+   *  somewhere they can no longer see the reason for; freezing leaves the bay
+   *  exactly as they last saw it, which is also what the drag scheme does when
+   *  a gesture ends. Never touches a live drag: a mouse with the button down
+   *  holds pointer capture, and a capture that reports a leave is describing
+   *  the pointer's position, not the end of the gesture. */
+  private onLeave = (): void => {
+    if (!this.dragging) this.pendingTarget = null;
   };
 
   private onUp = (e: PointerEvent): void => {
@@ -718,8 +846,28 @@ export class InputController {
   // on a solved shot instead of being silently overwritten every frame.
   private tickKeys = (): void => {
     const g = this.game();
-    if (g && g.status === "playing" && !g.paused) {
-      if (this.pendingTarget) this.applyTarget(this.pendingTarget);
+    if (!g || g.status !== "playing" || g.paused) {
+      // A QUEUED TARGET DOES NOT WAIT OUT A PAUSE. This branch used to be an
+      // empty early-out, which was harmless while only a held button could
+      // queue anything: the release that ended the gesture cleared it. A hover
+      // has no release, so a cursor position recorded on the last frame before
+      // a pause sat in the queue for the length of the pause card and then
+      // swung the barrel the moment play resumed — an aim nobody made,
+      // arriving after the thing that made it had been forgotten. Dropping it
+      // here rather than at every place that pauses keeps the rule in one
+      // place: what the queue holds is "where the cursor is RIGHT NOW", and a
+      // bay that is not accepting aims makes that answer stale by definition.
+      this.pendingTarget = null;
+    } else {
+      // A HELD target is applied unconditionally — the player is mid-gesture
+      // and the bay's own guards decide what the release costs. A HOVERED one
+      // is re-tested against the bay first: a move and the frame that answers
+      // it are up to 16ms apart, and a bay that won or ran dry in between must
+      // not have its barrel swung by a cursor position that outlived it.
+      if (this.pendingTarget) {
+        if (this.dragging || this.hoverAimable(g)) this.applyTarget(this.pendingTarget);
+        else this.pendingTarget = null;
+      }
       if (this.keys.has(keyFor("aimUp")) || this.keys.has("arrowup")) g.cannon.aimUp();
       if (this.keys.has(keyFor("aimDown")) || this.keys.has("arrowdown")) g.cannon.aimDown();
       if (this.keys.has(keyFor("powerUp")) || this.keys.has("arrowright")) g.cannon.powerUp();
