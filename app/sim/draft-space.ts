@@ -339,9 +339,14 @@ export const dodgePolicy: DraftPolicy = {
   },
 };
 
-/** A seeded random walk through the space — the interior sampler. Uses the same
- *  `mulberry32` every other seeded draw in this harness does, on its own
- *  stream, so a sampled combo is reproducible from (policy seed, run seed). */
+/**
+ * A seeded random walk through the space — the interior sampler.
+ *
+ * `seed` here is the stream, not the policy's published name: `randomSpec`
+ * below mixes the run's own seed into it and keeps the name fixed, so a row
+ * labelled `random:20973` means one SAMPLER across a table while every run
+ * under it draws its own independent walk.
+ */
 export function randomPolicy(seed: number): DraftPolicy {
   const rng = mulberry32(seed >>> 0);
   return {
@@ -349,6 +354,65 @@ export function randomPolicy(seed: number): DraftPolicy {
     choose(rung) {
       return rung.hands[Math.floor(rng() * rung.hands.length) % rung.hands.length];
     },
+  };
+}
+
+/* ---------------------------------------------------------------------------
+ * POLICY SPECS — a policy is BUILT PER RUN, and that is a bug fix with a rule
+ * behind it.
+ *
+ * `bots.ts` already states the rule, about itself: "Named presets, each a
+ * FACTORY of (seed) -> Bot rather than a built Bot — the runner needs to
+ * rebuild a fresh bot (fresh jitter RNG stream) per run so that two runs given
+ * the same seed reproduce identically."
+ *
+ * This file shipped the opposite. `randomPolicy` captured its `rng` in a
+ * closure, `policiesFor` built ONE policy object per row, and `sweepCombos`
+ * reused that object across every seed, every Final clause and every `--build`
+ * order in the row. So the stream carried over: a run's draft choices depended
+ * on how many drafts all the runs before it happened to reach. Reproduced on
+ * review — the same Mark-5 seed and options, one `random:20973`, gave
+ * `cryo:1 time:1` and then `cryo:1 rebar:1 time:1`.
+ *
+ * Two things were broken by that, and the second is the one that would have
+ * been hardest to notice:
+ *
+ *  - **Identical seeds stopped reproducing**, which is the assumption every
+ *    other tool here rests on (`sweep.ts` runs one combination twice at
+ *    startup and diffs it byte-for-byte precisely to keep that assumption
+ *    honest).
+ *  - **The best-build comparison stopped being paired.** `sweepCombos` picks
+ *    the best of the named `--build` orders per row; with a carried stream the
+ *    second build was flown on different draft choices from the first, so the
+ *    comparison was between two different runs rather than two rigs.
+ *
+ * A spec is the fix and the shape `bots.ts` already uses: a name for the table,
+ * and a `build(runSeed)` the driver calls once per run. The stateless policies
+ * ignore the seed; the sampler mixes it into its stream.
+ * ------------------------------------------------------------------------- */
+
+export interface DraftPolicySpec {
+  /** The row's published name — stable across seeds and builds, so a table
+   *  groups by it. */
+  name: string;
+  /** The policy for ONE run. Called per run, never cached. */
+  build(runSeed: number): DraftPolicy;
+}
+
+export const preferSpec = (want: HazardId): DraftPolicySpec =>
+  ({ name: `max:${want}`, build: () => preferPolicy(want) });
+export const spreadSpec: DraftPolicySpec = { name: "spread", build: () => spreadPolicy };
+export const dodgeSpec: DraftPolicySpec = { name: "dodge", build: () => dodgePolicy };
+
+/** The interior sampler, re-streamed per run. The mix is the same shape
+ *  `hazards.ts` uses to keep two seeded draws from correlating — a run seed
+ *  scattered by a large odd constant, then xored — so run 2's walk is
+ *  independent of run 1's rather than a continuation of it. */
+export function randomSpec(policySeed: number): DraftPolicySpec {
+  return {
+    name: `random:${policySeed}`,
+    build: (runSeed) =>
+      randomPolicy((policySeed ^ Math.imul(runSeed || 1, 0x9e3779b1)) >>> 0),
   };
 }
 

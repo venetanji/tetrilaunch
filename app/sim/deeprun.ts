@@ -164,6 +164,15 @@ export interface DeepBayRecord {
   carryIn: number;
   /** Unspent scrap the run held entering this bay. */
   scrapIn: number;
+  /** What this bay PAID OUT in scrap: what the bay itself earned, plus the
+   *  per-bay clear bonus if it was cleared.
+   *
+   *  Recorded because the LAST bay a run plays never reaches `advanceRun` —
+   *  the run either won at bay 10 or died — so its payout has to be added at
+   *  the reporting site instead. `main.ts` does exactly this and says so where
+   *  it banks a lost bay's telemetry: the bay "has not been through advanceRun
+   *  — and on a loss never will be — so it has to be added here". */
+  scrapPaid: number;
   /** Picks taken at the draft that FOLLOWED this bay ([] on bay 10 and on the
    *  Final Inspection rung). */
   picks: HazardId[];
@@ -236,10 +245,15 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
       launchCost: cfg.launchCost,
       carryIn: run.carry,
       scrapIn: run.scrap,
+      // Set below, once the bay's status is known: the clear bonus is only
+      // paid by a bay that cleared.
+      scrapPaid: 0,
       picks: [],
       refitSpend: 0,
     };
     bays.push(rec);
+    rec.scrapPaid = outcome.scrapEarned
+      + (outcome.status === "won" ? cfg.scrapPerBay : 0);
 
     if (outcome.status !== "won") {
       return finish(run, bays, false, i + 1, outcome.lossReason, opts, botName, loadoutCost, scrapSpent);
@@ -333,7 +347,14 @@ function finish(
     ratchets: { ...run.ratchets },
     final: run.final,
     linesTotal: bays.reduce((a, b) => a + b.outcome.lines, 0),
-    scrapEarned: run.scrapEarned,
+    // `run.scrapEarned` holds every bay that went through `advanceRun` — which
+    // is every bay EXCEPT the last one played, because the run ends on it. A
+    // bay-10 win returns before the advance the nine clears before it made, so
+    // reading the run's own total here under-reported every successful run by
+    // exactly the final bay's payout; a loss had the same hole. Adding the last
+    // bay's recorded payout closes both with one line, and it is the same thing
+    // `main.ts` does at its own reporting sites for the same reason.
+    scrapEarned: run.scrapEarned + (bays.length ? bays[bays.length - 1].scrapPaid : 0),
     scrapSpent,
     loadoutCost,
     tiersEnd: { ...run.tiers },

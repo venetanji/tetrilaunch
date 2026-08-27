@@ -87,8 +87,8 @@ import { BOTS } from "./bots";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import { bondHands, combineKits, COUNTER_KITS, type CounterKit } from "./counters";
 import {
-  comboKey, dodgePolicy, enumerateSpace, preferPolicy, randomPolicy, spreadPolicy,
-  type DraftPolicy,
+  comboKey, dodgeSpec, enumerateSpace, preferSpec, randomSpec, spreadSpec,
+  type DraftPolicySpec,
 } from "./draft-space";
 import { greedyRefit, noRefit, runDeepRun, type DeepRunOutcome } from "./deeprun";
 
@@ -253,34 +253,37 @@ interface ComboRow {
   outcomes: DeepRunOutcome[];
 }
 
-function policiesFor(mark: number): { policy: DraftPolicy; cover: "corner" | "interior" }[] {
+/** SPECS, not built policies — see draft-space.ts's POLICY SPECS note. The
+ *  driver calls `spec.build(seed)` once per run, so a sampler cannot carry its
+ *  stream from one run into the next. */
+function policiesFor(mark: number): { spec: DraftPolicySpec; cover: "corner" | "interior" }[] {
   if (explicitPolicies) {
     return explicitPolicies.split(",").map((s) => s.trim()).filter(Boolean).map((name) => {
-      if (name === "spread") return { policy: spreadPolicy, cover: "interior" as const };
-      if (name === "dodge") return { policy: dodgePolicy, cover: "interior" as const };
+      if (name === "spread") return { spec: spreadSpec, cover: "interior" as const };
+      if (name === "dodge") return { spec: dodgeSpec, cover: "interior" as const };
       if (name.startsWith("max:")) {
         const id = name.slice(4) as HazardId;
         if (!HAZARDS.some((h) => h.id === id)) {
           console.error(`Unknown axis in --policies "${name}"`);
           process.exit(1);
         }
-        return { policy: preferPolicy(id), cover: "corner" as const };
+        return { spec: preferSpec(id), cover: "corner" as const };
       }
       if (name.startsWith("random:")) {
-        return { policy: randomPolicy(parseInt(name.slice(7), 10) || 1), cover: "interior" as const };
+        return { spec: randomSpec(parseInt(name.slice(7), 10) || 1), cover: "interior" as const };
       }
       console.error(`Unknown policy "${name}" — use spread, dodge, max:<axis>, random:<n>`);
       return process.exit(1) as never;
     });
   }
-  const out: { policy: DraftPolicy; cover: "corner" | "interior" }[] = [];
+  const out: { spec: DraftPolicySpec; cover: "corner" | "interior" }[] = [];
   // EXHAUSTIVE over the corners: one policy per axis the Mark can deal.
-  for (const h of hazardsForMark(mark)) out.push({ policy: preferPolicy(h.id), cover: "corner" });
+  for (const h of hazardsForMark(mark)) out.push({ spec: preferSpec(h.id), cover: "corner" });
   // SAMPLED interior.
-  out.push({ policy: spreadPolicy, cover: "interior" });
-  out.push({ policy: dodgePolicy, cover: "interior" });
+  out.push({ spec: spreadSpec, cover: "interior" });
+  out.push({ spec: dodgeSpec, cover: "interior" });
   for (let i = 0; i < randomWalks; i++) {
-    out.push({ policy: randomPolicy(0x51ed + i * 7919), cover: "interior" });
+    out.push({ spec: randomSpec(0x51ed + i * 7919), cover: "interior" });
   }
   return out;
 }
@@ -294,7 +297,7 @@ function median(xs: number[]): number {
 function sweepCombos(mark: number): ComboRow[] {
   const clauseIdx = finalsMode === "both" ? [0, 1] : [0];
   const rows: ComboRow[] = [];
-  for (const { policy, cover } of policiesFor(mark)) {
+  for (const { spec, cover } of policiesFor(mark)) {
     // Every named build order, best row wins — see the `--build` note.
     let best: ComboRow | null = null;
     for (const build of buildNames) {
@@ -308,14 +311,16 @@ function sweepCombos(mark: number): ComboRow[] {
             seed,
             bot: pilot,
             loadout,
-            draft: policy,
+            // BUILT PER RUN, from this run's own seed. Hoisting this out of the
+            // loop is the bug draft-space.ts's POLICY SPECS note records.
+            draft: spec.build(seed),
             refit,
             final: (offers) => offers[Math.min(ci, offers.length - 1)].id,
             counters: kit,
           }));
         }
       }
-      const row = summarise(mark, policy.name, cover, build, outcomes);
+      const row = summarise(mark, spec.name, cover, build, outcomes);
       if (!best || row.clears > best.clears
         || (row.clears === best.clears && row.wall > best.wall)) best = row;
     }
@@ -413,20 +418,20 @@ function cheapest(mark: number): CheapRow[] {
   // The DRAFT policy the search is run under. `dodge` is the honest default: it
   // is the strategy a player with no material answer plays, so a clear under it
   // is a clear that did not depend on the draft being kind.
-  const policy = explicitPolicies ? policiesFor(mark)[0].policy : dodgePolicy;
+  const spec = explicitPolicies ? policiesFor(mark)[0].spec : dodgeSpec;
   for (const refit of [noRefit, greedyRefit(order, true)]) {
     let found = false;
     for (const budget of budgetLadder(order, mark)) {
       const loadout = loadoutFor(order, mark, budget);
       const outcomes = seeds.map((seed) => runDeepRun({
-        mark, seed, bot: pilot, loadout, draft: policy, refit, counters: kit,
+        mark, seed, bot: pilot, loadout, draft: spec.build(seed), refit, counters: kit,
       }));
       const clears = outcomes.filter((o) => o.cleared).length;
       const row: CheapRow = {
         mark,
         budget,
         refit: refit.name,
-        policy: policy.name,
+        policy: spec.name,
         // "Winnable" here is the same word the combo table uses: at least one
         // seed went the distance. Deliberately not a majority — the search is
         // looking for the rung where clearing becomes POSSIBLE, and a rung
@@ -443,7 +448,7 @@ function cheapest(mark: number): CheapRow[] {
     }
     if (!found) {
       rows.push({
-        mark, budget: -1, refit: refit.name, policy: policy.name, cleared: false,
+        mark, budget: -1, refit: refit.name, policy: spec.name, cleared: false,
         clears: 0, runs: seeds.length, loadoutCost: -1, scrapSpent: 0, tiers: "NONE FOUND",
       });
     }

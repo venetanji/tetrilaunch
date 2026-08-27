@@ -179,19 +179,26 @@ Exhaustive over the axes each Tier deals; 4 seeds; best of two priority orders
 (`spatial` is the strongest measured rig, `material` is the one that carries the
 DEMOLITION RACK, which is slag's only exit). Sorted by wall.
 
+*(The `random:*` rows were re-flown after review found the sampler carrying its
+RNG stream between runs — one built policy per table row, reused across every
+seed and `--build` order, so a run's draws depended on how many drafts the runs
+before it had reached. `sim/README.md` has the full note. Only these rows moved:
+every `max:<axis>`, `spread` and `dodge` policy is stateless, and all of their
+numbers below re-ran byte-for-byte identical.)*
+
 ### Tier 5 — six axes
 
 | policy | cover | build | clears | wall | best | verdict |
 |---|---|---|---:|---:|---:|---|
 | `max:cryo` | corner | spatial | 0/4 | **2** | 2 | **unwinnable** |
-| `random:28892` | interior | spatial | 0/4 | 3 | 6 | unwinnable |
+| `random:20973` | interior | spatial | 0/4 | 2 | 3 | unwinnable |
+| `random:28892` | interior | spatial | 0/4 | 3 | 3 | unwinnable |
 | `max:cost` | corner | spatial | 0/4 | 4 | 4 | unwinnable |
 | `max:time` | corner | spatial | 0/4 | 4 | 4 | unwinnable |
 | `max:wind` | corner | spatial | 0/4 | 4 | 3 | unwinnable |
 | `max:sweeper` | corner | spatial | 0/4 | 4 | 4 | unwinnable |
 | `spread` | interior | spatial | 0/4 | 4 | 4 | unwinnable |
 | `dodge` | interior | spatial | 0/4 | 4 | 4 | unwinnable |
-| `random:20973` | interior | material | 0/4 | 4 | 3 | unwinnable |
 | `max:rebar` | corner | material | 0/4 | **7** | 8 | marginal |
 
 **The spread between the two material corners is the whole Tier-5 story.**
@@ -204,17 +211,17 @@ a player the same one notch is not a difficulty curve, it is a trap.
 
 | policy | cover | build | clears | wall | best | verdict |
 |---|---|---|---:|---:|---:|---|
+| `random:20973` | interior | spatial | 0/4 | 4 | 3 | unwinnable |
 | `max:time` | corner | spatial | 0/4 | 5 | 5 | unwinnable |
 | `max:sweeper` | corner | spatial | 0/4 | 5 | 4 | unwinnable |
 | `max:cryo` | corner | spatial | 0/4 | 5 | 6 | unwinnable |
 | `max:rebar` | corner | spatial | 0/4 | 5 | 5 | unwinnable |
 | `max:slag` | corner | material | 0/4 | 5 | 4 | unwinnable |
 | `spread` | interior | spatial | 0/4 | 5 | 5 | unwinnable |
-| `random:20973` | interior | spatial | 0/4 | 5 | 4 | unwinnable |
+| `random:28892` | interior | material | 0/4 | 5 | 5 | unwinnable |
 | `max:cost` | corner | spatial | 0/4 | 6 | 5 | marginal |
 | `max:wind` | corner | spatial | 0/4 | 6 | 5 | marginal |
 | `max:volatile` | corner | material | 0/4 | **6** | 6 | marginal |
-| `random:28892` | interior | material | 0/4 | 6 | 6 | marginal |
 | `dodge` | interior | material | 0/4 | **8** | 7 | marginal |
 
 Tier 7 is flat: every corner lands within one bay of every other, and the two

@@ -24,7 +24,7 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
-  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
@@ -40,7 +40,7 @@ import {
 // The winnability harness (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts,
 // sim/builds.ts) — its section is at the bottom of this file.
 import {
-  comboKey, dodgePolicy, enumerateSpace, legalHands, rungFor, spreadPolicy,
+  comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
 } from "./draft-space";
 import { greedyRefit, runDeepRun } from "./deeprun";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
@@ -10220,6 +10220,97 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
     check("...and fire once the pile is deep enough", used === 1);
     rig.act(bay(BOND_MIN_CUBES + 20, 0), 0);
     check("...and never fire a charge the run does not have", used === 1 && acts === 2);
+  }
+
+  // A SAMPLED policy must not carry its RNG stream between runs. Review found
+  // it doing exactly that — draft-space.ts's POLICY SPECS note has the repro
+  // and the reasoning; this is the guard.
+  //
+  // Stated on the POLICY rather than on a deep run, deliberately. A run-level
+  // version is what was tried first and it was vacuous: the pair of runs it
+  // chose both died on bay 2, so the shared stream only ever advanced one draw
+  // and the buggy code and the fixed code agreed. Driving the policy directly
+  // over one rung makes the carry-over visible in six draws and costs no
+  // physics at all.
+  {
+    const spec = randomSpec(20973);
+    // A capstone rung: two picks from a two-card hand is three distinct hands,
+    // so six draws off one stream is a sequence, not a coin flip.
+    const rung = rungFor(1, CAPSTONE_MARK, 0, {})!;
+    const seq = (pol: { choose: (r: typeof rung, x: Ratchets) => HazardId[] }): string =>
+      Array.from({ length: 6 }, () => pol.choose(rung, {}).join("+")).join(" ");
+
+    check(
+      "two runs at one seed draw the same sampled walk when the policy is built per run",
+      seq(spec.build(4)) === seq(spec.build(4)),
+      `${seq(spec.build(4))} vs ${seq(spec.build(4))}`,
+    );
+    {
+      // The shape the bug had: ONE built policy, asked twice. Its stream
+      // carries, so the second pass is a continuation rather than a repeat —
+      // and this asserts that it IS, because a pin blind to the defect it
+      // guards is not a pin.
+      const shared = spec.build(4);
+      const passA = seq(shared);
+      const passB = seq(shared);
+      check(
+        "...and a SHARED policy continues its stream instead, which is the defect",
+        passA !== passB, `${passA} then ${passB}`,
+      );
+      check(
+        "...so the per-run build is what makes the first pass of each pair agree",
+        passA === seq(spec.build(4)),
+      );
+    }
+    // And the run-level consequence the repro reported: same seed, same
+    // options, identical outcome.
+    const flight = () => runDeepRun({
+      mark: 5, seed: 4, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5),
+      draft: spec.build(4), refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const a = flight();
+    const b = flight();
+    check(
+      "a deep run under a sampled policy reproduces on the same seed",
+      comboKey(a.ratchets) === comboKey(b.ratchets)
+        && a.baysCleared === b.baysCleared && a.diedAt === b.diedAt,
+      `${comboKey(a.ratchets)} @${a.diedAt} vs ${comboKey(b.ratchets)} @${b.diedAt}`,
+    );
+  }
+
+  // Every bay's scrap payout reaches the reported total, INCLUDING the last one
+  // played. The last bay never goes through advanceRun — the run ends on it —
+  // so a bay-10 win returned before the accounting its nine clears went
+  // through, and every successful run under-reported by that bay's payout.
+  //
+  // Mark 1 seed 1 is the fixture because its last bay actually PAYS (6 of the
+  // run's 146). A run whose final bay earned nothing cannot tell the fixed code
+  // from the broken code, which is how the first attempt at this pin passed
+  // while proving nothing.
+  {
+    const o = runDeepRun({
+      mark: 1, seed: 1, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 1),
+      draft: spreadPolicy, refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const paid = o.bays.map((b) => b.scrapPaid);
+    const tally = paid.reduce((x, y) => x + y, 0);
+    const last = paid[paid.length - 1];
+    check(
+      "a run reports the scrap every bay it played paid out, the last one included",
+      o.scrapEarned === tally, `reported ${o.scrapEarned}, bays paid ${tally}`,
+    );
+    check(
+      "...on a fixture whose last bay pays, so the check can see the bug it guards",
+      last > 0 && o.scrapEarned - last === tally - last && tally > last,
+      `paid [${paid.join(",")}], last ${last}`,
+    );
+    check(
+      "...and only a CLEARED bay collects the per-bay clear bonus",
+      o.bays.every((b, i) => (i === o.bays.length - 1 && !o.cleared
+        ? b.scrapPaid === b.outcome.scrapEarned
+        : b.scrapPaid === b.outcome.scrapEarned + SCRAP_PER_BAY)),
+      o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
+    );
   }
 }
 

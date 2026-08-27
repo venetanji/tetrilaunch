@@ -495,6 +495,27 @@ nothing alike. So `wall` is the median bay a run died in, `MARGINAL_WALL` is 6
 (the bay after the second refit stop — a run that has been handed every lever
 and is still going is failing on play), and a clear only promotes.
 
+### A policy is built per RUN, not per row
+
+Worth stating here because it is a rule the harness already had and this tool
+broke: `bots.ts` rebuilds a bot per run "so that two runs given the same seed
+reproduce identically". `draft-space.ts` shipped the opposite — one built policy
+per table row, reused across every seed, Final clause and `--build` order, so a
+sampled walk carried its RNG stream forward and a run's draft choices depended
+on how many drafts all the runs before it had reached. Same seed, same options,
+two different combos.
+
+Two things it broke, and the second is the one that hides: identical seeds
+stopped reproducing, and the best-of-`--build` comparison stopped being paired
+(the second rig was flown on different draft choices from the first, so the row
+compared two runs rather than two rigs). `DraftPolicySpec` is the fix — a name
+for the table and a `build(runSeed)` the driver calls once per run — and
+`sim/systems.ts` pins both halves, including a check that a SHARED policy still
+misbehaves, so the guard cannot pass by being blind.
+
+Only `random:*` rows were ever affected: `spread`, `dodge` and every
+`max:<axis>` policy are stateless.
+
 ### The pessimism ledger
 
 Two of `sim/README.md`'s oldest caveats are **closed** here: the pilot fires
