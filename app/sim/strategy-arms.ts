@@ -311,7 +311,7 @@ function showTiers(t: Record<string, number>): string {
 }
 
 console.log(
-  `Strategy arms — system ${sut.id} · Tier ${mark} bay ${bay}`
+  `Strategy arms — system ${sut.id} · aware ${aware.name} · Tier ${mark} bay ${bay}`
   + ` · ratchets ${comboKey(stack)} · rig ${buildName} ${showTiers(loadout)}`
   + ` (${tiersCost(loadout)} pts) · ${seedCount} paired seeds`,
 );

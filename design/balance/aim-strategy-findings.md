@@ -95,7 +95,86 @@ have made the cushion's threshold gate dead code wearing a rule's name.)
 
 ## 3. THE IMPACT CUSHION
 
-TABLE_CUSHION
+```sh
+npm run sim:strategy -- --system cushion --mark 7 --bay 10 \
+  --ratchets volatile:6 --seeds 96 --build material
+```
+
+**Tier 7 bay 10, `volatile:6` (the belt cap), material rig (330 pts), 96 paired
+seeds.** The same bay, the same stack, the same seeds and the same rig as
+`winnability-sweep-findings.md` §5b-ter.
+
+| arm | pts | win | lines | shots | end $ | detonation bill |
+|---|---:|---:|---:|---:|---:|---:|
+| no liner / naive | 0 | 55/96 | 7.3 | 45.7 | $1188 | $687 |
+| no liner / cushion | 0 | **55/96** | 7.3 | 45.7 | $1188 | $687 |
+| Cushion 1 / naive | 20 | 56/96 | 6.6 | 38.6 | $1173 | $552 |
+| Cushion 1 / **cushion** | 20 | **94/96** | 9.9 | 33.6 | $1953 | **$139** |
+| Cushion 2 / naive | 55 | 63/96 | 7.3 | 40.0 | $1329 | $525 |
+| Cushion 2 / **cushion** | 55 | **91/96** | 9.2 | 32.6 | $1883 | **$145** |
+| Cushion 3 / naive | 110 | 59/96 | 6.7 | 37.3 | $1248 | $481 |
+| Cushion 3 / **cushion** | 110 | **88/96** | 9.1 | 32.8 | $1822 | **$171** |
+
+| rung | system effect | strategy effect | interaction | together |
+|---|---:|---:|---:|---:|
+| Cushion 1 | +1 | +38 | +38 | +39 |
+| Cushion 2 | +8 | +28 | +28 | +36 |
+| Cushion 3 | +4 | +29 | +29 | +33 |
+
+### The naive rows reproduce §5b-ter exactly
+
+55 / 56 / 63 / 59 of 96 — the same four numbers, from a different tool, on the
+same seeds. That is the control that says everything below is the pilot and
+nothing else has moved underneath it.
+
+### The system is almost entirely a DECISION
+
+The interaction column *is* the strategy column, to within a win. The rungs are
+worth +1 / +8 / +4 to a pilot who buys one and carries on as before; they are
+worth **+38 / +28 / +29** to one who lands volatile in the liner. **A player
+who owns a maxed Impact Cushion and does not aim into it has bought almost
+nothing.**
+
+That is the strongest statement in this document and it is a shop-card problem
+before it is a balance problem: the card sells insurance on a landing, and the
+insurance only pays on landings the player chooses to make.
+
+### It does not restore the monotone ladder. It inverts it.
+
+The question this branch was opened on was whether an aware pilot recovers the
+ascending 70/81/91 that #145's arrival gate turned into 56/63/59. The answer is
+**no** — the aware ladder runs **94 / 91 / 88**, gently *descending*, and §2
+says why in one line: **rung 1's threshold already insures every arc this
+cannon can fire.** Rungs 2 and 3 raise a bar nothing was going to clear anyway.
+What they buy is *depth of liner* — more slots to land in — and at 96 seeds
+that is worth slightly less than it costs in landing further from the wall.
+
+So the three rungs still do not separate upward, and the reason has changed
+completely. Under the naive pilot they did not separate because the pilot could
+not use any of them. Under the aware pilot they do not separate because **the
+first one is already enough**, which is the same conclusion the proposal's own
+§3b open item reached before the arrival gate closed ("tier 1 already restores
+the baseline on its own, so the three-tier ladder as specified is not what the
+data asks for") — arrived at from the opposite direction.
+
+### The deferral is not the story any more either
+
+§5b-ter's finding was that a liner "converts an arrival detonation into a later
+one, in a bay that is fuller by the time it goes off": the bill fell only
+$687 → $481 at maxed. Played, it falls to **$139**, and the shot count falls
+with it (45.7 → 33.6). The deferred bomb is real, and it is a consequence of
+*not playing around it* — which the aware pilot does, by refusing to drop a
+non-volatile shipment onto a slot whose top cube is an intact volatile one.
+
+### One measurement that was the instrument, not the system
+
+The first version of the aware rule aimed every volatile shipment at a FIXED
+lined window and read **90 / 82 / 77**. The window was `cells - widthCells` —
+the lined slot nearest the advancing face — so it moved with the liner's depth,
+putting cargo mid-liner at rung 1 and directly in front of the press at rung 3.
+That is a confound wearing a tier number, and it is recorded here because the
+descending shape survived the fix while the size of the drop did not: 90/82/77
+became 94/91/88 once every rung was played by the same rule.
 
 ## 4. THE THAW LANCE
 
