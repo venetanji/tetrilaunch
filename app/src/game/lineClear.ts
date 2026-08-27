@@ -36,6 +36,52 @@ const ANGLE_RATE = 0.02; // rad/step (~0.6 rad/sec @ 60fps) — grinds, doesn't 
 const SETTLE_SLOT_TOL = 0.5 * CELL; // only pull cubes already this close to a slot center
 const X_RATE = 0.5; // px/step positional pull toward the nearest slot center
 
+/**
+ * THE RIGID SHIPMENT'S SHARE OF THE PRESS'S GRIND.
+ *
+ * A rigid material's card (hazards.ts's Rebar Contract) sells one cost and one
+ * only: *"what lands is what you keep"* — theme.ts spells it out as **"a bad
+ * landing cannot be squeezed, shoved or shattered into a better one, and the row
+ * has to be built around it."** Two of those three verbs were already true.
+ * `pieces.ts` gives the joints an Infinity break stretch so nothing SHATTERS
+ * them, and `breakJointsInBand` exempts them so the press cannot shatter them
+ * either — but `settleZoneCubes` went right on SQUEEZING and SHOVING them, at
+ * full strength, because it reads cubes and never asked what was holding them
+ * together.
+ *
+ * Worse than merely not costing anything: it made rigid cargo *better* than
+ * ordinary cargo. A shipment whose joints will not break is a four-cube stamp
+ * whose cubes sit at exact CELL spacing forever, so every cube in it carries the
+ * same correction and the press grinds the whole piece onto the slot grid in one
+ * coherent motion. An ordinary shipment shatters on landing and each loose cube
+ * has to find its own slot. Measured at Tier 8 bay 10 on the material rig, a
+ * belt one third rebar cleared MORE lines in FEWER shots than a clean belt (see
+ * design/balance/winnability-sweep-findings.md §8). "A notch is pure cost" is
+ * hazards.ts's founding rule, and rebar was breaking it exactly the way volatile
+ * was before `VOLATILE_LOSS_SHARE`.
+ *
+ * So the press's assist reaches a still-bonded rigid shipment at this fraction
+ * of its strength. Not zero, deliberately: a cube the press can never square is
+ * a lose button rather than a difficulty knob (hazards.ts's floor argument), and
+ * the honest reading of a hydraulic press against a welded cage is that it
+ * *works* — slowly, over several strokes, buying its row in press time and
+ * launches instead of getting it for free.
+ *
+ * The exit is the one theme.ts already promises: *"The answer is the Bond
+ * Emitter: a Bond Breaker charge is the one thing that splits it."* A charge
+ * removes the joints, and the moment they are gone these cubes are loose cubes
+ * and grind at full rate. Before this the emitter's only job on a rebar belt was
+ * slumping the pile; now it is the difference between a rebar row that squares
+ * up and one that does not.
+ *
+ * Gated on the MATERIAL rather than on `breakStretch === Infinity`, which is the
+ * same test `breakJointsInBand` uses. That test would also catch every joint on
+ * an unbreakable-bonds bay (finals.ts's clause, level.ts's `breakStretch`), and
+ * quietly re-pricing a Final Inspection clause while re-pricing a material is
+ * the collateral this change is specifically avoiding.
+ */
+export const RIGID_SETTLE_ASSIST = 0.3;
+
 function clamp(v: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, v));
 }
@@ -561,7 +607,17 @@ function zoneGrid(
  * owns Y. Safe to call every step while pressing — matter-js tolerates small
  * per-step kinematic corrections on near-resting bodies.
  */
-export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: LevelConfig): void {
+export function settleZoneCubes(
+  cubes: Cube[],
+  compactor: Compactor,
+  level: LevelConfig,
+  /** The field's live joints, so the grind can tell a rigid shipment that is
+   *  still a SHIPMENT from one a Bond Breaker has already taken apart. Optional
+   *  because every caller that has no joints to offer (a field of loose cubes —
+   *  a standing wall, a test) wants exactly today's behaviour, and a missing
+   *  argument should not silently soften a hazard. */
+  constraints?: Matter.Constraint[],
+): void {
   const zone = zoneGrid(compactor, level);
   const face = zone ? zone.face : compactor.x + compactor.width / 2;
   const minX = face - SETTLE_X_MARGIN;
@@ -574,9 +630,29 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
   const angleRate = ANGLE_RATE * assist;
   const xRate = X_RATE * assist;
 
+  // Body ids still held by a live joint. Built once per call rather than
+  // searched per cube: the press already walks this array every step
+  // (breakJointsInBand), and a per-cube scan would be O(cubes x constraints) on
+  // the hottest loop in the file. Empty when the caller passed no joints, which
+  // is the same thing as "every cube on this field is loose".
+  const bonded = new Set<number>();
+  if (constraints) {
+    for (const c of constraints) {
+      if (c.bodyA) bonded.add(c.bodyA.id);
+      if (c.bodyB) bonded.add(c.bodyB.id);
+    }
+  }
+
   for (const cube of cubes) {
     if (cube.blinkStart !== null) continue;
     const b = cube.body;
+    // A RIGID SHIPMENT RESISTS THE GRIND while its joints still hold — see
+    // RIGID_SETTLE_ASSIST. Read off the material and the joint together: a
+    // rebar cube a Bond Breaker has freed is a loose cube and grinds like one.
+    const rigidMult = MATERIAL_SPEC[cube.material].rigid && bonded.has(b.id)
+      ? RIGID_SETTLE_ASSIST
+      : 1;
+    if (rigidMult <= 0) continue;
     if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
     if (b.position.x <= minX) continue; // left of the compactor's reach — untouched
 
@@ -601,7 +677,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
     const angleDelta = target - b.angle;
     if (Math.abs(angleDelta) <= SETTLE_ANGLE_CAP && Math.abs(angleDelta) > 1e-4) {
       Matter.Sleeping.set(b, false);
-      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate));
+      Matter.Body.setAngle(b, b.angle + clamp(angleDelta, angleRate * rigidMult));
     }
 
     // Slot pull: nudge slowly toward the nearest wall-anchored slot center,
@@ -613,7 +689,7 @@ export function settleZoneCubes(cubes: Cube[], compactor: Compactor, level: Leve
         const dx = slotXk - b.position.x;
         if (Math.abs(dx) <= SETTLE_SLOT_TOL && Math.abs(dx) > 0.5) {
           Matter.Sleeping.set(b, false);
-          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate), y: b.position.y });
+          Matter.Body.setPosition(b, { x: b.position.x + clamp(dx, xRate * rigidMult), y: b.position.y });
         }
       }
     }

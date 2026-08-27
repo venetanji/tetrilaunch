@@ -37,6 +37,70 @@ export function compactorSpeedFor(level: LevelConfig): number {
   return level.compactorSpeed * (span / STOCK_SPAN_CELLS);
 }
 
+/* ---------------------------------------------------------------------------
+ * THE PRESS LABOURS AGAINST BAR STOCK
+ *
+ * A rigid material's card (hazards.ts's Rebar Contract) promises one cost —
+ * "what lands is what you keep" — and theme.ts spells it out as "a bad landing
+ * cannot be squeezed, shoved or shattered into a better one." The SHATTERING
+ * half was enforced (pieces.ts stamps Infinity, and lineClear.ts's
+ * breakJointsInBand exempts the press). The SQUEEZING half was not, and this
+ * bar is why: it is a kinematic body moved by setPosition, so it advances at
+ * exactly the same pace through a welded steel cage as through empty air.
+ *
+ * Measured, that made the whole axis free. On paired seeds at three Tiers, a
+ * belt one third rebar landed inside noise of a CLEAN belt at every notch count
+ * — 45/48 against 45/48 at Tier 8 bay 10, 43-47/48 against 44/48 at Tier 10 bay
+ * 5 — where one notch of cryo costs seventeen bay-wins and slag costs forty.
+ * `hazards.ts` states the rule a ratchet axis lives by ("It is mandatory and
+ * unrewarded. A notch is pure cost"), and rebar was the second axis after
+ * volatile to be quietly breaking it. See §8 of
+ * design/balance/winnability-sweep-findings.md.
+ *
+ * So the bar now pays for what it is pushing. Cost per still-bonded rigid cube
+ * caught in front of the face, as a share of the press's pace:
+ *
+ *   drag = 1 / (1 + RIGID_PRESS_DRAG * n)
+ *
+ * A reciprocal rather than a subtraction, deliberately, and it is the whole
+ * reason this is a difficulty knob rather than a lose button: it is strictly
+ * positive for every n, so no amount of bar stock can ever stop the press dead.
+ * hazards.ts makes the same argument for Shift Cut's floor — "an axis that can
+ * reach an unplayable bay is not a difficulty knob, it is a lose button, and the
+ * player picking it has no way to know which notch was the last survivable one."
+ * It is also naturally proportional: one notch of rebar puts a rigid shipment in
+ * front of the bar occasionally, six notches put one there most strokes, so the
+ * axis scales with the belt without the constant knowing anything about the mix.
+ *
+ * And the exit is the one the fiction already sells (theme.ts: "The answer is
+ * the Bond Emitter: a Bond Breaker charge is the one thing that splits it").
+ * A charge empties the joint list, the cubes it freed stop counting here on the
+ * very next step, and the press runs free again. Before this the emitter's only
+ * job on a rebar belt was slumping the pile.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * What one still-bonded rigid cube in the bar's path costs the press, in the
+ * denominator above. MEASURED — see the findings doc's §8 ladder, which flew
+ * 0.10 / 0.20 / 0.35 against the same paired seeds and reports what each buys.
+ */
+export const RIGID_PRESS_DRAG = 0.2;
+
+/**
+ * How many cubes the drag will count. A cap, not a floor, and it is what keeps
+ * a late bay from becoming a different game than an early one: past a point the
+ * bar is labouring and more bar stock behind the first row changes nothing the
+ * player can act on. Eight is two shipments' worth — the most rigid cargo the
+ * belt's own spacing rule (belt.ts's MATERIAL_GAP) can put in front of the face
+ * inside a couple of strokes.
+ */
+export const RIGID_PRESS_DRAG_CAP = 8;
+
+/** The share of its pace the press keeps with `n` rigid cubes in its path. */
+export function rigidPressDrag(n: number): number {
+  return 1 / (1 + RIGID_PRESS_DRAG * Math.min(Math.max(0, n), RIGID_PRESS_DRAG_CAP));
+}
+
 export class Compactor {
   body: Matter.Body;
   width: number;
@@ -122,8 +186,26 @@ export class Compactor {
     return span > 0 ? (this.x - this.leftX) / span : 0;
   }
 
-  update(): void {
-    let x = this.body.position.x + this.speed * this.dir;
+  /**
+   * Advance the bar one step.
+   *
+   * `drag` is the share of its speed the press keeps on this step — 1 is a bar
+   * running free, and anything below it is a bar LABOURING. Only the game
+   * computes it (Game.rigidPressDrag, off the field's still-bonded rigid
+   * cargo); every other caller presses at full pace by omitting it, which is
+   * the right default for a field that has nothing rigid in it.
+   *
+   * It scales the TRAVEL, never the stops or the stroke count: a dragged stroke
+   * is a slow stroke, not a short one, so the bar still reaches full advance
+   * and still counts (`strokes`) — a Contract budgeted in strokes must not be
+   * quietly refunded or robbed by what happens to be lying in the bay.
+   */
+  update(drag = 1): void {
+    // Retreat is free. The bar is not crushing anything on the way back, and a
+    // press that opened slowly would take the drag out of the player's landing
+    // window instead of out of its own crushing pace — the wrong half.
+    const pace = this.dir === 1 ? this.speed * drag : this.speed;
+    let x = this.body.position.x + pace * this.dir;
     if (x >= this.rightX) {
       x = this.rightX;
       // Count the press only on the step it actually completes — the bar sits

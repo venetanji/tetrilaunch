@@ -8,7 +8,7 @@ import {
 import {
   CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
 } from "./chute";
-import { Compactor } from "./compactor";
+import { Compactor, rigidPressDrag } from "./compactor";
 import {
   createStandingWall,
   createTetrisPiece,
@@ -43,6 +43,7 @@ import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
 import { FX_TTL, PENALTY_SINK_PX, type FxEvent } from "./fx";
+import { MATERIAL_SPEC } from "./theme";
 import type { Material, PieceSize, PieceType } from "./theme";
 
 const DT = 1000 / 60;
@@ -1238,6 +1239,44 @@ export class Game {
       : null;
   }
 
+  /**
+   * The share of its pace the press keeps this step — see compactor.ts's
+   * `rigidPressDrag` for what it is and why rebar needed it.
+   *
+   * A cube counts when all three hold:
+   *
+   *  - its MATERIAL is rigid. Not `breakStretch === Infinity`, which would also
+   *    catch every joint on an unbreakable-bonds bay (finals.ts's clause) and
+   *    re-price a Final Inspection as a side effect of re-pricing a material.
+   *  - it is STILL BONDED. A cube a Bond Breaker has freed is a loose cube, and
+   *    the emitter being the way out is the whole shape of this hazard.
+   *  - it is IN THE BAR'S PATH — right of the face and inside the bar's own
+   *    vertical reach. Bar stock lying above the bar or already crushed against
+   *    the wall behind it is not what the press is straining against, and
+   *    counting it would make the drag a property of the pile rather than of
+   *    what is in the way.
+   */
+  get rigidPressDrag(): number {
+    if (!this.constraints.length) return 1;
+    const bonded = new Set<number>();
+    for (const c of this.constraints) {
+      if (c.bodyA) bonded.add(c.bodyA.id);
+      if (c.bodyB) bonded.add(c.bodyB.id);
+    }
+    const face = this.compactor.x + this.compactor.width / 2;
+    const top = this.compactor.top;
+    let n = 0;
+    for (const cube of this.cubes) {
+      if (cube.blinkStart !== null) continue;
+      if (!MATERIAL_SPEC[cube.material].rigid) continue;
+      const b = cube.body;
+      if (b.position.x < face || b.position.y < top) continue;
+      if (!bonded.has(b.id)) continue;
+      n += 1;
+    }
+    return rigidPressDrag(n);
+  }
+
   /** What the NEXT launch actually costs, congestion included. The HUD reads
    *  this rather than level.launchCost so the price the player is quoted is the
    *  price they pay — a tax you only discover after firing teaches nothing. */
@@ -1708,7 +1747,10 @@ export class Game {
     // stop is also the tick update() flips dir to -1 (pressing -> false) — read
     // after update(), that tick's settle/clear gate would be skipped entirely.
     const pressing = this.compactor.pressing;
-    this.compactor.update();
+    // Read BEFORE the bar moves, for the same reason `pressing` is: the drag is
+    // what this step's travel is fighting, and a face that has already advanced
+    // is past some of it.
+    this.compactor.update(this.rigidPressDrag);
     // The bar's x clamps exactly to rightX on the tick it arrives (then flips
     // to retreat), so this records precisely the full-advance ticks — and full
     // advance is the one phase at which two samples of the pile are comparable,
@@ -1756,7 +1798,11 @@ export class Game {
     // (vibro-compaction) so the strict clear rule below stays reachable even
     // when a cube wedges tilted against the wall.
     if (pressing) {
-      settleZoneCubes(this.cubes, this.compactor, this.level);
+      // The joints go in because a RIGID shipment resists the grind while they
+      // hold (lineClear.ts's RIGID_SETTLE_ASSIST) — and this call sits AFTER
+      // breakJointsInBand above on purpose, so a piece the press just shattered
+      // is already loose on the step it is first ground.
+      settleZoneCubes(this.cubes, this.compactor, this.level, this.constraints);
     }
 
     // Cryo that reached the press still frozen breaks, and takes its row's

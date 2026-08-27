@@ -67,6 +67,7 @@ import {
   volatileLossFor, settleBlast,
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
+  settleZoneCubes, RIGID_SETTLE_ASSIST,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -5921,6 +5922,99 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         soft.constraints.length === 0, `${soft.constraints.length} left`);
       check("the press does not dissolve a tar weld",
         welds.length === 1, `${welds.length} left`);
+    }
+
+    // AND THE GRIND WAS THE OTHER HOLE. theme.ts sells rebar on three verbs —
+    // a bad landing cannot be "squeezed, shoved or shattered" into a better one
+    // — and only the shattering was enforced. settleZoneCubes reads cubes and
+    // never asked what held them together, so the press squeezed and shoved a
+    // rigid shipment onto the slot grid at full strength: not merely free, but
+    // BETTER than ordinary cargo, because a piece whose joints never break is a
+    // four-cube stamp at exact CELL spacing and every cube in it carries the
+    // same correction. See lineClear.ts's RIGID_SETTLE_ASSIST and §8 of
+    // design/balance/winnability-sweep-findings.md.
+    //
+    // The invariant, not one layout of it: a still-bonded rigid shipment is
+    // ground STRICTLY LESS than the same shipment made of ordinary cargo, and
+    // strictly more than not at all.
+    {
+      check("a rigid shipment gets a real but reduced share of the press's grind",
+        RIGID_SETTLE_ASSIST > 0 && RIGID_SETTLE_ASSIST < 1,
+        `RIGID_SETTLE_ASSIST = ${RIGID_SETTLE_ASSIST}`);
+
+      const cfg = makeBaseLevel(0);
+      const phys = createPhysics(cfg);
+      const bar = new Compactor(phys.world, cfg);
+      // Mid-press, so the grind's own preconditions (pressing, in reach) hold.
+      Matter.Body.setPosition(bar.body, { x: (bar.leftX + bar.rightX) / 2, y: bar.yCenter });
+
+      // One cube, off its slot by a third of a cell and tipped — inside both
+      // SETTLE_SLOT_TOL and SETTLE_ANGLE_CAP, i.e. exactly the correction the
+      // assist exists to make — resting on the floor row, at rest.
+      const OFFSET = CELL / 3;
+      const TILT = 0.25;
+      const place = (material: Material): { cube: Cube; joint: Matter.Constraint } => {
+        const x = WALL_INNER - CELL / 2 - CELL + OFFSET;
+        const y = WORLD.height - CELL / 2;
+        const body = Matter.Bodies.rectangle(x, y, CELL, CELL);
+        Matter.Body.setAngle(body, TILT);
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        // A partner one cell along, joined — the joint is what makes this cube
+        // part of a SHIPMENT rather than a loose cube, which is the whole test.
+        const mate = Matter.Bodies.rectangle(x - CELL, y, CELL, CELL);
+        const joint = Matter.Constraint.create({ bodyA: body, bodyB: mate, length: CELL });
+        return { cube: { body, material, struck: true, blinkStart: null } as Cube, joint };
+      };
+      // Displacement after ONE call, which is the rate the multiplier scales.
+      const groundBy = (material: Material, bonded: boolean): number => {
+        const { cube, joint } = place(material);
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, bonded ? [joint] : []);
+        return Math.abs(cube.body.position.x - x0) + Math.abs(cube.body.angle - a0) * CELL;
+      };
+
+      const rigidBonded = groundBy("rebar", true);
+      const rigidLoose = groundBy("rebar", false);
+      const plainBonded = groundBy("standard", true);
+      check("the press still works a rigid shipment — it is a knob, not a lose button",
+        rigidBonded > 0, `moved ${rigidBonded.toFixed(4)}`);
+      check("a bonded rigid shipment resists the grind an ordinary one does not",
+        rigidBonded < plainBonded,
+        `rebar ${rigidBonded.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // THE EXIT, and the reason this is a hazard rather than a tax: a Bond
+      // Breaker removes the joints (game.ts's useBondBreaker empties
+      // this.constraints), and the cubes it freed are loose cubes from that
+      // step on. Same cube, same material, joints gone.
+      check("a Bond Breaker gives a rigid shipment the full grind back",
+        Math.abs(rigidLoose - plainBonded) < 1e-9,
+        `freed ${rigidLoose.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // NO COLLATERAL. The gate is the MATERIAL, not `breakStretch === Infinity`
+      // — which would also catch every joint on finals.ts's unbreakable-bonds
+      // bay and re-price a Final Inspection clause by accident.
+      check("ordinary cargo is ground the same whether or not it is still bonded",
+        Math.abs(plainBonded - groundBy("standard", false)) < 1e-9);
+      for (const m of ["cryo", "volatile", "tar", "magnetic", "slag"] as Material[]) {
+        check(`${m} is untouched by the rigid grind rule`,
+          Math.abs(groundBy(m, true) - plainBonded) < 1e-9);
+      }
+      // The Final Inspection's unbreakable-bonds clause stamps EVERY joint on
+      // the bay with rebar's own Infinity (pieces.ts's pieceBreakStretch off a
+      // non-finite level breakStretch). Gating the grind on the joint would
+      // therefore re-price that clause as a side effect of re-pricing a
+      // material, which is the one thing this change is not allowed to do.
+      {
+        const { cube, joint } = place("standard");
+        (joint as unknown as { breakStretch: number }).breakStretch = Infinity;
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, [joint]);
+        const moved = Math.abs(cube.body.position.x - x0)
+          + Math.abs(cube.body.angle - a0) * CELL;
+        check("an unbreakable-bonds BAY still grinds at full strength — the gate is the material",
+          Math.abs(moved - plainBonded) < 1e-9,
+          `${moved.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      }
     }
   }
 
