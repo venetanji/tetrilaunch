@@ -59,7 +59,7 @@ import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
 import { render, screenToWorld } from "../src/game/render";
-import { Compactor } from "../src/game/compactor";
+import { Compactor, rigidPressDrag, RIGID_PRESS_DRAG_CAP } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
@@ -6014,6 +6014,74 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         check("an unbreakable-bonds BAY still grinds at full strength — the gate is the material",
           Math.abs(moved - plainBonded) < 1e-9,
           `${moved.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      }
+
+      // THE BAR ITSELF WAS THE OTHER HALF. It is kinematic — moved by
+      // setPosition — so it advanced through a welded steel cage at exactly the
+      // pace it advances through air, and "cannot be squeezed" meant nothing on
+      // the one surface that does the squeezing. See compactor.ts's
+      // rigidPressDrag.
+      check("bar stock slows the press",
+        rigidPressDrag(4) < rigidPressDrag(0), `${rigidPressDrag(4)} vs ${rigidPressDrag(0)}`);
+      check("a clean bay's press runs at full pace",
+        rigidPressDrag(0) === 1);
+      // A RECIPROCAL, not a subtraction, and that is the floor argument
+      // hazards.ts makes for Shift Cut: an axis that can reach an unplayable
+      // bay is a lose button, not a difficulty knob. No count stops the bar.
+      check("no amount of bar stock can stop the press dead",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100) > 0,
+        `${rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100)}`);
+      check("the drag is monotone in what is in the way",
+        [1, 2, 3, 4, 5].every((n) => rigidPressDrag(n) < rigidPressDrag(n - 1)));
+      // THE CAP HAS TO CLEAR WHAT THE BELT ACTUALLY PRODUCES, and this is the
+      // pin that says so in the numbers rather than in the constant. Measured
+      // p90 of still-bonded rigid cubes in front of the face at Tier 10 bay 10:
+      // 4 at one notch, 11 at three, 21 at six (findings doc §8c). A cap under
+      // the top of that range folds the upper rungs into each other and the
+      // axis comes back FLAT in the notch count — which is exactly what
+      // shipping the cap at 8 did (28/28/26 of 32). Written against the
+      // measured p90s, so it goes red on the specific mistake it is guarding.
+      const P90 = { one: 4, three: 11, six: 21 };
+      check("the drag separates the notch counts the belt actually produces",
+        rigidPressDrag(P90.one) > rigidPressDrag(P90.three)
+          && rigidPressDrag(P90.three) > rigidPressDrag(P90.six),
+        `${rigidPressDrag(P90.one).toFixed(3)} / ${rigidPressDrag(P90.three).toFixed(3)}`
+        + ` / ${rigidPressDrag(P90.six).toFixed(3)} at cap ${RIGID_PRESS_DRAG_CAP}`);
+      check("the drag stops counting past its cap — a late bay is the same game",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP) === rigidPressDrag(RIGID_PRESS_DRAG_CAP + 40));
+      // A dragged stroke is a SLOW stroke, never a short one: the bar still
+      // reaches full advance and still counts. A Contract budgeted in strokes
+      // (level.ts's strokeBudget) must not be refunded or robbed by what
+      // happens to be lying in the bay.
+      {
+        const cfg2 = makeBaseLevel(0);
+        const phys2 = createPhysics(cfg2);
+        const slow = new Compactor(phys2.world, cfg2);
+        const fast = new Compactor(phys2.world, cfg2);
+        let slowSteps = 0;
+        let fastSteps = 0;
+        while (slow.strokes === 0 && slowSteps < 100_000) { slow.update(rigidPressDrag(4)); slowSteps += 1; }
+        while (fast.strokes === 0 && fastSteps < 100_000) { fast.update(); fastSteps += 1; }
+        check("a dragged press still completes its stroke",
+          slow.strokes === 1 && slow.x === slow.rightX, `${slow.strokes} strokes`);
+        check("a dragged press takes strictly longer to complete it",
+          slowSteps > fastSteps, `${slowSteps} steps vs ${fastSteps}`);
+        // Retreat is free — the bar crushes nothing on the way back, and a
+        // slow retreat would take the drag out of the player's landing window
+        // instead of out of the press's crushing pace.
+        const back = new Compactor(phys2.world, cfg2);
+        back.dir = -1;
+        Matter.Body.setPosition(back.body, { x: back.rightX, y: back.yCenter });
+        const x0 = back.x;
+        back.update(rigidPressDrag(RIGID_PRESS_DRAG_CAP));
+        const opened = x0 - back.x;
+        const ref = new Compactor(phys2.world, cfg2);
+        ref.dir = -1;
+        Matter.Body.setPosition(ref.body, { x: ref.rightX, y: ref.yCenter });
+        const refX0 = ref.x;
+        ref.update();
+        check("the drag never slows the RETREAT — it costs crushing pace, not landing window",
+          Math.abs(opened - (refX0 - ref.x)) < 1e-9);
       }
     }
   }

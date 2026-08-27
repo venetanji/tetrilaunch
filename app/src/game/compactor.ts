@@ -81,20 +81,50 @@ export function compactorSpeedFor(level: LevelConfig): number {
 
 /**
  * What one still-bonded rigid cube in the bar's path costs the press, in the
- * denominator above. MEASURED — see the findings doc's §8 ladder, which flew
- * 0.10 / 0.20 / 0.35 against the same paired seeds and reports what each buys.
+ * denominator above.
+ *
+ * MEASURED, at Tier 10 bay 10 on the material rig over 32 paired seeds, against
+ * a clean control that comes back 32/32 at every setting:
+ *
+ *   k      rebar:1   rebar:3   rebar:6   shots at rebar:6
+ *   —      32/32     32/32     30/32     26.6   (staging: the axis is free)
+ *   0.08   30/32     30/32     25/32     36.9
+ *   0.12   29/32     28/32     22/32     42.9
+ *   0.20   28/32     27/32     23/32     34.3
+ *
+ * 0.12 rather than 0.20 for two reasons the table shows and one it does not.
+ * The two are one seed apart at the belt cap — inside the noise of a 32-seed
+ * sample — so the cap does not choose between them; the FIRST notch does, and
+ * 0.12 leaves it at 29/32 where 0.20 takes it to 28. hazards.ts puts rebar
+ * second on the material ladder precisely because it is meant to be survivable
+ * bare-handed ("cryo thaws and rebar merely refuses to split"), so the
+ * introduction notch is the one to keep cheap. And 0.12 bills more of its cost
+ * in SHOTS (42.9 against 0.20's 34.3, on a clean bay's 26.7) and less in
+ * timeouts: at 0.20 the deep bays end on the clock, which is the less legible
+ * of the two failures and not the one this game is built around — §2 of the
+ * findings doc: "The Deep Run does not kill the player by burying them. It
+ * kills them by emptying the purse."
  */
-export const RIGID_PRESS_DRAG = 0.2;
+export const RIGID_PRESS_DRAG = 0.12;
 
 /**
- * How many cubes the drag will count. A cap, not a floor, and it is what keeps
- * a late bay from becoming a different game than an early one: past a point the
- * bar is labouring and more bar stock behind the first row changes nothing the
- * player can act on. Eight is two shipments' worth — the most rigid cargo the
- * belt's own spacing rule (belt.ts's MATERIAL_GAP) can put in front of the face
- * inside a couple of strokes.
+ * How many cubes the drag will count.
+ *
+ * MEASURED off the distribution rather than picked: at Tier 10 bay 10 the
+ * count of still-bonded rigid cubes in front of the face runs mean 2.3 / p90 4
+ * at one notch, mean 6.2 / p90 11 at three, and mean 10.4 / p90 21 / max 30 at
+ * six. A cap of 8 — which is what shipped first — truncated the top two rungs
+ * into each other and the axis came back FLAT in the notch count (28/28/26 of
+ * 32). At 24 it is monotone (29/28/22), which is what a ratchet axis has to be:
+ * the player is buying each notch separately and the second one has to cost
+ * more than the first.
+ *
+ * It stays a cap rather than becoming unbounded because past the p99 of a
+ * belt-cap belt, more bar stock behind the first rows changes nothing the
+ * player can act on, and the difference between "the press is labouring" and
+ * "the press is labouring more" is not a difficulty the bay can show.
  */
-export const RIGID_PRESS_DRAG_CAP = 8;
+export const RIGID_PRESS_DRAG_CAP = 24;
 
 /** The share of its pace the press keeps with `n` rigid cubes in its path. */
 export function rigidPressDrag(n: number): number {

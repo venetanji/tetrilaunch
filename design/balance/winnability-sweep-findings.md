@@ -280,7 +280,7 @@ And the combos that are NOT the problem, which is the more useful half:
 
 | combo | measured cost |
 |---|---|
-| `rebar:1` | nothing (8/8 vs 8/8 control) |
+| `rebar:1` | nothing (8/8 vs 8/8 control) — **§8 followed this thread to the end and it was the whole axis, not the first notch** |
 | `time:3` (three Shift Cut notches) | **byte-identical to no notches at all** — the bay is lost on money long before the clock binds |
 | `volatile:6` (the belt cap) | **negative** — 16/16 vs a 14/16 clean control |
 | `max:slag` at Tier 10 | the BEST corner at that Tier, on a rig carrying the Demolition Rack |
@@ -740,6 +740,13 @@ What that leaves open, in the order it should be answered:
    system, and `level.ts`'s `VOLATILE_LOSS_SHARE` is the number: a detonation is
    now billed for the live cargo it destroys. At the belt cap the axis goes from
    16/16 to 10/16 against a 14/16 clean control, on both pilot profiles.
+3a. ~~**Re-price rebar.**~~ **DONE — see §8.** The same violation as volatile's,
+   found from the other end: an axis that was not merely cheap but *free*, at
+   every notch count and every Tier flown, because rigidity had no surface to
+   cost anything on. `compactor.ts`'s `RIGID_PRESS_DRAG` and `lineClear.ts`'s
+   `RIGID_SETTLE_ASSIST` are the two surfaces. At the belt cap the axis goes
+   from 30/32 to 22/32 against a 32/32 clean control, and every other material's
+   row is byte-identical.
 4. **Look at Tier 5's forced hand.** The ladder's cliff (§2) sits exactly at the
    rung where `MATERIAL_DRAFT_BAYS` stops being dodgeable, and the material it
    forces first is the one §5a says is mispriced. Those two findings are one
@@ -771,3 +778,288 @@ What that leaves open, in the order it should be answered:
   the cushion becomes worth measuring for real — and then the field-wide model
   in `counters.ts` has to be replaced with the rear-bay rule it is standing in
   for.
+
+---
+
+## 8. REBAR — the axis that cost nothing, and the two surfaces that were giving it away
+
+> Opened by an owner report: *"the rebar only ending is a bit too easy actually
+> we need some additional challenge."* Everything below is the measurement that
+> report asked for and the change it bought. The **before** columns are
+> `origin/staging` at `7dab69e`, flown from a pristine export of that tree so no
+> edit of the branch could reach them.
+
+### 8a. The finding: it is not that rebar is CHEAP, it is that rebar is FREE
+
+Three paired tables, one bay each, the same seeds under every stack, on the
+`material` rig (`bay2 lau2 hyd2 rea2 bon2 dem2`) with the `demo`+bond pilot —
+the `--mode counter` shape §5 uses, sweeping the RATCHET STACK instead of the
+counter kit. `--mode counter` itself could not be pointed at this question: it
+varies the COUNTER KIT against one fixed stack, and here the stack is the
+variable, so the four probes below live beside `sim/_scratch-mat.ts` as scratch
+instruments rather than as CLI modes.
+
+```sh
+npx tsx sim/_scratch-rebar.ts --seeds 32 --mark 10 --bay 10   # §8a, §8d
+npx tsx sim/_scratch-why.ts   --seeds 24 --mark 10 --bay 5    # §8b, the mechanism
+npx tsx sim/_scratch-drag.ts  --seeds 12 --mark 10 --bay 10   # §8c, the cap
+npx tsx sim/_scratch-drill.ts --seeds 24 --ids mat-rebar,bondbreaker,mat-magnetic,mat-cryo
+```
+
+**Tier 8 bay 10, 48 paired seeds, on staging:**
+
+| stack | win | lines | shots | end $ |
+|---|---:|---:|---:|---:|
+| clean control | 45/48 | 9.2 | 28.0 | $1978 |
+| `rebar:1` | 44/48 | 10.0 | 30.6 | $1926 |
+| `rebar:3` | 43/48 | 9.5 | 29.7 | $1852 |
+| `rebar:6` (the belt cap) | **45/48** | 9.9 | 30.3 | $1898 |
+| `cryo:1` | 28/48 | 8.9 | 35.1 | $1264 |
+| `cryo:3` | 17/48 | 7.0 | 35.0 | $796 |
+| `slag:3` | 4/48 | 3.7 | 37.4 | $200 |
+| `tar:3` | 9/48 | 11.5 | 49.0 | $459 |
+
+**Tier 10 bay 5, 48 paired seeds, on staging:**
+
+| stack | win | shots | end $ |
+|---|---:|---:|---:|
+| clean control | 44/48 | 29.5 | $1321 |
+| `rebar:1` | **47/48** | **27.4** | **$1387** |
+| `rebar:3` | **46/48** | **25.4** | **$1390** |
+| `rebar:6` | 43/48 | 26.5 | $1289 |
+| `cryo:1` | 24/48 | 34.7 | $739 |
+| `slag:3` | 0/48 | 36.3 | $27 |
+
+**Tier 10 bay 10, 32 paired seeds, on staging:**
+
+| stack | win | shots | end $ |
+|---|---:|---:|---:|
+| clean control | 32/32 | 26.7 | $2169 |
+| `rebar:1` | **32/32** | 27.3 | $2151 |
+| `rebar:3` | **32/32** | 29.8 | $2099 |
+| `rebar:6` | 30/32 | 26.6 | $1942 |
+| `cryo:1` | 13/32 | 35.3 | $910 |
+| `slag:3` | 3/32 | 38.8 | $202 |
+| `tar:3` | 7/32 | 36.7 | $475 |
+
+**Read the rebar rows against the control, not against each other.** At three
+Tiers, at every notch count from one to the belt cap, the axis lands within two
+seeds of a CLEAN belt — and at Tier 10 bay 5 it lands on the *good* side of it
+twice, at three shots fewer and $70 richer. This is not "rebar is the cheap
+material". Cryo, slag and tar are on the same tables, measured the same way, and
+they cost seventeen, forty-one and thirty-nine bay-wins in 48. **Rebar cost
+nothing, at any depth, anywhere it was flown.** `hazards.ts` states the rule
+that breaks in the plainest words in the file — *"It is mandatory and
+unrewarded. […] **A notch is pure cost**"* — and rebar was the second axis after
+volatile (§5b) to be quietly breaking it.
+
+And it shows at the RUN level, which is where the owner met it. Tier 5, 8 seeds,
+`material` rig, three draft policies:
+
+| policy | clears | wall | best | verdict |
+|---|---:|---:|---:|---|
+| `max:cryo` | 0/8 | 3 | 3 | unwinnable |
+| `dodge` (the most forgiving policy in the tool) | 0/8 | 4 | 3 | unwinnable |
+| **`max:rebar`** | **3/8** | **9** | **10** | **winnable** |
+
+Pouring every notch into rebar is not merely the best build at Tier 5. It is the
+*only* one of the three that finishes a run at all, on a Tier §2 calls
+unwinnable under the policy that refuses every material it can. That is what
+"the rebar only ending is a bit too easy" looks like from inside the harness.
+
+### 8b. WHY — the mechanism, and the two mechanisms it is NOT
+
+The obvious explanations were both checked and both are wrong.
+
+**Not the combo, and not congestion.** A probe that instruments the bay directly
+(counting crushes as well as lines, and the share of steps spent above a
+congestion tier) reads lines-per-crush at **1.05 on every stack** — clean,
+`rebar:1`, `rebar:3`, `rebar:6`, `cryo:1` alike. Nothing is clearing two rows at
+once, so no rebar row is being paid a bigger `payoutMult`. Lines-per-shot is
+flat too (0.322 clean, 0.316 / 0.339 / 0.323 across the rebar ladder). The
+congestion share and the mean pile track the win rate rather than leading it.
+
+**It is that rigidity had no surface to cost anything ON.** `theme.ts` sells the
+material on three verbs — a bad landing "cannot be **squeezed, shoved or
+shattered** into a better one" — and exactly one of them was enforced:
+
+| verb | the code that owes it | before |
+|---|---|---|
+| shattered | `pieces.ts` stamps the joints `Infinity`; `breakJointsInBand` exempts them from the press | **enforced** |
+| squeezed | `lineClear.ts`'s `settleZoneCubes` grinds near-settled cubes onto the slot grid | **not enforced** — it reads cubes and never asked what held them together, so it squared a rigid shipment at full strength |
+| shoved | `compactor.ts`'s bar, a kinematic body moved by `setPosition` | **not enforced** — it advanced through a welded steel cage at exactly the pace it advances through air |
+
+The grind is the sharper of the two omissions, because it did not merely fail to
+charge for rigidity — it **rewarded** it. A shipment whose joints never break is
+a four-cube stamp at exact `CELL` spacing forever, so every cube in it carries
+the same correction and the press grinds the whole piece onto the grid in one
+coherent motion. An ordinary shipment shatters and each loose cube has to find
+its own slot.
+
+### 8c. WHAT SHIPPED — the press pays for what it is pushing
+
+Two halves of one rule, both gated on the **material AND the joint together**,
+so a Bond Breaker is the way out of both — which is the exit `theme.ts` already
+promised and the job the Bond Emitter never had ("the material that finally
+gives that system a job beyond tidying a messy pile").
+
+- **`lineClear.ts`'s `RIGID_SETTLE_ASSIST`** — the grind reaches a still-bonded
+  rigid shipment at a fraction of its strength.
+- **`compactor.ts`'s `RIGID_PRESS_DRAG`** — the bar keeps `1/(1 + k·n)` of its
+  pace with `n` rigid cubes in its path. A reciprocal rather than a subtraction,
+  and that is the whole reason it is a difficulty knob rather than a lose
+  button: it is strictly positive for every `n`, so no amount of bar stock can
+  stop the press dead. `hazards.ts` makes the same argument for Shift Cut's
+  floor. The retreat is never dragged — the cost comes out of the press's
+  crushing pace, not out of the player's landing window — and a dragged stroke
+  is a SLOW stroke, never a short one, so a Contract budgeted in strokes
+  (`level.ts`'s `strokeBudget`) is neither refunded nor robbed.
+
+**Gated on the material, not on `breakStretch === Infinity`.** That second test
+is what `breakJointsInBand` uses, and it would also catch every joint on an
+unbreakable-bonds bay — `finals.ts`'s Cold Weld clause — so re-pricing a
+material would have silently re-priced a Final Inspection. There is a pin in
+`sim/systems.ts` for exactly that case.
+
+**The cap was measured, not picked.** The count of still-bonded rigid cubes in
+front of the face, over pressing steps at Tier 10 bay 10:
+
+| stack | mean | p50 | p90 | p99 | max | share of steps > 0 |
+|---|---:|---:|---:|---:|---:|---:|
+| `rebar:1` | 2.30 | 2 | 4 | 8 | 8 | 60% |
+| `rebar:3` | 6.22 | 6 | 11 | 14 | 16 | 88% |
+| `rebar:6` | 10.44 | 8 | 21 | 29 | 30 | 88% |
+
+`RIGID_PRESS_DRAG_CAP` shipped at 8 first and the axis came back **flat in the
+notch count** — 28 / 28 / 26 of 32 — because a cap of 8 truncates the top two
+rungs into each other. At 24 it is monotone. A ratchet the player buys one notch
+at a time has to cost more at the second notch than at the first.
+
+### 8d. THE BEFORE/AFTER, and the controls that say it is the material and nothing else
+
+**Tier 10 bay 10, 32 paired seeds, `material` rig, `demo`+bond pilot:**
+
+| stack | win before → after | shots before → after | end $ before → after |
+|---|---:|---:|---:|
+| **clean control** | 32/32 → **32/32** | 26.7 → **26.7** | $2169 → **$2169** |
+| `rebar:1` | 32/32 → **29/32** | 27.3 → 25.8 | $2151 → $1887 |
+| `rebar:3` | 32/32 → **28/32** | 29.8 → **39.1** | $2099 → $1855 |
+| `rebar:6` | 30/32 → **22/32** | 26.6 → **42.9** | $1942 → $1656 |
+| `cryo:1` | 13/32 → **13/32** | 35.3 → **35.3** | $910 → **$910** |
+| `slag:3` | 3/32 → **3/32** | 38.8 → **38.8** | $202 → **$202** |
+| `tar:3` | 7/32 → **7/32** | 36.7 → **36.7** | $475 → **$475** |
+
+**Every control row is byte-identical.** A clean bay, a cryo bay, a slag bay and
+a tar bay come back to the last decimal on both trees, because none of them ever
+reaches the gate: no rigid cube, no drag, no reduced grind. That is the whole
+answer to "does this collaterally nerf the axes that were already hard" — cryo
+and volatile are the counters' territory (the Thaw Lance and the Impact Cushion
+exist for them) and neither moved by a single seed.
+
+**And the axis is a cost now without being a wall.** `rebar:6` at 22/32 is a
+31% bill on a belt one third rigid; `cryo:1` on the same table is 13/32, a 59%
+bill on a belt 7% frozen. Rebar is still comfortably the mildest material in the
+game, which is where `hazards.ts` puts it on purpose — second on the ladder,
+"survivable bare-handed", the introduction. It is simply no longer free.
+
+The cost is billed in the currency §2 says runs die in. At the belt cap the bay
+now takes **42.9 shots against a clean bay's 26.7**, and ends $513 poorer. That
+is the compounding a single-bay table cannot show: sixteen extra launches a bay,
+across ten bays, is the purse.
+
+**THE SAME TABLE AT TIER 8 MOVES THE SHOTS AND NOT THE WINS, and that is the
+honest boundary of this change.** 48 paired seeds, bay 10:
+
+| stack | win before → after | shots before → after | lost pieces before → after |
+|---|---:|---:|---:|
+| clean control | 45/48 → **45/48** | 28.0 → **28.0** | 0.0 → **0.0** |
+| `rebar:1` | 44/48 → 43/48 | 30.6 → 28.6 | 0.5 → 1.6 |
+| `rebar:3` | 43/48 → 47/48 | 29.7 → 28.8 | 1.1 → 3.3 |
+| `rebar:6` | 45/48 → 43/48 | 30.3 → **35.3** | 1.5 → **7.6** |
+
+Only the belt-cap row separates, and the middle rows wander in both directions —
+47/48 at `rebar:3` is *above* the clean control and is noise, not a finding. A
+Tier-8 bay 10 flown on the full Workshop rig with a capped carry is a bay with
+slack in it: the clean control sits at 94% and the win column has nowhere to go.
+Tier 10 bay 10 is the same bay with the ladder's own target and clock on it, and
+there the same drag costs ten seeds of 32.
+
+**That is the right shape for this knob and it should be said out loud rather
+than buried**: a press that labours costs a bay that was already tight, and is
+absorbed by one that was not. The owner's report was about the ENDGAME, and the
+endgame is where it bites.
+
+**THE AUTHORED BAYS DO NOT MOVE AT ALL, and the reason is structural.** The two
+drills that ship a belt of 100% rebar are the bays this change could most easily
+have broken — `mat-rebar` clears 2 rows on a 16-launch budget — and they come
+back untouched, 24 seeds each:
+
+| drill | win before → after | shots before → after |
+|---|---:|---:|
+| `mat-rebar` (100% rebar, 1 charge) | 24/24 → **24/24** | 9.4 → 9.1 |
+| `bondbreaker` (100% rebar, 2 charges, wedged wall) | 24/24 → **24/24** | 4.3 → **4.3** |
+| `mat-magnetic` / `mat-cryo` (controls) | 24/24, 21/24 → **byte-identical** | — |
+
+A drill has no clock, and a Contract has neither a clock nor a launch cost
+(`contracts.ts`) — so a press that takes longer to complete a stroke costs them
+nothing they are budgeted in. The drag is billed in the two currencies only a
+Deep Run bay holds: the shift clock and the launches spent against a target.
+`sim/patterns.ts` re-runs clean for the same reason — pattern feasibility is a
+tiling proof, not a physics one.
+
+### 8e. THE RUN LEVEL, and why it is reported second
+
+```sh
+npm run sim:winnability -- --marks 5 --policies max:rebar,max:cryo,dodge \
+  --seeds 16 --build material
+```
+
+| policy | clears before → after | wall before → after | best before → after |
+|---|---:|---:|---:|
+| `max:cryo` | 0/16 → 0/16 | 3 → 3 | 4 → 5 |
+| `dodge` | **0/16 → 0/16** | **4 → 4** | **3 → 3** |
+| `max:rebar` | **6/16 → 5/16** | 8 → 8 | 10 → 10 |
+
+`dodge` is byte-identical across the change — same clears, same wall, same death
+string (`broke@4x9 broke@3x3`), same combo — which is the control this table
+needs: a policy that refuses materials wherever it can never meets the gate.
+
+**`max:rebar` moves by one seed and stays winnable, and that is the number to be
+careful with.** §5's opening paragraph says why a run sweep cannot price a
+physics change: it changes where every later shipment lands, ten bays of
+divergence follows, and the wall moves by more than the change is worth. The
+`max:cryo` row shows it happening — its runs bank a rebar notch of their own, so
+it is not a control, and its `best` wandered from 4 to 5 on runs that had banked
+different stacks. Every number in §8d is one bay, one explicit stack, paired
+seeds, for exactly this reason.
+
+What the run table IS good for is the shape of the complaint, and it still
+reads: at Tier 5, `max:rebar` remains the only one of the three policies that
+finishes a run. **This change did not dethrone the rebar build; it made the
+build pay.** Whether that is enough is a play question, and §8f says so.
+
+### 8f. What this does NOT claim
+
+- **The pessimism ledger still runs one way.** The pilot has no lookahead, a
+  fixed landing target, and does not read the pile. Rigidity is precisely the
+  hazard a pilot who cannot re-plan a landing is least equipped to feel, so if
+  anything this instrument *understates* what the change is worth to a human —
+  and it understated the old behaviour the same way, which is why the finding
+  survived being measured by it.
+- **The first-notch number is the softest in the table.** 29/32 against 32/32 is
+  three seeds on a sample whose standard error is about one and a half. The
+  belt-cap row (22/32) and the shots columns are what carry the claim.
+- **The Bond Breaker exit is built, not measured.** A charge empties the joint
+  list, so the freed cubes stop dragging and stop resisting the grind on the
+  very next step — there are pins for both — but no table here isolates what a
+  charge is WORTH on a rebar belt, because the pilot's `bondHands` fires on a
+  pile-depth rule (`counters.ts`'s `BOND_MIN_CUBES`) rather than because there
+  is bar stock in front of the bar. A pilot that spends a charge for that reason
+  is the smallest instrument change that would price the emitter's new job, and
+  it belongs on the §7 list.
+- **Whether this is ENOUGH is a play question.** §8e says the rebar build still
+  finishes runs no other policy finishes at Tier 5. This branch set out to make
+  the axis cost what a ratchet notch is supposed to cost, and it does; whether
+  the endgame still reads as too easy on a device is a thing only a device can
+  say, and the constant is one named number (`RIGID_PRESS_DRAG`) with a measured
+  ladder beside it precisely so a play pass can move it.
