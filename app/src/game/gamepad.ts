@@ -1,5 +1,6 @@
 import type { Game } from "./game";
 import { actionForPad, padFor, type BindableAction } from "./bindings";
+import { NUDGE_FRAME_MS, NUDGE_MAX_STEP_MS } from "./cannon";
 
 /**
  * GAMEPAD SUPPORT (canvas D1) — the Gamepad API has no events for buttons,
@@ -82,20 +83,22 @@ const NAV_REPEAT_MS = 120;
  * every nudge is exactly the step it always was (and the first poll of a
  * session is seeded to one frame rather than zero, so even the very first
  * charge matches what the per-poll code did).
+ *
+ * THE NUMBER ITSELF now lives in cannon.ts beside the steps it divides, and
+ * input.ts's held keys divide by the same one — a stick and a key that trimmed
+ * at different rates would undo the whole point of sharing the step constant.
+ * Aliased rather than inlined so the dial-specific reasoning above and below
+ * still has a local name to hang off.
  */
-const DIAL_FRAME_MS = 1000 / 60;
+const DIAL_FRAME_MS = NUDGE_FRAME_MS;
 /**
  * The longest gap a single poll may charge the dials for.
  *
- * A backgrounded tab, a garbage-collection stall or a tabbed-away TV delivers
- * the next rAF timestamp seconds after the last one, and an unclamped dt would
- * spend all of it in one step — the player alt-tabs back with a stick still
- * leaning and finds the barrel pinned at the cone limit. Six frames' worth is
- * long enough that ordinary jank is charged honestly (nothing a 120Hz shell
- * does comes close) and short enough that the worst case is a nudge the player
- * can see happen rather than a jump they can only undo.
+ * The player alt-tabs back with a stick still leaning and must not find the
+ * barrel pinned at the cone limit. Shared with the keyboard's held keys — see
+ * cannon.ts's NUDGE_MAX_STEP_MS for the full argument.
  */
-const DIAL_MAX_STEP_MS = 100;
+const DIAL_MAX_STEP_MS = NUDGE_MAX_STEP_MS;
 
 /**
  * ONE AXIS of the rate dials, as a signed rate in -1..1 — the factor

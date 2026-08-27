@@ -492,6 +492,30 @@ class App {
    *  LOADED"). null means "nothing written yet" — the remount sentinel, since
    *  "standard" is itself a value the ring can be sitting on. */
   private crestMatShown: Material | null = null;
+  /**
+   * The HUD nodes syncHud patches, found once per overlay mount.
+   *
+   * syncHud runs once per DRAWN frame, and it used to open a querySelector for
+   * every readout it touched — twenty-five call sites, around twenty of them
+   * reached on any given frame, re-answered sixty times a second against a
+   * document that had not changed. On a 120Hz panel that is a hundred and
+   * twenty times a second, and the answer is identical every one of them until
+   * renderOverlay rewrites the overlay wholesale.
+   *
+   * So it is answered once and remembered, on exactly the same terms as the
+   * crest caches above and dropped in exactly the same place — renderOverlay,
+   * whose innerHTML rewrite is the ONLY thing that detaches these nodes. The
+   * three HUD writes that set innerHTML on a node (#hud-queue's manifest,
+   * #hud-next, #hud-loaded) replace that node's CHILDREN, not the node, so a
+   * remembered reference survives them.
+   *
+   * A MISS IS REMEMBERED TOO, which is why the map holds `Element | null` and
+   * the lookup tests for `undefined`: half these readouts genuinely do not
+   * exist on half the bays (a Contract renders no #hud-combo, a pattern
+   * Contract no #hud-lost), and a cache that only remembered hits would go on
+   * paying full price for precisely the absent ones.
+   */
+  private hudNodes = new Map<string, Element | null>();
   /** Cached once: the beat is decoration in motion, so it is never driven
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
@@ -664,7 +688,19 @@ class App {
       <div id="overlay"></div>
       ${S.rotateGuardHTML()}`;
     this.canvas = root.querySelector("#game")!;
-    this.ctx = this.canvas.getContext("2d")!;
+    // NOT A TRANSPARENT CANVAS. render.ts's background layer opens every frame
+    // by filling all of cssW*dpr x cssH*dpr with COLORS.bg — letterbox bars
+    // included — so there has never been a pixel of this canvas for anything
+    // behind it to show through. Saying so lets the compositor skip blending
+    // the whole surface against the page on every present, which is a cost
+    // paid per frame and therefore paid twice as often on a 120Hz panel.
+    //
+    // The one place the canvas is not painted by that layer is the no-game
+    // branch of loop() (splash and menu, before the first bay exists), and an
+    // opaque canvas clears to black rather than to nothing there. Both states
+    // are in COVERS_CANVAS with an opaque screen over them, and body's own
+    // --bg-deep is #04040a, so what is behind the screen is black either way.
+    this.ctx = this.canvas.getContext("2d", { alpha: false })!;
     this.overlay = root.querySelector("#overlay")!;
     this.guard = root.querySelector("#rotate-guard")!;
 
@@ -1778,6 +1814,9 @@ class App {
     this.crestHeatShown = -1;
     this.crestStepShown = -1;
     this.crestMatShown = null;
+    // Same rewrite, same reason, one line further: every node syncHud
+    // remembered belongs to the overlay that is about to stop existing.
+    this.hudNodes.clear();
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
@@ -3561,6 +3600,12 @@ class App {
     this.game.paused = false;
     this.last = performance.now();
     this.acc = 0;
+    // Zeroing the accumulator on a bay that is already running means the next
+    // frame is handed alpha 0, which reads as "one step ago" — so the bay would
+    // resume by walking everything in flight backwards by the part-step the
+    // pause froze it mid-way through. Collapsing the window first makes alpha
+    // moot for that one frame. See Game.collapseStepWindow.
+    this.game.collapseStepWindow();
     this.setState("playing");
   }
 
@@ -3760,6 +3805,15 @@ class App {
         reload: g.cannon.reloadRatio(now),
         settling: g.settling,
         strandWarning: g.strandWarning,
+        // WHERE THIS FRAME SITS BETWEEN TWO STEPS. Whatever the accumulator
+        // still holds after the while loop above is, by construction, less
+        // than one STEP — it is the time the simulation has not caught up to
+        // yet — so acc/STEP is 0..1 and needs no clamp. On a 60Hz panel it is
+        // ~0 every frame and every body draws exactly where it always did; on
+        // a 120Hz one it alternates ~0 and ~0.5, and the frame that used to be
+        // a duplicate of its predecessor becomes the half-step between two
+        // states. See engine.ts's markPrevStep.
+        alpha: this.acc / STEP,
       });
     } else if (!g) {
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3773,9 +3827,25 @@ class App {
     if (el) { el.style.filter = "brightness(1.8)"; setTimeout(() => (el.style.filter = ""), 180); }
   }
 
+  /**
+   * One HUD node, found on first ask and remembered until the overlay is
+   * rebuilt (see hudNodes). Drop-in for `overlay.querySelector` — same
+   * selector, same `null` for an absent node — so every reader below reads
+   * exactly as it did.
+   */
+  private hudEl<T extends Element>(sel: string): T | null {
+    const hit = this.hudNodes.get(sel);
+    // `undefined` is "never looked up"; a stored `null` is "looked up, absent"
+    // and is a perfectly good answer to hand back without asking again.
+    if (hit !== undefined) return hit as T | null;
+    const el = this.overlay.querySelector<T>(sel);
+    this.hudNodes.set(sel, el);
+    return el;
+  }
+
   private syncHud(g: Game): void {
     const set = (id: string, v: string) => {
-      const el = this.overlay.querySelector(id);
+      const el = this.hudEl(id);
       if (el && el.textContent !== v) el.textContent = v;
     };
     // The plant's crest (app.css's .plant__crest — the spike ring around the
@@ -3788,7 +3858,7 @@ class App {
     //  - the strand warning (game.ts's trajectoryStrands), which is what the
     //    canvas teeth wore before the crest took the spikes over — the crest
     //    turns maw-red for exactly the frames drawChute heats the mouth.
-    const plant = this.overlay.querySelector<HTMLElement>(".plant");
+    const plant = this.hudEl<HTMLElement>(".plant");
     if (plant) {
       const crestTier = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
       plant.classList.toggle("plant--congest-warn", crestTier === 0);
@@ -3938,13 +4008,13 @@ class App {
       // later: a Contract's supply is an exact countdown rather than an
       // estimate of what the bankroll still buys, and it starts small. See
       // screens.ts's LOW_SUPPLY_WARN for why the two thresholds differ.
-      this.overlay
-        .querySelector("#hud-launches-chip")
+      this
+        .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", supply <= S.LOW_SUPPLY_WARN);
       // The remaining manifest, re-rendered only when it actually changes —
       // it's HTML (colored per piece type), so this can't go through `set`.
       if (pattern) {
-        const tally = this.overlay.querySelector<HTMLElement>("#hud-queue");
+        const tally = this.hudEl<HTMLElement>("#hud-queue");
         const html = S.queueTallyHTML(g.piecesRemaining);
         if (tally && tally.innerHTML !== html) tally.innerHTML = html;
       }
@@ -3976,32 +4046,32 @@ class App {
       // is the same three-step the bay floor is lit in (render.ts's congestion
       // rows): list price plain, first tier amber, second red.
       const tierIdx = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
-      const launchEl = this.overlay.querySelector("#hud-launch");
+      const launchEl = this.hudEl("#hud-launch");
       if (launchEl) {
         launchEl.textContent = `Launch $${g.launchCostNow}`;
         launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
         launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
       }
-      this.overlay
-        .querySelector("#hud-launches-chip")
+      this
+        .hudEl("#hud-launches-chip")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
       // B7: the funds block joins the one urgency treatment at the same
       // threshold — the goal bar is the biggest funds surface on screen, and
       // it stayed serenely cyan while the number beside it flashed.
-      this.overlay
-        .querySelector(".pl-funds")
+      this
+        .hudEl(".pl-funds")
         ?.classList.toggle("pl-stat--danger", launches <= S.LOW_LAUNCH_WARN);
     }
 
     // objectiveProgress reads whichever win condition this bay is running, so
     // the bar works for a Contract's line goal and a Deep Run's funds target
     // without the HUD needing to know which mode it's in.
-    const goal = this.overlay.querySelector<HTMLElement>("#hud-goal");
+    const goal = this.hudEl<HTMLElement>("#hud-goal");
     if (goal) goal.style.width = Math.min(100, g.objectiveProgress * 100) + "%";
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
-    this.overlay.querySelector("#hud")?.classList.toggle("hud--aiming", g.aiming);
+    this.hudEl("#hud")?.classList.toggle("hud--aiming", g.aiming);
     // A hold on ⏸ cannot outlive the button. Mid-drag the rail swaps the aim ✕
     // into the pause button's slot (app.css hides [data-action="pause"] under
     // .hud--aiming on coarse pointers), so a thumb that was holding ⏸ while a
@@ -4019,7 +4089,7 @@ class App {
     const liveRatio = this.input.liveDragRatio;
     const ratio = liveRatio ?? g.cannon.powerRatio;
     const powerPct = Math.round(ratio * 100);
-    const power = this.overlay.querySelector<HTMLElement>("#hud-power");
+    const power = this.hudEl<HTMLElement>("#hud-power");
     if (power) power.style.width = powerPct + "%";
     set("#hud-power-val", powerPct + "%");
     // Below the floor, mid-drag: the pull as it stands would be discarded as an
@@ -4027,7 +4097,7 @@ class App {
     // it can still be acted on — the post-release cue is a consolation prize by
     // comparison. Scoped to a live drag so a freshly loaded cannon sitting at
     // its minimum doesn't wear a warning about a gesture nobody is making.
-    this.overlay.querySelector("#hud-pwr")?.classList.toggle(
+    this.hudEl("#hud-pwr")?.classList.toggle(
       "pl-pwr--weak", liveRatio !== null && liveRatio < MIN_FIRE_RATIO,
     );
 
@@ -4036,10 +4106,10 @@ class App {
     // ring is what you read mid-aim with your eyes on the cannon, this is what
     // you catch in peripheral vision while looking at the pile.
     const reload = g.cannon.reloadRatio(performance.now());
-    const load = this.overlay.querySelector<HTMLElement>("#hud-load");
+    const load = this.hudEl<HTMLElement>("#hud-load");
     if (load) load.style.width = Math.round(reload * 100) + "%";
     const ready = reload >= 1;
-    this.overlay.querySelector("#hud-load-row")?.classList.toggle("ready", ready);
+    this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
     // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
     // testing `ready` alone would retrigger ~60x/sec for as long as the player
     // takes to aim — which, per the telemetry note in cannon.ts, is most of the
@@ -4055,7 +4125,7 @@ class App {
 
     if (g.timeLeftMs !== Infinity) {
       set("#hud-time", formatMMSS(g.timeLeftMs));
-      this.overlay.querySelector("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
+      this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
     // The transport's two-deep queue (canvas A5): the piece the cannon is
@@ -4073,7 +4143,7 @@ class App {
     const nextKey = `${idKey}|${g.cannon.quarterTurns}:${bp.quarterTurns}`;
     if (this.lastNext !== nextKey) {
       const arrived = this.lastNextId !== idKey;
-      const next = this.overlay.querySelector<HTMLElement>("#hud-next");
+      const next = this.hudEl<HTMLElement>("#hud-next");
       if (next) {
         next.innerHTML = bp.bomb
           ? beltBombHTML()
@@ -4084,7 +4154,7 @@ class App {
               : beltPieceHTML(bp.type, bp.quarterTurns, g.level.pieceSize, bp.material);
         next.classList.toggle("belt-piece--still", !arrived);
       }
-      const held = this.overlay.querySelector<HTMLElement>("#hud-loaded");
+      const held = this.hudEl<HTMLElement>("#hud-loaded");
       if (held) {
         held.innerHTML = g.bombArmed
           ? beltBombHTML()
@@ -4105,7 +4175,7 @@ class App {
       // orange for a sealed crate would name the L inside it and the Blackout
       // variant would be over — the crate would be a lid on a box with the
       // answer painted down the side of it.
-      this.overlay.querySelector<HTMLElement>("#hud-belt")?.style.setProperty(
+      this.hudEl<HTMLElement>("#hud-belt")?.style.setProperty(
         "--belt-c",
         bp.bomb
           ? "var(--danger)"
