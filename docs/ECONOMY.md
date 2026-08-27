@@ -393,6 +393,34 @@ once-ever first clear, only at the current tier, and only for the first three,
 so replaying can't farm the currency. (An earlier per-run formula —
 `3 + 5×bays + …` — is long gone; this section used to quote it.)
 
+### And what it buys once the shelf is finished: rack slots
+
+The shelf runs out. It was 575 salvage against 600 of ladder income when the
+Incinerator landed, and `meta.ts` recorded that the next system would need "the
+re-price or the second income that note asked for" — while a finished ladder
+keeps paying **60 a cycle forever** (three Contracts and a run win at
+`MARK_COUNT`, where `advanceTier` saturates and resets its own counters). That
+faucet ran into nothing.
+
+**System slots** are where it runs now. A rig mounts `SLOT_BASE` = **4** of the
+systems it owns; the six slots up to the roster cost **50 / 70 / 100 / 140 / 180
+/ 240**, i.e. 780 against a 600-salvage climb. Deliberately more than one climb:
+the first two slots land inside the ladder and the rest are the endgame's, which
+is exactly what an endgame sink is for.
+
+The prices escalate because the slots do not pay equally — measured, in
+[`design/balance/system-slots.md`](../design/balance/system-slots.md), at
+roughly a bay for the fourth slot, half a bay for the fifth, and inside the
+noise from the seventh on. A flat ladder would price the least valuable slots
+the same as the most.
+
+**It buys room, never power.** A mounted rig is a subset of the owned one, so
+its ladder cost is bounded by the owned loadout's, which is bounded by
+`budgetForMark`: a slot can only move a rig back toward a ceiling the Mark has
+already granted. Every system stays owned and every tier stays bought — what
+sits in the shed simply does not undock, and a refit stop cannot sell it scrap
+rungs (it reads as tier 0, which `run.ts`'s `buyUpgrade` has always refused).
+
 Unlocks add **options**, never flat stat bumps: the bay's wind gets surveyed
 before you launch, the first refit stop opens with 30 scrap already banked.
 (Those two are the whole live shelf. The other eight entries in `meta.ts`'s

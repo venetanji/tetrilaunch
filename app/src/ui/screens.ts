@@ -3111,7 +3111,14 @@ export function refitScreen(opts: {
     const undo = queued > 0 && !canStage;
     const buy =
       owned === 0
-        ? `<span class="shop-card__locked">Not installed — buy it in the <b>Workshop</b></span>`
+        // "Not installed" was true of the only way a track could be at tier 0,
+        // until system slots gave it a second one. A STOWED system is installed
+        // — bought, uprated, paid for — and simply not aboard this run
+        // (meta.ts's safeLoadout masks it to 0, which is what this card is
+        // reading). The yard cannot tell the two apart and does not need to:
+        // "not aboard" is true of both, the Workshop is where both are fixed,
+        // and the two verbs name the two fixes.
+        ? `<span class="shop-card__locked">Not aboard — buy or mount it in the <b>Workshop</b></span>`
         : undo
           ? `<button class="btn btn--secondary refit-card__buy refit-card__undo" data-action="unstage-upgrade" data-upgrade="${u.id}">
               <span class="refit-card__arrow">${icon("close", 10)}</span>

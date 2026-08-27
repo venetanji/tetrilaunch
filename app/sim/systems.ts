@@ -1123,9 +1123,15 @@ section("Installs — what salvage buys (meta.ts)");
   // that tapped to nothing once run.ts stopped letting scrap install.
   // Mark 2 here so the full seven-card menu renders — Mark 1's focused stop is
   // pinned separately below.
+  //
+  // The copy says "Not aboard" rather than "Not installed" since system slots
+  // gave tier 0 a SECOND meaning: a stowed system is installed and paid for and
+  // simply not in the rack this run (meta.ts's safeLoadout masks it to 0, which
+  // is exactly what this card reads). The yard cannot tell the two apart from
+  // the tiers alone, so the sentence has to be true of both.
   const stockRefit = yard({ tiers: newTiers() });
-  check("an uninstalled track shows no refit button",
-    stockRefit.includes("Not installed") && !stockRefit.includes(`data-upgrade="reactor"`));
+  check("a track that is not aboard shows no refit button",
+    stockRefit.includes("Not aboard") && !stockRefit.includes(`data-upgrade="reactor"`));
   check("an installed track shows its next tier", oneUp.includes(`data-upgrade="reactor"`));
 
   // STAGING, not buying. Every button on this shelf queues a tier into an
