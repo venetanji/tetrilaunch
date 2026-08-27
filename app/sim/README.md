@@ -452,6 +452,8 @@ npm run sim:winnability -- --marks 1,5,10 --seeds 4 --trace
 npm run sim:winnability -- --marks 7 --mode cheapest --seeds 3
 npm run sim:winnability -- --mode counter --marks 7 --bay 10 \
   --ratchets volatile:6 --counters cushion1,cushion2,cushion3 --seeds 8
+npm run sim:winnability -- --mode counter --marks 10 --bay 10 \
+  --ratchets slag:3 --counters dump,dump+incin1,dump+incin3 --seeds 48 --build material
 ```
 
 Three modes, and the third one exists because the first could not answer its
@@ -465,6 +467,14 @@ two bays from the baseline in the *wrong* direction. That is run-level leverage,
 not an effect. The paired single-bay comparison is the shape `pile.ts` already
 uses for the congestion tax, and it has the resolution.
 
+`--mode counter` also prints a **`saved$`** column (`runner.ts`'s
+`incineratedFunds`). It is the one column that measures a SYSTEM rather than an
+outcome, and it exists because the Incinerator is the only track whose whole
+effect is the ABSENCE of a charge — in win rate, lines, shots and ending funds
+that is indistinguishable from never having been charged. A row with wins and a
+zero there is a row the hood did not touch, which is a finding rather than a null
+result (`design/balance/winnability-sweep-findings.md` §5c).
+
 Four new parts, three of them shared modules rather than CLIs:
 
 | file | what it is |
@@ -472,7 +482,7 @@ Four new parts, three of them shared modules rather than CLIs:
 | `draft-space.ts` | the reachable notch-combo space, **enumerated** — real hands from `hazardOffers`, only picks `togglePick` accepts — plus the draft POLICIES the sweep samples with |
 | `deeprun.ts` | ten bays end to end through `run.ts`'s own `advanceRun`/`buyUpgrades`. No `--carry` stand-in and no modelled scrap schedule: the couplings are the real ones |
 | `builds.ts` | the loadout vocabulary (`loadoutFor`, `PRIORITY_ORDERS`), lifted out of `marks.ts`, which cannot be imported — it is a CLI with top-level output |
-| `counters.ts` | the counters the bots did not use (`bondHands`, `thawHands`). **Both prototypes are retired**: `thawKit` drives the shipped Thaw Lance and `cushionKit` installs the shipped Impact Cushion through `applyUpgrades`, so this file no longer models any system the game does not have |
+| `counters.ts` | the counters the bots did not use (`bondHands`, `thawHands`, `dumpHands`). **No prototypes are left**: `thawKit` drives the shipped Thaw Lance, `cushionKit` installs the shipped Impact Cushion and `incinKit` the shipped Incinerator, all through `applyUpgrades`, so this file no longer models any system the game does not have |
 
 ### Covered vs sampled — printed in every run
 
@@ -524,8 +534,13 @@ Only `random:*` rows were ever affected: `spread`, `dodge` and every
 
 Two of `sim/README.md`'s oldest caveats are **closed** here: the pilot fires
 demolition charges (`bots.ts`'s `demo`) *and* Bond Breakers
-(`counters.ts`'s `bondHands`). Still open: no lookahead, a fixed landing target,
-no reading of the pile, no re-planning of the draft. So a combo this tool calls
+(`counters.ts`'s `bondHands`), and it can make the DELIBERATE DISCARD
+(`counters.ts`'s `dumpHands` — firing a shipment that can never complete a row into
+the plant's intake, which `chute.ts` has always called a move and no bot had ever
+made, because every bot here aims at a landing slot and the machine is not one).
+Still open: no lookahead, a fixed landing target,
+no reading of the pile, no re-planning of the draft, and **nothing aims a shipment
+high on purpose** — which is what leaves half of the Incinerator's flue unmeasured. So a combo this tool calls
 **winnable is winnable**; a combo it calls **unwinnable beat a competent pair of
 hands holding every existing counter**, which is the strongest claim the
 instrument can make and still not a proof.

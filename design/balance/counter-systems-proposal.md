@@ -19,6 +19,26 @@ which is the measurement. This is the argument built on it.
 >   **50, not the 70 band** — the two-axis argument in §2a is wrong, measured
 >   (§3b).
 >
+> **A THIRD SYSTEM HAS SHIPPED SINCE, AND THIS DOCUMENT DID NOT PROPOSE IT.**
+> The **Incinerator** (`upgrades.ts`'s `incinerator` track, tenth system, 30
+> salvage, `requiresMark: 4`) came from the owner rather than from this
+> analysis, and it is worth recording why it could not have come from here: §1's
+> three tests are all about a system that answers a HAZARD, and the Incinerator
+> answers a BILL. It discounts what the bay is charged for cargo destroyed above
+> the plant's roofline — both loss paths, the spill fine and volatile's
+> live-cargo charge — which is orthogonal to every axis in §3 and §4.
+>
+> It also produced the one finding this document's method would have missed
+> entirely, and §5 of the findings doc records it: **nothing in a bay dies high.**
+> The whole system therefore has no passive floor, so the instrument had to grow
+> a pilot that would make the play (`counters.ts`'s `dumpHands`, the deliberate
+> discard) before the system could be priced at all. That is §1's third test —
+> "the measurement was taken against every EXISTING counter" — read one turn
+> further: a measurement has to be taken against every existing PLAY too, and
+> `chute.ts` had been describing one that no bot had ever made.
+>
+> The tables are in `winnability-sweep-findings.md` §5c.
+>
 > Everything below the two verdict blocks is the argument as it was made, kept
 > as the argued record rather than rewritten to match what shipped. Where the
 > implementation disagreed with the proposal, the proposal is left standing and

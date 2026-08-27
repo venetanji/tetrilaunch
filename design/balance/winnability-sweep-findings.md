@@ -719,6 +719,158 @@ What that leaves open, in the order it should be answered:
 3. **A pilot that can lob on purpose**, which is the smallest instrument change
    that would make rung 2 and rung 3 distinguishable at all.
 
+### 5c. THE INCINERATOR — a system with no passive floor at all
+
+> **SHIPPED** (`upgrades.ts`'s `incinerator` track, tenth system, 30 salvage,
+> `requiresMark: 4`). Unlike §5a and §5b this section is not a prototype being
+> priced and then re-measured: the instrument work and the system landed in one
+> branch, so every number below is the shipped track.
+
+#### What it is
+
+A flare hood over the recycling plant. Cargo destroyed **inside the flue** —
+`chute.ts`'s `inIncinerator`, i.e. at or above the plant's roofline, plus the
+machine's own intake — is billed at **75% / 50% / 25%** of what it would
+otherwise have cost. It touches both of the bay's loss bills: the spill fine
+(`penaltyPerLostPiece`) and volatile's live-cargo charge (`volatileLoss`).
+
+The region is authored world geometry (`CHUTE_SURFACE_Y`, the plane the HUD's
+power bar is mounted on), never `layout.ts`'s `skyTop`. A rule written against
+`skyTop` would vary with the player's aspect ratio, i.e. would charge two
+players different money for the same seed — the argument `chute.ts` already
+makes for its own rect.
+
+#### The measurement that came FIRST, and what it licensed
+
+Before any of this was built, the harness was asked the obvious question: *where
+does destroyed cargo actually die?* Twelve Tier-10 bay-10 bays with
+`volatile:3 slag:2 tar:1 cryo:1`, and twelve more at Tier 7 bay 10 at
+`volatile:6`, tracking the last position of every cube the bay was CHARGED for:
+
+| Tier 7 bay 10, `volatile:6` | charged cubes | share |
+|---|---:|---:|
+| y < 400 (the upper half of the bay, and the whole open sky) | 0 | 0% |
+| y 400–499 | 30 | 2.4% |
+| y 500–599 | 453 | 35.5% |
+| y 600–719 (the floor and the pile on it) | 792 | 62.1% |
+
+**Nothing dies high.** Volatile detonates where a shipment lands, spilled cargo
+decays where it settled, and both of those are the bottom third of the bay. So a
+passive positional discount — the system as it was first specified — is worth
+exactly zero to a pilot that keeps aiming at the pile, at any boundary you care
+to draw. That is not a reason not to build it; it is the whole shape of the
+thing, and it is what the tables below are arranged to show.
+
+#### The instrument that had to exist first
+
+`counters.ts` grew **`dumpHands`**, the deliberate discard. `chute.ts` has always
+said the maw gives "the deliberate discard a home — dumping a slag shipment when
+there's no demolition charge to spare"; no bot had ever made that move, because
+every bot in `bots.ts` aims at a landing slot and the machine is not one. The
+rule is the simplest honest one: a shipment that can never complete a row
+(`countsForLines`, not `material === "slag"`) is fired at the intake, and nothing
+else is. This is an instrument fix of the same kind as `bondHands` and `demo` —
+it was a harmless gap until a system's whole value lived on the other side of it.
+
+`winnability.ts --mode counter` also grew a **`saved$`** column
+(`runner.ts`'s `incineratedFunds`). It is the only handle a headless sweep has on
+a passive: in every other column, a charge that was never levied is
+indistinguishable from a bay that was never charged.
+
+#### Tier 7 bay 10, three notches of slag — 48 paired seeds
+
+`demo+bond` pilot, `material` rig, against a **45/48 clean control**:
+
+| counter | cost | win | lines | shots | end $ | saved $ |
+|---|---:|---:|---:|---:|---:|---:|
+| none | 0 | 4/48 | 3.8 | 38.3 | $197 | $0 |
+| Incinerator 3 alone | 110 | 4/48 | 3.8 | 38.4 | $195 | **$7** |
+| discard alone | 0 | 29/48 | 14.1 | 50.6 | $1188 | $0 |
+| discard + Incinerator 1 | 20 | 35/48 | 13.9 | 48.3 | $1411 | $232 |
+| discard + Incinerator 2 | 55 | 39/48 | 14.6 | 49.8 | $1581 | $476 |
+| discard + Incinerator 3 | 110 | **41/48** | 13.5 | 46.3 | $1676 | $705 |
+
+Read the second row first. **A maxed hood on a pilot that never aims into it is
+worth $7 a bay and zero wins** — byte-identical to no hood at all on every other
+column. The system has no passive floor; it is the first track on the shelf of
+which that is true.
+
+Then the ladder. The discard alone is worth 25 bay-wins and is still losing 17
+bays to `broke`, because a dump is a launch that buys nothing and is *fined* for
+the privilege. Each hood rung buys wins on top of it — 29 / 35 / 39 / 41 — and
+the bill falls in exactly the proportion the ladder promises: $232 / $476 / $705
+is 1 : 2 : 3. The top row lands **under** the 45/48 clean control, which is the
+shape `hazards.ts` asks a counter to have: it converges on a clean bay without
+reaching one.
+
+#### Tier 10 bay 10, three notches of slag — the case this was asked for
+
+48 paired seeds, against a **48/48 clean control**:
+
+| counter | cost | win | lines | shots | end $ | saved $ |
+|---|---:|---:|---:|---:|---:|---:|
+| none | 0 | 4/48 | 5.3 | 39.9 | $180 | $0 |
+| Incinerator 3 alone | 110 | 4/48 | 5.4 | 41.9 | $186 | $191 |
+| discard alone | 0 | 18/48 | 14.3 | 48.9 | $902 | $0 |
+| discard + Incinerator 1 | 20 | 30/48 | 15.4 | 51.4 | $1376 | $395 |
+| discard + Incinerator 2 | 55 | 36/48 | 15.5 | 52.4 | $1557 | $781 |
+| discard + Incinerator 3 | 110 | **38/48** | 13.7 | 47.9 | $1616 | $1115 |
+
+The owner's sentence was *"this makes tier 10 bay 10 with all special materials
+more playable"*, and 4/48 → 38/48 is that, measured. Note the second row again,
+and note that it is a **stronger** null than Tier 7's: at Tier 10 the hood saves
+$191 a bay without the discard policy — the bills are bigger and this pilot
+strays more cargo into the maw — and it still buys **not one win**. Money saved
+is not the same as a bay won, and this is the row that says so.
+
+#### The boundaries, on the same instrument
+
+- **A clean bay is untouched.** Tier 7 bay 10 with no notches: 45/48 at every
+  tier, 8.5 lines, 26.4 shots, and $2 a bay saved. Tier 10 clean: 48/48 either
+  way. Where there is no cargo to write off, the hood does nothing — and the
+  discard policy does nothing either, because there is nothing dead to discard.
+  (Tier 10 clean ends $30 poorer with a hood aboard on identical wins; that is
+  the seed-level divergence a changed bankroll produces, not a cost. Wins,
+  lines and shots are what the sample can resolve at 48 seeds.)
+- **It is NOT a second volatile counter.** Tier 7 bay 10 at `volatile:6`, the
+  Impact Cushion's own test bed: 27/48 at every hood tier, ending funds $1190 /
+  $1190 / $1190 / $1191 — **one dollar across 48 bays.** Tier 10 at the same cap:
+  11/48 / 11 / 11 / 10, saving $2 / $4 / $6. Volatile detonates at the pile, and
+  the pile is below the flue. The two positional systems on the shelf do not
+  overlap at all, which is the thing a tenth track most needed to prove.
+- **One notch is efficiency, not survival**, exactly as the cushion's is. Tier 7
+  `slag:1`: 25/48 bare, 40/48 with the discard, 42/48 at every hood rung. The
+  rungs stop separating once the bay is no longer losing on the fine.
+
+#### Deep runs, and why they are a footnote here
+
+Tier 7, `max:slag` corner policy, `material` rig, 8 seeds: clears stay 0/8 and
+the wall stays at bay 5 for all three of bare / discard / discard+hood. The
+`best` column moves 4 → 5 → 9. That is suggestive and it is not evidence: at 8
+seeds the corner policy reaches a different combo on each variant (the bare run
+reached no slag at all), and §6's first item is why — **every wall in a Tier-7
+deep run is `broke`, and no counter system fixes an economy.** The single-bay
+paired tables above are the measurement; the deep-run row is recorded so the
+next person does not have to re-run it to find that out.
+
+#### The pessimism ledger, for this system specifically
+
+Every item runs the usual direction, and two are new:
+
+- `dumpHands` dumps on the tick a dead shipment loads, on a coarse fixed aim
+  grid, without weighing the dump against the board. **A human dumps better and
+  dumps less often.**
+- Nothing in the harness aims a shipment high on purpose, so the flue's *other*
+  half — catching cargo in the air rather than in the machine's mouth — is
+  entirely unmeasured. The 2.4% row in the first table is what this pilot
+  reaches by accident.
+- The bots still have no lookahead, no pile reading and a fixed landing target.
+
+So every number above is a floor, and the ceiling is the play the tables cannot
+make.
+
+---
+
 ---
 
 ## 6. WHAT TO DO ABOUT IT, IN ORDER
