@@ -2172,6 +2172,10 @@ class App {
     // Same rewrite, same reason, one line further: every node syncHud
     // remembered belongs to the overlay that is about to stop existing.
     this.hudNodes.clear();
+    // WAS THE SCREEN BEING REPLACED ALREADY DIMMED? Asked of the outgoing DOM
+    // rather than of a list of states, so a new modal cannot forget to join the
+    // list. See app.css .modal-scrim--continued for what this suppresses.
+    const hadScrim = this.overlay.querySelector(".modal-scrim") !== null;
     switch (this.state) {
       case "splash": this.overlay.innerHTML = S.splashScreen(); break;
       case "menu":
@@ -2487,6 +2491,11 @@ class App {
           );
         }
         break;
+    }
+    // A scrim that replaced another scrim starts at full strength rather than
+    // fading up from the live field: the field behind it was never bright.
+    if (hadScrim) {
+      this.overlay.querySelector(".modal-scrim")?.classList.add("modal-scrim--continued");
     }
     if (focusedBind) {
       this.overlay
