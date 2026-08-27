@@ -5607,6 +5607,25 @@ body.crt-off #app::after { display: none; }
 }
 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* A SCRIM REPLACING ANOTHER SCRIM MUST NOT FADE IN.
+
+   renderOverlay rewrites overlay.innerHTML wholesale, so every move between
+   two dimmed screens -- paused -> seal-break, the game-over card ->
+   seal-break -- destroys the dimmed scrim and mounts a fresh one, which
+   restarts `fade` from opacity 0. The player sees the live field snap back to
+   full brightness and dim again, between two screens that were both already
+   dim. Reported from playtest as a flash of the game screen behind the retry
+   warning, and measured on a CPH2573 through the WebView: every mount reports
+   opacity 0 at insert and then sits at a FLAT 0 for four to five frames before
+   the ramp even begins, because the new backdrop-filter layer costs several
+   frames to composite. So it is longer than the 0.22s ease suggests.
+
+   Fading up from bright is right only when the thing behind really was bright,
+   which is the live field: playing -> paused keeps its fade. main.ts decides
+   by asking whether the OUTGOING overlay carried a scrim, so this can never
+   fall out of step with a list of states. */
+.modal-scrim--continued { animation: none; }
 @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(0.98);} to { opacity: 1; transform: none;} }
 .pop { animation: pop var(--dur) var(--ease); }
 
