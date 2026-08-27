@@ -858,7 +858,7 @@ export function skydeckStartingFunds(mark = TIER_COUNT): number {
  * version, for the endgame player this floor is for (~12 lines a bay):
  *
  *   ladder payout   34/bay   stop 1 at 102   FIVE of the eight rungs, a run
- *   HALF (shipped)  17/bay   stop 1 at  51   THREE, and the first stop is
+ *   HALF (shipped)  17/bay   stop 1 at  51   TWO, and the first stop is
  *                                            reachable only by an opening that
  *                                            really dismantled its three bays
  *   lines only      24/bay   stop 1 at  72   THREE for an expert and ONE for a
