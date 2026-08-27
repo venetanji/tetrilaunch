@@ -25,7 +25,10 @@ import {
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
-  VOLATILE_LOSS_SHARE,
+  VOLATILE_LOSS_SHARE, LAUNCH_BUDGET_SHOTS, launchCostFor, targetScoreFor,
+  SKYDECK_RUNG, SKYDECK_SCRAP_PER_BAY, SKYDECK_SCRAP_PER_LINE,
+  skydeckLaunchCost, skydeckStartingFunds,
+  skydeckTargetScoreFor,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type MaterialMix, type PileTier,
 } from "../src/game/level";
@@ -1009,6 +1012,16 @@ section("Installs — what salvage buys (meta.ts)");
     menuPlaySub(4, 0, null) === `Clear ${RUN_LEVELS} bays in one run`);
   check("...and the roof still trades in clauses",
     menuPlaySub(S.SKYDECK_TIER, 5, { owed: 3, sealed: false }).includes("5 standing clauses"));
+  // ...and no longer sells the one thing it stopped doing. "No refits" was the
+  // middle term of this line until the yard came back (run.ts's refitAfterBay);
+  // what replaced it is the term that actually separates the floor now, and the
+  // panel beside the button quotes it in dollars.
+  check("...and the roof's subtitle does not promise a shut yard",
+    !/no refits?/i.test(menuPlaySub(S.SKYDECK_TIER, 3, null)),
+    menuPlaySub(S.SKYDECK_TIER, 3, null));
+  check("...it names the step above the ladder instead",
+    menuPlaySub(S.SKYDECK_TIER, 3, null).includes(`step above Mark ${MARK_COUNT}`),
+    menuPlaySub(S.SKYDECK_TIER, 3, null));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
@@ -4528,19 +4541,29 @@ section("The odometer (app.css .roll — the lift's readouts)");
   // A track of two identical cells does not look still while it moves: at any
   // offset you see the bottom of one copy above the top of the other, so an
   // unchanged readout would spend the ride torn in half to say nothing. Every
-  // adjacent Mark step changes all four values — but the Skydeck flies
-  // MARK_COUNT's bays, so a ride between the top Mark and the roof changes
-  // none of them. That is the trip the gate is for, and if the balance ever
-  // separates the two this check says the example has gone stale.
+  // adjacent Mark step changes all four values — the ride the gate is FOR is
+  // the one to the roof, which moves the two MONEY cells (level.ts's Skydeck
+  // step reads the target and launch curves one rung further along) and leaves
+  // the clock and the bonds exactly where the capstone had them. A per-cell
+  // gate is the only thing that renders that trip legibly, which is why
+  // rollBayStats pairs the panels by label and skips the unchanged ones.
+  //
+  // This check used to read the other way: while the roof quoted the capstone's
+  // bay OUTRIGHT, no cell moved on that ride at all. The owner's playtest is
+  // what separated them, and the pin moved with the balance rather than being
+  // deleted — the mechanism it guards is the same one either way.
   const statsFor = (tier: number): string[] => {
     const html = S.baseBayPanelHTML({ tier, best: 0 });
     return [...html.matchAll(/class="bay-stat__val"[^>]*>([^<]*)</g)].map((m) => m[1]);
   };
   const top = statsFor(MARK_COUNT);
   const roof = statsFor(S.SKYDECK_TIER);
-  check("the roof quotes the top Mark's bay, so a ride between them changes no readout",
-    top.length === 4 && JSON.stringify(top) === JSON.stringify(roof),
+  check("the ride to the roof moves the money cells",
+    top.length === 4 && roof.length === 4 && top[0] !== roof[0] && top[1] !== roof[1],
     `${JSON.stringify(top)} vs ${JSON.stringify(roof)}`);
+  check("...and holds the clock and the bonds still, which is what the gate is for",
+    top[2] === roof[2] && top[3] === roof[3],
+    `${JSON.stringify(top.slice(2))} vs ${JSON.stringify(roof.slice(2))}`);
   // ...and the adjacent Marks are the opposite case, so the gate can never be
   // mistaken for "this panel never animates".
   let movedEverywhere = true;
@@ -8255,9 +8278,16 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       skydeckSeed(a) !== dailySeed(a));
   }
 
-  // ---- NO YARD ------------------------------------------------------------
-  // "You play with the rig you have." Every bay of every Skydeck run, against
-  // the ladder run that opens a stop on three of them.
+  // ---- THE YARD, AT THE ROOF'S PRICES -------------------------------------
+  //
+  // A REVERSAL, and the pins reversed with it. The Skydeck shipped with the
+  // yard shut ("you play with the rig you have"); the owner ruled that in, flew
+  // it, and ruled it back out — run.ts's schedule note carries the history. So
+  // what is pinned now is the pair of facts that replaced it: the stop opens on
+  // the ladder's own schedule, and the roof pays HALF the ladder's scrap for
+  // the bays that reach it (level.ts's SKYDECK_SCRAP_SHARE), because the player
+  // who can open this floor arrives with a maxed Workshop and every rung the
+  // yard can still sell is one flat price.
   {
     const sky = skyRun();
     const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
@@ -8265,11 +8295,109 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       .filter((i) => refitAfterBay(sky, i));
     const ladderStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
       .filter((i) => refitAfterBay(ladder, i));
-    check("a Skydeck run opens no refit stop", skyStops.length === 0, skyStops.join(","));
-    check("...where the ladder run it sits above opens three",
-      ladderStops.length === 3, ladderStops.join(","));
-    check("and the draft is told there is no stop coming",
-      baysUntilRefitFor(sky) === null && baysUntilRefitFor(ladder) !== null);
+    check("a Skydeck run opens the ladder's three refit stops",
+      skyStops.length === 3 && skyStops.join(",") === ladderStops.join(","),
+      `${skyStops.join(",")} vs ${ladderStops.join(",")}`);
+    check("...and the draft is told when the next one lands",
+      baysUntilRefitFor(sky) === baysUntilRefitFor(ladder)
+        && baysUntilRefitFor(sky) !== null,
+      String(baysUntilRefitFor(sky)));
+    // The payout, read off the bay the run will actually fly rather than off
+    // the constant: this is what a stop can spend.
+    const skyBay = levelForRun(sky);
+    const ladderBay = levelForRun(ladder);
+    // EVERY POINT OF SCRAP ON THE ROOF IS EARNED BY LINES. The ladder's rate
+    // has two halves and they are two kinds of income — a per-line rate paid
+    // for work, a per-bay bonus paid for arriving (SCRAP_PER_LINE's own note
+    // says the bonus is there so "a rough bay you barely survive still moves
+    // the build forward"). The roof keeps the first and withholds the second.
+    check("the roof pays the ladder's line rate in full",
+      skyBay.scrapPerLine === ladderBay.scrapPerLine
+        && skyBay.scrapPerLine === SKYDECK_SCRAP_PER_LINE,
+      `${skyBay.scrapPerLine} vs ${ladderBay.scrapPerLine}`);
+    check("...and pays nothing for arriving, where the ladder pays a bonus",
+      skyBay.scrapPerBay === SKYDECK_SCRAP_PER_BAY && ladderBay.scrapPerBay > 0,
+      `${skyBay.scrapPerBay} vs ${ladderBay.scrapPerBay}`);
+    check("...so a roof bay is strictly the poorer of the two",
+      8 * skyBay.scrapPerLine + skyBay.scrapPerBay
+        < 8 * ladderBay.scrapPerLine + ladderBay.scrapPerBay);
+    // WHAT THAT BUYS, against the only rung a maxed rig can still reach
+    // (upgrades.ts sells to UPRATE_MAX_TIER; tier 3 exists only in the yard, and
+    // every one of them is the same price). Three bays' income is what the first
+    // stop opens on, and the design claim is that the stop is EARNED: a bay-
+    // count alone must not reach a rung, and a strong opening must.
+    const overThreeBays = (lines: number): number =>
+      REFIT_EVERY * (lines * skyBay.scrapPerLine + skyBay.scrapPerBay);
+    check("a scraped-through opening does not reach a rung by the first stop",
+      overThreeBays(8) < TIER_COSTS[UPRATE_MAX_TIER],
+      `${overThreeBays(8)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...and a strong one does",
+      overThreeBays(10) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${overThreeBays(10)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    // …and it can never buy out the shelf: nine bays of strong play against
+    // eight rungs still leaves most of the ship un-deepened, which is the whole
+    // point of tightening rather than simply opening the ladder's yard.
+    check("a whole strong run cannot buy half the shelf",
+      (RUN_LEVELS - 1) * (10 * skyBay.scrapPerLine + skyBay.scrapPerBay)
+        < (UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER],
+      `${(RUN_LEVELS - 1) * (10 * skyBay.scrapPerLine + skyBay.scrapPerBay)} vs `
+      + `${(UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER]}`);
+    // The hold is EMPTY at undock however many options the pilot owns — the
+    // Scrap Cache opens a ladder run's first stop 30 ahead (main.ts), and the
+    // day's run refuses it so the board is ranking play (skydeck.ts).
+    check("the roof undocks with an empty hold, Scrap Cache or not",
+      skydeckRunFor(newTiers(), ["scrap-cache"], new Date(Date.UTC(2026, 7, 27))).scrap === 0);
+  }
+
+  // ---- THE ROOF'S OWN STEP ------------------------------------------------
+  //
+  // One rung past the top of the ladder, on the ladder's own curves — not a
+  // second set of numbers written beside them. What is pinned is the
+  // EXTRAPOLATION rather than the literals: the step from the capstone to the
+  // roof is the same step the ladder takes from Mark 9 to Mark 10, at every bay
+  // — so a retune of TARGET_BASE / TARGET_PER_TIER / the launch endpoints moves
+  // the roof with the ladder and this check stays true, while a hand-typed
+  // Skydeck number would fail it the moment the ladder moved.
+  {
+    const sky = skyRun();
+    const ladderTop = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    const offBy: string[] = [];
+    for (let i = 0; i < RUN_LEVELS; i++) {
+      const step = targetScoreFor(i, MARK_COUNT) - targetScoreFor(i, MARK_COUNT - 1);
+      if (skydeckTargetScoreFor(i) !== targetScoreFor(i, MARK_COUNT) + step) {
+        offBy.push(`bay${i + 1}`);
+      }
+    }
+    check("the roof's target is the ladder's last step taken once more",
+      offBy.length === 0, offBy.join(","));
+    check("...and its launch price is that line's next point",
+      skydeckLaunchCost() === 2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1),
+      `${skydeckLaunchCost()} vs ${2 * launchCostFor(MARK_COUNT) - launchCostFor(MARK_COUNT - 1)}`);
+    check("...with the float still buying the ladder's eight launches",
+      skydeckStartingFunds() === LAUNCH_BUDGET_SHOTS * skydeckLaunchCost(),
+      `${skydeckStartingFunds()} vs ${LAUNCH_BUDGET_SHOTS} x ${skydeckLaunchCost()}`);
+    // The rung the roof prices at and the floor the tower parks on are the same
+    // place, stated in two modules that cannot import each other.
+    check("the roof's rung is the tower's roof", SKYDECK_RUNG === S.SKYDECK_TIER,
+      `${SKYDECK_RUNG} vs ${S.SKYDECK_TIER}`);
+    // And it reaches the BAY, through levelForRun and nowhere else — every
+    // layer above (ship, notches, clauses, carry) lands on the roof's numbers.
+    const skyBay = levelForRun(sky);
+    const ladderBay = levelForRun(ladderTop);
+    check("a Skydeck bay is built at the roof's terms",
+      skyBay.targetScore === skydeckTargetScoreFor(0)
+        && skyBay.launchCost === skydeckLaunchCost()
+        && skyBay.startingFunds === skydeckStartingFunds(),
+      `${skyBay.targetScore}/${skyBay.launchCost}/${skyBay.startingFunds}`);
+    check("...which is dearer than the capstone's on both counts",
+      skyBay.targetScore > ladderBay.targetScore && skyBay.launchCost > ladderBay.launchCost,
+      `${skyBay.targetScore}/${skyBay.launchCost} vs ${ladderBay.targetScore}/${ladderBay.launchCost}`);
+    check("...and asks the capstone's clock, which the step deliberately leaves alone",
+      skyBay.timeLimitSec === ladderBay.timeLimitSec);
+    // A ladder run at Mark 10 must not pick any of it up.
+    check("the ladder's capstone is untouched by the roof's step",
+      ladderBay.targetScore === targetScoreFor(0, MARK_COUNT)
+        && ladderBay.launchCost === launchCostFor(MARK_COUNT));
   }
 
   // ---- ONE NOTCH A BAY ----------------------------------------------------
@@ -8606,8 +8734,18 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     check("...naming the bay each arms on",
       listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
       listed.map((r) => r.bay).join(","));
-    // The draft's third bank cell is the clause tally INSTEAD of scrap, because
-    // a scrap readout on a mode with no yard can only ever be 0.
+    // THE BANK ROW IS THREE CELLS ON BOTH MODES, and the Skydeck's clause tally
+    // now rides the NOTCHES cell rather than taking the scrap one.
+    //
+    // It took the scrap cell while the roof had no yard — that number could only
+    // ever be 0, so the slot was free. The yard is back (run.ts's refitAfterBay)
+    // and scrap is a live decision again, so the cell has an owner. The tally
+    // joins the notches because the row's three cells are MONEY carried,
+    // PRESSURE carried and CAPITAL banked, and a standing clause is pressure
+    // carried for the rest of the run exactly the way a notch is. A FOURTH cell
+    // was the alternative and does not fit the 640x360 phone (sim/uifit), which
+    // is the same budget the bay-clear card's fourth row already failed.
+    //
     // S.SKYDECK_TIER, not MARK_COUNT — mirroring the fixed caller
     // (main.ts's draftHTML). The run flies Mark 10's numbers, but the mark is
     // an input to the bay, not the floor's name: passing it here had the
@@ -8615,11 +8753,16 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     const draft = S.draftScreen({
       bayNum: 4, tier: S.SKYDECK_TIER, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
-      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 0, baysToRefit: null,
+      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 62, baysToRefit: 2,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
     });
-    check("the Skydeck draft counts clauses where the ladder counts scrap",
-      draft.includes(`1/${CLAUSE_STOPS.length}`) && !/Scrap/.test(draft));
+    check("the Skydeck draft counts clauses beside the notches",
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && draft.includes("clause Bay 7"));
+    check("...and counts its scrap in the cell the tally used to take",
+      /Scrap/.test(draft) && draft.includes("62") && draft.includes("refit in 2"));
+    check("...in three cells, the same row the ladder draws",
+      (draft.match(/class="bay-stat"/g) ?? []).length === 3,
+      String((draft.match(/class="bay-stat"/g) ?? []).length));
     // The eyebrow follows the plate's spelling (screens.ts's tierText): "Tier
     // SKY", never the borrowed mark and never the sentinel's raw number.
     check("...and its eyebrow names the floor, not the borrowed mark",
@@ -8635,7 +8778,7 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // The bay-clear card is the ONE screen between the bay that earned a clause
     // and the projection whose numbers it has already moved.
     const armed = S.bayClearScreen({
-      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 0,
+      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 18,
       slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },
     });
     check("the bay-clear card announces the arming clause",
@@ -8643,8 +8786,15 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // ...and takes the SCRAP slot to do it, rather than growing the card. The
     // card is centred in a fixed viewport with no scroller: a fourth row put
     // the HUD's own controls off the bottom of the 640x360 phone (sim/uifit).
+    //
+    // The payout it displaces is a REAL one now \u2014 the roof earns scrap again \u2014
+    // which is why main.ts only asks for this slot on the three clears where a
+    // clause actually arms, and why the fixture passes 18 rather than 0: a
+    // check that displaced a zero would not notice if the card started
+    // swallowing a number the player needed.
     check("...in the slot the scrap payout would have had",
-      !/scrap/i.test(armed) && (armed.match(/class="stat/g) ?? []).length === 3);
+      !/scrap/i.test(armed) && !armed.includes("18")
+        && (armed.match(/class="stat/g) ?? []).length === 3);
     check("...and says nothing on a ladder clear",
       /scrap/i.test(S.bayClearScreen({
         bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,

@@ -775,10 +775,14 @@ export function baseBayPanelHTML(opts: {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
   const sky = opts.tier === SKYDECK_TIER;
-  // The Skydeck flies the top of the ladder, so it reads off MARK_COUNT's bays
-  // — the floor is a different CONTRACT, not a different bay table.
+  // The Skydeck flies the top of the ladder's bay TABLE — same ten bays, same
+  // clock, same bonds — with the money curves read one rung further along
+  // (level.ts's applySkydeckEconomy). So the mark is MARK_COUNT and the roof
+  // flag is what makes the two money cells quote $800→$1880 and $31 · $248
+  // instead of the capstone's. The panel is the only place a player sees those
+  // numbers before accepting them, so it has to be the run's own.
   const mark = sky ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
-  const bay = baseBayFor(mark);
+  const bay = baseBayFor(mark, sky);
   const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
   // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
   // parked on, one column away from the tower that is showing exactly that,
@@ -863,9 +867,17 @@ export function menuPlaySub(
   // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
   // once · no mercy", which described a floor that was not playable yet and
   // promised something the mode does not do — the Skydeck flies Mark 10's
-  // bays, not all ten Marks. What it actually trades is stated here: today's
-  // fixed run, no yard, and the clauses the recap panel lists by bay.
-  if (tier === SKYDECK_TIER) return `Today's run · no refits · ${clauses} standing clauses`;
+  // bays, not all ten Marks.
+  //
+  // "No refits" was the middle term until the yard came back (run.ts's
+  // refitAfterBay), and a subtitle that still promised it would be selling the
+  // one thing the mode had stopped doing. What replaced it is the term that
+  // actually distinguishes the floor now that it has a yard again: the bays
+  // are a rung above the ladder's last (level.ts's SKYDECK_RUNG), which is
+  // what the panel beside this button is quoting in dollars. The clause count
+  // stays public and the clause NAMES stay a surprise, which is why this line
+  // counts them rather than listing them.
+  if (tier === SKYDECK_TIER) return `Today's run · a step above Mark ${MARK_COUNT} · ${clauses} standing clauses`;
   // THE ENDGAME, STATED. With the ladder beaten there is no tier left to open
   // and the roof is the only thing still locked, so the primary stops
   // advertising the bay count and names the price instead: a Mark won with no
@@ -3622,17 +3634,26 @@ export function draftScreen(opts: {
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
-  /** The Skydeck's standing-clause tally (game/skydeck.ts), which REPLACES the
-   *  scrap cell rather than joining it.
+  /** The Skydeck's standing-clause tally (game/skydeck.ts), which now rides the
+   *  NOTCHES cell instead of taking the scrap one.
    *
-   *  Replaces, because on that mode the scrap cell is a lie of omission: there
-   *  is no yard, so the number can only ever be 0 and the reader is left to
-   *  work out whether they are failing to earn it. What belongs in that slot is
-   *  the pressure the yard's absence was traded for — how many of the day's
-   *  clauses are already riding, and which bay the next one arms on.
+   *  It took the scrap cell while the roof had no yard: the number there could
+   *  only ever be 0, so the slot was free and the tally was the honest thing to
+   *  put in it. The yard is back (run.ts's refitAfterBay) and scrap is a live
+   *  decision again — how much is banked, and how many clears until it can be
+   *  spent — so the cell it borrowed has an owner again.
    *
-   *  Absent on every ladder run, so the bank row is the three cells it has
-   *  always been either way. */
+   *  It joins the notch tally rather than adding a fourth cell, because the two
+   *  are the same fact: the bank row's three cells are MONEY carried, PRESSURE
+   *  carried, CAPITAL banked, and a standing clause is pressure carried for the
+   *  rest of the run in exactly the way a notch is. One is authored and one is
+   *  dealt, which is why they are two numbers in one cell rather than a sum. A
+   *  fourth cell was the alternative and it does not fit: the row is three
+   *  columns wide on the 640x360 phone (sim/uifit), the same budget the
+   *  bay-clear card's fourth row already failed.
+   *
+   *  Absent on every ladder run, where the cell is the plain notch count it has
+   *  always been. */
   standing?: { active: number; total: number; nextBay: number | null };
   /** True on a forced-material hand (hazards.ts's isMaterialDraft): the
    *  partner card there is capped at one seat (togglePick), so its footer must
@@ -3728,27 +3749,24 @@ export function draftScreen(opts: {
       <div class="draft__bank">
         ${statCellHTML("reactor", "Carry", `$${opts.carry} · ended $${opts.funds}`, "var(--accent)")}
         <div class="bay-stat">${icon("up", 14)}<span class="bay-stat__txt">
-          <span class="bay-stat__lbl">Notches</span>
-          <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</span>
+          <span class="bay-stat__lbl">Notches${
+            opts.standing
+              ? opts.standing.nextBay === null
+                ? " · clauses"
+                : ` · clause Bay ${opts.standing.nextBay}`
+              : ""
+          }</span>
+          <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}${
+            opts.standing ? ` · ${opts.standing.active}/${opts.standing.total}` : ""
+          }</span>
         </span></div>
-        ${opts.standing
-          ? statCellHTML(
-              "bond",
-              `Clauses${
-                opts.standing.nextBay === null
-                  ? " · all signed"
-                  : ` · next Bay ${opts.standing.nextBay}`
-              }`,
-              `${opts.standing.active}/${opts.standing.total}`,
-              "var(--accent-2)",
-            )
-          : statCellHTML("scrap", `Scrap${
-              opts.baysToRefit === null
-                ? ""
-                : opts.baysToRefit === 1
-                  ? " · refit next bay"
-                  : ` · refit in ${opts.baysToRefit}`
-            }`, String(opts.scrap), "var(--warn)")}
+        ${statCellHTML("scrap", `Scrap${
+          opts.baysToRefit === null
+            ? ""
+            : opts.baysToRefit === 1
+              ? " · refit next bay"
+              : ` · refit in ${opts.baysToRefit}`
+        }`, String(opts.scrap), "var(--warn)")}
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
