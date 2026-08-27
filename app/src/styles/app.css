@@ -288,6 +288,127 @@ body.crt-off #app::after { display: none; }
 .modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
 .pl-mods, .guide__tabs { overscroll-behavior-x: contain; }
 
+/* ---------- The scrollbar, on the engines that draw one ----------
+   Reported from a windowed desktop build: the refit stop's shelf wearing the
+   stock Chromium scrollbar — a 15px light-grey track, a bevelled thumb and an
+   arrow button at each end, straight through a panel whose every other edge is
+   a 1px neon line. It is the one piece of chrome in the app that was still the
+   platform's rather than the game's, and it shows up on every scroller the
+   game has, not just that one: the refit shelf, the workshop shelf, the
+   leaderboard body, the controls grid, the guide list, the sandbox columns and
+   the draft body's backstop.
+
+   WHY THIS IS BEHIND `pointer: fine`, which is the load-bearing decision here.
+   A touch engine gives these panes an OVERLAY scrollbar: it floats over the
+   content, fades out, and costs the layout nothing. Authoring any
+   `::-webkit-scrollbar` rule with a width opts that scroller OUT of overlay
+   and into a classic one that takes real inline space. Measured in Chromium at
+   both pointer types: a coarse-pointer scroller is 0px of gutter unstyled and
+   10px styled; gated like this it stays 0. Ten pixels off the inline size of
+   every allowlisted pane on a 360px-tall phone is a real cost for chrome that
+   phone never shows, so the phones and both WebViews keep exactly what they
+   have and only the pointer that can actually hover a thumb gets one.
+
+   Nothing in sim/uifit would have caught that: Playwright launches headless
+   Chromium with `--hide-scrollbars`, so the harness measures every device row
+   as if no scrollbar existed — which is also why this whole area went unstyled
+   for so long, and why the numbers above were taken by hand with that flag
+   turned back off.
+
+   WEBKIT PSEUDO-ELEMENTS, NOT `scrollbar-color`, and the two cannot be mixed:
+   Chromium gives `scrollbar-color` precedence and DISCARDS the pseudo-element
+   rules when both are set, so declaring the standards pair "as a fallback"
+   here would silently throw away everything below it on the exact engine the
+   report came from. The pseudo-elements are also the only half that can do the
+   two things the report actually asks for — square corners and no arrow
+   buttons. Chromium and WebKit cover every shell this game ships in (Electron,
+   Android WebView, iOS WKWebView, Chrome, Edge, Safari), so the standards pair
+   is scoped to the engines with no pseudo-element at all — Firefox on the web
+   build — where `thin` is the same 10px Chromium resolves and the colours are
+   the closest two the property can carry. */
+@media (pointer: fine) {
+  /* 10px because that is what Chromium's own `scrollbar-width: thin` resolves
+     to, so the Firefox branch below lands on the same measurement rather than
+     a near-miss. `height` as well as `width`: the same channel has to serve a
+     horizontal scroller, and the four strips that deliberately hide theirs
+     (.pl-queue b, .pl-notch b, .pl-mods, .guide__tabs) all say `display: none`
+     from a class selector, which outranks this and keeps them hidden. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  /* The track is a channel CUT INTO the panel, so it goes darker than any
+     surface token rather than lighter — the opposite of the platform's
+     light-grey trough, which is what made it read as a foreign control. */
+  *::-webkit-scrollbar-track { background: var(--bg-deep); }
+  /* Muted accent at rest, and it climbs on hover rather than changing hue: the
+     thumb is chrome until you reach for it. --r-sm is 2px, which on a 10px bar
+     is a corner rather than a pill — the rounded default was the other half of
+     why the stock bar looked borrowed, in a design system whose largest radius
+     anywhere is 3px. The transparent border plus padding-box clip insets the
+     thumb to 6px inside its 10px channel, so the track reads as a rail the
+     thumb rides in and not as a second, wider thumb.
+
+     THE RESTING ALPHA IS AN ACCESSIBILITY FLOOR, not a taste setting, and it
+     is the number this ramp is built downwards from. WCAG 2.2 SC 1.4.11 asks
+     3:1 of a non-text UI component against what it sits on, and the thumb sits
+     on its own track. Composited over --bg-deep, 22% cyan is rgb(3, 56, 64) —
+     1.60:1, less than half the floor. A brighter hover does not rescue it: a
+     thumb has to be FOUND before it can be hovered, so the resting state is
+     the one doing the work of saying "there is a control here".
+
+     45% is the answer and it is not a nudge — it is the colour this rule
+     already called `:hover`, promoted. rgb(2, 110, 120), 3.41:1, which clears
+     the floor with room rather than sitting on it (the arithmetic minimum is
+     40.9%, and a value that close to a threshold is one antialiased edge away
+     from failing it). The ramp is then rebuilt ABOVE the new rest so the climb
+     survives: 70% for hover and full accent while dragging.
+
+     Every number measured, none eyeballed, all composited over --bg-deep:
+
+         state    alpha   composited        vs track   step from previous
+         rest      45%    rgb(2, 110, 120)    3.41:1   —
+         hover     70%    rgb(1, 169, 182)    7.16:1   2.10:1
+         active   100%    rgb(0, 240, 255)   14.52:1   2.03:1
+
+     The two steps are nearly even, where the old ramp's were 2.13 and 4.25 —
+     so the thumb reads as three deliberate states rather than one dim one and
+     two bright ones. sim/systems recomputes this table from the stylesheet and
+     tokens.css and fails if any of it drifts. */
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.45);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--r-sm);
+  }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.7); background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:active { background: var(--accent); background-clip: padding-box; }
+  /* The arrow buttons the report names. They are a scroll affordance from an
+     era of 1px-precision mice, they are under the 44px tap floor this app
+     holds everywhere else, and every pane here is also reachable by wheel,
+     drag and keyboard. */
+  *::-webkit-scrollbar-button { display: none; }
+  /* Where a vertical and a horizontal bar meet, the default corner is another
+     patch of platform grey. */
+  *::-webkit-scrollbar-corner { background: var(--bg-deep); }
+
+  /* Firefox, which has no ::-webkit-scrollbar at all. Kept in its own feature
+     query rather than declared alongside: set unconditionally, `scrollbar-color`
+     wins over the pseudo-elements in Chromium and undoes the block above. */
+  @supports not selector(::-webkit-scrollbar) {
+    /* 45%, the same resting alpha as the pseudo-element thumb above, and it has
+       to clear 3:1 on its OWN — `scrollbar-color` names one thumb colour and
+       gives the page no hover or active selector to ramp from, so this single
+       value is the whole control's contrast for its whole life. The 35% it used
+       to carry composited to rgb(3, 87, 96) — 2.47:1, under the floor and with
+       nothing above it to make up the difference. Matching the Chromium rest
+       exactly also keeps the two engines drawing the same bar, which is the
+       same reason `thin` is used above: one measurement, not a near-miss. */
+    * { scrollbar-width: thin; scrollbar-color: rgba(0, 240, 255, 0.45) var(--bg-deep); }
+    /* ...and the four strips that hide their bar keep hiding it, since the
+       `display: none` they rely on is a pseudo-element rule this engine also
+       cannot see. */
+    .pl-queue b, .pl-notch b, .pl-mods, .guide__tabs { scrollbar-width: none; }
+  }
+}
+
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
    actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):

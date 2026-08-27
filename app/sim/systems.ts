@@ -4293,6 +4293,188 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
 }
 
 // ---------------------------------------------------------------------------
+section("The scrollbar's chrome (app.css ::-webkit-scrollbar)");
+// Every assertion here guards something sim/uifit STRUCTURALLY CANNOT SEE, and
+// that is the reason the section exists rather than a preference for reading
+// CSS. Playwright launches headless Chromium with `--hide-scrollbars`
+// (node_modules/playwright-core/.../chromium.js), so across all 20 device rows
+// and every fixture the harness measures a layout in which no scrollbar is
+// drawn and none takes space. It cannot tell a styled bar from an unstyled one,
+// and — the part that matters — it cannot tell a bar that costs a phone 10px of
+// pane width from one that costs nothing. Measured by hand with that flag
+// turned back off: a coarse-pointer scroller is 0px of gutter unstyled and 10px
+// once any ::-webkit-scrollbar width exists; a fine-pointer one is 15px stock
+// and 10px styled.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Brace-match the @media (pointer: fine) block that holds the scrollbar
+  // rules, so the checks below can ask what is INSIDE it rather than merely
+  // what is somewhere in the file.
+  const gateAt = bare.search(/@media\s*\(pointer:\s*fine\)\s*\{(?=[\s\S]{0,600}::-webkit-scrollbar)/);
+  check("the scrollbar chrome is gated behind pointer: fine", gateAt >= 0,
+    "no `@media (pointer: fine)` block contains the scrollbar rules — every " +
+    "touch pane would swap its free overlay bar for a 10px one");
+  let gated = "";
+  if (gateAt >= 0) {
+    let depth = 0, j = bare.indexOf("{", gateAt);
+    for (; j < bare.length; j++) {
+      if (bare[j] === "{") depth++;
+      else if (bare[j] === "}" && --depth === 0) break;
+    }
+    gated = bare.slice(gateAt, j + 1);
+  }
+
+  // The report named the arrow buttons specifically. They are also the one part
+  // of the stock bar that is a CONTROL — under the 44px floor this app holds
+  // everywhere else, and redundant with wheel, drag and keyboard.
+  check("the stock arrow buttons are gone",
+    /::-webkit-scrollbar-button\s*\{[^}]*display:\s*none/.test(gated),
+    "no ::-webkit-scrollbar-button { display: none } inside the gate");
+
+  // THE TRAP, pinned. Chromium gives `scrollbar-color` precedence over the
+  // pseudo-elements and discards them when both are set, so declaring the
+  // standards pair "as a fallback" alongside would silently throw the whole
+  // block away on the exact engine the report came from. It is therefore only
+  // legal inside a feature query that Chromium fails.
+  const colourDecls = [...bare.matchAll(/scrollbar-color\s*:/g)].length;
+  const inSupports = [...bare.matchAll(
+    /@supports\s+not\s+selector\(\s*::-webkit-scrollbar\s*\)\s*\{[\s\S]*?scrollbar-color\s*:/g,
+  )].length;
+  check("scrollbar-color is only ever set where ::-webkit-scrollbar does not exist",
+    colourDecls > 0 && colourDecls === inSupports,
+    `${colourDecls} declaration(s), ${inSupports} inside the feature query`);
+
+  // The four strips that scroll horizontally BY DESIGN and hide their bar — the
+  // piece queue, the notch tally, the mods row and the guide's tab rail. The
+  // blanket `*::-webkit-scrollbar` would give all four a visible channel; what
+  // stops it is that each says `display: none` from a class selector, which
+  // outranks `*`. That is a specificity argument, and a specificity argument
+  // that nothing checks is a specificity argument waiting to be lost.
+  for (const sel of [".pl-queue b", ".pl-notch b", ".pl-mods", ".guide__tabs"]) {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    check(`${sel} still hides its own scrollbar`,
+      new RegExp(`${esc}(,[^{]*)?::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare)
+        || new RegExp(`[^{]*,\\s*${esc}::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare),
+      "the blanket rule would give it a visible channel");
+  }
+
+  // Colours come from the palette, not from fresh values invented in this
+  // section — the same rule the rest of the stylesheet is held to. The track and
+  // corner take a surface token; the thumb takes the accent, either as a token
+  // or as the rgba() of it the stylesheet already uses for accent washes.
+  const scrollbarBgs = [...gated.matchAll(/background(?:-color)?:\s*([^;]+);/g)].map((m) => m[1].trim());
+  const ACCENT_RGBA = "rgba(0, 240, 255";
+  const fromPalette = (v: string): boolean =>
+    v.startsWith("var(--") || v.startsWith(ACCENT_RGBA) || v === "transparent";
+  const strays = scrollbarBgs.filter((v) => !fromPalette(v));
+  check("the scrollbar's colours all come from the palette",
+    scrollbarBgs.length > 0 && strays.length === 0, strays.join(" | "));
+
+  // Square, not a pill. The largest radius anywhere in tokens.css is 3px, and a
+  // rounded thumb was half of why the stock bar read as borrowed chrome.
+  const radii = [...gated.matchAll(/border-radius:\s*var\(--r-(sm|md)\)/g)].length;
+  check("the thumb keeps the design system's square corner", radii > 0,
+    "the thumb's border-radius is not one of the --r-* tokens");
+
+  // --- CONTRAST, RECOMPUTED ------------------------------------------------
+  // WCAG 2.2 SC 1.4.11 asks 3:1 of a non-text UI component against the colour
+  // it sits on. The thumb sits on its own track, both are written as alphas
+  // over a token, and NEITHER number is legible by reading the stylesheet —
+  // `rgba(0, 240, 255, 0.22)` looks like a perfectly reasonable resting cyan
+  // and is in fact 1.60:1, which is how it shipped to review. So the ratios are
+  // derived here, from the alphas in app.css and the token in tokens.css, and
+  // the stylesheet's own comment table is the thing under test.
+  //
+  // Nothing here can be satisfied by editing a comment, and nothing about it is
+  // reachable from sim/uifit — Playwright hides scrollbars outright, so this is
+  // the only place in the repo where the bar's colours are checked at all.
+  const chan = (h: string): [number, number, number] =>
+    [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  // The palette itself, because the alphas in app.css are meaningless without
+  // the two colours they interpolate between.
+  const paletteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const deepHex = paletteSrc.match(/--bg-deep:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  const accentHex = paletteSrc.match(/--accent:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  check("the scrollbar's two source colours are still tokens", !!deepHex && !!accentHex,
+    `${deepHex ?? "no --bg-deep"} / ${accentHex ?? "no --accent"}`);
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = ([r, g, b]: [number, number, number]): number =>
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const contrast = (a: [number, number, number], b: [number, number, number]): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const track = chan(deepHex ?? "#000000");
+  const accent = chan(accentHex ?? "#ffffff");
+  const composite = (alpha: number): [number, number, number] =>
+    accent.map((c, i) => Math.round(c * alpha + track[i] * (1 - alpha))) as [number, number, number];
+
+  // The three states, read in source order out of the gated block: the bare
+  // thumb rule, then :hover, then :active (which is the token at full opacity).
+  const alphaOf = (decl: string): number | null => {
+    const m = decl.match(/rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/);
+    if (m) return Number(m[1]);
+    return /var\(--accent\)/.test(decl) ? 1 : null;
+  };
+  const thumbDecls = [...gated.matchAll(/::-webkit-scrollbar-thumb(:[a-z]+)?\s*\{[^}]*?background:\s*([^;]+);/g)]
+    .map((m) => ({ state: m[1] ?? ":rest", alpha: alphaOf(m[2]) }));
+  check("all three thumb states are readable as an accent alpha",
+    thumbDecls.length === 3 && thumbDecls.every((d) => d.alpha !== null),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" "));
+
+  const WCAG_NON_TEXT = 3;
+  const rest = thumbDecls[0]?.alpha ?? 0;
+  check("the RESTING thumb clears the 3:1 non-text contrast floor against its track",
+    contrast(composite(rest), track) >= WCAG_NON_TEXT,
+    `alpha ${rest} composites to rgb(${composite(rest).join(", ")}) = ` +
+      `${contrast(composite(rest), track).toFixed(2)}:1`);
+  // Rest is the one that matters most and the one that was wrong: a control has
+  // to be FOUND before it can be hovered, so a bright hover cannot stand in for
+  // a dim rest. Asserted separately from the ramp below for exactly that reason.
+
+  // ...and the ramp above it still reads as three states. Each step is measured
+  // against the previous state rather than against the track, because what is
+  // being checked is whether the CHANGE is perceivable, not whether the end
+  // point is legible.
+  const STEP_MIN = 1.5;
+  for (let i = 1; i < thumbDecls.length; i++) {
+    const prev = composite(thumbDecls[i - 1]!.alpha ?? 0);
+    const here = composite(thumbDecls[i]!.alpha ?? 0);
+    check(`the thumb's ${thumbDecls[i]!.state} state steps visibly up from ${thumbDecls[i - 1]!.state}`,
+      contrast(here, prev) >= STEP_MIN,
+      `${contrast(here, prev).toFixed(2)}:1 between rgb(${prev.join(", ")}) and rgb(${here.join(", ")})`);
+  }
+  // Monotonic, so "climbs on approach" stays true and a future edit cannot
+  // leave hover dimmer than rest while both individually pass.
+  check("the thumb only ever gets brighter towards the pointer",
+    thumbDecls.every((d, i) => i === 0 || (d.alpha ?? 0) > (thumbDecls[i - 1]!.alpha ?? 0)),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" < "));
+
+  // FIREFOX GETS NO RAMP. `scrollbar-color` names one thumb colour and offers
+  // the page no hover or active selector, so that single value is the whole
+  // control's contrast for its whole life and has to clear the floor by itself.
+  const ffAlpha = bare.match(/scrollbar-color:\s*rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/)?.[1];
+  check("the Firefox fallback names its thumb as an accent alpha too", ffAlpha !== undefined,
+    "no rgba() thumb in the scrollbar-color declaration");
+  const ff = Number(ffAlpha ?? 0);
+  check("...and clears 3:1 on its own, having no hover state to climb to",
+    contrast(composite(ff), track) >= WCAG_NON_TEXT,
+    `alpha ${ff} composites to rgb(${composite(ff).join(", ")}) = ` +
+      `${contrast(composite(ff), track).toFixed(2)}:1`);
+}
+
+// ---------------------------------------------------------------------------
 section("HUD readout widths (the $1000+ wrap regression)");
 // ---------------------------------------------------------------------------
 {
