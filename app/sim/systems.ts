@@ -72,13 +72,23 @@ import {
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
-  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
+  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
+// Node has no localStorage, so telemetry.recording() is false here and nothing
+// in this module records — which is exactly what makes runMode safe to import:
+// it is a pure tag function, and it is the one thing sim/playtest.ts's whole
+// grouping turns on.
+import * as telemetry from "../src/lib/telemetry";
 import {
-  FINALS, FINAL_MATERIAL_CAP, applyFinal, finalById, finalsForTier, type FinalId,
+  CLAUSE_STOPS, clauseDefs, dealableAt, schedulesDeadCargo, skydeckRulesFor, skydeckRunFor,
+  skydeckSeed,
+} from "../src/game/skydeck";
+import {
+  FINALS, FINAL_MATERIAL_CAP, applyFinal, applyFinals, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
 import {
-  dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
+  dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
   contractSlotBed, CONTRACT_BED_TOP_BASE,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
@@ -6595,6 +6605,403 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
     const orphans = FINALS.filter((f) => !UPGRADES.some((u) => u.id === f.system));
     check("every clause names a real ship system", orphans.length === 0,
       orphans.map((f) => `${f.id} -> ${f.system}`).join(", "));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
+// ---------------------------------------------------------------------------
+{
+  const skyRun = (levelIndex = 0, d = new Date(Date.UTC(2026, 7, 27))): RunState =>
+    ({ ...skydeckRunFor(newTiers(), [], d), levelIndex });
+
+  // ---- THE DAY IS THE RUN -------------------------------------------------
+  // Two players who open the Skydeck on the same UTC day must fly the same
+  // thing, which is the whole reason it has a seed at all rather than
+  // Date.now(). Checked across the rollover in both directions, because "the
+  // same day" is a claim about a boundary and a boundary is where an off-by-one
+  // lives.
+  {
+    const a = new Date(Date.UTC(2026, 7, 27, 0, 0, 1));
+    const b = new Date(Date.UTC(2026, 7, 27, 23, 59, 59));
+    const c = new Date(Date.UTC(2026, 7, 28, 0, 0, 1));
+    check("one UTC day deals one Skydeck run",
+      skydeckSeed(a) === skydeckSeed(b) && JSON.stringify(skydeckRulesFor(a).clauses)
+        === JSON.stringify(skydeckRulesFor(b).clauses));
+    check("the next day deals a different seed", skydeckSeed(b) !== skydeckSeed(c));
+    // Shares a DATE with the Contract board, not a stream: the two dailies must
+    // roll over at the same instant, and must not correlate.
+    check("the Skydeck rolls over with the Contract board", dailySeed(a) === dailySeed(b));
+    check("the Skydeck's stream is not the Contract board's",
+      skydeckSeed(a) !== dailySeed(a));
+  }
+
+  // ---- NO YARD ------------------------------------------------------------
+  // "You play with the rig you have." Every bay of every Skydeck run, against
+  // the ladder run that opens a stop on three of them.
+  {
+    const sky = skyRun();
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    const skyStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
+      .filter((i) => refitAfterBay(sky, i));
+    const ladderStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
+      .filter((i) => refitAfterBay(ladder, i));
+    check("a Skydeck run opens no refit stop", skyStops.length === 0, skyStops.join(","));
+    check("...where the ladder run it sits above opens three",
+      ladderStops.length === 3, ladderStops.join(","));
+    check("and the draft is told there is no stop coming",
+      baysUntilRefitFor(sky) === null && baysUntilRefitFor(ladder) !== null);
+  }
+
+  // ---- ONE NOTCH A BAY ----------------------------------------------------
+  // At the capstone Mark, where the LADDER's own rule is two (picksPerBay). The
+  // Skydeck pays that pressure in standing clauses instead, and charging both
+  // would charge twice for one rung.
+  {
+    const sky = skyRun();
+    check("the Skydeck charges one notch a bay", picksForRun(sky) === SKYDECK_PICKS_PER_BAY);
+    check("...at a Mark whose ladder rule is two",
+      sky.mark === CAPSTONE_MARK && picksPerBay(sky.mark) === 2
+        && picksForRun(newRun(7, [], 0, newTiers(), CAPSTONE_MARK)) === 2);
+    // The hand is still one card bigger than the picks — hazards.ts's rule, and
+    // the one thing that makes a draft a draft rather than a bill. Checked on
+    // every bay a Skydeck run drafts on, forced-material bays included.
+    const thin: number[] = [];
+    for (let i = 0; i < RUN_LEVELS - 1; i++) {
+      const hand = hazardOffers(sky.seed, i, sky.mark, undefined, sky.ratchets);
+      if (hand.length <= SKYDECK_PICKS_PER_BAY) thin.push(i + 1);
+    }
+    check("every Skydeck hand is bigger than its picks", thin.length === 0, thin.join(","));
+  }
+
+  // ---- NO DRAFTED INSPECTION ----------------------------------------------
+  // The clauses are the DAY's, so the last draft of a Skydeck run is an
+  // ordinary notch. A run that dealt both would charge for the inspection twice.
+  {
+    const sky = skyRun(RUN_LEVELS - 2);
+    const ladder = { ...newRun(7, [], 0, newTiers(), MARK_COUNT), levelIndex: RUN_LEVELS - 2 };
+    check("the Skydeck never deals the drafted inspection", !finalDraftFor(sky));
+    check("...where the ladder run does", finalDraftFor(ladder));
+  }
+
+  // ---- THE STOPS ----------------------------------------------------------
+  {
+    check("every stop is a real bay",
+      CLAUSE_STOPS.every((s) => s.fromBay >= 1 && s.fromBay <= RUN_LEVELS),
+      CLAUSE_STOPS.map((s) => s.fromBay).join(","));
+    check("the stops arm in order",
+      CLAUSE_STOPS.every((s, i) => i === 0 || s.fromBay > CLAUSE_STOPS[i - 1].fromBay));
+    // DERIVED from the yard's spacing, not typed out: a stop is the bay a Deep
+    // Run would have opened on a fresh rig, and a ladder that re-spaces its
+    // refits has to re-space these with it.
+    check("the stops are the bays after the yard's own",
+      CLAUSE_STOPS.every((s, i) => s.fromBay === REFIT_EVERY * (i + 1) + 1),
+      CLAUSE_STOPS.map((s) => s.fromBay).join(","));
+    check("every stop can deal at least two different clauses",
+      CLAUSE_STOPS.every((_, i) => new Set(dealableAt(i).map((f) => f.id)).size >= 2),
+      CLAUSE_STOPS.map((_, i) => dealableAt(i).length).join(","));
+  }
+
+  // ---- DEAD CARGO IS NEVER A STANDING RULE --------------------------------
+  // Slag is the one material with no passive counter — a dead cube leaves the
+  // field by Demolition or not at all (theme.ts's countsForLines). hazards.ts
+  // already refuses to FORCE it; a clause the day deals is a forced pick with
+  // no seat to dodge into, so the same rule has to hold here.
+  //
+  // Asserted as the PROPERTY, not as "tier 6 is excluded": a clause added later
+  // that schedules dead cargo has to be caught by this without anyone
+  // remembering the rule exists.
+  {
+    const offenders: string[] = [];
+    CLAUSE_STOPS.forEach((stop, i) => {
+      if (stop.fromBay >= RUN_LEVELS) return; // one bay of exposure — see below
+      for (const def of dealableAt(i)) {
+        if (schedulesDeadCargo(def)) offenders.push(`bay ${stop.fromBay}: ${def.id}`);
+      }
+    });
+    check("no clause that stands for more than one bay schedules dead cargo",
+      offenders.length === 0, offenders.join(" · "));
+    // The rule really has teeth: the table it filters DOES contain such
+    // clauses, so a check that passed on an empty filter would be checking
+    // nothing.
+    check("...and the table it filters really contains some",
+      FINALS.some((f) => schedulesDeadCargo(f)),
+      FINALS.filter((f) => schedulesDeadCargo(f)).map((f) => f.id).join(", "));
+    // The LAST stop is the exception, deliberately: it rides exactly one bay,
+    // which is the same exposure a Deep Run's Final Inspection gives the
+    // capstone pair (finals.ts).
+    check("the last stop still deals the capstone pair",
+      dealableAt(CLAUSE_STOPS.length - 1).map((f) => f.id).sort().join(",")
+        === finalsForTier(MARK_COUNT).map((f) => f.id).sort().join(","));
+  }
+
+  // ---- THE CLAUSES ACTUALLY STAND -----------------------------------------
+  // Each one applies from its own bay and every bay after it, and NOT before.
+  // A clause that leaked backwards would rewrite a bay the player already flew;
+  // one that stopped applying would be a cost the day charged and never
+  // collected.
+  {
+    const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
+    let early = 0;
+    let missing = 0;
+    for (const c of rules.clauses) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        const active = standingClauses(skyRun(i));
+        if (i < c.from && active.includes(c.id)) early += 1;
+        if (i >= c.from && !active.includes(c.id)) missing += 1;
+      }
+    }
+    check("no clause applies before its own bay", early === 0, `${early}`);
+    check("every clause applies from its bay to the end", missing === 0, `${missing}`);
+    check("the last bay carries the whole stack",
+      standingClauses(skyRun(RUN_LEVELS - 1)).length === CLAUSE_STOPS.length);
+    // …and each one MOVES the bay. A dealt cost that changed nothing would be
+    // the same failure finals.ts pins for its own pair.
+    const inert: string[] = [];
+    for (const c of rules.clauses) {
+      const at = skyRun(c.from);
+      const without = levelForRun({
+        ...at,
+        skydeck: { ...at.skydeck!, clauses: rules.clauses.filter((x) => x !== c) },
+      });
+      if (JSON.stringify(without) === JSON.stringify(levelForRun(at))) inert.push(c.id);
+    }
+    check("every standing clause changes the bay it arms on", inert.length === 0, inert.join(", "));
+  }
+
+  // ---- THE BELT SURVIVES THE STACK ----------------------------------------
+  // finals.ts caps ONE clause against MIX_TOTAL_CAP. Three clauses on the same
+  // bay, on top of nine notches poured into the materials none of them writes,
+  // is the arrival that can push past it — the same worst case the Final
+  // Inspection section constructs, with three cards instead of one.
+  {
+    let worst = 0;
+    let worstAt = "";
+    const contentAxes = hazardsForMark(MARK_COUNT).filter((h) => h.kind === "content");
+    for (let day = 0; day < 60; day++) {
+      const d = new Date(Date.UTC(2026, 7, 27 + day));
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        // Pour every notch into content axes — the arrival that arrives with
+        // the belt already full, so the clauses land on top of a cap.
+        const ratchets: Ratchets = {};
+        for (let n = 0; n < i; n++) {
+          const a = contentAxes[n % contentAxes.length];
+          ratchets[a.id] = (ratchets[a.id] ?? 0) + 1;
+        }
+        const cfg = levelForRun({ ...skydeckRunFor(newTiers(), [], d), levelIndex: i, ratchets });
+        const total = mixTotal(cfg.materialMix);
+        if (total > worst) { worst = total; worstAt = `${dailySeed(d)} bay ${i + 1}`; }
+      }
+    }
+    // At or under the ceiling everywhere EXCEPT where the capstone's full-belt
+    // pair states the whole belt (finals.ts: total 1 is that pair's authored
+    // case, and belt.ts's spacing rule deliberately stands down for it).
+    check("the stacked belt never exceeds the ceiling, bar the full-belt pair",
+      worst <= MIX_TOTAL_CAP + 1e-9 || Math.abs(worst - 1) < 1e-9,
+      `worst ${worst.toFixed(3)} at ${worstAt}`);
+  }
+
+  // ---- THE MODE SURVIVES A BAY BOUNDARY -----------------------------------
+  // advanceRun rebuilds the run field by field, so a rebuild that dropped
+  // `skydeck` would open the yard, double the notch quota and stop applying the
+  // day's clauses — all at the first bay boundary, and all silently.
+  {
+    const after = advanceRun(skyRun(0), 900, 780, 6, 40, ["time"]);
+    check("the mode survives advanceRun", after.skydeck !== null);
+    check("...with the same clauses",
+      JSON.stringify(after.skydeck) === JSON.stringify(skyRun(0).skydeck));
+    check("...and the Skydeck still refuses the yard and the second notch",
+      !refitAfterBay(after, after.levelIndex) && picksForRun(after) === SKYDECK_PICKS_PER_BAY);
+    // A ladder run is untouched by any of this.
+    const ladderAfter = advanceRun(newRun(7, [], 0, newTiers(), MARK_COUNT), 900, 780, 6, 40, ["time"]);
+    check("a ladder run stays a ladder run", ladderAfter.skydeck === null);
+  }
+
+  // ---- A LADDER RUN IS UNCHANGED ------------------------------------------
+  // The whole feature is additive or it is a regression. Every bay of a ladder
+  // run at every Mark must build byte-identically to what it built before the
+  // mode existed, which is what `skydeck: null` short-circuiting every one of
+  // the four predicates is FOR.
+  {
+    let moved = 0;
+    for (let mark = 1; mark <= MARK_COUNT; mark++) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        const run = { ...newRun(7, [], 0, newTiers(), mark), levelIndex: i };
+        const cfg = levelForRun(run);
+        // The same config built the long way round: base, ship, ratchets, and
+        // the single final clause — i.e. everything levelForRun does EXCEPT the
+        // standing-clause line this change added.
+        const manual = applyRatchets(makeBaseLevel(i, mark), {});
+        if (i === RUN_LEVELS - 1) applyFinal(manual, run.final);
+        manual.bondBreakerCharges = Math.max(0, run.bondCharges);
+        if (JSON.stringify(cfg) !== JSON.stringify(manual)) moved += 1;
+      }
+    }
+    check("a ladder run's bays are untouched by the mode", moved === 0, `${moved}`);
+  }
+
+  // ---- applyFinals: the stack's own rules ---------------------------------
+  {
+    // Order-independence. Which bay a clause was signed on must not change the
+    // bay it is flown on, so applyFinals sorts by tier rather than by argument
+    // order.
+    const ids: FinalId[] = ["cold-chain", "tight-gauge", "odd-lots"];
+    const a = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    const b = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    applyFinals(a, ids);
+    applyFinals(b, [...ids].reverse());
+    check("a stack is order-independent", JSON.stringify(a) === JSON.stringify(b));
+
+    // A clause signed twice is one clause. Applying it twice would double a
+    // floor the card states as a floor.
+    const once = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    const twice = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    applyFinals(once, ["rush-order"]);
+    applyFinals(twice, ["rush-order", "rush-order"]);
+    check("a duplicate clause applies once", JSON.stringify(once) === JSON.stringify(twice));
+
+    // The one-clause case is exactly what applyFinal always did.
+    const disagreed: string[] = [];
+    for (const f of FINALS) {
+      const viaOne = makeBaseLevel(RUN_LEVELS - 1, f.tier);
+      const viaMany = makeBaseLevel(RUN_LEVELS - 1, f.tier);
+      applyFinal(viaOne, f.id);
+      applyFinals(viaMany, [f.id]);
+      if (JSON.stringify(viaOne) !== JSON.stringify(viaMany)) disagreed.push(f.id);
+    }
+    check("applyFinal is applyFinals' one-clause case",
+      disagreed.length === 0, disagreed.join(", "));
+
+    // NO CLAUSE IS EATEN BY ANOTHER. The re-cap holds everything the STACK
+    // raised, so a material clause stacked under a second one still delivers at
+    // least the rate its card quotes — the "a mandatory cost that can be
+    // pre-paid is not a cost" rule, read at stack scope.
+    {
+      const stacked = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+      applyFinals(stacked, ["cold-chain", "tar-run"]);
+      const alone = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+      applyFinals(alone, ["cold-chain"]);
+      check("a stacked clause is not scaled below its own rate",
+        stacked.materialMix.cryo >= alone.materialMix.cryo - 1e-9,
+        `${stacked.materialMix.cryo.toFixed(3)} vs ${alone.materialMix.cryo.toFixed(3)}`);
+    }
+  }
+
+  // ---- THE LADDER IS NEVER TICKED BY A DAILY ------------------------------
+  // Found in review (PR #124). meta.ts's recordRunEnd ticks the tier at
+  // markUnlocked(meta), and markUnlocked SATURATES at MARK_COUNT — while the
+  // Skydeck opens only once the whole ladder is beaten. So every player who can
+  // reach the roof is parked on that saturated tier, and an unguarded daily win
+  // set tierRunDone, banked a tier milestone's salvage and printed Tier 10
+  // completion copy, every day, for as long as they kept winning.
+  //
+  // run.ts's tracksLadder is the rule, and it is what main.ts's finishRun
+  // branches on — no harness can call that method, so the predicate is what
+  // gets pinned, with the meta identity asserted THROUGH it so a predicate that
+  // started answering "yes" fails here rather than in a save file.
+  {
+    const beaten: MetaState = {
+      // The arrival that makes the bug reachable: the ladder finished, so
+      // markUnlocked saturates and the "tier in progress" is Mark 10 again.
+      ...newMeta(), mark: MARK_COUNT, salvage: 40,
+    };
+    check("the arrival is the one that opens the Skydeck",
+      markUnlocked(beaten) === MARK_COUNT && beaten.mark >= MARK_COUNT);
+
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck run does not track the ladder", !tracksLadder(sky));
+    check("...where a ladder run at the same Mark does", tracksLadder(ladder));
+    check("...and Tier S still does not either",
+      !tracksLadder({ ...ladder, sandbox: true }));
+
+    // finishRun's branch, exactly: tick only when the run tracks the ladder.
+    const finish = (run: RunState, won: boolean): MetaState =>
+      tracksLadder(run)
+        ? recordRunEnd(beaten, run.mark, won, RUN_LEVELS, 0).meta
+        : beaten;
+
+    // The control first — without it "nothing moved" could mean the arrival was
+    // inert rather than that the gate held.
+    check("a ladder win at that Mark really would tick it",
+      JSON.stringify(finish(ladder, true)) !== JSON.stringify(beaten)
+        && finish(ladder, true).tierRunDone && !beaten.tierRunDone);
+    // Compared as JSON rather than field by field, because the failure is a
+    // whole function running that should not have: `runs`, `bestBay`,
+    // `salvage`, `tierRunDone` and `sealedMarks` all move in it, and a check
+    // that listed today's fields would pass the day a sixth is added.
+    check("a Skydeck win leaves the ladder's meta byte-identical",
+      JSON.stringify(finish(sky, true)) === JSON.stringify(beaten));
+    check("...and so does a Skydeck loss",
+      JSON.stringify(finish(sky, false)) === JSON.stringify(beaten));
+    // The seal is the half NOT gated on the Mark being current (recordRunEnd's
+    // `sealed`), so it is the one an "it is already done at Mark 10" argument
+    // would have missed.
+    check("a Skydeck run never seals a Mark",
+      finish(sky, true).sealedMarks.length === 0
+        && recordRunEnd(beaten, MARK_COUNT, true, RUN_LEVELS, 0).meta.sealedMarks.length === 1);
+  }
+
+  // ---- THE ANALYSER IS TOLD WHICH MODE IT IS LOOKING AT --------------------
+  // Also found in review. A Skydeck bay carries mark 10 and a clock, so nothing
+  // else about its telemetry record tells it apart from an ordinary Mark-10
+  // Deep Run bay — and sim/playtest.ts's medians are what the tier ladder is
+  // tuned against. Fixed daily seed, no refit behind it and standing clauses on
+  // it, pooled into those medians, is corrupted balance data.
+  {
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck bay is tagged as its own mode",
+      telemetry.runMode(sky) === "skydeck", telemetry.runMode(sky));
+    check("...and a ladder bay is still tagged run",
+      telemetry.runMode(ladder) === "run", telemetry.runMode(ladder));
+    // The two runs are otherwise indistinguishable to the record, which is why
+    // the tag has to exist at all.
+    check("...on two runs the record could not otherwise tell apart",
+      sky.mark === ladder.mark && telemetry.runMode(sky) !== telemetry.runMode(ladder));
+  }
+
+  // ---- THE SCREENS SAY WHAT THE RUN DOES ----------------------------------
+  {
+    const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
+    const listed = clauseDefs(rules);
+    check("the menu lists one row per stop", listed.length === CLAUSE_STOPS.length);
+    check("...naming the bay each arms on",
+      listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
+      listed.map((r) => r.bay).join(","));
+    // The draft's third bank cell is the clause tally INSTEAD of scrap, because
+    // a scrap readout on a mode with no yard can only ever be 0.
+    const draft = S.draftScreen({
+      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
+      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 0, baysToRefit: null,
+      standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
+    });
+    check("the Skydeck draft counts clauses where the ladder counts scrap",
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && !/Scrap/.test(draft));
+    const ladderDraft = S.draftScreen({
+      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
+      picksNeeded: 2, preview: [], scrap: 40, baysToRefit: 2,
+    });
+    check("...and the ladder draft still counts scrap", /Scrap/.test(ladderDraft));
+    // The bay-clear card is the ONE screen between the bay that earned a clause
+    // and the projection whose numbers it has already moved.
+    const armed = S.bayClearScreen({
+      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 0,
+      slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },
+    });
+    check("the bay-clear card announces the arming clause",
+      armed.includes("Cold Chain") && armed.includes("from Bay 4"));
+    // ...and takes the SCRAP slot to do it, rather than growing the card. The
+    // card is centred in a fixed viewport with no scroller: a fourth row put
+    // the HUD's own controls off the bottom of the 640x360 phone (sim/uifit).
+    check("...in the slot the scrap payout would have had",
+      !/scrap/i.test(armed) && (armed.match(/class="stat/g) ?? []).length === 3);
+    check("...and says nothing on a ladder clear",
+      /scrap/i.test(S.bayClearScreen({
+        bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,
+      })));
   }
 }
 

@@ -41,6 +41,9 @@ problem with the same work.
 | Daily cap | yes (see below) | **never** |
 | Role | training, economy, the daily habit | the exam |
 
+(There is a third floor above both — **the Skydeck**, the daily fixed run. It is
+a Deep Run variant rather than a mode of its own; see its section below.)
+
 Contracts deliberately strip out time and money pressure. They are meant to be
 the *easy, positive, replayable* half — challenges you return to, not a thing
 that can beat you. A puzzle you can be rushed out of isn't a puzzle. What
@@ -362,6 +365,96 @@ Beyond the tier ladder above and the existing `makeBaseLevel(i)` ramp:
 - **Launch budgets** — see below.
 - **Materials** — one new type per Mark, in both pools.
 - **Hazards** — lowering ceiling, tilted floor, drifting conveyor, two-sided press.
+
+## The Skydeck — the day's run
+
+The floor above the ladder (`src/game/skydeck.ts`), open once every Mark is
+beaten. It is a Mark-10 Deep Run with three rules changed, and each of the three
+takes away a lever the rest of the game hands the player:
+
+| | **Deep Run** | **Skydeck** |
+|---|---|---|
+| Seed | a fresh roll every run | **the date** — one run a day, shared by everyone |
+| Refit stops | after bays 3 / 6 / 9 | **none** — you fly the rig you brought |
+| Notches | 1 a bay, 2 at the capstone | **1 a bay**, at that same capstone Mark |
+| Final Inspection | one clause, drafted, bay 10 | **three clauses, dealt, standing** from bays 4 / 7 / 10 |
+| Board | the Mark's own | the Mark-10 board (see below) |
+
+The seed is `contracts.ts`'s own daily key put through a salt, so the Skydeck
+and the Contract board roll over at the same instant and share a date without
+sharing a stream. The point is the point the Contract board already makes: a
+daily means nothing unless everyone flew the same thing.
+
+**The clauses are dealt, not drafted**, and that is the decision most worth
+arguing. Dealing the tier's pair at each stop and letting the player sign one is
+the obvious shape and it loses twice over: three of the nine drafts would ask
+for a clause *instead* of a notch (so six bays would ratchet and three would
+not, and the mode's whole promise is that the ratchet never stops and never
+doubles), and two players who signed differently did not fly the same run, which
+is exactly what the daily seed exists to prevent. The day writes the contract;
+the player flies it. What stays theirs is every notch and every shot.
+
+**The stops are the yard's own schedule read backwards.** Refits land after bays
+3 / 6 / 9, so bays 4 / 7 / 10 are precisely the bays a Deep Run opens on a fresh
+rig. Those are the three the Skydeck opens on a fresh clause instead — one line
+of the loop deleted and the other written in its place, at the same three
+places. `CLAUSE_STOPS` is derived from `REFIT_EVERY` so a re-spaced yard
+re-spaces the inspections with it.
+
+**Bands are ordered by exposure**, because a Final clause is priced against ONE
+bay and a standing clause is that cost times the bays it rides. Stop 1 stands
+for seven bays and draws from Tiers 2–3, the *conditions* tiers — none of them
+touches the bay's books, which is what makes them safe to repeat. Tier 1 is
+excluded on arithmetic: Rush Order's flat +$750 is a 66% quota raise on Mark
+10's bay 4 and still 41% on bay 10. Stop 2 stands for four bays and draws from
+Tiers 4–9. Stop 3 rides one bay and is the capstone pair, on exactly the bay
+`finals.ts` reserves the full-belt clauses for.
+
+**Dead cargo is never dealt as a standing rule.** Slag is the one material with
+no passive counter, and `hazards.ts` already refuses to *force* it; a dealt
+clause is a forced pick with no seat to dodge into. The rule is derived by
+applying the clause and reading the belt (`schedulesDeadCargo`), not by listing
+ids, so a clause added later is covered without anyone remembering.
+
+**Measured** (`npx tsx sim/skydeck.ts --stops all --rigs economy --seeds 3`, aim
+bot, bays 1/4/7/10, carry $150; every combination the bands can deal). Priced at
+**Mark 6**, because Mark 10 already reads 0% run-clear on this instrument and a
+control on the floor cannot show a change — the Mark-10 rows give the sign, the
+Mark-6 rows give the size. Mean per-bay win rate:
+
+| | ladder control | Skydeck bare | worst day | median day | best day |
+|---|---|---|---|---|---|
+| Mark 6 | 59% | 84% | 25% | 50% | 92% |
+| Mark 10 | 25% | 58% | 17% | 33% | 67% |
+
+So the three clauses cost about 34 points of mean per-bay rate off the bare
+mode, landing the median day either side of the shipped ladder run it sits
+above, with a real day-to-day spread — which is what a daily wants. **No single
+clause is a wall**: the per-clause report card runs 37–64% at Mark 6 and 24–47%
+at Mark 10, none at zero. The slag pair *was* a wall (bays 7 and 10 to 0%,
+every seed) and is the measurement the dead-cargo rule above came from.
+
+**It moves no ladder state.** `recordRunEnd` ticks the tier at
+`markUnlocked(meta)`, which *saturates* at `MARK_COUNT` — and the Skydeck opens
+only once the ladder is beaten, so every player who can reach the roof is parked
+on that saturated tier. Unguarded, a daily win would set `tierRunDone`, bank a
+tier milestone's salvage and print Tier 10 completion copy *every day*, and
+would claim the Mark-10 seal besides (`sealed` is deliberately not gated on the
+Mark being current). So a Skydeck ending skips the bookkeeping entirely —
+`run.ts`'s `tracksLadder` is the one statement of it, shared with Tier S — and
+keeps only the score. Its telemetry is tagged `mode: "skydeck"` for the same
+class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
+about the record tells it apart from an ordinary Mark-10 bay, and pooled into
+`sim/playtest.ts` it would corrupt the medians the tier ladder is tuned against.
+
+Two things are deliberately NOT in the first cut, and both are recorded rather
+than forgotten. A Skydeck run files to the **Mark-10 board**, because a
+per-day board needs a schema column the leaderboard does not have and a mixed
+all-time board would rank days rather than players; a harder run landing on an
+easier board can only ever under-rank itself, which is the safe direction. And
+the run is **replayable all day** — the seed is the date, so a retry deals the
+identical run, which is the daily's whole texture (you learn today's run) and
+needs no new persistence.
 
 ### Uncapping Deep Run
 

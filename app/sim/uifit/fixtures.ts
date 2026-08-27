@@ -27,10 +27,13 @@ import { makeBaseLevel } from "../../src/game/level";
 const BAY_1 = makeBaseLevel(0);
 import { newMeta, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import { MARK_COUNT, MAX_TIER, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
+import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
+import {
+  CLAUSE_STOPS, clauseDefs, skydeckRulesFor, skydeckRunFor,
+} from "../../src/game/skydeck";
 import { dailyContracts } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
@@ -65,6 +68,23 @@ const SETTINGS: Settings = {
 
 const STORE = { available: true, unlimited: false };
 
+/** A FIXED Skydeck day.
+ *
+ *  Everything about the mode is a function of the date (game/skydeck.ts), and a
+ *  fixture that read the clock would measure a different screen every morning —
+ *  which is fine in the app and useless in a harness whose whole output is a
+ *  budget compared against a baseline. One day, chosen and pinned, exactly the
+ *  way every other fixture pins its seed. */
+const SKY_DAY = new Date(Date.UTC(2026, 7, 27));
+/** …and the three rows it puts on the menu's recap panel. Built through the
+ *  same call main.ts makes, so the fixture cannot drift from the app. */
+const SKY_RULES = clauseDefs(skydeckRulesFor(SKY_DAY)).map((c) => ({ bay: c.bay, name: c.def.name }));
+/** The tower with the roof OPEN and the car parked on it — the one state that
+ *  renders the clause list. */
+const SKY_TOWER: S.TowerState = {
+  unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2,
+};
+
 /** The bay-clear ratchet at a given tentative selection. Both sides of the
  *  projection come from levelForRun, exactly as main.ts builds them, so the
  *  harness measures the real number of rows the screen can grow. */
@@ -94,6 +114,45 @@ function draft(selected: HazardId[]): string {
   });
 }
 
+/** The SKYDECK's draft (game/skydeck.ts) — the ratchet screen the daily run
+ *  actually shows.
+ *
+ *  Two things about it are not reachable through `draft` above and both can
+ *  overflow: the bank's third cell counts CLAUSES instead of scrap (a longer
+ *  label than "Scrap · refit in 2"), and the projection is drawn on a bay that
+ *  already carries standing clauses, so more of its rows are pinned than a
+ *  ladder bay's at the same notch count.
+ *
+ *  Bay 7, the second stop, deliberately: it is the one draft where a clause has
+ *  just armed AND another is still coming, so the cell carries its longest
+ *  copy. A FIXED day (2026-08-27) rather than today's, because a fixture that
+ *  re-rolled its own clauses every morning would make this harness's budget a
+ *  function of the calendar — see screens.ts's skydeckRulesHTML.
+ */
+function skydeckDraft(selected: HazardId[]): string {
+  const run = { ...skydeckRunFor(newTiers(), [], SKY_DAY), levelIndex: 6, carry: 120 };
+  const withPicks: Ratchets = { ...HUD_BASE.ratchets };
+  for (const id of selected) withPicks[id] = (withPicks[id] ?? 0) + 1;
+  return S.draftScreen({
+    bayNum: 6,
+    tier: run.mark,
+    funds: 1_820,
+    carry: 120,
+    offers: hazardOffers(run.seed, 6, run.mark, undefined, HUD_BASE.ratchets),
+    ratchets: HUD_BASE.ratchets,
+    selected,
+    picksNeeded: 1,
+    preview: previewRows(
+      levelForRun({ ...run, ratchets: HUD_BASE.ratchets }),
+      levelForRun({ ...run, ratchets: withPicks }),
+      HUD_BASE.ratchets,
+    ),
+    scrap: 0,
+    baysToRefit: null,
+    standing: { active: 2, total: CLAUSE_STOPS.length, nextBay: RUN_LEVELS },
+  });
+}
+
 /**
  * The FORCED-MATERIAL ratchet (hazards.ts's MATERIAL_DRAFT_BAYS) at Tier 10 —
  * the draft's worst case for the CARD TITLE, which is a different worst case
@@ -117,6 +176,13 @@ function draft(selected: HazardId[]): string {
  * This does NOT replace `draft()`, which is the worst case for the PROJECTION
  * (four banked axes, every row pinned ACTIVE) and stays the fixture that
  * measures the modal's height. Two different worst cases, two fixtures.
+ *
+ * Nor does the Skydeck one above replace it, and the three are worth reading
+ * as a set: `draft` is the tallest projection, `materialDraft` the longest
+ * titles, `skydeckDraft` the widest bank label on a clause-loaded bay. A
+ * forced-material Skydeck hand is a real state and is deliberately NOT a fourth
+ * fixture — its cards are this fixture's, at one pick instead of two, so the
+ * title row it measures is already measured here.
  */
 function materialDraft(selected: HazardId[]): string {
   const SEED = 25;
@@ -377,6 +443,14 @@ export const SCREENS: Record<string, () => string> = {
   // reduced-motion / no-2D-context fallback, not an artificial state: it is what
   // a player with "reduce motion" on actually sees.
   menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
+  // THE ROOF PARKED. The recap panel grows a three-row clause list in its
+  // extras slot and the primary button re-labels, on the menu column that is
+  // already the screen's tightest — so this is the tallest that column gets in
+  // any build. Fixed clauses (SKY_DAY) rather than today's: see skydeckDraft.
+  "menu-skydeck": () =>
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, SKY_RULES),
+  "menu-skydeck-live": () =>
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, SKY_RULES)),
   "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE)),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>
@@ -729,6 +803,16 @@ export const SCREENS: Record<string, () => string> = {
     S.bayClearScreen({
       bayNum: 7, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 96,
     }),
+  // The same card on a Skydeck stop, where the third stat names the clause that
+  // just armed instead of the scrap payout. "Bled Hydraulics" deliberately: the
+  // longest clause NAME any standing stop can deal, so a row that fits this
+  // fits every stop.
+  "bayclear-clause": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) +
+    S.bayClearScreen({
+      bayNum: 6, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 0,
+      slot: { value: "Bled Hydraulics", label: "clause \u00b7 from Bay 7" },
+    }),
 
   refit: () => refit({}),
   // The yard with an ORDER STAGED is the taller state, for the same reason
@@ -744,6 +828,21 @@ export const SCREENS: Record<string, () => string> = {
   "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
 
   draft: () => draft([]),
+  // The Skydeck's own draft, both states, for the same reason the ladder's
+  // ships both — and because its bank cell and its clause-loaded projection
+  // are not reachable through the fixtures above.
+  //
+  // THE FIVE SKYDECK FIXTURES ARRIVE CARRYING 26 BASELINE ENTRIES between them,
+  // which is not the usual direction of travel and is worth stating (the same
+  // statement "pause-pad" makes below, for the same reason). Every one of them
+  // is byte-identical to an entry its LADDER twin already records — the tower's
+  // undersized floor plates under `menu`, `.draft__body`'s 800x600 scroll under
+  // `draft`, the HUD's chips and badge air under `bayclear`. A new fixture over
+  // known-defective chrome inherits that chrome's known list; the Skydeck's own
+  // markup (the recap panel's clause rows, the draft's clause cell, the
+  // bay-clear card's swapped stat) measures clean on all nineteen rows.
+  "draft-skydeck": () => skydeckDraft([]),
+  "draft-skydeck-picked": () => skydeckDraft(["cost"]),
   // The draft with a notch SELECTED is the taller state — the projection grows
   // a struck-through old value on every row the pick moves, and the capstone's
   // two-pick hand moves the most rows at once. Measured as its own screen so a
@@ -949,7 +1048,12 @@ const NO_RAIL = { bond: false, demo: false, auto: false };
 export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
-    || id === "bayclear"
+    // "bayclear-clause" is the same card over the same HUD, so it needs the
+    // same rail: without it the harness sizes the rail for a bare loadout
+    // while the markup still renders three ability buttons, and they overflow
+    // the bottom of every phone in the matrix — twelve `offscreen` findings
+    // that are the fixture's own doing rather than the screen's.
+    || id === "bayclear" || id === "bayclear-clause"
     ? HUD_LOADOUT
     : NO_RAIL;
 }

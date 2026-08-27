@@ -952,7 +952,10 @@ export function finalById(id: string): FinalDef | undefined {
   return FINALS.find((f) => f.id === id);
 }
 
-/** Apply the accepted clause to the final bay's config, in place.
+/** Apply the accepted clause to the final bay's config, in place — the Deep
+ *  Run's one-clause case of applyFinals below, kept as its own name because a
+ *  ladder run accepts exactly one and `applyFinal(cfg, run.final)` is what that
+ *  reads like at the call site.
  *
  *  Unknown and null ids are no-ops, for the same forward-compatibility reason
  *  applyRatchets ignores unknown axes: a run in flight when a clause is renamed
@@ -976,11 +979,48 @@ export function finalById(id: string): FinalDef | undefined {
  *  sold them. A ratcheted material has no such promise attached — the ladder
  *  already reserves the right to scale it, and does. */
 export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
-  if (!id) return;
-  const def = finalById(id);
-  if (!def) return;
+  applyFinals(cfg, id ? [id] : []);
+}
+
+/**
+ * Apply a WHOLE STACK of clauses to one bay — the Skydeck's standing rules
+ * (skydeck.ts), of which a Deep Run's single Final Inspection is the one-clause
+ * case, which is why applyFinal is now a call to this rather than a second copy
+ * of the rules below.
+ *
+ * Two things change once more than one clause can land on the same bay, and
+ * both are the same rule read at stack scope rather than at clause scope.
+ *
+ *  - **The clauses are applied in TIER ORDER**, not in the order they were
+ *    signed. Only one ordering is actually load-bearing — a full-belt clause
+ *    states the entire belt (Tier 10's pair), so it has to land after anything
+ *    that floors a material, or the floors would be written over a belt that
+ *    then gets restated and the earlier card's promise would evaporate. Sorting
+ *    by tier gets that for free and is stable besides: which bay a clause was
+ *    signed on must not change what the bay it is flown on looks like.
+ *  - **The re-cap holds everything the STACK raised**, not everything the last
+ *    clause raised. Written the other way — a re-cap per clause, holding only
+ *    that clause's own material — the second clause's scale-down would eat the
+ *    first clause's rate back down below the number printed on its card, which
+ *    is exactly the "a mandatory cost that can be pre-paid is not a cost"
+ *    failure the schedule() note above records finding twice already. One
+ *    snapshot before the stack, one re-cap after it.
+ *
+ * Unknown and null ids are skipped, and duplicates are collapsed: a clause is a
+ * statement about the bay, so signing the same one twice is the same bay, and
+ * applying it twice would double a floor that reads as a floor on its card.
+ */
+export function applyFinals(cfg: LevelConfig, ids: readonly FinalId[]): void {
+  const defs: FinalDef[] = [];
+  for (const id of ids) {
+    const def = finalById(id);
+    if (def && !defs.includes(def)) defs.push(def);
+  }
+  if (defs.length === 0) return;
+  defs.sort((a, b) => a.tier - b.tier);
+
   const before = { ...cfg.materialMix };
-  def.apply(cfg);
+  for (const def of defs) def.apply(cfg);
 
   // A full-belt clause states the whole belt itself: nothing standard ships,
   // its apply carries the no-refund floors, and the mix deliberately sums to
@@ -988,7 +1028,12 @@ export function applyFinal(cfg: LevelConfig, id: FinalId | null): void {
   // overfilling a belt that still owes the player standard cargo; here there
   // is none to owe, and scaling would break the card's promise instead of
   // keeping it. sim/systems.ts holds these clauses to their own contract.
-  if (def.fullBelt) return;
+  //
+  // Read off the LAST clause applied because the sort above put the full-belt
+  // pair at the top of the tier order: whatever it stated is the belt, and
+  // anything below it in the stack has already been folded into that statement
+  // by its own no-refund floors.
+  if (defs[defs.length - 1].fullBelt) return;
 
   const keys = Object.keys(cfg.materialMix) as Array<keyof typeof cfg.materialMix>;
   const total = keys.reduce((a, k) => a + cfg.materialMix[k], 0);
