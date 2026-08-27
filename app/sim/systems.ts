@@ -59,7 +59,7 @@ import {
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
-import { screenToWorld } from "../src/game/render";
+import { render, screenToWorld } from "../src/game/render";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -12576,6 +12576,217 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
       o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
     );
   }
+}
+
+// ===========================================================================
+// THE PILE'S DRAW SEQUENCE (render.ts's drawCube + drawJointSeams).
+//
+// A frame is one Game.update() plus one render(), and sim/renderperf --breakdown
+// puts the cargo layer at 13.5ms of an 18.2ms frame at 146 cubes. What that
+// layer costs is decided by two things: the pixels it blends, and the number of
+// canvas commands it issues to blend them. The pixels are guarded by
+// sim/renderperf --snapshot, which needs a real browser's rasteriser and cannot
+// run here. The COMMANDS can be counted in node against a recording context,
+// and that is what this block does.
+//
+// It exists because both optimisations below are invisible by construction.
+// Neither changes a pixel — that is the whole point of them — so nothing in the
+// digest, the uifit shots or a playtest would notice if a later edit put the
+// per-cube `save`/`restore` back or resumed writing a fresh `strokeStyle` for
+// every one of a hundred identical seams. A count is the only witness.
+//
+// ATTRIBUTION BY DELTA, the same trick sim/renderperf --breakdown uses: the
+// frame is painted three times — bare, with cargo, with cargo and joints — and
+// each layer is the difference between two of them. Counting a whole frame's
+// `stroke` calls and hoping they are the seams would be measuring the cannon,
+// the chute and the wind gauge as well.
+//
+// The stub is deliberately thin: it records method names and property writes
+// and nothing else. It is not a rasteriser and cannot say what the frame LOOKS
+// like — sim/renderperf owns that question, and the two harnesses answer
+// different halves of the same one.
+// ===========================================================================
+section("The pile's draw sequence stays lean (render.ts's drawCube / drawJointSeams)");
+{
+  interface Rec { calls: string[]; sets: [string, unknown][] }
+
+  const makeCtx = (canvas: unknown, rec: Rec): Record<string, unknown> => {
+    const ctx: Record<string, unknown> = { canvas };
+    const method = (name: string, ret?: () => unknown) => {
+      ctx[name] = (...args: unknown[]) => { rec.calls.push(name); void args; return ret?.(); };
+    };
+    for (const m of [
+      "save", "restore", "translate", "rotate", "scale", "transform", "setTransform",
+      "resetTransform", "beginPath", "closePath", "moveTo", "lineTo", "arc", "arcTo",
+      "rect", "roundRect", "quadraticCurveTo", "bezierCurveTo", "ellipse",
+      "fill", "stroke", "clip", "fillRect", "strokeRect", "clearRect",
+      "fillText", "strokeText", "drawImage", "putImageData", "setLineDash",
+    ]) method(m);
+    method("measureText", () => ({ width: 10 }));
+    // A gradient is an object the caller keeps and feeds stops to; anything
+    // less and the first createLinearGradient in the frame throws.
+    const gradient = { addColorStop: () => {} };
+    method("createLinearGradient", () => gradient);
+    method("createRadialGradient", () => gradient);
+    method("createConicGradient", () => gradient);
+    method("createPattern", () => null);
+    // trimToInk reads its bake back to find the ink. All-zero alpha means "no
+    // ink anywhere", which sends it down its own early return — the same path a
+    // context that refused getImageData takes, and documented there as always
+    // correct. What this pin counts is the calls AROUND the sprites.
+    ctx.getImageData = (...args: unknown[]) => {
+      rec.calls.push("getImageData");
+      const w = (args[2] as number) || 1;
+      const h = (args[3] as number) || 1;
+      return { data: new Uint8ClampedArray(w * h * 4) };
+    };
+    for (const p of [
+      "fillStyle", "strokeStyle", "lineWidth", "lineCap", "lineJoin", "miterLimit",
+      "globalAlpha", "globalCompositeOperation", "shadowBlur", "shadowColor",
+      "shadowOffsetX", "shadowOffsetY", "font", "textAlign", "textBaseline",
+      "filter", "imageSmoothingEnabled", "imageSmoothingQuality", "lineDashOffset",
+    ]) {
+      let held: unknown;
+      Object.defineProperty(ctx, p, {
+        get: () => held,
+        set: (v: unknown) => { held = v; rec.sets.push([p, v]); },
+      });
+    }
+    return ctx;
+  };
+
+  const rec: Rec = { calls: [], sets: [] };
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevDoc = glob.document;
+  const prevWin = glob.window;
+  const prevPath = glob.Path2D;
+  // Every offscreen bake goes through document.createElement("canvas"); those
+  // get their own recorder, so a sprite bake's commands never land in the count
+  // being asserted.
+  glob.document = {
+    createElement: () => {
+      const off: Record<string, unknown> = { width: 0, height: 0 };
+      const offRec: Rec = { calls: [], sets: [] };
+      off.getContext = () => makeCtx(off, offRec);
+      return off;
+    },
+  };
+  glob.window = { matchMedia: () => ({ matches: false }) };
+  glob.Path2D = class { constructor(_d?: string) { void _d; } };
+
+  const g = new Game(makeBaseLevel(0), {}, 11);
+  g.status = "playing";
+  // A stated pile, placed rather than played, and never stepped: every cube sits
+  // exactly where it is put, so the seam geometry below is arithmetic instead of
+  // whatever a settle happened to leave.
+  const ROW = 8;
+  const CUBES = 24;
+  for (let i = 0; i < CUBES; i++) {
+    const body = Matter.Bodies.rectangle(
+      700 + (i % ROW) * CELL, 690 - Math.floor(i / ROW) * CELL, CELL, CELL,
+      { friction: 0.5, frictionAir: 0.012, restitution: 0.05, density: 0.001, label: "cube" },
+    );
+    Matter.Composite.add(g.phys.world, body);
+    g.cubes.push({
+      body, type: "O", color: PIECE_COLORS.O, blinkStart: null,
+      material: "standard", struck: true,
+    });
+  }
+  // Seams need adjacent PAIRS. render.ts skips any joint whose rest length is
+  // over CELL * 1.35, because that is a clique's diagonal and lies underneath
+  // the cubes rather than across their shared edge — so the pairs here are
+  // side-by-side within a row, never across the row wrap.
+  const seamPairs: [number, number][] = [];
+  for (let i = 0; i < CUBES - 1; i++) if (i % ROW !== ROW - 1) seamPairs.push([i, i + 1]);
+  for (const [i, j] of seamPairs) {
+    const c = Matter.Constraint.create({
+      bodyA: g.cubes[i].body, bodyB: g.cubes[j].body,
+      length: CELL, stiffness: 0.9, render: { visible: false },
+    });
+    Matter.Composite.add(g.phys.world, c);
+    g.constraints.push(c);
+  }
+  const SEAMS = seamPairs.length;
+
+  const canvas: Record<string, unknown> = { width: 1600, height: 900 };
+  const ctx = makeCtx(canvas, rec);
+  const paint = (cubes: typeof g.cubes, constraints: typeof g.constraints): Rec => {
+    rec.calls.length = 0;
+    rec.sets.length = 0;
+    render(ctx as unknown as CanvasRenderingContext2D, 800, 450, 2, {
+      cubes, constraints, compactor: g.compactor,
+      cannon: g.cannon, trajectory: [], now: 5000, aiming: false, effects: [],
+      level: g.level, nextIsBomb: false, bombs: [], windNow: 0, windAverage: null,
+      reload: 1, settling: false, strandWarning: false,
+    });
+    return { calls: [...rec.calls], sets: [...rec.sets] };
+  };
+  const calls = (r: Rec, name: string): number => r.calls.filter((c) => c === name).length;
+  const sets = (r: Rec, p: string): number => r.sets.filter(([k]) => k === p).length;
+
+  // Warm the sprite and background caches first: a cold frame pays for every
+  // bake and would report the cache's cost as the pile's.
+  paint(g.cubes, g.constraints);
+  const bare = paint([], []);
+  const withCubes = paint(g.cubes, []);
+  const withSeams = paint(g.cubes, g.constraints);
+
+  const cubeSaves = calls(withCubes, "save") - calls(bare, "save");
+  const cubeStamps = calls(withCubes, "drawImage") - calls(bare, "drawImage");
+  check(
+    "the cube loop stamps each cube without a save/restore pair around it",
+    cubeSaves === 0,
+    `${CUBES} cubes added ${cubeSaves} save calls`,
+  );
+  check(
+    "...save and restore still balance over the whole frame, so no state leaks",
+    calls(withSeams, "save") === calls(withSeams, "restore"),
+    `${calls(withSeams, "save")} save vs ${calls(withSeams, "restore")} restore`,
+  );
+  check(
+    "...and every cube still gets exactly one stamp",
+    cubeStamps === CUBES,
+    `${cubeStamps} stamps for ${CUBES} cubes`,
+  );
+  // THE CONTRACT EVERYTHING DRAWN AFTER THE PILE RELIES ON. The cube loop
+  // replaces the CTM per cube instead of saving and restoring around it, so the
+  // last cube leaves the transform on its own body — and render() re-states the
+  // world transform once, immediately after the loop, for the seams, the arc,
+  // the cannon and every overlay that follows. An empty bay proves that call
+  // exists at all: three setTransforms with no cargo on the field, being the
+  // device-space reset before the background blit, the world transform, and the
+  // one that puts it back. Delete the last of those and this drops to two.
+  check(
+    "...and the pile hands the world transform back for whatever draws after it",
+    calls(bare, "setTransform") === 3
+      && calls(withCubes, "setTransform") - calls(bare, "setTransform") === CUBES,
+    `empty bay ${calls(bare, "setTransform")}, ` +
+      `${calls(withCubes, "setTransform") - calls(bare, "setTransform")} more for ${CUBES} cubes`,
+  );
+
+  const seamStrokes = calls(withSeams, "stroke") - calls(withCubes, "stroke");
+  const seamStyles = sets(withSeams, "strokeStyle") - sets(withCubes, "strokeStyle");
+  const seamWidths = sets(withSeams, "lineWidth") - sets(withCubes, "lineWidth");
+  check(
+    "every seam in the bay is stroked",
+    seamStrokes === SEAMS,
+    `${seamStrokes} strokes for ${SEAMS} seams`,
+  );
+  check(
+    "...but a bay of identical seams writes its style ONCE, not once per seam",
+    seamStyles === 1 && seamWidths === 1,
+    `${SEAMS} seams wrote ${seamStyles} strokeStyle / ${seamWidths} lineWidth`,
+  );
+  check(
+    "a steady frame bakes nothing — the sprite caches are hit, not re-run",
+    calls(withSeams, "getImageData") === 0,
+    `${calls(withSeams, "getImageData")} readbacks in a warm frame`,
+  );
+
+  g.destroy();
+  glob.document = prevDoc;
+  glob.window = prevWin;
+  glob.Path2D = prevPath;
 }
 
 console.log(

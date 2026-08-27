@@ -180,16 +180,62 @@ function seamStrength(breakStretch: number | undefined): number {
   return Math.max(0, Math.min(1, (breakStretch - SEAM_MIN_STRETCH) / span));
 }
 
-/** Graphite -> amber -> red by strain. */
-function seamColor(strain: number, opacity: number): string {
+/**
+ * Graphite -> amber -> red by strain, packed 0xRRGGBB.
+ *
+ * Packed rather than formatted because the seam loop needs to ASK whether this
+ * seam's colour is the one already set before it pays to build a string and
+ * hand it to the CSS colour parser — see drawJointSeams. An integer compare
+ * answers that; a string compare would first have to build the string, which is
+ * the allocation the question exists to avoid.
+ */
+function seamRgb(strain: number): number {
   const seg = strain < 0.5 ? 0 : 1;
   const k = strain < 0.5 ? strain / 0.5 : (strain - 0.5) / 0.5;
   const a = seg === 0 ? SEAM_REST : SEAM_WARM;
   const b = seg === 0 ? SEAM_WARM : SEAM_HOT;
   const ch = (i: number): number => Math.round(a[i] + (b[i] - a[i]) * k);
-  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${opacity.toFixed(3)})`;
+  return (ch(0) << 16) | (ch(1) << 8) | ch(2);
 }
 
+/** The strokeStyle a packed seam colour and an opacity spell — character for
+ *  character what this function has always produced. */
+function seamColor(rgb: number, opacity: number): string {
+  return `rgba(${(rgb >> 16) & 255}, ${(rgb >> 8) & 255}, ${rgb & 255}, ${opacity.toFixed(3)})`;
+}
+
+/**
+ * WHY THIS LOOP KEEPS A COPY OF THE STYLE IT LAST WROTE.
+ *
+ * A bay's seams are overwhelmingly the SAME seam. `lineWidth` and the opacity
+ * both come from `seamStrength(breakStretch)`, which is a per-BAY constant, and
+ * the colour only moves when a joint is actually under strain — which, in a
+ * settled pile, is none of them. sim/renderperf --probe counted the consequence
+ * at 146 cubes: 114 `lineWidth` assignments per frame of which **108 wrote the
+ * value canvas already held**, and 112 `strokeStyle` assignments, each of which
+ * built a fresh string for the CSS colour parser to re-parse into the colour it
+ * was already using.
+ *
+ * So the loop remembers the two numbers that determine the style and writes
+ * nothing when they have not moved. A strained joint still gets its own colour
+ * and width the moment it earns them; a hundred identical seams cost one write.
+ * Nothing about the drawing changes, so the digests cannot move and do not.
+ *
+ * WHAT WAS TRIED AND ROLLED BACK, so nobody spends the afternoon twice.
+ * Accumulating same-styled seams as subpaths of ONE path and stroking once
+ * removes ~330 further calls a frame, and it is only equivalent if no two seams
+ * OVERLAP: these strokes are translucent, so a shared pixel blends twice as
+ * separate strokes and once as a batch. The construction argues they cannot
+ * overlap — each bar spans the shared edge of an ADJACENT pair, shorter than
+ * the edge, and `rest > CELL * 1.35` drops every diagonal. The pixels disagree.
+ * Batched, `cliques` at 300 moved 0.15% of channel samples by up to 20/255
+ * (`loose`, which carries no joints at all, was untouched, which is what
+ * identifies the cause as the seams themselves). A compressed pile evidently
+ * squeezes some jointed pair close enough for its diagonal to clear the 1.35
+ * test and cross its neighbours. 20/255 on a visible line is not a rounding
+ * artefact, and the layer it would buy is 0.8ms of an 18.2ms frame, so the
+ * batch is not taken and the identity is kept.
+ */
 function drawJointSeams(
   ctx: CanvasRenderingContext2D,
   cs: Matter.Constraint[] | undefined,
@@ -198,6 +244,11 @@ function drawJointSeams(
   if (!cs?.length) return;
   ctx.save();
   ctx.lineCap = "butt";
+  // The style the context is currently carrying, as the two numbers that
+  // determine it. -1 is "nothing written yet", which no real colour or strength
+  // can collide with.
+  let setRgb = -1;
+  let setT = -1;
   for (const c of cs) {
     const a = c.bodyA;
     const b = c.bodyB;
@@ -234,8 +285,20 @@ function drawJointSeams(
     const half = CELL * (0.2 + 0.16 * t);
     const mx = (ax + bx) / 2;
     const my = (ay + by) / 2;
-    ctx.strokeStyle = seamColor(strain, 0.55 + 0.35 * t);
-    ctx.lineWidth = 1.4 + 3.6 * t;
+    // `t` alone decides both the width and the opacity, so comparing it is
+    // exactly as strict as comparing the two values it produces — and strict is
+    // the requirement, since a run that batches two seams whose style differs
+    // would draw one of them wrong.
+    const rgb = seamRgb(strain);
+    if (rgb !== setRgb || t !== setT) {
+      // Width is the one that can survive a colour change untouched — a joint
+      // reddening under strain keeps its bay's strength. The colour string is
+      // rebuilt whenever EITHER moves, because `t` carries the opacity inside it.
+      if (t !== setT) ctx.lineWidth = 1.4 + 3.6 * t;
+      ctx.strokeStyle = seamColor(rgb, 0.55 + 0.35 * t);
+      setRgb = rgb;
+      setT = t;
+    }
     ctx.beginPath();
     ctx.moveTo(mx - px * half, my - py * half);
     ctx.lineTo(mx + px * half, my + py * half);
@@ -386,7 +449,19 @@ export function render(
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor, alpha);
   drawPistons(ctx, scene.compactor, alpha);
-  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now, alpha);
+  // The world transform's three numbers, handed to the cube loop so each stamp
+  // can REPLACE the transform outright instead of saving, translating and
+  // restoring around it — see drawCube. Nothing else in the frame wants them,
+  // which is why they are not on Scene.
+  const wsc = vp.scale * dpr;
+  const wtx = vp.ox * dpr;
+  const wty = vp.oy * dpr;
+  for (const cube of scene.cubes) drawCube(ctx, cube, scene.now, alpha, wsc, wtx, wty);
+  // Put the world transform back for everything after the pile. The cube loop
+  // leaves the CTM wherever the last cube stood; the clip is untouched by any
+  // of this (a clip is fixed in device space the moment it is set), so this one
+  // call is the whole restoration.
+  ctx.setTransform(wsc, 0, 0, wsc, wtx, wty);
   // Over the cubes, not under: a seam between adjacent cubes is covered by the
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints, alpha);
@@ -562,6 +637,7 @@ interface CubeSprite {
 }
 
 const cubeSprites = new Map<string, CubeSprite>();
+
 /** Everything ELSE baked at the live scale — compactor bar, piston parts,
  *  cannon, FX shards/sparks, ghost cells — one map, keys prefixed by kind.
  *  These exist for the same reason cubeSprites does: shadowBlur is a full
@@ -1513,11 +1589,54 @@ function getPistonHeadSprite(): HTMLCanvasElement {
   });
 }
 
+/**
+ * ONE CUBE, STAMPED — and the cheapest sequence of canvas calls that does it.
+ *
+ * The pile is the frame. sim/renderperf --breakdown puts the cube layer at
+ * 13.5ms of an 18.2ms frame at 146 cubes (844x390 dpr 3, headless), and the
+ * refuted background-split spec's device work named the shape of that cost
+ * exactly: "many small draws, not one big one". So the count of calls per cube
+ * is a number worth spending care on — 146 cubes times one avoidable call is
+ * 146 avoidable calls every frame, and unlike a millisecond measured on a
+ * desktop rasteriser, a call not issued here is a call not issued on the phone.
+ *
+ * WHAT CHANGED AND WHY IT IS THE SAME PIXELS. This used to be
+ * `save / translate / rotate / drawImage / restore`. The save/restore pair
+ * existed only to undo the translate and rotate, and re-stating the world
+ * transform undoes both by overwriting them — so the sequence is now
+ * `setTransform / translate / rotate / drawImage`, and render() puts the world
+ * transform back once after the whole loop rather than the loop putting it back
+ * 146 times. The trade is one cheap matrix write for canvas's two most
+ * expensive state calls: `save` copies the whole 2D state (styles, shadow,
+ * filter, line dash, the clip stack) and `restore` pops it, where
+ * `setTransform` writes six numbers.
+ *
+ * The translate and the rotate are left to canvas ON PURPOSE, and the first
+ * attempt at this proves why. Folding the translate into setTransform's own
+ * arguments — `setTransform(s, 0, 0, s, tx + s*x, ty + s*y)`, algebraically the
+ * same matrix — moved the digest at every pile size in
+ * sim/renderperf --snapshot, with cargo coverage unchanged to within one pixel:
+ * the offset composed in JS doubles and then narrowed once rounds differently
+ * in the last place than the same offset accumulated inside the rasteriser's
+ * own float matrix, and every cube in the frame landed a fraction of a
+ * subpixel off. One call per cube is not worth paying for that, so the
+ * arithmetic stays where it always was and only the save/restore goes.
+ *
+ * The clip is not affected. A canvas clip is resolved into device space when it
+ * is set, so replacing the CTM afterwards moves what is drawn and not what is
+ * allowed to be drawn — the sky-opened world rect render() clips to still holds
+ * over every cube.
+ */
 function drawCube(
   ctx: CanvasRenderingContext2D,
   cube: Cube,
   now: number,
   alpha: number,
+  /** The world transform: uniform scale `wsc`, offset (`wtx`, `wty`), all in
+   *  device px, exactly as render() set it before the loop. */
+  wsc: number,
+  wtx: number,
+  wty: number,
 ): void {
   if (!blinkVisible(cube, now)) return;
   const blinking = cube.blinkStart !== null;
@@ -1544,11 +1663,10 @@ function drawCube(
   // face back only as much world as its glow reached, so stamping them all at
   // one size would scale most of them.
   const half = sprite.half;
-  ctx.save();
+  ctx.setTransform(wsc, 0, 0, wsc, wtx, wty);
   ctx.translate(lerpX(b, alpha), lerpY(b, alpha));
   ctx.rotate(lerpAngle(b, alpha));
   ctx.drawImage(sprite.canvas, -half, -half, half * 2, half * 2);
-  ctx.restore();
 }
 
 /** Slag's interior: coarse diagonal rubble, deliberately irregular and matte.

@@ -7,6 +7,8 @@
  *   npx tsx sim/renderperf/run.ts --counts 100,200,300 --frames 240
  *   npx tsx sim/renderperf/run.ts --dpr 3 --css 844x390     # a phone's numbers
  *   npx tsx sim/renderperf/run.ts --breakdown               # cost per scene layer
+ *   npx tsx sim/renderperf/run.ts --probe                   # draw calls, not ms
+ *   npx tsx sim/renderperf/run.ts --blit-ab                 # what the bg blit costs
  *   npx tsx sim/renderperf/run.ts --snapshot                # pixel digest only
  *   npx tsx sim/renderperf/run.ts --snapshot --shots        # …and write PNGs
  *   npx tsx sim/renderperf/run.ts --json out.json           # machine-readable
@@ -33,11 +35,28 @@ import { fileURLToPath } from "node:url";
 // Type-only: pulls in harness.ts's `declare global` so window.__renderperf is
 // typed inside page.evaluate. Erased at runtime — the harness module itself
 // only ever runs in the browser.
-import type {} from "./harness";
+import type { Variant } from "./harness";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RESULTS_DIR = resolve(HERE, "..", "results");
 const FRAME_BUDGET_MS = 1000 / 60;
+
+/**
+ * The scenes a full sweep walks. Re-declared here rather than imported as a
+ * value from harness.ts on purpose: that module assigns `window.__renderperf`
+ * at load, so it exists only inside the page, and this file may import nothing
+ * from it that survives type erasure.
+ */
+const VARIANTS: readonly Variant[] = ["loose", "cliques", "mixed"];
+
+/**
+ * The scene the attribution modes measure. "mixed" — a bay whose cargo varies
+ * by type and material, as a played one does — because --probe and --breakdown
+ * are asking which draw path costs what, and a monochrome pile answers that
+ * question about a game nobody plays: every cube stamps the same baked face, so
+ * the rasteriser never has to bind a second texture.
+ */
+const PROBE_VARIANT: Variant = "mixed";
 
 const argv = process.argv.slice(2);
 const opt = (name: string): string | null => {
@@ -58,9 +77,11 @@ const JSON_OUT = opt("json");
 const BREAKDOWN = argv.includes("--breakdown");
 const SNAPSHOT = argv.includes("--snapshot");
 const SHOTS = argv.includes("--shots");
+const PROBE = argv.includes("--probe");
+const BLIT_AB = argv.includes("--blit-ab");
 
 interface Row {
-  variant: "loose" | "cliques";
+  variant: Variant;
   busy: boolean;
   count: number;
   avgMs: number;
@@ -97,6 +118,15 @@ await page.evaluate(() => document.fonts.ready);
 
 const rows: Row[] = [];
 const layerRows: { label: string; p50Ms: number; deltaMs: number }[] = [];
+interface ProbeRow {
+  count: number; cubesDrawn: number;
+  callsPerFrame: number; drawImage: number; switches: number;
+  sources: number; sets: number; redundantSets: number; spriteMp: number;
+  cargoPx: number; bakes: number;
+  calls: Record<string, number>; propSets: Record<string, number>;
+  redundantByProp: Record<string, number>;
+}
+const probeRows: ProbeRow[] = [];
 
 if (SNAPSHOT) {
   // The digest is the whole point: run it on the branch point, run it again on
@@ -108,7 +138,7 @@ if (SNAPSHOT) {
   console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR}\n`);
   console.log("| Variant | N | Digest | Cargo px |");
   console.log("|---|---|---|---|");
-  for (const variant of ["loose", "cliques"] as const) {
+  for (const variant of VARIANTS) {
     for (const count of COUNTS) {
       const s = await page.evaluate(
         (o) => window.__renderperf.snapshot(o),
@@ -132,6 +162,132 @@ if (SNAPSHOT) {
   process.exit(0);
 }
 
+if (BLIT_AB) {
+  /**
+   * The background blit's own share of the frame, priced the way the CPH2573
+   * priced it — by skipping it and seeing what the frame costs without it —
+   * but interleaved every FRAME rather than every 400ms, which this harness can
+   * do because its scene is frozen and its clock is fixed.
+   *
+   * This is not an attempt to re-litigate the split on a desktop. It is the one
+   * number a sprite-pass effort needs in order to know whether it is aimed at
+   * the frame's biggest piece or its second-biggest, and the two machines
+   * disagreeing about it is itself a result worth printing.
+   */
+  console.log("# Tetrilaunch background-blit A/B (interleaved per frame)\n");
+  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
+  console.log("| N | blit drawn p50 | blit skipped p50 | saving | drawn avg | skipped avg | saving |");
+  console.log("|---|---|---|---|---|---|---|");
+  for (const count of COUNTS) {
+    const r = await page.evaluate(
+      (o) => window.__renderperf.blitAb(o),
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+    );
+    console.log(
+      `| ${count} | ${r.drawnP50Ms.toFixed(3)} | ${r.skippedP50Ms.toFixed(3)} | ` +
+      `${(r.drawnP50Ms - r.skippedP50Ms).toFixed(3)} ms | ${r.drawnAvgMs.toFixed(3)} | ` +
+      `${r.skippedAvgMs.toFixed(3)} | ${(r.drawnAvgMs - r.skippedAvgMs).toFixed(3)} ms |`,
+    );
+  }
+  console.log(
+    `\nSkipping the blit draws the WRONG PIXELS on purpose — the frame lands over the ` +
+    `previous one instead of over the backdrop. It is a price, not a proposal.`,
+  );
+  await browser.close();
+  await server.close();
+  process.exit(0);
+}
+
+if (PROBE) {
+  /**
+   * THE DRAW-CALL CENSUS. Milliseconds on this machine rank draw paths; these
+   * numbers ARE the phone's numbers, because a draw call issued here is a draw
+   * call issued there.
+   *
+   * Read as a ladder like --breakdown, for the same reason: the delta between
+   * two rungs is what that layer adds to a frame that already carries
+   * everything below it. Plus one absolute row per pile size, which is the one
+   * to quote when talking about a real bay.
+   */
+  console.log("# Tetrilaunch draw-call census\n");
+  console.log(`css=${CSS_W}x${CSS_H} dpr=${DPR} frames=${FRAMES} variant=${PROBE_VARIANT} busy=yes\n`);
+  const canvasPx = Math.round(CSS_W * DPR) * Math.round(CSS_H * DPR);
+
+  console.log("| N asked | cubes drawn | calls/frame | drawImage | src switches | distinct srcs | " +
+    "state sets | redundant | save/restore | sprite fill MP | overdraw× | bakes/frame |");
+  console.log("|---|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const count of COUNTS) {
+    const c = await page.evaluate(
+      (o) => window.__renderperf.probe(o),
+      { count, variant: PROBE_VARIANT, frames: FRAMES, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+    );
+    // Cargo coverage, from the snapshot path: device pixels the cubes+seams
+    // actually change. Sum-of-stamps over that is the overdraw factor the spec
+    // asked for — how many times the frame paints the same pixel.
+    const s = await page.evaluate(
+      (o) => window.__renderperf.snapshot(o),
+      { count, variant: PROBE_VARIANT, frames: 1, cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true },
+    );
+    const f = c.frames;
+    const per = (n: number): string => (n / f).toFixed(1);
+    const calls = Object.values(c.calls).reduce((a: number, b: number) => a + b, 0);
+    const sets = Object.values(c.sets).reduce((a: number, b: number) => a + b, 0);
+    const redundant = Object.values(c.redundantSets).reduce((a: number, b: number) => a + b, 0);
+    // The background blit is subtracted out on the spec's authority: its cost
+    // was measured at zero on the device, so counting its 2.96 MP inside the
+    // sprite pass's fill would drown the number this table exists to show.
+    const spriteArea = c.drawImageDeviceArea - c.fullCanvasBlitArea;
+    const spriteMp = spriteArea / f / 1e6;
+    console.log(
+      `| ${count} | ${c.cubesDrawn} | ${per(calls)} | ${per(c.calls.drawImage ?? 0)} | ${per(c.drawImageSwitches)} | ` +
+      `${c.drawImageSources} | ${per(sets)} | ${per(redundant)} | ` +
+      `${per(c.calls.save ?? 0)}/${per(c.calls.restore ?? 0)} | ${spriteMp.toFixed(3)} | ` +
+      `${(spriteArea / f / Math.max(1, s.cargoPx)).toFixed(2)} | ${per(c.canvasesCreated)} |`,
+    );
+    probeRows.push({
+      count, cubesDrawn: c.cubesDrawn,
+      callsPerFrame: calls / f, drawImage: (c.calls.drawImage ?? 0) / f,
+      switches: c.drawImageSwitches / f, sources: c.drawImageSources,
+      sets: sets / f, redundantSets: redundant / f,
+      spriteMp, cargoPx: s.cargoPx, bakes: c.canvasesCreated / f,
+      calls: c.calls, propSets: c.sets, redundantByProp: c.redundantSets,
+    });
+  }
+  console.log(
+    `\nCanvas is ${(canvasPx / 1e6).toFixed(2)} MP. "sprite fill" excludes the full-canvas ` +
+    `background blit (measured at zero cost on device); "overdraw×" is sprite fill over the ` +
+    `device pixels the cargo actually changes. "bakes/frame" counts canvases created inside ` +
+    `the frame loop — a hot sprite cache creates none.`,
+  );
+
+  // The full per-method table for the largest pile — the one that says WHICH
+  // calls a diet would have to remove.
+  const worst = probeRows[probeRows.length - 1];
+  if (worst) {
+    console.log(`\n## Every counted call, N=${worst.count} (${worst.cubesDrawn} cubes), per frame\n`);
+    console.log("| Call | per frame |");
+    console.log("|---|---|");
+    for (const [k, v] of Object.entries(worst.calls).sort((a, b) => b[1] - a[1])) {
+      console.log(`| ${k} | ${(v / FRAMES).toFixed(1)} |`);
+    }
+    console.log(`\n## Every counted state assignment, N=${worst.count}, per frame\n`);
+    console.log("| Property | per frame | redundant |");
+    console.log("|---|---|---|");
+    for (const [k, v] of Object.entries(worst.propSets).sort((a, b) => b[1] - a[1])) {
+      console.log(`| ${k} | ${(v / FRAMES).toFixed(1)} | ${((worst.redundantByProp[k] ?? 0) / FRAMES).toFixed(1)} |`);
+    }
+  }
+  console.log();
+  await browser.close();
+  await server.close();
+  await mkdir(RESULTS_DIR, { recursive: true });
+  await writeFile(
+    JSON_OUT ? resolve(process.cwd(), JSON_OUT) : resolve(RESULTS_DIR, `renderprobe-${Date.now()}.json`),
+    JSON.stringify({ cssW: CSS_W, cssH: CSS_H, dpr: DPR, frames: FRAMES, probeRows }, null, 2),
+  );
+  process.exit(0);
+}
+
 if (BREAKDOWN) {
   // A LADDER, not a set of isolated runs: each rung adds one layer to the one
   // below it, so the delta between two rungs is that layer's cost in a frame
@@ -150,7 +306,7 @@ if (BREAKDOWN) {
     const r = await page.evaluate(
       (o) => window.__renderperf.run(o),
       {
-        count, variant: "cliques" as const, frames: FRAMES,
+        count, variant: PROBE_VARIANT, frames: FRAMES,
         cssW: CSS_W, cssH: CSS_H, dpr: DPR, busy: true,
         layers: rung.layers as unknown as { cubes: boolean; seams: boolean; trajectory: boolean; effects: boolean },
       },
@@ -167,7 +323,7 @@ if (BREAKDOWN) {
   }
   console.log();
 } else {
-  for (const variant of ["loose", "cliques"] as const) {
+  for (const variant of VARIANTS) {
     for (const busy of [false, true]) {
       for (const count of COUNTS) {
         const r = await page.evaluate(
