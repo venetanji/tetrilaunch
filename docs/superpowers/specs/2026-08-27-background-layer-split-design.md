@@ -1,17 +1,24 @@
 # The background is cached and still costs a full canvas of fill every frame
 
-> **RESULT — 2026-08-27: THE PREMISE IS REFUTED. DO NOT BUILD THE SPLIT.**
+> **RESULT — 2026-08-27: THE PREMISE IS NOT SUPPORTED. DO NOT BUILD THE SPLIT
+> ON CURRENT EVIDENCE.**
 >
 > The validation step this document demanded was run on hardware. The
-> background blit's own share of the frame is **zero within measurement noise**,
-> so splitting it onto its own canvas buys nothing. Per this spec's own
-> instruction — *"If (1) is small, stop"* — the work stops here.
+> background blit's own share of the frame measured **zero within noise** —
+> but both probes carry a confound, found in review, that keeps this a strong
+> indication rather than a proof (see
+> **[Two confounds in these probes](#two-confounds-in-these-probes)**). The
+> decisive measurement, if anyone needs the verdict beyond doubt, is the one
+> this spec's step (2) always specified: the two-stacked-canvas page itself,
+> on the device. Until someone runs it and it disagrees, the split stays
+> unbuilt — per this spec's own instruction, *"If (1) is small, stop."*
 >
 > The document is kept because the ~20fps it chased is real and still
-> unclaimed; it just is not where this proposal said it was. See
+> unclaimed; the evidence points away from the background and at the sprite
+> pass. See
 > **[What the measurements actually said](#what-the-measurements-actually-said)**
 > for the numbers, and **[Where the frame really goes](#where-the-frame-really-goes)**
-> for the target that survives.
+> for the target that survives either way.
 
 `render.ts`'s `getBackgroundLayer` already does the expensive half of this
 right. The letterbox backdrop, field gradient, grid, wall glow and congestion
@@ -97,6 +104,36 @@ and the frame time watched for the first sign of strain:
 background blit is **1.14 MP** — under 7% of an amount that demonstrably does
 not register. Halving that headroom for the 8.33ms budget at 120Hz leaves the
 conclusion intact with room to spare.
+
+### Two confounds in these probes
+
+Found in review, and both keep this section an indication rather than a proof:
+
+**Probe 1's skip arm changes more than the blit.** With the blit skipped,
+`render()` performs no full-canvas overwrite at all, so the surface must
+*preserve* the previous frame's contents where the control arm begins with an
+opaque overwrite that lets the raster discard them. Destination preservation,
+surface load and overdraw all differ between the arms along with the blit —
+which can add cost to the skip arm and mask a real saving. A cleaner arm
+replaces the blit with an equivalent full-canvas reset (`clearRect` or a flat
+`fillRect`) so both arms overwrite the destination and only the *source* of
+the overwrite differs. Cleanest of all is measuring the proposed two-canvas
+arrangement directly — which is exactly this spec's step (2), and is the
+probe that settles the question if anyone still needs it settled.
+
+**Probe 2 measures a 60Hz deadline, not GPU cost.** The flat 16.69ms rows say
+those workloads finish before the next 60Hz vsync — rAF cadence cannot see
+how much of the budget the extra fill consumed inside that deadline. A live
+120Hz scene already missing ~44% of its 8.33ms deadlines does not necessarily
+hold half the paused scene's headroom, so "halve the threshold for 120Hz" is
+not a valid extrapolation. The honest version runs the injection under the
+representative 120Hz workload, or reads GPU completion timing rather than
+frame cadence.
+
+Neither confound resurrects the split on its own — probe 1's bias, if any,
+runs in the *masking* direction and the interleaved medians still sit within
+0.1ms — but they are why the header says "not supported" rather than
+"refuted", and why the two-canvas page is named as the decisive measurement.
 
 ### Two traps this cost, so nobody repeats them
 
