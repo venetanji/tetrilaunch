@@ -1,6 +1,9 @@
 package com.tetrilaunch.app;
 
+import android.os.Build;
 import android.os.Bundle;
+import android.view.Display;
+import android.view.WindowManager;
 
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -31,6 +34,70 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         applyImmersive();
         lockTextZoom();
+        requestHighestRefreshRate();
+    }
+
+    /**
+     * Ask for the panel's fastest mode, because nothing else does.
+     *
+     * Android hands an app that expresses no preference whatever refresh rate
+     * its power policy likes, and on a 120Hz OnePlus CPH2573 that measured as
+     * a ~2s courtesy boost on touch followed by a hard park at 60Hz. Tracked
+     * through the WebView's own devtools in 2s windows: 8.3ms rAF gaps while a
+     * finger was down, then a flat 16.5-16.6ms for the next 22s once it lifted.
+     *
+     * That default is close to worst-case for THIS game specifically. The
+     * player aims with a finger down, fires, and then WATCHES the piece fly
+     * without touching anything — so the rate drops mid-flight, at the one
+     * moment the screen holds fast motion and nothing else. The interpolated
+     * renderer (main.ts's loop, engine.ts's lerpX/lerpY) is time-correct and
+     * rides a steady 60 or a steady 120 equally well; what it cannot hide is
+     * the cadence CHANGING under it while a body is in the air.
+     *
+     * preferredDisplayModeId rather than preferredRefreshRate: the latter is a
+     * hint OEM policy is free to ignore, and this device did. The mode is
+     * filtered to the CURRENT physical resolution so pinning the rate can
+     * never also change the resolution out from under game/layout.ts's solver.
+     *
+     * Set once, in onCreate, and deliberately NOT re-applied on focus gain the
+     * way applyImmersive() is: it is a window attribute and it persists, and
+     * setAttributes triggers a relayout — which, per the note in applyImmersive
+     * below, would re-fit the world and move the aim origin under the player's
+     * finger. The cost is battery, which is the accepted trade for a game.
+     */
+    private void requestHighestRefreshRate() {
+        Display display = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                ? getDisplay()
+                : getWindowManager().getDefaultDisplay();
+        if (display == null) return;
+
+        Display.Mode current = display.getMode();
+        Display.Mode best = current;
+        for (Display.Mode mode : display.getSupportedModes()) {
+            if (mode.getPhysicalWidth() == current.getPhysicalWidth()
+                    && mode.getPhysicalHeight() == current.getPhysicalHeight()
+                    && mode.getRefreshRate() > best.getRefreshRate()) {
+                best = mode;
+            }
+        }
+
+        // Deliberately NOT skipped when the best mode is already the active
+        // one. The panel being AT 120Hz and this app being GIVEN 120Hz are two
+        // different things: since Android 12 the system can hand an individual
+        // app a divisor of the display rate (a frame rate override) while the
+        // display itself keeps running flat out, which is exactly the state
+        // measured here — dumpsys reported mActiveSfDisplayMode id=2 (120Hz)
+        // while the WebView's rAF sat on 16.6ms gaps. An early return on
+        // "already current" therefore expresses no preference at all and
+        // leaves the override in place, which is the bug this comment exists
+        // to stop someone re-introducing as an optimisation.
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        params.preferredDisplayModeId = best.getModeId();
+        // Belt and braces: the mode id pins the DISPLAY, the refresh rate is
+        // the app's own vote against the override. Neither alone was enough on
+        // the CPH2573.
+        params.preferredRefreshRate = best.getRefreshRate();
+        getWindow().setAttributes(params);
     }
 
     /**
