@@ -825,6 +825,62 @@ body.crt-off #app::after { display: none; }
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* ==========================================================================
+   THE ODOMETER — one roll, every readout the lift changes.
+   ==========================================================================
+   Riding the tower changes the tier plate's number AND all four of this
+   panel's readouts, and until now only the plate said so: the number rolled
+   for the length of the trip while Target, Launch, Clock and Bonds sat still
+   and then swapped instantly when the car docked. One panel, two different
+   opinions about whether anything had happened.
+
+   So the mechanism the plate already had is shared rather than copied. A
+   window of exactly one line, a track of two cells stacked in it, and a
+   transform from one to the other in the direction the car is travelling —
+   which is the whole trick, and it is worth stating that it is a TRANSFORM:
+   nothing here changes a box, so five of these running at once cost one
+   composited layer each and no layout at all.
+
+   THE CELL HEIGHT IS A VARIABLE because its two users disagree about it, and
+   silently. The plate's number sets `line-height: 1`, so one line is exactly
+   1em and the default below is right. `.bay-stat__val` inherits `normal`,
+   which Chromium resolves to 13px at this rule's 11px and 11px at the
+   compact tier's 10px — so a hard-coded 1em would crop the readout by 2px and
+   drag the panel's whole grid up with it while the roll ran. main.ts measures
+   the resting box and passes it in, which is correct on any face and at any
+   step of the type scale rather than at the two we happen to ship.
+
+   `overflow: hidden` and the fixed height are applied only WHILE rolling: at
+   rest they would crop the plate's slightly tall Skydeck star, and would pin a
+   readout's height to whatever it measured on the frame the ride began. */
+.is-rolling { overflow: hidden; height: var(--roll-h, 1em); }
+.roll { display: flex; flex-direction: column; }
+/* A cell inherits everything about how its host draws text. No `line-height`,
+   so the glyphs sit exactly where they sat before the roll started; and
+   `white-space`/`text-overflow` because the host's TRUNCATION has to come with
+   them — `.bay-stat__val` ellipsizes ("2:24 · 10 bays" is over budget on the
+   narrowest phones, and sim/uifit warns about exactly that), and that
+   behaviour lives on the element whose contents the roll replaces, so without
+   it the longest readout would grow its cell and push the track out of its own
+   window mid-ride. */
+.roll > b {
+  display: block; height: var(--roll-h, 1em); font-weight: inherit;
+  white-space: inherit; overflow: hidden; text-overflow: inherit;
+}
+.is-rolling .roll {
+  transform: translateY(var(--roll-from));
+  transition: transform var(--roll-dur, 355ms) var(--roll-ease);
+}
+.is-rolling.is-rolled .roll { transform: translateY(var(--roll-to)); }
+/* The theatre goes, the teaching stays: with no transition the track is laid
+   out at its END offset on the first frame, so the new value is simply THERE
+   for the length of the ride instead of sliding in. Same treatment the plate
+   has always had, and the reason this rule is one line rather than a second
+   set of keyframes. */
+@media (prefers-reduced-motion: reduce) {
+  .is-rolling .roll { transition: none; }
+}
 /* NOT KNOWN YET — the Tier S panel (screens.ts's unknownBayPanelHTML).
 
    A static "?" in a readout that normally holds a number reads as a value that
@@ -1158,7 +1214,7 @@ body.crt-off #app::after { display: none; }
      the lift is taken out of service (.tower--off) — the building powering off
      is a state change worth the same 355ms the car's own moves get. */
   transition:
-    top var(--tower-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1),
+    top var(--tower-dur, 355ms) var(--roll-ease),
     opacity var(--tower-dur, 355ms) var(--ease);
 }
 .tower__car span {
@@ -6937,28 +6993,10 @@ button.panel { color: var(--text); }
   letter-spacing: 0;
   min-width: 2ch; text-align: center;
 }
-/* THE ODOMETER. While the car is between floors the plate rolls the old
-   number out and the new one in, in the direction the car is travelling —
-   rather than blanking to a placeholder, which is what was resizing it. The
-   track is two cells of exactly 1em, the same height the number's own
-   `line-height: 1` box already was, so the roll costs the plate no height and
-   the digits never leave their slot.
-
-   `overflow: hidden` is applied only while rolling: at rest it would crop the
-   descender-free but slightly tall Skydeck star for no reason. */
-.tier-plate__n.is-rolling { overflow: hidden; height: 1em; }
-.tier-plate__roll { display: flex; flex-direction: column; }
-.tier-plate__roll > b {
-  display: block; height: 1em; line-height: 1; font-weight: inherit;
-}
-.tier-plate__n.is-rolling .tier-plate__roll {
-  transform: translateY(var(--roll-from));
-  transition: transform var(--roll-dur, 355ms) cubic-bezier(0.34, 1.28, 0.64, 1);
-}
-.tier-plate__n.is-rolling.is-rolled .tier-plate__roll { transform: translateY(var(--roll-to)); }
-@media (prefers-reduced-motion: reduce) {
-  .tier-plate__n.is-rolling .tier-plate__roll { transition: none; }
-}
+/* The plate's number is one of the things the odometer rolls — see the shared
+   mechanism below .base-bay, which the tier plate and the destination panel's
+   four readouts both use. The plate takes the default `--roll-h` of 1em,
+   because its `line-height: 1` box already is exactly that. */
 /* The Skydeck's plate wears the tower's own warn tint rather than the
    ladder's cyan — it is the one floor that is not a Mark, and the plate is the
    only place that fact travels to outside the shaft. Background only: the
