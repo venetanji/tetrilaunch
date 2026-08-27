@@ -489,14 +489,11 @@ class App {
    *  onCongestion fires on crossings only, so a bay paused while congested and
    *  then resumed would come back silent until the pile happened to move. */
   private congestion = 0;
-  /** The crest's beat (see syncHud): the music envelope currently painted
-   *  onto the plant as --crest-beat, its running peak (for normalisation, so
-   *  a quiet bed pulses as visibly as a loud one), and the last value
-   *  actually written — style writes are skipped while the quantised value
-   *  holds still. */
-  private crestBeat = 0;
+  /** The music envelope's running peak, kept for normalisation so a quiet bed
+   *  drives the crest's COLOUR as far as a loud one does. It no longer feeds a
+   *  per-frame height: see syncHud's THE BEAT for what that cost and why it
+   *  went. */
   private crestPeak = 0.05;
-  private crestBeatShown = -1;
   /** The crest's COLOUR drive (see syncHud) — the slow half of the same tap
    *  the beat comes off. crestHeat is how hot app.css's ramp is mixed (0..1,
    *  a ~1s follower, so it tracks how loud the passage is rather than the
@@ -4469,7 +4466,6 @@ class App {
     this.hudNodes.clear();
     this.hudShown.clear();
     this.abilityShown.clear();
-    this.crestBeatShown = -1;
     this.crestHeatShown = -1;
     this.crestStepShown = -1;
     this.crestMatShown = null;
@@ -4615,40 +4611,45 @@ class App {
         if (loaded === "standard") plant.style.removeProperty("--crest-mat");
         else plant.style.setProperty("--crest-mat", shipmentAura(g.cannon.currentType, loaded));
       }
-      // THE BEAT — the crest breathes with the soundtrack (app.css's
-      // --crest-beat brightness and cube depth). One tap, two signals, split
-      // by timescale below: the beat is the transient, --crest-heat is the
-      // passage's loudness driving the palette. There used to be a third off
-      // the same tap — the --h0..--h6 rotation — and it is a launch's job
-      // now; see THE MARCH further down.
+      // THE BEAT IS GONE, and this is the note that used to argue for it.
       //
-      // musicLevel is the raw RMS off the audio graph's tap; everything that
-      // makes it read as a PULSE happens here:
-      // normalised against its own decaying peak (so every bed uses the full
-      // range regardless of mastering), scaled up as the bay congests (the
-      // machine beats harder, on top of the tier recolour), and shaped by a
-      // fast-rise/slow-fall follower so hits snap and decays trail. Written
-      // only on real change at a 1/40 quantum — the style write is the only
-      // cost, so silence and steady passages cost nothing. Never driven
-      // under reduced motion; the var stays 0 and the CSS line is inert.
+      // The crest breathed with the soundtrack: musicLevel()'s RMS, normalised
+      // against its own decaying peak, shaped by a fast-rise/slow-fall follower,
+      // quantised to 1/40 and written to --crest-beat. app.css fed that into
+      // --crest-h, the HEIGHT of twelve absolutely-positioned crest strips, so
+      // every change re-solved the plant panel's layout and repainted it.
       //
-      // THE ONE PER-FRAME WRITE THE SPLIT ABOVE DID NOT CLAIM, and worth
-      // stating rather than leaving to be rediscovered. --crest-beat feeds
-      // app.css's --crest-h, which is the HEIGHT (or width) of twelve
-      // absolutely-positioned crest strips — so unlike the three bar fills,
-      // this one cannot become a transform without fighting the jiggle
-      // animations that already own transform on those elements, which is why
-      // app.css's own note says "brightness, not transform".
+      // The old note here said it was "left alone on evidence rather than on
+      // principle", on a headless count of 49 writes in 600 frames, and admitted
+      // that what it would cost against a live bed was unmeasured. It has been
+      // measured now, on a CPH2573 in a live bay with music playing, three
+      // states rotating every 400ms inside ONE window so they share the panel's
+      // state (every arm medianing an 8.3ms rAF gap, so the panel held 120Hz):
       //
-      // It is left alone on evidence rather than on principle. In a headless
-      // bay with no music tap it wrote on 49 of 600 frames; what it would cost
-      // with a live bed is unmeasured. What IS measured is that it is not the
-      // biggest thing left: with syncHud quiet on an idle bay, stilling every
-      // CSS animation on the page took Chromium's RecalcStyle over ten seconds
-      // from 202.6ms to 18.4ms (sim/hudperf's attribution arm) — so roughly
-      // nine tenths of the style work still on the frame is running keyframes,
-      // not DOM writes at all. That is the next thing to measure on a phone,
-      // and it is a different job from this one.
+      //   crest breathing        84.9fps   65.3% of frames on time
+      //   beat not written      108.5fps   89.9%
+      //   crest hidden entirely 115.2fps   95.7%
+      //
+      // +23.6fps for not writing one custom property, and 78% of everything
+      // hiding the crest outright would buy. The headless count was not wrong,
+      // it was measuring the wrong thing: a write is the INPUT to a repaint,
+      // and the repaint here was twelve strips and a layout re-solve.
+      //
+      // What survives is what a player can point at. THE HEAT below still
+      // colours the ring by the passage's loudness on a ~1s follower, and THE
+      // MARCH still steps it one cell per shot fired. That march comment already
+      // made this argument once — it moved off the live music level because
+      // "the bands moved whenever the track happened to get loud, so the border
+      // changed at moments with no relationship to anything the player had
+      // done". The beat was the last thing on the panel still doing that, and
+      // it was the most expensive.
+      //
+      // Owner played both on the device before this landed and reported the
+      // still crest feels "just as snappy" as no crest at all.
+      //
+      // Nothing in app.css changed: it reads var(--crest-beat, 0), so an unwritten
+      // property IS the resting crest. Re-enabling it is one setProperty call,
+      // and the numbers above are what it would cost.
       if (!this.motionMQ?.matches) {
         const raw = musicLevel();
         // A dead tap and a silent one both read 0 (see audio.ts's musicTapLive).
@@ -4657,12 +4658,10 @@ class App {
         const tapLive = musicTapLive();
         this.crestPeak = Math.max(raw, this.crestPeak * 0.998, 0.02);
         const target = (raw / this.crestPeak) * (0.55 + 0.45 * this.congestion);
-        this.crestBeat += (target - this.crestBeat) * (target > this.crestBeat ? 0.5 : 0.12);
-        const q = Math.round(this.crestBeat * 40) / 40;
-        if (q !== this.crestBeatShown) {
-          this.crestBeatShown = q;
-          plant.style.setProperty("--crest-beat", String(q));
-        }
+        // THE BEAT IS NOT WRITTEN. `target` is computed because THE HEAT below
+        // needs it; nothing paints it per frame any more. app.css reads
+        // `var(--crest-beat, 0)`, so leaving it unwritten is the resting crest
+        // exactly as before — no CSS change is required to turn this off.
         // THE HEAT — the same envelope on a much slower follower (~1s here
         // against the beat's ~2 frames). Loudness rather than transients, so
         // it answers "how hard is this machine running", and that is the
