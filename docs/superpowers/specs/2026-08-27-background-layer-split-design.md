@@ -18,7 +18,9 @@
 > pass. See
 > **[What the measurements actually said](#what-the-measurements-actually-said)**
 > for the numbers, and **[Where the frame really goes](#where-the-frame-really-goes)**
-> for the target that survives either way.
+> for the target that survives either way -- which a later 120Hz probe now
+> supports directly, not only by elimination (see
+> **[Confound 2, confirmed](#confound-2-confirmed-at-120hz-the-same-load-does-bind)**).
 
 `render.ts`'s `getBackgroundLayer` already does the expensive half of this
 right. The letterbox backdrop, field gradient, grid, wall glow and congestion
@@ -135,6 +137,75 @@ runs in the *masking* direction and the interleaved medians still sit within
 0.1ms — but they are why the header says "not supported" rather than
 "refuted", and why the two-canvas page is named as the decisive measurement.
 
+### Confound 2, confirmed: at 120Hz the same load DOES bind
+
+The review above predicted that a 60Hz cadence probe "says nothing about how
+much of an 8.33ms budget the same fill would consume". That prediction was
+then tested directly, by running the injection under the live 120Hz workload
+instead of the paused 60Hz one. It is correct, and the gap is not subtle.
+
+Sprite draws were multiplied in place (each real sprite redrawn N times at
+jittered offsets and rotations, so none can be culled), on a live bay of ~30
+sprites:
+
+| sprites/frame | 60Hz paused scene | 120Hz live scene |
+| --- | --- | --- |
+| 30 (real) | 16.66ms, 0 dropped | 101.3fps, 81.8% on-time |
+| ~630 (x21) | — | **77.3fps, 47.0% on-time** |
+| 2430 (x81) | **16.66ms, 0 dropped** | — |
+
+At 60Hz, **eighty-one times** the real sprite load did not cost a single
+frame. At 120Hz, **twenty-one times** it cost a quarter of the frame rate and
+half the on-time frames. Same code, same device, same injection — only the
+deadline changed. So the earlier "the GPU shrugs off any draw load" reading
+was an artifact of a 16.67ms budget, exactly as the review said, and no
+number taken at 60Hz can be halved into a 120Hz claim.
+
+**This is the positive evidence the sprite pass needed.** "Where the frame
+really goes" below was an inference from the background's share being ~0;
+it is now also a direct measurement — draw work has a real, large price
+against an 8.33ms deadline. Taking the two usable rows at face value, ~600
+extra sprite draws cost ~3.1ms of frame time, on the order of 5us per sprite
+draw, which would put a 200-cube bay's cubes alone near 1ms of an 8.33ms
+budget.
+
+**Held to the same standard as everything else here, this is one
+unreplicated run.** Only the first two rows of that sweep are usable: the
+120Hz boost lapsed partway through and the remaining rows silently fell back
+to a 60Hz cadence, which is the same failure this document warns about. It
+wants repeating before anything is sized off the 5us figure.
+
+**The baseline is the bigger question it raises.** At the *real* 30-sprite
+load the device still missed ~18% of its 8.33ms deadlines, with JS at p50
+0.7ms and p99 6.4ms. Whatever costs that is a fixed per-frame overhead rather
+than scene content, and it is unexplained — a bay with almost nothing in it
+should not be missing one frame in five. That, not the cubes, is the first
+thing to chase for 120fps.
+
+### Holding 120Hz for a measurement needs a human finger
+
+Every probe here has to hold the device at 120Hz for its whole window, and
+that is harder than it looks:
+
+- **The OEM parks an idle app at 60Hz** whatever `preferredRefreshRate` the
+  window asks for. `MainActivity.requestHighestRefreshRate()` raises the
+  ceiling; it does not stop the floor falling out while nothing is touching
+  the glass.
+- **Injected input does not hold it.** `adb shell input tap` and `input
+  swipe` were tried in loops, in a live bay, over minutes. They do not
+  restore the boost and they do not reach the game's own input handling
+  either. The 120Hz windows in this document coincided with a person
+  physically holding the phone.
+- **So every probe must carry a vsync discriminator and reject its own
+  run.** The cheap one is the minimum rAF gap over the window: a sub-10ms
+  gap can only happen at 120Hz, and its absence means the window is void
+  whatever else it measured. Two runs recorded here were discarded that way,
+  after an earlier version of the same probe had silently reported 60Hz
+  numbers as though they answered a 120Hz question.
+- **A bay times out in about 2:22 with nobody playing**, taking the scene
+  and the refresh rate with it, so a measurement window has to fit inside
+  that or restart the run first.
+
 ### Two traps this cost, so nobody repeats them
 
 **Long A/B/A blocks are useless here.** Three 4-second blocks during live play
@@ -226,6 +297,223 @@ investigation:
 2. **Hold the scene still, or interleave fast enough that it cannot drift.**
    Live play varies draw counts by 30%+ between adjacent seconds, which is far
    larger than anything being measured.
+
+## 120fps IS reachable, and the canvas was never the wall
+
+Everything above hunts the frame inside `render()`. On the device, that hunt was
+looking in the wrong place. Measured in a live bay with the panel confirmed
+capable of 120Hz (minimum rAF gap 8.1ms — see the caveat below on what that does
+and does not prove), conditions interleaved every 400ms so scene drift lands on
+both:
+
+...and those are **two separate runs**, so they are reported as two pairs rather
+than one three-row table. Their painted baselines differ by 10.6fps (69.0 against
+79.6) — larger than the drift this document records two sections down, and larger
+than the gap between the two hidden arms a fused table invites you to compare.
+Compare within a pair; never across one.
+
+Run A — does the HUD's *paint* cost anything?
+
+| HUD | median gap | fps | on-time | frames |
+| --- | --- | --- | --- | --- |
+| painted | 8.3ms | 79.6 | 61.2% | 647 |
+| **`visibility: hidden`** — laid out, NOT painted | **8.3ms** | **112.2** | **93.7%** | 884 |
+
+Run B — does removing its *layout* as well add anything?
+
+| HUD | median gap | fps | on-time | frames |
+| --- | --- | --- | --- | --- |
+| painted | 16.5ms | 69.0 | 48.8% | 568 |
+| `display: none` — no layout, no paint | 8.3ms | 115.4 | 96.1% | 898 |
+
+Run A's hidden arm skips **paint only** and already reaches 112fps at an 8.3ms
+median — +32.6fps over its own baseline. Run B additionally skips layout and wins
++46.4fps over its own, lower baseline. Neither pair shows a second jump the size
+of the first when layout is removed on top of paint. So layout is cheap,
+**painting the DOM HUD is the cost**, and on this device it is worth something in
+the region of 33fps — a region rather than a figure, because the two runs do not
+share a baseline.
+
+**So the canvas was never the dominant term.** Two measurements say so, and they
+are different kinds. Issuing the entire scene — background, every cube, chrome,
+effects, trajectory, cannon — measured **0.414ms/frame** of synchronous JS in an
+instrumented build; but Canvas 2D raster is deferred (this document says so
+itself, further up), so that number is command *recording*, not drawing, and
+cannot by itself cap the canvas's share of the frame. Found in review. The
+measurement that can is the interleaved three-way arm below (*The ceiling is not
+made of pixels*): hiding the canvas entirely, in the same window as the HUD arm,
+moved the frame rate by **~3fps** — that cadence delta, not the 0.414ms, is the
+honest size of the canvas's paint-side bill.
+
+### What the rest of the frame costs
+
+Instrumented build, live bay, confirmed 120Hz, per frame:
+
+| phase | ms |
+| --- | --- |
+| reading `window.innerWidth` / `innerHeight` | **3.05** |
+| `render()` — the whole scene | 0.414 |
+| `syncHud` | 0.204 |
+| `update` — physics and game logic | 0.188 |
+| `updateTrajectory` | 0.006 |
+
+The first line is a forced synchronous layout. The loop calls `syncHud()` — which
+writes the HUD's DOM — and then reads the viewport in `render()`'s argument list,
+so the browser must flush style and layout before it can answer. A forced flush on
+this page costs **9.8ms**.
+
+**Caching the viewport does not fix it.** That was tried: fields set in
+`onResize`, read in the loop, verified live (`innerWidth` reads per frame went to
+zero). Total JS stayed at ~4.7ms, because the layout and the paint happen anyway —
+the read only decides *when*. Reverted. Do not re-attempt it as a performance fix
+before the paint is dealt with; it is at best a tidiness change.
+
+### Not a specific CSS effect
+
+Interleaved, killing `box-shadow` and `text-shadow` across the HUD bought
+**+2.3fps** (68.5 → 70.8). `filter`/`backdrop-filter`: nothing. `background-image`:
+nothing. `contain: layout paint style` on `#overlay > *` bought +3fps.
+
+A **block-design** version of that same test said shadows were worth +15fps. They
+are not. The baseline fell 75.3 → 65.2 fps across that one run as the phone warmed,
+and the block that happened to sit in the middle looked fast. This document's own
+trap note says long blocks are useless here; it is worth repeating because the
+trap caught the person who wrote the note.
+
+### The next thing to try, untested
+
+Most HUD readouts do not need 120Hz updates. Throttling `syncHud` to ~15Hz would
+leave most frames with no DOM mutation and therefore nothing to repaint, which is
+where the 33fps lives. A throttle experiment was built (`__hudEvery` on the loop)
+but never caught a 120Hz window to measure in — the panel kept dropping to 60Hz as
+the phone warmed. **It is unmeasured. It is a hypothesis with a mechanism, not a
+result.**
+
+The honest risk: the reload ring and the clock genuinely move every frame, so a
+throttle may be visible. The measurement to take first is which HUD nodes actually
+change per frame, and whether the ones that do can be isolated — a small
+independently-composited element repainting is not the same bill as the whole
+overlay.
+
+### ...and the throttle is measured now: +21.3fps
+
+The hypothesis above was tested. `syncHud` was gated behind a frame counter and
+the two conditions interleaved every 400ms, in a live bay with the panel
+120Hz-capable by the minimum-gap test (8.1ms in both arms, 764 and 943 frames):
+
+| `syncHud` runs | fps | on-time |
+| --- | --- | --- |
+| every frame (today) | 74.9 | 53.4% |
+| **every 8th frame (~15Hz)** | **96.2** | **77.6%** |
+
+**+21.3fps and on-time from 53% to 78%, from throttling one call.** The
+mechanism is confirmed: the HUD's per-frame repaint is the bill, and not
+repainting it most frames is most of the fix.
+
+The `visibility:hidden` ceiling from the earlier table is deliberately **not**
+a row here — that number came from a different session whose painted baseline
+read 79.6 where this one reads 74.9, and the thermal drift this document records
+is larger than that difference. Found in review, and it is the same rule the
+ceiling section below states: arms are ratios inside one window, never constants
+across sessions. So no share-of-headroom is derived from combining them, and the
+gap between the throttled arm and a same-window ceiling — along with how much of
+it belongs to the residual 15Hz repaint — is unmeasured until both arms run in
+one interleave. The shape of the finer fix stands on the mechanism alone:
+repainting less each time, not just less often — isolating the handful of nodes
+that actually change so a repaint is a small region rather than the whole
+overlay.
+
+**This is a measurement, not a shipped design.** A flat 8-frame gate is the crude
+version, and it throttles everything including the two readouts that genuinely
+move every frame — the reload ring and the clock. The shape a real fix wants is a
+split: the smooth things updated per frame (ideally through transform/opacity,
+which composite without repainting), everything else — funds, combo, scrap,
+notches, target — on a slow tick. What the crude gate proves is that the budget
+is there to be won.
+
+### The ceiling is not made of pixels, and it is not a constant
+
+The obvious next question is whether the 112fps ceiling can be raised. It was
+tested by hiding the canvas as well, three conditions rotating every 400ms in a
+live bay:
+
+| painted | fps | on-time |
+| --- | --- | --- |
+| everything (normal) | 59.7 | 17.9% |
+| HUD not painted | 80.2 | 50.5% |
+| **HUD and canvas not painted** | **83.2** | **55.9%** |
+
+**Hiding the entire canvas on top of the HUD buys +3fps.** So the ceiling is not
+drawing. With literally nothing painted the frame still does not reach 120, and
+what remains is everything that keeps running: physics, `render()` assembling its
+command list, and `syncHud` writing the DOM — invisible elements still invalidate
+style and layout, they only skip paint. Any further headroom is JS work and DOM
+invalidation, not pixels.
+
+**And the ceiling moves.** This run's "normal" arm measured 59.7fps where an
+earlier run of the same probe measured 74.9, and the HUD-hidden ceiling came out
+80.2 against the earlier 112.2 — same code, same device, same probe, a colder
+phone earlier. Treat these as ratios between arms measured in one window, never
+as constants to compare across sessions. Every table in this document is
+internally interleaved for exactly this reason.
+
+That gives the order of work, and it is worth stating because it is the reverse
+of where the effort naturally wants to go:
+
+1. **The HUD repaint.** Measured at +21.3fps from a crude throttle, and the
+   largest single item by a wide margin.
+2. **Re-measure the ceiling on a cold phone**, once that dominant term is gone.
+   Chasing a residual whose absolute value swings 30% with temperature is
+   guesswork while something four times its size is still in the frame.
+3. **The canvas last.** It is worth ~3fps. The sprite-pass work is real and its
+   counts are sound, but this is the size of the purse it is being paid out of.
+
+### The phone's own FPS counter reads the PANEL, not the game
+
+Worth knowing before anyone validates this work with it. With OxygenOS's FPS
+overlay showing a steady **120**, an rAF sample taken at the same instant read a
+median gap of **16.7ms** — about 60 real frames a second — with a *minimum* gap
+of 8.2ms proving the panel really was refreshing at 120Hz.
+
+Both numbers are true and they measure different things: the panel refreshes 120
+times a second while the app hands it a new frame every second refresh. A counter
+reading 120 is not evidence the game is at 120. The in-page rAF gap is.
+
+### ...and the minimum gap proves capability, not persistence
+
+Found in review, and it qualifies every "confirmed 120Hz" above: a minimum rAF
+gap of 8.1ms proves the panel ran at 120Hz **at some instant in the window** —
+nothing more. One 8.1ms interval followed by an OEM fallback to 60Hz for the
+rest of the window leaves the minimum untouched, and this document itself
+records that the OEM falls back silently mid-probe as the phone warms. So a
+per-arm minimum cannot certify that an arm *stayed* at 120Hz, and an arm that
+silently fell back under-reports whatever it was measuring.
+
+The interleaved deltas above survive this in direction — a fallback lands on
+both arms of a 400ms rotation near-equally, which is the same argument that
+handles scene drift — but their absolute fps values carry the caveat. The sound
+validation, for any future run: check the **distribution** of gaps per arm
+(e.g. the share of gaps at ~8.3ms vs ~16.7ms) and discard windows after a
+fallback, rather than reading one minimum for the whole window.
+
+### What this means for the sprite pass
+
+The sprite-pass work (draw-call census, redundant property writes, `save`/`restore`
+pairs) is measuring real waste and its counts are sound. But its ceiling on this
+device is bounded by the canvas's whole bill — 0.414ms of JS command recording
+plus a paint-side share the interleaved canvas-hidden arm prices at ~3fps —
+against ~4ms of HUD paint. Worth having, and worth sizing honestly against the
+HUD before anyone spends a week on it.
+
+### `performance.now()` is 0.1ms-granular on this device
+
+99.6% of consecutive `performance.now()` calls return **zero** delta; the smallest
+non-zero delta is 0.1ms. Any single sub-0.1ms timing is noise. This invalidated a
+whole round of per-draw-call instrumentation whose parts summed to 0.463ms against
+an outer measurement of 3.463ms on the same call — the parts were each rounding to
+zero. Only sums accumulated over many frames, or spans above ~1ms, carry meaning.
+The 3.05ms, 0.414ms and the fps tables above are all accumulations or spans well
+above that floor.
 
 ## Related
 
