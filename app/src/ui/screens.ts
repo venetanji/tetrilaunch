@@ -2128,8 +2128,20 @@ export function hudHTML(opts: {
            the half that has nowhere else to go: an assistive-technology user
            gets the cost before the gesture, exactly as they get the gesture
            itself. -->
-      <button class="icon-btn" data-action="pause" aria-label="Pause — hold to restart the bay${
-        opts.seal ? `, which ${sealFaceLabel(opts.seal.state, opts.seal.mark)}` : ""
+      <!-- …and the price is DASHED on, exactly as the two buttons dash it on,
+           not folded in as a relative clause. This read ", which " for one
+           release: "breaks this run's seal" happens to parse after a relative
+           pronoun, so the at-stake name looked right and the other two came out
+           as "hold to restart the bay, which this run's seal is already
+           broken". Since this name is the ONLY cost explanation an
+           assistive-technology user of an icon-only control ever gets, a
+           malformed one is not a typo — it is the explanation failing. The
+           label carries its own subject now and every door joins it the same
+           way (sealNameWith). (Codex review, PR #144.) -->
+      <button class="icon-btn" data-action="pause" aria-label="${
+        opts.seal
+          ? sealNameWith("Pause — hold to restart the bay", opts.seal.state, opts.seal.mark)
+          : "Pause — hold to restart the bay"
       }">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
@@ -3357,10 +3369,6 @@ export function workshopScreen(meta: MetaState): string {
  * WHAT EACH STATE DRAWS is argued in full at the .btn__seal rules in app.css
  * and at run.ts's sealStateFor; the short version is that the shape says
  * whether a stamp exists and the wash says whether it is in danger.
- *
- * `mark` is only ever spoken in the "held" line, which is a statement about
- * THAT FLOOR's stamp rather than about this run — the distinction sealStateFor
- * exists to keep straight.
  */
 export function sealFaceHTML(seal: SealState): string {
   return `<span class="btn__seal${
@@ -3372,13 +3380,43 @@ export function sealFaceHTML(seal: SealState): string {
  *  wearing the glyph. Separate from the markup above because the two buttons
  *  put it in different places (one appends to a label naming a bay, the other
  *  labels the whole control), and because the ⏸ hold takes the words WITHOUT
- *  the glyph — see hudHTML. */
+ *  the glyph — see hudHTML.
+ *
+ *  EVERY STATE IS A STANDALONE CLAUSE, and that is a rule rather than a
+ *  coincidence of phrasing. The three lines are glued onto three different
+ *  prefixes, so the only composition that can work at all three doors is one
+ *  that treats the label as a sentence in its own right — join with a dash and
+ *  read it.
+ *
+ *  It shipped otherwise for one release. "breaks this run's seal" is a bare
+ *  predicate, which reads fine after a button name that supplies the subject
+ *  ("Retry Bay 7 — breaks this run's seal") and ALSO reads fine after a
+ *  relative pronoun — so the rail glued its own name on with ", which " and
+ *  looked correct in the one state anybody checked. The other two are full
+ *  clauses, and "hold to restart the bay, which this run's seal is already
+ *  broken" is what that assumption actually produces. (Codex review, PR #144.)
+ *
+ *  So at-stake carries its subject too. "retrying" is very slightly redundant
+ *  after a button called Retry Bay, and that is the cheaper of the two costs:
+ *  a label that only parses next to certain prefixes is a label that will be
+ *  mis-glued again by the next door somebody adds.
+ *
+ *  `mark` is only ever spoken in the "held" line, which is a statement about
+ *  THAT FLOOR's stamp rather than about this run — the distinction sealStateFor
+ *  exists to keep straight. */
 export function sealFaceLabel(seal: SealState, mark: number): string {
   return seal === "at-stake"
-    ? "breaks this run's seal"
+    ? "retrying breaks this run's seal"
     : seal === "held"
       ? `Mark ${mark} is already sealed, so this costs nothing`
       : "this run's seal is already broken";
+}
+
+/** The one way a door may glue the price onto its own name: a dash, and the
+ *  clause. Stated as a function so "the composition rule" is a thing the sim
+ *  can check rather than three string literals that agree today. */
+export function sealNameWith(name: string, seal: SealState, mark: number): string {
+  return `${name} — ${sealFaceLabel(seal, mark)}`;
 }
 
 export function pauseModal(
@@ -3410,7 +3448,7 @@ export function pauseModal(
              the glyph is aria-hidden and a cost only half the audience can read
              is a cost half the audience is not told about. -->
         <button class="btn btn--secondary" data-action="restart-bay"${
-          seal ? ` aria-label="Restart Bay — ${sealFaceLabel(seal.state, seal.mark)}"` : ""
+          seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
         }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
@@ -4304,8 +4342,8 @@ export function endModal(opts: {
           // caller. Nothing about this button's face changed in the move.
           opts.retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
-              aria-label="Retry Bay ${opts.bayNum} — ${
-                sealFaceLabel(opts.retryBay.seal, opts.retryBay.mark)
+              aria-label="${
+                sealNameWith(`Retry Bay ${opts.bayNum}`, opts.retryBay.seal, opts.retryBay.mark)
               }"
             >${sealFaceHTML(opts.retryBay.seal)}Retry Bay</button>`
             : ""
@@ -4440,8 +4478,15 @@ export function sealBreakModal(opts: {
            assumes should be the reversible one. -->
       <div class="row">
         <button class="btn btn--primary" data-action="seal-break-back">Keep the seal</button>
+        <!-- The fourth name that speaks the price, and it goes through the same
+             rule as the other three. It was a hand-written copy of the at-stake
+             words, which is precisely the drift this feature moved the face out
+             to prevent: the moment those words gained a subject, this button
+             would have been the one still saying the old ones. The panel only
+             ever opens on an at-stake seal (requestBayRetry), so the state is
+             a constant here rather than a prop. -->
         <button class="btn btn--secondary" data-action="seal-break-go"
-          aria-label="Retry Bay ${opts.bayNum} — breaks this run's seal"
+          aria-label="${sealNameWith(`Retry Bay ${opts.bayNum}`, "at-stake", opts.mark)}"
         ><span class="btn__seal" aria-hidden="true"></span>Retry Bay</button>
       </div>
     </div>
