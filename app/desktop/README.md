@@ -3,9 +3,14 @@
 Runs the built game in a real desktop window, on the road to a Steam build.
 
 ```
+npm --prefix desktop ci # from app/, once — this package's deps are its own,
+                        # so `npm install` in app/ never provisions them
 npm run desktop         # from app/ — runs the existing dist/
 npm run desktop:build   # rebuilds dist/ in native mode first
 ```
+
+If the first launch dies with a missing-binary error, the provisioning step ran
+but Electron's download didn't — see the postinstall gotcha below.
 
 ## Why its own package
 
