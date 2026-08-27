@@ -60,7 +60,7 @@ const ENTRIES: ScoreEntry[] = Array.from({ length: 24 }, (_, i) => ({
 
 const SETTINGS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
-  leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+  leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
 };
 
 const STORE = { available: true, unlimited: false };

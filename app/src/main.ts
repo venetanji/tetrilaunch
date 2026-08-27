@@ -733,7 +733,7 @@ class App {
       },
       onUiButton: (button) => this.onPadUiButton(button),
       assist: () => this.settings.stickAssist,
-      pull: () => this.settings.stickPull,
+      sling: () => this.settings.stickSling,
     });
 
     // Fire-and-forget: nothing downstream waits on it, and on web it is a

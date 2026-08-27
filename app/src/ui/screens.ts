@@ -1267,12 +1267,12 @@ export function controlsScreen(opts: {
     // itself, which is what a player who has just made a mess of the table
     // below needs most.
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
-      ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power")}
+      ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power · centre holds")}
       ${infoRow("Menus", `D-pad move · ${padLabel(PAD_CONFIRM)} select · ${padLabel(PAD_BACK)} back`)}
       ${infoRow("Open Controls", `${padLabel(PAD_CONTROLS)} · from any menu`)}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
       ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
-      ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;
+      ${toggleHTML("stickSling", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does — release lets the pull go", opts.settings.stickSling)}`;
   }
 
   return `<div class="screen neon-backdrop">

@@ -9,17 +9,26 @@ import { actionForPad, padFor, type BindableAction } from "./bindings";
  * The mapping is bindings.ts's pad table (rebindable on the Controls
  * screen); aim and power live on the LEFT STICK, deliberately unbindable —
  * a stick is not a button. HOW the stick speaks is the "Slingshot stick"
- * setting (store.ts's stickPull). OFF — the default, re-decided by the
- * owner's pad session — the stick is a pair of rate dials: up/down trims the
- * angle, left/right trims the power, and a centred stick HOLDS the aim, so
- * the thumb rests between adjustments instead of staying tense to keep a
- * deflection alive. ON, the stick deflection is the touch drag's pull-back
- * vector (cannon.aimFromDrag) — the expressive mode that carries angle and
- * power in one gesture, kept for the players who like it and demoted for
- * being the tiring one. "Stick aiming assist" (a Controls toggle) smooths
- * the slingshot's raw stick through a short lerp so analogue jitter doesn't
- * wobble the arc; the direct mode needs no smoothing — its deadzone rescale
- * starts every rate from zero.
+ * setting (store.ts's stickSling). OFF — the default — the stick is a pair of
+ * rate dials: up/down trims the angle, left/right trims the power, and a
+ * centred stick HOLDS the aim, so the thumb rests between adjustments instead
+ * of staying tense to keep a deflection alive. ON, the stick deflection is the
+ * touch drag's pull-back vector (cannon.aimFromDrag) — the expressive mode that
+ * carries angle and power in one gesture, kept for the players who like it and
+ * demoted for being the tiring one. "Stick aiming assist" (a Controls toggle)
+ * smooths the slingshot's raw stick through a short lerp so analogue jitter
+ * doesn't wobble the arc; the dials need no smoothing — stickRate starts every
+ * rate from zero at the deadzone's edge.
+ *
+ * THE TWO MODES ARE GATED ON DIFFERENT QUESTIONS, and that separation is the
+ * load-bearing part rather than a tidiness. The slingshot asks "how far is the
+ * stick from centre" — one circular magnitude, because it is reading a pull.
+ * The dials ask each axis on its own, because they are two independent trims
+ * and a stick resting off true zero must move NEITHER. Sharing one circular
+ * gate let a stick idling at (0.2, -0.2) — inside both axes' deadzones, but
+ * 0.28 from centre — enter the aim path every frame; it wrote nothing today,
+ * but the property "a resting stick cannot modify the aim" rested on two
+ * thresholds happening to agree rather than on one test.
  */
 
 /** Deadzone below which the stick reads as centred — covers worn sticks. */
@@ -56,6 +65,28 @@ const DPAD = [DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT];
 const NAV_REPEAT_DELAY_MS = 400;
 const NAV_REPEAT_MS = 120;
 
+/**
+ * ONE AXIS of the rate dials, as a signed rate in -1..1 — the factor
+ * cannon.nudgeAngle/nudgePower scale their per-frame step by.
+ *
+ * Exported and pure because it is the whole statement of "a resting stick
+ * changes nothing": everything inside the deadzone answers EXACTLY zero, and
+ * the live span is rescaled so the first rate past the edge is zero rather
+ * than 0.22 of full speed. A dial that jumped to a fifth of its rate the
+ * instant it woke would make the smallest deliberate trim the same size as an
+ * accidental brush.
+ *
+ * Signed and per-axis rather than a vector, because the two dials are
+ * independent: pushing the stick straight up must not also touch the power,
+ * and a thumb that cannot hold a perfect vertical would have it do exactly
+ * that under any radial mapping.
+ */
+export function stickRate(v: number): number {
+  const a = Math.abs(v);
+  if (a <= DEADZONE) return 0;
+  return Math.sign(v) * ((a - DEADZONE) / (1 - DEADZONE));
+}
+
 export interface GamepadHooks {
   game(): Game | null;
   /** True while gameplay input should act (main.ts's state === "playing"). */
@@ -80,10 +111,10 @@ export interface GamepadHooks {
   onUiButton(button: number): boolean;
   /** Stick-assist setting, read live so the toggle applies immediately. */
   assist(): boolean;
-  /** Slingshot-stick setting (store.ts's stickPull), read live for the same
+  /** Slingshot-stick setting (store.ts's stickSling), read live for the same
    *  reason: the toggle has to be feelable from the Controls screen without
    *  a round trip through a bay. */
-  pull(): boolean;
+  sling(): boolean;
 }
 
 export class GamepadPoller {
@@ -208,54 +239,60 @@ export class GamepadPoller {
       // a pad that vanishes mid-hold can't leave the trigger stuck down.
       g.setAutoHeld(pressed[padFor("auto")] ?? false);
 
-      if (deflected) {
-        if (!this.hooks.pull()) {
-          // DIRECT (the default) — the stick is a pair of RATE dials, not a
-          // position: push up and the barrel rises, push right and the power
-          // climbs, centre it and everything HOLDS where you left it. This
-          // replaced vector aiming as the default after the owner's pad
-          // session: holding a deflection to hold an aim keeps the thumb
-          // tense for the whole bay, where a dial is touched only to change
-          // something. The rates are the keyboard's own nudge steps scaled
-          // by deflection (cannon.nudgeAngle/nudgePower), so a pinned stick
-          // equals a held key. Per-axis deadzone with the dead span rescaled
-          // away, so motion starts from zero at the deadzone's edge instead
-          // of jumping.
-          const dz = (v: number): number => {
-            const a = Math.abs(v);
-            return a <= DEADZONE ? 0 : Math.sign(v) * ((a - DEADZONE) / (1 - DEADZONE));
-          };
-          const fx = dz(ax);
-          const fy = dz(ay);
-          if (fx !== 0 || fy !== 0) {
-            // Stick up reads negative on the axis and must RAISE the barrel.
-            if (fy !== 0) g.cannon.nudgeAngle(-fy);
-            if (fx !== 0) g.cannon.nudgePower(fx);
-            g.updateTrajectory();
-          }
-        } else {
-          // SLINGSHOT (the Controls opt-in, store.ts's stickPull): the stick
-          // deflection IS the pull-back vector, exactly the touch drag spoken
-          // through a thumbstick — aimFromDrag puts the barrel opposite the
-          // pull. Kept as an option because it is the expressive mode (one
-          // gesture carries angle and power together); demoted from default
-          // because it is the tiring one.
-          const target = { x: ax, y: ay };
-          if (this.hooks.assist()) {
-            this.sx += (target.x - this.sx) * ASSIST_LERP;
-            this.sy += (target.y - this.sy) * ASSIST_LERP;
-          } else {
-            this.sx = target.x;
-            this.sy = target.y;
-          }
-          g.cannon.aimFromDrag(this.sx * STICK_DRAG, this.sy * STICK_DRAG);
-          g.updateTrajectory();
-        }
-      } else {
-        // Centred stick re-anchors the assist so the next deflection starts
-        // from rest instead of the last aim's tail.
+      // Centred stick re-anchors the assist so the next deflection starts from
+      // rest instead of the last aim's tail. Outside the mode branch on
+      // purpose: sx/sy belong to the slingshot, but the toggle is read live
+      // and a player who flips it mid-bay must not have the first slingshot
+      // frame lerp out of a vector left over from before the dials.
+      if (!deflected) {
         this.sx = 0;
         this.sy = 0;
+      }
+
+      if (!this.hooks.sling()) {
+        // RATE DIALS (the default) — the stick is a pair of trims, not a
+        // position: push up and the barrel rises, push right and the power
+        // climbs, centre it and everything HOLDS where you left it, for as
+        // long as you leave it. Holding a deflection to hold an aim keeps the
+        // thumb tense for the whole bay, where a dial is touched only to
+        // change something. The rates are the keyboard's own nudge steps
+        // scaled by deflection (cannon.nudgeAngle/nudgePower), so a pinned
+        // stick equals a held key.
+        //
+        // GATED ON stickRate PER AXIS, never on `deflected` — see the header.
+        // The aim path is entered only by an axis that has actually left its
+        // own deadzone, so "a resting stick modifies nothing" is one test
+        // rather than an agreement between two.
+        const fx = stickRate(ax);
+        const fy = stickRate(ay);
+        if (fx !== 0 || fy !== 0) {
+          // Stick up reads negative on the axis and must RAISE the barrel.
+          if (fy !== 0) g.cannon.nudgeAngle(-fy);
+          if (fx !== 0) g.cannon.nudgePower(fx);
+          g.updateTrajectory();
+        }
+      } else if (deflected) {
+        // SLINGSHOT (the Controls opt-in, store.ts's stickSling): the stick
+        // deflection IS the pull-back vector, exactly the touch drag spoken
+        // through a thumbstick — aimFromDrag puts the barrel opposite the
+        // pull. Kept as an option because it is the expressive mode (one
+        // gesture carries angle and power together); demoted from default
+        // because it is the tiring one, and because an ABSOLUTE map means
+        // letting go of the stick necessarily rewrites the aim on the way
+        // down (a pinned pull reads 25% power as it springs back through the
+        // deadzone). That is inherent to a slingshot — you fire from the held
+        // pull, the way a finger does — and it is exactly why the dials, not
+        // this, answer the pad by default.
+        const target = { x: ax, y: ay };
+        if (this.hooks.assist()) {
+          this.sx += (target.x - this.sx) * ASSIST_LERP;
+          this.sy += (target.y - this.sy) * ASSIST_LERP;
+        } else {
+          this.sx = target.x;
+          this.sy = target.y;
+        }
+        g.cannon.aimFromDrag(this.sx * STICK_DRAG, this.sy * STICK_DRAG);
+        g.updateTrajectory();
       }
     }
 
