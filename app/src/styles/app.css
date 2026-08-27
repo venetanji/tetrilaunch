@@ -1,4 +1,8 @@
 @import "./tokens.css";
+/* The two pixel-art cursors, baked from scripts/make-cursors.mjs. An @import
+   rather than a paste because the file is generated: it has to be safe to
+   overwrite wholesale, and nothing hand-written may live in it. */
+@import "./cursors.css";
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }

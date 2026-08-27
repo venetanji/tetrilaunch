@@ -40,12 +40,13 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
+import { screenToWorld } from "../src/game/render";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -8397,6 +8398,50 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
     check("more loft costs more power, still inside the band",
       flat.power < half.power && half.power < full.power && full.power <= SPEED_MAX + 1e-9,
       `${flat.power.toFixed(2)} → ${half.power.toFixed(2)} → ${full.power.toFixed(2)} px/step`);
+    // WHICH END OF THAT FAMILY THE PLAYER STARTS ON — flipped to the top
+    // (cannon.ts's AIM_LOFT_DEFAULT). Pinned here, beside the family it picks
+    // out of, because the two facts that make the flip safe are the two
+    // asserted directly above: the steep member lands on the SAME point, and
+    // it pays for the height inside the ship's speed band rather than off the
+    // end of it.
+    check("the dial's shipped default is the steepest member of that family",
+      AIM_LOFT_DEFAULT === 1 && full.hit,
+      `default ${AIM_LOFT_DEFAULT}, miss ${full.miss.toFixed(1)}px`);
+    // AND IT COSTS NO REACH, which is the one claim that would sink the flip
+    // if it were false: a default that quietly made part of the bay
+    // unhittable would be a worse bug than the compactor bar it was flipped
+    // to dodge. Swept rather than spot-checked, because "unreachable at the
+    // top of the dial" would be a BAND of the field, not a total loss.
+    {
+      let flatHits = 0;
+      let loftHits = 0;
+      let lost = "";
+      for (let x = 420; x <= 1240; x += 60) {
+        for (let y = 200; y <= 680; y += 80) {
+          const p = { x, y };
+          const a = solve(p).hit;
+          const b = solve(p, SPEED_MIN, SPEED_MAX, 0, AIM_LOFT_DEFAULT).hit;
+          if (a) flatHits += 1;
+          if (b) loftHits += 1;
+          if (a && !b) lost = `${x},${y}`;
+        }
+      }
+      check("...and the whole bay stays as reachable from the top of the dial",
+        loftHits === flatHits && lost === "",
+        `${flatHits} flat vs ${loftHits} lofted; first lost ${lost || "none"}`);
+    }
+    // ...and the SOLVER's own default is untouched at 0. Nothing that isn't a
+    // human with a mouse should inherit the preference: sim/bots.ts and the
+    // autopilot call this with no loft argument and want the cheapest answer
+    // to "can this be reached", not the prettiest one.
+    {
+      const bare = solveAimForTarget(
+        origin, CANNON.barrel, t, SPEED_MIN, SPEED_MAX, G_ACCEL, FRICTION, STEPS, () => 0,
+      );
+      check("...while the solver's own default stays the cheap arc for the bots",
+        bare.angle === flat.angle && bare.power === flat.power,
+        `${bare.angle.toFixed(4)}rad @ ${bare.power.toFixed(2)} vs flat ${flat.angle.toFixed(4)}rad @ ${flat.power.toFixed(2)}`);
+    }
   }
 
   // --- Out of reach ---------------------------------------------------------
@@ -8666,24 +8711,33 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // dial (Game.aimLoft) rather than on the piece, and that spending it
   // re-solves the arc through the point last clicked — the release that ended
   // the chord block above left one banked in lastTarget.
-  check("scroll up raises the loft dial, turns nothing, and swallows the scroll", (() => {
+  // DIRECTION FLIPPED WITH THE DEFAULT (cannon.ts's AIM_LOFT_DEFAULT). These
+  // two lines used to read "scroll UP raises the dial / into a steeper arc",
+  // and they failed the moment the dial started at the top — which is the
+  // whole point of asserting the default at all: a fresh bay opens on the
+  // steepest arc, so the only travel the wheel has is DOWNWARD, and the notch
+  // that used to be the interesting one is now the one that hits a stop.
+  check("a fresh bay opens on the steepest arc, not the flattest",
+    g.aimLoft === AIM_LOFT_DEFAULT && AIM_LOFT_DEFAULT === 1,
+    `dial at ${g.aimLoft}`);
+  check("scroll down lowers the loft dial, turns nothing, and swallows the scroll", (() => {
     prevented = 0;
     const before = g.aimLoft;
-    const t = turned(() => send(onCanvas, "wheel", whl(-100)));
-    return t === 0 && prevented === 1 && g.aimLoft > before;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    return t === 0 && prevented === 1 && g.aimLoft < before;
   })());
-  check("...re-solving the last clicked point into a steeper arc", (() => {
-    const a0 = g.cannon.angle;
-    send(onCanvas, "wheel", whl(-100));
-    return g.aimLoft > 0 && g.cannon.angle > a0;
-  })());
-  check("scroll down at the dial's floor changes nothing but still owns the event", (() => {
-    // Walk the dial back to its stop first; the range is five notches.
-    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(100));
-    prevented = 0;
+  check("...re-solving the last clicked point into a flatter arc", (() => {
     const a0 = g.cannon.angle;
     send(onCanvas, "wheel", whl(100));
-    return g.aimLoft === 0 && prevented === 1 && g.cannon.angle === a0;
+    return g.aimLoft < 1 && g.cannon.angle < a0;
+  })());
+  check("scroll up at the dial's ceiling changes nothing but still owns the event", (() => {
+    // Walk the dial back to its stop first; the range is five notches.
+    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(-100));
+    prevented = 0;
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(-100));
+    return g.aimLoft === 1 && prevented === 1 && g.cannon.angle === a0;
   })());
   check("ctrl+wheel is left alone, so browser zoom still works", (() => {
     prevented = 0;
@@ -8754,6 +8808,230 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
     g.paused = false;
     return g.aimLoft === before && prevented === 0;
   })());
+
+  delete glob.window;
+  glob.requestAnimationFrame = prevRaf;
+}
+
+// ===========================================================================
+// THE HOVER AIM (input.ts's onMove hover branch + onLeave).
+//
+// Its own harness rather than more lines on the block above, for one reason
+// that matters: this one has to DRIVE THE FRAME. A hovered target is recorded
+// by the move and spent by the rAF tick (input.ts's pendingTarget — the solve
+// is a search over the whole cone and there is nothing to gain from running it
+// for a cursor position that will never be drawn), so a stub that swallows
+// requestAnimationFrame the way the block above does would prove only that
+// nothing crashes. This one keeps the callback and runs it on demand, which is
+// also what lets the "a bay that ended between the move and the frame" case be
+// stated at all.
+// ===========================================================================
+{
+  type Handler = (e: unknown) => void;
+  const onCanvas = new Map<string, Handler[]>();
+  const onWindow = new Map<string, Handler[]>();
+  const bind = (m: Map<string, Handler[]>, t: string, h: Handler) => {
+    const a = m.get(t) ?? [];
+    a.push(h);
+    m.set(t, a);
+  };
+  const canvas = {
+    addEventListener: (t: string, h: Handler) => bind(onCanvas, t, h),
+    removeEventListener: () => {},
+    getBoundingClientRect: () => ({ width: 800, height: 450, left: 0, top: 0 }),
+    setPointerCapture: () => {},
+  } as unknown as HTMLCanvasElement;
+
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevRaf = glob.requestAnimationFrame;
+  glob.window = {
+    addEventListener: (t: string, h: Handler) => bind(onWindow, t, h),
+    removeEventListener: () => {},
+  };
+  // The frame pump. The controller re-arms at the END of every tick, so
+  // holding the newest callback and calling it is exactly one drawn frame.
+  let frameCb: ((t: number) => void) | null = null;
+  glob.requestAnimationFrame = (cb: (t: number) => void) => { frameCb = cb; return 0; };
+
+  const g = new Game(makeBaseLevel(0), {}, 7);
+  g.status = "playing";
+  let shots = 0;
+  const realShoot = g.shoot.bind(g);
+  g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
+  new InputController(canvas, () => g, undefined, () => false);
+  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+
+  const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
+    (m.get(t) ?? []).forEach((h) => h(e));
+  const move = (clientX: number, clientY: number, pointerType = "mouse", buttons = 0) =>
+    send(onCanvas, "pointermove", {
+      button: -1, buttons, pointerId: 1, pointerType, clientX, clientY,
+      preventDefault: () => {},
+    });
+  /** Where the cursor at (clientX, clientY) lands in the bay — the SAME
+   *  transform the controller uses, so a pin can talk about world points
+   *  without re-deriving the letterbox fit. */
+  const world = (clientX: number, clientY: number) =>
+    screenToWorld(800, 450, 0, 0, clientX, clientY);
+  /** Closest approach of the drawn arc to a world point. The arc travels
+   *  15-25px between dots, so this measures against the SEGMENTS for the same
+   *  reason cannon.ts's segDistSq does. */
+  const arcMissTo = (p: { x: number; y: number }): number => {
+    let best = Infinity;
+    for (let i = 1; i < g.trajectory.length; i++) {
+      const a = g.trajectory[i - 1];
+      const b = g.trajectory[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+    }
+    return best;
+  };
+  const aim = () => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }) =>
+    g.cannon.angle === a.angle && g.cannon.power === a.power;
+
+  // THE FEATURE. A cursor over the bay with NOTHING HELD DOWN aims the cannon
+  // at the spot it is over, and the dots go through that spot — the arc is a
+  // readout the player can move around the bay, not something a press has to
+  // buy. Both halves asserted: the barrel moved, and it moved to the right
+  // place.
+  {
+    const before = aim();
+    move(560, 300);
+    check("a hover queues an aim rather than solving it on the spot",
+      same(before), "the solve belongs to the frame, not to the move");
+    frame();
+    const t = world(560, 300);
+    check("a hover with no button held aims the cannon at the cursor",
+      !same(before) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+    // The whole point of tracking on hover is that it costs nothing. If this
+    // ever fires, the feature is a way to lose a launch by moving the mouse.
+    check("...and fires nothing at all", shots === 0, `${shots} shots`);
+    // g.aiming drives the HUD's aim state (main.ts swaps ⏸ for ✕ off it).
+    // A hover is not a gesture in progress and must not dress the chrome as
+    // though one were — there is nothing to cancel.
+    check("...and leaves the HUD's aim state alone", g.aiming === false);
+  }
+
+  // Moving on keeps re-solving: the second spot answers as readily as the
+  // first, which is what makes it a sweep rather than a one-shot preview.
+  {
+    const first = aim();
+    move(300, 380);
+    frame();
+    const t = world(300, 380);
+    check("sweeping the cursor re-solves at each new spot",
+      !same(first) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // OUT OF THE FIELD. The bay is 16:9 and a viewport is not, so a cursor in
+  // the letterbox band maps to a world point outside the bay. A CLICK there
+  // still means something (the solver clamps it to the nearest honest arc); a
+  // hover there is a mouse on its way to a menu, and answering it would swing
+  // the barrel at the bay's edge every time one crossed.
+  {
+    const held = aim();
+    move(5000, 300);
+    frame();
+    check("a hover past the field's edge leaves the aim where it was", same(held));
+    move(-400, 300);
+    frame();
+    check("...on the near side too", same(held));
+  }
+
+  // THE CURSOR LEAVES. The queued solve is dropped so it cannot land a frame
+  // later from outside the field — and the AIM STAYS PUT, because the player
+  // has gone to press a rail button and snapping the barrel back to some
+  // earlier position would be motion carrying no information.
+  {
+    const held = aim();
+    move(700, 260);
+    send(onCanvas, "pointerleave", { pointerId: 1, pointerType: "mouse" });
+    frame();
+    check("leaving the canvas drops the queued hover instead of landing it late",
+      same(held));
+  }
+
+  // NOT WHILE THE BAY IS REFUSING. A paused bay is a live field under a card,
+  // and it still delivers moves to the canvas; a bay that is over, or has run
+  // dry, would be drawing an arc for a shot nothing will accept.
+  {
+    const held = aim();
+    g.paused = true;
+    move(420, 240);
+    frame();
+    check("a paused bay does not track the cursor", same(held));
+    g.paused = false;
+    g.status = "won";
+    move(430, 250);
+    frame();
+    check("...and neither does a finished one", same(held));
+    g.status = "playing";
+  }
+
+  // A BAY THAT ENDS BETWEEN THE MOVE AND THE FRAME. The two are up to 16ms
+  // apart, and the frame must re-ask rather than spend a cursor position that
+  // outlived its bay. This is the case the pump exists to state.
+  {
+    const held = aim();
+    move(520, 300);
+    g.status = "lost";
+    frame();
+    check("a hover queued before the bay ended is not spent after it", same(held));
+    g.status = "playing";
+  }
+
+  // AND IT DOES NOT WAIT OUT THE PAUSE. Found by these pins rather than by
+  // reasoning: the frame that lands during a pause used to return without
+  // touching the queue, so the cursor position recorded on the last frame
+  // before the card went up was still sitting there when play resumed and
+  // swung the barrel on the first frame after it — an aim made before an
+  // interruption, applied after it, at a moment when the player's hand had
+  // moved on. The tick drops the queue now (input.ts's tickKeys).
+  {
+    const held = aim();
+    move(540, 320);
+    g.paused = true;
+    frame();
+    g.paused = false;
+    frame();
+    check("a hover queued before a pause does not swing the barrel on resume",
+      same(held));
+  }
+
+  // TOUCH HAS NO HOVER, and the guard is belt-and-braces: a finger off the
+  // glass sends nothing, so this is really asserting that a pen or an
+  // unknown pointer type — both of which land on touch hardware, per this
+  // file's standing line — cannot pick up the mouse's scheme by accident.
+  {
+    const held = aim();
+    move(560, 300, "touch");
+    frame();
+    check("a touch move with nothing held aims nothing", same(held));
+    move(560, 300, "pen");
+    frame();
+    check("...and a hovering pen keeps the slingshot too", same(held));
+  }
+
+  // AND THE CLICK STILL FIRES, at the point clicked. Hover made the press
+  // optional, not decorative: the release is still the launch, and it still
+  // solves the release position rather than the last frame's.
+  {
+    const down = { button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", clientX: 600,
+      clientY: 300, preventDefault: () => {} };
+    send(onCanvas, "pointerdown", down);
+    send(onWindow, "pointerup", { ...down, buttons: 0 });
+    check("a click still fires, after all that hovering", shots === 1, `${shots} shots`);
+    const t = world(600, 300);
+    check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
 
   delete glob.window;
   glob.requestAnimationFrame = prevRaf;

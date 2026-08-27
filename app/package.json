@@ -31,6 +31,7 @@
     "ios:sync": "npm run build:native && npm run verify:store && cap sync ios",
     "ios:open": "cap open ios",
     "ios:run": "npm run ios:sync && cap run ios",
+    "assets:cursors": "node scripts/make-cursors.mjs",
     "assets:generate": "node scripts/rasterize-assets.mjs && capacitor-assets generate --ios --android --assetPath resources && node scripts/stage-android-assets.mjs",
     "test:uifit": "tsx sim/uifit/run.ts",
     "test:uifit:shots": "tsx sim/uifit/run.ts --shots",
