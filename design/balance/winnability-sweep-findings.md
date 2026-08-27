@@ -10,8 +10,10 @@ Tier 5 bay 5 over 24 paired seeds is 23/24 clean, 17/24 at `cryo:1`, 20/21/23
 across the thaw tiers at the same shot counts and the same ending funds; Tier 7
 bay 10 over 16 seeds is 14/16 clean, 16/16 at `volatile:6`, and 14/16 cushioned
 at 28.1 shots and $1694, identical to the clean control. The ladder re-runs
-agree too: Tier 4 comes back 1/8 clears, wall 10, `winnable`, exactly as §2
-records it. That is the expected result rather than a lucky one: a Skydeck run's standing clauses reach a config
+agree too, including the cliff §2 is written around: Tier 4 comes back 1/8
+clears / wall 10 / `winnable` and Tier 5 comes back 0/8 / wall 4 /
+`unwinnable`, exactly as recorded. That is the expected result rather than a
+lucky one: a Skydeck run's standing clauses reach a config
 through `standingClauses(run)`, which returns nothing for a ladder run, so #124
 moves no number the walls below are made of. The counter-system
 argument built on this lives in
