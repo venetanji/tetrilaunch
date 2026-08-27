@@ -27,7 +27,7 @@ export type IconName =
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
-  | "thaw"
+  | "thaw" | "cushion"
   // One per option unlock (meta.ts's UNLOCKS). Same id-is-the-icon-name
   // convention as the tracks above: the shop card casts the id at the call
   // site, so there is no glyph field on UnlockDef and meta.ts never imports
@@ -125,6 +125,19 @@ const PATHS: Record<IconName, string> = {
   thaw:
     `<path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M5.5 8h2"/>`
     + `<path d="M9 5h5v6H9z"/><path d="M11.5 6v4"/><path d="M9.8 6.8l3.4 2.4"/><path d="M9.8 9.2l3.4-2.4"/>`,
+  // Impact Cushion: the wall at the right, a solid liner banked against its
+  // foot, and a cube coming down onto it. The only glyph here built around the
+  // WALL — `bay` also draws it, and the two stay apart because bay's arrow
+  // points away from the wall along the floor while this one falls onto it.
+  //
+  // The liner is solid and the cube is an outline, not the reverse: the thing
+  // bought is the liner, and at 13px the filled shape is the one the eye reads
+  // first. Three chevrons rather than a flat bar so it reads as bedding rather
+  // than as a second floor — a plain rectangle at the wall's foot is what
+  // `hydraulics` already uses for the compactor face.
+  cushion:
+    `<path d="M14 2v12"/><path d="M4 11h9v3H4z" fill="currentColor" stroke="none"/>`
+    + `<path d="M5 11l1.5-2 1.5 2 1.5-2 1.5 2"/><path d="M7 2h4v4H7z"/><path d="M9 7v2"/>`,
 
   // ---- Option unlocks (meta.ts's UNLOCKS) ---------------------------------
   // Demolition Licence: a detonation, not a charge — `demolition` above is the

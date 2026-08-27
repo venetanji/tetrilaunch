@@ -311,6 +311,24 @@ const FIELDS: Field[] = [
     read: (c) => c.thawCharges, fmt: int, higherIsWorse: false,
   },
   {
+    // THE LINER'S DEPTH, not its softening, and one row rather than two. The
+    // cushion ladders on both (upgrades.ts's CUSHION_TIERS) and every rung
+    // moves both, so a second row would be a second copy of the same purchase
+    // — and depth is the half a player can look at the bay and check. The
+    // softening is quoted where a number belongs to a rule rather than to a
+    // projection: the shop card and the guide both print the speed it takes to
+    // set a cube off inside the liner.
+    //
+    // Cells, because that is the unit the config field is in and the unit the
+    // rest of the bay's geometry is quoted in. Zero prints as "bare floor" so
+    // an unbought track reads as a state rather than as a measurement of
+    // nothing.
+    id: "cushion", label: "Cushion liner", short: "Liner",
+    read: (c) => c.cushionCells,
+    fmt: (v) => (v > 0 ? `${Math.round(v)} cells` : "bare floor"),
+    higherIsWorse: false,
+  },
+  {
     // The Demolition Rack's capstone is a CHANGE IN KIND rather than more
     // charges, so a projection that only counted charges would show its third
     // tier buying the same +2 the second one did. Three rows, because it moves

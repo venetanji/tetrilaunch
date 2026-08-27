@@ -311,6 +311,12 @@ function ownedMeta(): MetaState {
 
 /** Four digits of funds against a four-digit target — the readout width that
  *  regressed before (see sim/systems.ts's "$1000+ wrap regression"). */
+/** The seal state a paused Deep Run is really in (run.ts's sealStateFor), for
+ *  the pause fixtures' Restart Bay and the rail's ⏸. `at-stake` because that is
+ *  what a run that has retried nothing answers, and the Mark is one the save
+ *  has not sealed — the state the owner's screenshot was taken in. */
+const PAUSE_SEAL = { state: "at-stake" as const, mark: 4 };
+
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
   // The transport's held slot (canvas A5's two-deep queue) — a bulk-adjacent
@@ -346,7 +352,10 @@ const HUD_BASE = {
   // had, so two of the four chips the "widest child" is supposed to be measured
   // at were never rendered. Ratchets is a weak type, so the pair typechecked.
   ratchets: { wind: 2, sweeper: 1, cryo: 1, slag: 2 } as Ratchets,
-  tiers: { bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0, thaw: 0 },
+  tiers: {
+    bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0,
+    thaw: 0, cushion: 0,
+  },
 };
 
 const PROGRESS = tierProgressFor(midMeta());
@@ -359,7 +368,10 @@ const SANDBOX_BAY: SandboxState = {
   ...newSandbox(),
   tier: MARK_COUNT,
   target: { kind: "bay", bay: RUN_LEVELS },
-  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3, thaw: 3 },
+  tiers: {
+    bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3,
+    thaw: 3, cushion: 3,
+  },
   material: "all",
   ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,
 };
@@ -852,9 +864,16 @@ export const SCREENS: Record<string, () => string> = {
   // list the block can render and therefore the tallest this modal gets on the
   // fine-pointer rows (the block is display:none on coarse ones, exactly like
   // the strip it replaces).
+  //
+  // RESTART BAY CARRIES ITS SEAL FACE, because a paused Deep Run always has
+  // one — a fixture that passed none measured a button the app does not draw,
+  // and the glyph is 11px plus its margin inside a row that already holds four
+  // controls. `at-stake` is the state a fresh run pauses in; all three faces
+  // are the same box, so the row's width is the same in each and this measures
+  // the widest the row can get either way.
   pause: () =>
-    S.hudHTML({ ...HUD_BASE, contract: null }) +
-    S.pauseModal(true, "keyboard", { bond: true, demo: true, thaw: false, auto: true }),
+    S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
+    S.pauseModal(true, "keyboard", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
   // The PAD's reference card, which stopped being a shorter version of the
   // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
   // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
@@ -869,8 +888,8 @@ export const SCREENS: Record<string, () => string> = {
   // fixture over known-defective chrome inherits that chrome's known list; the
   // card itself measures clean on all nineteen rows.
   "pause-pad": () =>
-    S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }) +
-    S.pauseModal(true, "gamepad", { bond: true, demo: true, thaw: false, auto: true }),
+    S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad", seal: PAUSE_SEAL }) +
+    S.pauseModal(true, "gamepad", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({

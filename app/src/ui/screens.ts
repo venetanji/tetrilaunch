@@ -1880,6 +1880,12 @@ export function hudHTML(opts: {
    *  a tier deal is not a thing it can advertise), and the ship rack goes with
    *  it — a drill's rig is granted by the lesson, not built by the player. */
   drill?: { name: string } | null;
+  /** The run's seal state and flown Mark (run.ts's sealStateFor), for the ⏸
+   *  button's accessible name — the hold restarts the bay, so its name is
+   *  where that gesture's price belongs. Absent on every bay with no seal
+   *  question (a Contract, a drill, Tier S, the Skydeck) and on every caller
+   *  that predates it, which renders the name it always had. */
+  seal?: { state: SealState; mark: number } | null;
   contract?: {
     name: string;
     kind: "lines" | "pattern";
@@ -2109,7 +2115,34 @@ export function hudHTML(opts: {
            labels. Costs no pixels on any device and is the only route an
            assistive-technology user has to a gesture that is otherwise
            undiscoverable. -->
-      <button class="icon-btn" data-action="pause" aria-label="Pause — hold to restart the bay">${icon("pause", 22)}</button>
+      <!-- …and the seal's price rides that same name when there is one, in the
+           SAME words the two buttons wear (sealFaceLabel). NO GLYPH here, and
+           that is a decision rather than an omission: this is a 22px icon
+           button on a live field, the rail is width-budgeted (sim/uifit's
+           rail assertion), and a cost readout painted over a bay in flight is the
+           mistake the hint strip's own note describes from the other side.
+           The hold is also the one door of the three that cannot be pressed by
+           accident — it is a deliberate gesture with its own meter — and it is
+           confirmed by the same panel every other door is (requestBayRetry),
+           so the press is never charged unannounced. What the label buys is
+           the half that has nowhere else to go: an assistive-technology user
+           gets the cost before the gesture, exactly as they get the gesture
+           itself. -->
+      <!-- …and the price is DASHED on, exactly as the two buttons dash it on,
+           not folded in as a relative clause. This read ", which " for one
+           release: "breaks this run's seal" happens to parse after a relative
+           pronoun, so the at-stake name looked right and the other two came out
+           as "hold to restart the bay, which this run's seal is already
+           broken". Since this name is the ONLY cost explanation an
+           assistive-technology user of an icon-only control ever gets, a
+           malformed one is not a typo — it is the explanation failing. The
+           label carries its own subject now and every door joins it the same
+           way (sealNameWith). (Codex review, PR #144.) -->
+      <button class="icon-btn" data-action="pause" aria-label="${
+        opts.seal
+          ? sealNameWith("Pause — hold to restart the bay", opts.seal.state, opts.seal.mark)
+          : "Pause — hold to restart the bay"
+      }">${icon("pause", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotl" aria-label="Rotate left">${icon("rotl", 22)}</button>
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
@@ -3317,11 +3350,88 @@ export function workshopScreen(meta: MetaState): string {
  *  they are lost mid-bay, which makes it the right permanent home for the
  *  hints the transient strip retires from. Touch never sees the block (same
  *  CSS gates as the strip — the rail is touch's reference). */
+/**
+ * THE BAY-RETRY BUTTON'S FACE — one rule, every door.
+ *
+ * Three surfaces can start a bay retry (main.ts's requestBayRetry): the
+ * game-over card's Retry Bay, the pause modal's Restart Bay, and the held ⏸.
+ * The first got this treatment when it shipped and the second did not, so the
+ * pause modal spent a release asking for the same irreversible thing with a
+ * bare label — the cost visible from one door and invisible from another,
+ * which is worse than invisible from both because it teaches the player that
+ * the plain button is the safe one. (Owner playtest, screenshot.)
+ *
+ * So the face is written ONCE and both buttons call it. Not a second copy
+ * tuned to the pause modal: two copies is how the end card ends up saying
+ * "breaks this run's seal" while the pause modal says something almost like
+ * it, and a player who reads both learns to trust neither.
+ *
+ * WHAT EACH STATE DRAWS is argued in full at the .btn__seal rules in app.css
+ * and at run.ts's sealStateFor; the short version is that the shape says
+ * whether a stamp exists and the wash says whether it is in danger.
+ */
+export function sealFaceHTML(seal: SealState): string {
+  return `<span class="btn__seal${
+    seal === "at-stake" ? "" : seal === "held" ? " btn__seal--held" : " btn__seal--broken"
+  }" aria-hidden="true"></span>`;
+}
+
+/** …and the same rule's words, for the accessible name of whichever control is
+ *  wearing the glyph. Separate from the markup above because the two buttons
+ *  put it in different places (one appends to a label naming a bay, the other
+ *  labels the whole control), and because the ⏸ hold takes the words WITHOUT
+ *  the glyph — see hudHTML.
+ *
+ *  EVERY STATE IS A STANDALONE CLAUSE, and that is a rule rather than a
+ *  coincidence of phrasing. The three lines are glued onto three different
+ *  prefixes, so the only composition that can work at all three doors is one
+ *  that treats the label as a sentence in its own right — join with a dash and
+ *  read it.
+ *
+ *  It shipped otherwise for one release. "breaks this run's seal" is a bare
+ *  predicate, which reads fine after a button name that supplies the subject
+ *  ("Retry Bay 7 — breaks this run's seal") and ALSO reads fine after a
+ *  relative pronoun — so the rail glued its own name on with ", which " and
+ *  looked correct in the one state anybody checked. The other two are full
+ *  clauses, and "hold to restart the bay, which this run's seal is already
+ *  broken" is what that assumption actually produces. (Codex review, PR #144.)
+ *
+ *  So at-stake carries its subject too. "retrying" is very slightly redundant
+ *  after a button called Retry Bay, and that is the cheaper of the two costs:
+ *  a label that only parses next to certain prefixes is a label that will be
+ *  mis-glued again by the next door somebody adds.
+ *
+ *  `mark` is only ever spoken in the "held" line, which is a statement about
+ *  THAT FLOOR's stamp rather than about this run — the distinction sealStateFor
+ *  exists to keep straight. */
+export function sealFaceLabel(seal: SealState, mark: number): string {
+  return seal === "at-stake"
+    ? "retrying breaks this run's seal"
+    : seal === "held"
+      ? `Mark ${mark} is already sealed, so this costs nothing`
+      : "this run's seal is already broken";
+}
+
+/** The one way a door may glue the price onto its own name: a dash, and the
+ *  clause. Stated as a function so "the composition rule" is a thing the sim
+ *  can check rather than three string literals that agree today. */
+export function sealNameWith(name: string, seal: SealState, mark: number): string {
+  return `${name} — ${sealFaceLabel(seal, mark)}`;
+}
+
 export function pauseModal(
   fullscreen = true,
   profile: InputProfile = "keyboard",
   owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean }
     = { bond: false, demo: false, thaw: false, auto: false },
+  /** The run's seal state and the Mark it is flying (run.ts's sealStateFor) —
+   *  the SAME read requestBayRetry gates its confirmation on, so this button's
+   *  face and the panel that press opens can never disagree.
+   *
+   *  Absent means "no seal question here", which is the honest answer for Tier
+   *  S, the Skydeck, a Contract, a drill, and for every caller that predates
+   *  this argument. Restart Bay then renders exactly as it always did. */
+  seal?: { state: SealState; mark: number },
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">
@@ -3330,7 +3440,16 @@ export function pauseModal(
       <div class="row">
         <button class="btn btn--primary" data-action="resume">Resume</button>
         ${fullscreen ? `<button class="btn btn--secondary" data-action="fullscreen" id="fullscreen-btn-modal">${icon("fullscreen", 14)} <span class="fs-label">Fullscreen</span></button>` : ""}
-        <button class="btn btn--secondary" data-action="restart-bay">Restart Bay</button>
+        <!-- RESTART BAY WEARS THE SAME FACE THE LOSS CARD'S RETRY DOES. It is
+             the same action through a different door, and until now it was the
+             only door that charged the seal without showing it (owner playtest
+             screenshot). The glyph comes from sealFaceHTML so there is one rule
+             rather than two that drift; the label carries the words, because
+             the glyph is aria-hidden and a cost only half the audience can read
+             is a cost half the audience is not told about. -->
+        <button class="btn btn--secondary" data-action="restart-bay"${
+          seal ? ` aria-label="${sealNameWith("Restart Bay", seal.state, seal.mark)}"` : ""
+        }>${seal ? sealFaceHTML(seal.state) : ""}Restart Bay</button>
         <button class="btn btn--ghost" data-action="menu">Quit</button>
       </div>
       ${pauseKeysHTML(profile, owned)}
@@ -4214,24 +4333,19 @@ export function endModal(opts: {
           // the press rather than reporting the run — and then nothing at all
           // once the seal was actually spent, which is the one state a player
           // most wants to be able to read back.
+          //
+          // THE GLYPH AND THE WORDS BOTH COME FROM sealFaceHTML/sealFaceLabel
+          // now, which is where the pause modal's Restart Bay gets them too.
+          // They were written here and nowhere else for one release, and the
+          // pause modal went out with a bare button as a result — so the rule
+          // moved out to be shared rather than being copied to the second
+          // caller. Nothing about this button's face changed in the move.
           opts.retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
-              aria-label="Retry Bay ${opts.bayNum} — ${
-                opts.retryBay.seal === "at-stake"
-                  ? "breaks this run's seal"
-                  : opts.retryBay.seal === "held"
-                    ? `Mark ${opts.retryBay.mark} is already sealed, so this costs nothing`
-                    : "this run's seal is already broken"
+              aria-label="${
+                sealNameWith(`Retry Bay ${opts.bayNum}`, opts.retryBay.seal, opts.retryBay.mark)
               }"
-            ><span class="btn__seal${
-              // Solid in both of the states where a stamp exists to be drawn,
-              // struck only where one is genuinely gone — and the modifier
-              // carries the wash, so "held" is the same glyph as "at-stake"
-              // with the alarm taken off it.
-              opts.retryBay.seal === "at-stake" ? ""
-                : opts.retryBay.seal === "held" ? " btn__seal--held"
-                  : " btn__seal--broken"
-            }" aria-hidden="true"></span>Retry Bay</button>`
+            >${sealFaceHTML(opts.retryBay.seal)}Retry Bay</button>`
             : ""
         }
         ${
@@ -4364,8 +4478,15 @@ export function sealBreakModal(opts: {
            assumes should be the reversible one. -->
       <div class="row">
         <button class="btn btn--primary" data-action="seal-break-back">Keep the seal</button>
+        <!-- The fourth name that speaks the price, and it goes through the same
+             rule as the other three. It was a hand-written copy of the at-stake
+             words, which is precisely the drift this feature moved the face out
+             to prevent: the moment those words gained a subject, this button
+             would have been the one still saying the old ones. The panel only
+             ever opens on an at-stake seal (requestBayRetry), so the state is
+             a constant here rather than a prop. -->
         <button class="btn btn--secondary" data-action="seal-break-go"
-          aria-label="Retry Bay ${opts.bayNum} — breaks this run's seal"
+          aria-label="${sealNameWith(`Retry Bay ${opts.bayNum}`, "at-stake", opts.mark)}"
         ><span class="btn__seal" aria-hidden="true"></span>Retry Bay</button>
       </div>
     </div>

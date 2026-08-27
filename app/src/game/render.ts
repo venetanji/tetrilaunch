@@ -1,7 +1,8 @@
 import Matter from "matter-js";
-import { CELL, SKY, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
+import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
 import { CHUTE, chuteMouth, chuteRightEdge } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
+import { cushionEdgeX } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
 import {
   BAY_GLYPH_MATERIALS, COLORS, glyphInk, MATERIAL_GLYPH, PIECE_COLORS,
@@ -446,6 +447,10 @@ export function render(
   // The plant's intake, under everything: cargo falling in has to draw OVER
   // the mouth it is falling into, and the arc has to draw over both.
   drawChute(ctx, scene.strandWarning, scene.now, chuteRightEdge(scene.compactor.strandCutoffX));
+  // Under the cargo and under the bar, because it is floor: a liner the pile
+  // sits ON has to be behind whatever is sitting on it. Its EDGE is drawn with
+  // the trajectory instead — see drawCushionEdge.
+  drawCushionBed(ctx, scene.level);
   drawWindIndicator(ctx, scene.level, scene.windNow, scene.windAverage);
   drawCompactor(ctx, scene.compactor, alpha);
   drawPistons(ctx, scene.compactor, alpha);
@@ -466,6 +471,9 @@ export function render(
   // very cubes it joins, so drawing it underneath draws nothing.
   drawJointSeams(ctx, scene.constraints, alpha);
   for (const bomb of scene.bombs) drawBomb(ctx, bomb, alpha);
+  // Over the cargo, with the trajectory: this is the line the player aims
+  // against, and the bedding it belongs to is already buried under the pile.
+  drawCushionEdge(ctx, scene.level);
   drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now, scene.strandWarning);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
@@ -1027,6 +1035,94 @@ function lerpHex(a: string, b: string, t: number): string {
 const WIND_HUD_Y = 108; // world-y, clear of the ~64px DOM HUD strip up top
 const WIND_HUD_HALF_LEN = 150; // px of bar reach at full strength (|ratio| = 1)
 const WIND_HUD_HEAD = 15;
+
+/**
+ * THE IMPACT CUSHION'S LINER, drawn on the floor it lines.
+ *
+ * The system has a hard edge — a volatile cube that lands one cell short of
+ * `cushionCells` gets no softening at all (lineClear.ts's volatileBlast) — and
+ * a hard edge the player cannot see is not a rule they can play against, it is
+ * a rule that happens to them. That is the whole reason this function exists;
+ * the liner is the one ship system whose effect is a PLACE, and every other
+ * one reads off a number in the HUD.
+ *
+ * So the drawing's job is to answer exactly one question at a glance — "is that
+ * slot lined?" — which is why the near edge is the loudest thing in it. The
+ * bedding itself is deliberately quiet: it sits under the pile for the whole
+ * bay and a floor treatment that competes with cargo would cost more than it
+ * teaches. Same stance as the congestion rows, which are floor light rather
+ * than a HUD overlay.
+ *
+ * Tier-independent styling. Depth is the readout — a deeper tier draws a wider
+ * band, which is the thing that changed — and a second visual channel for the
+ * softening would be a number nobody can read off a colour.
+ */
+function drawCushionBed(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.cushionCells <= 0) return;
+  // THE SAME x the collision side tests against, from the same function —
+  // see lineClear.ts's cushionEdgeX for why that is not a tidiness point.
+  const x = cushionEdgeX(level.cushionCells);
+  const w = WALL_INNER - x;
+  // A third of a cell: thick enough to read as bedding the pile rests on, thin
+  // enough that a cube sitting on it still reads as sitting on the floor.
+  const h = CELL / 3;
+  const y = WORLD.height - h;
+
+  ctx.save();
+  const grad = ctx.createLinearGradient(0, y, 0, WORLD.height);
+  grad.addColorStop(0, "rgba(0,240,255,0.06)");
+  grad.addColorStop(1, "rgba(0,240,255,0.22)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+
+  // The chevrons the shop card's icon uses, so the mark on the plate and the
+  // thing on the floor are recognisably the same object.
+  ctx.strokeStyle = "rgba(0,240,255,0.22)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let cx = x + CELL / 2; cx < WALL_INNER; cx += CELL) {
+    ctx.moveTo(cx - CELL / 3, WORLD.height - 2);
+    ctx.lineTo(cx, y + 2);
+    ctx.lineTo(cx + CELL / 3, WORLD.height - 2);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The liner's near edge — the boundary, drawn OVER the cargo.
+ *
+ * Split from the bedding above because the two are different kinds of thing and
+ * want opposite layering. The bed is floor: cargo lands on it and covers it,
+ * exactly as it should. The edge is a REFERENCE — the line the player aims
+ * against — and a reference buried under the first row that lands on it has
+ * stopped being one. Measured on a real Tier-7 bay at 1100 steps: the bed is
+ * gone behind cargo and the post was invisible with it.
+ *
+ * So this draws with the trajectory and the aim ring rather than with the
+ * floor, and it is deliberately the only part of the system that does. Two
+ * cells of post, faded upward so it reads as a marker standing on the floor
+ * rather than as a wall cargo ought to stack against.
+ */
+function drawCushionEdge(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.cushionCells <= 0) return;
+  const x = cushionEdgeX(level.cushionCells);
+  ctx.save();
+  const post = ctx.createLinearGradient(0, WORLD.height, 0, WORLD.height - 2 * CELL);
+  post.addColorStop(0, "rgba(0,240,255,0.85)");
+  post.addColorStop(1, "rgba(0,240,255,0)");
+  ctx.strokeStyle = post;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x, WORLD.height);
+  ctx.lineTo(x, WORLD.height - 2 * CELL);
+  ctx.stroke();
+  // A solid foot, so the boundary has a definite position even where the post
+  // has faded into whatever is stacked in front of it.
+  ctx.fillStyle = COLORS.aim;
+  ctx.fillRect(x - 2, WORLD.height - 6, 4, 6);
+  ctx.restore();
+}
 
 function drawWindIndicator(
   ctx: CanvasRenderingContext2D,
