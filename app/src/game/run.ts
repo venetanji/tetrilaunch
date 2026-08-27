@@ -197,6 +197,35 @@ export function picksForRun(run: RunState): number {
  *  the two together so they cannot drift. */
 export const SKYDECK_PICKS_PER_BAY = 1;
 
+/**
+ * Does this run's ENDING move the ladder — the tier's Deep Run milestone, its
+ * salvage share, the Mark's seal, the lifetime counters (meta.ts's
+ * recordRunEnd)?
+ *
+ * Two modes say no, for two different reasons, and they are stated together
+ * because the question a caller has is one question.
+ *
+ *  - **Tier S** flies a Mark it never earned, on a rig nobody paid for, from a
+ *    bay it never reached. It has said no since it shipped.
+ *  - **The Skydeck** is the one that needed finding (PR #124 review).
+ *    recordRunEnd ticks the tier at markUnlocked(meta), and markUnlocked
+ *    SATURATES at MARK_COUNT — while the Skydeck opens only once the whole
+ *    ladder is beaten. So every player who can reach the roof is parked on that
+ *    saturated tier, and an unguarded daily win set tierRunDone, banked a tier
+ *    milestone's salvage and printed Tier 10 completion copy EVERY DAY. A daily
+ *    that pays a once-per-tier reward on repeat is a salvage faucet, and the
+ *    seal is worse: recordRunEnd's `sealed` is deliberately not gated on the
+ *    Mark being current, so a daily clean run would have claimed the Mark-10
+ *    badge for a run flown under rules Mark 10 does not have.
+ *
+ * A predicate rather than two tests at the call site, because it is the rule
+ * and sim/systems.ts has to be able to reach it: the gate lives in main.ts's
+ * finishRun, which no harness can call, so what gets pinned is this.
+ */
+export function tracksLadder(run: RunState): boolean {
+  return !run.sandbox && run.skydeck === null;
+}
+
 /** Every standing clause in force on this run's current bay, in arm order.
  *  Empty for a ladder run, which carries its single clause in `final` instead.
  *

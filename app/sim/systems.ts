@@ -73,8 +73,13 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
+  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
+// Node has no localStorage, so telemetry.recording() is false here and nothing
+// in this module records — which is exactly what makes runMode safe to import:
+// it is a pure tag function, and it is the one thing sim/playtest.ts's whole
+// grouping turns on.
+import * as telemetry from "../src/lib/telemetry";
 import {
   CLAUSE_STOPS, clauseDefs, dealableAt, schedulesDeadCargo, skydeckRulesFor, skydeckRunFor,
   skydeckSeed,
@@ -6811,6 +6816,80 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
         stacked.materialMix.cryo >= alone.materialMix.cryo - 1e-9,
         `${stacked.materialMix.cryo.toFixed(3)} vs ${alone.materialMix.cryo.toFixed(3)}`);
     }
+  }
+
+  // ---- THE LADDER IS NEVER TICKED BY A DAILY ------------------------------
+  // Found in review (PR #124). meta.ts's recordRunEnd ticks the tier at
+  // markUnlocked(meta), and markUnlocked SATURATES at MARK_COUNT — while the
+  // Skydeck opens only once the whole ladder is beaten. So every player who can
+  // reach the roof is parked on that saturated tier, and an unguarded daily win
+  // set tierRunDone, banked a tier milestone's salvage and printed Tier 10
+  // completion copy, every day, for as long as they kept winning.
+  //
+  // run.ts's tracksLadder is the rule, and it is what main.ts's finishRun
+  // branches on — no harness can call that method, so the predicate is what
+  // gets pinned, with the meta identity asserted THROUGH it so a predicate that
+  // started answering "yes" fails here rather than in a save file.
+  {
+    const beaten: MetaState = {
+      // The arrival that makes the bug reachable: the ladder finished, so
+      // markUnlocked saturates and the "tier in progress" is Mark 10 again.
+      ...newMeta(), mark: MARK_COUNT, salvage: 40,
+    };
+    check("the arrival is the one that opens the Skydeck",
+      markUnlocked(beaten) === MARK_COUNT && beaten.mark >= MARK_COUNT);
+
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck run does not track the ladder", !tracksLadder(sky));
+    check("...where a ladder run at the same Mark does", tracksLadder(ladder));
+    check("...and Tier S still does not either",
+      !tracksLadder({ ...ladder, sandbox: true }));
+
+    // finishRun's branch, exactly: tick only when the run tracks the ladder.
+    const finish = (run: RunState, won: boolean): MetaState =>
+      tracksLadder(run)
+        ? recordRunEnd(beaten, run.mark, won, RUN_LEVELS, 0).meta
+        : beaten;
+
+    // The control first — without it "nothing moved" could mean the arrival was
+    // inert rather than that the gate held.
+    check("a ladder win at that Mark really would tick it",
+      JSON.stringify(finish(ladder, true)) !== JSON.stringify(beaten)
+        && finish(ladder, true).tierRunDone && !beaten.tierRunDone);
+    // Compared as JSON rather than field by field, because the failure is a
+    // whole function running that should not have: `runs`, `bestBay`,
+    // `salvage`, `tierRunDone` and `sealedMarks` all move in it, and a check
+    // that listed today's fields would pass the day a sixth is added.
+    check("a Skydeck win leaves the ladder's meta byte-identical",
+      JSON.stringify(finish(sky, true)) === JSON.stringify(beaten));
+    check("...and so does a Skydeck loss",
+      JSON.stringify(finish(sky, false)) === JSON.stringify(beaten));
+    // The seal is the half NOT gated on the Mark being current (recordRunEnd's
+    // `sealed`), so it is the one an "it is already done at Mark 10" argument
+    // would have missed.
+    check("a Skydeck run never seals a Mark",
+      finish(sky, true).sealedMarks.length === 0
+        && recordRunEnd(beaten, MARK_COUNT, true, RUN_LEVELS, 0).meta.sealedMarks.length === 1);
+  }
+
+  // ---- THE ANALYSER IS TOLD WHICH MODE IT IS LOOKING AT --------------------
+  // Also found in review. A Skydeck bay carries mark 10 and a clock, so nothing
+  // else about its telemetry record tells it apart from an ordinary Mark-10
+  // Deep Run bay — and sim/playtest.ts's medians are what the tier ladder is
+  // tuned against. Fixed daily seed, no refit behind it and standing clauses on
+  // it, pooled into those medians, is corrupted balance data.
+  {
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck bay is tagged as its own mode",
+      telemetry.runMode(sky) === "skydeck", telemetry.runMode(sky));
+    check("...and a ladder bay is still tagged run",
+      telemetry.runMode(ladder) === "run", telemetry.runMode(ladder));
+    // The two runs are otherwise indistinguishable to the record, which is why
+    // the tag has to exist at all.
+    check("...on two runs the record could not otherwise tell apart",
+      sky.mark === ladder.mark && telemetry.runMode(sky) !== telemetry.runMode(ladder));
   }
 
   // ---- THE SCREENS SAY WHAT THE RUN DOES ----------------------------------

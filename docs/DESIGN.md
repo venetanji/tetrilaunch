@@ -434,6 +434,19 @@ clause is a wall**: the per-clause report card runs 37–64% at Mark 6 and 24–
 at Mark 10, none at zero. The slag pair *was* a wall (bays 7 and 10 to 0%,
 every seed) and is the measurement the dead-cargo rule above came from.
 
+**It moves no ladder state.** `recordRunEnd` ticks the tier at
+`markUnlocked(meta)`, which *saturates* at `MARK_COUNT` — and the Skydeck opens
+only once the ladder is beaten, so every player who can reach the roof is parked
+on that saturated tier. Unguarded, a daily win would set `tierRunDone`, bank a
+tier milestone's salvage and print Tier 10 completion copy *every day*, and
+would claim the Mark-10 seal besides (`sealed` is deliberately not gated on the
+Mark being current). So a Skydeck ending skips the bookkeeping entirely —
+`run.ts`'s `tracksLadder` is the one statement of it, shared with Tier S — and
+keeps only the score. Its telemetry is tagged `mode: "skydeck"` for the same
+class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
+about the record tells it apart from an ordinary Mark-10 bay, and pooled into
+`sim/playtest.ts` it would corrupt the medians the tier ladder is tuned against.
+
 Two things are deliberately NOT in the first cut, and both are recorded rather
 than forgotten. A Skydeck run files to the **Mark-10 board**, because a
 per-day board needs a schema column the leaderboard does not have and a mixed

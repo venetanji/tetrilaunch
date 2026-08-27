@@ -3,8 +3,8 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
-  baysUntilRefitFor, picksForRun, standingClauses, buyUpgrades, bayMusic, RUN_LEVELS,
-  type RunState,
+  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, buyUpgrades, bayMusic,
+  RUN_LEVELS, type RunState,
 } from "./game/run";
 import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
@@ -2292,7 +2292,11 @@ class App {
       bay: this.run.levelIndex + 1,
       mark: this.run.mark,
       seed: this.run.seed,
-      mode: "run",
+      // The Skydeck is its own mode to the analyser, not a Mark-10 Deep Run
+      // with different numbers: fixed daily seed, no refit behind it, standing
+      // clauses on it. sim/playtest.ts groups on this, and pooling the two
+      // would move the medians the ladder is tuned against.
+      mode: telemetry.runMode(this.run),
       target: cfg.targetScore,
       timeLimitSec: cfg.timeLimitSec,
       cooldownMs: cfg.cooldownMs,
@@ -3099,6 +3103,39 @@ class App {
       telemetry.endRun(won, 0);
       saveBest(score, BOARD_SANDBOX);
       void this.refreshBoard(BOARD_SANDBOX);
+      this.setState(won ? "won" : "lost");
+      return;
+    }
+    // THE SKYDECK: a real run, a real score, and NO LADDER BOOKKEEPING — the
+    // same gate Tier S gets above, for a different reason and with a different
+    // exception.
+    //
+    // The reason. recordRunEnd ticks the tier whose Deep Run half is not yet
+    // done, and the tier it asks about is markUnlocked(meta), which SATURATES
+    // at MARK_COUNT (meta.ts). The Skydeck opens only once the whole ladder is
+    // beaten, so every player who can reach it is already parked on that
+    // saturated tier — which means an unguarded Skydeck win would set
+    // tierRunDone, bank a salvage milestone and print Tier 10 completion copy,
+    // EVERY DAY, forever. A daily that pays the ladder's once-per-tier reward
+    // on repeat is a salvage faucet, and it would also quietly claim the
+    // Mark-10 seal (recordRunEnd's `sealed` is deliberately NOT gated on the
+    // Mark being current) for a run flown under rules Mark 10 does not have.
+    //
+    // The exception. Unlike Tier S this run is NOT filed apart: it flies Mark
+    // 10's bays on a loadout bought against Mark 10's budget, so its score is
+    // comparable to a Mark-10 Deep Run's and goes to that board (runBoard, and
+    // the end modal's submit). A harder run on the same board can only ever
+    // under-rank itself, which is the safe direction; a per-day board is a
+    // schema change and is recorded as an open in docs/DESIGN.md.
+    //
+    // lastTier stays null so the end modal prints no tier line at all — the
+    // completion copy is the visible half of the bug above, and the modal
+    // already renders nothing when there is no result to render.
+    if (!tracksLadder(this.run)) {
+      this.lastTier = null;
+      telemetry.endRun(won, 0);
+      saveBest(score);
+      void this.refreshBoard();
       this.setState(won ? "won" : "lost");
       return;
     }
