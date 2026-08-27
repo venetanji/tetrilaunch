@@ -399,6 +399,56 @@ which composite without repainting), everything else — funds, combo, scrap,
 notches, target — on a slow tick. What the crude gate proves is that the budget
 is there to be won.
 
+### The ceiling is not made of pixels, and it is not a constant
+
+The obvious next question is whether the 112fps ceiling can be raised. It was
+tested by hiding the canvas as well, three conditions rotating every 400ms in a
+live bay:
+
+| painted | fps | on-time |
+| --- | --- | --- |
+| everything (normal) | 59.7 | 17.9% |
+| HUD not painted | 80.2 | 50.5% |
+| **HUD and canvas not painted** | **83.2** | **55.9%** |
+
+**Hiding the entire canvas on top of the HUD buys +3fps.** So the ceiling is not
+drawing. With literally nothing painted the frame still does not reach 120, and
+what remains is everything that keeps running: physics, `render()` assembling its
+command list, and `syncHud` writing the DOM — invisible elements still invalidate
+style and layout, they only skip paint. Any further headroom is JS work and DOM
+invalidation, not pixels.
+
+**And the ceiling moves.** This run's "normal" arm measured 59.7fps where an
+earlier run of the same probe measured 74.9, and the HUD-hidden ceiling came out
+80.2 against the earlier 112.2 — same code, same device, same probe, a colder
+phone earlier. Treat these as ratios between arms measured in one window, never
+as constants to compare across sessions. Every table in this document is
+internally interleaved for exactly this reason.
+
+That gives the order of work, and it is worth stating because it is the reverse
+of where the effort naturally wants to go:
+
+1. **The HUD repaint.** Measured at +21.3fps from a crude throttle, and the
+   largest single item by a wide margin.
+2. **Re-measure the ceiling on a cold phone**, once that dominant term is gone.
+   Chasing a residual whose absolute value swings 30% with temperature is
+   guesswork while something four times its size is still in the frame.
+3. **The canvas last.** It is worth ~3fps. The sprite-pass work is real and its
+   counts are sound, but this is the size of the purse it is being paid out of.
+
+### The phone's own FPS counter reads the PANEL, not the game
+
+Worth knowing before anyone validates this work with it. With OxygenOS's FPS
+overlay showing a steady **120**, an rAF sample taken at the same instant read a
+median gap of **16.7ms** — about 60 real frames a second — with a *minimum* gap
+of 8.2ms proving the panel really was refreshing at 120Hz.
+
+Both numbers are true and they measure different things: the panel refreshes 120
+times a second while the app hands it a new frame every second refresh. A counter
+reading 120 is not evidence the game is at 120. The in-page rAF gap is, and the
+minimum gap over a window is what proves the panel was actually running fast
+enough for the question to mean anything.
+
 ### What this means for the sprite pass
 
 The sprite-pass work (draw-call census, redundant property writes, `save`/`restore`
