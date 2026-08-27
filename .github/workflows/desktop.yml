@@ -248,10 +248,12 @@ jobs:
       #
       # workflow_dispatch is the one thing that survives the suppression — it
       # and repository_dispatch are the documented exceptions to it — which is
-      # why this is a dispatch and not, say, a second release event. android.yml
-      # already declares workflow_dispatch and its `bundle` job already runs
-      # under it, so nothing over there has to change; pinning --ref to the tag
-      # is what makes its ANDROID_VERSION_NAME resolve to the right version.
+      # why this is a dispatch and not, say, a second release event. Pinning
+      # --ref to the tag is what makes ANDROID_VERSION_NAME resolve to the
+      # right version, and publish=true is what carries the Play publish
+      # through: android.yml treats a dispatch as a rehearsal unless the
+      # dispatcher says otherwise, so a human picking a tag ref in the Actions
+      # UI cannot ship to Play by accident — this automated path says so.
       #
       # Only when we created the release. If a human published it, android.yml
       # already ran on the real `release: published` event and dispatching here
@@ -264,8 +266,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if ! gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"; then
-            echo "::error::could not dispatch android.yml for $TAG. The desktop artifacts are published, but the signed Android bundle is NOT built — run android.yml by hand from the Actions tab with ref $TAG."
+          if ! gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f publish=true; then
+            echo "::error::could not dispatch android.yml for $TAG. The desktop artifacts are published, but the signed Android bundle is NOT built — run android.yml by hand from the Actions tab with ref $TAG and the publish box ticked."
             exit 1
           fi
           echo "dispatched android.yml at $TAG"
