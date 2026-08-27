@@ -45,13 +45,13 @@ import {
 } from "./draft-space";
 import { greedyRefit, runDeepRun } from "./deeprun";
 import { runBay, type BayOutcome } from "./runner";
-import { aimBot, aimCandidates } from "./bots";
+import { ADAPTIVE_BOTS, aimBot, aimCandidates } from "./bots";
 import {
   cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
   naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
   strikeStrategy,
 } from "./aim-strategies";
-import { loadoutFor, PRIORITY_ORDERS } from "./builds";
+import { loadoutFor, loadoutWithoutTrack, PRIORITY_ORDERS } from "./builds";
 import {
   BOND_MIN_CUBES, bondHands, cushionKit, thawHands, thawKit,
 } from "./counters";
@@ -13638,26 +13638,55 @@ section("Aiming strategies — the cushion play and the lance play (sim/aim-stra
       );
     }
 
-    // THE DIVISION OF LABOUR: the shipment takes the cube the lance is NOT
-    // going to take. Pinned as the two cases rather than as one, because the
-    // whole point of the rule is that the two tools never contend.
+    /* THE DIVISION OF LABOUR: the shipment takes the cube the lance is NOT
+     * going to take. Pinned as the two cases rather than as one, because the
+     * whole point of the rule is that the two tools never contend.
+     *
+     * THE FIXTURE HAS TO FIRE A REAL LANCE, and the first version of these two
+     * pins did not — its `useThawLance` returned true and changed nothing, so
+     * `nextColdCryo` still offered the cube the charge had just taken and the
+     * only way to pass was for the strategy to skip it a SECOND time. That is
+     * the double-advance review found: the pin was not merely blind to the bug,
+     * it required it. `thawed` marks the cube struck and spends a charge, which
+     * is `game.ts`'s useThawLance minus the FX, and the tick is driven in the
+     * order `strategyHands` drives it. */
     const base = { x: 0, slot: 0 };
+    const thawed = (over: Record<string, unknown>): Game => {
+      const g = stubBay(over);
+      (g as unknown as { useThawLance(): boolean }).useThawLance = () => {
+        const t = nextColdCryo(g.cubes, g.compactor);
+        if (!t || g.thawCharges <= 0) return false;
+        t.struck = true;
+        (g as { thawCharges: number }).thawCharges -= 1;
+        return true;
+      };
+      return g;
+    };
     {
-      const bay = stubBay({ cubes: [near, far], thawCharges: 3, compactor: barAt });
+      // Fresh cubes per case: `struck` is mutable state and a shared fixture
+      // would carry one case's thaw into the next.
+      const a = ice(8);
+      const b = ice(3);
+      const bay = thawed({ cubes: [a, b], thawCharges: 3, compactor: barAt });
+      lance.abilities!(bay, 0);
       const shot = lance.target!(bay, 0, base);
       check(
         "with the near cube inside the lance's band, the shipment is sent at the FAR one",
-        shot !== null && Math.abs(shot!.x - far.body.position.x) < 1e-9,
-        `${shot?.x} vs far ${far.body.position.x}`,
+        a.struck && !b.struck
+          && shot !== null && Math.abs(shot!.x - b.body.position.x) < 1e-9,
+        `near struck ${a.struck}, shot ${shot?.x} vs far ${b.body.position.x}`,
       );
     }
     {
-      const bay = stubBay({ cubes: [far], thawCharges: 3, compactor: barAt });
+      const b = ice(3);
+      const bay = thawed({ cubes: [b], thawCharges: 3, compactor: barAt });
+      lance.abilities!(bay, 0);
       const shot = lance.target!(bay, 0, base);
       check(
-        "...and with nothing in the band, the shipment takes the nearest cube itself",
-        shot !== null && Math.abs(shot!.x - far.body.position.x) < 1e-9,
-        `${shot?.x}`,
+        "...and with nothing in the band, the lance holds and the shipment takes that cube",
+        !b.struck && bay.thawCharges === 3
+          && shot !== null && Math.abs(shot!.x - b.body.position.x) < 1e-9,
+        `struck ${b.struck}, charges ${bay.thawCharges}, shot ${shot?.x}`,
       );
     }
     {
@@ -13676,6 +13705,186 @@ section("Aiming strategies — the cushion play and the lance play (sim/aim-stra
       });
       check("...and neither is a volatile one", lance.target!(vol, 0, base) === null);
     }
+  }
+}
+
+section("Aiming strategies — three holes review found (sim/ — winnability, lance, arms)");
+{
+  /* -------------------------------------------------------------------------
+   * 1. A ROW'S LABEL IS A FACT ABOUT THE BOT THAT FLEW IT.
+   *
+   * `winnability.ts` rebuilt the pilot for a strategy run by passing ONE option
+   * — `demolish` — so `--bot patient --strategies cushion` dropped the
+   * congestion rule that IS the `patient` preset, and printed rows labelled
+   * `patient` that plain `aim` had flown. Both halves are pinned: the options
+   * table is what `BOTS` is built from (so it cannot describe a preset that
+   * does not exist), and a strategy pilot carrying `patient` actually plays a
+   * congested bay differently from one carrying `aim`.
+   * ----------------------------------------------------------------------- */
+  check(
+    "every adaptive preset in BOTS is spelled once, in ADAPTIVE_BOTS",
+    Object.keys(ADAPTIVE_BOTS).every((id) => id in BOTS)
+      && ADAPTIVE_BOTS.patient.congestionAware === true
+      && ADAPTIVE_BOTS.impatient.impatient === true
+      && ADAPTIVE_BOTS.demo.demolish === true
+      && Object.keys(ADAPTIVE_BOTS.aim).length === 0,
+    Object.keys(ADAPTIVE_BOTS).join(","),
+  );
+  {
+    // Names first — cheap, and it is the half that says the option SURVIVED the
+    // wrap rather than being reconstructed from a default.
+    const named = (id: string): string => strategyPilot(cushionStrategy, {
+      bot: ADAPTIVE_BOTS[id],
+    })(1).name;
+    check(
+      "a strategy pilot keeps the preset it was asked for, not a default",
+      named("patient") === "patient:cushion+bond"
+        && named("impatient") === "impatient:cushion+bond"
+        && named("aim") === "aim:cushion+bond",
+      `${named("patient")} / ${named("impatient")} / ${named("aim")}`,
+    );
+    // ...and the behavioural half, which is the one that would have caught the
+    // bug: a congested bay has to come out DIFFERENT under `patient`. A bay the
+    // two agree on cannot see the defect, so the fixture is the same
+    // volatile-loaded Tier-7 bay 10 the arms table uses, where the pile is deep
+    // enough for `pileTier` to be non-null and the hold rule to bite.
+    const congested = (): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
+      return applyRatchets(cfg, { volatile: 6 });
+    };
+    const flyWith = (id: string): BayOutcome =>
+      runBay(congested(), strategyPilot(cushionStrategy, { bot: ADAPTIVE_BOTS[id] })(3), 3);
+    const asAim = flyWith("aim");
+    const asPatient = flyWith("patient");
+    check(
+      "...and a `patient` strategy pilot really flies the congestion rule, not `aim`",
+      asAim.shots !== asPatient.shots || asAim.lines !== asPatient.lines,
+      `aim ${asAim.shots} shots/${asAim.lines} lines`
+        + ` vs patient ${asPatient.shots}/${asPatient.lines}`,
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 2. ONE TICK, ONE RESERVATION.
+   *
+   * `strategyHands` fires `abilities` before the pilot acts, so on a shooting
+   * tick the lance has already spent its charge and `useThawLance` has already
+   * marked that cube struck — which `nextColdCryo` then skips. Asking
+   * `lanceTakes` a SECOND time in `target` reserved the NEXT cube for a charge
+   * that was already gone, and the shipment went at a third cube or at nothing.
+   *
+   * Two cubes and two charges is the smallest bay that can tell the two apart,
+   * and it is deliberately the smallest: with one cube the broken version
+   * returns null and so does a bay with nothing left to strike, which is how a
+   * pin here would pass against the defect.
+   * ----------------------------------------------------------------------- */
+  {
+    const ice = (k: number): Cube => ({
+      body: { position: { x: slotCenterX(k), y: 400 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const a = ice(8);
+    const b = ice(7);
+    const bar = { x: a.body.position.x - CELL - 20, width: 40, top: 200, strandCutoffX: 0 };
+    /** A bay whose lance behaves like `game.ts`'s: it takes `nextColdCryo`'s
+     *  cube, marks it struck, and spends a charge. Stubbed rather than driven
+     *  through a real Game because the fixture is two cubes in named slots, and
+     *  the RULE being pinned is the strategy's, not the physics'. */
+    const bay = (): Game => {
+      const cubes = [a, b].map((c) => ({ ...c, body: { ...c.body }, struck: false }) as Cube);
+      const g = {
+        level: {
+          cushionCells: 0, cushionMult: 1, volatileTriggerMult: 1,
+          compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "standard" },
+        compactor: bar,
+        cubes,
+        thawCharges: 2,
+        timeLeftMs: 120_000,
+        useThawLance(): boolean {
+          const t = nextColdCryo(cubes, bar as unknown as Compactor);
+          if (!t || g.thawCharges <= 0) return false;
+          t.struck = true;
+          g.thawCharges -= 1;
+          return true;
+        },
+      };
+      return g as unknown as Game;
+    };
+    for (const spec of [lanceStrategy, strikeStrategy]) {
+      const g = bay();
+      const strategy = spec.build(1);
+      // The real tick order: abilities, then the shot.
+      strategy.abilities!(g, 0);
+      const shot = strategy.target!(g, 0, { x: 0, slot: 0 });
+      const struck = g.cubes.filter((c) => c.struck);
+      check(
+        `\`${spec.name}\`: one tick spends one charge and the shipment takes the OTHER cube`,
+        struck.length === 1 && shot !== null
+          && Math.abs(shot!.x - g.cubes.find((c) => !c.struck)!.body.position.x) < 1e-9,
+        `${struck.length} struck, shot at ${shot?.x ?? "null"},`
+          + ` unstruck at ${g.cubes.find((c) => !c.struck)?.body.position.x}`,
+      );
+    }
+  }
+
+  /* -------------------------------------------------------------------------
+   * 3. AN "OFF" ARM HAS TO BE OFF.
+   *
+   * `strategy-arms.ts` grants the system under test through a kit, which
+   * controls nothing if the rig underneath already installs it. `--build liner`
+   * does exactly that, so both tier-0 arms flew with a cushion aboard and the
+   * table's zero was not zero. Pinned on the CONFIG rather than on the tiers,
+   * because what the arms tool actually flies is a LevelConfig and a track that
+   * grew a third field would slip past a tier check.
+   * ----------------------------------------------------------------------- */
+  {
+    const off = (order: UpgradeId[], track: UpgradeId): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutWithoutTrack(order, 7, track));
+      return cfg;
+    };
+    const named = (order: UpgradeId[]): LevelConfig => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, loadoutFor(order, 7));
+      return cfg;
+    };
+    // The fixture only means something if the named order really does install
+    // the track — otherwise this pin passes on a build that never had the
+    // problem, which is how it would pass against the defect.
+    check(
+      "the `liner` and `chill` orders really do install the tracks the arms tool controls",
+      named(PRIORITY_ORDERS.liner).cushionCells > 0
+        && named(PRIORITY_ORDERS.chill).thawCharges > 0,
+      `liner ${named(PRIORITY_ORDERS.liner).cushionCells} cells,`
+        + ` chill ${named(PRIORITY_ORDERS.chill).thawCharges} charges`,
+    );
+    check(
+      "...and an arm built with the track dropped carries NONE of its state",
+      off(PRIORITY_ORDERS.liner, "cushion").cushionCells === 0
+        && off(PRIORITY_ORDERS.liner, "cushion").cushionMult === 1
+        && off(PRIORITY_ORDERS.chill, "thaw").thawCharges === 0,
+      `${off(PRIORITY_ORDERS.liner, "cushion").cushionCells} cells /`
+        + ` ${off(PRIORITY_ORDERS.liner, "cushion").cushionMult} mult /`
+        + ` ${off(PRIORITY_ORDERS.chill, "thaw").thawCharges} charges`,
+    );
+    check(
+      "...and the budget it freed is spent, not stranded — this is a rig, not a hole",
+      tiersCost(loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion")) > 0
+        && loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion").cushion === 0,
+      `${tiersCost(loadoutWithoutTrack(PRIORITY_ORDERS.liner, 7, "cushion"))} pts`,
+    );
+    // A build that never carried the track is untouched, which is why the
+    // published tables (flown on `--build material`) did not move.
+    check(
+      "...and a build that never installed it is unchanged by the drop",
+      JSON.stringify(loadoutWithoutTrack(PRIORITY_ORDERS.material, 7, "cushion"))
+        === JSON.stringify(loadoutFor(PRIORITY_ORDERS.material, 7))
+      && JSON.stringify(loadoutWithoutTrack(PRIORITY_ORDERS.material, 7, "thaw"))
+        === JSON.stringify(loadoutFor(PRIORITY_ORDERS.material, 7)),
+    );
   }
 }
 

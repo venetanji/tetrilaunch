@@ -83,7 +83,7 @@ import {
 } from "../src/game/upgrades";
 import { CARRY_CAP, RUN_LEVELS } from "../src/game/run";
 import { runBay } from "./runner";
-import { BOTS, type Bot } from "./bots";
+import { ADAPTIVE_BOTS, BOTS, type Bot } from "./bots";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import { bondHands, combineKits, COUNTER_KITS, type CounterKit } from "./counters";
 import {
@@ -227,11 +227,17 @@ for (const s of strategyNames) {
     process.exit(1);
   }
 }
-if (strategyNames.some((s) => s !== "naive") && !["aim", "demo", "patient", "impatient"].includes(botName)) {
+if (strategyNames.some((s) => s !== "naive") && !(botName in ADAPTIVE_BOTS)) {
   // A strategy is two hooks INSIDE the adaptive aim search plus an ability
   // wrapper around it. A fixed-arc preset has no search to hook, so pairing the
   // two would print a strategy's name over a run that never consulted it.
-  console.error(`--strategies needs an adaptive --bot (aim/demo/patient/impatient), got "${botName}"`);
+  // Asked of `ADAPTIVE_BOTS` rather than a hand-written list, so a fifth
+  // adaptive preset is usable here the day it is added rather than the day
+  // somebody remembers this line.
+  console.error(
+    `--strategies needs an adaptive --bot (${Object.keys(ADAPTIVE_BOTS).join("/")}),`
+    + ` got "${botName}"`,
+  );
   process.exit(1);
 }
 if (!["combos", "cheapest", "both", "counter"].includes(mode)) {
@@ -259,7 +265,12 @@ const pilot = (seed: number) => bondHands(BOTS[botName](seed));
 const pilotFor = (spec: AimStrategySpec): ((seed: number) => Bot) =>
   (spec === naiveStrategy || spec.name === "naive")
     ? pilot
-    : strategyPilot(spec, { demolish: botName === "demo" });
+    // THE WHOLE PRESET, not one flag of it. Review found this passing only
+    // `demolish`, so `--bot patient --strategies cushion` flew plain `aim`
+    // under rows labelled `patient` — the congestion rule that IS the preset
+    // was dropped on the way through. `ADAPTIVE_BOTS` is the one table both
+    // `BOTS` and this read, so a preset cannot mean two things.
+    : strategyPilot(spec, { bot: ADAPTIVE_BOTS[botName] });
 
 const strategies: AimStrategySpec[] = strategyNames.map((s) => STRATEGIES[s]);
 

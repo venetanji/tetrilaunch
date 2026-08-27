@@ -76,10 +76,10 @@
  */
 import { applyRatchets, HAZARDS, type HazardId, type Ratchets } from "../src/game/hazards";
 import { makeBaseLevel } from "../src/game/level";
-import { applyUpgrades, MARK_COUNT, tiersCost } from "../src/game/upgrades";
+import { applyUpgrades, MARK_COUNT, tiersCost, type UpgradeId } from "../src/game/upgrades";
 import { CARRY_CAP, RUN_LEVELS } from "../src/game/run";
 import { aimBot, type Bot } from "./bots";
-import { loadoutFor, PRIORITY_ORDERS } from "./builds";
+import { loadoutFor, loadoutWithoutTrack, PRIORITY_ORDERS } from "./builds";
 import { bondHands, cushionKit, thawKit, type CounterKit } from "./counters";
 import { comboKey } from "./draft-space";
 import { runBay, type BayOutcome } from "./runner";
@@ -98,6 +98,10 @@ import {
  * ------------------------------------------------------------------------- */
 interface SystemUnderTest {
   id: string;
+  /** The upgrade track this system IS. Every arm's rig is built with it removed
+   *  from the priority order, so the only thing that ever installs it is the
+   *  arm's own kit — see `loadoutWithoutTrack` and the note by `loadout`. */
+  track: UpgradeId;
   /** Kit for tier t (1..3): grants the track onto the bay's config. */
   kit(t: number): CounterKit;
   aware: AimStrategySpec;
@@ -119,6 +123,7 @@ interface SystemUnderTest {
 const SYSTEMS: Record<string, SystemUnderTest> = {
   cushion: {
     id: "cushion",
+    track: "cushion",
     kit: cushionKit,
     aware: cushionStrategy,
     // The belt cap. `belt.ts`'s BELT_CEILING is 1/3, so six notches of volatile
@@ -134,6 +139,7 @@ const SYSTEMS: Record<string, SystemUnderTest> = {
   },
   lance: {
     id: "lance",
+    track: "thaw",
     kit: thawKit,
     aware: lanceStrategy,
     loaded: "cryo:3",
@@ -219,7 +225,27 @@ function parseRatchets(spec: string): Ratchets {
 
 const stack = parseRatchets(get("--ratchets") ?? sut.loaded);
 const seeds = Array.from({ length: seedCount }, (_, i) => i + 1);
-const loadout = loadoutFor(PRIORITY_ORDERS[buildName], mark);
+/**
+ * The rig EVERY arm flies, with the system under test taken out of the priority
+ * order.
+ *
+ * This is the tool's control, and review found it broken. `loadoutFor` alone
+ * spends the Mark's budget on whatever the named order asks for — so
+ * `--system cushion --build liner` installed a liner at tier 2 before any arm's
+ * own tier was applied, and BOTH "off" arms flew with a cushion aboard. The
+ * table's control row is then not a control, and every system effect, strategy
+ * effect and interaction in it is measured against the wrong zero.
+ *
+ * The published tables in `design/balance/aim-strategy-findings.md` were flown
+ * on `--build material`, which carries neither `cushion` nor `thaw`, so they
+ * were never affected — but a tool whose correctness depends on the caller
+ * picking a build that happens not to collide is a trap, not an instrument.
+ * `whichWasDropped` prints when this actually removes something, so a run under
+ * `--build liner` says out loud that its rig is not the one the order names.
+ */
+const namedRig = loadoutFor(PRIORITY_ORDERS[buildName], mark);
+const loadout = loadoutWithoutTrack(PRIORITY_ORDERS[buildName], mark, sut.track);
+const droppedTrack = (namedRig[sut.track] ?? 0) > 0 ? namedRig[sut.track] : 0;
 
 /* ---------------------------------------------------------------------------
  * ONE ARM
@@ -315,6 +341,16 @@ console.log(
   + ` · ratchets ${comboKey(stack)} · rig ${buildName} ${showTiers(loadout)}`
   + ` (${tiersCost(loadout)} pts) · ${seedCount} paired seeds`,
 );
+if (droppedTrack > 0) {
+  console.log(
+    `  NOTE: the \`${buildName}\` order installs ${sut.track} at tier ${droppedTrack}, and the`
+    + ` arms tool has removed it — the`,
+  );
+  console.log(
+    `  arm's own kit is the only thing allowed to grant the system under test, or the "off"`
+    + ` arms are not off.`,
+  );
+}
 console.log(
   "  A 2x2: system off/on x pilot naive/aware. The system's PASSIVE value and the STRATEGY's",
 );

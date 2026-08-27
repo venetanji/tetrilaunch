@@ -73,6 +73,34 @@ export function loadoutFor(
 }
 
 /**
+ * The same loadout with one track TAKEN OUT OF THE ORDER — the rig a controlled
+ * experiment on that track needs.
+ *
+ * `sim/strategy-arms.ts` is the caller and the reason. It crosses "system off"
+ * against "system on" by granting the track through a kit, which only controls
+ * anything if the rig underneath carries none of it. Point that tool at
+ * `--build liner` (Impact Cushion first) and the loadout installs a liner
+ * before the arm's own tier is applied, so BOTH "off" arms fly with a cushion
+ * and every main effect and interaction in the table is measured against a
+ * contaminated control. Review found it; the arms tool now builds every arm on
+ * this instead.
+ *
+ * REMOVED FROM THE ORDER, not zeroed after the fact. Zeroing a tier leaves the
+ * budget it consumed unspent, which is a rig no Workshop would sell and a
+ * different one from either arm; dropping the track from the priority order and
+ * re-spending gives the rig a player who was not buying that system would
+ * actually build.
+ */
+export function loadoutWithoutTrack(
+  order: UpgradeId[],
+  mark: number,
+  track: UpgradeId,
+  budget = budgetForMark(mark),
+): UpgradeTiers {
+  return loadoutFor(order.filter((id) => id !== track), mark, budget);
+}
+
+/**
  * Named priority orders — the shapes a budget gets spent in.
  *
  * The first four are `marks.ts`'s ARCHETYPES, stated once here so the two

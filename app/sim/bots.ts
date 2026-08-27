@@ -593,7 +593,7 @@ const PATIENT_MAX_WAIT_CYCLES = 2;
  * the bay has drained) comes out ahead of one who does not. This flag is that
  * player: identical search, identical aim, one extra rule.
  */
-interface AimOpts {
+export interface AimOpts {
   congestionAware?: boolean;
   /**
    * Drop the aim search's own patience rule, so the bot takes EVERY cooldown
@@ -859,6 +859,27 @@ function fireCharge(g: Game, now: number): boolean {
   return false;
 }
 
+/**
+ * WHAT EACH ADAPTIVE PRESET ACTUALLY IS, as options rather than as a closure.
+ *
+ * `BOTS` below builds its four adaptive entries from this table, and nothing
+ * else may restate them. It exists because a caller that wants one of these
+ * pilots PLUS something else — `sim/aim-strategies.ts` wants one plus an aiming
+ * strategy — has to rebuild the bot, and rebuilding it from memory is how
+ * `winnability.ts` came to fly plain `aim` under rows labelled `patient`:
+ * review found `--bot patient --strategies cushion` reconstructing the pilot
+ * with only `demolish` set, silently dropping the one rule the preset IS.
+ *
+ * A row's label has to be a fact about the bot that flew it. Reading the
+ * options off one table is what makes that true by construction.
+ */
+export const ADAPTIVE_BOTS: Record<string, AimOpts> = {
+  aim: {},
+  patient: { congestionAware: true },
+  demo: { demolish: true },
+  impatient: { impatient: true },
+};
+
 export function aimBot(seed = 1, opts: AimOpts = {}): Bot {
   const rng = mulberry32(seed);
   const gapTargeter = makeGapTargeter();
@@ -1000,18 +1021,18 @@ export const BOTS: Record<string, (seed: number) => Bot> = {
   "random-up": (seed) => randomAimBot("random-up", 0, 60, seed),
   // Adaptive: re-solves its angle against the live wind reading every shot
   // (see aimBot above) — the existence proof that changing aim beats wind.
-  aim: (seed) => aimBot(seed),
+  aim: (seed) => aimBot(seed, ADAPTIVE_BOTS.aim),
   // Same search as `aim`, plus the one rule the congestion tax is meant to
   // teach: don't fire into a bay that's already too full. See AimOpts.
-  patient: (seed) => aimBot(seed, { congestionAware: true }),
+  patient: (seed) => aimBot(seed, ADAPTIVE_BOTS.patient),
   // `aim` plus a pair of hands for the demolition rack — the only bot here that
   // can answer a material. Pair it with `aim` on the same seeds and the same
   // rig: the gap between them is what a charge is worth, and it is the only way
   // this harness can tell a mispriced material from a bot that cannot play one.
   // Worthless on a rig that carries no charges (bombCharges 0), where it is
   // `aim` exactly. See the DEMOLITION block above.
-  demo: (seed) => aimBot(seed, { demolish: true }),
+  demo: (seed) => aimBot(seed, ADAPTIVE_BOTS.demo),
   // Same search as `aim`, minus its restraint — fires on every cooldown. The
   // harness's model of "spam pieces and let gravity do the rest". See AimOpts.
-  impatient: (seed) => aimBot(seed, { impatient: true }),
+  impatient: (seed) => aimBot(seed, ADAPTIVE_BOTS.impatient),
 };

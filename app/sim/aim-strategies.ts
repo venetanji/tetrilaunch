@@ -68,7 +68,8 @@ import { cushionedTrigger, nextColdCryo, VOLATILE_TRIGGER_SPEED }
   from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import {
-  aimBot, pieceHalfWidthPx, type AimCandidate, type Bot,
+  ADAPTIVE_BOTS, aimBot, pieceHalfWidthPx,
+  type AimCandidate, type AimOpts, type Bot,
 } from "./bots";
 import { bondHands } from "./counters";
 
@@ -183,10 +184,20 @@ export function strategyHands(strategy: AimStrategy, base: Bot): Bot {
 }
 
 export interface PilotOpts {
-  /** Fire demolition charges (`bots.ts`'s `demo`). Default true — the
-   *  winnability pilot's own default, so a strategy arm and a combo row are the
-   *  same pilot plus a policy. */
-  demolish?: boolean;
+  /**
+   * The ADAPTIVE PRESET this pilot is, as `bots.ts`'s own options — pass
+   * `ADAPTIVE_BOTS[name]` rather than assembling flags here. Defaults to
+   * `demo` (demolition hands), which is `winnability.ts`'s own default pilot,
+   * so a strategy arm and a combo row are the same bot plus a policy.
+   *
+   * A SINGLE FLAG USED TO LIVE HERE and it was a bug with a name. `demolish`
+   * alone meant that asking for `--bot patient --strategies cushion` rebuilt
+   * the pilot with demolition and NOTHING ELSE: the congestion rule the preset
+   * exists for was dropped, and a table printed rows labelled `patient` that
+   * were flown by plain `aim`. Taking the whole option set means a preset can
+   * grow a fifth rule without this file learning about it.
+   */
+  bot?: AimOpts;
   /** Fire Bond Breakers (`counters.ts`'s `bondHands`). Default true, same
    *  reason. */
   bond?: boolean;
@@ -203,10 +214,10 @@ export interface PilotOpts {
 export function strategyPilot(
   spec: AimStrategySpec, opts: PilotOpts = {},
 ): (seed: number) => Bot {
-  const { demolish = true, bond = true } = opts;
+  const { bot = ADAPTIVE_BOTS.demo, bond = true } = opts;
   return (seed) => {
     const strategy = spec.build(seed);
-    const base = aimBot(seed, { demolish, strategy });
+    const base = aimBot(seed, { ...bot, strategy });
     return strategyHands(strategy, bond ? bondHands(base) : base);
   };
 }
@@ -290,16 +301,24 @@ export const naiveStrategy: AimStrategySpec = {
  *     bar that a shipment could have struck for free.
  *
  * So: the lance is held for cubes inside LANCE_URGENT_CELLS of the advancing
- * face, and the shipment is sent at the nearest cube OUTSIDE that band. The two
- * tools never contend for the same cube, and the charge is only ever spent on
- * the one a shipment cannot reach in time.
+ * face, and the shipment goes at whatever `nextColdCryo` returns AFTER the
+ * lance has had its tick. The two tools never contend for the same cube, and
+ * the charge is only ever spent on the one a shipment cannot reach in time.
  *
  * HOW THE SECOND TARGET IS FOUND, and it is the reason this strategy owns no
- * rules of its own: `nextColdCryo` is a pure function of a cube list, so asking
- * it again with the urgent cube removed returns the next one with EVERY
- * exclusion the game applies (stranded, above the bar's reach, still moving)
- * intact. Re-deriving those here would be three private rules copied into a
- * harness, and the first one to change would change them silently.
+ * rules of its own: a fired charge marks its cube `struck`, and `nextColdCryo`
+ * skips struck cubes. So the queue advances itself, with EVERY exclusion the
+ * game applies (stranded, above the bar's reach, still moving) intact and none
+ * of them restated here. The strategy asks the question once per tick and
+ * accepts the answer; see the note in `target` for the double-advance bug that
+ * asking it twice produced.
+ *
+ * WHAT THIS STILL DOES NOT MODEL, and it belongs in the ledger rather than in a
+ * rule: a shipment is ~2s in the air and a charge is instantaneous, so a greedy
+ * rack can strike the cube a shipment is already flying at. That is a real cost
+ * of pairing the two tools and it is one of the things the arms table is
+ * measuring — not a defect to be papered over with a lookahead this pilot does
+ * not otherwise have.
  * ------------------------------------------------------------------------- */
 
 /**
@@ -369,13 +388,27 @@ function lanceAware(ration: boolean): AimStrategy {
       const loaded = g.cannon.currentMaterial;
       if (loaded === "cryo" || loaded === "volatile") return null;
 
-      const urgent = nextColdCryo(g.cubes, g.compactor);
-      if (!urgent) return null;
-      // The lance has that one; ask the same function for the next one out.
-      // Where the lance is standing down, the urgent cube IS the shipment's job.
-      const mark = lanceTakes(g, urgent)
-        ? nextColdCryo(g.cubes.filter((c) => c !== urgent), g.compactor)
-        : urgent;
+      /* ONE TICK, ONE RESERVATION — and the reservation is the GAME'S, not a
+       * second copy of the rule.
+       *
+       * `strategyHands` fires `abilities` before the pilot acts on every tick,
+       * so by the time this runs the lance has already made its decision for
+       * this tick. If it fired, `useThawLance` marked its cube `struck`, and
+       * `nextColdCryo` skips struck cubes — so the cube this call returns is
+       * already the one the charge did not take. If it declined (rationed and
+       * the cube is far, or the rack is empty) it is not taking anything this
+       * tick, and the cube it declined is exactly the shipment's job.
+       *
+       * Either way the answer is one `nextColdCryo` call and no filtering.
+       *
+       * THE BUG THIS REPLACES, found in review: this asked `lanceTakes` a
+       * SECOND time and skipped a second cube. With two eligible cubes and two
+       * charges the lance took A, `nextColdCryo` correctly returned B, and the
+       * strategy then reserved B for a charge that had already been spent this
+       * tick — sending the shipment at a third cube, or at nothing. The lance
+       * advanced the queue once and the strategy advanced it again.
+       */
+      const mark = nextColdCryo(g.cubes, g.compactor);
       if (!mark) return null;
 
       const x = mark.body.position.x;

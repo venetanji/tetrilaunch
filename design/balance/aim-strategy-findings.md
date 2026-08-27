@@ -84,6 +84,22 @@ against the same control with a different aware policy, so `naive → strike →
 lance` reads as two measurements rather than one — the reason the registry
 carries four policies (`naive`, `strike`, `lance`, `cushion`) rather than three.
 
+### What review changed, and which tables moved
+
+Three defects were found in the instrument after the first tables were flown.
+Recorded here rather than quietly fixed, because a reader has to know which
+numbers were re-measured and which were not.
+
+| defect | what it broke | tables affected |
+|---|---|---|
+| `winnability.ts` rebuilt a strategy pilot with only `demolish`, dropping `congestionAware`/`impatient` | rows labelled `patient`/`impatient` were flown by plain `aim` | **none** — every table here used the default `demo` |
+| the lance's `target` advanced the frozen-cube queue a second time, after a fired charge had already advanced it | shipments went at a third cube, or at nothing | **§4 `strike` only** — re-run; `lance` did not move |
+| `strategy-arms.ts` built every arm on the named `--build` rig, so `--build liner`/`--build chill` installed the system under test into the "off" arms | the control, and every main effect and interaction | **none** — every table here used `--build material`, which carries neither track |
+
+The cushion table in §3 was re-flown after the fixes and came back **identical
+per-seed across all 64 paired cells** of an 8-seed spot check. §4's lance table
+is the re-measured one and says so in place.
+
 ## 2. THE RELATIONSHIP NEITHER TABLE COULD SHOW
 
 Pinned in `systems.ts`, found by a pin that failed:
@@ -219,14 +235,25 @@ discipline. Reading naive → strike → lance, each step is exactly one change.
 | no rack / naive | 0 | **18/48** | 6.9 | 34.5 | $819 | — |
 | no rack / strike = lance | 0 | 16/48 | 9.1 | 42.4 | $692 | — |
 | Lance 1 / naive | 20 | 19/48 | 7.7 | 36.5 | $824 | 3.0 of 3 |
-| Lance 1 / strike | 20 | 11/48 | 8.7 | 44.1 | $554 | 3.0 |
+| Lance 1 / strike | 20 | 11/48 | 8.7 | 44.0 | $548 | 3.0 |
 | Lance 1 / lance | 20 | 15/48 | 9.1 | 42.4 | $723 | 2.9 |
 | Lance 2 / naive | 55 | 18/48 | 8.5 | 40.3 | $773 | 6.0 of 6 |
-| Lance 2 / strike | 55 | 20/48 | 9.8 | 41.3 | $937 | 6.0 |
+| Lance 2 / strike | 55 | 19/48 | 10.3 | 43.3 | $905 | 6.0 |
 | Lance 2 / lance | 55 | 18/48 | 8.4 | 38.0 | $807 | 5.7 |
 | Lance 3 / naive | 110 | **34/48** | 7.7 | 30.8 | **$1373** | 8.9 of 9 |
-| Lance 3 / strike | 110 | 31/48 | 8.5 | 34.9 | $1262 | 8.9 |
+| Lance 3 / strike | 110 | 27/48 | 8.7 | 37.0 | $1152 | 8.9 |
 | Lance 3 / lance | 110 | 19/48 | 8.4 | 37.8 | $786 | 7.9 |
+
+> **This table was re-measured after review.** The first version of it was flown
+> by an instrument with a double-advance in it: `abilities` fires before the
+> pilot acts, so a charge had already marked its cube `struck` by the time
+> `target` ran, and `target` then reserved a SECOND cube for a charge that was
+> already spent. The `lance` column did not move at all — rationing means only
+> one cube is usually inside the band, so the second reservation rarely had
+> anything to skip. The `strike` column moved down (rung 2 20 → 19, rung 3
+> 31 → 27), because the bug was accidentally acting as a one-charge lookahead
+> that the greedy pilot is not entitled to. **The conclusion below is unchanged
+> and slightly stronger.**
 
 ### The best pilot in the table is the one the harness already had
 
@@ -260,14 +287,22 @@ confirmed, and the confirmation is that the shipment is **not affordable at
 Tier 7's launch price**. The counter-play the game already has is real and is
 priced above what the bay can pay.
 
-**Rationing charges is worse than spending them.** At a maxed rack it costs 12
-wins against `strike` (31 → 19) while saving one charge a bay (8.9 → 7.9). The
-premise of the rule was that a charge spent on a cube a shipment could reach is
-a wasted charge. It is not, because the shipment that would have reached it is
-the shipment that could not be afforded. **`counters.ts`'s "pull the trigger
-whenever it will do something" is not a placeholder for a smarter rule — it is
-the right rule**, and its own note anticipated this ("the game is a better judge
-of a wasted charge than a wrapper is").
+**Rationing charges is worse than spending them.** At a maxed rack it costs 8
+wins against `strike` (27 → 19) and 15 against `naive` (34 → 19), while saving
+one charge a bay (8.9 → 7.9). The premise of the rule was that a charge spent on
+a cube a shipment could reach is a wasted charge. It is not, because the
+shipment that would have reached it is the shipment that could not be afforded.
+**`counters.ts`'s "pull the trigger whenever it will do something" is not a
+placeholder for a smarter rule — it is the right rule**, and its own note
+anticipated this ("the game is a better judge of a wasted charge than a wrapper
+is").
+
+**And pairing the two tools costs something the fix made visible.** A shipment
+is ~2s in the air; a charge is instantaneous. A greedy rack therefore strikes
+cubes a shipment is already flying at, which is why `strike` loses ground to
+`naive` at every rung once the double-advance stops hiding it. That is a real
+property of the pairing, not an instrument artefact, and it is in the ledger
+rather than papered over with a lookahead this pilot does not otherwise have.
 
 ### What this says about the lance's price
 
