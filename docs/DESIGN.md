@@ -392,6 +392,28 @@ each bay; "you beat the ladder" was the wrong ticket for that door, because the
 ladder can be beaten with a retry on every bay. A full set of seals is the same
 ten bays with the retry taken away.
 
+**And the endgame says so.** A key nobody is told about is a locked door. Until
+an owner reported a finished ladder as "all completed but not unlocked", the
+seals were stated only as sockets on the tower and one `aria-label` — while the
+loop's single NEXT STEP badge (`meta.ts`'s `nextStep`) still pointed at the
+Contract board, because its "this tier owes clears" branch is a live objective
+for nine tiers and a treadmill on the tenth: at `MARK_COUNT` `markUnlocked`
+saturates onto the tier just finished and `advanceTier` has already cleared its
+counters, so the board it points at can no longer open anything. The finished
+ladder gets its own answer now — **seal** — and it lands on the primary, which
+names the price in words ("*N* Marks left to seal · win with no bay retried")
+because sealing is flown and never bought. Once every seal is in, the roof is
+open and the primary flies it.
+
+The same saturation was lying on the way out of the last tier. A completion is
+reported by naming the floor it opened, and both end cards derived that name by
+reading `markUnlocked` after the update — true nine times, false on the tenth,
+where it announced the floor the player had just spent the tier flying. The
+question is answered once now (`tierOpenedByCompleting`), and its null branch is
+the ladder's own ending: Contracts keep paying (the tier-10 loop is a faucet by
+decision, not by accident), so what is left to fly for is a maxed rig and every
+Mark sealed, and the card says exactly that.
+
 **Migration.** The gate tightened; nothing was erased. `sealedMarks` has been
 recorded since the seal shipped, so a player who beat the ladder with clean runs
 already holds those seals and the roof opens on their first launch — with the

@@ -1844,13 +1844,16 @@ class App {
   private setPlaySub(tier: number | null): void {
     const sub = this.overlay.querySelector<HTMLElement>("#menu-play-sub");
     if (!sub) return;
-    sub.textContent = tier === null
-      ? "Elevator moving…"
-      : tier === S.SANDBOX_TIER
-        ? "Any Mark, bay or Contract · own board"
-        : tier === S.SKYDECK_TIER
-          ? `Today's run · no refits · ${this.skydeckRules().length} standing clauses`
-          : `Clear ${RUN_LEVELS} bays in one run`;
+    // The rule is screens.ts's, not a second copy of it. This method used to
+    // restate the three-way ternary the menu's markup builds, which held only
+    // while the two never diverged — and the seal step diverges them: it gives
+    // an ordinary ladder floor a subtitle of its own, so a player riding the
+    // car at the finished ladder watched their one stated objective turn back
+    // into "Clear 10 bays in one run".
+    sub.textContent = S.menuPlaySub(
+      tier, this.skydeckRules().length,
+      nextStep(this.meta) === "seal" ? unsealedMarks(this.meta).length : null,
+    );
   }
 
   /** Today's Skydeck clauses as the menu prints them — bay number and card
