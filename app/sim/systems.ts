@@ -85,7 +85,7 @@ import {
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
-  skydeckOpen, tierOpenableBy, unsealedMarks,
+  skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -154,7 +154,7 @@ import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen, salvageHTML,
+  menuScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
 } from "../src/ui/screens";
 import {
@@ -890,6 +890,34 @@ section("Installs — what salvage buys (meta.ts)");
       tierContracts: 3, salvage: 0,
       loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
     })) === "run");
+
+  // THE LADDER ENDS, AND THE LOOP HAS TO KNOW IT.
+  //
+  // Below the top, "Contracts still owed at this tier" is always a live
+  // objective, because completing the tier moves the tier and deals a new
+  // board. At MARK_COUNT it is neither: markUnlocked saturates onto the tier
+  // just finished and advanceTier has already cleared the counters, so the
+  // rule read "0 of 3 Contracts owed at Tier 10" forever and pointed a player
+  // who had beaten the whole ladder back at the board every single session.
+  // (Diagnosed from a live save: mark 10, five tier-10 Contracts claimed, the
+  // counter sitting at 2 on its second lap.)
+  //
+  // What is actually left up there is the SEALS — a Mark beaten with no bay
+  // retried, and the Skydeck's key (meta.ts's skydeckOpen) — so that is what
+  // the rule names. It is the same rule shape as ever: one objective, stated
+  // once, so the menu and the Workshop cannot point at different doors.
+  const allSealed = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+  check("a finished ladder with Marks unsealed points at sealing",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0 })) === "seal");
+  check("...and never back at a board that can no longer move anything",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, tierContracts: 0 })) !== "contracts");
+  check("...and once every Mark is sealed, the run is what is left to fly",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, sealedMarks: allSealed })) === "run");
+  // The control: one rung below the top the old rule is untouched, so the
+  // branch above is measuring saturation and not something else.
+  check("...while an unfinished ladder still earns before it flies",
+    nextStep(freshMeta({ mark: MARK_COUNT - 1, salvage: 0 })) === "contracts");
+
   // …and the menu renders exactly the one badge the rule picked (A3), the
   // tier plate in the Deep Run button (A1), and — on first launch only — the
   // Guided Tutorial in How to Play's slot, with its own START HERE marker
@@ -905,6 +933,82 @@ section("Installs — what salvage buys (meta.ts)");
     menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+
+  // THE SEAL STEP ON THE MENU. A next step nobody can read is not a next step:
+  // the badge has to land on the action that actually does the sealing (the
+  // run — sealing is flown, never bought), and the button has to say how many
+  // Marks are still owed, because the count lives nowhere else on this screen
+  // except as sockets a sighted player has to add up floor by floor.
+  const sealTower = (selected: number, sealed: number[]): S.TowerState =>
+    ({ unlocked: MARK_COUNT, selected, skydeck: false, sealed });
+  const sealMenu = (selected: number, sealed: number[]): string =>
+    menuScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
+      { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
+  const playButton = (html: string): string =>
+    /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+  // The car parked on Mark 10, which still owes its seal.
+  const menuSeal = sealMenu(MARK_COUNT, [1, 2, 3]);
+  check("the seal step still badges exactly one action",
+    (menuSeal.match(/next-badge/g) ?? []).length === 1);
+  check("...and it is the run, because a seal is flown and not bought",
+    playButton(menuSeal).includes("next-badge"));
+  check("...and the button says how many Marks are left to seal",
+    menuSeal.includes(`${MARK_COUNT - 3} Marks left to seal`), "no seal count on the primary");
+
+  // A BADGE IS A CLAIM ABOUT THE BUTTON UNDER IT, and at the finished ladder
+  // that button flies ONE floor: the one the car is parked on (screens.ts —
+  // "the floor you park on is what the primary action does"). A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the parked
+  // floor becomes sealed — and the primary went on wearing NEXT STEP and
+  // promising Marks were left to seal over a run that could not seal
+  // anything, because that floor already holds its stamp. (Codex P2, #140.)
+  //
+  // The claim goes, not the parking: the tower is the chooser here, it
+  // already draws an empty socket on every floor that owes one, and the
+  // subtitle points at it. Redirecting the car instead would move a player
+  // off a floor they deliberately picked — which is the re-fly-for-the-board
+  // flow — and could not be expressed in the pick's own staleness rule
+  // anyway, since that is keyed to meta.mark and meta.mark never moves again
+  // up here.
+  const menuSealed = sealMenu(3, [3, 4]);
+  check("a parked floor that is already sealed wears no seal badge",
+    !playButton(menuSealed).includes("next-badge"),
+    "the primary claims a seal it cannot earn");
+  check("...and claims no seal the run cannot land",
+    !menuSealed.includes("left to seal"));
+  // NOT A REFUSAL. Re-flying a sealed Mark for the board is a real thing to
+  // want, and the button still does it — what changed is only what it says.
+  check("...but still flies the floor, for the board",
+    playButton(menuSealed).includes('data-action="play"'));
+  // …and it still answers the question the badge stopped answering: how many
+  // are owed, and where to pick one.
+  check("...while naming the count and pointing at the tower",
+    menuSealed.includes(`${MARK_COUNT - 2} Marks still owed`)
+      && /pick one on the tower/.test(menuSealed));
+
+  // ONE SUBTITLE RULE. main.ts patches this line by id while the elevator
+  // travels (it must not re-render the menu mid-ride — that tears down the
+  // attract demo), so the rule has to be a function both callers ask rather
+  // than a ternary each of them keeps a copy of. The pin is that the menu's
+  // markup and the in-flight rewrite produce the same string for the same
+  // state — the drift the seal step would otherwise have introduced.
+  check("the menu's subtitle and the ride's rewrite are one rule",
+    menuSeal.includes(menuPlaySub(MARK_COUNT, 0, { owed: MARK_COUNT - 3, sealed: false })));
+  check("...on the sealed floor as well as the unsealed one",
+    menuSealed.includes(menuPlaySub(3, 0, { owed: MARK_COUNT - 2, sealed: true })));
+  // AND THE BADGE IS ONE RULE TOO, for the same reason: the ride patches this
+  // button by id, so a badge that only the markup knew how to compute would
+  // stop being true the moment the player tapped a floor — which at the seal
+  // step is the gesture that CHANGES the answer.
+  check("the badge is the same rule on both sides of a ride",
+    S.menuPlayBadged("seal", 4, false) && !S.menuPlayBadged("seal", 4, true));
+  check("...Tier S is never the next step", !S.menuPlayBadged("run", S.SANDBOX_TIER, false));
+  check("...and every other step still badges the floor the car is on",
+    S.menuPlayBadged("run", 4, true) && !S.menuPlayBadged("contracts", 4, false));
+  check("...and a ladder floor with nothing owed still counts bays",
+    menuPlaySub(4, 0, null) === `Clear ${RUN_LEVELS} bays in one run`);
+  check("...and the roof still trades in clauses",
+    menuPlaySub(S.SKYDECK_TIER, 5, { owed: 3, sealed: false }).includes("5 standing clauses"));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
@@ -2002,6 +2106,52 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("the salvage row states the target price",
     ceTarget.includes(`Reactor Output costs ${salvageHTML(15)} in the Workshop`));
   check("no target price is invented without one", !ceWin.includes("in the Workshop"));
+
+  // ---- THE AWARD CARD AT SATURATION --------------------------------------
+  // A tier completion names the floor it opened. That sentence is true nine
+  // times and false on the tenth: `progress.tier` is markUnlocked read AFTER
+  // the update, and at MARK_COUNT markUnlocked saturates — so completing the
+  // last tier printed "Tier 10 is open" about the floor the player had just
+  // spent the tier flying. An owner hit exactly this ("all completed but not
+  // unlocked"): the card announced an unlock, nothing on the menu changed,
+  // and the real remaining objective (the seals) was named nowhere.
+  //
+  // It is the THIRD instance of one question — #134 fixed the same saturation
+  // in tierOpenableBy (the seal-break notice promising "Tier 10 still opens")
+  // and in pendingLadderRide (a ceremony riding to the floor the car was
+  // parked on). So the question is answered ONCE now, by a function of the
+  // completed tier alone, and every card asks it rather than re-deriving a
+  // floor number from a progress snapshot that has already saturated.
+  check("a completion below the top opens the next floor",
+    tierOpenedByCompleting(3) === 4);
+  check("...and the last rung opens no floor at all",
+    tierOpenedByCompleting(MARK_COUNT) === null);
+  check("...for every rung in between",
+    Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+      .every((t) => tierOpenedByCompleting(t) === (t < MARK_COUNT ? t + 1 : null)));
+  const ceMid = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: 3 },
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+  });
+  check("the award card names the floor the completion opened",
+    ceMid.includes("Tier 4 is open"));
+  const ceTop = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: MARK_COUNT },
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    },
+  });
+  check("...and announces no unlock when the ladder simply ended",
+    !ceTop.includes("is open"), "the top-of-ladder card still names a floor");
+  check("...saying what did happen instead", ceTop.includes("ladder is finished"));
+  // AND WHAT IS STILL OPEN. The tier-10 Contract loop keeps paying (the owner's
+  // ruling: keep the faucet, the endgame is maxing the systems out), and the
+  // seals are what the roof is waiting for — so the card names both rather
+  // than trailing off. A card that only stops lying is not yet an endgame.
+  check("...and names the two things still worth flying for",
+    /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
 }
 
 // ---------------------------------------------------------------------------
@@ -4133,6 +4283,213 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
 }
 
 // ---------------------------------------------------------------------------
+section("The odometer (app.css .roll — the lift's readouts)");
+// Riding the tower changes the tier plate's number AND the destination panel's
+// four readouts, and one shared mechanism rolls all five so the screen makes
+// one move rather than five. The parts worth pinning are the ones that would
+// break silently: the motion is a TRANSFORM (a roll that laid out would drag
+// the panel's grid for the length of every ride), the curve is one token the
+// car also uses (two copies would drift and the panel would stop travelling
+// with the lift), reduced motion keeps the value and drops the travel, and the
+// cells inherit their host's truncation.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css");
+  const tokens = styles("tokens.css");
+
+  // ONE CURVE, ONE TOKEN. The whole point of this change is that the panel
+  // reads as travelling WITH the car, which is only true while the two share an
+  // easing. They were the same literal cubic-bezier in two rules before this;
+  // a token is what stops one of them being tuned alone.
+  check("the lift's easing is a token, not a literal repeated per rule",
+    /--roll-ease:\s*cubic-bezier\([^)]*\)/.test(tokens),
+    "no --roll-ease in tokens.css");
+  // Comments stripped first — the prose around these rules names the curve to
+  // explain which motions deliberately do NOT use it, and a mention is not a
+  // second copy.
+  const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const literals = [...cssBare.matchAll(/cubic-bezier\(0\.34,\s*1\.28,\s*0\.64,\s*1\)/g)].length;
+  check("...and no rule still carries that curve as a literal", literals === 0,
+    `${literals} literal copies left in app.css`);
+  const usesEase = [...css.matchAll(/transition:[^;]*var\(--roll-ease\)/g)].length;
+  check("the car and the odometer both ride it", usesEase >= 2, `${usesEase} user(s)`);
+
+  // THE LAYOUT CONTRACT, the same one the loss dial's keyframes are held to.
+  // The track is transformed; nothing here may animate a box. A `height` or
+  // `top` in this transition would move the panel's whole grid for the length
+  // of every ride, on a screen whose column budgets are measured to the pixel.
+  const rollRule = css.slice(css.indexOf(".is-rolling .roll {"));
+  const rollBody = rollRule.slice(rollRule.indexOf("{") + 1, rollRule.indexOf("}"));
+  // The WHOLE shorthand, split on its own TOP-LEVEL commas. Two traps here and
+  // this check fell into both while it was being written: `transition` takes a
+  // LIST, so reading only the first property lets `transform ..., height ...`
+  // sail straight past — and a naive split on every comma tears
+  // `var(--roll-dur, 355ms)` in half and reports the fallback as an animated
+  // property. Depth-tracking is what distinguishes a list separator from a
+  // comma inside a function.
+  const transitionList = rollBody.match(/transition:\s*([^;]+);/)?.[1] ?? "";
+  const segments: string[] = [];
+  let depth = 0;
+  let seg = "";
+  for (const ch of transitionList) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { segments.push(seg); seg = ""; continue; }
+    seg += ch;
+  }
+  segments.push(seg);
+  const animated = segments.map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
+  check("the roll animates transform and nothing else",
+    animated.length > 0 && animated.every((p) => p === "transform"), animated.join(", "));
+
+  // The cell height is a VARIABLE with a 1em default, and that is load-bearing
+  // rather than tidy: the plate's number sets `line-height: 1` so 1em is its
+  // line box, while .bay-stat__val inherits `normal` and measures 13px against
+  // its 11px font. A hard-coded 1em would crop every readout by 2px while it
+  // rolled. main.ts measures the resting box and passes it in.
+  // BOTH boxes, counted — the window and the cells inside it. Asserting the
+  // pattern merely EXISTS passes while one of the two is hard-coded, and a
+  // hard-coded window with variable cells is precisely the 2px crop this is
+  // here to prevent.
+  const sized = [...css.matchAll(/height:\s*var\(--roll-h,\s*1em\)/g)].length;
+  check("both the roll's window and its cells take the overridable height",
+    sized >= 2, `${sized} of the 2 boxes use var(--roll-h, 1em)`);
+
+  // Reduced motion: the theatre goes, the teaching stays. With no transition
+  // the track is laid out at its END offset on the first frame, so the new
+  // value is simply there — which is the same treatment the plate has always
+  // had, and the reason this is one line rather than a second set of keyframes.
+  const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)",
+    css.indexOf(".is-rolling .roll {")));
+  check("reduced motion drops the travel and keeps the value",
+    /\.is-rolling \.roll\s*\{\s*transition:\s*none/.test(reduced.slice(0, 200)),
+    reduced.slice(0, 160).trim());
+
+  // Each cell keeps its host's truncation. `.bay-stat__val` ellipsizes — the
+  // clock's "2:24 · 10 bays" is over budget on the narrowest phones and
+  // sim/uifit warns about exactly that — and that behaviour lives on the
+  // element whose contents the roll replaces, so without this the longest
+  // readout would grow its cell and push the track out of its own window.
+  check("a rolling cell inherits the readout's own truncation",
+    /\.roll > b\s*\{[^}]*white-space:\s*inherit[^}]*text-overflow:\s*inherit/.test(css),
+    "the roll's cells do not inherit white-space/text-overflow");
+
+  // WHY THE UNCHANGED-VALUE GATE EXISTS, stated as the fact that forces it.
+  // A track of two identical cells does not look still while it moves: at any
+  // offset you see the bottom of one copy above the top of the other, so an
+  // unchanged readout would spend the ride torn in half to say nothing. Every
+  // adjacent Mark step changes all four values — but the Skydeck flies
+  // MARK_COUNT's bays, so a ride between the top Mark and the roof changes
+  // none of them. That is the trip the gate is for, and if the balance ever
+  // separates the two this check says the example has gone stale.
+  const statsFor = (tier: number): string[] => {
+    const html = S.baseBayPanelHTML({ tier, best: 0 });
+    return [...html.matchAll(/class="bay-stat__val"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  };
+  const top = statsFor(MARK_COUNT);
+  const roof = statsFor(S.SKYDECK_TIER);
+  check("the roof quotes the top Mark's bay, so a ride between them changes no readout",
+    top.length === 4 && JSON.stringify(top) === JSON.stringify(roof),
+    `${JSON.stringify(top)} vs ${JSON.stringify(roof)}`);
+  // ...and the adjacent Marks are the opposite case, so the gate can never be
+  // mistaken for "this panel never animates".
+  let movedEverywhere = true;
+  for (let m = 2; m <= MARK_COUNT; m++) {
+    const a = statsFor(m - 1), b = statsFor(m);
+    if (a.some((v, i) => v === b[i])) movedEverywhere = false;
+  }
+  check("...while every adjacent Mark step changes all four", movedEverywhere,
+    "some adjacent pair shares a readout, so a normal ride would hold one still");
+
+  // --- THE ROLL RUNS ON THE LIFT'S CLOCK ------------------------------------
+  // The half of this mechanism that lives in main.ts, and the one a screenshot
+  // cannot catch: WHEN the tracks start and when they are allowed to be taken
+  // away. `pickTier` starts the car and registers the landing timeout in one
+  // tick, and the tracks used to arm two requestAnimationFrames later — so
+  // every ride tore the five tracks down before their own transitions had
+  // finished, by exactly the arming delay. Measured on the built app before the
+  // fix, riding four floors at 640ms: the transitions began at t+64.6ms and
+  // would have ended at t+704.6, while setSelectedTier rebuilt the panel at
+  // t+649.0, and `transitionend` never fired at all because removal cancels it.
+  //
+  // The delay is not a fixed two frames either; it is however long two frames
+  // happen to take, on a menu that is simultaneously running the attract demo's
+  // physics. That is the case worth pinning: at a steady 60Hz the theft is
+  // ~33ms and barely visible, and on a stuttering frame it is whatever the
+  // stutter was.
+  //
+  // Read out of main.ts because it is a SOURCE property — there is no rAF, no
+  // transition and no compositor in this process, so what can be asserted is
+  // that the code cannot reintroduce the shape that caused it.
+  const mainTs = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const bodyOf = (name: string): string => {
+    const at = mainTs.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = mainTs.indexOf("{", at);
+    const start = i;
+    for (; i < mainTs.length; i++) {
+      if (mainTs[i] === "{") depth++;
+      else if (mainTs[i] === "}" && --depth === 0) return mainTs.slice(start, i + 1);
+    }
+    return "";
+  };
+  const rollFn = bodyOf("roll").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const armBody = bodyOf("armRolls").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const pickBody = bodyOf("pickTier").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  check("the roll builder exists and no longer arms on a frame callback",
+    rollFn.length > 0 && !/requestAnimationFrame/.test(rollFn),
+    "roll() still defers `is-rolled` to requestAnimationFrame");
+  // Arming is one synchronous flush for all five, which is what makes "the
+  // plate and the four readouts start on the same tick" a property rather than
+  // a coincidence. Two forced reads: one to commit the start offset (what the
+  // rAF pair was really for), one to create the transitions inside this task.
+  check("...they are armed together, synchronously, by armRolls",
+    armBody.length > 0 && !/requestAnimationFrame/.test(armBody)
+      && /is-rolled/.test(armBody),
+    "armRolls() is missing or does not add is-rolled itself");
+  check("...with a forced reflow either side of the arm",
+    (armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length >= 2,
+    `${(armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length} forced layout reads in armRolls`);
+
+  // ORDER, inside pickTier: arm, then register the landing timer. Registering
+  // first would spend part of the ride's budget before the tracks exist.
+  const armAt = pickBody.indexOf("this.armRolls()");
+  const timerAt = pickBody.search(/setTimeout\(\s*land/);
+  check("pickTier arms the rolls before it starts the landing timer",
+    armAt >= 0 && timerAt >= 0 && armAt < timerAt, `arm@${armAt} timer@${timerAt}`);
+
+  // THE PROPERTY ITSELF: the teardown asks the tracks whether they are done.
+  // A transition created inside a task is not given its start time until the
+  // next rendering update, so even a synchronous arm finishes up to a frame
+  // after `setTimeout(dur)` fires — this is what closes that last frame, at any
+  // refresh rate rather than at 60Hz only.
+  check("the landing waits out whatever travel the rolls still owe",
+    /rollRemainingMs\(\)/.test(pickBody) && /setTimeout\(\s*land/.test(pickBody),
+    "pickTier lands on a bare timer with no completion check");
+  const remBody = bodyOf("rollRemainingMs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("...measured off the animations themselves, counting only running ones",
+    /getAnimations\(\)/.test(remBody) && /playState/.test(remBody),
+    "rollRemainingMs does not read the tracks' own animations");
+  // Only RUNNING animations may count, and that is what keeps the two states
+  // with no travel from waiting forever for one: reduced motion sets
+  // `transition: none` (so there is no animation at all) and a transition
+  // cancelled by a second tap is not running either. A version that waited on
+  // `transitionend` instead would hang on both.
+  check("...so reduced motion and cancelled rolls land on time",
+    /playState\s*!==\s*"running"/.test(remBody),
+    "rollRemainingMs counts animations that are not running");
+}
+
+// ---------------------------------------------------------------------------
 section("The menu's demo panel is an equation (app.css --brand-w)");
 // The home screen's attract panel is 16:9 and shares its column with a shelf
 // that has a hard floor, so its width is not a taste decision — it is the
@@ -4357,6 +4714,188 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   check("the stepped fallback's two thresholds do not overlap",
     stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
     `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
+}
+
+// ---------------------------------------------------------------------------
+section("The scrollbar's chrome (app.css ::-webkit-scrollbar)");
+// Every assertion here guards something sim/uifit STRUCTURALLY CANNOT SEE, and
+// that is the reason the section exists rather than a preference for reading
+// CSS. Playwright launches headless Chromium with `--hide-scrollbars`
+// (node_modules/playwright-core/.../chromium.js), so across all 20 device rows
+// and every fixture the harness measures a layout in which no scrollbar is
+// drawn and none takes space. It cannot tell a styled bar from an unstyled one,
+// and — the part that matters — it cannot tell a bar that costs a phone 10px of
+// pane width from one that costs nothing. Measured by hand with that flag
+// turned back off: a coarse-pointer scroller is 0px of gutter unstyled and 10px
+// once any ::-webkit-scrollbar width exists; a fine-pointer one is 15px stock
+// and 10px styled.
+{
+  const css = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Brace-match the @media (pointer: fine) block that holds the scrollbar
+  // rules, so the checks below can ask what is INSIDE it rather than merely
+  // what is somewhere in the file.
+  const gateAt = bare.search(/@media\s*\(pointer:\s*fine\)\s*\{(?=[\s\S]{0,600}::-webkit-scrollbar)/);
+  check("the scrollbar chrome is gated behind pointer: fine", gateAt >= 0,
+    "no `@media (pointer: fine)` block contains the scrollbar rules — every " +
+    "touch pane would swap its free overlay bar for a 10px one");
+  let gated = "";
+  if (gateAt >= 0) {
+    let depth = 0, j = bare.indexOf("{", gateAt);
+    for (; j < bare.length; j++) {
+      if (bare[j] === "{") depth++;
+      else if (bare[j] === "}" && --depth === 0) break;
+    }
+    gated = bare.slice(gateAt, j + 1);
+  }
+
+  // The report named the arrow buttons specifically. They are also the one part
+  // of the stock bar that is a CONTROL — under the 44px floor this app holds
+  // everywhere else, and redundant with wheel, drag and keyboard.
+  check("the stock arrow buttons are gone",
+    /::-webkit-scrollbar-button\s*\{[^}]*display:\s*none/.test(gated),
+    "no ::-webkit-scrollbar-button { display: none } inside the gate");
+
+  // THE TRAP, pinned. Chromium gives `scrollbar-color` precedence over the
+  // pseudo-elements and discards them when both are set, so declaring the
+  // standards pair "as a fallback" alongside would silently throw the whole
+  // block away on the exact engine the report came from. It is therefore only
+  // legal inside a feature query that Chromium fails.
+  const colourDecls = [...bare.matchAll(/scrollbar-color\s*:/g)].length;
+  const inSupports = [...bare.matchAll(
+    /@supports\s+not\s+selector\(\s*::-webkit-scrollbar\s*\)\s*\{[\s\S]*?scrollbar-color\s*:/g,
+  )].length;
+  check("scrollbar-color is only ever set where ::-webkit-scrollbar does not exist",
+    colourDecls > 0 && colourDecls === inSupports,
+    `${colourDecls} declaration(s), ${inSupports} inside the feature query`);
+
+  // The four strips that scroll horizontally BY DESIGN and hide their bar — the
+  // piece queue, the notch tally, the mods row and the guide's tab rail. The
+  // blanket `*::-webkit-scrollbar` would give all four a visible channel; what
+  // stops it is that each says `display: none` from a class selector, which
+  // outranks `*`. That is a specificity argument, and a specificity argument
+  // that nothing checks is a specificity argument waiting to be lost.
+  for (const sel of [".pl-queue b", ".pl-notch b", ".pl-mods", ".guide__tabs"]) {
+    const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    check(`${sel} still hides its own scrollbar`,
+      new RegExp(`${esc}(,[^{]*)?::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare)
+        || new RegExp(`[^{]*,\\s*${esc}::-webkit-scrollbar[^{]*\\{[^}]*display:\\s*none`).test(bare),
+      "the blanket rule would give it a visible channel");
+  }
+
+  // Colours come from the palette, not from fresh values invented in this
+  // section — the same rule the rest of the stylesheet is held to. The track and
+  // corner take a surface token; the thumb takes the accent, either as a token
+  // or as the rgba() of it the stylesheet already uses for accent washes.
+  const scrollbarBgs = [...gated.matchAll(/background(?:-color)?:\s*([^;]+);/g)].map((m) => m[1].trim());
+  const ACCENT_RGBA = "rgba(0, 240, 255";
+  const fromPalette = (v: string): boolean =>
+    v.startsWith("var(--") || v.startsWith(ACCENT_RGBA) || v === "transparent";
+  const strays = scrollbarBgs.filter((v) => !fromPalette(v));
+  check("the scrollbar's colours all come from the palette",
+    scrollbarBgs.length > 0 && strays.length === 0, strays.join(" | "));
+
+  // Square, not a pill. The largest radius anywhere in tokens.css is 3px, and a
+  // rounded thumb was half of why the stock bar read as borrowed chrome.
+  const radii = [...gated.matchAll(/border-radius:\s*var\(--r-(sm|md)\)/g)].length;
+  check("the thumb keeps the design system's square corner", radii > 0,
+    "the thumb's border-radius is not one of the --r-* tokens");
+
+  // --- CONTRAST, RECOMPUTED ------------------------------------------------
+  // WCAG 2.2 SC 1.4.11 asks 3:1 of a non-text UI component against the colour
+  // it sits on. The thumb sits on its own track, both are written as alphas
+  // over a token, and NEITHER number is legible by reading the stylesheet —
+  // `rgba(0, 240, 255, 0.22)` looks like a perfectly reasonable resting cyan
+  // and is in fact 1.60:1, which is how it shipped to review. So the ratios are
+  // derived here, from the alphas in app.css and the token in tokens.css, and
+  // the stylesheet's own comment table is the thing under test.
+  //
+  // Nothing here can be satisfied by editing a comment, and nothing about it is
+  // reachable from sim/uifit — Playwright hides scrollbars outright, so this is
+  // the only place in the repo where the bar's colours are checked at all.
+  const chan = (h: string): [number, number, number] =>
+    [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  // The palette itself, because the alphas in app.css are meaningless without
+  // the two colours they interpolate between.
+  const paletteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const deepHex = paletteSrc.match(/--bg-deep:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  const accentHex = paletteSrc.match(/--accent:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  check("the scrollbar's two source colours are still tokens", !!deepHex && !!accentHex,
+    `${deepHex ?? "no --bg-deep"} / ${accentHex ?? "no --accent"}`);
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = ([r, g, b]: [number, number, number]): number =>
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const contrast = (a: [number, number, number], b: [number, number, number]): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const track = chan(deepHex ?? "#000000");
+  const accent = chan(accentHex ?? "#ffffff");
+  const composite = (alpha: number): [number, number, number] =>
+    accent.map((c, i) => Math.round(c * alpha + track[i] * (1 - alpha))) as [number, number, number];
+
+  // The three states, read in source order out of the gated block: the bare
+  // thumb rule, then :hover, then :active (which is the token at full opacity).
+  const alphaOf = (decl: string): number | null => {
+    const m = decl.match(/rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/);
+    if (m) return Number(m[1]);
+    return /var\(--accent\)/.test(decl) ? 1 : null;
+  };
+  const thumbDecls = [...gated.matchAll(/::-webkit-scrollbar-thumb(:[a-z]+)?\s*\{[^}]*?background:\s*([^;]+);/g)]
+    .map((m) => ({ state: m[1] ?? ":rest", alpha: alphaOf(m[2]) }));
+  check("all three thumb states are readable as an accent alpha",
+    thumbDecls.length === 3 && thumbDecls.every((d) => d.alpha !== null),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" "));
+
+  const WCAG_NON_TEXT = 3;
+  const rest = thumbDecls[0]?.alpha ?? 0;
+  check("the RESTING thumb clears the 3:1 non-text contrast floor against its track",
+    contrast(composite(rest), track) >= WCAG_NON_TEXT,
+    `alpha ${rest} composites to rgb(${composite(rest).join(", ")}) = ` +
+      `${contrast(composite(rest), track).toFixed(2)}:1`);
+  // Rest is the one that matters most and the one that was wrong: a control has
+  // to be FOUND before it can be hovered, so a bright hover cannot stand in for
+  // a dim rest. Asserted separately from the ramp below for exactly that reason.
+
+  // ...and the ramp above it still reads as three states. Each step is measured
+  // against the previous state rather than against the track, because what is
+  // being checked is whether the CHANGE is perceivable, not whether the end
+  // point is legible.
+  const STEP_MIN = 1.5;
+  for (let i = 1; i < thumbDecls.length; i++) {
+    const prev = composite(thumbDecls[i - 1]!.alpha ?? 0);
+    const here = composite(thumbDecls[i]!.alpha ?? 0);
+    check(`the thumb's ${thumbDecls[i]!.state} state steps visibly up from ${thumbDecls[i - 1]!.state}`,
+      contrast(here, prev) >= STEP_MIN,
+      `${contrast(here, prev).toFixed(2)}:1 between rgb(${prev.join(", ")}) and rgb(${here.join(", ")})`);
+  }
+  // Monotonic, so "climbs on approach" stays true and a future edit cannot
+  // leave hover dimmer than rest while both individually pass.
+  check("the thumb only ever gets brighter towards the pointer",
+    thumbDecls.every((d, i) => i === 0 || (d.alpha ?? 0) > (thumbDecls[i - 1]!.alpha ?? 0)),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" < "));
+
+  // FIREFOX GETS NO RAMP. `scrollbar-color` names one thumb colour and offers
+  // the page no hover or active selector, so that single value is the whole
+  // control's contrast for its whole life and has to clear the floor by itself.
+  const ffAlpha = bare.match(/scrollbar-color:\s*rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/)?.[1];
+  check("the Firefox fallback names its thumb as an accent alpha too", ffAlpha !== undefined,
+    "no rgba() thumb in the scrollbar-color declaration");
+  const ff = Number(ffAlpha ?? 0);
+  check("...and clears 3:1 on its own, having no hover state to climb to",
+    contrast(composite(ff), track) >= WCAG_NON_TEXT,
+    `alpha ${ff} composites to rgb(${composite(ff).join(", ")}) = ` +
+      `${contrast(composite(ff), track).toFixed(2)}:1`);
 }
 
 // ---------------------------------------------------------------------------
@@ -9252,6 +9791,28 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   check("the two doors are the same rule's two branches",
     nextStep({ ...newMeta(), salvage: 1_000 }) === "workshop"
       && nextStep(newMeta()) === "contracts");
+
+  // ---- THE RUN-END CARD AT SATURATION ------------------------------------
+  // The same sentence as the Contract card's, on the other door into the same
+  // moment: a tier completes on whichever half lands second, and either half
+  // can be the run. Both cards ask tierOpenedByCompleting now, so a fix to one
+  // cannot leave the other lying. The run card carries a second claim as well
+  // — what the new rung changes — and that one is doubly false at the top,
+  // since Mark 10 opens no hazard axis and the build budget it quotes is the
+  // budget the player already had.
+  const endMid = end({ runComplete: true, tierCompleted: 3, tierSalvage: 15,
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 } });
+  check("the run-end card names the floor the completion opened",
+    endMid.includes("Tier 4 is open"));
+  const endTop = end({ runComplete: true, tierCompleted: MARK_COUNT, tierSalvage: 15,
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    } });
+  check("...and announces no unlock when the ladder simply ended",
+    !endTop.includes("is open"), "the top-of-ladder run card still names a floor");
+  check("...saying what did happen instead", endTop.includes("ladder is finished"));
+  check("...and promises no budget rise that cannot happen",
+    !endTop.includes("build budget rises"));
 
   // ---- RETRY BAY vs RETRY RUN --------------------------------------------
   // They were one button ("Play Again") that only ever meant the fresh start.
