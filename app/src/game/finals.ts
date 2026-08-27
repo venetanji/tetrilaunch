@@ -720,7 +720,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "powder-run",
     name: "Powder Run",
-    desc: "At least 27% of the belt is volatile. Land one hard and it takes its neighbours with it.",
+    desc: "At least 27% of the belt is volatile. Land one hard and it takes its neighbours with it — and the bay pays for every live cube in the blast.",
     tier: 7,
     system: "bay",
     apply: (cfg) => { schedule(cfg, "volatile", 0.27); },
@@ -728,7 +728,7 @@ export const FINALS: FinalDef[] = [
   {
     id: "hair-trigger",
     name: "Hair Trigger",
-    desc: "At least 20% of the belt is volatile, primed 15% finer — at this setting only the softest lob will not set it off.",
+    desc: "At least 20% of the belt is volatile, primed 15% finer — at this setting only the softest lob will not set it off, and the bay pays for every live cube each blast takes.",
     tier: 7,
     system: "bay",
     apply: (cfg) => {

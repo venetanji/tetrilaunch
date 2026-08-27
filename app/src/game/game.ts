@@ -36,7 +36,7 @@ import {
   settleZoneCubes,
   wakeNear,
   type ClearResult,
-  slagBountyFor, volatileLossFor,
+  settleBlast,
 } from "./lineClear";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -2188,37 +2188,25 @@ export class Game {
         r: VOLATILE_BLAST_CELLS * CELL * 1.4, t0: now,
       });
       this.events.onExplosion?.("volatile");
-      // Reuses the bomb's salvage toast rather than inventing a second one: it
-      // is the same statement ("that wreckage was worth something") and the
-      // player has already learned to read it. A payout they only meet in the
-      // end screen teaches nothing — the rule PILE_TIERS follows for its clock.
-      // THE LIVE CARGO IS BILLED, and it is billed here rather than anywhere
-      // else because a detonation is ONE settlement: the dead cubes pay out,
-      // the live cubes cost, and the player should see both land together.
-      // lineClear.ts's volatileLossFor carries the argument and the
-      // measurement; level.ts's VOLATILE_LOSS_SHARE carries the price.
-      //
-      // Clamped at the score exactly as the spill fine is (see loseCubes): the
-      // bay's funds are its operating budget and a hazard may empty it, but a
-      // negative bankroll is not a state this economy has. Going broke is
-      // already a loss condition with a grace window attached, and that is the
-      // route a player who cannot pay should take.
-      const loss = Math.min(this.score, volatileLossFor(razed, this.level.volatileLoss));
-      if (loss > 0) {
-        this.score -= loss;
-        this.volatileLosses += loss;
-        // The same "−$" toast the chute uses for a spilled shipment, for the
-        // same reason it reuses the bomb's salvage toast below: this is the
-        // same statement the player has already learned to read ("that cargo
-        // cost you"), and a charge they only meet in the end screen teaches
-        // nothing. Placed above the blast's centre so it clears the debris.
-        this.effects.push({
-          kind: "penalty", x: cx / n, y: cy / n - 40, amount: loss, t0: now,
-        });
-      }
-      const bounty = slagBountyFor(razed, this.level.slagBounty);
-      if (bounty > 0) {
-        this.score += bounty;
+      // ONE SETTLEMENT — the dead cargo's payout and the live cargo's charge
+      // are netted before either touches the balance. lineClear.ts's
+      // settleBlast carries the argument for why that ordering is load-bearing
+      // and not a tidy-up; volatileLossFor carries the measurement that put the
+      // charge here at all, and level.ts's VOLATILE_LOSS_SHARE carries its
+      // price. The player should see both halves land together, which is why
+      // this is one place and not two.
+      const settled = settleBlast(
+        razed, this.score, this.level.volatileLoss, this.level.slagBounty,
+      );
+      this.score += settled.net;
+      this.volatileLosses += settled.charged;
+      if (settled.bounty > 0) {
+        // Reuses the bomb's salvage toast rather than inventing a second one:
+        // it is the same statement ("that wreckage was worth something") and
+        // the player has already learned to read it. A payout they only meet in
+        // the end screen teaches nothing — the rule PILE_TIERS follows for its
+        // clock.
+        //
         // NOT salvagedFunds. That field is the demolition charge's trade and
         // nothing else — its doc here, RunState's, and the end screen's all
         // say so, and screens.ts prints it as "$N recovered by demolition".
@@ -2228,7 +2216,24 @@ export class Game {
         // at the moment it happens (the toast below); what it must not do is
         // claim to be something else on the way out.
         this.effects.push({
-          kind: "salvage", x: cx / n, y: cy / n - 24, amount: bounty, t0: now,
+          kind: "salvage", x: cx / n, y: cy / n - 24, amount: settled.bounty, t0: now,
+        });
+      }
+      if (settled.charged > 0) {
+        // The same "−$" toast the chute uses for a spilled shipment, for the
+        // same reason the payout reuses the bomb's: this is a statement the
+        // player has already learned to read ("that cargo cost you"), and a
+        // charge they only meet in the end screen teaches nothing. Placed above
+        // the blast's centre so it clears the debris, and above the salvage
+        // toast so a mixed blast reads as two lines rather than one number
+        // sitting on top of the other.
+        //
+        // Shows what was ACTUALLY taken rather than what was owed: when the
+        // clamp forgives part of a charge the player did not pay that part, and
+        // a toast for money that never moved is the kind of small lie that
+        // makes an economy unreadable.
+        this.effects.push({
+          kind: "penalty", x: cx / n, y: cy / n - 40, amount: settled.charged, t0: now,
         });
       }
     }

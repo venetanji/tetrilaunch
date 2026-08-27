@@ -3763,6 +3763,11 @@ export function endModal(opts: {
    *  "salvage": that word is the Workshop's permanent currency, and the two
    *  sitting on the same foot line would read as one number counted twice. */
   salvagedFunds: number;
+  /** Funds volatile detonations took for the live cargo they destroyed across
+   *  the run (run.ts's RunState.volatileLosses). Worded as FUNDS for the same
+   *  reason salvagedFunds is, and printed in the breakdown row rather than on
+   *  the sandbox foot beside it — see the `volatileFoot` note below. */
+  volatileLosses: number;
   tiers: UpgradeTiers;
   /** The board this score posts to — the RUN's own Mark (RunState.mark), never
    *  `progress.tier`: a run that completed its tier has already advanced the
@@ -3797,6 +3802,19 @@ export function endModal(opts: {
   // draft pick most runs never make, so the line would be dead weight on the
   // majority of end screens — and the foot is already the densest row here.
   const demoFoot = opts.salvagedFunds > 0 ? ` · $${opts.salvagedFunds} recovered by demolition` : "";
+  // What volatile took, on the run's own tally row. Suppressed at zero for the
+  // same reason demoFoot is — most runs never ratchet the axis, and the
+  // breakdown is not a place to print a $0 for a hazard the player never met.
+  //
+  // IN THE BREAKDOWN, not on demoFoot's line, and the difference matters. That
+  // foot renders on Tier S runs only (sandboxEndRowHTML is the sole caller), so
+  // a charge parked there would be invisible on every ladder run — which is the
+  // whole of what this readout is for. A cost the player is never shown reads
+  // exactly the way it read to the sim before it was billed: as free pile
+  // relief (lineClear.ts's volatileLossFor). The breakdown is already the row
+  // that reconciles the run's money, and this belongs beside "$N left".
+  const volatileFoot = opts.volatileLosses > 0
+    ? ` · $${opts.volatileLosses} lost to detonations` : "";
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
@@ -3857,7 +3875,7 @@ export function endModal(opts: {
       <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
-        · $${Math.max(0, opts.funds)} left
+        · $${Math.max(0, opts.funds)} left${volatileFoot}
       </div>
       <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
            ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap

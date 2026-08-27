@@ -1048,6 +1048,14 @@ function endModal(won: boolean, sandbox = false): string {
     // value buys is the row at its real height, which is what the fit,
     // offscreen and tap assertions measure the rest of the modal against.
     salvagedFunds: 12_480,
+    // Non-zero for the same reason, and on the row that actually constrains:
+    // the detonation segment lands in the end card's BREAKDOWN (screens.ts's
+    // volatileFoot), which is a one-line muted row under the stat trio rather
+    // than the wrapping sandbox foot above. Five digits is the widest this can
+    // plausibly read — a Tier-10 bay's charge is a quarter of a spill fine that
+    // tops out around $43/cube (level.ts), so a run that ate detonations all
+    // the way down is in this range and nothing is above it.
+    volatileLosses: 10_240,
     tiers: HUD_BASE.tiers,
   });
 }
