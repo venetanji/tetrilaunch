@@ -211,11 +211,18 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
       // the player would have carried into the bay that bills them for it.
       // The cushion earned its clause the way the Thaw Lance earned cryo's:
       // by naming the system that does what the sentence was already telling
-      // the player to do. 244 plain characters against the pane's 250.
+      // the player to do. 235 plain characters against the pane's 250, which
+      // the copy-budget pin in sim/systems.ts counts.
+      //
+      // LANDING, not "shot", and the word is doing work: the liner insures an
+      // arrival and nothing else (lineClear.ts's volatileBlast). A cube already
+      // lying in a lined slot still goes off when cargo lands hard on top of
+      // it, so a sentence that let the slots read as safe ground would be
+      // teaching the player a rule the bay does not have.
       body: `A hard landing detonates it, taking every cube within`
         + ` <b>${VOLATILE_BLAST_CELLS} cells</b>, and every live cube it takes is billed`
         + ` <b>$${lv.volatileLoss}</b>. The trigger is impact SPEED: lob it soft, or land it on an`
-        + ` <b>Impact Cushion</b> — the deep slots it lines take a much harder shot.`,
+        + ` <b>Impact Cushion</b> — the deep slots it lines take a much harder LANDING.`,
     },
     {
       m: "tar", axis: "tar",

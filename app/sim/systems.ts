@@ -66,7 +66,7 @@ import {
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
   volatileLossFor, settleBlast,
   markLostPieces, slagBountyFor, nextColdCryo,
-  cushionedTrigger, cushionEdgeX, NO_CUSHION,
+  cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -12457,17 +12457,44 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
   // is a claim about the collision side: the same shot, at the same speed, must
   // detonate in a shallow slot and survive in a lined one.
   {
-    const shot = 26; // above stock's 22, below tier 1's 25.3? no — see below
-    const at = (x: number, cushion: { cells: number; mult: number }): boolean => {
-      // Two bodies closing at `shot`, the volatile one parked at x.
-      const vol = { position: { x, y: 400 }, velocity: { x: 0, y: 0 } } as Matter.Body;
-      const hit = { position: { x, y: 360 }, velocity: { x: 0, y: shot } } as Matter.Body;
+    const shot = 26; // clears stock's 22 AND tier 1's 25.3, so one speed reads
+                     // the whole ladder: a shot the bare floor sets off.
+    /**
+     * One fixture read two ways. Two cubes meeting at `shot` in the slot at x,
+     * and the ONLY difference between the readings is which of them carried the
+     * speed in — written as one builder because that difference IS the rule
+     * being pinned, and two hand-written fixtures could drift apart by a stray
+     * constant and still both pass.
+     */
+    const blastAt = (
+      x: number,
+      cushion: { cells: number; mult: number },
+      volatileArrives: boolean,
+    ): boolean => {
+      const moving = { x: 0, y: shot };
+      const still = { x: 0, y: 0 };
+      const vol = {
+        position: { x, y: volatileArrives ? 360 : 400 },
+        velocity: volatileArrives ? moving : still,
+      } as Matter.Body;
+      const other = {
+        position: { x, y: volatileArrives ? 400 : 360 },
+        velocity: volatileArrives ? still : moving,
+      } as Matter.Body;
       const cubes = [
         { body: vol, material: "volatile", struck: true, blinkStart: null },
-        { body: hit, material: "standard", struck: true, blinkStart: null },
+        { body: other, material: "standard", struck: true, blinkStart: null },
       ] as unknown as Cube[];
-      return volatileBlast(cubes, vol, hit, 1, cushion).length > 0;
+      return volatileBlast(cubes, vol, other, 1, cushion).length > 0;
     };
+    /** A volatile shipment coming DOWN into the slot at x — the landing the
+     *  liner is insurance on. */
+    const at = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, true);
+    /** A volatile cube already lying in the slot at x, with ordinary cargo
+     *  landing on top of it. Not a landing of its own. */
+    const landedOn = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, false);
     const deep = WALL_INNER - 1 * CELL;               // hard against the wall
     const shallow = WALL_INNER - 11 * CELL;           // outside every liner
     const maxed = { cells: CUSHION_TIERS[2].cells, mult: CUSHION_TIERS[2].mult };
@@ -12481,6 +12508,90 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
       at(deep, NO_CUSHION) && !at(deep, maxed),
       `bare ${at(deep, NO_CUSHION)}, lined ${at(deep, maxed)}`,
     );
+
+    // THE LINER INSURES A LANDING, NOT A CUBE — and this is the same shot in
+    // the same slot under the same liner, differing only in which body arrived.
+    //
+    // The liner is bedding: a volatile shipment comes down ON it and the
+    // bedding takes the blow. A volatile cube that is ALREADY lying in it has
+    // had its landing; there is nothing between it and the cargo dropped on top
+    // of it, so that impact meets the stock threshold like any other. Without
+    // the arriving test, `primed` is simply whichever body is volatile, so the
+    // settled cube reads its own position and softens an impact it played no
+    // part in — and a maxed liner then makes volatile inert for the rest of the
+    // bay everywhere it lies deep, which hazards.ts forbids in as many words:
+    // "a system does not DELETE a hazard". upgrades.ts sells the narrow
+    // version, and the copy is the promise this pin holds it to: the deep slots
+    // it lines are where volatile "lands without going off".
+    check(
+      "a cushion softens a volatile cube's OWN landing",
+      !at(deep, maxed),
+      `arriving into a maxed liner detonates: ${at(deep, maxed)}`,
+    );
+    check(
+      "...and never protects one already lying there from what lands on top of it",
+      CUSHION_TIERS.every((r) => landedOn(deep, { cells: r.cells, mult: r.mult })),
+      CUSHION_TIERS.map((r) => `${r.cells}c:${landedOn(deep, { cells: r.cells, mult: r.mult })}`)
+        .join(" "),
+    );
+    // Not an artefact of that one slot: nothing anywhere under the deepest
+    // liner is protected once it is down. Sampled every cell of the liner,
+    // because "inside the liner" is exactly the region the bug covered.
+    {
+      const depths = Array.from({ length: maxed.cells }, (_, i) => WALL_INNER - (i + 0.5) * CELL);
+      check(
+        "...at every lined slot, and on a bare floor alike",
+        depths.every((x) => landedOn(x, maxed) && landedOn(x, NO_CUSHION)),
+        `${depths.filter((x) => !landedOn(x, maxed)).length} of ${depths.length} lined slots suppressed`,
+      );
+    }
+    // WHICH cube the liner is asked about cannot fall out of pile order. The
+    // one impact where the arriving cube and the primed cube can differ is a
+    // volatile shipment coming down on a volatile cube already lying there —
+    // and `cubes.find` would answer that with whichever of the two the pile
+    // happens to list first, which is nothing a player can see, let alone play
+    // against. There is one impact and one threshold, so the question has one
+    // answer: did a volatile cube ARRIVE inside the liner.
+    {
+      const bomb = (x: number, y: number, vy: number) => ({
+        position: { x, y }, velocity: { x: 0, y: vy },
+      }) as Matter.Body;
+      const chainAt = (x: number, listArrivalFirst: boolean): boolean => {
+        const down = bomb(x, 400, 0);      // already lying in the slot
+        const inbound = bomb(x, 360, shot); // the shipment coming down on it
+        const cubes = (listArrivalFirst ? [inbound, down] : [down, inbound]).map((body) => (
+          { body, material: "volatile", struck: true, blinkStart: null }
+        )) as unknown as Cube[];
+        return volatileBlast(cubes, down, inbound, 1, maxed).length > 0;
+      };
+      check(
+        "a volatile shipment landing on a volatile cube reads the same either way round",
+        chainAt(deep, true) === chainAt(deep, false)
+          && chainAt(shallow, true) === chainAt(shallow, false),
+        `lined ${chainAt(deep, true)}/${chainAt(deep, false)}`
+          + ` · bare ${chainAt(shallow, true)}/${chainAt(shallow, false)}`,
+      );
+    }
+    // The rule underneath both readings, pinned on its own so the next system
+    // that needs "who arrived" inherits a definition rather than re-deriving
+    // one: the arriving body is the one carrying the speed, and a pair of cubes
+    // at rest against each other has no arrival in it at all.
+    {
+      const body = (vx: number, vy: number) => ({ velocity: { x: vx, y: vy } }) as Matter.Body;
+      const fast = body(0, shot);
+      const slow = body(0, 0);
+      const jitter = body(0, 1); // pile chatter, below lineClear's SETTLE
+      check(
+        "the arriving body is the one that carried the impact in",
+        arrivingBody(fast, slow) === fast && arrivingBody(slow, fast) === fast,
+        "and it is found whichever side of the pair it is on",
+      );
+      check(
+        "...and a pile settling against itself has nothing arriving in it",
+        arrivingBody(slow, jitter) === null && arrivingBody(jitter, slow) === null,
+      );
+    }
+
     // The edge is where the tier says it is, to the cell. Checked either side of
     // ONE rung's boundary rather than trusting the two extremes above, which a
     // liner of any depth at all would satisfy.

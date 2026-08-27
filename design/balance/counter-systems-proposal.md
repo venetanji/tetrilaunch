@@ -442,6 +442,23 @@ for you, it does not delete it.
 > **The three open items below are closed by the implementation:** the ladder is
 > real because the liner is positional (item 1), the field-wide gap IS the
 > positional system now (item 2), and §3c's overshoot has a floor (item 3).
+>
+> **CORRECTION — the table in this box measured a defect, and item 1 re-opens.**
+> The shipped collision side softened by the position of whichever cube in the
+> pair was volatile, so a cube already lying in the liner was protected from
+> what landed on top of it too. That is the opposite of the sentence three
+> paragraphs up in this very section — *"at ×1.40 volatile still detonates when
+> something lands hard on top of it […] the cushion only buys back the
+> arrival"* — so the specification was right and the code was not.
+>
+> With the arrival gate closed, the same flags over 96 paired seeds read
+> 55/96 bare against **56 / 63 / 59** for the three rungs, where the box above
+> reads 38 / 42 / 46 of 48. The rungs no longer separate: a deeper liner defers
+> detonations rather than preventing them, and the bill falls to $481 rather
+> than $32. `design/balance/winnability-sweep-findings.md` §5b-ter carries the
+> full before/after, the boundaries that are unchanged by construction, and why
+> the pilot understates the fixed system more than it understated the broken
+> one. **The 50-salvage price in §2a rests on the superseded table.**
 
 **What was still owed before it shipped**, and how each was answered:
 

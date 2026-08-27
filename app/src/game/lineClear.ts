@@ -160,6 +160,29 @@ export interface CushionSpec {
 }
 
 /**
+ * Which body of a colliding pair ARRIVED — the one that carried the impact in,
+ * rather than the one that stood there and took it. Null when neither did: two
+ * cubes of a settling pile touching as it grinds flat.
+ *
+ * strikeCryo's rule read the other way round, and its one-line comment is the
+ * whole idea: "Settled = it is the target, not the projectile." Cryo must be at
+ * rest to count as struck, so the arriving body is the one that is NOT at rest
+ * — and, where a churning pile has both of them moving, the faster of the two,
+ * because a landing is asymmetric even when nothing in it is still.
+ *
+ * Speed rather than a flag on the cube, because the physics world is the only
+ * thing that knows: a cube a blast threw across the bay is arriving at whatever
+ * it lands on next exactly as much as a fresh shipment is, and nothing marked
+ * it as launched.
+ */
+export function arrivingBody(a: Matter.Body, b: Matter.Body): Matter.Body | null {
+  const aSq = a.velocity.x * a.velocity.x + a.velocity.y * a.velocity.y;
+  const bSq = b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y;
+  if (Math.max(aSq, bSq) <= SETTLE_SQ) return null;
+  return aSq >= bSq ? a : b;
+}
+
+/**
  * The x a cushion liner's near edge sits at — the boundary cargo is softened
  * ACROSS.
  *
@@ -250,12 +273,32 @@ export function volatileBlast(
     (c) => (c.body === a || c.body === b) && MATERIAL_SPEC[c.material].detonates,
   );
   if (!primed) return [];
-  // Inside the liner or outside it, measured on the cube that would go off. A
-  // hard edge rather than a ramp: the player has to be able to look at the bay
-  // and know whether a slot is lined, and a soft falloff would make the same
-  // shot detonate or not for reasons nothing on screen explains.
+  // Inside the liner or outside it, measured on the volatile cube that ARRIVED
+  // — which is `primed` itself for every impact that has one moving body, and
+  // is only a different cube when a volatile shipment comes down on a volatile
+  // cube already lying there. A hard edge rather than a ramp: the player has to
+  // be able to look at the bay and know whether a slot is lined, and a soft
+  // falloff would make the same shot detonate or not for reasons nothing on
+  // screen explains.
+  //
+  // AND IT IS A LANDING THAT IS INSURED, NOT A CUBE. The liner is bedding a
+  // volatile shipment comes down ON — upgrades.ts sells exactly that ("the deep
+  // slots it lines are where volatile lands without going off") and ECONOMY.md
+  // spells out the other half ("a cube still goes off when something lands hard
+  // on top of it"). Ask this of `primed` alone and the second sentence is false
+  // in the code: a volatile cube AT REST in a lined slot reads its own position
+  // and softens an impact it played no part in, so ordinary cargo could be
+  // dropped on a bomb at full power and the bomb would sit there. A maxed liner
+  // would then make the material inert everywhere it lies deep, which is the
+  // one thing hazards.ts forbids outright — "a system does not DELETE a
+  // hazard". A landing happens once; this is the insurance on it.
+  const arriving = arrivingBody(a, b);
+  const landing = primed.body === arriving
+    ? primed
+    : cubes.find((c) => c.body === arriving && MATERIAL_SPEC[c.material].detonates);
   const lined = cushion.cells > 0
-    && primed.body.position.x >= cushionEdgeX(cushion.cells);
+    && landing !== undefined
+    && landing.body.position.x >= cushionEdgeX(cushion.cells);
   const rel = Math.hypot(a.velocity.x - b.velocity.x, a.velocity.y - b.velocity.y);
   if (rel < VOLATILE_TRIGGER_SPEED * cushionedTrigger(triggerMult, lined ? cushion.mult : 1)) {
     return [];

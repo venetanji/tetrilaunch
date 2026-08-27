@@ -569,6 +569,12 @@ now reads 5/8 bare against 8/8 cushioned, where before it was 6/8 against 8/8.
 
 ### 5b-bis. THE SAME TABLE, ON THE SHIPPED SYSTEM
 
+> **SUPERSEDED BY §5b-ter.** Every number in this section was measured against a
+> liner that softened *any* impact on a volatile cube lying inside it, arrival
+> or not — which is not the system `upgrades.ts`, `ECONOMY.md` and §2a of the
+> proposal all describe. The gate is closed now, so the table below reads as
+> what the defect was worth; §5b-ter is the same flags against the rule.
+
 Everything above measured a **field-wide** multiplier standing in for a system
 nobody had built, and `counters.ts` said so in as many words: *"every cushion
 number this harness prints reads: this is the most a cushion could possibly be
@@ -628,6 +634,90 @@ here — at the belt cap Hair Trigger costs nothing over stock (27/48 either way
 because a belt already one-third volatile detonates constantly whatever the
 threshold is.
 
+---
+
+### 5b-ter. THE SAME TABLE AGAIN, WITH THE ARRIVAL GATE CLOSED
+
+The liner is **insurance on a landing**. That is what the shop card sells (*"the
+deep slots it lines are where volatile lands without going off"*), what
+`ECONOMY.md` spells out (*"a cube still goes off when something lands hard on
+top of it"*), and what §2a of the proposal argues is the whole reason tier 3 can
+sit at the top of the arrival range without deleting the material. The collision
+side did not ask that question. It softened by the position of *whichever cube
+in the pair was volatile*, so a cube already at rest in a lined slot raised the
+threshold on an impact it played no part in — and a maxed liner made volatile
+inert everywhere it lay deep, which is the one thing `hazards.ts` forbids
+outright.
+
+`lineClear.ts`'s `volatileBlast` now asks it: the liner is read off the volatile
+cube that **arrived**. Same flags, same seeds, same pilot — and this is the
+paired before/after, not a re-run of one side.
+
+**Tier 7 bay 10, `volatile:6` (the belt cap), 96 paired seeds:**
+
+| | win before → after | detonation bill before → after | shots before → after |
+|---|---:|---:|---:|
+| bare | 55/96 → **55/96** | $687 → $687 | 45.7 → 45.7 |
+| + Cushion 1 (20 pts) | 70/96 → **56/96** | $543 → $552 | 42.3 → 38.6 |
+| + Cushion 2 (55) | 81/96 → **63/96** | $252 → $525 | 36.3 → 40.0 |
+| + Cushion 3 (110) | 91/96 → **59/96** | $32 → $481 | 28.3 → 37.3 |
+
+**The bare row is byte-identical, and that is the control that says the change
+is the gate and nothing else.** A bay with no liner aboard cannot tell the two
+builds apart, at 48 seeds or 96.
+
+**THE LADDER IN §5b-bis WAS MOSTLY THE DEFECT.** It went 38 → 42 → 46 (of 48)
+because each rung lined more of the floor, and lining more of the floor defused
+more cubes *permanently*. Against the rule the three rungs land at 56 / 63 / 59
+of 96 — not monotone, and spread across about two standard errors of each other.
+What a rung buys is no longer "more bay wins".
+
+**What it buys instead is a DEFERRAL, and the bill is where that shows.** Under
+the defect the bill fell to $32 at maxed: those detonations never happened. Now
+it falls to $481 from $687 — the liner converts an arrival detonation into a
+later one, in a bay that is fuller by the time it goes off, which is the
+expensive kind. Every volatile cube the liner saves is a cube left lying in the
+line zone with a stock trigger on it.
+
+**The efficiency claim at shallow notch counts does not survive either.** Same
+harness, 48 paired seeds:
+
+| | shots bare → maxed | detonation bill bare → maxed |
+|---|---:|---:|
+| `volatile:1`, before | 31.2 → 26.2 | $106 → $5 |
+| `volatile:1`, **after** | 31.2 → **31.4** | $106 → **$94** |
+| `volatile:3`, before | 37.3 → 28.7 | $295 → $17 |
+| `volatile:3`, **after** | 37.3 → **38.1** | $295 → **$240** |
+
+**Two boundaries are unchanged by construction, not by measurement.** A bay with
+no volatile in it — the clean control, `cryo:3`, `wind:3` — never reaches the
+gate at all: `volatileBlast` leaves before it, on the same `find` it always did.
+The rows in §5b-bis that carry volatile *and* a second condition
+(`volatile:3 wind:3`, Powder Run, Hair Trigger) were measured before the gate
+and should be read as stale by the same argument as the headline table.
+
+**THE PESSIMISM LEDGER NOW CARRIES THE SYSTEM'S WHOLE CASE, which is an open
+item and not a finding.** The defect paid the player passively: cubes in the
+liner were safe whatever they did next. The rule asks for play — land the
+shipment soft in the liner, then *close the row before something lands on it* —
+and this pilot cannot make that play. It has no lookahead, a fixed landing
+target per shot, no reading of the pile, and `sim/README.md`'s standing caveat
+that **no bot lobs a volatile shipment on purpose**. So these numbers understate
+the shipped system by more than any earlier table in this document understated
+its subject, and the honest reading is *"the instrument can no longer see what
+this system is for"* rather than *"the system does not work"*.
+
+What that leaves open, in the order it should be answered:
+
+1. **A play pass, before any re-tune.** The question is whether a human holding
+   a maxed liner plays around the deferred bomb. Nothing in `sim/` can answer
+   it; the field drawing (`drawCushionBed`) exists precisely so a player *can*.
+2. **The price, which was argued from the superseded table.** 50 salvage was
+   placed beside the Thaw Lance on the strength of "every rung buys wins". The
+   rungs no longer separate under this pilot, so the price is now an untested
+   claim rather than a measured one.
+3. **A pilot that can lob on purpose**, which is the smallest instrument change
+   that would make rung 2 and rung 3 distinguishable at all.
 
 ---
 
