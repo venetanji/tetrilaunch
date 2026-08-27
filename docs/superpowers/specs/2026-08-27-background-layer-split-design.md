@@ -298,6 +298,95 @@ investigation:
    Live play varies draw counts by 30%+ between adjacent seconds, which is far
    larger than anything being measured.
 
+## 120fps IS reachable, and the canvas was never the wall
+
+Everything above hunts the frame inside `render()`. On the device, that hunt was
+looking in the wrong place. Measured in a live bay at a confirmed 120Hz (minimum
+rAF gap 8.1ms), conditions interleaved every 400ms so scene drift lands on both:
+
+| HUD state | fps | on-time |
+| --- | --- | --- |
+| painted (normal) | 79.6 | 61.2% |
+| **`visibility: hidden`** — laid out, NOT painted | **112.2** | **93.7%** |
+| `display: none` — no layout, no paint | 115.4 | 96.1% |
+
+`visibility: hidden` recovers almost everything `display: none` does. Layout is
+therefore cheap and **painting the DOM HUD is the cost — about 33fps of it.**
+With the HUD not painted the game holds 112fps and makes 94% of its 8.33ms
+deadlines, on the same renderer, the same bay, the same device.
+
+**So the canvas renderer is already fast enough for 120fps.** Drawing the entire
+scene — background, every cube, chrome, effects, trajectory, cannon — measured
+**0.414ms/frame** in an instrumented build. That is 5% of the budget.
+
+### What the rest of the frame costs
+
+Instrumented build, live bay, confirmed 120Hz, per frame:
+
+| phase | ms |
+| --- | --- |
+| reading `window.innerWidth` / `innerHeight` | **3.05** |
+| `render()` — the whole scene | 0.414 |
+| `syncHud` | 0.204 |
+| `update` — physics and game logic | 0.188 |
+| `updateTrajectory` | 0.006 |
+
+The first line is a forced synchronous layout. The loop calls `syncHud()` — which
+writes the HUD's DOM — and then reads the viewport in `render()`'s argument list,
+so the browser must flush style and layout before it can answer. A forced flush on
+this page costs **9.8ms**.
+
+**Caching the viewport does not fix it.** That was tried: fields set in
+`onResize`, read in the loop, verified live (`innerWidth` reads per frame went to
+zero). Total JS stayed at ~4.7ms, because the layout and the paint happen anyway —
+the read only decides *when*. Reverted. Do not re-attempt it as a performance fix
+before the paint is dealt with; it is at best a tidiness change.
+
+### Not a specific CSS effect
+
+Interleaved, killing `box-shadow` and `text-shadow` across the HUD bought
+**+2.3fps** (68.5 → 70.8). `filter`/`backdrop-filter`: nothing. `background-image`:
+nothing. `contain: layout paint style` on `#overlay > *` bought +3fps.
+
+A **block-design** version of that same test said shadows were worth +15fps. They
+are not. The baseline fell 75.3 → 65.2 fps across that one run as the phone warmed,
+and the block that happened to sit in the middle looked fast. This document's own
+trap note says long blocks are useless here; it is worth repeating because the
+trap caught the person who wrote the note.
+
+### The next thing to try, untested
+
+Most HUD readouts do not need 120Hz updates. Throttling `syncHud` to ~15Hz would
+leave most frames with no DOM mutation and therefore nothing to repaint, which is
+where the 33fps lives. A throttle experiment was built (`__hudEvery` on the loop)
+but never caught a 120Hz window to measure in — the panel kept dropping to 60Hz as
+the phone warmed. **It is unmeasured. It is a hypothesis with a mechanism, not a
+result.**
+
+The honest risk: the reload ring and the clock genuinely move every frame, so a
+throttle may be visible. The measurement to take first is which HUD nodes actually
+change per frame, and whether the ones that do can be isolated — a small
+independently-composited element repainting is not the same bill as the whole
+overlay.
+
+### What this means for the sprite pass
+
+The sprite-pass work (draw-call census, redundant property writes, `save`/`restore`
+pairs) is measuring real waste and its counts are sound. But its ceiling on this
+device is the 0.414ms that all canvas drawing costs, against ~4ms of HUD paint.
+A 20% cut in canvas draw calls is worth under 0.1ms of an 8.33ms frame. Worth
+having, and worth sizing honestly against the HUD before anyone spends a week on it.
+
+### `performance.now()` is 0.1ms-granular on this device
+
+99.6% of consecutive `performance.now()` calls return **zero** delta; the smallest
+non-zero delta is 0.1ms. Any single sub-0.1ms timing is noise. This invalidated a
+whole round of per-draw-call instrumentation whose parts summed to 0.463ms against
+an outer measurement of 3.463ms on the same call — the parts were each rounding to
+zero. Only sums accumulated over many frames, or spans above ~1ms, carry meaning.
+The 3.05ms, 0.414ms and the fps tables above are all accumulations or spans well
+above that floor.
+
 ## Related
 
 - `app/native/android/MainActivity.java` — `requestHighestRefreshRate()`, the
