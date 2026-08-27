@@ -623,13 +623,16 @@ the search grid.
   byte-identical to one flown without a strategy, and pins separately that the
   same comparison can see a strategy that changes the aim and one that changes
   only the arc.
-- **`lance`** — divides cryo's job between its two tools. The lance is **held**
-  for a frozen cube within `LANCE_URGENT_CELLS` of the advancing face (the one
-  a shipment can no longer reach in time); the **shipment** is sent at the
-  nearest cube outside that band, which is the cryo-striking bot the findings
-  asked for by name. Both targets come from `lineClear.ts`'s own
-  `nextColdCryo`, asked twice — once with the urgent cube removed — so every
-  exclusion the game applies is intact and none is copied here.
+- **`strike`** — the cryo-striking bot the findings asked for by name: shipments
+  are sent at settled frozen cubes, over the **shipped** greedy lance trigger.
+  Targets come from `lineClear.ts`'s own `nextColdCryo`, asked twice (once with
+  the cube the lance is about to take removed), so every exclusion the game
+  applies is intact and none is copied here.
+- **`lance`** — `strike` plus charge discipline: the lance is **held** for a
+  frozen cube within `LANCE_URGENT_CELLS` of the advancing face, the one a
+  shipment can no longer reach in time. The pair exists so the two halves are
+  attributable — a strategy that changes two things produces one number for
+  both. Measured, **both halves lose wins**; see `aim-strategy-findings.md` §4.
 - **`cushion`** — lands volatile shipments **inside** the liner on the
   **slowest** arc under `cushionedTrigger`'s own threshold, and refuses to drop
   a non-volatile shipment onto a slot whose top cube is an intact volatile one
@@ -668,8 +671,13 @@ which: `expectInert: true` (cushion) makes it a **control** that must land on
 no-system/naive; `expectInert: false` (lance) makes it a **measurement** — the
 free counter-play a player gets with no rig at all.
 
-Flags: `--system`, `--mark`, `--bay`, `--ratchets`, `--seeds`, `--tiers`,
-`--build`, `--json`.
+`--aware <strategy>` overrides which policy plays the aware cells. Use it when
+a strategy changes more than one thing: run the tool twice against the same
+control and each step is one change. That is how `naive → strike → lance` reads
+as two separate measurements instead of one number for two rules.
+
+Flags: `--system`, `--aware`, `--mark`, `--bay`, `--ratchets`, `--seeds`,
+`--tiers`, `--build`, `--json`.
 
 ## `perf.ts` — physics step-cost sweep
 

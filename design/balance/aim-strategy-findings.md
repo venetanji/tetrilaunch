@@ -26,9 +26,24 @@ And its §7 asked for the twin of it on the other side of the shop:
 > strike cryo with a shipment at all.*
 
 Both are the same defect: three ship systems — the Thaw Lance, the Impact
-Cushion, and the Incinerator when it lands — are worth what a **decision**
-makes them worth, and the harness had exactly one decision-maker. A price
-measured against a pilot who cannot make the play is a fact about the pilot.
+Cushion, and the Incinerator when it lands — were **assumed** to be worth what a
+decision makes them worth, and the harness had exactly one decision-maker. A
+price measured against a pilot who cannot make the play is a fact about the
+pilot.
+
+**The assumption turns out to hold for one of them and not the other**, which is
+the single most useful thing in this document. At each system's top rung, the
+same 2x2 splits the win change into what the rung pays a pilot who does not play
+it and what the play adds on top:
+
+| | rung, unplayed | play adds | net |
+|---|---:|---:|---:|
+| Impact Cushion (of 96) | +4 | **+29** | +33 |
+| Thaw Lance (of 48) | **+16** | −15 | +1 |
+
+The cushion is a decision the rung enables. The lance is a rung, and every
+decision tried on top of it made the bay worse. One of them has to be taught;
+the other only has to be sold.
 
 ## 1. THE INSTRUMENT
 
@@ -62,6 +77,12 @@ Two arms could not answer the question. What a two-arm sweep measures is
 cannot use it is a floor of unknown depth. The split gives the system's
 **passive** value and the strategy's **added** value separately, and their
 **interaction** — which is the number that says a system is decision-shaped.
+
+**One change per step.** A strategy that alters two things produces one number
+for both, and the lance's first table was exactly that. `--aware` runs the tool
+against the same control with a different aware policy, so `naive → strike →
+lance` reads as two measurements rather than one — the reason the registry
+carries four policies (`naive`, `strike`, `lance`, `cushion`) rather than three.
 
 ## 2. THE RELATIONSHIP NEITHER TABLE COULD SHOW
 
@@ -176,9 +197,86 @@ That is a confound wearing a tier number, and it is recorded here because the
 descending shape survived the fix while the size of the drop did not: 90/82/77
 became 94/91/88 once every rung was played by the same rule.
 
-## 4. THE THAW LANCE
+## 4. THE THAW LANCE — a negative result, and the harness's own trigger wins
 
-TABLE_LANCE
+```sh
+npm run sim:strategy -- --system lance --ratchets cryo:3 --seeds 48 \
+  --build material --aware strike
+npm run sim:strategy -- --system lance --ratchets cryo:3 --seeds 48 \
+  --build material --aware lance
+```
+
+Two runs, one control. The lance-aware strategy changes **two** things —
+shipments go at frozen cubes, and charges are rationed for the cube the press
+is about to reach — so one table cannot attribute a result to either. `strike`
+is the shipment half alone over the shipped greedy trigger; `lance` adds the
+discipline. Reading naive → strike → lance, each step is exactly one change.
+
+**Tier 7 bay 10, `cryo:3`, material rig (330 pts), 48 paired seeds:**
+
+| arm | pts | win | lines | shots | end $ | charges used |
+|---|---:|---:|---:|---:|---:|---:|
+| no rack / naive | 0 | **18/48** | 6.9 | 34.5 | $819 | — |
+| no rack / strike = lance | 0 | 16/48 | 9.1 | 42.4 | $692 | — |
+| Lance 1 / naive | 20 | 19/48 | 7.7 | 36.5 | $824 | 3.0 of 3 |
+| Lance 1 / strike | 20 | 11/48 | 8.7 | 44.1 | $554 | 3.0 |
+| Lance 1 / lance | 20 | 15/48 | 9.1 | 42.4 | $723 | 2.9 |
+| Lance 2 / naive | 55 | 18/48 | 8.5 | 40.3 | $773 | 6.0 of 6 |
+| Lance 2 / strike | 55 | 20/48 | 9.8 | 41.3 | $937 | 6.0 |
+| Lance 2 / lance | 55 | 18/48 | 8.4 | 38.0 | $807 | 5.7 |
+| Lance 3 / naive | 110 | **34/48** | 7.7 | 30.8 | **$1373** | 8.9 of 9 |
+| Lance 3 / strike | 110 | 31/48 | 8.5 | 34.9 | $1262 | 8.9 |
+| Lance 3 / lance | 110 | 19/48 | 8.4 | 37.8 | $786 | 7.9 |
+
+### The best pilot in the table is the one the harness already had
+
+`Lance 3 / naive` — the shipped greedy trigger, a maxed rack, and shipments that
+never go looking for ice — wins **34 of 48** where the bare bay wins 18. Every
+proposed improvement is worse than it. That is the finding, and it is a
+negative one: **the Thaw Lance is a passive system and this document's premise
+does not apply to it.**
+
+The two systems separate cleanly on the interaction column, which is the point
+of measuring it:
+
+| | rung 3 system effect | strategy effect | interaction |
+|---|---:|---:|---:|
+| Impact Cushion | +4 | +29 | **+29** |
+| Thaw Lance | +16 | −15 | −13 |
+
+The cushion's ladder is almost entirely interaction — it pays for a decision.
+The lance's is almost entirely the system — it pays for owning it. **A shop
+that sells both with the same card is teaching one of them wrong.**
+
+### Why each half loses, which is the useful part
+
+**Shipment-striking costs launches and money.** With no rack it takes the bay
+from 18 to 16 wins while *raising* lines 6.9 → 9.1 — the frozen cubes do get
+thawed and the rows do sell, and the bay goes broke anyway: 34.5 shots become
+42.4 and end money falls $819 → $692. `level.ts`'s float "always buys eight
+launches", and a pilot spending shipments on ice is spending its float on cargo
+that is already on the field. §5a's finding that cryo "costs a shipment" is
+confirmed, and the confirmation is that the shipment is **not affordable at
+Tier 7's launch price**. The counter-play the game already has is real and is
+priced above what the bay can pay.
+
+**Rationing charges is worse than spending them.** At a maxed rack it costs 12
+wins against `strike` (31 → 19) while saving one charge a bay (8.9 → 7.9). The
+premise of the rule was that a charge spent on a cube a shipment could reach is
+a wasted charge. It is not, because the shipment that would have reached it is
+the shipment that could not be afforded. **`counters.ts`'s "pull the trigger
+whenever it will do something" is not a placeholder for a smarter rule — it is
+the right rule**, and its own note anticipated this ("the game is a better judge
+of a wasted charge than a wrapper is").
+
+### What this says about the lance's price
+
+`Lance 3` is worth +16 bay wins passively at Tier 7's hardest cryo load, and
+rungs 1 and 2 are worth +1 and 0. That is a ladder with everything at the top,
+which is a different shape from the one §5a-bis measured (29/48 → 43/48 at the
+capstone) and worth a look — but it is a claim about a *rung ladder*, not about
+a strategy, and re-pricing it is outside what this branch measured. Recorded as
+an open item rather than a finding.
 
 ## 5. THE CHEAPEST WINNING STRATEGY, WITH A FOURTH LEVER
 
@@ -237,13 +335,41 @@ a question of timing). The one thing that may need a field is a target *above*
 the floor — `ShotTarget` carries a landing x today; add `y` there rather than
 inventing a second target type.
 
-## 7. THE LEDGER
+## 7. WHAT TO DO ABOUT IT, IN ORDER
+
+1. **The Impact Cushion's card has to teach the play.** +1/+8/+4 bought and not
+   played, +38/+28/+29 played, on the same rig and the same seeds. Nothing in
+   the shop currently distinguishes "this system does something" from "this
+   system lets you do something", and this is the first track where the
+   difference is most of its value. The field drawing (`drawCushionBed`) already
+   shows the liner; what is missing is the sentence that says *land volatile in
+   it on purpose*.
+2. **Re-open the cushion's rung ladder, now that a pilot can use it.** 94/91/88
+   is not a ladder, and §2 says why: rung 1 already insures every arc the cannon
+   can fire, so rungs 2 and 3 sell depth of liner at 35 and 55 points apiece.
+   Either the rungs should sell something else, or the ladder is two rungs long.
+   This is the item `winnability.ts` §5b-ter deferred, and it is now answerable
+   with a measurement instead of a guess.
+3. **Leave the Thaw Lance's trigger alone**, and record that its greedy rule was
+   measured against two alternatives and beat both. `counters.ts`'s note gets to
+   keep its claim.
+4. **Cryo's counter-play is priced above what a bay can pay.** A shipment spent
+   striking ice raises lines and loses the bay, at Tier 7's launch cost. That is
+   an economy finding, not a cryo finding, and it lands on the same lever
+   `winnability-sweep-findings.md` §6.1 already points at.
+5. **Do not read the run-level table as a strategy result.** §5 is plumbing plus
+   a null at three seeds. Anything said about a strategy in a Deep Run needs the
+   seed count that a bay-level arm needed, and a run costs ten bays.
+
+## 8. THE LEDGER
 
 Every bias still runs one way.
 
 - **CLOSED here:** the pilot lobs volatile into a liner on purpose, refuses to
   drop hard cargo onto a volatile cube it has already saved, strikes frozen
-  cubes with shipments, and rations lance charges against the press.
+  cubes with shipments, and rations lance charges against the press. The last
+  two are closed in the sense that matters — they were tried and measured — not
+  in the sense that they helped.
 - **STILL OPEN:** no lookahead, no plan spanning more than the shot in hand, no
   re-planning of the draft, and no model of the belt beyond the one shipment it
   has already been shown. A human plays a bay; these play a shot.
