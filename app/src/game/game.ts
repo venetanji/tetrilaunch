@@ -1,6 +1,8 @@
 import Matter from "matter-js";
 import { CELL, WALL_INNER, WORLD, createPhysics, stepPhysics, type PhysicsWorld } from "./engine";
-import { AIM_CONE, CANNON, Cannon, predictTrajectory, solveAimForTarget } from "./cannon";
+import {
+  AIM_CONE, AIM_LOFT_DEFAULT, CANNON, Cannon, predictTrajectory, solveAimForTarget,
+} from "./cannon";
 import {
   CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
 } from "./chute";
@@ -1251,8 +1253,22 @@ export class Game {
    *  STAYS raised across clicks: the owner's pass found the flat default
    *  ploughing through the compactor bar, and a dial that reset per click
    *  would need re-raising on every shot. Per-bay by construction — a new
-   *  bay is a new Game. */
-  aimLoft = 0;
+   *  bay is a new Game.
+   *
+   *  IT NOW OPENS AT THE TOP (cannon.ts's AIM_LOFT_DEFAULT, and see that
+   *  constant for why the flat arc lost the default). What did NOT change is
+   *  the persistence, and the two halves are one decision: the dial is sticky
+   *  within the bay in BOTH directions. A player who scrolls the arc down to
+   *  drive into the face of a stack keeps that flat arc for the next shot and
+   *  every shot after it, exactly as a raised one used to persist — nothing
+   *  here resets between shots, and nothing should. Yanking the dial back to
+   *  the top after each launch would be the same complaint that flipped the
+   *  default ("i don't need to scroll up every time") pointed the other way,
+   *  and it would be worse: at least the old default was consistent, where a
+   *  spring-loaded dial fights the player mid-bay in a place they cannot see.
+   *  The reset lives at the only boundary where the bay's geometry, its
+   *  compactor and its pile all change at once, which is a new bay. */
+  aimLoft = AIM_LOFT_DEFAULT;
 
   aimAt(target: Matter.Vector): number {
     const p = this.previewModel();

@@ -24,7 +24,7 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
-  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
@@ -35,17 +35,28 @@ import {
   picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
-  type HazardId, type Ratchets,
+  type HazardDef, type HazardId, type Ratchets,
 } from "../src/game/hazards";
+// The winnability harness (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts,
+// sim/builds.ts) — its section is at the bottom of this file.
+import {
+  comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
+} from "./draft-space";
+import { greedyRefit, runDeepRun } from "./deeprun";
+import { loadoutFor, PRIORITY_ORDERS } from "./builds";
+import {
+  BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold, thawHands,
+} from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
+import { screenToWorld } from "../src/game/render";
 import { Compactor } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
@@ -110,7 +121,8 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller } from "../src/game/gamepad";
+import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { loadSettings } from "../src/lib/store";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -123,6 +135,7 @@ import {
   railSlotsFor,
   setRailSlots,
   setSafeAreaInsets,
+  skyTop,
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
@@ -3147,6 +3160,71 @@ section("Layout solver (layout.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("Open sky above the field (layout.ts skyTop)");
+// The reported bug: fullscreen on a 16:9 desktop or TV drew a black band across
+// the top of the screen and the field stopped short of it. Nothing was broken
+// in the solver — the band IS the letterbox, and at exactly 16:9 it exists
+// because "snug" reserves a rail band out of the WIDTH, which costs height when
+// the world is refitted. The renderer then clipped every layer to the world
+// rect, so the band could only ever be backdrop colour.
+//
+// engine.ts's top boundary is deliberately OPEN (pieces fly above y=0 and fall
+// back in, the side walls span y=-SKY..H to keep them in the shaft), so the
+// band was capping a shaft the physics treats as unbounded. skyTop is how far
+// above the world's own top edge the canvas reaches, in world px — the number
+// the background bake and the render clip open upward by, so the sky reaches
+// the top of the screen at every aspect.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+  const cases: [string, number, number][] = [
+    ["1080p fullscreen", 1920, 1080],
+    ["4K fullscreen", 3840, 2160],
+    ["960x540 window", 960, 540],
+    ["16:10 laptop", 1600, 1000],
+    ["4:3 tablet", 1024, 768],
+    ["21:9 phone", 2400, 1080],
+    ["19.5:9 phone", 2556, 1179],
+    ["short phone", 960, 400],
+  ];
+  for (const [name, w, h] of cases) {
+    const l = computeLayout(w, h);
+    const top = skyTop(l.scale, l.oy);
+    // THE invariant: map the sky's top edge back through the very transform
+    // render() draws with. It must land at or above the canvas's first row —
+    // if it lands below, that difference is the black band the player sees.
+    const topCss = l.oy + top * l.scale;
+    check(`${name} paints the sky to the canvas top`, topCss <= 0, `${topCss.toFixed(2)}px of bare backdrop`);
+    // ...and it may only ever open UPWARD. A positive skyTop would crop the
+    // world's own first rows, which is the same bug pointing the other way.
+    check(`${name} never crops the world's top`, top <= 0, String(top));
+    // Nothing is opened that the viewport does not actually show: the sky is
+    // the letterbox band converted to world px and one px of overdraw, never a
+    // fixed slab bolted above the field.
+    const band = l.oy / l.scale;
+    check(`${name} opens only the band it has`, -top <= band + 2 + 1e-9, `${(-top).toFixed(2)} world px for a ${band.toFixed(2)} px band`);
+  }
+
+  // Why this is not a rounding curiosity: 1920x1080 is the world's OWN aspect,
+  // and it still letterboxes, because the rail band comes out of the width
+  // before the world is fitted. 23.6 CSS px at 1080p, and the same 23.6 at 4K
+  // — a band that survives every resolution the player might pick.
+  check("16:9 fullscreen still letterboxes (this is why the sky exists)",
+    computeLayout(1920, 1080).oy > 20, String(computeLayout(1920, 1080).oy));
+  // A viewport whose height is fully used has no band to open, and opens
+  // EXACTLY nothing — every landscape phone comes out of this pixel-identical,
+  // rather than pixel-identical-plus-a-rounding-margin.
+  const wide = computeLayout(2400, 1080);
+  check("a height-filling viewport opens no sky at all", wide.oy === 0 && skyTop(wide.scale, wide.oy) === 0,
+    `${wide.oy} / ${skyTop(wide.scale, wide.oy)}`);
+  // The world is 1280x720 and the sky is measured in the same units — a sanity
+  // rail against a future change that starts returning CSS px here.
+  check("the sky is measured in world px", Math.abs(skyTop(1, 100) - -101) < 1 + 1e-9, String(skyTop(1, 100)));
+  check("the sky scales with the field", skyTop(2, 100) > skyTop(1, 100), `${skyTop(2, 100)} vs ${skyTop(1, 100)}`);
+  check("the world's own height is untouched by the sky", WORLD.height === 720);
+}
+
+// ---------------------------------------------------------------------------
 section("Rail slot budget (layout.ts railSlotsFor / setRailSlots)");
 // The regression this guards: a fixed worst-case budget (8 slots, counting the
 // aim-state cancel) needs a 410px column at the 44px floor, which priced the
@@ -3615,7 +3693,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
-    leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -3632,6 +3710,40 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes('data-toggle="leftHandRail"'));
   check("the gamepad tab carries the stick-assist toggle",
     padPane.includes('data-toggle="stickAssist"'));
+  // The toggle's KEY is what main.ts's generic onToggle writes into settings,
+  // so a pane still naming the retired stickPull would flip a field nothing
+  // reads and leave the mode stuck — silently, since neither end would error.
+  check("the slingshot toggle writes the field the poller reads",
+    padPane.includes('data-toggle="stickSling"') && !padPane.includes("stickPull"));
+  // The dials' defining property is the one a player cannot discover by
+  // pushing the stick — you find out a centred stick holds by NOT touching it
+  // — so the row that describes the stick has to say it.
+  check("...and the aim row states that a centred stick holds",
+    padPane.includes("centre holds"));
+  // THE AIM ROW DESCRIBES THE MODE THAT IS ON. Found in review: the row said
+  // "centre holds" whatever the toggle underneath it was set to, so a player
+  // who chose the slingshot was told the centre holds by the same screen whose
+  // next row told them releasing lets the pull go. Two opposite answers to
+  // "what happens when I let go", on one pane, one of them false.
+  const slingPane = controlsScreen({
+    tab: "gamepad",
+    settings: { ...ctrlSettings, stickSling: true },
+    padName: null,
+    rebinding: null,
+  });
+  check("the slingshot's aim row describes the slingshot",
+    slingPane.includes("pull back to aim") && slingPane.includes("release lets go"));
+  check("...and does not also claim the centre holds",
+    !slingPane.includes("centre holds"));
+  check("...while the dials' row still claims it and not the pull",
+    padPane.includes("centre holds") && !padPane.includes("pull back to aim"));
+  // The assist only ever smoothed the SLINGSHOT's stick (gamepad.ts) — the
+  // dials need none. Unqualified, the row offered a dial player a control that
+  // does nothing. It names its scope instead of switching, so one string is
+  // true in both modes.
+  check("the assist toggle names the mode it actually smooths",
+    padPane.includes("Smooth the slingshot stick")
+      && slingPane.includes("Smooth the slingshot stick"));
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.
@@ -8756,7 +8868,7 @@ section("A held direction repeats into the menus (gamepad.ts)");
     onCapture: () => false,
     onUiButton: (b) => { ui.push(b); return true; },
     assist: () => false,
-    pull: () => false,
+    sling: () => false,
   });
   /** Polls the stub at 60Hz from `t0` for `ms`, as main.ts's loop does. */
   const run = (t0: number, ms: number): number => {
@@ -8793,6 +8905,310 @@ section("A held direction repeats into the menus (gamepad.ts)");
   playing = false;
 
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+}
+
+// ---------------------------------------------------------------------------
+section("The stick's rate dials hold the aim at centre (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// The play-test report these exist for, verbatim: "the gamepad controls still
+// reset the aim when the stick goes to the center ... a resting stick should
+// not modify the aim". Every check below is a behaviour run through the REAL
+// poller against a REAL Game, because the property is about what happens over
+// many frames of doing nothing — which no reading of a constant can state.
+{
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  let axes = [0, 0];
+  let buttons: number[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: "stub", connected: true, mapping: "standard",
+        axes: axes.slice(),
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+
+  /** One pad wired to one bay, with the stick mode supplied per case.
+   *
+   *  `stepMs` is the POLL CADENCE — main.ts polls once per rendered frame, so
+   *  this is the display's refresh, and the whole point of some of the checks
+   *  below is that it stops mattering. Defaults to 60Hz, the rate everything
+   *  was tuned at. */
+  const rig = (sling: boolean, stepMs = 1000 / 60, assist = false) => {
+    const shots: { angle: number; power: number }[] = [];
+    const g = new Game(makeBaseLevel(0), { onShoot: (s) => shots.push({ angle: s.angle, power: s.power }) }, 7);
+    const pad = new GamepadPoller({
+      game: () => g,
+      playing: () => true,
+      onActivity: () => {},
+      onPause: () => {},
+      onCapture: () => false,
+      onUiButton: () => false,
+      assist: () => assist,
+      sling: () => sling,
+    });
+    let t = 0;
+    const frames = (n: number): void => {
+      for (let i = 0; i < n; i++) { pad.poll(t); t += stepMs; }
+    };
+    /** Skip the clock forward WITHOUT polling — a backgrounded tab, a stall. */
+    const skip = (ms: number): void => { t += ms; };
+    return { g, shots, frames, skip, now: () => t };
+  };
+  const aim = (g: Game) => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }, b: { angle: number; power: number }) =>
+    a.angle === b.angle && a.power === b.power;
+
+  // THE RATE FUNCTION. Zero everywhere inside the deadzone including its exact
+  // edge, and rescaled so the first live rate is a hair off zero rather than a
+  // fifth of full speed.
+  check("a centred axis asks for no rate at all", stickRate(0) === 0);
+  check("...and neither does one resting inside the deadzone",
+    stickRate(0.2) === 0 && stickRate(-0.2) === 0 && stickRate(0.22) === 0);
+  check("the rate starts from zero at the deadzone's edge",
+    stickRate(0.23) > 0 && stickRate(0.23) < 0.02, String(stickRate(0.23)));
+  check("a pinned axis asks for the full rate, signed",
+    Math.abs(stickRate(1) - 1) < 1e-9 && Math.abs(stickRate(-1) + 1) < 1e-9);
+
+  // THE REPORT ITSELF, on the default mode: deflect, let go, and wait a long
+  // time. Five seconds of polling is far longer than any pause between shots.
+  {
+    const r = rig(false);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    check("the dials move the aim while the stick is deflected",
+      held.angle > Math.PI / 9 && held.power > 9, `${held.angle.toFixed(3)}/${held.power.toFixed(2)}`);
+    axes = [0, 0];
+    r.frames(300);
+    check("a centred stick holds the aim, indefinitely", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+
+    // A stick that rests off true zero — worn, or just a pad's idle bias. This
+    // one clears a CIRCULAR 0.22 gate (0.28 from centre) while sitting inside
+    // both axes' own deadzones, which is precisely the case a shared radial
+    // test would wave through into the aim path.
+    axes = [0.2, -0.2];
+    r.frames(300);
+    check("a resting stick off true zero still modifies nothing", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)}`);
+
+    // …and the trigger spends the aim the player left there, with the stick
+    // still at rest. Firing must never require a deflection to be alive.
+    buttons = [padFor("fire")];
+    r.frames(2);
+    buttons = [];
+    r.frames(2);
+    check("the trigger fires the held aim with the stick centred",
+      r.shots.length === 1 && same(r.shots[0], held),
+      r.shots.length ? `${r.shots[0].angle.toFixed(4)}/${r.shots[0].power.toFixed(3)}` : "no shot");
+    check("...and the aim survives its own shot", same(aim(r.g), held));
+  }
+
+  // THE TWO AXES ARE INDEPENDENT DIALS. A stick pushed straight up must not
+  // touch the power, which is what makes them dials rather than a vector.
+  {
+    const r = rig(false);
+    const before = aim(r.g);
+    axes = [0, -0.9];
+    r.frames(20);
+    check("Y alone trims the angle and leaves the power alone",
+      r.g.cannon.angle > before.angle && r.g.cannon.power === before.power);
+    const mid = aim(r.g);
+    axes = [0.9, 0];
+    r.frames(20);
+    check("X alone trims the power and leaves the angle alone",
+      r.g.cannon.power > mid.power && r.g.cannon.angle === mid.angle);
+    axes = [0, 0.9];
+    r.frames(20);
+    check("...and pulling back down lowers the barrel again",
+      r.g.cannon.angle < mid.angle);
+  }
+
+  // THE DIALS CHARGE TIME, NOT POLLS. main.ts polls once per rendered frame, so
+  // a per-poll rate is the display's refresh in disguise — and the owner's own
+  // surface is the Electron shell on a TV, measured at ~8.3ms pacing in #116's
+  // tests, i.e. the dials ran at twice their tuned speed for the one player who
+  // reported them.
+  //
+  // Both rigs are handed the SAME WALL-CLOCK WINDOW and must trim the same
+  // amount. One warm-up poll first, so the seeded first frame (see the poller's
+  // lastPoll) is spent before the measurement starts and each rig then charges
+  // exactly 1000ms: 60 x 16.667 against 120 x 8.333. Deflection is 0.4 rather
+  // than a pin, deliberately — a pinned stick saturates against the cone and
+  // the power ceiling inside a second, and two runs agreeing because both hit
+  // the same wall would prove nothing at all.
+  {
+    const HZ_WINDOW_MS = 1000;
+    const measure = (stepMs: number) => {
+      const r = rig(false, stepMs);
+      axes = [0.4, -0.4];
+      r.frames(1);                                  // warm-up: spends the seed frame
+      const from = aim(r.g);
+      r.frames(Math.round(HZ_WINDOW_MS / stepMs));  // exactly one second of polls
+      return {
+        dAngle: r.g.cannon.angle - from.angle,
+        dPower: r.g.cannon.power - from.power,
+        angle: r.g.cannon.angle,
+        power: r.g.cannon.power,
+        ceiling: r.g.cannon.speedMax,
+      };
+    };
+    const at60 = measure(1000 / 60);
+    const at120 = measure(1000 / 120);
+    // FIRST, that neither run ended against a wall. Checked BEFORE the two are
+    // compared, because a clamped run and a correct run agree perfectly at the
+    // limit — under the per-poll code 120Hz overshot the cone and stopped dead
+    // on it, and an equality check alone would have called that a match.
+    check("neither cadence's second of trim ends pinned against a limit",
+      at60.angle < AIM_CONE - 1e-6 && at120.angle < AIM_CONE - 1e-6
+        && at60.power < at60.ceiling - 1e-6 && at120.power < at120.ceiling - 1e-6,
+      `60Hz ${at60.angle.toFixed(4)}/${at60.power.toFixed(3)} · 120Hz ${at120.angle.toFixed(4)}/${at120.power.toFixed(3)}`);
+    check("a second of stick is a second of trim at 60Hz",
+      at60.dAngle > 0.4 && at60.dAngle < 0.55 && at60.dPower > 5 && at60.dPower < 6,
+      `${at60.dAngle.toFixed(4)}rad/${at60.dPower.toFixed(3)}`);
+    check("...and 120Hz trims the same amount in the same second",
+      Math.abs(at120.dAngle - at60.dAngle) < 1e-9 && Math.abs(at120.dPower - at60.dPower) < 1e-9,
+      `120Hz ${at120.dAngle.toFixed(6)}/${at120.dPower.toFixed(4)} vs 60Hz ${at60.dAngle.toFixed(6)}/${at60.dPower.toFixed(4)}`);
+  }
+
+  // A DROPPED FRAME MUST NOT SLAM THE AIM. A backgrounded tab hands the next
+  // poll a timestamp seconds later, and an unclamped dt would spend all of it
+  // in one step — alt-tab back with a stick leaning and find the barrel pinned.
+  {
+    const r = rig(false);
+    axes = [0.9, -0.9];
+    r.frames(1);
+    const before = aim(r.g);
+    r.skip(5000);      // five seconds away
+    r.frames(1);       // one poll charging that gap
+    const jump = Math.abs(r.g.cannon.angle - before.angle);
+    // The clamp is 100ms — six frames — so the worst one poll can do is six
+    // frames of trim, comfortably under a tenth of the cone.
+    check("a five-second stall charges the dials six frames, not five seconds",
+      jump > 0 && jump < 6.5 * 0.035, `${jump.toFixed(4)}rad`);
+    // …and a clock that goes backwards unwinds nothing.
+    const held = aim(r.g);
+    r.skip(-3000);
+    r.frames(1);
+    check("...and a backwards timestamp charges nothing rather than unwinding",
+      r.g.cannon.angle >= held.angle);
+  }
+
+  // THE SLINGSHOT'S AIM NEEDS NO CLOCK — confirmed, not assumed. aimFromDrag is
+  // an absolute map, so the same deflection is the same aim however often it is
+  // asked; only the ASSIST lerp was a per-poll time constant, and that now
+  // compounds over elapsed frames.
+  {
+    const held = (stepMs: number, assist: boolean, holdMs: number) => {
+      const r = rig(true, stepMs, assist);
+      axes = [-0.6, 0.45];
+      r.frames(1);
+      r.frames(Math.round(holdMs / stepMs));
+      return aim(r.g);
+    };
+    check("the slingshot lands the same aim at 60Hz and 120Hz, raw",
+      same(held(1000 / 60, false, 600), held(1000 / 120, false, 600)));
+    // MEASURED MID-SETTLE, at ~50ms, not after the lerp has converged. Both
+    // cadences arrive at the same place eventually — a lerp cannot run away —
+    // so a check taken at rest agrees to six decimals whether or not the time
+    // constant is honest. Halfway there is where a per-poll factor shows: at
+    // 0.3 a frame, 120Hz took six bites of the gap in the time 60Hz took three,
+    // and the "smoothing" the toggle promises was half as much smoothing on
+    // the fast panel that needs it most.
+    const a60 = held(1000 / 60, true, 50);
+    const a120 = held(1000 / 120, true, 50);
+    check("...and the assist is the same distance along after the same 50ms",
+      Math.abs(a120.angle - a60.angle) < 1e-3 && Math.abs(a120.power - a60.power) < 0.05,
+      `${a120.angle.toFixed(5)}/${a120.power.toFixed(4)} vs ${a60.angle.toFixed(5)}/${a60.power.toFixed(4)}`);
+  }
+
+  // THE SLINGSHOT STILL WORKS WHEN CHOSEN — and still lets the pull go on the
+  // way back to centre, which is what a slingshot IS. Pinned here rather than
+  // fixed: the option is "fire from the held pull", the way a finger does, and
+  // this collapse is the measured reason it is not the default.
+  {
+    const r = rig(true);
+    axes = [-0.85, 0.5];
+    r.frames(20);
+    const pulled = aim(r.g);
+    check("the slingshot option still aims from the pull vector",
+      pulled.angle > 0 && r.g.cannon.powerRatio > 0.99,
+      `${(pulled.angle * 180 / Math.PI).toFixed(1)}deg/${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+    // A real stick springs back over several frames rather than snapping.
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [-0.85 * k, 0.5 * k];
+      r.frames(1);
+    }
+    r.frames(60);
+    check("...and letting it go lets the pull go with it",
+      r.g.cannon.powerRatio < 0.3, `${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+  }
+
+  // THE MIGRATION. `stickPull` asked which DIRECTION the vector aiming ran;
+  // `stickSling` asks whether to use vector aiming at all. A save that answered
+  // the first must not be read as answering the second — that re-reading is
+  // what left the reporter on the slingshot and produced the report above.
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      store: new Map<string, string>(),
+      getItem(k: string) { return this.store.get(k) ?? null; },
+      setItem(k: string, v: string) { this.store.set(k, v); },
+      removeItem(k: string) { this.store.delete(k); },
+    },
+  });
+  const ls = globalThis.localStorage;
+  check("a fresh save lands on the rate dials", loadSettings().stickSling === false);
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  check("a pre-dials save does not answer the question the dials ask",
+    loadSettings().stickSling === false);
+  check("...and the answer it did give stops riding along in the save",
+    !("stickPull" in (loadSettings() as unknown as Record<string, unknown>)));
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ stickSling: true }));
+  check("a save that chose the slingshot for THIS build keeps it",
+    loadSettings().stickSling === true);
+
+  // THE REPORT, END TO END, THROUGH THE SETTINGS THE APP ACTUALLY READS. The
+  // rig above proves the dials hold; this proves a player carrying a pre-dials
+  // save REACHES them. Same save, same poller main.ts wires, and a spring-back
+  // over several frames rather than a snap, because that decay is where the
+  // slingshot loses the shot.
+  //
+  // The bound is what separates the two schemes rather than a fudge. A rate
+  // dial's release is SELF-LIMITING: the rate falls with the deflection, so the
+  // last few frames of travel add ~0.02rad and ~0.23px/step and then stop for
+  // good. An absolute map has no such tail — it keeps restating the whole aim
+  // from a deflection that is on its way to zero, and hands back a quarter of
+  // the power the player was holding. Half a power step and three degrees is
+  // comfortably above the first and nowhere near the second.
+  const RELEASE_ANGLE_TOL = 0.05;
+  const RELEASE_POWER_TOL = 0.5;
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  {
+    const r = rig(loadSettings().stickSling);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [0.7 * k, -0.7 * k];
+      r.frames(1);
+    }
+    r.frames(300);
+    const after = aim(r.g);
+    check("a pad carried over from before the dials keeps the aim it was holding",
+      Math.abs(after.angle - held.angle) < RELEASE_ANGLE_TOL
+        && Math.abs(after.power - held.power) < RELEASE_POWER_TOL,
+      `${after.angle.toFixed(4)}/${after.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+  }
+
+  if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+  else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+  else delete (globalThis as unknown as Record<string, unknown>).navigator;
 }
 
 // ---------------------------------------------------------------------------
@@ -8940,6 +9356,50 @@ section("Mouse aiming solves the arc onto the cursor (cannon.ts)");
     check("more loft costs more power, still inside the band",
       flat.power < half.power && half.power < full.power && full.power <= SPEED_MAX + 1e-9,
       `${flat.power.toFixed(2)} → ${half.power.toFixed(2)} → ${full.power.toFixed(2)} px/step`);
+    // WHICH END OF THAT FAMILY THE PLAYER STARTS ON — flipped to the top
+    // (cannon.ts's AIM_LOFT_DEFAULT). Pinned here, beside the family it picks
+    // out of, because the two facts that make the flip safe are the two
+    // asserted directly above: the steep member lands on the SAME point, and
+    // it pays for the height inside the ship's speed band rather than off the
+    // end of it.
+    check("the dial's shipped default is the steepest member of that family",
+      AIM_LOFT_DEFAULT === 1 && full.hit,
+      `default ${AIM_LOFT_DEFAULT}, miss ${full.miss.toFixed(1)}px`);
+    // AND IT COSTS NO REACH, which is the one claim that would sink the flip
+    // if it were false: a default that quietly made part of the bay
+    // unhittable would be a worse bug than the compactor bar it was flipped
+    // to dodge. Swept rather than spot-checked, because "unreachable at the
+    // top of the dial" would be a BAND of the field, not a total loss.
+    {
+      let flatHits = 0;
+      let loftHits = 0;
+      let lost = "";
+      for (let x = 420; x <= 1240; x += 60) {
+        for (let y = 200; y <= 680; y += 80) {
+          const p = { x, y };
+          const a = solve(p).hit;
+          const b = solve(p, SPEED_MIN, SPEED_MAX, 0, AIM_LOFT_DEFAULT).hit;
+          if (a) flatHits += 1;
+          if (b) loftHits += 1;
+          if (a && !b) lost = `${x},${y}`;
+        }
+      }
+      check("...and the whole bay stays as reachable from the top of the dial",
+        loftHits === flatHits && lost === "",
+        `${flatHits} flat vs ${loftHits} lofted; first lost ${lost || "none"}`);
+    }
+    // ...and the SOLVER's own default is untouched at 0. Nothing that isn't a
+    // human with a mouse should inherit the preference: sim/bots.ts and the
+    // autopilot call this with no loft argument and want the cheapest answer
+    // to "can this be reached", not the prettiest one.
+    {
+      const bare = solveAimForTarget(
+        origin, CANNON.barrel, t, SPEED_MIN, SPEED_MAX, G_ACCEL, FRICTION, STEPS, () => 0,
+      );
+      check("...while the solver's own default stays the cheap arc for the bots",
+        bare.angle === flat.angle && bare.power === flat.power,
+        `${bare.angle.toFixed(4)}rad @ ${bare.power.toFixed(2)} vs flat ${flat.angle.toFixed(4)}rad @ ${flat.power.toFixed(2)}`);
+    }
   }
 
   // --- Out of reach ---------------------------------------------------------
@@ -9209,24 +9669,33 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
   // dial (Game.aimLoft) rather than on the piece, and that spending it
   // re-solves the arc through the point last clicked — the release that ended
   // the chord block above left one banked in lastTarget.
-  check("scroll up raises the loft dial, turns nothing, and swallows the scroll", (() => {
+  // DIRECTION FLIPPED WITH THE DEFAULT (cannon.ts's AIM_LOFT_DEFAULT). These
+  // two lines used to read "scroll UP raises the dial / into a steeper arc",
+  // and they failed the moment the dial started at the top — which is the
+  // whole point of asserting the default at all: a fresh bay opens on the
+  // steepest arc, so the only travel the wheel has is DOWNWARD, and the notch
+  // that used to be the interesting one is now the one that hits a stop.
+  check("a fresh bay opens on the steepest arc, not the flattest",
+    g.aimLoft === AIM_LOFT_DEFAULT && AIM_LOFT_DEFAULT === 1,
+    `dial at ${g.aimLoft}`);
+  check("scroll down lowers the loft dial, turns nothing, and swallows the scroll", (() => {
     prevented = 0;
     const before = g.aimLoft;
-    const t = turned(() => send(onCanvas, "wheel", whl(-100)));
-    return t === 0 && prevented === 1 && g.aimLoft > before;
+    const t = turned(() => send(onCanvas, "wheel", whl(100)));
+    return t === 0 && prevented === 1 && g.aimLoft < before;
   })());
-  check("...re-solving the last clicked point into a steeper arc", (() => {
-    const a0 = g.cannon.angle;
-    send(onCanvas, "wheel", whl(-100));
-    return g.aimLoft > 0 && g.cannon.angle > a0;
-  })());
-  check("scroll down at the dial's floor changes nothing but still owns the event", (() => {
-    // Walk the dial back to its stop first; the range is five notches.
-    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(100));
-    prevented = 0;
+  check("...re-solving the last clicked point into a flatter arc", (() => {
     const a0 = g.cannon.angle;
     send(onCanvas, "wheel", whl(100));
-    return g.aimLoft === 0 && prevented === 1 && g.cannon.angle === a0;
+    return g.aimLoft < 1 && g.cannon.angle < a0;
+  })());
+  check("scroll up at the dial's ceiling changes nothing but still owns the event", (() => {
+    // Walk the dial back to its stop first; the range is five notches.
+    for (let i = 0; i < 6; i++) send(onCanvas, "wheel", whl(-100));
+    prevented = 0;
+    const a0 = g.cannon.angle;
+    send(onCanvas, "wheel", whl(-100));
+    return g.aimLoft === 1 && prevented === 1 && g.cannon.angle === a0;
   })());
   check("ctrl+wheel is left alone, so browser zoom still works", (() => {
     prevented = 0;
@@ -9300,6 +9769,751 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
 
   delete glob.window;
   glob.requestAnimationFrame = prevRaf;
+}
+
+// ===========================================================================
+// THE HOVER AIM (input.ts's onMove hover branch + onLeave).
+//
+// Its own harness rather than more lines on the block above, for one reason
+// that matters: this one has to DRIVE THE FRAME. A hovered target is recorded
+// by the move and spent by the rAF tick (input.ts's pendingTarget — the solve
+// is a search over the whole cone and there is nothing to gain from running it
+// for a cursor position that will never be drawn), so a stub that swallows
+// requestAnimationFrame the way the block above does would prove only that
+// nothing crashes. This one keeps the callback and runs it on demand, which is
+// also what lets the "a bay that ended between the move and the frame" case be
+// stated at all.
+// ===========================================================================
+{
+  type Handler = (e: unknown) => void;
+  const onCanvas = new Map<string, Handler[]>();
+  const onWindow = new Map<string, Handler[]>();
+  const bind = (m: Map<string, Handler[]>, t: string, h: Handler) => {
+    const a = m.get(t) ?? [];
+    a.push(h);
+    m.set(t, a);
+  };
+  const canvas = {
+    addEventListener: (t: string, h: Handler) => bind(onCanvas, t, h),
+    removeEventListener: () => {},
+    getBoundingClientRect: () => ({ width: 800, height: 450, left: 0, top: 0 }),
+    setPointerCapture: () => {},
+  } as unknown as HTMLCanvasElement;
+
+  const glob = globalThis as unknown as Record<string, unknown>;
+  const prevRaf = glob.requestAnimationFrame;
+  glob.window = {
+    addEventListener: (t: string, h: Handler) => bind(onWindow, t, h),
+    removeEventListener: () => {},
+  };
+  // The frame pump. The controller re-arms at the END of every tick, so
+  // holding the newest callback and calling it is exactly one drawn frame.
+  let frameCb: ((t: number) => void) | null = null;
+  glob.requestAnimationFrame = (cb: (t: number) => void) => { frameCb = cb; return 0; };
+
+  const g = new Game(makeBaseLevel(0), {}, 7);
+  g.status = "playing";
+  let shots = 0;
+  const realShoot = g.shoot.bind(g);
+  g.shoot = (now: number, auto = false) => { shots += 1; return realShoot(now, auto); };
+  new InputController(canvas, () => g, undefined, () => false);
+  const frame = () => { const cb = frameCb; frameCb = null; cb?.(0); };
+
+  const send = (m: Map<string, Handler[]>, t: string, e: unknown) =>
+    (m.get(t) ?? []).forEach((h) => h(e));
+  const move = (clientX: number, clientY: number, pointerType = "mouse", buttons = 0) =>
+    send(onCanvas, "pointermove", {
+      button: -1, buttons, pointerId: 1, pointerType, clientX, clientY,
+      preventDefault: () => {},
+    });
+  /** Where the cursor at (clientX, clientY) lands in the bay — the SAME
+   *  transform the controller uses, so a pin can talk about world points
+   *  without re-deriving the letterbox fit. */
+  const world = (clientX: number, clientY: number) =>
+    screenToWorld(800, 450, 0, 0, clientX, clientY);
+  /** Closest approach of the drawn arc to a world point. The arc travels
+   *  15-25px between dots, so this measures against the SEGMENTS for the same
+   *  reason cannon.ts's segDistSq does. */
+  const arcMissTo = (p: { x: number; y: number }): number => {
+    let best = Infinity;
+    for (let i = 1; i < g.trajectory.length; i++) {
+      const a = g.trajectory[i - 1];
+      const b = g.trajectory[i];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+    }
+    return best;
+  };
+  const aim = () => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }) =>
+    g.cannon.angle === a.angle && g.cannon.power === a.power;
+
+  // THE FEATURE. A cursor over the bay with NOTHING HELD DOWN aims the cannon
+  // at the spot it is over, and the dots go through that spot — the arc is a
+  // readout the player can move around the bay, not something a press has to
+  // buy. Both halves asserted: the barrel moved, and it moved to the right
+  // place.
+  {
+    const before = aim();
+    move(560, 300);
+    check("a hover queues an aim rather than solving it on the spot",
+      same(before), "the solve belongs to the frame, not to the move");
+    frame();
+    const t = world(560, 300);
+    check("a hover with no button held aims the cannon at the cursor",
+      !same(before) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+    // The whole point of tracking on hover is that it costs nothing. If this
+    // ever fires, the feature is a way to lose a launch by moving the mouse.
+    check("...and fires nothing at all", shots === 0, `${shots} shots`);
+    // g.aiming drives the HUD's aim state (main.ts swaps ⏸ for ✕ off it).
+    // A hover is not a gesture in progress and must not dress the chrome as
+    // though one were — there is nothing to cancel.
+    check("...and leaves the HUD's aim state alone", g.aiming === false);
+  }
+
+  // Moving on keeps re-solving: the second spot answers as readily as the
+  // first, which is what makes it a sweep rather than a one-shot preview.
+  {
+    const first = aim();
+    move(300, 380);
+    frame();
+    const t = world(300, 380);
+    check("sweeping the cursor re-solves at each new spot",
+      !same(first) && arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  // OUT OF THE FIELD. The bay is 16:9 and a viewport is not, so a cursor in
+  // the letterbox band maps to a world point outside the bay. A CLICK there
+  // still means something (the solver clamps it to the nearest honest arc); a
+  // hover there is a mouse on its way to a menu, and answering it would swing
+  // the barrel at the bay's edge every time one crossed.
+  {
+    const held = aim();
+    move(5000, 300);
+    frame();
+    check("a hover past the field's edge leaves the aim where it was", same(held));
+    move(-400, 300);
+    frame();
+    check("...on the near side too", same(held));
+  }
+
+  // THE CURSOR LEAVES. The queued solve is dropped so it cannot land a frame
+  // later from outside the field — and the AIM STAYS PUT, because the player
+  // has gone to press a rail button and snapping the barrel back to some
+  // earlier position would be motion carrying no information.
+  {
+    const held = aim();
+    move(700, 260);
+    send(onCanvas, "pointerleave", { pointerId: 1, pointerType: "mouse" });
+    frame();
+    check("leaving the canvas drops the queued hover instead of landing it late",
+      same(held));
+  }
+
+  // NOT WHILE THE BAY IS REFUSING. A paused bay is a live field under a card,
+  // and it still delivers moves to the canvas; a bay that is over, or has run
+  // dry, would be drawing an arc for a shot nothing will accept.
+  {
+    const held = aim();
+    g.paused = true;
+    move(420, 240);
+    frame();
+    check("a paused bay does not track the cursor", same(held));
+    g.paused = false;
+    g.status = "won";
+    move(430, 250);
+    frame();
+    check("...and neither does a finished one", same(held));
+    g.status = "playing";
+  }
+
+  // OVERTIME, which is the case that does not look like an ending. Both the
+  // clock and the launch budget END A BAY BY CONVERGENCE, not by verdict:
+  // update() leaves `status` at "playing" and waits on settleDone so the
+  // shipments already in the air get to land, get pressed and get paid. That
+  // is many cycles, and for every one of them Game.shoot has already been
+  // refusing — timeLeftMs <= 0 and launchesLeft <= 0 are the second and third
+  // guards it checks. The hover predicate did not check either (found in
+  // review on #126), so the arc went on following the cursor through the whole
+  // of overtime, advertising a launch the bay had declined before the player
+  // moved the mouse.
+  //
+  // Asserted as a PAIR each time — shoot refuses AND the preview stays put —
+  // because the bug was precisely the two disagreeing, and a pin that only
+  // watched the aim would pass just as well against a bay that had quietly
+  // started accepting launches again.
+  {
+    const held = aim();
+    // The shot counter is a record of what the CONTROLLER did; the two calls
+    // below are this pin talking to the Game directly, to establish what
+    // shoot() says at this moment. Put back afterwards so the click pin at the
+    // end of this block still counts from the same zero.
+    const attempts = shots;
+    const clock = g.timeLeftMs;
+
+    g.timeLeftMs = 0;
+    // The precondition, stated rather than assumed: this is a bay that still
+    // calls itself playable. If either of these ever flips, the gap this pin
+    // guards has closed somewhere else and the pin is measuring nothing.
+    check("overtime is still status \"playing\", and not `settling`",
+      g.status === "playing" && !g.settling && !g.paused);
+    check("...but the clock being out already refuses every shot",
+      g.shoot(performance.now()) === false);
+    move(600, 380);
+    frame();
+    check("...so a hover in clock overtime moves neither barrel nor arc", same(held));
+    g.timeLeftMs = clock;
+
+    // The budget's overtime, same shape. launchesLeft is derived from the
+    // level's budget and the shots taken, so it is spent by giving the bay a
+    // budget of one and telling it one has gone.
+    const budget = g.level.launchBudget;
+    const spent = g.shotsFired;
+    g.level.launchBudget = 1;
+    g.shotsFired = 1;
+    check("a spent launch budget refuses every shot too",
+      g.launchesLeft === 0 && g.shoot(performance.now()) === false);
+    move(640, 400);
+    frame();
+    check("...and a hover in budget overtime is refused with it", same(held));
+    g.level.launchBudget = budget;
+    g.shotsFired = spent;
+    shots = attempts;
+
+    // ...and the bay tracks again the moment the refusal lifts, so this is a
+    // gate rather than a one-way latch.
+    move(680, 420);
+    frame();
+    check("a bay that is playable again tracks the cursor again", !same(held));
+  }
+
+  // A BAY THAT ENDS BETWEEN THE MOVE AND THE FRAME. The two are up to 16ms
+  // apart, and the frame must re-ask rather than spend a cursor position that
+  // outlived its bay. This is the case the pump exists to state.
+  {
+    const held = aim();
+    move(520, 300);
+    g.status = "lost";
+    frame();
+    check("a hover queued before the bay ended is not spent after it", same(held));
+    g.status = "playing";
+  }
+
+  // AND IT DOES NOT WAIT OUT THE PAUSE. Found by these pins rather than by
+  // reasoning: the frame that lands during a pause used to return without
+  // touching the queue, so the cursor position recorded on the last frame
+  // before the card went up was still sitting there when play resumed and
+  // swung the barrel on the first frame after it — an aim made before an
+  // interruption, applied after it, at a moment when the player's hand had
+  // moved on. The tick drops the queue now (input.ts's tickKeys).
+  {
+    const held = aim();
+    move(540, 320);
+    g.paused = true;
+    frame();
+    g.paused = false;
+    frame();
+    check("a hover queued before a pause does not swing the barrel on resume",
+      same(held));
+  }
+
+  // TOUCH HAS NO HOVER, and the guard is belt-and-braces: a finger off the
+  // glass sends nothing, so this is really asserting that a pen or an
+  // unknown pointer type — both of which land on touch hardware, per this
+  // file's standing line — cannot pick up the mouse's scheme by accident.
+  {
+    const held = aim();
+    move(560, 300, "touch");
+    frame();
+    check("a touch move with nothing held aims nothing", same(held));
+    move(560, 300, "pen");
+    frame();
+    check("...and a hovering pen keeps the slingshot too", same(held));
+  }
+
+  // AND THE CLICK STILL FIRES, at the point clicked. Hover made the press
+  // optional, not decorative: the release is still the launch, and it still
+  // solves the release position rather than the last frame's.
+  {
+    const down = { button: 0, buttons: 1, pointerId: 1, pointerType: "mouse", clientX: 600,
+      clientY: 300, preventDefault: () => {} };
+    send(onCanvas, "pointerdown", down);
+    send(onWindow, "pointerup", { ...down, buttons: 0 });
+    check("a click still fires, after all that hovering", shots === 1, `${shots} shots`);
+    const t = world(600, 300);
+    check("...at the point it was clicked on", arcMissTo(t) <= AIM_HIT_TOL,
+      `miss ${arcMissTo(t).toFixed(1)}px`);
+  }
+
+  delete glob.window;
+  glob.requestAnimationFrame = prevRaf;
+}
+
+/* ===========================================================================
+ * THE WINNABILITY HARNESS (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts)
+ *
+ * These pins guard three claims the findings in `design/balance/` are written
+ * on, and each is a property rather than a number, because a number here would
+ * only re-state what the sweep printed on the day it ran.
+ *
+ *  1. The enumerated notch-combo space is EXACTLY what the draft can reach.
+ *     `legalHands` states the rule in closed form; `togglePick` is the rule the
+ *     player actually meets. If the two ever disagree the sweep is describing a
+ *     ladder nobody is dealt, which is the one failure that would make every
+ *     "unwinnable" claim worthless.
+ *  2. The deep-run driver walks `run.ts`'s real ladder — the refit stops, the
+ *     Final Inspection rung, the capped carry — rather than a re-derivation of
+ *     it, and does so deterministically.
+ *  3. The proposed counter systems are bounded the way their design notes say:
+ *     a cushion softens and never primes, and it never reaches "volatile is
+ *     inert".
+ * ========================================================================= */
+section("The winnability sweep — the enumerated combo space (sim/draft-space.ts)");
+{
+  /**
+   * Brute force: every hand of size `need` reachable by TAPPING, folded through
+   * the real `togglePick`.
+   *
+   * Breadth-first over tap sequences rather than a formula, deliberately — this
+   * is the independent witness, so it must not share an argument with the thing
+   * it is checking. Depth 6 is well past saturation for a two-card hand at one
+   * or two picks (a hand of two cards has at most three states at need 2, and
+   * every one is reachable in two taps), and the check below asserts the
+   * frontier actually closed rather than assuming the depth was enough.
+   */
+  const reachableByTapping = (
+    hand: HazardDef[], need: number, forced: boolean,
+  ): { hands: Set<string>; closed: boolean } => {
+    const seen = new Set<string>();
+    const hands = new Set<string>();
+    let frontier: HazardId[][] = [[]];
+    seen.add("");
+    let closed = false;
+    for (let d = 0; d < 6; d++) {
+      const next: HazardId[][] = [];
+      for (const picks of frontier) {
+        for (const card of hand) {
+          const after = togglePick(picks, card.id, need, forced);
+          const key = after.join(",");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (after.length === need) hands.add([...after].sort().join(","));
+          next.push(after);
+        }
+      }
+      if (next.length === 0) { closed = true; break; }
+      frontier = next;
+    }
+    return { hands, closed };
+  };
+
+  let mismatches = 0;
+  let neverClosed = 0;
+  let handsChecked = 0;
+  let cappedSeen = 0;
+  // Every rung of every Mark, on several seeds — the whole space the sweep can
+  // ever enumerate, checked in closed form against the taps that reach it.
+  for (let mark = 1; mark <= MARK_COUNT; mark++) {
+    for (const seed of [1, 2, 7, 4242]) {
+      for (let levelIndex = 0; levelIndex < RUN_LEVELS - 1; levelIndex++) {
+        const rung = rungFor(seed, mark, levelIndex, {});
+        if (!rung) continue;
+        handsChecked += 1;
+        const brute = reachableByTapping(rung.hand, rung.need, rung.forced);
+        if (!brute.closed) neverClosed += 1;
+        const mine = new Set(rung.hands.map((h) => [...h].sort().join(",")));
+        if (mine.size !== brute.hands.size
+          || [...mine].some((k) => !brute.hands.has(k))) mismatches += 1;
+        // Did this rung actually EXERCISE the forced-hand cap? A pin that never
+        // reaches the branch it is guarding is a pin that passes for the wrong
+        // reason, so the run counts the branch and asserts it was reached.
+        if (rung.forced && rung.need > 1
+          && rung.hand.some((h) => h.kind !== "content")) cappedSeen += 1;
+      }
+    }
+  }
+  check(
+    "legalHands enumerates exactly the hands togglePick can reach, at every rung of every Mark",
+    mismatches === 0 && handsChecked > 0,
+    `${mismatches} mismatches over ${handsChecked} rungs`,
+  );
+  check(
+    "...and the tap search saturated rather than running out of depth",
+    neverClosed === 0, `${neverClosed} rungs still expanding at depth 6`,
+  );
+  // The cap's own branch, constructed directly rather than waited for: the
+  // shipped ladder deals a forced hand of two MATERIALS at every capstone rung
+  // (materialHand), so the number-axis partner is a fence and no seed reaches
+  // it. hazards.ts's togglePick note says exactly that, and says the rule is
+  // kept as the invariant rather than as a patch for one layout — which is
+  // precisely what has to be pinned when the live ladder cannot reach it.
+  {
+    const material = HAZARDS.find((h) => h.kind === "content")!;
+    const number = HAZARDS.find((h) => h.kind === "number" && h.id !== "target")!;
+    const synthetic = [number, material];
+    const brute = reachableByTapping(synthetic, 2, true);
+    const mine = new Set(legalHands(synthetic, 2, true).map((h) => [...h].sort().join(",")));
+    check(
+      "a forced hand's number partner may never absorb the whole quota (synthetic rung)",
+      !mine.has([number.id, number.id].sort().join(",")),
+      `enumerated ${[...mine].join(" | ")}`,
+    );
+    check(
+      "...and togglePick agrees, so the enumeration is not a second opinion",
+      mine.size === brute.hands.size && [...mine].every((k) => brute.hands.has(k)),
+      `enum ${[...mine].join(" | ")} vs taps ${[...brute.hands].join(" | ")}`,
+    );
+    check(
+      "...while a forced MATERIAL card may still be doubled",
+      mine.has([material.id, material.id].sort().join(",")),
+    );
+    check(
+      "the live ladder never reaches that branch — it is a fence, as hazards.ts says",
+      cappedSeen === 0, `${cappedSeen} live rungs carried a number partner at 2 picks`,
+    );
+  }
+
+  // The space's SIZE is a closed form, and the sweep's coverage banner quotes
+  // it. Pinned as the product of the per-rung hand counts rather than as a
+  // literal, so a change to picksPerBay or to the hand size fails here instead
+  // of silently re-scaling every "N reachable paths" line in the docs.
+  for (const mark of [1, 5, 10]) {
+    const space = enumerateSpace(1, mark);
+    const product = space.rungs.reduce((a, r) => a * r.hands.length, 1);
+    check(
+      `Mark ${mark}: the enumerated path count is the product of its rungs' hands`,
+      space.paths === product,
+      `${space.paths} paths vs product ${product} over ${space.rungs.length} rungs`,
+    );
+    check(
+      `Mark ${mark}: every rung deals ${picksPerBay(mark)} pick(s) from a hand of 2`,
+      space.rungs.every((r) => r.need === picksPerBay(mark) && r.hand.length === 2),
+    );
+    check(
+      `Mark ${mark}: distinct terminal combos never outnumber the paths that reach them`,
+      space.vectors.size > 0 && space.vectors.size <= space.paths,
+      `${space.vectors.size} combos from ${space.paths} paths`,
+    );
+  }
+  // The ratchet ladder is RUN_LEVELS - 2 rungs long: one draft after each
+  // cleared bay except the last two — bay 10 ends the run, and the draft after
+  // bay 9 is the Final Inspection (finals.ts), which deals clauses, not notches.
+  check(
+    "the enumerated ladder stops where the Final Inspection starts",
+    enumerateSpace(1, 10).rungs.length === RUN_LEVELS - 2,
+    `${enumerateSpace(1, 10).rungs.length} rungs`,
+  );
+}
+
+section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
+{
+  // A Mark-10 run, which the sweep measures as walling early — chosen for the
+  // pin precisely because it is SHORT. The claim being guarded is that the
+  // driver is deterministic and walks the real ladder, and neither needs ten
+  // bays of physics to state.
+  // A bare ladder RunState at `mark`, for asking run.ts's run-aware schedule
+  // questions the same way the driver does. `newRun` writes skydeck: null, so
+  // this is a ladder run by construction — which is the point: the pins below
+  // check that the driver reads the RUN rather than the bay index, and a
+  // ladder run is the one where a wrong reading would still pass.
+  const deepRunAt = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+  const loadout = loadoutFor(PRIORITY_ORDERS.spatial, 10);
+  const opts = {
+    mark: 10, seed: 1, bot: BOTS.aim, loadout, draft: spreadPolicy,
+    refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+  };
+  const a = runDeepRun(opts);
+  const b = runDeepRun(opts);
+  check(
+    "two deep runs with identical inputs are identical outcomes",
+    JSON.stringify(a.bays.map((x) => x.outcome)) === JSON.stringify(b.bays.map((x) => x.outcome))
+      && comboKey(a.ratchets) === comboKey(b.ratchets),
+    `${a.baysCleared}/${b.baysCleared} bays, ${comboKey(a.ratchets)} vs ${comboKey(b.ratchets)}`,
+  );
+  check(
+    "a run that did not clear reports the bay it died in, and played exactly that many",
+    a.cleared ? a.diedAt === null : a.diedAt === a.bays.length && a.baysCleared === a.bays.length - 1,
+    `cleared ${a.cleared}, diedAt ${a.diedAt}, played ${a.bays.length}, cleared ${a.baysCleared}`,
+  );
+  check(
+    "every notch the run banked came from a hand the draft actually dealt",
+    a.bays.every((rec, i) => {
+      if (rec.picks.length === 0) return true;
+      const rung = rungFor(1, 10, i, rec.ratchets);
+      return !!rung && rung.hands.some(
+        (h) => [...h].sort().join() === [...rec.picks].sort().join(),
+      );
+    }),
+  );
+  // Asked of the RUN's own reading (run.ts's picksForRun), not of the ladder's
+  // picksPerBay. The two agree on a ladder run and #124 pins that they do; what
+  // this guards is that the DRIVER asks the run-aware one, so pointing it at a
+  // mode that charges differently cannot silently over-charge the draft.
+  check(
+    "the driver takes exactly the notches the RUN charges, at every draft it reached",
+    a.bays.slice(0, Math.max(0, a.bays.length - 1))
+      .every((rec) => rec.picks.length === picksForRun(deepRunAt(10))),
+    a.bays.map((r) => r.picks.length).join(","),
+  );
+
+  // The three couplings a per-bay sweep cannot have, asserted on a run long
+  // enough to have them. A Mark-1 run reaches the first refit stop.
+  const long = runDeepRun({
+    mark: 1, seed: 3, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.economy, 1),
+    draft: dodgePolicy, refit: greedyRefit(PRIORITY_ORDERS.economy, true),
+  });
+  check(
+    "the carry into every bay is the previous bay's overshoot, capped at CARRY_CAP",
+    long.bays[0].carryIn === 0 && long.bays.every((rec, i) => {
+      if (i === 0) return true;
+      const prev = long.bays[i - 1].outcome;
+      return rec.carryIn === Math.min(CARRY_CAP, Math.max(0, prev.endScore - prev.target));
+    }),
+    long.bays.map((r) => `${r.carryIn}`).join(","),
+  );
+  check(
+    "scrap is only ever spent at a stop the RUN opens (run.ts's refitAfterBay)",
+    long.bays.every((rec) => rec.refitSpend === 0
+      || refitAfterBay(deepRunAt(1), rec.bay - 1)),
+    long.bays.filter((r) => r.refitSpend > 0).map((r) => `bay${r.bay}:${r.refitSpend}`).join(" "),
+  );
+  check(
+    "a run that reached bay 10 accepted a Final Inspection clause, and one that did not, did not",
+    long.bays.length >= RUN_LEVELS ? long.final !== null : long.final === null,
+    `bays ${long.bays.length}, final ${long.final}`,
+  );
+  // The Bond magazine is a RUN consumable, and the bug it replaced ("a free
+  // 'flatten the whole field' every level is what let one fat carry-over clear
+  // two bays back to back", run.ts's RunState.bondCharges) is invisible unless
+  // a charge is actually spent — so the check is run on a pilot that fires
+  // them, at a Mark whose loadout carries the emitter, and asserts the spend
+  // happened before asserting it stuck.
+  {
+    const armed = runDeepRun({
+      mark: 5, seed: 2, bot: (s) => bondHands(BOTS.aim(s)),
+      loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5), draft: spreadPolicy,
+      refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const magazine = armed.bays.map((r) => r.outcome.bondsLeft);
+    const issued = bondChargesFor(loadoutFor(PRIORITY_ORDERS.spatial, 5).bonds);
+    check(
+      "the run's Bond magazine is actually spent down by a pilot that fires it",
+      issued > 0 && magazine.some((n) => n < issued),
+      `issued ${issued}, left per bay ${magazine.join(",")}`,
+    );
+    check(
+      "...and never refills across a bay boundary",
+      magazine.every((n, i) => i === 0 || n <= magazine[i - 1]),
+      magazine.join(","),
+    );
+  }
+}
+
+section("The winnability sweep — proposed counters (sim/counters.ts)");
+{
+  // A cushion SOFTENS. Every tier must raise the trigger threshold, never lower
+  // it — a "cushion" that primed the material finer would be finals.ts's Hair
+  // Trigger wearing a system's name, and the sweep would read it as the
+  // proposal working.
+  check(
+    "every cushion tier raises the volatile trigger, and each tier raises it further",
+    CUSHION_TRIGGER_MULT.every((m) => m > 1)
+      && CUSHION_TRIGGER_MULT.every((m, i) => i === 0 || m > CUSHION_TRIGGER_MULT[i - 1]),
+    CUSHION_TRIGGER_MULT.join(","),
+  );
+  // The ceiling the design note argues for: the top tier lands ON the measured
+  // maximum first-contact speed (lineClear.ts's VOLATILE_TRIGGER_SPEED note
+  // records the range as 17.3 to 30.8) and not past it. Past it, no impact of
+  // ANY kind sets a cube off and the cushion is a delete button — which
+  // hazards.ts forbids outright ("a system does not DELETE a hazard").
+  check(
+    "the top cushion tier reaches the measured maximum arrival speed and stops there",
+    Math.abs(cushionThreshold(3) - 30.8) < 0.5,
+    `threshold ${cushionThreshold(3).toFixed(1)} vs measured max 30.8`,
+  );
+  check(
+    "the first cushion tier still leaves a full-power shot dangerous (median 25.5)",
+    cushionThreshold(1) < 25.6, `threshold ${cushionThreshold(1).toFixed(1)}`,
+  );
+  // Applied as a multiplier on whatever is already there, so a cushion and Hair
+  // Trigger compose instead of one overwriting the other.
+  {
+    const cfg = makeBaseLevel(9, 10);
+    applyFinal(cfg, "hair-trigger");
+    const primed = cfg.volatileTriggerMult;
+    const plain = makeBaseLevel(9, 10);
+    cushionKit(3).level!(cfg);
+    cushionKit(3).level!(plain);
+    check(
+      "a cushion composes with Hair Trigger rather than overwriting it",
+      Math.abs(cfg.volatileTriggerMult - primed * CUSHION_TRIGGER_MULT[2]) < 1e-9,
+      `${primed} -> ${cfg.volatileTriggerMult}`,
+    );
+    check(
+      "...and the clause still costs the same share of whatever rig accepted it",
+      Math.abs(cfg.volatileTriggerMult / plain.volatileTriggerMult - primed) < 1e-9,
+      `${(cfg.volatileTriggerMult / plain.volatileTriggerMult).toFixed(3)} vs ${primed}`,
+    );
+    // A FINDING, pinned so it cannot quietly stop being true. The maxed cushion
+    // lifts a Hair Trigger bay to 1.19x STOCK — the clause is not merely bought
+    // back, it is overshot, and a Tier-7 exam a rig can walk past is not an
+    // exam. The arithmetic is unavoidable (finals.ts primes at 0.85 and the
+    // cushion's own ceiling is 1.40 = the measured maximum arrival speed, so
+    // any cushion that achieves its stated job clears 1/0.85 = 1.176 on the
+    // way), which is why design/balance/counter-systems-proposal.md puts the
+    // fix on the CLAUSE side rather than on the cushion's number.
+    check(
+      "KNOWN: a maxed cushion overshoots Hair Trigger — the clause needs re-sizing, not the cushion",
+      cfg.volatileTriggerMult > 1,
+      `net ${cfg.volatileTriggerMult.toFixed(3)}x stock`,
+    );
+  }
+  // The thaw rig's magazine renews per BAY, which is the proposal's one real
+  // disagreement with the Bond Emitter it would sit beside. A wrapper is reused
+  // across the ten bays of a run, so "per bay" has to be noticed at the Game
+  // boundary rather than assumed at construction.
+  {
+    let acts = 0;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = thawHands(stub, 2, "stub+thaw");
+    const frozen = (): Cube => ({
+      body: { position: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const bay = (cubes: Cube[]): Game => ({ cubes } as unknown as Game);
+    const bay1 = bay([frozen(), frozen(), frozen()]);
+    for (let i = 0; i < 5; i++) rig.act(bay1, i * 16);
+    check(
+      "a thaw rig spends its whole magazine and no more inside one bay",
+      bay1.cubes.filter((c) => c.struck).length === 2,
+      `${bay1.cubes.filter((c) => c.struck).length} thawed of 3`,
+    );
+    const bay2 = bay([frozen(), frozen(), frozen()]);
+    for (let i = 0; i < 5; i++) rig.act(bay2, i * 16);
+    check(
+      "...and the magazine renews at the next bay, not at the next run",
+      bay2.cubes.filter((c) => c.struck).length === 2,
+      `${bay2.cubes.filter((c) => c.struck).length} thawed of 3`,
+    );
+    check("...while still handing every tick to the bot it wraps", acts === 10, `${acts} acts`);
+  }
+  // Bond hands must not spend the run's rarest consumable on an empty bay.
+  {
+    let acts = 0;
+    let used = 0;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = bondHands(stub);
+    const bay = (n: number, charges: number): Game => ({
+      cubes: new Array(n).fill(null),
+      bondCharges: charges,
+      timeLeftMs: 120_000,
+      level: { timeLimitSec: 144 },
+      useBondBreaker: () => { used += 1; return true; },
+    } as unknown as Game);
+    rig.act(bay(BOND_MIN_CUBES - 1, 3), 0);
+    check("bond hands hold fire on a bay below the pile floor", used === 0 && acts === 1);
+    rig.act(bay(BOND_MIN_CUBES, 3), 0);
+    check("...and fire once the pile is deep enough", used === 1);
+    rig.act(bay(BOND_MIN_CUBES + 20, 0), 0);
+    check("...and never fire a charge the run does not have", used === 1 && acts === 2);
+  }
+
+  // A SAMPLED policy must not carry its RNG stream between runs. Review found
+  // it doing exactly that — draft-space.ts's POLICY SPECS note has the repro
+  // and the reasoning; this is the guard.
+  //
+  // Stated on the POLICY rather than on a deep run, deliberately. A run-level
+  // version is what was tried first and it was vacuous: the pair of runs it
+  // chose both died on bay 2, so the shared stream only ever advanced one draw
+  // and the buggy code and the fixed code agreed. Driving the policy directly
+  // over one rung makes the carry-over visible in six draws and costs no
+  // physics at all.
+  {
+    const spec = randomSpec(20973);
+    // A capstone rung: two picks from a two-card hand is three distinct hands,
+    // so six draws off one stream is a sequence, not a coin flip.
+    const rung = rungFor(1, CAPSTONE_MARK, 0, {})!;
+    const seq = (pol: { choose: (r: typeof rung, x: Ratchets) => HazardId[] }): string =>
+      Array.from({ length: 6 }, () => pol.choose(rung, {}).join("+")).join(" ");
+
+    check(
+      "two runs at one seed draw the same sampled walk when the policy is built per run",
+      seq(spec.build(4)) === seq(spec.build(4)),
+      `${seq(spec.build(4))} vs ${seq(spec.build(4))}`,
+    );
+    {
+      // The shape the bug had: ONE built policy, asked twice. Its stream
+      // carries, so the second pass is a continuation rather than a repeat —
+      // and this asserts that it IS, because a pin blind to the defect it
+      // guards is not a pin.
+      const shared = spec.build(4);
+      const passA = seq(shared);
+      const passB = seq(shared);
+      check(
+        "...and a SHARED policy continues its stream instead, which is the defect",
+        passA !== passB, `${passA} then ${passB}`,
+      );
+      check(
+        "...so the per-run build is what makes the first pass of each pair agree",
+        passA === seq(spec.build(4)),
+      );
+    }
+    // And the run-level consequence the repro reported: same seed, same
+    // options, identical outcome.
+    const flight = () => runDeepRun({
+      mark: 5, seed: 4, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5),
+      draft: spec.build(4), refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const a = flight();
+    const b = flight();
+    check(
+      "a deep run under a sampled policy reproduces on the same seed",
+      comboKey(a.ratchets) === comboKey(b.ratchets)
+        && a.baysCleared === b.baysCleared && a.diedAt === b.diedAt,
+      `${comboKey(a.ratchets)} @${a.diedAt} vs ${comboKey(b.ratchets)} @${b.diedAt}`,
+    );
+  }
+
+  // Every bay's scrap payout reaches the reported total, INCLUDING the last one
+  // played. The last bay never goes through advanceRun — the run ends on it —
+  // so a bay-10 win returned before the accounting its nine clears went
+  // through, and every successful run under-reported by that bay's payout.
+  //
+  // Mark 1 seed 1 is the fixture because its last bay actually PAYS (6 of the
+  // run's 146). A run whose final bay earned nothing cannot tell the fixed code
+  // from the broken code, which is how the first attempt at this pin passed
+  // while proving nothing.
+  {
+    const o = runDeepRun({
+      mark: 1, seed: 1, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 1),
+      draft: spreadPolicy, refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const paid = o.bays.map((b) => b.scrapPaid);
+    const tally = paid.reduce((x, y) => x + y, 0);
+    const last = paid[paid.length - 1];
+    check(
+      "a run reports the scrap every bay it played paid out, the last one included",
+      o.scrapEarned === tally, `reported ${o.scrapEarned}, bays paid ${tally}`,
+    );
+    check(
+      "...on a fixture whose last bay pays, so the check can see the bug it guards",
+      last > 0 && o.scrapEarned - last === tally - last && tally > last,
+      `paid [${paid.join(",")}], last ${last}`,
+    );
+    check(
+      "...and only a CLEARED bay collects the per-bay clear bonus",
+      o.bays.every((b, i) => (i === o.bays.length - 1 && !o.cleared
+        ? b.scrapPaid === b.outcome.scrapEarned
+        : b.scrapPaid === b.outcome.scrapEarned + SCRAP_PER_BAY)),
+      o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
+    );
+  }
 }
 
 console.log(

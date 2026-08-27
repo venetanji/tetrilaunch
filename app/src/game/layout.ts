@@ -244,6 +244,52 @@ export interface Layout {
   density: Density;
 }
 
+/**
+ * One world px of overdraw above the canvas's first row.
+ *
+ * The sky's top edge is derived by dividing a CSS-px offset by a scale and
+ * multiplying it back at draw time through a slightly different transform (the
+ * device-pixel one, `scale * dpr`), so the round trip is not bit-exact. A
+ * sub-pixel shortfall is not a harmless rounding error here: it is a one-device-
+ * pixel line of raw backdrop across the top of the screen, which is a hairline
+ * version of the exact defect this exists to remove. Overdrawing by a world px
+ * costs nothing — everything above the canvas top is discarded by the
+ * rasteriser — and removes the class of failure outright.
+ */
+const SKY_OVERDRAW = 1;
+
+/**
+ * How far ABOVE the world's own top edge the canvas reaches, in WORLD px.
+ * Always <= 0; more negative means more open sky.
+ *
+ * The world is authored 1280x720 and letterboxed, and until now every layer was
+ * clipped to that rect — so on any viewport whose fitted field did not fill the
+ * height, the leftover was painted backdrop colour and nothing else. That reads
+ * as a lid, and a lid is the one thing this field must not have: engine.ts
+ * leaves the top boundary OPEN on purpose (a max-power lofted shot apexes ~250
+ * world px above y=0 and falls back in, with the side walls extended to y=-SKY
+ * so it cannot drift out sideways). The band was capping a shaft the physics
+ * treats as unbounded, and the player noticed before the renderer did.
+ *
+ * It is a pure function of the transform the frame is drawn with — `oy` CSS px
+ * down from the canvas top at `scale` CSS px per world px — so it cannot
+ * disagree with computeLayout, and callers that already hold a Viewport
+ * (render.ts, including the attract demo's fitViewport) need nothing new. Note
+ * that it deliberately says nothing about the horizontal: the sky is the same
+ * 1280-wide shaft the walls bound, not a full-canvas wash, because sideways is
+ * exactly where the physics does NOT let a lofted piece go.
+ */
+export function skyTop(scale: number, oy: number): number {
+  // No band, no sky, and NOT "no band, one px of sky": a viewport whose field
+  // already fills the height (every landscape phone, layout.ts's "wide" mode)
+  // must come out of this change pixel-identical, and returning the overdraw
+  // there would lift the wall glow a world px for no reason at all. The
+  // overdraw answers a rounding error that only exists when there is an `oy`
+  // to divide and multiply back.
+  if (!(oy > 0)) return 0;
+  return -oy / Math.max(0.0001, scale) - SKY_OVERDRAW;
+}
+
 /** Module-level safe-area cache. Read from real CSS env() values once per
  *  resize by main.ts (see lib/platform's readSafeAreaInsets) and stashed here,
  *  because computeViewport is called on every frame and from input mapping —

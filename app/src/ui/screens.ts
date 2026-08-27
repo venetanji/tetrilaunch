@@ -1311,12 +1311,31 @@ export function controlsScreen(opts: {
     // itself, which is what a player who has just made a mess of the table
     // below needs most.
     pane = `${infoRow("Detected", opts.padName ?? "No gamepad — press any button on one")}
-      ${infoRow("Aim & power", "left stick · ↕ angle · ↔ power")}
+      ${infoRow("Aim & power", opts.settings.stickSling
+        // THE ROW DESCRIBES THE MODE THAT IS ON, not the default. The sibling
+        // keyboard tab states its default and lets the toggle's description
+        // carry the alternate, because nothing re-rendered that pane when a
+        // toggle flipped — a compromise its own comment records. It does not
+        // survive contact with THIS pair: "centre holds" and "release lets the
+        // pull go" are not two flavours of one control, they are opposite
+        // answers to "what happens when I let go", and a row asserting the
+        // wrong one flatly contradicts the toggle sitting under it (found in
+        // review). main.ts re-renders this screen when stickSling flips, so
+        // the row can afford to be true instead of merely default.
+        ? "left stick · pull back to aim · release lets go"
+        : "left stick · ↕ angle · ↔ power · centre holds")}
       ${infoRow("Menus", `D-pad move · ${padLabel(PAD_CONFIRM)} select · ${padLabel(PAD_BACK)} back`)}
       ${infoRow("Open Controls", `${padLabel(PAD_CONTROLS)} · from any menu`)}
       ${BINDABLE_ACTIONS.map((a) => bindRow(a, padLabel(padFor(a)))).join("")}
-      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the stick so the arc doesn't jitter", opts.settings.stickAssist)}
-      ${toggleHTML("stickPull", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does", opts.settings.stickPull)}`;
+      ${/* NAMES ITS SCOPE rather than switching with the mode, because its
+            scope does not change: the assist only ever smoothed the SLINGSHOT's
+            stick (gamepad.ts), and the dials need none — stickRate starts every
+            rate from zero at the deadzone's edge, so there is no jitter to
+            damp. Unqualified, this row offered a dial player a control that
+            does nothing whatever they did with it. Said out loud, it is true in
+            both modes and needs no re-render to stay true. */""}
+      ${toggleHTML("stickAssist", "Stick aiming assist", "Smooth the slingshot stick so the arc doesn't jitter", opts.settings.stickAssist)}
+      ${toggleHTML("stickSling", "Slingshot stick", "Pull the stick back to aim, the way the touch drag does — release lets the pull go", opts.settings.stickSling)}`;
   }
 
   return `<div class="screen neon-backdrop">
@@ -3331,7 +3350,7 @@ export function draftScreen(opts: {
       // doubles.
       const canDouble = !ready && !(opts.forced && h.kind !== "content");
       const foot = picks > 0
-        ? canDouble ? "Tap again to double it" : "Tap to undo"
+        ? canDouble ? "Tap again for 2x" : "Tap to undo"
         : ready
           ? "Tap to swap this in"
           : "Tap to preview";
