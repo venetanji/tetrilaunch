@@ -3913,6 +3913,246 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
   check("a narrow-but-tall window bottoms the scale without going compact",
     narrow.uiScale === UI_SCALE_MIN && narrow.density === "regular",
     `${narrow.uiScale} / ${narrow.density}`);
+
+  // A viewport 460px tall or shorter can never be magnified, and app.css leans
+  // on that: the menu's phone pin for --brand-w is written as
+  // `@media (max-height: 460px)`, i.e. a VIEWPORT query standing in for a
+  // question about the BOX the chrome is laid out in. The two are the same
+  // number only while zoom is 1, and down here it provably is — 460/720 is
+  // 0.64, and chromeZoom takes the smaller axis ratio and clamps it up to 1.
+  // If the reference box ever grew past 720, this fails before the phones
+  // silently start rendering a rule written for a box they no longer have.
+  for (const w of [640, 792, 915, 1280, 2560, 4000]) {
+    check(`a ${w}px-wide viewport 460px tall is not magnified`,
+      computeLayout(w, 460).chromeZoom === 1, String(computeLayout(w, 460).chromeZoom));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The menu's demo panel is an equation (app.css --brand-w)");
+// The home screen's attract panel is 16:9 and shares its column with a shelf
+// that has a hard floor, so its width is not a taste decision — it is the
+// solution of a budget. It used to be a STAIRCASE of height media queries
+// instead: 360px under a 620px-tall viewport, 640px at 700 and over, and a
+// 440px default filling the band between. Read as a function of height that
+// middle step is only reachable between box heights 621 and 699, which is a
+// band no row in sim/uifit/devices.ts had — and exactly the band a desktop
+// shell window lands in once the OS titlebar comes off a 1280x720 frame. The
+// panel drew itself 440 wide in a 658px column and the shelf under it hit its
+// per-row cap, which is the dead band a player reported from windowed Electron.
+//
+// Two files own halves of this now: the equation lives in app.css and the
+// magnification it is written against lives in layout.ts. Read the stylesheet
+// back rather than trusting a comment to stay true — same instrument the dial
+// collapse uses on its keyframes.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css");
+  const tokens = styles("tokens.css");
+
+  const spacing = (n: number): number => {
+    const m = tokens.match(new RegExp(`--sp-${n}:\\s*(\\d+)px`));
+    if (!m) throw new Error(`--sp-${n} is not in tokens.css`);
+    return Number(m[1]);
+  };
+
+  // THE CONTAINER THE EQUATION READS. `100cqh` needs a size container above it,
+  // and if .menu stops being one the unit does not error — it silently falls
+  // back to the small viewport height, which in a magnified subtree is the raw
+  // window rather than the divided box the chrome is laid out in. That is a
+  // wrong panel on every tablet and every desktop, with nothing to see in the
+  // diff but a deleted line. So the line is pinned.
+  const menuRule = css.slice(css.indexOf("\n.menu {"), css.indexOf("\n.menu__brand {"));
+  check("the menu row is a size container, so 100cqh means the column's height",
+    /container-type:\s*size/.test(menuRule),
+    menuRule.slice(0, 200).trim());
+
+  const brandRule = css.slice(css.indexOf("\n.menu__brand {"));
+  const brandBody = brandRule.slice(brandRule.indexOf("{") + 1, brandRule.indexOf("\n}"));
+  check("--brand-w is solved from the column's own height somewhere in the sheet",
+    /--brand-w:\s*min\(100%,\s*calc\(\(100cqh\s*-\s*var\(--brand-reserve\)\)\s*\*\s*16\s*\/\s*9\)\)/
+      .test(css),
+    (css.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
+
+  // The solver is kept off the STACKED branch, where the equation's premise
+  // fails: `100cqh` is the whole .menu row, and the row is this column only
+  // while the grid has one row. Guarded rather than overridden downstream —
+  // an override would have to sit after the @supports block to win, which is
+  // the arrangement that made the first attempt at this fragile.
+  check("the solver is scoped away from the one-column branch",
+    /@media\s+not\s+all\s+and\s*\(max-aspect-ratio:\s*1\s*\/\s*1\)\s*\{[\s\S]{0,400}?--brand-w:[^;]*100cqh/
+      .test(css),
+    "the 100cqh declaration is not inside a `not all and (max-aspect-ratio: 1/1)` guard");
+
+  // The reserve, read back out of the stylesheet and re-derived here. Three
+  // shelf rows is the shelf at its tallest (an entitlement entry above
+  // Leaderboard and Settings), 44px is the tap floor the whole screen is built
+  // to, and the 12px on top is the margin for a face whose rows measure taller
+  // than Chromium's — WebKit's do.
+  const floorExpr = brandBody.match(/--shelf-floor:\s*calc\(3\s*\*\s*(\d+)px\s*\+\s*2\s*\*\s*var\(--sp-3\)\)/);
+  check("the shelf floor is three tap-sized rows and the gaps between them",
+    floorExpr !== null && Number(floorExpr[1]) === 44, floorExpr?.[1] ?? "missing");
+  const shelfFloor = 3 * 44 + 2 * spacing(3);
+  check("...which is the 156px the old 640px step was derived against", shelfFloor === 156,
+    String(shelfFloor));
+
+  const reserveExpr = brandBody.match(
+    /--brand-reserve:\s*calc\(var\(--shelf-floor\)\s*\+\s*(\d+)px\s*\+\s*var\(--sp-4\)\)/,
+  );
+  check("the reserve is the floor, the cross-engine headroom and the column's gap",
+    reserveExpr !== null, brandBody.trim().slice(0, 200));
+  const reserve = shelfFloor + Number(reserveExpr?.[1] ?? 0) + spacing(4);
+  check("the reserve comes to 184px", reserve === 184, String(reserve));
+
+  // THE IDENTITY THAT MAKES THIS A REFACTOR RATHER THAN A REDESIGN. In the
+  // authored 1280x720 box the brand column is 544px tall and 640px wide, and
+  // the equation returns exactly the 640 the deleted step declared by hand. So
+  // every viewport the old step governed — every tablet, 1512x945, 1920x1080,
+  // 2560x1080, all of them magnified to the same 720px box — lands on the same
+  // number it landed on before, and only the band that had no step moves.
+  const AUTHORED_COLUMN_H = 544;
+  const panel = (columnH: number): number => ((columnH - reserve) * 16) / 9;
+  check("the equation reproduces the authored 640px panel exactly",
+    panel(AUTHORED_COLUMN_H) === 640, String(panel(AUTHORED_COLUMN_H)));
+  // ...and the shelf it leaves is the 168px the old comment quoted: 12 more
+  // than its floor, which is where that 12 came from.
+  check("...leaving the shelf 12px over its floor",
+    AUTHORED_COLUMN_H - panel(AUTHORED_COLUMN_H) * 9 / 16 - spacing(4) === shelfFloor + 12,
+    String(AUTHORED_COLUMN_H - panel(AUTHORED_COLUMN_H) * 9 / 16 - spacing(4)));
+
+  // The reported window, which is what the whole change is for. 1269x663 is a
+  // 1280x720 desktop-shell frame minus the titlebar; its brand column measures
+  // 505.7px tall and 658.5px wide (sim/uifit's own row measures both). The old
+  // 440px default left a THIRD of that column empty beside the panel; the
+  // equation spends it.
+  const REPORTED_COLUMN_H = 505.7;
+  const REPORTED_COLUMN_W = 658.5;
+  const reported = Math.min(REPORTED_COLUMN_W, panel(REPORTED_COLUMN_H));
+  check("the reported windowed size grows the panel well past the old 440px default",
+    reported > 560 && reported < REPORTED_COLUMN_W, String(reported));
+  check("...and still leaves the shelf its floor",
+    REPORTED_COLUMN_H - reported * 9 / 16 - spacing(4) >= shelfFloor,
+    String(REPORTED_COLUMN_H - reported * 9 / 16 - spacing(4)));
+
+  // The 16/9 in the equation is the panel's own aspect ratio, not a constant
+  // that happens to look right. If the panel is ever redrawn to another shape
+  // the equation is wrong by exactly the difference, silently.
+  const demoRule = css.slice(css.indexOf(".menu__demo.is-live {"));
+  check("the equation's 16/9 is the panel's own aspect-ratio",
+    /aspect-ratio:\s*16\s*\/\s*9/.test(demoRule.slice(0, demoRule.indexOf("\n}"))),
+    demoRule.slice(0, 300).trim());
+
+  // The wordmark rode the same staircase (31px under 700px tall, 42 above) and
+  // is one number now for the same reason. A second cap coming back is a second
+  // thing keyed to a height the panel no longer answers to.
+  check("the wordmark's plate clamp is one cap, not a staircase",
+    (css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length === 1,
+    String((css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length));
+
+  // --- ...and the engine that cannot solve it -------------------------------
+  // THE DEPLOYMENT TARGET IS THE WHOLE REASON THE STEPS ARE STILL HERE.
+  // Container queries reached WKWebView in Safari 16; this app ships to iOS
+  // 15, so a supported device parses this stylesheet with no container units
+  // at all and has to be handed the staircase instead. Read the target out of
+  // the Xcode project rather than trusting the comment beside the CSS: the day
+  // someone raises it to 16 the fallback becomes dead weight, and this is the
+  // check that says so out loud instead of leaving it to rot.
+  const pbx = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "ios", "App",
+      "App.xcodeproj", "project.pbxproj"),
+    "utf8",
+  );
+  const targets = [...pbx.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)].map((m) => parseFloat(m[1]));
+  check("the iOS deployment target is still readable from the Xcode project",
+    targets.length > 0, String(targets.length));
+  const CONTAINER_QUERY_IOS = 16;
+  check("...and still below the iOS that has container queries, so the steps are load-bearing",
+    Math.min(...targets) < CONTAINER_QUERY_IOS, `min target ${Math.min(...targets)}`);
+
+  // The fallback CANNOT be two declarations of the same custom property, which
+  // is what this rule tried first and what a review caught. A custom property's
+  // value is an untyped token stream, so an engine with no `cqh` still accepts
+  // the declaration and still lets it win on source order; the unit is only
+  // rejected when `width: var(--brand-w)` is substituted, and an
+  // invalid-at-computed-value-time `width` falls back to `auto`, not to the
+  // earlier declaration. Measured: on the reported 1269x663 window that took
+  // the brand column to 552.6px inside a 505.7px row — a 47px overflow under
+  // .screen's `overflow: hidden`, worse than the band the change set out to
+  // fix. So: exactly one --brand-w in .menu__brand's own block.
+  const ownBlock = brandBody.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("the brand rule declares --brand-w once, not as a two-declaration fallback",
+    (ownBlock.match(/--brand-w\s*:/g) ?? []).length === 1,
+    String((ownBlock.match(/--brand-w\s*:/g) ?? []).length));
+
+  // Every container-unit use of --brand-w lives inside a feature query. Cut the
+  // @supports blocks out and no `cq*` unit may be left setting this token.
+  //
+  // Comments come out FIRST, and that is not tidiness — the prose beside these
+  // rules discusses @supports by name, and a brace-matcher that starts from the
+  // first literal "@supports" in the file starts inside a comment and swallows
+  // every rule between there and the next closing brace. It did exactly that on
+  // the first run of this check, which is how the two step assertions below
+  // went red against a stylesheet that already had them.
+  const stripSupports = (s: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      const at = s.indexOf("@supports", i);
+      if (at < 0) { out += s.slice(i); break; }
+      out += s.slice(i, at);
+      let depth = 0, j = s.indexOf("{", at);
+      for (; j < s.length; j++) {
+        if (s[j] === "{") depth++;
+        else if (s[j] === "}" && --depth === 0) { j++; break; }
+      }
+      i = j;
+    }
+    return out;
+  };
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const noSupports = stripSupports(noComments);
+  check("stripping @supports leaves the rest of the stylesheet intact",
+    noSupports.includes(".menu__brand") && noSupports.length > noComments.length * 0.9,
+    `${noSupports.length} of ${noComments.length} chars survived`);
+  check("no --brand-w outside a feature query uses a container unit",
+    !/--brand-w\s*:[^;]*\bcq(h|w|i|b|min|max)\b/.test(noSupports),
+    (noSupports.match(/--brand-w\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
+  // ...and the solver really is behind one, rather than simply absent.
+  check("the solved --brand-w sits inside an @supports for container units",
+    /@supports\s*\(\s*width:\s*1cq[a-z]+\s*\)/.test(css)
+      && /--brand-w\s*:[^;]*100cqh/.test(css),
+    "no @supports (width: 1cq*) guarding the solver");
+
+  // STRIP THE ENHANCEMENT AND THE OLD SCREEN HAS TO BE UNDERNEATH IT. These are
+  // the three steps this change replaced, and an iOS 15 device gets exactly
+  // them; the simulated run (cq units stubbed out) reproduces staging's panel
+  // at all eight sampled sizes. Asserted on the stripped stylesheet so that
+  // deleting a step "because the equation covers it" fails here rather than on
+  // a device nobody in this repo owns.
+  for (const [label, re] of [
+    ["440px default", /\.menu__brand\s*\{[^}]*--brand-w:\s*min\(100%,\s*440px\)/],
+    ["360px step under a 620px-tall viewport",
+      /@media\s*\(max-height:\s*620px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*360px\)/],
+    ["640px step at 700px and over",
+      /@media\s*\(min-height:\s*700px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*640px\)/],
+  ] as [string, RegExp][]) {
+    check(`the pre-container-query base still carries its ${label}`, re.test(noSupports),
+      "missing from the stylesheet with @supports stripped");
+  }
+  // The two thresholds must not OVERLAP. They are read back rather than
+  // assumed: if someone nudged the step-down past the step-up, both queries
+  // would match on the same viewport and the answer would come down to which
+  // rule happened to be later in the file. The band they leave between them is
+  // deliberate — it is where the 440px default lives, and on a modern engine it
+  // is exactly where the equation takes over.
+  const stepDown = noSupports.match(/@media\s*\(max-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
+  const stepUp = noSupports.match(/@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
+  check("the stepped fallback's two thresholds do not overlap",
+    stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
+    `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
 }
 
 // ---------------------------------------------------------------------------
