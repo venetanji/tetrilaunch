@@ -18,7 +18,9 @@
 > pass. See
 > **[What the measurements actually said](#what-the-measurements-actually-said)**
 > for the numbers, and **[Where the frame really goes](#where-the-frame-really-goes)**
-> for the target that survives either way.
+> for the target that survives either way -- which a later 120Hz probe now
+> supports directly, not only by elimination (see
+> **[Confound 2, confirmed](#confound-2-confirmed-at-120hz-the-same-load-does-bind)**).
 
 `render.ts`'s `getBackgroundLayer` already does the expensive half of this
 right. The letterbox backdrop, field gradient, grid, wall glow and congestion
@@ -134,6 +136,75 @@ Neither confound resurrects the split on its own — probe 1's bias, if any,
 runs in the *masking* direction and the interleaved medians still sit within
 0.1ms — but they are why the header says "not supported" rather than
 "refuted", and why the two-canvas page is named as the decisive measurement.
+
+### Confound 2, confirmed: at 120Hz the same load DOES bind
+
+The review above predicted that a 60Hz cadence probe "says nothing about how
+much of an 8.33ms budget the same fill would consume". That prediction was
+then tested directly, by running the injection under the live 120Hz workload
+instead of the paused 60Hz one. It is correct, and the gap is not subtle.
+
+Sprite draws were multiplied in place (each real sprite redrawn N times at
+jittered offsets and rotations, so none can be culled), on a live bay of ~30
+sprites:
+
+| sprites/frame | 60Hz paused scene | 120Hz live scene |
+| --- | --- | --- |
+| 30 (real) | 16.66ms, 0 dropped | 101.3fps, 81.8% on-time |
+| ~630 (x21) | — | **77.3fps, 47.0% on-time** |
+| 2430 (x81) | **16.66ms, 0 dropped** | — |
+
+At 60Hz, **eighty-one times** the real sprite load did not cost a single
+frame. At 120Hz, **twenty-one times** it cost a quarter of the frame rate and
+half the on-time frames. Same code, same device, same injection — only the
+deadline changed. So the earlier "the GPU shrugs off any draw load" reading
+was an artifact of a 16.67ms budget, exactly as the review said, and no
+number taken at 60Hz can be halved into a 120Hz claim.
+
+**This is the positive evidence the sprite pass needed.** "Where the frame
+really goes" below was an inference from the background's share being ~0;
+it is now also a direct measurement — draw work has a real, large price
+against an 8.33ms deadline. Taking the two usable rows at face value, ~600
+extra sprite draws cost ~3.1ms of frame time, on the order of 5us per sprite
+draw, which would put a 200-cube bay's cubes alone near 1ms of an 8.33ms
+budget.
+
+**Held to the same standard as everything else here, this is one
+unreplicated run.** Only the first two rows of that sweep are usable: the
+120Hz boost lapsed partway through and the remaining rows silently fell back
+to a 60Hz cadence, which is the same failure this document warns about. It
+wants repeating before anything is sized off the 5us figure.
+
+**The baseline is the bigger question it raises.** At the *real* 30-sprite
+load the device still missed ~18% of its 8.33ms deadlines, with JS at p50
+0.7ms and p99 6.4ms. Whatever costs that is a fixed per-frame overhead rather
+than scene content, and it is unexplained — a bay with almost nothing in it
+should not be missing one frame in five. That, not the cubes, is the first
+thing to chase for 120fps.
+
+### Holding 120Hz for a measurement needs a human finger
+
+Every probe here has to hold the device at 120Hz for its whole window, and
+that is harder than it looks:
+
+- **The OEM parks an idle app at 60Hz** whatever `preferredRefreshRate` the
+  window asks for. `MainActivity.requestHighestRefreshRate()` raises the
+  ceiling; it does not stop the floor falling out while nothing is touching
+  the glass.
+- **Injected input does not hold it.** `adb shell input tap` and `input
+  swipe` were tried in loops, in a live bay, over minutes. They do not
+  restore the boost and they do not reach the game's own input handling
+  either. The 120Hz windows in this document coincided with a person
+  physically holding the phone.
+- **So every probe must carry a vsync discriminator and reject its own
+  run.** The cheap one is the minimum rAF gap over the window: a sub-10ms
+  gap can only happen at 120Hz, and its absence means the window is void
+  whatever else it measured. Two runs recorded here were discarded that way,
+  after an earlier version of the same probe had silently reported 60Hz
+  numbers as though they answered a 120Hz question.
+- **A bay times out in about 2:22 with nobody playing**, taking the scene
+  and the refresh rate with it, so a measurement window has to fit inside
+  that or restart the run first.
 
 ### Two traps this cost, so nobody repeats them
 
