@@ -44,7 +44,12 @@ import {
   comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
 } from "./draft-space";
 import { greedyRefit, runDeepRun } from "./deeprun";
-import { runBay } from "./runner";
+import { runBay, type BayOutcome } from "./runner";
+import { aimBot, aimCandidates } from "./bots";
+import {
+  cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
+  naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
+} from "./aim-strategies";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
   BOND_MIN_CUBES, bondHands, cushionKit, thawHands, thawKit,
@@ -13231,6 +13236,449 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
       o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
     );
   }
+}
+
+/* ===========================================================================
+ * AIMING STRATEGIES (sim/aim-strategies.ts)
+ *
+ * The harness gained a second axis of PLAYER this release. `draft-space.ts`
+ * already stated which run a policy builds; `aim-strategies.ts` states how a
+ * pilot flies it, because three ship systems — the Thaw Lance, the Impact
+ * Cushion, and the Incinerator when it lands — are worth what a DECISION makes
+ * them worth, and the harness had exactly one decision-maker.
+ *
+ * Three claims are pinned, and the first is what the whole three-arm table
+ * rests on:
+ *
+ *  1. THE NAIVE ARM IS THE OLD PILOT, exactly. Not "close enough" and not
+ *     "re-derived the same way" — the same bytes out of the same bay. A control
+ *     arm that had drifted would make every "the strategy added N wins" number
+ *     in `design/balance/` a comparison against a bot nobody has flown. And the
+ *     comparison is proved able to SEE a difference, on the same fixture and
+ *     through each hook separately, because a pin that cannot fail is not one.
+ *  2. THE STRATEGIES READ THE GAME'S OWN RULES rather than copies of them: the
+ *     slot grid is tied to `cushionEdgeX`, the liner threshold to
+ *     `cushionedTrigger`, and the lance's targets to `nextColdCryo`.
+ *  3. THE MISSING ONE IS LOUD. There is no incinerator-aware strategy, and the
+ *     placeholder throws rather than quietly behaving like `naive` — which
+ *     would let an arms table report the Incinerator as worth nothing.
+ * ========================================================================= */
+section("Aiming strategies — the naive arm is the old pilot (sim/aim-strategies.ts)");
+{
+  // A bay with something for both strategies to have an opinion about: deep in
+  // a Tier-7 ladder, volatile on the belt, one notch of cryo in play.
+  const bayCfg = (): LevelConfig => {
+    const cfg = makeBaseLevel(9, 7);
+    applyUpgrades(cfg, loadoutFor(PRIORITY_ORDERS.material, 7));
+    return applyRatchets(cfg, { volatile: 3, cryo: 1 });
+  };
+  /** Everything a bay reports except who flew it — the bot NAME is expected to
+   *  differ ("aim" vs "aim:naive"), and comparing it would make the pin fail
+   *  for the one reason that proves the strategy was installed at all. */
+  const trace = (o: BayOutcome): string => JSON.stringify({ ...o, bot: "" });
+
+  const bare = runBay(bayCfg(), aimBot(1), 1);
+  const naive = runBay(bayCfg(), aimBot(1, { strategy: naiveStrategy.build(1) }), 1);
+  check(
+    "a bay flown with the naive strategy is byte-identical to one flown without one",
+    trace(bare) === trace(naive),
+    `${bare.status}/${bare.lines}/${bare.shots}/${Math.round(bare.endScore)} vs `
+      + `${naive.status}/${naive.lines}/${naive.shots}/${Math.round(naive.endScore)}`,
+  );
+  check(
+    "...and the pilot still says which strategy it flew, so the arm is nameable",
+    bare.bot === "aim" && naive.bot === "aim:naive", `${bare.bot} / ${naive.bot}`,
+  );
+  {
+    // THE ANTI-VACUOUS HALF, one probe per hook. A strategy that moves every
+    // landing a cell must produce a different bay, and so must one that only
+    // changes which arc is chosen — otherwise the equality above is a statement
+    // about hooks nothing calls rather than about the naive arm.
+    const probe = runBay(bayCfg(), aimBot(1, {
+      strategy: { name: "probe", target: (_g, _n, base) => ({ ...base, x: base.x - CELL }) },
+    }), 1);
+    check(
+      "...and the same comparison DOES separate a strategy that changes the aim",
+      trace(probe) !== trace(bare),
+      `probe ${probe.status}/${probe.lines}/${probe.shots}`
+        + ` vs bare ${bare.status}/${bare.lines}/${bare.shots}`,
+    );
+    const flattest = runBay(bayCfg(), aimBot(1, {
+      strategy: {
+        name: "probe2",
+        select: (_g, _n, pool) => pool.reduce((a, b) => (b.deg < a.deg ? b : a)),
+      },
+    }), 1);
+    check(
+      "...and separates one that changes only which ARC is chosen",
+      trace(flattest) !== trace(bare),
+      `select-probe ${flattest.status}/${flattest.lines}/${flattest.shots}`,
+    );
+  }
+
+  // The ability hook is NOT inside the aim bot, and that placement is
+  // load-bearing: `counters.ts`'s thawHands fires on every tick, and a lance
+  // sitting behind the cannon's cooldown would be a different lance from the
+  // one it is being measured against.
+  {
+    let ticks = 0;
+    let acts = 0;
+    const g = {} as unknown as Game;
+    const wrapped = strategyHands(
+      { name: "probe", abilities: () => { ticks += 1; return false; } },
+      { name: "stub", act: () => { acts += 1; } },
+    );
+    wrapped.act(g, 0);
+    wrapped.act(g, 16);
+    check("a strategy's abilities fire on every tick, and false never claims the shot",
+      ticks === 2 && acts === 2, `${ticks} ability ticks, ${acts} acts`);
+    const spent = strategyHands(
+      { name: "probe", abilities: () => true },
+      { name: "stub", act: () => { acts += 1; } },
+    );
+    spent.act(g, 32);
+    check("...and a strategy that returns true DOES spend the tick", acts === 2);
+    const passthrough = strategyHands(
+      { name: "noop" }, { name: "stub", act: () => { acts += 1; } },
+    );
+    passthrough.act(g, 48);
+    check("...and a strategy with no ability hook is not wrapped at all",
+      passthrough.name === "stub" && acts === 3);
+  }
+
+  // The pilot factory is the one every driver takes — (seed) -> Bot — and it
+  // composes the same three wrappers `winnability.ts` composes by hand.
+  {
+    const bot = strategyPilot(cushionStrategy)(7);
+    check("a strategy pilot is a demolition bot with bond hands and the strategy aboard",
+      bot.name === "demo:cushion+bond", bot.name);
+  }
+}
+
+section("Aiming strategies — the pool a strategy chooses from (sim/bots.ts aimCandidates)");
+{
+  const cfg = makeBaseLevel(0, 1);
+  const g = new Game(cfg, {}, 1);
+  const { pool, best } = aimCandidates(g, WALL_INNER - CELL * 3, CELL / 2);
+
+  check("the aim search hands back the candidates it flew", pool.length > 0, `${pool.length}`);
+  check("...and its own pick is one of them", pool.includes(best));
+  // The baseline rule, restated as a property of the returned pool rather than
+  // as a number: nearest landing, steepest among ties. A strategy that re-ranks
+  // the pool is only meaningful if this is what it re-ranks AWAY from.
+  {
+    const bestErr = Math.min(...pool.map((c) => c.err));
+    const near = pool.filter((c) => c.err <= bestErr + 20);
+    check(
+      "...and `best` is the steepest arc within the tie tolerance of the nearest landing",
+      best.err <= bestErr + 20 && near.every((c) => c.deg <= best.deg),
+      `best ${best.deg}deg err ${best.err.toFixed(1)}, ${near.length} ties`,
+    );
+  }
+  /* -------------------------------------------------------------------------
+   * THE RELATIONSHIP THAT MAKES A CUSHION PLAY POSSIBLE AT ALL, and it is a
+   * relationship between two tables that have never been read against each
+   * other: `AIM_POWER_CANDIDATES` (19/22/25/28 — what a bot can fire) and
+   * `CUSHION_TIERS[0]` (what the first liner rung insures).
+   *
+   * `lineClear.ts` sizes VOLATILE_TRIGGER_SPEED against the whole power dial
+   * ("median impact runs 19.5 at power 0 to 25.5 at full — so 22 sits between
+   * the two halves"). The aim search does not have the whole dial. Its softest
+   * candidate is 19, and measured here the grid arrives in 22.7-25.6 px/step —
+   * ENTIRELY ABOVE stock's 22. That is the mechanical reason `sim/README.md`'s
+   * caveat is true: no bot lobs a volatile shipment safely, because no bot
+   * fires soft enough to.
+   *
+   * The liner is what closes the gap: 25.3 at rung 1 sits ABOVE the grid's
+   * softest arc, so with a liner aboard a soft shot is insured and the
+   * cushion-aware `select` has something to choose. Both halves are pinned,
+   * because both are load-bearing and neither is obvious. Widen the power grid
+   * downward and the first fails (and the cushion's whole case has to be
+   * re-argued against a pilot that can lob); re-tune rung 1 below the grid's
+   * floor and the second fails (and the rung buys nothing this pilot can use).
+   *
+   * This pin is also what caught the impact estimate reading mid-flight: taken
+   * at `compactor.top` the same grid read 16.4-21.5, entirely BELOW stock, and
+   * the cushion's threshold gate would have been dead code.
+   * ----------------------------------------------------------------------- */
+  {
+    const soft = Math.min(...pool.map((c) => c.impact));
+    const hard = Math.max(...pool.map((c) => c.impact));
+    check(
+      "...and every arc the search can fire still arrives hard enough to set stock volatile off"
+        + " — no bot lobs safely, because no bot fires soft enough",
+      soft > VOLATILE_TRIGGER_SPEED,
+      `softest ${soft.toFixed(1)} vs stock ${VOLATILE_TRIGGER_SPEED}`,
+    );
+    check(
+      "...but the FIRST liner rung sits above that softest arc, which is what gives the"
+        + " cushion-aware pilot a shot to choose",
+      soft < cushionThreshold(1),
+      `softest ${soft.toFixed(1)} vs rung 1 at ${cushionThreshold(1).toFixed(1)}`,
+    );
+    check(
+      "...and every arrival estimate is a speed the cannon could actually deliver",
+      pool.every((c) => c.impact > 0 && c.impact < SPEED_MAX * 2),
+      `${soft.toFixed(1)}..${hard.toFixed(1)}`,
+    );
+  }
+  g.destroy();
+}
+
+section("Aiming strategies — the liner's grid is the game's grid (sim/aim-strategies.ts)");
+{
+  // The identity the cushion-aware strategy is written on. Without it "aim into
+  // the liner" is arithmetic stated twice and checked never, and the two copies
+  // drift the day `cushionEdgeX` or the slot anchor moves.
+  check(
+    "a slot's centre sits half a cell inside that slot's own cushion edge",
+    [0, 1, 2, 3, 4, 7].every((k) => Math.abs(slotCenterX(k) - (cushionEdgeX(k) - CELL / 2)) < 1e-9),
+    [0, 1, 2].map((k) => `${slotCenterX(k)} vs ${cushionEdgeX(k) - CELL / 2}`).join(" | "),
+  );
+  check(
+    "...and slot k is lined by a liner of `cells` exactly when k < cells",
+    CUSHION_TIERS.every((rung) =>
+      [0, 1, 2, 3, 4, 5, 6, 7, 8].every((k) =>
+        slotIsLined(k, rung.cells) === (slotCenterX(k) >= cushionEdgeX(rung.cells)))),
+  );
+  check(
+    "...and the grid round-trips, so a cube's x names the slot it is standing in",
+    [0, 1, 2, 5, 8].every((k) => slotOf(slotCenterX(k)) === k),
+  );
+  // The threshold the strategy aims under is the one `volatileBlast` will
+  // actually test, floor and all — never a re-derived product.
+  {
+    const bay = (clause: number, mult: number): Game =>
+      ({ level: { volatileTriggerMult: clause, cushionMult: mult } } as unknown as Game);
+    check(
+      "the liner threshold a strategy aims under is the game's own cushionedTrigger",
+      [1, 0.85].every((clause) => CUSHION_TIERS.every((rung) =>
+        Math.abs(linerTriggerSpeed(bay(clause, rung.mult))
+          - VOLATILE_TRIGGER_SPEED * cushionedTrigger(clause, rung.mult)) < 1e-9)),
+    );
+    check(
+      "...so a clause that primed the bay finer than stock still floors at stock",
+      linerTriggerSpeed(bay(0.85, CUSHION_TIERS[2].mult)) === VOLATILE_TRIGGER_SPEED,
+      `${linerTriggerSpeed(bay(0.85, CUSHION_TIERS[2].mult))}`,
+    );
+  }
+}
+
+section("Aiming strategies — the cushion play and the lance play (sim/aim-strategies.ts)");
+{
+  /** A bay stub carrying only what the two strategies read. Thin on purpose:
+   *  these pins are about the RULES, and a real Game would answer them through
+   *  a pile nobody placed. */
+  const stubBay = (over: Record<string, unknown>): Game => ({
+    level: {
+      cushionCells: 0, cushionMult: 1, volatileTriggerMult: 1,
+      compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+    },
+    cannon: { currentType: "O", currentMaterial: "standard" },
+    compactor: { x: 100, width: 40, top: 200, strandCutoffX: 0 },
+    cubes: [],
+    thawCharges: 0,
+    timeLeftMs: 120_000,
+    useThawLance: () => true,
+    ...over,
+  } as unknown as Game);
+
+  /* --- the cushion play ------------------------------------------------- */
+  {
+    const cushion = cushionStrategy.build(1);
+    const base = { x: WALL_INNER - CELL * 6, slot: 6 };
+    const noLiner = stubBay({
+      cannon: { currentType: "O", currentMaterial: "volatile" },
+    });
+    check(
+      "the cushion strategy is INERT with no liner aboard — which is what makes the arms"
+        + " table's control row a control",
+      cushion.target!(noLiner, 0, base) === null
+        && cushion.select!(noLiner, 0, [], base) === null,
+    );
+    for (const rung of CUSHION_TIERS) {
+      const lined = stubBay({
+        level: {
+          cushionCells: rung.cells, cushionMult: rung.mult, volatileTriggerMult: 1,
+          compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      const shot = cushion.target!(lined, 0, base)!;
+      check(
+        `a volatile shipment is aimed INSIDE a ${rung.cells}-cell liner`,
+        shot !== null && shot.x >= cushionEdgeX(rung.cells) && slotIsLined(shot.slot, rung.cells),
+        `x ${shot?.x} vs edge ${cushionEdgeX(rung.cells)}, slot ${shot?.slot}`,
+      );
+    }
+    {
+      // The threshold gate. Two candidates, one soft and one hard; the soft one
+      // wins only while it is actually under the liner's trigger. Above it,
+      // there is no insurance to buy and the baseline's nearest landing is the
+      // better of two bad shots — so the hook stands down rather than credit
+      // the strategy for an uninsured lob.
+      const lined = stubBay({
+        level: {
+          cushionCells: CUSHION_TIERS[0].cells, cushionMult: CUSHION_TIERS[0].mult,
+          volatileTriggerMult: 1, compactorMinLineCells: 9,
+          pieceSize: "standard", timeLimitSec: 144,
+        },
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      const want = linerTriggerSpeed(lined);
+      const soft = { deg: 35, power: 19, err: 5, landX: 0, impact: want * 0.5 };
+      const hard = { deg: 21, power: 28, err: 1, landX: 0, impact: want * 1.5 };
+      check(
+        "the softest arc under the liner's trigger wins, even at a worse landing error",
+        cushion.select!(lined, 0, [hard, soft], base) === soft,
+      );
+      check(
+        "...and a pool with nothing under it stands down rather than lob uninsured",
+        cushion.select!(lined, 0, [hard], base) === null,
+      );
+      check(
+        "...and a NON-volatile shipment is never re-ranked at all",
+        cushion.select!(stubBay({
+          level: {
+            cushionCells: 8, cushionMult: 1.4, volatileTriggerMult: 1,
+            compactorMinLineCells: 9, pieceSize: "standard", timeLimitSec: 144,
+          },
+        }), 0, [hard, soft], base) === null,
+      );
+    }
+  }
+
+  /* --- the lance play ---------------------------------------------------- */
+  {
+    const lance = lanceStrategy.build(1);
+    /** A settled, frozen, in-reach cryo cube standing in slot `k`.
+     *
+     *  Placed on the REAL grid rather than at a convenient number: the bar
+     *  advances toward the wall, so a HIGH slot index is a SMALL x and is the
+     *  cube the press reaches first. Getting that backwards is exactly the
+     *  mistake a hand-picked coordinate hides, and the first draft of this
+     *  fixture put both cubes outside the line zone entirely. */
+    const ice = (k: number): Cube => ({
+      body: { position: { x: slotCenterX(k), y: 400 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const near = ice(8);
+    const far = ice(3);
+    // The bar's face one cell short of the near cube: inside the lance's band
+    // (1 <= LANCE_URGENT_CELLS), while the far cube — five cells further out —
+    // is not.
+    const face = near.body.position.x - CELL;
+    const barAt = { x: face - 20, width: 40, top: 200, strandCutoffX: 0 };
+
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      const claimed = lance.abilities!(bay, 0);
+      check(
+        "the lance is HELD for a frozen cube a shipment can still reach in time",
+        fired === 0 && claimed === false, `${fired} charges`,
+      );
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [near], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      const claimed = lance.abilities!(bay, 0);
+      check(
+        "...and spent on one the press is about to reach",
+        fired === 1, `${fired} charges`,
+      );
+      check(
+        "...and never claims the tick, because the lance does not cost a launch",
+        claimed === false,
+      );
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, timeLeftMs: 5_000, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      lance.abilities!(bay, 0);
+      check("...and the discipline lifts at the whistle, where an unspent charge is a wasted one",
+        fired === 1);
+    }
+    {
+      let fired = 0;
+      const bay = stubBay({
+        cubes: [near], thawCharges: 0, compactor: barAt,
+        useThawLance: () => { fired += 1; return true; },
+      });
+      lance.abilities!(bay, 0);
+      check("...and an empty rack is never pulled on", fired === 0);
+    }
+
+    // THE DIVISION OF LABOUR: the shipment takes the cube the lance is NOT
+    // going to take. Pinned as the two cases rather than as one, because the
+    // whole point of the rule is that the two tools never contend.
+    const base = { x: 0, slot: 0 };
+    {
+      const bay = stubBay({ cubes: [near, far], thawCharges: 3, compactor: barAt });
+      const shot = lance.target!(bay, 0, base);
+      check(
+        "with the near cube inside the lance's band, the shipment is sent at the FAR one",
+        shot !== null && Math.abs(shot!.x - far.body.position.x) < 1e-9,
+        `${shot?.x} vs far ${far.body.position.x}`,
+      );
+    }
+    {
+      const bay = stubBay({ cubes: [far], thawCharges: 3, compactor: barAt });
+      const shot = lance.target!(bay, 0, base);
+      check(
+        "...and with nothing in the band, the shipment takes the nearest cube itself",
+        shot !== null && Math.abs(shot!.x - far.body.position.x) < 1e-9,
+        `${shot?.x}`,
+      );
+    }
+    {
+      const bay = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        cannon: { currentType: "O", currentMaterial: "cryo" },
+      });
+      check(
+        "a CRYO shipment is never sent at a frozen cube — strikeCryo refuses a moving striker,"
+          + " so that shot freezes two cubes instead of thawing one",
+        lance.target!(bay, 0, base) === null,
+      );
+      const vol = stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        cannon: { currentType: "O", currentMaterial: "volatile" },
+      });
+      check("...and neither is a volatile one", lance.target!(vol, 0, base) === null);
+    }
+  }
+}
+
+section("Aiming strategies — the missing one is loud (sim/aim-strategies.ts)");
+{
+  // The Incinerator is not on staging. A stub that behaved like `naive` would
+  // let an arms table report the track as worth nothing, which is the exact
+  // mispricing this whole file exists to end — so the placeholder throws, and
+  // the registry does not carry a name for it.
+  check(
+    "there is no incinerator strategy a sweep can name",
+    !("incinerator" in STRATEGIES), Object.keys(STRATEGIES).join(","),
+  );
+  let threw = "";
+  try { incineratorAware(); } catch (e) { threw = String((e as Error).message); }
+  check(
+    "...and the placeholder refuses to fly rather than quietly fly as naive",
+    threw.includes("not implemented"), threw || "did not throw",
+  );
+  check(
+    "...and says where the follow-up lives",
+    threw.includes("incinerator-system"), threw,
+  );
 }
 
 // ===========================================================================

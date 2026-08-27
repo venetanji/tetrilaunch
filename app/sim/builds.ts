@@ -101,4 +101,28 @@ export const PRIORITY_ORDERS: Record<string, UpgradeId[]> = {
   material: ["demolition", "bonds", "reactor", "hydraulics", "bay", "launcher"],
   // Everything, in the order salvage would realistically reach it.
   full: ["reactor", "launcher", "demolition", "bonds", "hydraulics", "bay", "magazine"],
+  /* -------------------------------------------------------------------------
+   * THE TWO ORDERS THAT ACTUALLY BUY THE DECISION-SHAPED SYSTEMS.
+   *
+   * Neither the Thaw Lance nor the Impact Cushion appears in any order above,
+   * and `counters.ts` says so in as many words ("No `--build` order installs
+   * the track today, so this is a guard rather than a live case"). That was
+   * harmless while a kit was the only way to fly one — `--mode counter` grants
+   * the track onto the config and prices it in its own ladder points.
+   *
+   * It stopped being harmless the moment the cheapest-strategy search gained an
+   * AIMING dimension (`sim/aim-strategies.ts`): a search asking "what is the
+   * cheapest rig that clears, and which pilot flies it" cannot answer with a
+   * cushion-aware pilot if no rung of the ladder it walks ever installs a
+   * cushion. The strategy would read as worthless, for the third time in this
+   * harness's history, because the rig had no hands.
+   *
+   * Ordered counter-first, like `material` and for the same reason: the point
+   * of the order is to reach the system EARLY enough that the run is actually
+   * flown with it, not to model a plausible shopping list.
+   * ----------------------------------------------------------------------- */
+  // The cryo build: the lance first, then the press that sells what it thaws.
+  chill: ["thaw", "hydraulics", "bonds", "reactor", "bay", "launcher"],
+  // The volatile build: the liner first, then the room to use it.
+  liner: ["cushion", "bay", "hydraulics", "reactor", "bonds", "launcher"],
 };

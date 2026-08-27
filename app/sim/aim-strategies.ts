@@ -404,19 +404,6 @@ export const lanceStrategy: AimStrategySpec = { name: "lance", build: lanceAware
  * did not sell.
  * ------------------------------------------------------------------------- */
 
-/**
- * How much of the liner's headroom a volatile landing aims to leave unused.
- *
- * The arc estimate is a per-step segment length taken at the compactor's top
- * (`bots.ts`'s estimateImpactSpeed), the real impact is a two-body relative
- * speed at whatever height the pile actually is, and the wind between the
- * decision and the landing is a drunk walk. 0.9 is one part in ten of margin
- * against all three — enough that the strategy prefers a genuinely soft arc
- * over one sitting on the threshold, and not so much that at tier 1 (25.3
- * against a 17.3 floor) nothing qualifies at all.
- */
-export const CUSHION_SOFT_MARGIN = 0.9;
-
 /** Landing tolerance for a shot aimed into the liner. Wider than the gap
  *  shot's one cell (`AIM_PATIENCE_TOL`) because the liner is four to eight
  *  cells wide: anywhere inside it is the right place, so holding fire over a
@@ -508,7 +495,15 @@ function cushionAware(): AimStrategy {
       if (g.level.cushionCells <= 0) return null;
       if (g.cannon.currentMaterial !== "volatile") return null;
       const tol = shot.tol ?? CUSHION_AIM_TOL;
-      const want = linerTriggerSpeed(g) * CUSHION_SOFT_MARGIN;
+      // NO SAFETY MARGIN ON TOP OF THE THRESHOLD, and that is a decision with a
+      // measurement behind it. `estimateImpactSpeed` already over-reads a real
+      // landing (it takes the arc at the floor; a shipment landing on a pile
+      // meets it higher and slower), so a margin here would be pessimism
+      // charged twice. Measured on a stock bay, the search's 21x4 grid arrives
+      // in 22.7-25.6 px/step against a first liner rung of 25.3 — a further 10%
+      // haircut drops the bar to 22.8 and leaves exactly ONE qualifying
+      // candidate, which prices rung 1 out of a play it can actually make.
+      const want = linerTriggerSpeed(g);
       // Among the arcs that land where this shot is meant to go, the softest.
       // Ties broken toward the steeper arc, which is the baseline's own
       // tie-break and the reason it exists: a flat, fast arrival scatters the

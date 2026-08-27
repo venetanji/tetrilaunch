@@ -83,7 +83,7 @@ import {
 } from "../src/game/upgrades";
 import { CARRY_CAP, RUN_LEVELS } from "../src/game/run";
 import { runBay } from "./runner";
-import { BOTS } from "./bots";
+import { BOTS, type Bot } from "./bots";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import { bondHands, combineKits, COUNTER_KITS, type CounterKit } from "./counters";
 import {
@@ -91,6 +91,9 @@ import {
   type DraftPolicySpec,
 } from "./draft-space";
 import { greedyRefit, noRefit, runDeepRun, type DeepRunOutcome } from "./deeprun";
+import {
+  naiveStrategy, strategyPilot, STRATEGIES, type AimStrategySpec,
+} from "./aim-strategies";
 
 /* ---------------------------------------------------------------------------
  * CLASSIFICATION — read the WALL, not the clear rate
@@ -181,6 +184,22 @@ const botName = get("--bot") ?? "demo";
 const finalsMode = (get("--finals") ?? "first") as "first" | "both";
 const explicitPolicies = get("--policies");
 const counterIds = (get("--counters") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+/**
+ * AIMING STRATEGIES to fly (sim/aim-strategies.ts).
+ *
+ * Defaults to `naive` alone, which is the pilot every table in
+ * `design/balance/winnability-sweep-findings.md` was measured on — a default
+ * that changed the pilot would silently re-base every comparison in that
+ * document against a run nobody had flown.
+ *
+ * In `--mode cheapest` this is a DIMENSION of the answer rather than a setting:
+ * the cheapest rig that clears is a property of (loadout, refit, draft,
+ * strategy), and the tool searched three of those four while holding the fourth
+ * at whatever `bots.ts` happened to do. A system that is only worth its price to
+ * a player who plays it is exactly the case that fourth axis was hiding.
+ */
+const strategyNames = (get("--strategies") ?? "naive")
+  .split(",").map((s) => s.trim()).filter(Boolean);
 const jsonOut = argv.includes("--json");
 const trace = argv.includes("--trace");
 
@@ -200,6 +219,21 @@ for (const id of counterIds) {
     process.exit(1);
   }
 }
+for (const s of strategyNames) {
+  if (!(s in STRATEGIES)) {
+    console.error(
+      `Unknown --strategies id "${s}" — available: ${Object.keys(STRATEGIES).join(", ")}`,
+    );
+    process.exit(1);
+  }
+}
+if (strategyNames.some((s) => s !== "naive") && !["aim", "demo", "patient", "impatient"].includes(botName)) {
+  // A strategy is two hooks INSIDE the adaptive aim search plus an ability
+  // wrapper around it. A fixed-arc preset has no search to hook, so pairing the
+  // two would print a strategy's name over a run that never consulted it.
+  console.error(`--strategies needs an adaptive --bot (aim/demo/patient/impatient), got "${botName}"`);
+  process.exit(1);
+}
 if (!["combos", "cheapest", "both", "counter"].includes(mode)) {
   console.error(`Unknown --mode "${mode}" — available: combos, cheapest, both, counter`);
   process.exit(1);
@@ -213,6 +247,21 @@ const kit: CounterKit | undefined = counterIds.length
  *  added to `BOTS` so `bots.ts` — which another branch is also editing — takes
  *  no diff, and so the wrapping is visible at the place the claim is made. */
 const pilot = (seed: number) => bondHands(BOTS[botName](seed));
+
+/**
+ * The same pilot, flying a named aiming strategy.
+ *
+ * `naive` returns the ORIGINAL closure above rather than an equivalent built a
+ * different way, and that is not tidiness: every table in the findings doc was
+ * flown by that exact expression, so the default path has to be it and not a
+ * reconstruction that happens to agree today.
+ */
+const pilotFor = (spec: AimStrategySpec): ((seed: number) => Bot) =>
+  (spec === naiveStrategy || spec.name === "naive")
+    ? pilot
+    : strategyPilot(spec, { demolish: botName === "demo" });
+
+const strategies: AimStrategySpec[] = strategyNames.map((s) => STRATEGIES[s]);
 
 const seeds = Array.from({ length: seedCount }, (_, i) => i + 1);
 
@@ -384,6 +433,11 @@ interface CheapRow {
   budget: number;
   refit: string;
   policy: string;
+  /** The AIMING strategy this rung was flown with — the fourth lever, and the
+   *  one this search used to hold fixed without saying so. A rung that clears
+   *  under `cushion` and not under `naive` is not a cheaper rig; it is the same
+   *  rig played differently, and the table has to be able to say which. */
+  strategy: string;
   cleared: boolean;
   clears: number;
   runs: number;
@@ -419,12 +473,19 @@ function cheapest(mark: number): CheapRow[] {
   // is the strategy a player with no material answer plays, so a clear under it
   // is a clear that did not depend on the draft being kind.
   const spec = explicitPolicies ? policiesFor(mark)[0].spec : dodgeSpec;
+  // Every (refit stance x aiming strategy) pair is searched, and the SEEDS are
+  // shared across all of them — so two strategies' rungs are a paired
+  // comparison rather than two independent searches that happen to be printed
+  // together. With the default `--strategies naive` this is exactly the loop
+  // that was here before.
+  for (const strat of strategies) {
+  const flier = pilotFor(strat);
   for (const refit of [noRefit, greedyRefit(order, true)]) {
     let found = false;
     for (const budget of budgetLadder(order, mark)) {
       const loadout = loadoutFor(order, mark, budget);
       const outcomes = seeds.map((seed) => runDeepRun({
-        mark, seed, bot: pilot, loadout, draft: spec.build(seed), refit, counters: kit,
+        mark, seed, bot: flier, loadout, draft: spec.build(seed), refit, counters: kit,
       }));
       const clears = outcomes.filter((o) => o.cleared).length;
       const row: CheapRow = {
@@ -432,6 +493,7 @@ function cheapest(mark: number): CheapRow[] {
         budget,
         refit: refit.name,
         policy: spec.name,
+        strategy: strat.name,
         // "Winnable" here is the same word the combo table uses: at least one
         // seed went the distance. Deliberately not a majority — the search is
         // looking for the rung where clearing becomes POSSIBLE, and a rung
@@ -448,10 +510,12 @@ function cheapest(mark: number): CheapRow[] {
     }
     if (!found) {
       rows.push({
-        mark, budget: -1, refit: refit.name, policy: spec.name, cleared: false,
+        mark, budget: -1, refit: refit.name, policy: spec.name, strategy: strat.name,
+        cleared: false,
         clears: 0, runs: seeds.length, loadoutCost: -1, scrapSpent: 0, tiers: "NONE FOUND",
       });
     }
+  }
   }
   return rows;
 }
@@ -556,6 +620,7 @@ const padE = (s: string, n: number): string => s.padEnd(n);
 console.log(
   `Winnability sweep — marks ${marks.join("/")} · ${seedCount} seeds`
   + ` · bot ${botName}+bond · builds ${buildNames.join("/")} · finals ${finalsMode}`
+  + ` · aim ${strategyNames.join("/")}`
   + (kit ? ` · counters ${kit.id}` : ""),
 );
 console.log(
@@ -669,19 +734,39 @@ for (const mark of marks) {
       + ` and a clear means ${CHEAPEST_CLEARS_REQUIRED} seed went the distance.`,
     );
     console.log(
-      "  " + [padE("refit", 14), pad("pts", 5), pad("scrap", 6), pad("clear", 6),
+      `  A strategy is a DIMENSION of the answer, not a setting: ${strategies.length} flown`
+      + ` (${strategyNames.join("/")}), paired on the same seeds.`,
+    );
+    console.log(
+      "  " + [padE("refit", 14), padE("aim", 9), pad("pts", 5), pad("scrap", 6), pad("clear", 6),
         padE("verdict", 11), "rig"].join(" "),
     );
-    // Only the terminal row of each refit stance is the ANSWER; the rungs below
-    // it are the evidence, and are printed as such by the JSON rather than here.
-    const byRefit = new Map<string, CheapRow>();
-    for (const r of rows) byRefit.set(r.refit, r);
-    for (const r of byRefit.values()) {
+    // Only the terminal row of each (refit, strategy) pair is the ANSWER; the
+    // rungs below it are the evidence, and are printed as such by the JSON
+    // rather than here.
+    const byArm = new Map<string, CheapRow>();
+    for (const r of rows) byArm.set(`${r.refit}|${r.strategy}`, r);
+    for (const r of byArm.values()) {
       console.log("  " + [
-        padE(r.refit, 14), pad(r.loadoutCost < 0 ? "-" : String(r.loadoutCost), 5),
+        padE(r.refit, 14), padE(r.strategy, 9),
+        pad(r.loadoutCost < 0 ? "-" : String(r.loadoutCost), 5),
         pad(String(r.scrapSpent), 6), pad(`${r.clears}/${r.runs}`, 6),
         padE(r.cleared ? "CLEARS" : "no clear", 11), r.tiers,
       ].join(" "));
+    }
+    // THE HEADLINE, once the search has a fourth axis: the cheapest rig across
+    // every arm, and which arm found it. Printed rather than left to the reader,
+    // because "the cheapest winning strategy at Tier N" is now a triple and a
+    // table of four rows is an invitation to quote whichever one is smallest.
+    const winners = [...byArm.values()].filter((r) => r.cleared);
+    if (winners.length) {
+      const best = winners.reduce((a, b) => (b.loadoutCost < a.loadoutCost ? b : a));
+      console.log(
+        `  => cheapest clear: ${best.loadoutCost} pts, refit ${best.refit},`
+        + ` aim ${best.strategy} — ${best.tiers}`,
+      );
+    } else {
+      console.log("  => no arm cleared at any rung of the ladder.");
     }
     console.log("");
     markReport.cheapest = rows;

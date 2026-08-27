@@ -513,21 +513,35 @@ function candidateHitsBar(
  * segment the arc is on IS its speed in that unit — no conversion, and no
  * second copy of the integrator.
  *
- * Taken at the SAME place `estimateLandingX` takes its landing: the crossing of
- * `compactor.top` on the way down. That is a deliberate over-estimate of what a
- * real landing carries — a shipment that lands on a pile meets it higher and
- * therefore slower, because the arc is still accelerating — and it errs the way
- * every bias in this harness errs, against the player: a cushion-aware
- * strategy reading this number thinks its softest arc is harder than it is, and
- * so under-claims what the liner bought.
+ * TAKEN AT THE FLOOR, and the first version of this was taken at
+ * `compactor.top` (where `estimateLandingX` reads its landing) and was wrong
+ * enough to matter. The arc is still accelerating through the bar's upper band:
+ * over the search's own 21x4 grid, the same arcs read 16.4-21.5 px/step at
+ * `compactor.top` and 21.8-25.3 at the floor. Only the second range is the one
+ * `lineClear.ts` calibrated volatile against — its note records "median impact
+ * runs 19.5 at power 0 to 25.5 at full" — so a cushion-aware strategy comparing
+ * the first against `VOLATILE_TRIGGER_SPEED` would have read every arc it could
+ * fly as already safe, and its threshold gate would have been dead code
+ * wearing a rule's name.
+ *
+ * WHICH WAY IT ERRS: a shipment that lands on a PILE meets it above the floor
+ * and therefore slower than this, so the estimate over-reads a real landing —
+ * which makes a strategy that gates on it stand down more often than it needs
+ * to, and under-claim what a liner bought. That is the direction every bias in
+ * this harness runs.
  */
-function estimateImpactSpeed(traj: Matter.Vector[], compactorTopY: number): number {
+function estimateImpactSpeed(traj: Matter.Vector[]): number {
   if (traj.length < 2) return 0;
+  const floorY = WORLD.height - CELL / 2;
   for (let i = 1; i < traj.length; i++) {
     const a = traj[i - 1];
     const b = traj[i];
-    if (a.y < compactorTopY && b.y >= compactorTopY) return Math.hypot(b.x - a.x, b.y - a.y);
+    if (a.y < floorY && b.y >= floorY) return Math.hypot(b.x - a.x, b.y - a.y);
   }
+  // An arc the 140-step preview window has not resolved down to the floor yet:
+  // its last plotted segment is the fastest reading available, and it is an
+  // UNDER-read of the landing that arc would eventually make — the same
+  // truncation `estimateLandingX` handles at its own end of the flight.
   const a = traj[traj.length - 2];
   const b = traj[traj.length - 1];
   return Math.hypot(b.x - a.x, b.y - a.y);
@@ -685,7 +699,7 @@ export function aimCandidates(
       const landX = estimateLandingX(traj, g.compactor.top, target);
       const err = Math.abs(landX - target);
       const cand: AimCandidate = {
-        deg, power: pw, err, landX, impact: estimateImpactSpeed(traj, g.compactor.top),
+        deg, power: pw, err, landX, impact: estimateImpactSpeed(traj),
       };
       allCands.push(cand);
       if (!candidateHitsBar(traj, g.compactor, halfWidthPx)) safeCands.push(cand);
