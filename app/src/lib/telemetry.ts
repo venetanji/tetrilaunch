@@ -44,9 +44,10 @@ export interface BayRecord {
    *
    *  "skydeck" is a THIRD value rather than a flag beside "run", and it earns
    *  the split the same way "contract" did: that bay was flown on a fixed daily
-   *  seed, with no refit stop behind it and one or more standing Final clauses
-   *  on it (game/skydeck.ts), so its clock slack and its low-water mark are
-   *  answers to a different question from a Mark-10 Deep Run bay's. Pooled,
+   *  seed, a rung above the ladder's last on money (level.ts's
+   *  applySkydeckEconomy), and with one or more standing Final clauses on it
+   *  (game/skydeck.ts), so its clock slack and its low-water mark are answers
+   *  to a different question from a Mark-10 Deep Run bay's. Pooled,
    *  they would move the medians the ladder is tuned against — which is exactly
    *  the corruption this field was added to prevent, one mode later.
    *

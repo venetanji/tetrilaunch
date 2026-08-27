@@ -398,10 +398,25 @@ game-over card's **Retry Bay**.
 mode table above prints "Purchasable power: none" for both modes and that is
 unchanged, because the Skydeck itself banks no salvage and ticks no tier. What
 they buy is *access*, and the argument is that the roof asks for exactly what a
-seal records. The Skydeck has no yard, no chosen difficulty and one attempt at
-each bay; "you beat the ladder" was the wrong ticket for that door, because the
-ladder can be beaten with a retry on every bay. A full set of seals is the same
-ten bays with the retry taken away.
+seal records. The Skydeck flies a rung above the ladder's last on money, takes
+the difficulty out of the player's hands, and gives one attempt at each bay;
+"you beat the ladder" was the wrong ticket for that door, because the ladder can
+be beaten with a retry on every bay. A full set of seals is the same ten bays
+with the retry taken away.
+
+**The roof's yard, and the rule that was reversed.** The Skydeck shipped with no
+refit stops at all — "the rig that undocks is the rig that lands" — and an
+owner's playtest reversed it: ten bays whose only decision is the notch is a
+long run with one lever, and the scrap readout the mode had to carry could only
+ever read 0. The stops are back on the ladder's schedule (after bays 3, 6 and 9)
+and the bays pay **half** the ladder's scrap for them (`level.ts`'s
+`SKYDECK_SCRAP_SHARE`), because the pilot who can open this floor arrives with a
+finished Workshop and every rung the yard can still sell them is a tier-3 rung at
+one flat price. At the ladder's own payout that yard would hand over half a ship
+across three stops; the measurement is in
+[`design/balance/skydeck-yard.md`](../design/balance/skydeck-yard.md). What
+survives of the old rule is the half that was load-bearing: consumables are still
+never resupplied there — a stop sells a bigger rack, never a refill.
 
 **And the endgame says so.** A key nobody is told about is a locked door. Until
 an owner reported a finished ladder as "all completed but not unlocked", the
