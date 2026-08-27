@@ -1,9 +1,10 @@
 // Electron shell for the desktop build (Windows/macOS/Linux, eventually Steam).
 //
-// THROWAWAY SPIKE. This exists to answer "does the game run correctly in a real
-// desktop window" — rendering, audio, input, leaderboard. It is not the shipping
-// shell: there is no packaging, no auto-update story, no Steamworks. Keep or
-// discard it on the strength of what it shows.
+// This began as a spike that only had to answer "does the game run correctly in
+// a real desktop window" — rendering, audio, input, leaderboard. It did, so it
+// is now the shipping shell: electron-builder.yml turns it into an NSIS
+// installer, a dmg/zip and an AppImage. Still no auto-update and no Steamworks;
+// those are their own piece of work.
 //
 // It loads the `--mode native` bundle, not the web one. That mode exists because
 // a service worker inside a shell that already ships every asset locally caches
@@ -17,8 +18,23 @@ const { app, BrowserWindow, protocol, net, shell } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-/** The built web bundle. Sibling to this package, written by `vite build`. */
-const DIST = path.join(__dirname, "..", "dist");
+/**
+ * The built web bundle.
+ *
+ * Two locations, because the bundle is a sibling of this package in the repo
+ * and a child of it once packaged. In the checkout `vite build` writes it to
+ * app/dist/, one level up from here. A packaged app has no app/ around it at
+ * all, so electron-builder copies that same tree INTO the archive as `dist/`
+ * (see the `files` mapping in electron-builder.yml) and __dirname is then the
+ * asar root rather than this directory.
+ *
+ * Both paths are read through net.fetch below, which resolves file:// URLs
+ * inside an asar the same way it does on disk — so nothing downstream has to
+ * know which of the two it got.
+ */
+const DIST = app.isPackaged
+  ? path.join(__dirname, "dist")
+  : path.join(__dirname, "..", "dist");
 
 /**
  * WHY A CUSTOM SCHEME RATHER THAN file://.

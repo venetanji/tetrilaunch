@@ -1,4 +1,7 @@
 node_modules
-# electron-builder output, once packaging lands
+# electron-builder output. `release/` is what directories.output points at;
+# `dist/` is electron-builder's own default, kept as a backstop in case that
+# setting is ever dropped — a 157 MB AppImage is not something to notice in a
+# `git add -A`.
 release/
 dist/
