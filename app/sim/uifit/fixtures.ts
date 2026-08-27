@@ -79,10 +79,16 @@ const SKY_DAY = new Date(Date.UTC(2026, 7, 27));
 /** …and the three rows it puts on the menu's recap panel. Built through the
  *  same call main.ts makes, so the fixture cannot drift from the app. */
 const SKY_RULES = clauseDefs(skydeckRulesFor(SKY_DAY)).map((c) => ({ bay: c.bay, name: c.def.name }));
+/** Every Mark sealed — what the roof now costs (meta.ts's skydeckOpen), and
+ *  therefore what any fixture drawing an OPEN Skydeck has to hold. A roof open
+ *  over unsealed floors is a state the app can no longer produce, and a fixture
+ *  measuring one would be measuring a screen nobody sees. */
+const ALL_SEALED = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
 /** The tower with the roof OPEN and the car parked on it — the one state that
  *  renders the clause list. */
 const SKY_TOWER: S.TowerState = {
   unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2,
+  sealed: ALL_SEALED,
 };
 
 /** The bay-clear ratchet at a given tentative selection. Both sides of the
@@ -359,16 +365,23 @@ const SANDBOX_CONTRACT: SandboxState = {
  *  state every string in the base-bay panel is longest in. midMeta is a Mark-0
  *  save, so this is the only fixture that reaches it.
  *
- *  SEALED AT MARK 10, and that Mark specifically: the seal is stamped in the
- *  slack between the plate's number and its windows, and 10 is the only
- *  two-digit number the ladder has — i.e. the narrowest that slack ever gets.
- *  Without this the seal renders nowhere in the whole matrix and every "no new
- *  violations" run is measuring a floor that has no stamp on it. */
+ *  FULLY SEALED, which includes Mark 10 and that Mark specifically: the seal is
+ *  stamped in the slack between the plate's number and its windows, and 10 is
+ *  the only two-digit number the ladder has — i.e. the narrowest that slack
+ *  ever gets. Without a stamp there the seal renders nowhere in the whole
+ *  matrix and every "no new violations" run is measuring a floor that has no
+ *  stamp on it.
+ *
+ *  It used to hold Mark 10 ALONE, which was the narrowest case and is no longer
+ *  a state: the roof it draws open now costs every seal (meta.ts's
+ *  skydeckOpen). The narrow case survives inside the full set; what is lost is
+ *  a tower mixing stamps and empty sockets, and `menu`'s Tier-1 fallback tower
+ *  draws sockets on every run of the matrix, so that half is still measured. */
 const TOWER_TOP: S.TowerState = {
   unlocked: MARK_COUNT,
   selected: S.SKYDECK_TIER,
   skydeck: true,
-  sealed: [MARK_COUNT],
+  sealed: ALL_SEALED,
 };
 
 /** The same tower with Tier S open — the tallest the column ever gets, because
@@ -898,9 +911,29 @@ export const SCREENS: Record<string, () => string> = {
   "end-won": () => endModal(true),
   "end-lost": () => endModal(false),
   // Tier S's end. The progress row is replaced wholesale (no tier, no salvage,
-  // no Workshop invitation) and the action row grows a third button, which is
-  // the widest that row ever gets.
+  // no Workshop invitation) and the action row carries the bench button in
+  // place of the bay retry the mode does not offer.
   "end-sandbox": () => endModal(false, true),
+
+  // THE ONE-TIME SEAL NOTICE (screens.ts's sealBreakModal), over the paused bay
+  // it is priced against — the placement main.ts renders it in. Two paragraphs
+  // and a two-button row: the whole panel is prose, so it is the copy budget
+  // rather than a control that decides whether it fits, and it is the only
+  // panel in the game a player is expected to read every word of.
+  //
+  // The widest numbers it can hold: a two-digit bay, the top tier, and a seal
+  // count one short of the ladder.
+  //
+  // It arrives carrying two baseline entries, exactly as `pause-pad` did and
+  // for the identical reason: they are the 800x600 window's undersized ability
+  // chips and tight rig badges, byte-for-byte the ones `pause` already records,
+  // because the HUD UNDER the modal is the same HUD. A new fixture over
+  // known-defective chrome inherits that chrome's known list; the panel itself
+  // measures clean on all nineteen rows.
+  "seal-break": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null }) + S.sealBreakModal({
+      bayNum: RUN_LEVELS, tier: MARK_COUNT, sealed: MARK_COUNT - 1,
+    }),
 
   // TIER S itself, in all three of the shapes it takes. The mode ships, so
   // these are shipping screens and are held to the same fit budget as every
@@ -960,6 +993,15 @@ export const SCREENS: Record<string, () => string> = {
 
 function endModal(won: boolean, sandbox = false): string {
   return S.endModal({
+    // THE EXITS AT THEIR WIDEST. A lost ladder run is the only shape that draws
+    // all four — Retry Run, Retry Bay with its broken-seal glyph, Contracts
+    // with the NEXT STEP badge, and Menu — over the sentence that prices the
+    // retry, which is the row's real worst case and the one line above it that
+    // can wrap. A win draws three (no bay to hand back) and Tier S draws its
+    // own three, so both of those states are still measured by the other two
+    // fixtures rather than being replaced by this one.
+    contracts: { remaining: 3, next: !won },
+    retryBay: !won && !sandbox ? { sealed: true } : undefined,
     // The board a run posts to is its own Mark (main.ts's boardTier).
     boardTier: 1,
     won,
@@ -1054,6 +1096,12 @@ export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto
     // the bottom of every phone in the matrix — twelve `offscreen` findings
     // that are the fixture's own doing rather than the screen's.
     || id === "bayclear" || id === "bayclear-clause"
+    // …and "seal-break" for the identical reason, which it reproduced exactly:
+    // the notice is a modal over the same HUD as `pause`, and without this the
+    // harness sized a bare rail under three rendered ability buttons and
+    // reported twelve `offscreen` findings that belong to the fixture rather
+    // than to the panel.
+    || id === "seal-break"
     ? HUD_LOADOUT
     : NO_RAIL;
 }

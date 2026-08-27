@@ -235,6 +235,22 @@ export function loadMeta(): MetaState {
     meta.celebratedMark = typeof rawCelebrated === "number" && Number.isFinite(rawCelebrated)
       ? Math.min(meta.mark, Math.max(0, Math.floor(rawCelebrated)))
       : meta.mark;
+    // THE TWO NEW WATERMARKS (meta.ts's sealBreakSeen / skydeckCelebrated), and
+    // they migrate the OPPOSITE way to the one above — the note there says why
+    // that difference is deliberate rather than an oversight.
+    //
+    // `sealBreakSeen` false on a save that predates it: the message has never
+    // been shown to anyone, and a returning player who retries a bay should get
+    // it exactly once, like everybody else. It costs them one panel.
+    //
+    // `skydeckCelebrated` false for the same reason, and it buys something: a
+    // save that already holds every seal (they have been recorded since the
+    // seal shipped) opens the roof the moment this build loads it, and gets the
+    // ride to it on the next menu instead of finding the floor silently open.
+    // A save that does NOT hold every seal gets no ceremony until it earns one,
+    // which is the flag doing its job rather than a migration.
+    meta.sealBreakSeen = meta.sealBreakSeen === true;
+    meta.skydeckCelebrated = meta.skydeckCelebrated === true;
     // Tier-completion progress (see meta.ts's recordRunEnd/recordContractClear).
     // Same fail-closed reading as the lists above: corrupt progress loads as
     // "nothing done yet" rather than as a free tier.

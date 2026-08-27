@@ -1036,6 +1036,31 @@ body.crt-off #app::after { display: none; }
     70% 100%, 30% 100%, 0% 70%, 0% 30%
   );
 }
+/* THE EMPTY SOCKET — a floor that still owes a seal (screens.ts's floorHTML).
+
+   The identical box, the identical clip-path, at the window-socket's own
+   opacity: an OFF window is `currentColor` at 0.14 and this is the same idea
+   in the same vocabulary, so a building with nothing pressed into it reads as
+   unlit rather than as decorated. It costs the plate no width — the stamp is
+   position: absolute (see above), which is also why sim/uifit measures the
+   tower identically with the socket on and off.
+
+   0.16 rather than the windows' 0.14 because the shape is smaller in ink than
+   a filled square of the same box: the octagon's four notches take roughly a
+   sixth of the area, and matching the NUMBER would have left the socket
+   reading fainter than the sockets beside it. */
+.tower__seal--owed { opacity: 0.16; }
+/* …and the refusal points at them. A tap on the locked roof shakes it
+   (.is-denied) and flares every floor still owing a seal, so "all seals" is
+   answered as WHICH seals, in the tower rather than in a toast over it. Two
+   pulses on the same 300ms beat as the shake, so the two read as one event. */
+.tower__floor.is-owed .tower__seal--owed {
+  animation: tower-owed 300ms ease 2;
+}
+@keyframes tower-owed {
+  0%, 100% { opacity: 0.16; }
+  50% { opacity: 1; background: var(--danger); }
+}
 .tower__floor.is-selected {
   border-color: var(--accent); color: var(--accent);
   background: rgba(0, 240, 255, 0.12);
@@ -1082,6 +1107,12 @@ body.crt-off #app::after { display: none; }
   .tower__car { transition: none; }
   .tower__head b, .tower__car span { animation: none; }
   .tower__floor.is-denied { animation: none; }
+  /* The owed sockets still ANSWER the refusal — which seals are missing is the
+     information the tap asked for, not decoration — they just hold the answer
+     instead of pulsing it. main.ts drops the class on the same timer either
+     way (the shake's animationend never fires here, which is why it is a
+     timer). */
+  .tower__floor.is-owed .tower__seal--owed { animation: none; opacity: 0.85; }
   /* The beacon's swell STAYS — it is the gesture's only feedback, and a
      progress indicator that does not move is not one. Only its transition
      goes, so it steps rather than eases. */
@@ -6078,6 +6109,15 @@ button.panel { color: var(--text); }
   min-width: 0; min-height: 0;
   align-content: start;
 }
+/* THE FOOT — two doors out of the shop, centred as one block. This was a lone
+   `align-self:center` on the Start Run button; a row of two needs a row, and
+   the row keeps the pair centred so the screen's exit stays where the eye has
+   always found it rather than sliding left as the second button appears.
+   flex: none so it cannot be squeezed by the scroller above it. */
+.workshop__go {
+  display: flex; flex: none; gap: var(--sp-3);
+  justify-content: center; align-items: center; flex-wrap: wrap;
+}
 .workshop__aside-label {
   font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-muted);
@@ -7207,6 +7247,56 @@ button.panel { color: var(--text); }
   border-radius: var(--r-md);
 }
 .end__why p { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
+
+/* ---------- The seal-break notice (screens.ts's sealBreakModal) ----------
+   Two short paragraphs and a two-button row, once ever. Narrower than the
+   default .modal because it is prose and prose has a measure: 460px at this
+   size is ~62 characters a line, which is inside the band a paragraph is
+   comfortable in — and this is the one panel in the game a player is expected
+   to read every word of. */
+.seal-note { width: min(460px, 92vw); text-align: left; }
+.seal-note__body { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-dim); }
+.seal-note .row { justify-content: flex-end; }
+@media (max-height: 480px) {
+  .seal-note__body { font-size: 12px; line-height: 1.35; }
+}
+
+/* ---------- The bay retry's price ----------
+   One line above the action row, saying what the seal glyph on Retry Bay
+   cannot: the seal breaks, the tier does not (screens.ts's endModal).
+   Deliberately NOT a boxed callout like .end__why above — that box is the
+   loss's own diagnosis and there must be exactly one of those on the card. */
+.end__seal {
+  /* A full-width flex item at the head of the action row, so it reads above
+     the buttons and pushes them onto their own line — see the note at its call
+     site for why it is inside the row rather than a sibling of it. */
+  flex: 1 0 100%; margin: 0; font-size: 12px; line-height: 1.35;
+}
+@media (max-height: 480px) {
+  .end .end__seal { font-size: 10.5px; line-height: 1.3; }
+}
+/* THE BROKEN SEAL, on the button that breaks it — the tower's octagonal stamp
+   (.tower__seal) at button scale with a bar struck through it, so the cost is
+   drawn in the same glyph the reward is. In flow rather than absolute, unlike
+   the tower's: a button lays its own contents out and has the width, which is
+   the whole difference between here and a 72px floor plate.
+
+   The bar is a linear-gradient rather than a pseudo-element because the clip
+   has to cut BOTH — an ::after over a clipped box paints outside the octagon
+   and reads as a tick, not a strike. */
+.btn__seal {
+  width: 11px; height: 11px; flex: none; margin-left: 2px;
+  background:
+    linear-gradient(45deg,
+      transparent calc(50% - 1px), var(--danger) calc(50% - 1px),
+      var(--danger) calc(50% + 1px), transparent calc(50% + 1px)),
+    currentColor;
+  opacity: 0.8;
+  clip-path: polygon(
+    30% 0%, 70% 0%, 100% 30%, 100% 70%,
+    70% 100%, 30% 100%, 0% 70%, 0% 30%
+  );
+}
 
 /* Short (landscape-phone) viewports. This block shipped without the
    short-viewport variant that every other region of the end modal carries,

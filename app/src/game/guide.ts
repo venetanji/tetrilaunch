@@ -568,6 +568,23 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` to learn.`,
   },
   {
+    // THE SEAL, at tier 1, and that is a deliberate departure from the rule the
+    // Skydeck topic below states. The roof's topic is gated because a door the
+    // player cannot see is not worth teaching; the seal is the opposite — it is
+    // earned from the very first Mark, it is drawn on the tower from the first
+    // menu (the empty sockets), and it is spent by a button on the pause modal
+    // that a first-session player will press. A rule you can lose before you
+    // are told about it belongs at the bottom of the catalogue.
+    id: "seals", chapter: "modes", tier: 1,
+    name: "Seals",
+    summary: "Clear a Mark without retrying a bay and its floor is stamped. All ten stamps open the Skydeck.",
+    body: `A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays in one run without`
+      + ` retrying a single one. The tower stamps that floor; empty sockets are the seals still`
+      + ` owed. Retrying a bay costs this run its seal and <b>nothing else</b> — the run counts, the`
+      + ` salvage banks, the tier opens — and any later run can take it, a beaten Mark included.`
+      + ` All <b>${MARK_COUNT}</b> seals open the Skydeck.`,
+  },
+  {
     // The roof, and the last thing in the catalogue to open — gated at the top
     // of the ladder because that is exactly when the floor does (screens.ts's
     // tierOpen). A topic about a door the player cannot see would teach them
@@ -575,10 +592,11 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "skydeck", chapter: "modes", tier: MARK_COUNT,
     name: "The Skydeck",
     summary: "The day's fixed run, flown on the rig you brought. No yard, and the clauses are written for you.",
-    body: `The floor above the ladder, open once you have beaten it. One run a day, dealt from`
-      + ` the date, so everyone flies the same one. <b>No refit stops</b> \u2014 the loadout you`
-      + ` undock with is the loadout you land with \u2014 and <b>one notch a bay</b> instead of the`
-      + ` capstone's two. In their place the day writes <b>${CLAUSE_COUNT} standing clauses</b>,`
+    body: `The floor above the ladder, open once you have beaten it and`
+      + ` <b>sealed every Mark</b> (see Seals). One run a day, dealt from the date,`
+      + ` so everyone flies the same one. <b>No refit stops</b>, and <b>one notch a bay</b>`
+      + ` instead of the capstone's two. In their place the day writes`
+      + ` <b>${CLAUSE_COUNT} standing clauses</b>,`
       + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`,
   },
   {

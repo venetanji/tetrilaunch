@@ -69,8 +69,9 @@ import {
 } from "./game/upgrades";
 import {
   INSTALLS, MARK_COUNT, buyInstall, contractClaimed, installAvailable, markUnlocked,
-  markUnlockCelebrated, nextStep, pendingUnlockMark,
-  recordContractClear, recordRunEnd, safeLoadout, tierProgressFor, unlockAvailable,
+  markUnlockCelebrated, nextStep, pendingSkydeck, pendingUnlockMark,
+  recordContractClear, recordRunEnd, safeLoadout, sealBreakOwed, sealBreakShown,
+  skydeckCelebrated, skydeckOpen, tierProgressFor, unlockAvailable, unsealedMarks,
   unlockById, TIER_CONTRACTS_REQUIRED, type MetaState, type TierResult,
 } from "./game/meta";
 import {
@@ -146,6 +147,12 @@ type AppState =
   | "splash" | "menu" | "howto" | "settings" | "controls" | "leaderboard" | "workshop"
   | "playing" | "bayclear" | "refit" | "draft" | "paused" | "won" | "lost"
   | "contracts" | "contract-end" | "coach-fail"
+  // The one-time seal-break notice (screens.ts's sealBreakModal). Its own
+  // state rather than a flag on "paused" or "lost" because it is reachable
+  // from BOTH of those and has to know which one to hand back — and because
+  // the game loop's gate is `state === "playing"`, so a state of its own is
+  // also what freezes the bay behind it.
+  | "seal-break"
   // A guide drill's result card (game/drills.ts). Its own state rather than a
   // flag on "contract-end": the two settle different things, and sharing a
   // state would mean every branch in that card asking which mode it is in.
@@ -370,6 +377,12 @@ class App {
   /** Clears the locked-floor shake. Held so a rapid second tap restarts it
    *  rather than being cut short by the first tap's timer. */
   private denyTimer = 0;
+  /** The screen the seal-break notice was opened from, and the one "Keep the
+   *  seal" hands back (see requestBayRetry). Only ever one of the two the
+   *  panel can be reached from, so it is typed as those two rather than as an
+   *  AppState — a notice that could return to the menu would be a way out of a
+   *  live run with no run end filed. */
+  private sealBreakBack: "paused" | "lost" = "paused";
   /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
    *  (lib/devmode.ts). Held on the app rather than in the DOM because the
    *  menu's markup is rewritten wholesale by renderOverlay, and a counter
@@ -932,8 +945,14 @@ class App {
       // game-over sting: the run has not ended, the bay is about to be handed
       // straight back, and a funeral cue would tell the player the opposite of
       // what the card in front of them says.
+      // The seal notice joins them, from either side. Opened over a paused bay
+      // it IS the pause; opened over the loss card it cuts the game-over sting
+      // short, deliberately — the run is not what the player is listening to
+      // any more, they are reading a price, and a funeral playing under a
+      // decision is the game arguing for one of the answers.
       case "paused":
       case "coach-fail":
+      case "seal-break":
         stopStinger();
         playMusic("menu");
         return;
@@ -1259,13 +1278,13 @@ class App {
    * next Deep Run at the OLD Mark — so an out-of-range pick is dropped rather
    * than carried, and the default is always the exam.
    *
-   * The Skydeck opens on `mark >= MARK_COUNT`, i.e. once the whole ladder
-   * has actually been beaten — not on `markUnlocked`, which saturates at
-   * MARK_COUNT one clear early.
+   * The Skydeck opens on meta.ts's skydeckOpen — the whole ladder beaten AND
+   * every Mark sealed. It used to be `mark >= MARK_COUNT` alone; the seal half
+   * is new, and the argument for it is in meta.ts beside the predicate.
    */
   private towerState(): S.TowerState {
     const unlocked = markUnlocked(this.meta);
-    const skydeck = this.meta.mark >= MARK_COUNT;
+    const skydeck = skydeckOpen(this.meta);
     const state: S.TowerState = {
       unlocked, selected: unlocked, skydeck,
       // Tier S is a SETTING, not progress — it is drawn under the tower for
@@ -1331,17 +1350,27 @@ class App {
    * them when they choose; the tower is what greets them when they do.
    */
   private armUnlockCelebration(): void {
-    if (pendingUnlockMark(this.meta) === null) return;
-    // THE LAST UNLOCK IS NOT A MARK. Beating Mark 10 opens the Skydeck, and
-    // markUnlocked has nowhere left to go — it saturates at MARK_COUNT, which
-    // is the floor the car is already parked on. So for that one unlock the
-    // pick is moved to the roof, and the ceremony rides there: the ride must
-    // end where the car RESTS (screens.ts's tierTowerHTML draws the two as one
-    // number by construction), and a ceremony that celebrated the floor the
-    // player was already standing on would be celebrating nothing.
+    // TWO EVENTS, ONE RIDE. The ladder moving is one (pendingUnlockMark); the
+    // ROOF opening is now the other (pendingSkydeck), and they came apart the
+    // moment the Skydeck started asking for seals instead of for the last
+    // Mark. A player can beat Mark 10 with seals still owed — no roof — and
+    // can land the last seal on a re-flown Mark 3 weeks later, with the ladder
+    // long since finished and `mark` unmoved. Neither event can be expressed
+    // in the other's watermark, so both are asked here and either arms the
+    // same ride.
+    const roof = pendingSkydeck(this.meta);
+    if (pendingUnlockMark(this.meta) === null && !roof) return;
+    // THE ROOF IS NOT A MARK, so the ride is redirected to it. This used to be
+    // `mark >= MARK_COUNT` on the argument that beating Mark 10 IS the roof
+    // opening; that argument has been replaced by the seals, so the test is
+    // simply whether the floor the ceremony would celebrate has actually
+    // opened. Without it a Mark-10 completion with seals owed would ride to a
+    // locked floor — towerState's clamp would refuse the pick and park the car
+    // back on Mark 10, i.e. a ceremony for the floor the player was already
+    // standing on, which is exactly what this branch exists to prevent.
     //
     // Stamped like any other pick, so towerState's freshness clamp accepts it.
-    if (this.meta.mark >= MARK_COUNT) {
+    if (roof) {
       this.pickedTier = S.SKYDECK_TIER;
       this.pickedAtMark = this.meta.mark;
     }
@@ -1349,7 +1378,12 @@ class App {
     // player who closes the app halfway up the shaft has seen their tier open;
     // the alternative is a ceremony that replays on every launch until it is
     // watched all the way through, which turns a reward into a toll.
+    //
+    // BOTH watermarks, whichever event armed the ride: a Mark completion that
+    // also lands the last seal is one ride, not one now and another on the next
+    // visit to a menu that has nothing left to announce.
     this.meta = markUnlockCelebrated(this.meta);
+    if (roof) this.meta = skydeckCelebrated(this.meta);
     saveMeta(this.meta);
     this.celebrating = true;
     // The clock every later render measures its offset against, set before
@@ -1557,6 +1591,20 @@ class App {
     // is parked on. The old branch that navigated from here is gone.
     const floor = shaft.querySelector<HTMLElement>(`[data-tier="${tier}"]`);
     if (!S.tierOpen(state, tier)) {
+      // THE ROOF'S REFUSAL ANSWERS "WHICH ONES". Every other locked floor is
+      // refused by one number the player can read off the tower already — the
+      // Mark above their unlock — so a shake is the whole answer. The Skydeck
+      // is refused by a SET, and "all ten seals" is not a thing a shaking plate
+      // can say. So the tap flares the empty sockets on every floor that still
+      // owes one (screens.ts's .tower__seal--owed), and the bill is itemised in
+      // the building the player is already looking at rather than in a toast
+      // over it — the same argument the shake itself has always made.
+      const owed = tier === S.SKYDECK_TIER
+        ? Array.from(shaft.querySelectorAll<HTMLElement>(".tower__seal--owed"))
+          .map((s) => s.parentElement)
+          .filter((f): f is HTMLElement => f !== null && f !== floor)
+        : [];
+      for (const f of owed) f.classList.remove("is-owed");
       if (floor) {
         floor.classList.remove("is-denied");
         // Force a reflow so a second tap on the same locked floor replays the
@@ -1564,8 +1612,14 @@ class App {
         // one frame is a no-op to the animation engine otherwise.
         void floor.offsetWidth;
         floor.classList.add("is-denied");
+      }
+      for (const f of owed) f.classList.add("is-owed");
+      if (floor || owed.length) {
         window.clearTimeout(this.denyTimer);
-        this.denyTimer = window.setTimeout(() => floor.classList.remove("is-denied"), 620);
+        this.denyTimer = window.setTimeout(() => {
+          floor?.classList.remove("is-denied");
+          for (const f of owed) f.classList.remove("is-owed");
+        }, 620);
       }
       return;
     }
@@ -1984,6 +2038,25 @@ class App {
           this.mountEndScrim(S.coachFailHTML(g.lossReason, g.level, g.level.name));
         }
         break;
+      // The one-time seal notice, over whichever bay it was called from — the
+      // same placement the tutorial's failure card uses, and for the same
+      // reason: the thing being priced is THIS bay, and it is right there
+      // behind the panel.
+      case "seal-break":
+        if (g && this.run) {
+          this.overlay.innerHTML =
+            S.hudHTML(this.hudOpts(g)) +
+            S.sealBreakModal({
+              bayNum: this.run.levelIndex + 1,
+              tier: tierProgressFor(this.meta).tier,
+              // Counted off the ladder rather than off the list's length: a
+              // save can hold a Mark the ladder no longer has (lib/store.ts
+              // clamps values, not range), and "11 of 10 sealed" is the kind
+              // of number that makes a player distrust every other one.
+              sealed: MARK_COUNT - unsealedMarks(this.meta).length,
+            });
+        }
+        break;
       case "won":
       case "lost":
         if (g && this.run) {
@@ -2026,6 +2099,25 @@ class App {
               // labelling it with the Mark it borrowed would say the practice
               // score is on the ladder.
               boardTier: this.runBoard(),
+              // THE CONTRACTS ROUTE. Both halves come from the same places the
+              // home screen asks — today's board and meta.ts's nextStep — so
+              // the two surfaces cannot disagree about whether there is
+              // anything to do or about which door is the next step.
+              contracts: {
+                remaining: this.todaysContracts()
+                  .filter((c) => !contractClaimed(this.meta, c.id)).length,
+                next: nextStep(this.meta) === "contracts",
+              },
+              // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
+              // its bench one tap away and re-flies the same configuration
+              // from the primary; the Skydeck is the day's single attempt, and
+              // a retryable daily is a leaderboard nobody can read. Both are
+              // exactly the runs tracksLadder refuses, which is why the test
+              // is that one rather than two.
+              retryBay:
+                this.state === "lost" && tracksLadder(this.run)
+                  ? { sealed: this.run.restarts === 0 }
+                  : undefined,
             }),
           );
         }
@@ -3152,7 +3244,18 @@ class App {
     }
     const result = recordRunEnd(
       this.meta, this.run.mark, won, this.run.levelIndex + 1, this.run.restarts,
+      // A run can end twice now: the game-over card's Retry Bay hands this same
+      // RunState back (retryBay), so a run that dies at bay 7 and wins at bay
+      // 10 files here as a loss and again as a win. The flag is what keeps the
+      // lifetime counter a count of RUNS rather than of endings — see
+      // meta.ts's recordRunEnd, which explains why every other consequence
+      // needs no such guard.
+      this.run.filed,
     );
+    // Stamped BEFORE the modal so the retry that reads it cannot race the
+    // write, and on the run rather than on `this` so advanceRun carries it
+    // through every bay the resumed run goes on to clear.
+    this.run = { ...this.run, filed: true };
     this.lastTier = result;
     this.meta = result.meta;
     telemetry.endRun(won, result.salvage);
@@ -3600,11 +3703,25 @@ class App {
    *  carried surplus and drafted mods exactly as they were at this bay's entry.
    *
    *  Every caller has its OWN, narrower guard — restartBay: paused; the held
-   *  pause button: playing; coachRetry: coach-fail. This list is the floor
-   *  under all three, so no future caller can rebuild a bay from a screen the
-   *  player is not standing in. */
+   *  pause button: playing; coachRetry: coach-fail; retryBay: lost; and the
+   *  seal-break notice's confirm, which fires from its own screen with the
+   *  first three already behind it. This list is the floor under all of them,
+   *  so no future caller can rebuild a bay from a screen the player is not
+   *  standing in.
+   *
+   *  "lost" IS THE NEW ONE, and it is the same rebuild seen from the far side
+   *  of a run end. `this.run` was never advanced past the bay that killed it —
+   *  advanceRun runs on a CLEAR (afterBayClear), never on a loss — so the
+   *  carry, scrap, ratchets and Bond magazine sitting on it are still that
+   *  bay's entry values, and startLevel below hands back exactly the bay the
+   *  pause modal would have. The run's END has already been filed against the
+   *  ladder by then (RunState.filed); the run itself has not ended. */
   private resetBay(): void {
-    if (this.state !== "playing" && this.state !== "paused" && this.state !== "coach-fail") return;
+    if (
+      this.state !== "playing" && this.state !== "paused"
+      && this.state !== "coach-fail" && this.state !== "lost"
+      && this.state !== "seal-break"
+    ) return;
     // A hold that restarted the bay must not leave its own meter counting on a
     // button the rebuild is about to replace, and the Autoloader must not stay
     // held down through a bay that no longer exists. setState does NOT do the
@@ -3655,6 +3772,77 @@ class App {
    *  makes against this one. */
   private restartBay(): void {
     if (this.state !== "paused") return;
+    this.requestBayRetry();
+  }
+
+  /** The game-over card's "Retry Bay" — the bay handed back after the run has
+   *  already been filed as a loss. Its own guard, same split as above. */
+  private retryBay(): void {
+    if (this.state !== "lost") return;
+    this.requestBayRetry();
+  }
+
+  /**
+   * EVERY DOOR INTO A BAY RETRY THAT CAN CHARGE THE SEAL passes through here,
+   * and its only job is to make sure the charge is quoted once before it is
+   * ever made (screens.ts's sealBreakModal says why once and not every time).
+   *
+   * Three doors: the pause modal's Restart Bay, the held ⏸, and the loss
+   * card's Retry Bay. The tutorial's failure card is deliberately NOT one of
+   * them — coachRetry goes straight to resetBay. That retry happens on bay 1
+   * of a first-ever run, to a player who has not yet been told what a Mark is,
+   * let alone a seal; the panel would be a lecture about a record they cannot
+   * yet read, delivered in the middle of the lesson that teaches them to aim.
+   * It still counts as a retry and still breaks the seal — the cost is the
+   * same, it is the NOTICE that is held back until the player is somewhere it
+   * can mean something.
+   *
+   * THE STAKES TEST is what stops the panel firing where there is nothing to
+   * charge: a run the ladder does not track keeps no seal at all (Tier S never
+   * increments `restarts`, and the Skydeck is never offered a retry), and a run
+   * that has already retried a bay has already spent it. Quoting a price that
+   * has been paid is how a warning teaches itself to be ignored.
+   */
+  private requestBayRetry(): void {
+    const run = this.run;
+    const stakes = !!run && tracksLadder(run) && run.restarts === 0;
+    if (!stakes || !sealBreakOwed(this.meta)) {
+      this.resetBay();
+      return;
+    }
+    // BURNED ON SHOW, not on confirm. The player who reads the panel and backs
+    // out has been told; making the watermark depend on which button they
+    // pressed would replay the lecture at every restart until they finally
+    // agreed to it, which is the toll this panel exists not to be.
+    this.meta = sealBreakShown(this.meta);
+    saveMeta(this.meta);
+    // Where "Keep the seal" hands them back. From play (the held ⏸) that is
+    // the pause modal rather than the live bay: the gesture had already taken
+    // the bay away from them, and dropping them back into a field mid-flight
+    // after reading two paragraphs is worse than dropping them on the menu
+    // that offers the same choice again. `game.paused` is set for the same
+    // reason resume() sets it back — the loop's gate is the state, but the
+    // Game's own flag has to agree or the bay resumes on a stale clock.
+    this.sealBreakBack = this.state === "lost" ? "lost" : "paused";
+    if (this.game) this.game.paused = true;
+    this.setState("seal-break");
+  }
+
+  /** The notice's two answers. "Keep the seal" returns to whichever screen
+   *  asked; "Retry Bay" does what the button that opened the panel meant. */
+  private onSealBreak(go: boolean): void {
+    if (this.state !== "seal-break") return;
+    if (!go) {
+      this.setState(this.sealBreakBack);
+      return;
+    }
+    // Straight to resetBay rather than back through requestBayRetry: the
+    // watermark is already burned, so the round trip would be a no-op with one
+    // more chance to get a state guard wrong. Asked from THIS screen rather
+    // than by restoring the one behind it first — a setState back to "lost"
+    // would replay the game-over stinger and re-arm the end scrim's collapse
+    // hold for a card nobody is going to see, which is a whole second of
+    // ceremony for a frame.
     this.resetBay();
   }
 
@@ -4182,6 +4370,10 @@ class App {
   private padBackTarget(): string | null {
     switch (this.state) {
       case "paused": return '[data-action="resume"]';
+      // The seal notice DOES have a back, unlike the end modals above: it is
+      // not a choice between exits, it is one action being priced, and the
+      // reversible answer is the one B should give.
+      case "seal-break": return '[data-action="seal-break-back"]';
       // Controls goes back through whichever door opened it (controlsBack).
       case "controls": return `[data-action="${this.controlsBack}"]`;
       case "settings": case "workshop": case "contracts":
@@ -4497,6 +4689,13 @@ class App {
         else this.startGame();
         break;
       case "restart-bay": this.restartBay(); break;
+      // The loss card's Retry Bay — the same bay the pause modal would hand
+      // back, from the far side of a run end. It is the only action on that
+      // card that spends something permanent, which is why it is not the
+      // card's primary (screens.ts's endModal argues the placement).
+      case "retry-bay": this.retryBay(); break;
+      case "seal-break-go": this.onSealBreak(true); break;
+      case "seal-break-back": this.onSealBreak(false); break;
       // Retry from the tutorial's failure card. startLevel rebuilds this bay
       // from the run (which never advanced, so its seed, funds and Bond
       // Breaker stock are untouched) and re-arms the coach at step 0 — the
@@ -4824,7 +5023,10 @@ class App {
       // A three-beat notification, not the tap the press already got: the bay
       // is being thrown away, which is worth a different answer than "counted".
       void successHaptic();
-      this.resetBay();
+      // Through the shared door, so the gesture cannot be the one route into a
+      // bay retry that never quotes the seal. On every hold after the first it
+      // is the same immediate rebuild it always was.
+      this.requestBayRetry();
     });
     return true;
   }

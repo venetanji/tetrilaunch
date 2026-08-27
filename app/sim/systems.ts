@@ -69,6 +69,7 @@ import {
   UNLOCKS, unlockAvailable, draftSlots, DRAFT_BASE_SLOTS, DRAFT_FULL_SLOTS,
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
+  pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated, skydeckOpen, unsealedMarks,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -1992,6 +1993,16 @@ section("Refit cadence + run economy (run.ts)");
     conceded.restarts === 2,
     String(conceded.restarts),
   );
+  // …and so does the FILED flag, for the same reason and with a different
+  // consequence. A run that lost bay 7, retried it from the game-over card and
+  // then cleared it has already been booked once (meta.ts's recordRunEnd
+  // `refiled`); a rebuild that dropped the flag would re-count the run in the
+  // lifetime total at the very next bay boundary.
+  check("a filed run stays filed across a bay boundary", conceded.filed === false);
+  const resumed = advanceRun(
+    advanceRun({ ...newRun(5), filed: true }, 800, 800, 0, 0, []), 800, 800, 0, 0, [],
+  );
+  check("...and a resumed one is still on the books", resumed.filed === true);
 
   // Bank a bay: overshoot carries as funds, scrap accumulates separately.
   run = advanceRun(run, 950, 800, 8, 26, ["cost"]);
@@ -2684,6 +2695,103 @@ section("Tier milestones pay the salvage (meta.ts)");
   // and any future count of "floors sealed" reads high.
   const again = recordRunEnd(clean.meta, 1, true, 5, 0);
   check("re-flying a sealed Mark clean seals it once", again.meta.sealedMarks.length === 1);
+
+  // ---- A RUN THAT ENDS TWICE ---------------------------------------------
+  // The game-over card's Retry Bay hands the SAME run back (main.ts's
+  // retryBay), so a run can reach recordRunEnd twice: once as the loss that
+  // opened the card, once as whatever it becomes afterwards. Everything here is
+  // idempotent under that except the lifetime run COUNT, which counts runs and
+  // not endings — RunState.filed is what says "this one is already on the
+  // books" and `refiled` is what carries it in.
+  {
+    const start = newMeta();
+    // Bay 7 kills it. Filed: one run, deepest bay 7, nothing sealed.
+    const died = recordRunEnd(start, 1, false, 7, 0).meta;
+    check("the loss is filed as one run", died.runs === 1 && died.bestBay === 7);
+    // Retry, then the distance. Same run, second filing, one retry on it.
+    const finished = recordRunEnd(died, 1, true, RUN_LEVELS, 1, true);
+    check("a resumed run is still one run", finished.meta.runs === 1,
+      `${finished.meta.runs} runs`);
+    check("...and still banks the tier it won", finished.meta.tierRunDone
+      && finished.salvage === share);
+    check("...and still reaches the bay it reached", finished.meta.bestBay === RUN_LEVELS);
+    // THE PRICE. This is the whole of what a retry costs, and the notice the
+    // player is shown once (screens.ts's sealBreakModal) promises exactly this
+    // pair: the seal goes, the tier does not.
+    check("...but cannot be sealed", !finished.meta.sealedMarks.includes(1));
+    // The control: the identical run with no retry on it seals, so the check
+    // above is measuring the retry rather than something else about the path.
+    check("...where the same run flown clean would have sealed",
+      recordRunEnd(died, 1, true, RUN_LEVELS, 0, true).meta.sealedMarks.includes(1));
+    // …and `refiled` is the ONLY thing the flag changes. Two filings of the
+    // same shape differ in the run counter and in nothing else, or the flag has
+    // grown a second meaning nobody declared.
+    const counted = recordRunEnd(died, 1, true, RUN_LEVELS, 1, false).meta;
+    check("refiling changes the run count and nothing else",
+      counted.runs === died.runs + 1
+        && JSON.stringify({ ...counted, runs: 0 })
+          === JSON.stringify({ ...finished.meta, runs: 0 }));
+  }
+
+  // ---- THE SEALS ARE THE SKYDECK'S KEY (meta.ts's skydeckOpen) ------------
+  // The gate #124 shipped was "the ladder is beaten". It is now "the ladder is
+  // beaten AND every Mark is sealed", because a ladder can be beaten with a
+  // retry on every bay — the roof would have been handed to a player who had
+  // never flown a bay they could not restart, which is precisely what the roof
+  // asks for on the day (skydeck.ts: no yard, no chosen difficulty, one
+  // attempt).
+  {
+    const allMarks = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+    const beaten: MetaState = { ...newMeta(), mark: MARK_COUNT };
+    check("the ladder beaten alone no longer opens the roof", !skydeckOpen(beaten));
+    check("...and it is the seals that are missing",
+      unsealedMarks(beaten).length === MARK_COUNT);
+    const sealedNotBeaten: MetaState = { ...newMeta(), mark: MARK_COUNT - 1, sealedMarks: allMarks };
+    // The near-miss that makes the second condition load-bearing rather than
+    // decorative: a Mark-10 WIN seals Mark 10 the moment it lands, while `mark`
+    // only reaches MARK_COUNT once that tier's Contracts land too. Ten seals
+    // and two owed Contracts is not a beaten ladder.
+    check("every seal without a beaten ladder does not open it either",
+      unsealedMarks(sealedNotBeaten).length === 0 && !skydeckOpen(sealedNotBeaten));
+    const both: MetaState = { ...beaten, sealedMarks: allMarks };
+    check("both together open it", skydeckOpen(both));
+    // One missing seal shuts it again — the gate is the SET, not a count that
+    // could be satisfied by a duplicate or an out-of-range entry.
+    check("one missing seal shuts it",
+      !skydeckOpen({ ...both, sealedMarks: allMarks.filter((m) => m !== 4) }));
+    check("...and a duplicate does not stand in for it",
+      !skydeckOpen({ ...both, sealedMarks: [...allMarks.filter((m) => m !== 4), 3] }));
+    // ACCESS IS NOT POWER, which is what keeps the seal inside the rule the
+    // section above states. The roof banks no salvage and ticks no tier
+    // (run.ts's tracksLadder), so nothing a seal opens can make a later run
+    // numerically stronger.
+    check("what the seals open still pays nothing",
+      !tracksLadder(skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)))));
+
+    // THE ROOF'S OWN CEREMONY. It used to ride on the Mark's watermark, because
+    // beating Mark 10 WAS the roof opening; the two events have come apart, so
+    // the roof needs its own — and it fires once.
+    check("the roof owes a ride the moment it opens", pendingSkydeck(both));
+    check("...and a shut roof owes none", !pendingSkydeck(beaten));
+    const ridden = skydeckCelebrated(both);
+    check("...and only one", !pendingSkydeck(ridden));
+    check("...burning it is idempotent", skydeckCelebrated(ridden) === ridden);
+  }
+
+  // ---- THE ONE-TIME SEAL NOTICE ------------------------------------------
+  // A bay retry has always cost the seal silently. It cannot stay silent now
+  // that the seals open a door, so the cost is quoted once, ever, on a
+  // watermark — see screens.ts's sealBreakModal for why once and not always.
+  {
+    check("a fresh save is owed the notice", sealBreakOwed(newMeta()));
+    const shown = sealBreakShown(newMeta());
+    check("...and is owed it exactly once", !sealBreakOwed(shown));
+    check("...showing it again changes nothing", sealBreakShown(shown) === shown);
+    // It is a WATERMARK and nothing else: it must not be able to move a number
+    // the ladder reads, or a message would have become a currency.
+    check("the notice moves no progression",
+      JSON.stringify({ ...shown, sealBreakSeen: false }) === JSON.stringify(newMeta()));
+  }
 
   let contractsOnly = { meta: newMeta(), completedTier: null as number | null, salvage: 0 };
   for (const c of board(1)) {
@@ -6928,10 +7036,17 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     const beaten: MetaState = {
       // The arrival that makes the bug reachable: the ladder finished, so
       // markUnlocked saturates and the "tier in progress" is Mark 10 again.
+      //
+      // FULLY SEALED as well, now that the roof asks for it (meta.ts's
+      // skydeckOpen). The seals are not what makes the bug reachable — the
+      // saturation is — but a fixture that could not actually open the roof
+      // would be proving the guard on a state no Skydeck player is ever in,
+      // which is how a pin quietly stops covering the thing it was written for.
       ...newMeta(), mark: MARK_COUNT, salvage: 40,
+      sealedMarks: Array.from({ length: MARK_COUNT }, (_, i) => i + 1),
     };
     check("the arrival is the one that opens the Skydeck",
-      markUnlocked(beaten) === MARK_COUNT && beaten.mark >= MARK_COUNT);
+      markUnlocked(beaten) === MARK_COUNT && skydeckOpen(beaten));
 
     const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
     const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
@@ -6962,9 +7077,20 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // The seal is the half NOT gated on the Mark being current (recordRunEnd's
     // `sealed`), so it is the one an "it is already done at Mark 10" argument
     // would have missed.
+    //
+    // Asserted as "adds none" rather than "holds none": the fixture above is
+    // fully sealed, because that is the only state a Skydeck player can be in
+    // now. The control is the same save with Mark 10's seal lifted — a ladder
+    // run there puts it back, a Skydeck run does not, which is the difference
+    // the mode's gate exists to make.
+    const unsealedTop: MetaState = {
+      ...beaten, sealedMarks: beaten.sealedMarks.filter((m) => m !== MARK_COUNT),
+    };
     check("a Skydeck run never seals a Mark",
-      finish(sky, true).sealedMarks.length === 0
-        && recordRunEnd(beaten, MARK_COUNT, true, RUN_LEVELS, 0).meta.sealedMarks.length === 1);
+      finish(sky, true).sealedMarks.join() === beaten.sealedMarks.join()
+        && !tracksLadder(sky)
+        && recordRunEnd(unsealedTop, MARK_COUNT, true, RUN_LEVELS, 0)
+          .meta.sealedMarks.includes(MARK_COUNT));
   }
 
   // ---- THE ANALYSER IS TOLD WHICH MODE IT IS LOOKING AT --------------------
@@ -8178,12 +8304,24 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
   // says it once, and says it in words as well as in a class name.
   const base: S.TowerState = { unlocked: 3, selected: 3, skydeck: false, sealed: [2] };
   const html = S.tierTowerHTML(base);
-  check("a sealed floor is marked", html.includes("tower__seal"));
-  check(
-    "an unsealed floor is not",
-    (html.match(/tower__seal/g) ?? []).length === 1,
-    `${(html.match(/tower__seal/g) ?? []).length} seals for one sealed Mark`,
-  );
+  /** Stamps PRESSED — the filled seal, and only it. Matched on the closing
+   *  quote so the empty socket's own class (`tower__seal tower__seal--owed`)
+   *  cannot be counted as one: the two are now one glyph in two states, and a
+   *  substring test would call the bill a receipt. */
+  const stamped = (h: string): number => (h.match(/class="tower__seal"/g) ?? []).length;
+  const owed = (h: string): number => (h.match(/tower__seal--owed/g) ?? []).length;
+  check("a sealed floor is marked", stamped(html) === 1, `${stamped(html)} stamps`);
+  // THE EMPTY SOCKET is what makes "all seals open the roof" legible without a
+  // sentence on the menu (screens.ts's floorHTML): the building shows its own
+  // bill. Three here — Marks 1 and 3, which are open and unsealed, and the
+  // locked roof, which is waiting on both of them.
+  check("every floor that still owes a seal shows an empty socket",
+    owed(html) === 3, `${owed(html)} sockets`);
+  // …and NOT on a Mark the player cannot fly yet. A floor above the unlock has
+  // a Mark question, not a seal question, and ten sockets on a Mark-1 tower
+  // would be a bill for a mode whose door that player cannot see.
+  check("a locked Mark is not billed for a seal it cannot earn",
+    stamped(html) + owed(html) === 4);
   // The distinction must survive a viewer who cannot separate the hues. The
   // stamp is a shape and it is aria-hidden, so the floor's accessible NAME is
   // what carries it to anyone the shape does not reach. Asserted as the whole
@@ -8194,19 +8332,167 @@ section("The tower's seal — a Mark cleared in one unbroken run (screens.ts)");
     html.includes('aria-label="Tier 2 — sealed"'),
   );
   // The Skydeck is not a Mark. meta.ts can never record a seal for it, so a
-  // build in which the Skydeck could wear one is drawing a state nothing
-  // produces.
-  check(
-    "the Skydeck is never sealed",
-    !S.tierTowerHTML({ ...base, skydeck: true, sealed: [S.SKYDECK_TIER] })
-      .includes("tower__seal"),
-  );
+  // build in which the Skydeck could wear a PRESSED stamp is drawing a state
+  // nothing produces — and an OPEN roof wears nothing at all, socket included:
+  // the socket is the floor stating what it wants, and a floor that has what it
+  // wants states nothing.
+  {
+    const openRoof = S.tierTowerHTML({
+      ...base, unlocked: MARK_COUNT, skydeck: true,
+      sealed: [...Array.from({ length: MARK_COUNT }, (_, i) => i + 1), S.SKYDECK_TIER],
+    });
+    const skyFloor = /<button[^>]*data-tier="\d+"[^>]*>(?:(?!<\/button>).)*<span class="tower__n">SKY<\/span>(?:(?!<\/button>).)*<\/button>/s
+      .exec(openRoof)?.[0] ?? "";
+    check("the Skydeck is never sealed", skyFloor.length > 0 && !skyFloor.includes("tower__seal"),
+      skyFloor ? "the roof carries a stamp" : "the roof was not found");
+    // The bill it replaced, so the check above cannot pass by the roof simply
+    // never drawing anything.
+    const shutRoof = S.tierTowerHTML({ ...base, unlocked: MARK_COUNT, skydeck: false });
+    check("...but a shut one shows what it is waiting for",
+      shutRoof.includes("tower__seal--owed"));
+  }
+  // THE ROOF'S PRICE IN WORDS. The sockets are a shape and the shape is
+  // aria-hidden, so the locked floor's accessible name is the only place the
+  // count reaches a screen-reader user — and the count is the whole gate
+  // (meta.ts's skydeckOpen).
+  check("a locked roof states how many Marks are sealed",
+    S.tierTowerHTML({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, sealed: [1, 2, 4] })
+      .includes(`aria-label="Skydeck — locked — 3 of ${MARK_COUNT} Marks sealed"`));
+  // …and an OPEN one says only its name, which is what the top-floor naming
+  // pins below assert verbatim.
+  check("...and an open one says only its name",
+    S.tierTowerHTML({ unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: true })
+      .includes('aria-label="Skydeck"'));
   // Absent reads as none — menuScreen's fallback tower and every uifit fixture
-  // that predates the seal must render exactly the tower they always did.
+  // that predates the seal must render no STAMPS. They do now draw sockets, and
+  // that is the change being made rather than a regression: a tower with no
+  // seal record is a tower that owes every seal it can earn.
   check(
-    "a tower with no seal record draws no seals",
-    !S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false }).includes("tower__seal"),
+    "a tower with no seal record draws no stamps",
+    stamped(S.tierTowerHTML({ unlocked: 3, selected: 3, skydeck: false })) === 0,
   );
+}
+
+// ---------------------------------------------------------------------------
+section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
+// ---------------------------------------------------------------------------
+{
+  /** A run end, with only the things these checks are about spelled out. The
+   *  rest is a plausible losing run, because a fixture that varied everything
+   *  would make each failure a hunt for which knob moved it. */
+  const end = (o: Partial<Parameters<typeof S.endModal>[0]> = {}): string =>
+    S.endModal({
+      won: false, runComplete: false, score: 40_000, lines: 90, baysCleared: 6,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", reason: "broke",
+      bayNum: 7, bayName: "Cryo Vault", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, tiers: newTiers(), boardTier: 1,
+      ...o,
+    });
+
+  // ---- THE CONTRACTS ROUTE -----------------------------------------------
+  // The end card is where a player decides what to do next, and it used to
+  // offer the run again or the menu. Contracts pay the salvage the next run
+  // wants, so the door belongs here — but only while there is something behind
+  // it: a board of three ticks is a door onto free practice, which is not what
+  // to advertise on the way out of a lost run.
+  check("a board with cards left offers the route",
+    end({ contracts: { remaining: 2, next: false } }).includes('data-action="contracts"'));
+  check("...and a fully cleared board does not",
+    !end({ contracts: { remaining: 0, next: true } }).includes('data-action="contracts"'));
+  check("...and a caller that knows nothing about the board draws nothing",
+    !end().includes('data-action="contracts"'));
+  // THE BADGE IS meta.ts's nextStep AND NOTHING ELSE, which is what keeps "one
+  // surface carries it" true across the screen boundary. Available is not the
+  // same question as next: a player whose salvage already covers an install is
+  // being sent to the Workshop, and this card has a Workshop button of its own
+  // in the salvage row.
+  check("the route is badged only when Contracts are the next step",
+    end({ contracts: { remaining: 3, next: true } }).includes("Next step"));
+  check("...and merely being available earns no badge",
+    !end({ contracts: { remaining: 3, next: false } }).includes("Next step"));
+  // The card's OTHER badge-bearer, so the two cannot both light: a run that
+  // banked salvage draws a Workshop button, and nextStep answers "workshop"
+  // exactly when it would not answer "contracts".
+  check("the two doors are the same rule's two branches",
+    nextStep({ ...newMeta(), salvage: 1_000 }) === "workshop"
+      && nextStep(newMeta()) === "contracts");
+
+  // ---- RETRY BAY vs RETRY RUN --------------------------------------------
+  // They were one button ("Play Again") that only ever meant the fresh start.
+  // Two now, because they hand back two different things — and the pair only
+  // reads if both halves say which.
+  const lost = end({ retryBay: { sealed: true }, contracts: { remaining: 3, next: true } });
+  check("a lost ladder run offers the bay back", lost.includes('data-action="retry-bay"'));
+  check("...and the fresh start beside it, named", lost.includes(">Retry Run<"));
+  check("...and never as one button", !lost.includes(">Play Again<"));
+  // NOT THE PRIMARY, and this is the pin that matters most on this screen.
+  // padnav's focusInitial lands a pad on the primary button, so whichever
+  // button wears it is what a stray A after a loss presses — and Retry Bay is
+  // the only control on the card that spends something permanent. The primary
+  // stays the fresh start, which is the slot "Play Again" already held.
+  const primary = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(lost)?.[1];
+  check("the button a stray press finds is not the one that costs the seal",
+    primary === "restart", primary ?? "no primary");
+  // NEVER SILENT. The glyph is on the button and the sentence is above the row,
+  // and the sentence carries the half a player will otherwise get wrong.
+  check("the retry wears the broken seal", lost.includes("btn__seal"));
+  check("...and says what it does and does not cost",
+    /breaks this run's seal/.test(lost) && /still opens/.test(lost));
+  // …and stops saying it once the price has been paid. A warning that outlives
+  // its cost is how a player learns to stop reading warnings.
+  const spent = end({ retryBay: { sealed: false } });
+  check("a run that has already retried is not warned again",
+    spent.includes('data-action="retry-bay"') && !spent.includes("btn__seal"));
+  // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
+  // a run tracksLadder accepts — Tier S re-flies its whole configuration from
+  // the primary, and the Skydeck is the day's single attempt, which is the
+  // whole of what the mode sells (skydeck.ts).
+  check("a Tier S end offers no bay retry",
+    !end({ sandbox: true, sandboxSetup: "Mark 10 · from bay 9" })
+      .includes('data-action="retry-bay"'));
+  check("...and neither does a win",
+    !end({ won: true, runComplete: true, reason: null }).includes('data-action="retry-bay"'));
+
+  // ---- THE ONE-TIME NOTICE ------------------------------------------------
+  {
+    const note = S.sealBreakModal({ bayNum: 7, tier: 4, sealed: 3 });
+    // The second paragraph is the whole point of the panel: a player who thinks
+    // a retry forfeits the tier will abandon runs they could still win.
+    check("the notice promises the tier still opens", /Tier 4 still opens/.test(note));
+    check("...and quotes the roof's price in the tower's own numbers",
+      note.includes(`${MARK_COUNT} Marks carry a stamp`) && /3 of 10 so far/.test(note));
+    check("...and offers both answers", note.includes('data-action="seal-break-go"')
+      && note.includes('data-action="seal-break-back"'));
+    // Same reasoning as the end card's primary, one screen further in: the
+    // reversible answer is the one a pad lands on.
+    const keep = /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(note)?.[1];
+    check("keeping the seal is the default answer", keep === "seal-break-back", keep ?? "none");
+  }
+
+  // ---- THE WORKSHOP'S OTHER DOOR ------------------------------------------
+  // The Workshop is where a player finds out they are short of salvage — every
+  // greyed price on its shelf says so — and the thing that pays salvage was a
+  // trip through the home screen away.
+  {
+    /** Just the Contracts button, so a badge counted here is that button's and
+     *  not the shelf card's — the two live on the same screen and `includes`
+     *  cannot tell them apart. */
+    const route = (h: string): string =>
+      /<button[^>]*data-action="contracts"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const shop = S.workshopScreen(newMeta());
+    check("the Workshop routes to Contracts", route(shop).length > 0);
+    check("...without giving up its own primary",
+      /<button class="btn btn--primary btn--lg" data-action="play"/.test(shop));
+    // A fresh save owes Contracts and can afford nothing, so the badge is here;
+    // a save holding salvage is being sent to the shelf instead, and the two
+    // badges on this screen can never both light.
+    check("...badged when Contracts are the next step", route(shop).includes("next-badge"));
+    const rich = S.workshopScreen({ ...newMeta(), salvage: 1_000, mark: 3 });
+    check("...and not when the shelf is the next step",
+      route(rich).length > 0 && !route(rich).includes("next-badge")
+        && rich.includes("shop-card--next"));
+  }
 }
 
 // ---------------------------------------------------------------------------
