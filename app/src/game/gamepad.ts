@@ -66,6 +66,38 @@ const NAV_REPEAT_DELAY_MS = 400;
 const NAV_REPEAT_MS = 120;
 
 /**
+ * The frame the dials' rates are QUOTED in — cannon.nudgeAngle/nudgePower take
+ * a factor of one 60Hz step, so this is what converts elapsed milliseconds into
+ * that unit. The dials charge TIME, not polls.
+ *
+ * They used to charge polls, and main.ts polls once per rendered frame, so the
+ * rate rode the display's refresh: at 60Hz a pinned stick crossed the whole
+ * aim cone in a second, and at 120Hz it crossed it in half of one. That is not
+ * a hypothetical — the owner's primary surface is the Electron shell on a TV,
+ * measured at ~8.3ms frame pacing in #116's tests, so the dials were running at
+ * twice the speed they were tuned at for the one player who reported them. A
+ * dial whose speed depends on the panel it is drawn to is not a tuned control.
+ *
+ * 60Hz is unchanged to the bit: at a 16.667ms cadence dt/DIAL_FRAME_MS is 1 and
+ * every nudge is exactly the step it always was (and the first poll of a
+ * session is seeded to one frame rather than zero, so even the very first
+ * charge matches what the per-poll code did).
+ */
+const DIAL_FRAME_MS = 1000 / 60;
+/**
+ * The longest gap a single poll may charge the dials for.
+ *
+ * A backgrounded tab, a garbage-collection stall or a tabbed-away TV delivers
+ * the next rAF timestamp seconds after the last one, and an unclamped dt would
+ * spend all of it in one step — the player alt-tabs back with a stick still
+ * leaning and finds the barrel pinned at the cone limit. Six frames' worth is
+ * long enough that ordinary jank is charged honestly (nothing a 120Hz shell
+ * does comes close) and short enough that the worst case is a nudge the player
+ * can see happen rather than a jump they can only undo.
+ */
+const DIAL_MAX_STEP_MS = 100;
+
+/**
  * ONE AXIS of the rate dials, as a signed rate in -1..1 — the factor
  * cannon.nudgeAngle/nudgePower scale their per-frame step by.
  *
@@ -133,6 +165,10 @@ export class GamepadPoller {
    *  power nudges and repeat is the game's business, not the menu's. */
   private navHeld = -1;
   private navRepeatAt = 0;
+  /** The previous poll's timestamp, for the dials' dt (see DIAL_FRAME_MS).
+   *  Null until the first poll, which is charged one frame rather than zero so
+   *  a 60Hz session is bit-identical to the per-poll code it replaced. */
+  private lastPoll: number | null = null;
   private connected: string | null = null;
 
   constructor(hooks: GamepadHooks) {
@@ -146,6 +182,18 @@ export class GamepadPoller {
   }
 
   poll(now: number): void {
+    // BEFORE the no-pad return, so every path advances the clock. A pad plugged
+    // in thirty seconds into a menu must not hand the dials thirty seconds of
+    // credit on its first frame — it gets one clamped step like everything
+    // else, and only because the clamp exists at all.
+    const elapsed = this.lastPoll === null ? DIAL_FRAME_MS : now - this.lastPoll;
+    this.lastPoll = now;
+    /** Elapsed time in units of one 60Hz frame — what the nudge steps are
+     *  quoted in. Clamped at both ends: a timestamp that goes backwards (a
+     *  clock the browser re-bases) charges nothing rather than unwinding the
+     *  aim, and a long stall charges DIAL_MAX_STEP_MS rather than all of it. */
+    const dtFrames = Math.min(DIAL_MAX_STEP_MS, Math.max(0, elapsed)) / DIAL_FRAME_MS;
+
     const pads = navigator.getGamepads?.();
     const pad = pads ? Array.from(pads).find((p) => p && p.connected) : null;
     if (!pad) {
@@ -256,19 +304,23 @@ export class GamepadPoller {
         // long as you leave it. Holding a deflection to hold an aim keeps the
         // thumb tense for the whole bay, where a dial is touched only to
         // change something. The rates are the keyboard's own nudge steps
-        // scaled by deflection (cannon.nudgeAngle/nudgePower), so a pinned
-        // stick equals a held key.
+        // scaled by deflection (cannon.nudgeAngle/nudgePower) and by ELAPSED
+        // TIME (dtFrames), so a pinned stick trims the same amount per second
+        // on a 60Hz phone and a 120Hz TV — see DIAL_FRAME_MS for why that is
+        // not a theoretical concern.
         //
         // GATED ON stickRate PER AXIS, never on `deflected` — see the header.
         // The aim path is entered only by an axis that has actually left its
         // own deadzone, so "a resting stick modifies nothing" is one test
-        // rather than an agreement between two.
+        // rather than an agreement between two. dtFrames multiplies that rate
+        // and never gates it: a zero rate stays zero however long the frame
+        // was, so no amount of stall can move a resting stick's aim.
         const fx = stickRate(ax);
         const fy = stickRate(ay);
         if (fx !== 0 || fy !== 0) {
           // Stick up reads negative on the axis and must RAISE the barrel.
-          if (fy !== 0) g.cannon.nudgeAngle(-fy);
-          if (fx !== 0) g.cannon.nudgePower(fx);
+          if (fy !== 0) g.cannon.nudgeAngle(-fy * dtFrames);
+          if (fx !== 0) g.cannon.nudgePower(fx * dtFrames);
           g.updateTrajectory();
         }
       } else if (deflected) {
@@ -283,10 +335,24 @@ export class GamepadPoller {
         // deadzone). That is inherent to a slingshot — you fire from the held
         // pull, the way a finger does — and it is exactly why the dials, not
         // this, answer the pad by default.
+        // THE AIM ITSELF NEEDS NO dt, and that is worth stating rather than
+        // assuming: aimFromDrag is an absolute map, so a given deflection is a
+        // given aim no matter how often it is asked. Poll it twice as fast and
+        // the barrel lands in exactly the same place, twice as smoothly.
+        //
+        // The ASSIST does need it. A flat 0.3-per-poll lerp is a time constant
+        // wearing a frame's clothing — ~100ms to settle at 60Hz, ~50ms at
+        // 120Hz — so the smoothing the toggle promises got weaker on precisely
+        // the fast panel that jitters most visibly. Compounding it over the
+        // elapsed frames is the standard fix and is exact at 60Hz: dtFrames 1
+        // gives back 0.3 to the bit. It converges to the same aim either way
+        // (a lerp cannot run away the way an integrated rate can), so this is
+        // about the feel of the approach, not about where the shot goes.
         const target = { x: ax, y: ay };
         if (this.hooks.assist()) {
-          this.sx += (target.x - this.sx) * ASSIST_LERP;
-          this.sy += (target.y - this.sy) * ASSIST_LERP;
+          const k = 1 - Math.pow(1 - ASSIST_LERP, dtFrames);
+          this.sx += (target.x - this.sx) * k;
+          this.sy += (target.y - this.sy) * k;
         } else {
           this.sx = target.x;
           this.sy = target.y;

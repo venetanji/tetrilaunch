@@ -8287,8 +8287,13 @@ section("The stick's rate dials hold the aim at centre (gamepad.ts)");
     },
   });
 
-  /** One pad wired to one bay, with the stick mode supplied per case. */
-  const rig = (sling: boolean) => {
+  /** One pad wired to one bay, with the stick mode supplied per case.
+   *
+   *  `stepMs` is the POLL CADENCE — main.ts polls once per rendered frame, so
+   *  this is the display's refresh, and the whole point of some of the checks
+   *  below is that it stops mattering. Defaults to 60Hz, the rate everything
+   *  was tuned at. */
+  const rig = (sling: boolean, stepMs = 1000 / 60, assist = false) => {
     const shots: { angle: number; power: number }[] = [];
     const g = new Game(makeBaseLevel(0), { onShoot: (s) => shots.push({ angle: s.angle, power: s.power }) }, 7);
     const pad = new GamepadPoller({
@@ -8298,14 +8303,16 @@ section("The stick's rate dials hold the aim at centre (gamepad.ts)");
       onPause: () => {},
       onCapture: () => false,
       onUiButton: () => false,
-      assist: () => false,
+      assist: () => assist,
       sling: () => sling,
     });
     let t = 0;
     const frames = (n: number): void => {
-      for (let i = 0; i < n; i++) { pad.poll(t); t += 1000 / 60; }
+      for (let i = 0; i < n; i++) { pad.poll(t); t += stepMs; }
     };
-    return { g, shots, frames, now: () => t };
+    /** Skip the clock forward WITHOUT polling — a backgrounded tab, a stall. */
+    const skip = (ms: number): void => { t += ms; };
+    return { g, shots, frames, skip, now: () => t };
   };
   const aim = (g: Game) => ({ angle: g.cannon.angle, power: g.cannon.power });
   const same = (a: { angle: number; power: number }, b: { angle: number; power: number }) =>
@@ -8375,6 +8382,104 @@ section("The stick's rate dials hold the aim at centre (gamepad.ts)");
     r.frames(20);
     check("...and pulling back down lowers the barrel again",
       r.g.cannon.angle < mid.angle);
+  }
+
+  // THE DIALS CHARGE TIME, NOT POLLS. main.ts polls once per rendered frame, so
+  // a per-poll rate is the display's refresh in disguise — and the owner's own
+  // surface is the Electron shell on a TV, measured at ~8.3ms pacing in #116's
+  // tests, i.e. the dials ran at twice their tuned speed for the one player who
+  // reported them.
+  //
+  // Both rigs are handed the SAME WALL-CLOCK WINDOW and must trim the same
+  // amount. One warm-up poll first, so the seeded first frame (see the poller's
+  // lastPoll) is spent before the measurement starts and each rig then charges
+  // exactly 1000ms: 60 x 16.667 against 120 x 8.333. Deflection is 0.4 rather
+  // than a pin, deliberately — a pinned stick saturates against the cone and
+  // the power ceiling inside a second, and two runs agreeing because both hit
+  // the same wall would prove nothing at all.
+  {
+    const HZ_WINDOW_MS = 1000;
+    const measure = (stepMs: number) => {
+      const r = rig(false, stepMs);
+      axes = [0.4, -0.4];
+      r.frames(1);                                  // warm-up: spends the seed frame
+      const from = aim(r.g);
+      r.frames(Math.round(HZ_WINDOW_MS / stepMs));  // exactly one second of polls
+      return {
+        dAngle: r.g.cannon.angle - from.angle,
+        dPower: r.g.cannon.power - from.power,
+        angle: r.g.cannon.angle,
+        power: r.g.cannon.power,
+        ceiling: r.g.cannon.speedMax,
+      };
+    };
+    const at60 = measure(1000 / 60);
+    const at120 = measure(1000 / 120);
+    // FIRST, that neither run ended against a wall. Checked BEFORE the two are
+    // compared, because a clamped run and a correct run agree perfectly at the
+    // limit — under the per-poll code 120Hz overshot the cone and stopped dead
+    // on it, and an equality check alone would have called that a match.
+    check("neither cadence's second of trim ends pinned against a limit",
+      at60.angle < AIM_CONE - 1e-6 && at120.angle < AIM_CONE - 1e-6
+        && at60.power < at60.ceiling - 1e-6 && at120.power < at120.ceiling - 1e-6,
+      `60Hz ${at60.angle.toFixed(4)}/${at60.power.toFixed(3)} · 120Hz ${at120.angle.toFixed(4)}/${at120.power.toFixed(3)}`);
+    check("a second of stick is a second of trim at 60Hz",
+      at60.dAngle > 0.4 && at60.dAngle < 0.55 && at60.dPower > 5 && at60.dPower < 6,
+      `${at60.dAngle.toFixed(4)}rad/${at60.dPower.toFixed(3)}`);
+    check("...and 120Hz trims the same amount in the same second",
+      Math.abs(at120.dAngle - at60.dAngle) < 1e-9 && Math.abs(at120.dPower - at60.dPower) < 1e-9,
+      `120Hz ${at120.dAngle.toFixed(6)}/${at120.dPower.toFixed(4)} vs 60Hz ${at60.dAngle.toFixed(6)}/${at60.dPower.toFixed(4)}`);
+  }
+
+  // A DROPPED FRAME MUST NOT SLAM THE AIM. A backgrounded tab hands the next
+  // poll a timestamp seconds later, and an unclamped dt would spend all of it
+  // in one step — alt-tab back with a stick leaning and find the barrel pinned.
+  {
+    const r = rig(false);
+    axes = [0.9, -0.9];
+    r.frames(1);
+    const before = aim(r.g);
+    r.skip(5000);      // five seconds away
+    r.frames(1);       // one poll charging that gap
+    const jump = Math.abs(r.g.cannon.angle - before.angle);
+    // The clamp is 100ms — six frames — so the worst one poll can do is six
+    // frames of trim, comfortably under a tenth of the cone.
+    check("a five-second stall charges the dials six frames, not five seconds",
+      jump > 0 && jump < 6.5 * 0.035, `${jump.toFixed(4)}rad`);
+    // …and a clock that goes backwards unwinds nothing.
+    const held = aim(r.g);
+    r.skip(-3000);
+    r.frames(1);
+    check("...and a backwards timestamp charges nothing rather than unwinding",
+      r.g.cannon.angle >= held.angle);
+  }
+
+  // THE SLINGSHOT'S AIM NEEDS NO CLOCK — confirmed, not assumed. aimFromDrag is
+  // an absolute map, so the same deflection is the same aim however often it is
+  // asked; only the ASSIST lerp was a per-poll time constant, and that now
+  // compounds over elapsed frames.
+  {
+    const held = (stepMs: number, assist: boolean, holdMs: number) => {
+      const r = rig(true, stepMs, assist);
+      axes = [-0.6, 0.45];
+      r.frames(1);
+      r.frames(Math.round(holdMs / stepMs));
+      return aim(r.g);
+    };
+    check("the slingshot lands the same aim at 60Hz and 120Hz, raw",
+      same(held(1000 / 60, false, 600), held(1000 / 120, false, 600)));
+    // MEASURED MID-SETTLE, at ~50ms, not after the lerp has converged. Both
+    // cadences arrive at the same place eventually — a lerp cannot run away —
+    // so a check taken at rest agrees to six decimals whether or not the time
+    // constant is honest. Halfway there is where a per-poll factor shows: at
+    // 0.3 a frame, 120Hz took six bites of the gap in the time 60Hz took three,
+    // and the "smoothing" the toggle promises was half as much smoothing on
+    // the fast panel that needs it most.
+    const a60 = held(1000 / 60, true, 50);
+    const a120 = held(1000 / 120, true, 50);
+    check("...and the assist is the same distance along after the same 50ms",
+      Math.abs(a120.angle - a60.angle) < 1e-3 && Math.abs(a120.power - a60.power) < 0.05,
+      `${a120.angle.toFixed(5)}/${a120.power.toFixed(4)} vs ${a60.angle.toFixed(5)}/${a60.power.toFixed(4)}`);
   }
 
   // THE SLINGSHOT STILL WORKS WHEN CHOSEN — and still lets the pull go on the
