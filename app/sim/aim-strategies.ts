@@ -418,26 +418,66 @@ export function linerTriggerSpeed(g: Game): number {
     * cushionedTrigger(g.level.volatileTriggerMult, g.level.cushionMult);
 }
 
+/**
+ * Top-of-stack y per slot (smaller y = taller stack), `+Infinity` where nothing
+ * has landed.
+ *
+ * The same reading `bots.ts`'s gap targeter makes, and empty slots winning
+ * outright falls out of the same arithmetic: the emptiest window is the one
+ * with the greatest average top-y, and `+Infinity` beats any cube.
+ */
+function slotTops(g: Game): number[] {
+  const numSlots = g.level.compactorMinLineCells;
+  const tops = new Array<number>(numSlots).fill(Number.POSITIVE_INFINITY);
+  for (const c of g.cubes) {
+    if (!inPlay(g, c)) continue;
+    const k = slotOf(c.body.position.x);
+    if (k < 0 || k >= numSlots) continue;
+    if (c.body.position.y < tops[k]) tops[k] = c.body.position.y;
+  }
+  return tops;
+}
+
 /** Slot indices whose TOP cube is an intact volatile one — the deferred bombs.
  *  "Top" is within a cell of the highest cube in the slot, which is what a
  *  landing there would strike. */
 function bombedSlots(g: Game): Set<number> {
   const numSlots = g.level.compactorMinLineCells;
-  const topY = new Array<number>(numSlots).fill(Number.POSITIVE_INFINITY);
-  for (const c of g.cubes) {
-    if (!inPlay(g, c)) continue;
-    const k = slotOf(c.body.position.x);
-    if (k < 0 || k >= numSlots) continue;
-    if (c.body.position.y < topY[k]) topY[k] = c.body.position.y;
-  }
+  const tops = slotTops(g);
   const out = new Set<number>();
   for (const c of g.cubes) {
     if (c.material !== "volatile" || !inPlay(g, c)) continue;
     const k = slotOf(c.body.position.x);
     if (k < 0 || k >= numSlots) continue;
-    if (c.body.position.y - topY[k] <= CELL) out.add(k);
+    if (c.body.position.y - tops[k] <= CELL) out.add(k);
   }
   return out;
+}
+
+/**
+ * The emptiest window of `widthCells` slots inside `[0, limit)`, ties toward
+ * the wall.
+ *
+ * THE TIE-BREAK IS THE GAP READER'S, and so is the "greatest average top-y"
+ * criterion: iterating up from 0 and replacing only on a strict improvement
+ * leaves the lowest-index (wall-closest) window standing in any tie, which is
+ * exactly what `makeGapTargeter` does and for the same reason — the wall end of
+ * the bay is the end the bar reaches last.
+ */
+function flattestWindow(tops: number[], limit: number, widthCells: number): number {
+  const lastStart = Math.max(0, Math.min(limit, tops.length) - widthCells);
+  let bestStart = 0;
+  let bestAvg = Number.NEGATIVE_INFINITY;
+  for (let s = 0; s <= lastStart; s++) {
+    let sum = 0;
+    for (let k = 0; k < widthCells; k++) sum += tops[s + k] ?? Number.POSITIVE_INFINITY;
+    const avg = sum / widthCells;
+    if (avg > bestAvg) {
+      bestAvg = avg;
+      bestStart = s;
+    }
+  }
+  return bestStart;
 }
 
 function cushionAware(): AimStrategy {
@@ -452,14 +492,28 @@ function cushionAware(): AimStrategy {
       const widthCells = Math.max(1, Math.round((2 * halfWidthPx) / CELL));
 
       if (g.cannon.currentMaterial === "volatile") {
-        // RULE A. Into the liner, and as deep into it as the shipment's own
-        // footprint fits — the deepest lined window is the one furthest from
-        // the bar, so a cube parked there has the longest life before anything
-        // presses it. The window is clamped to the liner rather than centred on
-        // it: a liner four cells deep and a bulk pentomino four cells wide have
-        // exactly one legal window between them.
-        const last = Math.min(cells, numSlots) - widthCells;
-        const start = Math.max(0, last);
+        /* RULE A. Into the liner — at the FLATTEST window inside it.
+         *
+         * The criterion is the gap reader's own, restricted to the lined slots:
+         * the emptiest window, ties toward the wall. It is the same rule at
+         * every rung, which is the property the arms table needs — a strategy
+         * that picked a structurally different slot per tier would make the
+         * ladder a comparison of three behaviours rather than of three liners.
+         *
+         * THE FIRST VERSION TOOK A FIXED WINDOW (`cells - widthCells`, the
+         * lined slot nearest the bar) and it was wrong twice over. It parked
+         * every volatile shipment of the bay in one column, and — because that
+         * index moves with the liner's depth — it aimed at mid-liner at rung 1
+         * and directly in front of the advancing face at rung 3, which is a
+         * confound wearing a tier number. Measured at Tier 7 bay 10 over 96
+         * seeds it read 90/82/77, a ladder that descends because the deeper
+         * rungs were being played worse, not because they are worth less.
+         *
+         * A liner narrower than the shipment's own footprint has exactly one
+         * legal window (start 0), which `flattestWindow` yields by clamping.
+         */
+        const tops = slotTops(g);
+        const start = flattestWindow(tops, Math.min(cells, numSlots), widthCells);
         const centre = start + (widthCells - 1) / 2;
         return { x: slotCenterX(centre), slot: start, tol: CUSHION_AIM_TOL };
       }
