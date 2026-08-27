@@ -91,7 +91,7 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor,
+  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor, type SealState,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
@@ -9871,6 +9871,187 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // button on it would take the retry away exactly where it is free.
     check("a held seal still offers the bay back",
       held.includes('data-action="retry-bay"'));
+  }
+
+  // ---- EVERY DOOR WEARS THE FACE, NOT JUST THE LOSS CARD ------------------
+  // Owner playtest, with a screenshot of the pause modal: Restart Bay is the
+  // same irreversible action through a different door and it went out with a
+  // bare label. A cost visible from one door and invisible from another is
+  // worse than invisible from both — it teaches the player that the plain
+  // button is the safe one, and the plain button was the one that charged.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (seal?: { state: SealState; mark: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, seal);
+    /** Just the Restart Bay button, so a glyph counted here is that button's.
+     *  Resume, Fullscreen and Quit share the row and `includes` cannot tell
+     *  them apart. */
+    const restart = (h: string): string =>
+      /<button[^>]*data-action="restart-bay"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+
+    check("the pause modal still has its Restart Bay", restart(paused()).length > 0);
+    // ALL THREE STATES, the same three the loss card draws — and the SAME
+    // markup, because both buttons now render through sealFaceHTML. A second
+    // face tuned to this modal is exactly how the two would drift into saying
+    // almost-the-same thing.
+    check("at-stake wears the stamp about to be spent",
+      /class="btn__seal"/.test(restart(paused({ state: "at-stake", mark: 4 }))));
+    check("...spent wears the struck stamp",
+      restart(paused({ state: "spent", mark: 4 })).includes("btn__seal--broken"));
+    check("...and held wears the solid muted one",
+      restart(paused({ state: "held", mark: 4 })).includes("btn__seal--held"));
+    // …and the three are genuinely different faces rather than one class name
+    // that happens to substring-match the others.
+    check("the three faces are three faces", new Set(
+      (["at-stake", "spent", "held"] as SealState[])
+        .map((state) => /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1]),
+    ).size === 3);
+    // THE GLYPH IS aria-hidden, here as everywhere, so the words have to reach
+    // the other half of the audience — and they are the SAME words the loss
+    // card uses, from sealFaceLabel.
+    // Written out whole, and the clause carries its own subject: "retrying
+    // breaks this run's seal" rather than the bare predicate this said for one
+    // release. The subject is what lets the same words be glued onto the rail's
+    // longer name without coming out as a relative clause — see the composition
+    // block below. (Codex review, PR #144.)
+    check("the button names the cost as well as drawing it",
+      restart(paused({ state: "at-stake", mark: 4 }))
+        .includes('aria-label="Restart Bay — retrying breaks this run\'s seal"'));
+    check("...and names the Mark in the held state",
+      restart(paused({ state: "held", mark: 3 }))
+        .includes("Mark 3 is already sealed, so this costs nothing"));
+    // ONE RULE, TWO CALLERS. The loss card and the pause modal must produce
+    // byte-identical faces for the same state, which is the property that
+    // makes "don't fork a second face" checkable rather than a comment.
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const fromEnd = /class="(btn__seal[^"]*)"/
+        .exec(end({ retryBay: { seal: state, mark: 4 } }))?.[1];
+      const fromPause = /class="(btn__seal[^"]*)"/.exec(restart(paused({ state, mark: 4 })))?.[1];
+      check(`the ${state} face is the same on both doors`,
+        !!fromEnd && fromEnd === fromPause, `${fromEnd} vs ${fromPause}`);
+      check(`...and so are the ${state} words`,
+        S.sealFaceLabel(state, 4).length > 0
+          && restart(paused({ state, mark: 4 })).includes(S.sealFaceLabel(state, 4))
+          && end({ retryBay: { seal: state, mark: 4 } }).includes(S.sealFaceLabel(state, 4)));
+    }
+    // NO SEAL, NO FACE. A Contract, a drill, Tier S and the Skydeck all pause
+    // with no seal question, and a glyph there would be a claim about a cost
+    // that does not exist. Absence also has to leave the button exactly as it
+    // was, so every caller that predates the argument is unmoved.
+    check("a run with no seal question draws no glyph",
+      !restart(paused()).includes("btn__seal"));
+    check("...and no aria-label it did not have before",
+      !restart(paused()).includes("aria-label"));
+
+    // THE HELD ⏸ IS THE THIRD DOOR, and it takes the WORDS without the glyph:
+    // a 22px icon button on a live field is not where a cost readout goes (the
+    // rail is width-budgeted, and the hint strip's own note argues the same
+    // point from the other side). The gesture is deliberate, it has its own
+    // meter, and requestBayRetry confirms it like every other door — so what
+    // the name buys is the half that has nowhere else to go.
+    const railBtn = (h: string): string =>
+      /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const hud = (seal?: { state: SealState; mark: number } | null): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        seal,
+      });
+    // ASSERTED AS WHOLE NAMES, in every state, and that is the change this
+    // block needed rather than a third reading. The two checks that lived here
+    // tested SUBSTRINGS — "hold to restart the bay, which breaks this run's
+    // seal" and, for the free press, just the tail "already sealed, so this
+    // costs nothing" — and both were true of a name that was ungrammatical
+    // around them: the rail glued the price on with ", which ", which parses
+    // after the at-stake predicate and produces "hold to restart the bay, which
+    // this run's seal is already broken" for the other two. A substring pin
+    // cannot see that, because the substring is exactly the part that was fine.
+    //
+    // So the expected names are written out, once per state, by a human who
+    // read them. This is the same reason the tower's seal pin asserts
+    // `aria-label="Tier 2 — sealed"` whole rather than testing for "sealed".
+    // (Codex review, PR #144.)
+    const railName = (h: string): string =>
+      /aria-label="([^"]*)"/.exec(railBtn(h))?.[1] ?? "";
+    const HOLD = "Pause — hold to restart the bay";
+    check("the hold's name is a whole sentence when the seal is at stake",
+      railName(hud({ state: "at-stake", mark: 4 }))
+        === `${HOLD} — retrying breaks this run's seal`,
+      railName(hud({ state: "at-stake", mark: 4 })));
+    check("...and when it has already been spent",
+      railName(hud({ state: "spent", mark: 4 }))
+        === `${HOLD} — this run's seal is already broken`,
+      railName(hud({ state: "spent", mark: 4 })));
+    check("...and when the press is free",
+      railName(hud({ state: "held", mark: 3 }))
+        === `${HOLD} — Mark 3 is already sealed, so this costs nothing`,
+      railName(hud({ state: "held", mark: 3 })));
+    check("...and is the name it always had when no seal is in play",
+      railName(hud()) === HOLD, railName(hud()));
+    // …and NOT a glyph, on any of them. This is the pin that keeps a later
+    // "make it consistent" pass from painting the rail.
+    check("the rail never grows a seal glyph",
+      (["at-stake", "spent", "held"] as SealState[])
+        .every((state) => !railBtn(hud({ state, mark: 4 })).includes("btn__seal")));
+
+    // ---- ONE COMPOSITION RULE, AT EVERY DOOR ------------------------------
+    // The words being shared was already pinned above; what was NOT pinned was
+    // how a door is allowed to attach them, and that is where the malformation
+    // got in. Every accessible name that speaks the price is `<name> — <clause>`
+    // (screens.ts's sealNameWith), so a door that invents its own join fails
+    // here rather than in a screen reader.
+    //
+    // FOUR doors, not three: the confirmation panel's own Retry Bay used to
+    // hand-write the at-stake words, which is the drift this feature moved the
+    // face out to prevent.
+    const names = (state: SealState, mark: number): { where: string; name: string }[] => [
+      { where: "the rail's hold", name: railName(hud({ state, mark })) },
+      {
+        where: "the pause modal",
+        name: /aria-label="([^"]*)"/.exec(restart(paused({ state, mark })))?.[1] ?? "",
+      },
+      {
+        where: "the loss card",
+        name: /data-action="retry-bay"[\s\S]*?aria-label="([^"]*)"/
+          .exec(end({ retryBay: { seal: state, mark } }))?.[1] ?? "",
+      },
+    ];
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const clause = S.sealFaceLabel(state, 4);
+      for (const { where, name } of names(state, 4)) {
+        check(`${where} joins the ${state} clause the one way`,
+          name.endsWith(` — ${clause}`) && name.length > clause.length + 3,
+          name);
+      }
+      // THE REGRESSION ITSELF, stated as the thing no name may contain. A
+      // relative pronoun is the join that reads correctly in exactly one state,
+      // which is why it survived a release.
+      check(`no ${state} name glues the price on as a relative clause`,
+        names(state, 4).every(({ name }) => !/,\s*which\b/.test(name)),
+        names(state, 4).map((n) => n.name).join(" | "));
+    }
+    // The confirmation panel is the fourth door and only ever opens at-stake.
+    {
+      const confirm = /data-action="seal-break-go"[\s\S]*?aria-label="([^"]*)"/
+        .exec(S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: true }))?.[1] ?? "";
+      check("the confirmation's own button speaks the shared clause",
+        confirm === `Retry Bay 7 — ${S.sealFaceLabel("at-stake", 4)}`, confirm);
+    }
+    // EVERY CLAUSE STANDS ALONE, which is the property the join depends on. A
+    // bare predicate reads correctly after a button name and after "which", and
+    // that coincidence is the whole bug — so each line has to carry a subject
+    // of its own. Checked as "it does not open with the verb", which is the one
+    // shape that silently re-admits the old failure.
+    for (const state of ["at-stake", "spent", "held"] as SealState[]) {
+      const first = S.sealFaceLabel(state, 4).split(" ")[0];
+      check(`the ${state} clause opens with a subject, not a verb ("${first}")`,
+        !["breaks", "costs", "is", "was", "makes", "spends"].includes(first));
+    }
   }
   // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
   // a run tracksLadder accepts — Tier S re-flies its whole configuration from
