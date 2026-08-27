@@ -27,6 +27,7 @@ export type IconName =
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
+  | "thaw"
   // One per option unlock (meta.ts's UNLOCKS). Same id-is-the-icon-name
   // convention as the tracks above: the shop card casts the id at the call
   // site, so there is no glyph field on UnlockDef and meta.ts never imports
@@ -111,6 +112,19 @@ const PATHS: Record<IconName, string> = {
   // segments only — a curved fuse is the one shape in this set that would need
   // anti-aliasing to read, which is exactly what the pixel frame doesn't give.
   demolition: `<path d="M3 8h8v6H3z" fill="currentColor" stroke="none"/><path d="M9 8V5l3-2"/><path d="M12 3h2"/><path d="M12 3V1"/>`,
+  // Thaw Lance: a solid emitter at the left, a gap, and the frozen cube it is
+  // pointed at — the one glyph in this set that reads LEFT TO RIGHT, which is
+  // how it stays distinct at 13px from the three other things in the game that
+  // are also a bright mark on a dark box. `bonds` throws four axis-aligned
+  // spokes off a centre and `demo` throws four diagonal ones; neither has a
+  // direction, and this is nothing but direction.
+  //
+  // The cube keeps its own frost mark rather than being a plain square, so the
+  // glyph names its TARGET the way the belt does (theme.ts's cryo needles) —
+  // an outline square alone would read as the Bay Extension's zone.
+  thaw:
+    `<path d="M2 6h3v4H2z" fill="currentColor" stroke="none"/><path d="M5.5 8h2"/>`
+    + `<path d="M9 5h5v6H9z"/><path d="M11.5 6v4"/><path d="M9.8 6.8l3.4 2.4"/><path d="M9.8 9.2l3.4-2.4"/>`,
 
   // ---- Option unlocks (meta.ts's UNLOCKS) ---------------------------------
   // Demolition Licence: a detonation, not a charge — `demolition` above is the

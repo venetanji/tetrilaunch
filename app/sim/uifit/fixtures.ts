@@ -329,12 +329,24 @@ const HUD_BASE = {
   demoOwned: true,
   autoloaderOwned: true,
   bombCharges: 3,
+  // NO LANCE HERE, and it is a deliberate omission rather than an oversight.
+  // Turning it on would re-measure all nineteen rows of every screen built on
+  // this object for a state the app cannot produce: HUD_BASE already carries
+  // the AUTOLOADER, and nothing in a shipped run writes level.autoLaunchMs any
+  // more (mods.ts is the only writer, and the ratchet draft replaced the mod
+  // draft), so bond + demo + auto is legacy chrome kept for its WIDTH. Adding
+  // a fourth ability on top of a third that cannot occur measures a rail no
+  // player will ever hold. The reachable worst case gets its own screen
+  // instead — see `hud-lance`, which is the same seven-slot rail with the
+  // legacy trigger swapped for the real one.
+  thawOwned: false,
+  thawCharges: 0,
   // A full run's pick history — the mods row is the plant panel's widest child.
   // Typed, because `spill` and `drift` were sitting here: ids no HazardId ever
   // had, so two of the four chips the "widest child" is supposed to be measured
   // at were never rendered. Ratchets is a weak type, so the pair typechecked.
   ratchets: { wind: 2, sweeper: 1, cryo: 1, slag: 2 } as Ratchets,
-  tiers: { bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0 },
+  tiers: { bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0, thaw: 0 },
 };
 
 const PROGRESS = tierProgressFor(midMeta());
@@ -347,7 +359,7 @@ const SANDBOX_BAY: SandboxState = {
   ...newSandbox(),
   tier: MARK_COUNT,
   target: { kind: "bay", bay: RUN_LEVELS },
-  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3 },
+  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3, thaw: 3 },
   material: "all",
   ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,
 };
@@ -420,8 +432,11 @@ const HUD_TUTORIAL = {
   demoOwned: false,
   autoloaderOwned: false,
   bombCharges: 0,
+  // A tutorial bay grants no systems at all, the lance included.
+  thawOwned: false,
+  thawCharges: 0,
   ratchets: {} as Ratchets,
-  tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+  tiers: newTiers(),
 };
 
 /** main.ts's mountCoach puts the card INSIDE .plant as its first child, and
@@ -632,7 +647,7 @@ export const SCREENS: Record<string, () => string> = {
   // A STOCK RIG at the top of a run: nothing installed, nothing ratcheted, no
   // abilities. This is the state the build rack's fixed slots exist for — it
   // used to render as an empty row, so the one moment the harness measured
-  // (HUD_BASE, six of seven tracks bought) told it nothing about the moment
+  // (HUD_BASE, six of the eight tracks bought) told it nothing about the moment
   // every run actually starts in. The rack is at its WIDEST here in slot terms
   // and its emptiest in content, which is exactly the pair worth asserting.
   "hud-stock": () =>
@@ -649,7 +664,38 @@ export const SCREENS: Record<string, () => string> = {
       autoloaderOwned: false,
       bombCharges: 0,
       ratchets: {} as Ratchets,
-      tiers: { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 },
+      tiers: newTiers(),
+    }),
+  // THE LANCE'S OWN SCREEN, and the reachable ability worst case.
+  //
+  // HUD_BASE's three abilities are bond + demo + AUTOLOADER, and the third has
+  // had no writer since the mod draft was replaced (mods.ts is the only thing
+  // that sets level.autoLaunchMs; hazards.ts deals notches now). So the widest
+  // rail the harness measured was one no run can build. This is the widest one
+  // a run CAN build: the two consumables a Deep Run really carries, plus the
+  // Thaw Lance, at the four-digit charge-count-free state both badges render
+  // in. Same seven slots, so the column arithmetic the 360dp phone lives on
+  // (7x44 + 6x6 + 16 = 360) is unchanged and still exact.
+  //
+  // What is new here and nowhere else: the lance's chip in the plant's ability
+  // row (a third 88px chip on the row that already leads with a vertical BUILD
+  // tag and two of them) and its rail button with the charge badge. Both are
+  // the states syncHud patches every frame, so a fixture that never rendered
+  // them would leave the app's third ability trigger unmeasured on all
+  // nineteen rows.
+  "hud-lance": () =>
+    S.hudHTML({
+      ...HUD_BASE,
+      contract: null,
+      autoloaderOwned: false,
+      thawOwned: true,
+      // Two digits, which is what a maxed rack shows for most of a bay and the
+      // wider of the two badge states — THAW_CHARGES_PER_TIER x MAX_TIER is 6,
+      // so a live badge never exceeds one digit today; 12 measures the badge at
+      // a width a re-tuned notch size could actually produce rather than at
+      // today's exact ceiling.
+      thawCharges: 12,
+      tiers: { ...HUD_BASE.tiers, thaw: 2 },
     }),
   // The HUD as every bay PAST the first shot mounts it (main.ts's
   // armKeyHints): the hint strip faded, the bay floor clear. The strip's
@@ -714,6 +760,13 @@ export const SCREENS: Record<string, () => string> = {
       demoOwned: false,
       autoloaderOwned: false,
       bombCharges: 0,
+      // ...and the lance, which levelForContract cannot grant either: it never
+      // calls applyUpgrades, so level.thawCharges stays at makeBaseLevel's 0
+      // and hudOpts derives thawOwned from exactly that zero. Stated rather
+      // than inherited, so this list stays the full account of what a Contract
+      // does not carry.
+      thawOwned: false,
+      thawCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Cold Storage Backlog",
@@ -754,6 +807,13 @@ export const SCREENS: Record<string, () => string> = {
       demoOwned: false,
       autoloaderOwned: false,
       bombCharges: 0,
+      // ...and the lance, which levelForContract cannot grant either: it never
+      // calls applyUpgrades, so level.thawCharges stays at makeBaseLevel's 0
+      // and hudOpts derives thawOwned from exactly that zero. Stated rather
+      // than inherited, so this list stays the full account of what a Contract
+      // does not carry.
+      thawOwned: false,
+      thawCharges: 0,
       timeLimitSec: 0,
       contract: {
         name: "Foundry Overrun",
@@ -794,7 +854,7 @@ export const SCREENS: Record<string, () => string> = {
   // the strip it replaces).
   pause: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
-    S.pauseModal(true, "keyboard", { bond: true, demo: true, auto: true }),
+    S.pauseModal(true, "keyboard", { bond: true, demo: true, thaw: false, auto: true }),
   // The PAD's reference card, which stopped being a shorter version of the
   // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
   // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
@@ -810,7 +870,7 @@ export const SCREENS: Record<string, () => string> = {
   // card itself measures clean on all nineteen rows.
   "pause-pad": () =>
     S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad" }) +
-    S.pauseModal(true, "gamepad", { bond: true, demo: true, auto: true }),
+    S.pauseModal(true, "gamepad", { bond: true, demo: true, thaw: false, auto: true }),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
@@ -1152,10 +1212,20 @@ export const SCREEN_IDS = Object.keys(SCREENS);
 const HUD_LOADOUT = {
   bond: HUD_BASE.bondBreakerOwned,
   demo: HUD_BASE.demoOwned,
+  thaw: HUD_BASE.thawOwned,
   auto: HUD_BASE.autoloaderOwned,
 };
-const NO_RAIL = { bond: false, demo: false, auto: false };
-export function railLoadoutFor(id: string): { bond: boolean; demo: boolean; auto: boolean } {
+/** The rail `hud-lance` renders: the REACHABLE three-ability worst case, where
+ *  HUD_LOADOUT above is the legacy one. Same slot count (7 with a fullscreen
+ *  toggle), different third button — see the fixture, and HUD_BASE's
+ *  `thawOwned` note for why the two are separate objects rather than one
+ *  object carrying four abilities at once. */
+const LANCE_RAIL = { bond: true, demo: true, thaw: true, auto: false };
+const NO_RAIL = { bond: false, demo: false, thaw: false, auto: false };
+export function railLoadoutFor(
+  id: string,
+): { bond: boolean; demo: boolean; thaw: boolean; auto: boolean } {
+  if (id === "hud-lance") return LANCE_RAIL;
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
     // "bayclear-clause" is the same card over the same HUD, so it needs the

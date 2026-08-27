@@ -20,11 +20,11 @@ export type InputProfile = "touch" | "keyboard" | "gamepad";
  *  deliberately not bindable — a stick is not a button. */
 export type BindableAction =
   | "rotl" | "rotr" | "aimUp" | "aimDown" | "powerUp" | "powerDown"
-  | "fire" | "bond" | "demo" | "auto" | "pause";
+  | "fire" | "bond" | "demo" | "thaw" | "auto" | "pause";
 
 export const BINDABLE_ACTIONS: BindableAction[] = [
   "fire", "rotl", "rotr", "aimUp", "aimDown", "powerUp", "powerDown",
-  "bond", "demo", "auto", "pause",
+  "bond", "demo", "thaw", "auto", "pause",
 ];
 
 /** Player-facing name per action — the Controls screen's row labels. */
@@ -38,6 +38,7 @@ export const ACTION_LABELS: Record<BindableAction, string> = {
   powerDown: "Less power",
   bond: "Bond Breaker",
   demo: "Arm demolition",
+  thaw: "Thaw Lance",
   auto: "Autoloader (hold)",
   pause: "Pause",
 };
@@ -50,7 +51,11 @@ const DEFAULT_KEYS: Record<BindableAction, string> = {
   rotl: "q", rotr: "e",
   aimUp: "w", aimDown: "s",
   powerUp: "d", powerDown: "a",
-  bond: "b", demo: "x", auto: "f",
+  // C for cryo: the three ability keys sit B/X/C, one row of the keyboard's
+  // bottom-left cluster, within reach of the same hand that holds Q/E while
+  // the other aims. V was the alternative and is a worse fit — it puts a
+  // fourth key on the row for a control the player uses in bursts.
+  bond: "b", demo: "x", thaw: "c", auto: "f",
   pause: "escape",
 };
 
@@ -111,6 +116,13 @@ const DEFAULT_PAD: Record<BindableAction, number> = {
   powerDown: 14,  // D-pad left
   bond: 2,        // X / Square
   demo: 3,        // Y / Triangle
+  // LT, the shoulder opposite the Autoloader's RT. NOT the face buttons'
+  // remaining seat: padnav.ts reserves button 1 (B / Circle) as BACK on every
+  // menu, and a default that shipped an ability on it would be a rebind the
+  // player has to make before the pad is usable. A trigger is also the right
+  // shape for the control — a quick pull, the same way the rail button is a
+  // tap where Bond Breaker's is a hold.
+  thaw: 6,        // LT
   auto: 7,        // RT — held, like the rail button
   pause: 9,       // Start / Menu
 };

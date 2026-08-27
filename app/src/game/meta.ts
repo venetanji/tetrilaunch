@@ -279,10 +279,24 @@ export const INSTALLS: InstallDef[] = [
   //
   // Everything past the on-ramp is priced against the day it takes to earn:
   // 30 is most of a tier's contracts, 50 is a tier, 70 is a tier plus its run
-  // win. The shelf now totals 445 — these seven installs at 300, plus the two
+  // win. The shelf now totals 495 — these eight installs at 350, plus the two
   // live unlocks below (Weather Survey 60, Scrap Cache 85) — against 600 of
   // income: slack enough to make a wrong purchase survivable, tight enough
   // that the choice is a choice.
+  //
+  // THE EIGHTH IS THE ONE THAT HAD TO ARGUE FOR ITS PRICE, and the counter
+  // proposal put the question this way: two more installs at 70 each is 585
+  // against 600, which closes the slack to nothing. One shipped, not two, and
+  // it is priced a band BELOW the two systems it sits beside rather than with
+  // them. The band is what the system is: Bond Emitter and Demolition Rack are
+  // 70 because they answer every build — an emitter flattens any pile, a rack
+  // is the only exit for dead cargo of any kind. The Thaw Lance answers ONE
+  // axis, and the measurement says so at both ends: it lands exactly on a
+  // clean bay's win rate for one notch of cryo, and it buys back two wins in
+  // twenty-four at three (upgrades.ts's THAW_CHARGES_PER_TIER has the tables).
+  // A counter with a measured ceiling is worth a tier of Contracts, not a tier
+  // plus its run win — so 50, beside Bay Extension and Press Hydraulics, and
+  // the shelf keeps 105 salvage of slack instead of 15.
   { id: "reactor", cost: 15 },
   { id: "launcher", cost: 15 },
   { id: "magazine", cost: 30 },
@@ -296,6 +310,18 @@ export const INSTALLS: InstallDef[] = [
   // Marks behind its hazard, which is strictly worse than today. Raise this to
   // 3 in the same change that moves materials off the schedule.
   { id: "demolition", cost: 70, requiresMark: 1 },
+  // GATED AT THE MARK CRYO ARRIVES, not one behind it. hazards.ts opens the
+  // cryo axis at Mark 4, and `requiresMark` counts Marks BEATEN — so 3 means
+  // the lance is on the shelf for exactly the player who is flying the first
+  // Mark that can deal them a frozen belt. The Demolition entry above records
+  // what the other choice costs: a counter shipped two Marks behind its hazard
+  // is "strictly worse than today", and the winnability sweep localised the
+  // damage cryo does to the rung where MATERIAL_DRAFT_BAYS stops being
+  // dodgeable (Mark 5). Buyable at 4, forced at 5 — the shop opens one Mark
+  // before the bay that makes it mandatory, which is the pattern
+  // MATERIAL_DRAFT_BAYS itself is built on ("meet the problem, play a bay
+  // against it, walk into the shop that answers it").
+  { id: "thaw", cost: 50, requiresMark: 3 },
 ];
 
 export function installById(id: string): InstallDef | undefined {
@@ -320,7 +346,7 @@ export const UPRATE_MAX_TIER = 2;
  *  tier of a permanent system — and the thing that makes one harder to afford
  *  than the other is the build budget, not a second price table nobody can see.
  *  It also keeps the arithmetic checkable by hand: the shelf is exactly twice
- *  the installs (300 -> 600) plus the two live unlocks. */
+ *  the installs (350 -> 700) plus the two live unlocks. */
 export function uprateCost(def: InstallDef): number {
   return def.cost;
 }
@@ -332,13 +358,20 @@ export function uprateCost(def: InstallDef): number {
  *  from a gated one.
  *
  *  This used to reject any track already owned, and that one line is what made
- *  the build budget inert. `budgetForMark` runs 77 -> 770, but a loadout capped
- *  at tier 1 of seven tracks tops out at 140 points — under budgetForMark(2) —
- *  so the budget bound at Mark 1 and never again, and 630 of Mark 10's 770
- *  points could not be spent by any sequence of purchases. DESIGN.md's arc
+ *  the build budget inert. `budgetForMark` runs 88 -> 880, but a loadout capped
+ *  at tier 1 of eight tracks tops out at 160 points — under budgetForMark(2) —
+ *  so the budget bound at Mark 1 and never again, and the rest of Mark 10's
+ *  allowance could not be spent by any sequence of purchases. DESIGN.md's arc
  *  "from you can afford one system to you can afford everything" ended at Mark
- *  2. Selling tier 2 restores it: seven tracks at tier 2 is 7 x 55 = 385 points
- *  = exactly budgetForMark(5), so the gate is real for Marks 1 through 5. */
+ *  2. Selling tier 2 restores it: eight tracks at tier 2 is 8 x 55 = 440 points
+ *  = exactly budgetForMark(5), so the gate is real for Marks 1 through 5.
+ *
+ *  THAT EQUALITY IS NOT A COINCIDENCE AND DOES NOT NEED RE-DERIVING when a
+ *  track is added — which is worth stating, because adding the eighth (the Thaw
+ *  Lance) moved every number in the paragraph above and not the conclusion. The
+ *  Workshop ceiling is TRACKS x (20+35) and the budget is TRACKS x 110 x M/10,
+ *  so the two meet at M = 10 x 55/110 = 5 for ANY roster size. Grow the shelf
+ *  and the gate still binds through Mark 5, exactly. */
 export function installAvailable(meta: MetaState, def: InstallDef): boolean {
   if (def.requiresMark !== undefined && meta.mark < def.requiresMark) return false;
   if ((meta.loadout[def.id] ?? 0) >= UPRATE_MAX_TIER) return false;

@@ -85,13 +85,22 @@ export const RAIL_SLOTS_BASE = 4;
  *  — an 8-slot column at the 44px floor needs 410px — so the most common
  *  Android class got the bottom-strip fallback and a ~19% smaller field for
  *  buttons that mostly weren't on screen. The budget is now the loadout the
- *  run actually has (railSlotsFor + setRailSlots below). */
-export const RAIL_SLOTS_MAX = 7;
+ *  run actually has (railSlotsFor + setRailSlots below).
+ *
+ *  EIGHT since the Thaw Lance (upgrades.ts) added a fourth ability trigger, and
+ *  the number above is exactly why that is safe now and was not before. The
+ *  worst case is back at 8 and the 410px arithmetic has not changed — what
+ *  changed is that only a run ACTUALLY carrying all four abilities pays it, and
+ *  such a run takes the bottom-strip fallback on a 360dp phone rather than
+ *  every run taking it for buttons it does not have. A run with three or fewer
+ *  is budgeted at three or fewer, which is the whole point of the reform. */
+export const RAIL_SLOTS_MAX = 8;
 
 /** What the rail is being asked to hold right now. */
 export interface RailLoadout {
   bond: boolean;
   demo: boolean;
+  thaw: boolean;
   auto: boolean;
   /** Fine-pointer devices hide the game buttons entirely (app.css's
    *  `@media (pointer: fine)` rule) — only fullscreen + pause remain. */
@@ -106,7 +115,8 @@ export interface RailLoadout {
 export function railSlotsFor(l: RailLoadout): number {
   const fs = l.fullscreen === false ? 0 : 1;
   if (l.finePointer) return 1 + fs;
-  return RAIL_SLOTS_BASE - 1 + fs + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.auto ? 1 : 0);
+  return RAIL_SLOTS_BASE - 1 + fs
+    + (l.bond ? 1 : 0) + (l.demo ? 1 : 0) + (l.thaw ? 1 : 0) + (l.auto ? 1 : 0);
 }
 
 /** Gap between rail buttons and the slack at both ends. The CSS reads the gap
