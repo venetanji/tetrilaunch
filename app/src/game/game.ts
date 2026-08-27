@@ -36,7 +36,7 @@ import {
   settleZoneCubes,
   wakeNear,
   type ClearResult,
-  slagBountyFor,
+  slagBountyFor, volatileLossFor,
 } from "./lineClear";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -476,6 +476,14 @@ export class Game {
   /** Funds recovered from demolition-charge blasts this bay — a stat for the
    *  end/HUD readouts so bomb income is visibly separate from line income. */
   salvagedFunds = 0;
+  /** Funds this bay has been billed for live cargo destroyed by VOLATILE
+   *  detonations (resolveVolatile). A READOUT, like salvagedFunds beside it and
+   *  for the same reason: the charge already left the bay's score when the
+   *  blast resolved, so this must never be deducted a second time by anything
+   *  that reads it. It exists because a cost nobody can total is a trade the
+   *  player never gets to settle — the argument salvagedFunds makes for
+   *  itself in RunState. */
+  volatileLosses = 0;
   /** Render-facing FX events (shatter/payout/rowflash/explosion); spawned
    *  here, pruned here by FX_TTL, drawn by render.ts. */
   effects: FxEvent[] = [];
@@ -2184,6 +2192,30 @@ export class Game {
       // is the same statement ("that wreckage was worth something") and the
       // player has already learned to read it. A payout they only meet in the
       // end screen teaches nothing — the rule PILE_TIERS follows for its clock.
+      // THE LIVE CARGO IS BILLED, and it is billed here rather than anywhere
+      // else because a detonation is ONE settlement: the dead cubes pay out,
+      // the live cubes cost, and the player should see both land together.
+      // lineClear.ts's volatileLossFor carries the argument and the
+      // measurement; level.ts's VOLATILE_LOSS_SHARE carries the price.
+      //
+      // Clamped at the score exactly as the spill fine is (see loseCubes): the
+      // bay's funds are its operating budget and a hazard may empty it, but a
+      // negative bankroll is not a state this economy has. Going broke is
+      // already a loss condition with a grace window attached, and that is the
+      // route a player who cannot pay should take.
+      const loss = Math.min(this.score, volatileLossFor(razed, this.level.volatileLoss));
+      if (loss > 0) {
+        this.score -= loss;
+        this.volatileLosses += loss;
+        // The same "−$" toast the chute uses for a spilled shipment, for the
+        // same reason it reuses the bomb's salvage toast below: this is the
+        // same statement the player has already learned to read ("that cargo
+        // cost you"), and a charge they only meet in the end screen teaches
+        // nothing. Placed above the blast's centre so it clears the debris.
+        this.effects.push({
+          kind: "penalty", x: cx / n, y: cy / n - 40, amount: loss, t0: now,
+        });
+      }
       const bounty = slagBountyFor(razed, this.level.slagBounty);
       if (bounty > 0) {
         this.score += bounty;
