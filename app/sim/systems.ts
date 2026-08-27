@@ -953,6 +953,28 @@ section("Installs — what salvage buys (meta.ts)");
   // branch above is measuring saturation and not something else.
   check("...while an unfinished ladder still earns before it flies",
     nextStep(freshMeta({ mark: MARK_COUNT - 1, salvage: 0 })) === "contracts");
+  // AND THE FAUCET HAS A DOOR NOW. A player who owns the whole shelf still
+  // earns 60 a cycle up here, and until rack slots existed the rule had nothing
+  // to point that salvage at — every install is bought, so `cheapestInstall` is
+  // null and the branch fell straight through to the seal. The three cases are
+  // pinned together because the ORDER is the claim: a slot beats the seal, an
+  // install beats a slot, and salvage that covers neither still points at the
+  // objective rather than at a shop with nothing to sell.
+  const everything = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, UPRATE_MAX_TIER]),
+  ) as UpgradeTiers;
+  check("a finished shelf with salvage for a slot points at the Workshop",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: SLOT_PRICES[0], loadout: everything,
+    })) === "workshop");
+  check("...and one salvage short of a slot goes back to the objective",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: SLOT_PRICES[0] - 1, loadout: everything,
+    })) === "seal");
+  check("...and a full rack stops pointing at the shop however much is banked",
+    nextStep(freshMeta({
+      mark: MARK_COUNT, salvage: 10_000, loadout: everything, slots: SLOT_CAP,
+    })) === "seal");
 
   // …and the menu renders exactly the one badge the rule picked (A3), the
   // tier plate in the Deep Run button (A1), and — on first launch only — the

@@ -4,7 +4,9 @@ import {
   makeBaseLevel, penaltyPerLostPieceFor, PILE_TIERS, TIER_COUNT, type LevelConfig,
 } from "./level";
 import { VOLATILE_BLAST_CELLS } from "./lineClear";
-import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
+import {
+  markUnlocked, SLOT_BASE, SLOT_CAP, SLOT_PRICES, TIER_CONTRACTS_REQUIRED, type MetaState,
+} from "./meta";
 import { SIZE_SPEC } from "./pieces";
 import { REFIT_EVERY, RUN_LEVELS } from "./run";
 import { CLAUSE_COUNT, CLAUSE_STOPS } from "./skydeck";
@@ -562,6 +564,24 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` tiers 1 and 2 of a system are Workshop purchases, made with salvage, between runs.`
       + ` Everything bought here lasts the whole run and stacks with whatever the tier's build budget`
       + ` let you launch with.`,
+  },
+  {
+    id: "slots", chapter: "rig", tier: 1,
+    name: "Rack slots",
+    summary: `A rig undocks with ${SLOT_BASE} systems aboard. Salvage buys room for more.`,
+    // Every number quoted, never restated: the ladder is SLOT_PRICES read out,
+    // and the roster size is UPGRADES.length, so a re-price or an eleventh
+    // system moves this topic without anybody remembering it exists.
+    // Every number quoted, never restated: the ladder is SLOT_PRICES read out
+    // and the top is SLOT_CAP, so a re-price or an eleventh system moves this
+    // topic without anybody remembering it exists. Kept short because the pane
+    // caps a topic's body — see sim/systems.ts's guide-length pins.
+    body: `Owning a system and <b>flying</b> it are different things. The rack holds`
+      + ` <b>${SLOT_BASE}</b>; only what is in it undocks, and the rest waits in the`
+      + ` <b>shed</b>, keeping every tier you paid for. Set it in the Workshop, free, before`
+      + ` any run. The ${SLOT_CAP - SLOT_BASE} slots up to <b>${SLOT_CAP}</b> cost`
+      + ` ${SLOT_PRICES.join(", ")} salvage — dearer as each buys less. A refit stop can only`
+      + ` raise what is aboard.`,
   },
   ...systemTopics(),
   {

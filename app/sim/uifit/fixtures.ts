@@ -572,9 +572,10 @@ export const SCREENS: Record<string, () => string> = {
   //                    topic, since that is where the gate actually bites.
   //   guide-art        the widest art strip the screen can produce (seven shape
   //                    tiles) under a body.
-  //   guide-rig        the deepest chapter — ten rows, so the index really
-  //                    scrolls — on a PROGRESSED save, where the tab counts are
-  //                    non-zero and nothing is gated.
+  //   guide-rig        the deepest chapter — fourteen rows since the rack-slot
+  //                    topic landed, so the index really scrolls — on a
+  //                    PROGRESSED save, where the tab counts are non-zero and
+  //                    nothing is gated.
   //   guide-worst      the tallest pane the catalogue can build, computed.
   //   guide-worst-art  the same, among the topics that also carry art.
   guide: () => S.guideScreen({ chapter: "basics", topicId: "tutorial", meta: newMeta() }),

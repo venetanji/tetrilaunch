@@ -1326,6 +1326,15 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
 export function nextStep(meta: MetaState): NextStepId {
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
+  // A RACK SLOT IS THE SAME BRANCH, and it is what finally gives the endgame
+  // faucet a door. The rule's first line is "salvage covers something you can
+  // spend it on -> spend it", and until slots existed that could only ever mean
+  // an install — so a player who owned the whole shelf and kept earning 60 a
+  // cycle (advanceTier at MARK_COUNT) was never pointed at the Workshop again,
+  // however much they banked. Asked AFTER the install so the on-ramp still
+  // wins: a first system beats a wider rack with nothing to put in it.
+  const slot = slotPrice(slotsFor(meta));
+  if (slot !== null && meta.salvage >= slot) return "workshop";
   // Asked BEFORE the Contracts branch, because at MARK_COUNT that branch is
   // answering a question the ladder has stopped asking — see the header. A
   // finished ladder with every Mark sealed falls through to the run, which is
