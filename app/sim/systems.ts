@@ -25,8 +25,9 @@ import {
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
   bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
+  VOLATILE_LOSS_SHARE,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
-  type LevelConfig, type PileTier,
+  type LevelConfig, type MaterialMix, type PileTier,
 } from "../src/game/level";
 import { BELT_CEILING, MATERIAL_GAP, mixTotal } from "../src/game/belt";
 import { BOTS } from "./bots";
@@ -43,6 +44,7 @@ import {
   comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
 } from "./draft-space";
 import { greedyRefit, runDeepRun } from "./deeprun";
+import { runBay } from "./runner";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
   BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold, thawHands,
@@ -62,6 +64,7 @@ import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
+  volatileLossFor, settleBlast,
   markLostPieces, slagBountyFor,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
@@ -616,7 +619,10 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // ramp in makeBaseLevel) instead of off the mark. Only these may differ
   // between the bottom and the top of the ladder — the three the tier states
   // (target, clock, launch cost), the spill fine the tier now ramps
-  // (penaltyPerLostPieceFor), the float derived from the launch cost
+  // (penaltyPerLostPieceFor), the volatile charge DERIVED from that same fine
+  // (VOLATILE_LOSS_SHARE — it rides the spill fine precisely so it ramps with
+  // the tier instead of being right at one of them, so it moving here is the
+  // intent rather than a leak), the float derived from the launch cost
   // (LAUNCH_BUDGET_SHOTS), the bond ramp a Mark is allowed to move
   // (BOND_MARK_STEP) and the recorded mark itself.
   const lowBay = makeBaseLevel(5, 1) as unknown as Record<string, unknown>;
@@ -627,7 +633,7 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     .join(",");
   check("a tier moves exactly the demand knobs and nothing else",
     moved === "jointBreakStretch,launchCost,mark,penaltyPerLostPiece,startingFunds,"
-      + "targetScore,timeLimitSec",
+      + "targetScore,timeLimitSec,volatileLoss",
     moved || "(nothing moved)");
 
   // BONDS are the one ladder number a Mark still moves (level.ts's
@@ -2049,6 +2055,28 @@ section("Refit cadence + run economy (run.ts)");
   // would pay the player for the same blast twice.
   check("demolition recovery never leaks into the carried float", demoA.carry === 0,
     String(demoA.carry));
+  // THE SAME THREE PROPERTIES, for what volatile TOOK. It is the mirror of the
+  // stat above and it fails the same three ways, so it is pinned the same three
+  // ways rather than trusted to the symmetry: run-long, defaulted to 0, and
+  // never operating cash. The last is the one worth stating out loud in this
+  // direction — the charge already came out of the bay's score when the blast
+  // settled (lineClear.ts's settleBlast), so a leak into carry would bill the
+  // player for the same detonation twice.
+  check("a bay nothing detonated in is charged nothing", run.volatileLosses === 0,
+    String(run.volatileLosses));
+  const volA = advanceRun(run, 800, 800, 0, 0, [], run.bondCharges, 0, 90);
+  const volB = advanceRun(volA, 800, 800, 0, 0, [], volA.bondCharges, 0, 35);
+  check("detonation charges accumulate across bays", volB.volatileLosses === 125,
+    String(volB.volatileLosses));
+  check("detonation charges never leak into the carried float", volA.carry === 0,
+    String(volA.carry));
+  // The two stats are independent columns, not one signed number: a bay can pay
+  // a bounty and be charged in the very same blast, and a version that netted
+  // them into one field would report a wash as "nothing happened".
+  const both = advanceRun(run, 800, 800, 0, 0, [], run.bondCharges, 60, 60);
+  check("a bay that both recovered and lost reports both, not the net",
+    both.salvagedFunds === 60 && both.volatileLosses === 60,
+    `${both.salvagedFunds} / ${both.volatileLosses}`);
   check("the ratcheted axis is recorded", run.ratchets.cost === 1);
   check("levelIndex advanced", run.levelIndex === 1);
   // The capstone hands two axes at once, and the same axis twice is a legal
@@ -8226,7 +8254,8 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
     boardTier: BOARD_SANDBOX,
     runComplete: false, tierCompleted: null, tierSalvage: 0,
     progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 20,
-    salvagedFunds: 0, tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    salvagedFunds: 0, volatileLosses: 0,
+    tiers: newTiers(), sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
   });
   check("a Tier S end says nothing was banked", sEnd.includes("No salvage"));
   check("a Tier S end names its board", sEnd.includes("Tier S board"));
@@ -8703,9 +8732,42 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
       funds: 300, best: 50_000, name: "PILOT", rows: "", reason: "broke",
       bayNum: 7, bayName: "Cryo Vault", tierCompleted: null, tierSalvage: 0,
       progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
-      salvagedFunds: 0, tiers: newTiers(), boardTier: 1,
+      salvagedFunds: 0, volatileLosses: 0, tiers: newTiers(), boardTier: 1,
       ...o,
     });
+
+  /* -------------------------------------------------------------------------
+   * WHAT VOLATILE TOOK IS PRINTED. A cost the player is never shown reads to
+   * them exactly the way it read to the sim before it was billed — as free pile
+   * relief — which is the defect lineClear.ts's volatileLossFor was written to
+   * remove. Pricing it and hiding it removes the defect from the numbers and
+   * leaves it in the player's head.
+   *
+   * On the BREAKDOWN row specifically, and that is the assertion rather than an
+   * incidental fact about where the string landed. The sandbox foot beside it
+   * (screens.ts's demoFoot) renders on Tier S runs only, so a charge parked
+   * there would be invisible on every ladder run — i.e. on every run where it
+   * cost the player anything that mattered.
+   * ----------------------------------------------------------------------- */
+  {
+    const charged = end({ volatileLosses: 240 });
+    check("a run that ate detonations says what they took",
+      charged.includes("$240 lost to detonations"));
+    check("...on the breakdown row, which every run draws — not the Tier S foot",
+      /end__breakdown[^]*?\$240 lost to detonations[^]*?<\/div>/.test(charged));
+    // Suppressed at zero rather than printed as "$0": most runs never ratchet
+    // the axis, and a hazard the player never met has no business on the one
+    // row that reconciles the run's money.
+    check("a run that met no volatile is not told what it did not lose",
+      !end({ volatileLosses: 0 }).includes("lost to detonations"));
+    // The two readouts are independent, and a run can carry both. Pinned
+    // because they are one sentence apart in screens.ts and the obvious
+    // regression is a branch that renders whichever is checked first.
+    const mixed = end({ volatileLosses: 240, salvagedFunds: 310, sandbox: true });
+    check("a run that both recovered and lost prints both figures",
+      mixed.includes("$240 lost to detonations")
+        && mixed.includes("$310 recovered by demolition"));
+  }
 
   // ---- THE CONTRACTS ROUTE -----------------------------------------------
   // The end card is where a player decides what to do next, and it used to
@@ -10817,6 +10879,261 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
  *     a cushion softens and never primes, and it never reaches "volatile is
  *     inert".
  * ========================================================================= */
+section("Volatile is billed for the cargo it destroys (level.ts / lineClear.ts / game.ts)");
+{
+  const cube = (material: Material): Cube => ({
+    body: { position: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } },
+    material, struck: true, blinkStart: null,
+  } as unknown as Cube);
+
+  // The two halves of one rule: pay for the dead, charge for the live. Same
+  // test (countsForLines), same unit (per cube), opposite sign.
+  const mixed = [cube("standard"), cube("slag"), cube("volatile"), cube("slag"), cube("cryo")];
+  check(
+    "a blast charges for exactly the cubes that could still have made a line",
+    volatileLossFor(mixed, 10) === 30, `${volatileLossFor(mixed, 10)}`,
+  );
+  check(
+    "...and pays for exactly the ones that never could, with nothing counted twice",
+    slagBountyFor(mixed, 10) === 20
+      && volatileLossFor(mixed, 10) / 10 + slagBountyFor(mixed, 10) / 10 === mixed.length,
+  );
+  check(
+    "an unstruck cryo cube is LIVE cargo and is billed as such",
+    volatileLossFor([{ ...cube("cryo"), struck: false } as Cube], 10) === 10,
+  );
+  check(
+    "a blast that caught only slag is billed nothing",
+    volatileLossFor([cube("slag"), cube("slag")], 10) === 0,
+  );
+
+  /* -------------------------------------------------------------------------
+   * ONE SETTLEMENT, NOT TWO. The invariant is that the bounty and the charge
+   * come out of the same blast and are therefore netted BEFORE the balance
+   * clamp — not applied one after the other.
+   *
+   * Review found the hole in the sequential version and its example is pinned
+   * verbatim below: a bay at $0 takes a blast that kills one standard cube and
+   * one slag cube. Charging first clamps against a balance of $0, so nothing is
+   * taken; then the bounty lands in full. The near-broke player — exactly the
+   * one the charge is aimed at — collects $20 of relief for free and steps
+   * around the broke path the clamp exists to route them into.
+   *
+   * The general property is the second check: as long as the blast pays for
+   * itself, the charge is paid IN FULL out of the bounty, whatever the balance.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 8;
+    const blast = [cube("standard"), cube("slag")];
+    const broke = settleBlast(blast, 0, perLive, SLAG_BOUNTY);
+    check(
+      "at $0 a blast that kills live cargo is charged out of its own bounty",
+      broke.charged === perLive && broke.net === SLAG_BOUNTY - perLive,
+      `charged ${broke.charged} of ${broke.owed}, net ${broke.net}`,
+    );
+    // The clamp is not removed, only re-ordered: a blast whose bounty cannot
+    // cover the charge still bottoms the bay out at $0 rather than going
+    // negative, which is the rule loseCubes's spill fine follows.
+    for (const funds of [0, 1, 7, 40, 300]) {
+      const s = settleBlast(
+        [cube("standard"), cube("standard"), cube("standard"), cube("slag")],
+        funds, perLive, SLAG_BOUNTY,
+      );
+      check(
+        `at $${funds}: the settlement never drives the balance below zero, and never forgives what the bay can pay`,
+        funds + s.net >= 0 && s.charged === Math.min(funds + s.bounty, s.owed),
+        `charged ${s.charged} of ${s.owed}, net ${s.net}, balance ${funds + s.net}`,
+      );
+    }
+  }
+
+  // The price rides the bay's own spill fine, so it ramps with the tier ladder
+  // instead of being right at one tier. Volatile opens at Mark 7 (hazards.ts),
+  // so that is where the band is checked.
+  for (const [mark, bay] of [[7, 5], [7, 10], [10, 10]] as [number, number][]) {
+    const cfg = makeBaseLevel(bay - 1, mark);
+    check(
+      `Tier ${mark} bay ${bay}: the charge is ${VOLATILE_LOSS_SHARE} of that bay's own spill fine`,
+      cfg.volatileLoss === Math.round(penaltyPerLostPieceFor(bay - 1, mark) * VOLATILE_LOSS_SHARE)
+        && cfg.volatileLoss > 0,
+      `${cfg.volatileLoss} vs fine ${penaltyPerLostPieceFor(bay - 1, mark)}`,
+    );
+  }
+  check(
+    "the charge is a SHARE of the fine, never the whole of it — a detonation",
+    VOLATILE_LOSS_SHARE > 0 && VOLATILE_LOSS_SHARE < 1,
+    `${VOLATILE_LOSS_SHARE}`,
+  );
+
+  // A BAY WITH NO VOLATILE ON THE BELT CANNOT BE BILLED, and this is what the
+  // "nothing else moved" claim rests on rather than a sample that happened not
+  // to deal one. skydeck.ts's report card came back byte-identical across this
+  // change, but at three seeds it never dealt the Tier-7 pair at all, so the
+  // sample proves less than it looks like it does. This is the property: the
+  // charge is levied by resolveVolatile, resolveVolatile is reached only by a
+  // detonation, and only a volatile cube detonates.
+  {
+    const clean = makeBaseLevel(9, 7);
+    const g = new Game(clean, {}, 1);
+    for (let i = 0; i < 600; i++) g.update(i * (1000 / 60));
+    check(
+      "a bay with no volatile on the belt is never billed for one",
+      clean.materialMix.volatile === 0 && g.volatileLosses === 0,
+      `mix ${clean.materialMix.volatile}, billed ${g.volatileLosses}`,
+    );
+    g.destroy();
+  }
+  /* -------------------------------------------------------------------------
+   * EVERY SURFACE THAT SELLS THE AXIS DISCLOSES THE CHARGE.
+   *
+   * A price the player is not told about is not a price, it is a surprise, and
+   * this axis is the one where that bites hardest: a detonation VISIBLY helps
+   * — the pile drops, the bay breathes — so a player shown only the blast will
+   * read the notch the way the sim read it before it was billed. The guide's
+   * volatile topic used to end "Aimed into a dead pile, it is a free demolition
+   * charge", which was the exact wrong lesson taught in the exact right words.
+   *
+   * Pinned as the PROPERTY over every volatile-bearing surface rather than as
+   * three string equalities, so a fourth surface — a new Final clause at some
+   * later tier, a reworded draft card — inherits the requirement instead of
+   * quietly opting out of it. The test is deliberately loose about wording and
+   * strict about subject: the copy must say the bay is charged, in whatever
+   * voice that surface speaks in.
+   * ----------------------------------------------------------------------- */
+  {
+    const disclosesCharge = (copy: string): boolean =>
+      /\b(billed|pays for|charged)\b/i.test(copy);
+
+    const card = hazardById("volatile");
+    check(
+      "the volatile draft card prices the notch, not just the bang",
+      !!card && disclosesCharge(card.desc), card?.desc,
+    );
+
+    // Bay 1 of the tier volatile opens at, which is where the guide reads its
+    // numbers from (guide.ts's buildTopics).
+    const topic = guideTopics(7).find((t) => t.id === "mat-volatile");
+    check(
+      "the guide's volatile topic names the charge and its per-cube price",
+      !!topic
+        && disclosesCharge(topic.body)
+        && topic.body.includes(`$${makeBaseLevel(0, 7).volatileLoss}`),
+      topic?.body,
+    );
+    check(
+      "...and no longer sells a detonation as free demolition",
+      !!topic && !/free demolition/i.test(topic.body),
+    );
+
+    // Both halves of the Tier-7 pair schedule volatile, so both are selling the
+    // hazard and both owe the disclosure — the clause the player picks is often
+    // the only place they read about the material at all.
+    //
+    // Found by APPLYING each clause and reading the belt, not by matching its
+    // text: a clause that sells volatile is one whose applied config puts
+    // volatile on the belt, and a rule that asked the copy whether the copy was
+    // right would be no rule at all.
+    //
+    // SELLS it, which is narrower than "schedules" it, and the difference is
+    // Odd Lots. That clause deals all six materials at once and its whole
+    // pitch is the breadth — it is not a volatile clause any more than it is a
+    // tar one, and demanding six materials' rules in one sentence would turn a
+    // disclosure into a wall nobody reads. A clause whose ONLY addition is
+    // volatile has no such excuse: it is a volatile clause, that is the one
+    // thing it is about, and the charge is half of what it does.
+    const volatileFinals = FINALS.filter((f) => {
+      const base = makeBaseLevel(9, f.tier);
+      const cfg = makeBaseLevel(9, f.tier);
+      applyFinal(cfg, f.id);
+      const added = (Object.keys(cfg.materialMix) as (keyof MaterialMix)[])
+        .filter((m) => cfg.materialMix[m] > (base.materialMix[m] ?? 0));
+      return added.length === 1 && added[0] === "volatile";
+    });
+    check(
+      "every Final clause that SELLS volatile discloses the charge too",
+      volatileFinals.length >= 2 && volatileFinals.every((f) => disclosesCharge(f.desc)),
+      volatileFinals.map((f) => f.id).join(),
+    );
+  }
+
+  // Volatile counts for lines, so it is not dead cargo — the rule the Skydeck
+  // uses to refuse a clause outright (skydeck.ts's schedulesDeadCargo) reads
+  // countsForLines and therefore cannot be moved by anything priced here.
+  check(
+    "re-pricing volatile does not make it dead cargo, so the Skydeck's refusal is untouched",
+    MATERIAL_SPEC.volatile.countsForLines
+      && !FINALS.filter((f) => f.tier === 7).some((f) => schedulesDeadCargo(f)),
+  );
+
+  /* -------------------------------------------------------------------------
+   * THE DIRECTION PIN. hazards.ts's contract on the ratchet is one sentence:
+   * "It is mandatory and unrewarded. […] A notch is pure cost." Volatile broke
+   * it — at the belt cap a volatile bay OUT-WON a clean one (16/16 against
+   * 14/16 for the adaptive pilot, 15/16 against 14/16 for the fixed-arc one)
+   * because detonations thinned the pile for free.
+   *
+   * So this pins the DIRECTION rather than a number: at the belt cap, on
+   * matched seeds and a matched rig, a volatile bay must not win more often
+   * than the clean control. Worded that way on purpose — a future buff that
+   * re-made volatile profitable would fail here even if it moved the win rate
+   * by a different mechanism and even if every constant above still typechecked.
+   *
+   * AT THE CAP, and the pin says why rather than leaving it to look arbitrary.
+   * One notch fires ~2.5 detonations a bay against the cap's ~19.4, so the
+   * shallow end of the axis sits inside this instrument's noise floor (94%
+   * against an 88% control is one seed in sixteen) and a pin there would be
+   * pinning a coin flip. The cap is where the defect was measurable, so the cap
+   * is where it is guarded.
+   *
+   * BOTH PILOT PROFILES, because the original finding carried a bot-bias
+   * caveat that had to be discharged rather than repeated: `aim` always lobs,
+   * so it never pays volatile's ARRIVAL cost, and the advantage might have been
+   * an artifact of one bot's arc. `lob-flat` is a fixed high arc with a
+   * different detonation rate entirely, and it showed the same advantage before
+   * and pays the same price after — so the finding was the mechanic, not the
+   * bot.
+   * --------------------------------------------------------------------- */
+  {
+    const SEEDS = 8;
+    const rig = loadoutFor(PRIORITY_ORDERS.material, 7);
+    const wins = (stack: Ratchets, botName: string): number => {
+      let won = 0;
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const cfg = makeBaseLevel(9, 7);
+        applyUpgrades(cfg, rig);
+        const flown = applyRatchets(cfg, stack);
+        flown.startingFunds += CARRY_CAP;
+        const out = runBay(flown, bondHands(BOTS[botName](seed)), seed);
+        if (out.status === "won") won += 1;
+      }
+      return won;
+    };
+    // POOLED across the two profiles, not one check each, and that is about
+    // resolving power rather than tidiness. Run against the OLD pricing the
+    // per-bot checks read `demo` 8/8 against clean 6/8 — a clear failure — and
+    // `lob-flat` 8/8 against 8/8, which passes. The fixed-arc pilot detonates a
+    // third as often (6.5 a bay against 19.4), so its share of the defect is
+    // about one seed in sixteen and a per-bot check on it would be a guard that
+    // cannot see what it guards. Pooling doubles the sample, keeps both
+    // profiles in the claim, and still fails loudly on the old numbers.
+    const detail: string[] = [];
+    let clean = 0;
+    let capped = 0;
+    for (const botName of ["demo", "lob-flat"]) {
+      const c = wins({}, botName);
+      const v = wins({ volatile: 6 }, botName);
+      clean += c;
+      capped += v;
+      detail.push(`${botName} ${v}/${c}`);
+    }
+    check(
+      `a belt at the volatile cap never out-wins a clean bay (Tier 7 bay 10, ${SEEDS} paired seeds x 2 pilots)`,
+      capped <= clean,
+      `volatile ${capped} vs clean ${clean} of ${SEEDS * 2} — ${detail.join(", ")}`,
+    );
+  }
+}
+
 section("The winnability sweep — the enumerated combo space (sim/draft-space.ts)");
 {
   /**

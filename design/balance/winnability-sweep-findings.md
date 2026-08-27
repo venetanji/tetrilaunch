@@ -226,8 +226,10 @@ a player the same one notch is not a difficulty curve, it is a trap.
 
 Tier 7 is flat: every corner lands within one bay of every other, and the two
 BEST rows are `dodge` (take no material you do not have to) and `max:volatile`.
-**Volatile is the easiest axis on the table at the Tier that introduces it** —
-§5 shows why, and it is not a rounding error.
+**Volatile was the easiest axis on the table at the Tier that introduces it** —
+§5b shows why, and it is not a rounding error. That is what the re-price
+(`VOLATILE_LOSS_SHARE`) was made to fix; this table is the pre-change reading
+and the `max:volatile` row is the one it moves.
 
 ### Tier 10 — ten axes, two picks a bay
 
@@ -436,72 +438,59 @@ may well be real; the measurement that suggested it was not powered enough to
 say so, and no number in this document should be read at 8 seeds where a 24-seed
 one exists.
 
-### 5b. Volatile — the material that is not a hazard
+### 5b. Volatile — the material that was not a hazard, and now is
+
+> **RESOLVED.** This section's finding was acted on: `level.ts`'s
+> `VOLATILE_LOSS_SHARE` now bills a detonation for the live cargo it destroys.
+> The *before* numbers below are kept because they are the argument for the
+> change, and the *after* numbers are what it bought.
 
 ```sh
 npm run sim:winnability -- --mode counter --marks 7 --bay 10 \
   --ratchets volatile:6 --counters cushion1,cushion3 --seeds 16 --build material
 ```
 
-16 paired seeds, on two different bays of the Tier that introduces volatile:
+16 paired seeds, on the Tier that introduces volatile:
 
-| Tier 7 | clean control | `volatile:6` (belt cap) | `+ Cushion 1` | `+ Cushion 3` |
-|---|---:|---:|---:|---:|
-| bay 10 — win | 14/16 | **16/16** | 14/16 | 14/16 |
-| bay 10 — lines | 8.6 | 8.5 | 8.6 | 8.6 |
-| bay 10 — shots | 28.1 | **48.0** | 28.9 | **28.1** |
-| bay 10 — end $ | $1694 | **$1962** | $1718 | **$1694** |
-| bay 5 — win | 15/16 | **16/16** | 15/16 | 15/16 |
-| bay 5 — shots | 25.9 | **46.5** | 23.5 | **25.9** |
-| bay 5 — end $ | $1244 | $1295 | $1300 | **$1244** |
+| Tier 7 bay 10 | clean control | `volatile:6` BEFORE | `volatile:6` AFTER | AFTER + Cushion 1 | AFTER + Cushion 3 |
+|---|---:|---:|---:|---:|---:|
+| win | 14/16 | **16/16** | **10/16** | 14/16 | 14/16 |
+| shots | 28.1 | 48.0 | 43.6 | 28.9 | 28.1 |
+| end $ | $1694 | **$1962** | **$1212** | $1700 | $1694 |
+| losses | broke×2 | — | broke×6 | broke×2 | broke×2 |
 
-Read the clean control against the Cushion-3 column: **byte-identical, on both
-bays.** The prototype does exactly what it was designed to do — it returns a
-belt that is one-third volatile to the behaviour of a bay with no volatile in it
-at all. There is no question about whether the system works.
+| Tier 7 bay 5 | clean control | `volatile:6` BEFORE | `volatile:6` AFTER | AFTER + Cushion 1 | AFTER + Cushion 3 |
+|---|---:|---:|---:|---:|---:|
+| win | 15/16 | 16/16 | **8/16** | 15/16 | 15/16 |
+| end $ | $1244 | $1295 | $649 | $1326 | $1244 |
 
-**And the bay it returns to is WORSE than the one it left.** At the belt cap,
-un-cushioned volatile wins **16/16** against the clean control's 14/16, clears
-the same lines, and ends $268 richer. `hazards.ts` states the rule a notch has
-to obey — *"It is mandatory and unrewarded. A mod was a hand you were dealt,
-often with an upside. **A notch is pure cost.**"* — and at Tier 7, against this
-pilot, the volatile notch is not.
+**What the BEFORE column was.** At the belt cap an un-cushioned volatile belt
+won **16/16** against a 14/16 clean control, ended $268 richer, and ran a mean
+pile of 20.2 cubes against 31.4. `hazards.ts` states the contract that broke, in
+the plainest words in the file: *"It is mandatory and unrewarded. […] **A notch
+is pure cost.**"* It was not. Detonations thinned the pile for free, and
+`lineClear.ts`'s own trigger sizing is why the arrival cost was never paid — 22
+sits above a lob's 19.5, and the `aim` search always lobs.
 
-The mechanism is legible in the shot count: 48.0 shots against 28.1. The
-detonations are **thinning the pile**, and a pilot whose failure mode is a
-jammed bay is being un-jammed for free. `lineClear.ts` already names the
-counter-play that makes this possible — *"A soft landing is the answer — a
-low-power lob, which lands around 19.5 against a hard shot's 25.5"* — and the
-`aim` search inside `demo` **always lobs** (it takes the steepest candidate
-within tolerance). So a competent pilot pays volatile's arrival cost
-approximately never, and collects the pile-thinning upside every time something
-lands on a cube already down.
+**The bot-bias caveat, discharged rather than repeated.** The obvious objection
+was that one bot's arc produced the whole result. It did not: `lob-flat`, a
+fixed high arc with a third the detonation rate (6.5 a bay against 19.4), showed
+the same advantage before (15/16) and pays the same price after (10/16). Both
+profiles land on 63% after the re-price — the price does not depend on how you
+fly.
 
-**The controls rule out the obvious objections:**
+**And the cushion now has a job.** This is the reversal worth reading twice. The
+proposal's §3b said the Impact Cushion worked perfectly and should NOT be built,
+because it was correctly neutralising a hazard that was worth *not*
+neutralising — cushioning volatile cost you wins (16/16 → 14/16). Re-priced, the
+same prototype **buys them back**: 10/16 → 14/16, landing exactly on the clean
+control rather than past it, which is the "makes one specific hazard cheap for
+you, does not delete it" test. Same code, opposite verdict, because the thing it
+counters finally costs something.
 
-| control | result | rules out |
-|---|---|---|
-| `flat` bot, `volatile:6` | 0/8, 4.0 shots | — |
-| `flat` bot, **no ratchets** | 0/8, 4.0 shots | "the cushion would help a player who fires flat": that bot cannot play Tier 7 bay 10 at all, volatile or not |
-| `middle` bot, both | 0/8, 4.5 shots | same |
+The crosswind case sharpened too — `volatile:3 wind:3` at bay 10 over 8 seeds
+now reads 5/8 bare against 8/8 cushioned, where before it was 6/8 against 8/8.
 
-**Two conditions flip the sign, and they are the cushion's real brief:**
-
-| condition | baseline | + cushion | reading |
-|---|---|---|---|
-| `volatile:3 wind:3`, bay 10, 8 seeds | 6/8 | **8/8** (all tiers) | a crosswind takes away the pilot's control of landing speed, and the cushion gives it back |
-| `lob-flat` pilot, `volatile:6`, bay 10, 8 seeds | 7/8 | **8/8** = the clean control exactly | a fixed-arc pilot pays a real, small cost that the cushion exactly removes |
-
-Both are consistent with the same mechanism: the cushion is worth something
-precisely when the pilot cannot *choose* a soft landing. It is worth nothing —
-or less — when they can.
-
-**Verdict: volatile does not need a cushion, it needs re-pricing.** A cushion
-is a well-formed system that correctly neutralises a hazard which is currently
-worth *not* neutralising. Building it first would be building the right answer
-to the wrong question. See the proposal's §2a for the two knobs
-(`VOLATILE_TRIGGER_SPEED`, or what a detonation pays) and for the separate
-finding that a maxed cushion overshoots Hair Trigger to 1.19× stock.
 
 ---
 
@@ -518,8 +507,11 @@ finding that a maxed cushion overshoots Hair Trigger to 1.19× stock.
    nothing and three notches of Shift Cut cost literally nothing. Either
    `MATERIAL_BASE` is wrong for cryo specifically, or cryo is a material whose
    counter has not been built. The proposal argues the second.
-3. **Re-price volatile.** §5b: a notch that is currently an advantage violates
-   the ratchet's founding rule. This is a bug in a number, not a missing system.
+3. ~~**Re-price volatile.**~~ **DONE.** §5b: a notch that was an advantage
+   violated the ratchet's founding rule. It was a bug in a number, not a missing
+   system, and `level.ts`'s `VOLATILE_LOSS_SHARE` is the number: a detonation is
+   now billed for the live cargo it destroys. At the belt cap the axis goes from
+   16/16 to 10/16 against a 14/16 clean control, on both pilot profiles.
 4. **Look at Tier 5's forced hand.** The ladder's cliff (§2) sits exactly at the
    rung where `MATERIAL_DRAFT_BAYS` stops being dodgeable, and the material it
    forces first is the one §5a says is mispriced. Those two findings are one

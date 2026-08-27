@@ -220,6 +220,95 @@ export function slagBountyFor(destroyed: Cube[], perCube: number): number {
 }
 
 /**
+ * What a VOLATILE detonation costs the bay for the LIVE cargo it obliterated.
+ *
+ * The exact mirror of slagBountyFor above, and the two are one rule read in
+ * both directions: **pay for the dead, charge for the live.** Same test, same
+ * unit, same funds-only stance — `countsForLines`, per cube, the bay's
+ * operating budget and never scrap.
+ *
+ * WHY THIS EXISTS, measured. slagBountyFor's own note already states the
+ * design's intent in one line — "Live cargo a hazard obliterated is still a
+ * pure loss" — and until now that sentence was true of the fiction and false of
+ * the economy. Nothing was billed. A detonation deleted cargo the player had
+ * paid to launch and the ledger did not notice.
+ *
+ * That is not a rounding error, because deleting cargo is worth something: it
+ * THINS THE PILE. Measured on the winnability harness at Tier 7 bay 10 over 16
+ * paired seeds, a belt at the volatile cap ran a mean pile of 20.2 cubes
+ * against a clean bay's 31.4, and won 16/16 where clean won 14/16 — a hazard
+ * notch that made the bay easier. hazards.ts states the contract it broke in
+ * the plainest words in that file: "It is mandatory and unrewarded. […] A notch
+ * is pure cost."
+ *
+ * So the charge is deliberately PROPORTIONAL TO THE RELIEF. A detonation in an
+ * empty bay catches nothing and costs nothing; one in a packed pile catches the
+ * most cargo, gives the most relief, and is billed the most. That inversion is
+ * the whole fix — it prices the benefit rather than suppressing the event, so
+ * volatile keeps its character (a hazard that goes off when you land hard, and
+ * whose cost lands on cubes that were already down) and stops being a bargain.
+ *
+ * NOT a second lever on how OFTEN it goes off. lineClear.ts's
+ * VOLATILE_TRIGGER_SPEED note sizes 22 against a measured arrival range and
+ * says why it sits "between the two halves of the dial"; moving it would make
+ * detonations MORE frequent, which — given the measurement above — amplifies
+ * the benefit while adding an unrelated cost, and would silently re-price both
+ * finals.ts's Hair Trigger and anything else reading volatileTriggerMult. One
+ * knob, aimed at the thing that was actually wrong.
+ */
+export function volatileLossFor(destroyed: Cube[], perCube: number): number {
+  let n = 0;
+  for (const cube of destroyed) {
+    if (MATERIAL_SPEC[cube.material].countsForLines) n += 1;
+  }
+  return n * perCube;
+}
+
+/** What one detonation actually moves on the bay's ledger. */
+export interface BlastSettlement {
+  /** Paid for the dead cargo — the gross figure, before anything is taken. */
+  bounty: number;
+  /** Taken for the live cargo, AFTER the balance clamp. May be under `owed`. */
+  charged: number;
+  /** What `owed` would have been with unlimited funds. `charged` ≤ this. */
+  owed: number;
+  /** The single number to add to the bay's funds: `bounty - charged`. */
+  net: number;
+}
+
+/**
+ * Settle ONE detonation against the bay's funds — the dead cargo's payout and
+ * the live cargo's charge, netted, in a single statement.
+ *
+ * IT HAS TO BE ONE STATEMENT, and it is worth saying why, because the obvious
+ * version reads correctly and is not. Charging first and crediting afterwards
+ * clamps the charge against the balance *as it stood*, so a bay at $0 could
+ * take a blast that killed one standard cube and one slag cube, pay nothing —
+ * there was nothing to clamp against — and then collect the bounty in full. The
+ * near-broke player, which is precisely the player the charge is aimed at, got
+ * the relief for free and stepped around the broke path the clamp exists to
+ * route them into. Netting first closes it: the charge comes out of the bounty
+ * before either reaches the balance.
+ *
+ * The clamp itself stays, for the reason the spill fine has one (see
+ * Game.loseCubes): the bay's funds are its operating budget, a hazard may empty
+ * it, and a negative bankroll is not a state this economy has. Going broke is
+ * already a loss condition with a grace window attached, and that is the route
+ * a player who genuinely cannot pay should take.
+ */
+export function settleBlast(
+  destroyed: Cube[],
+  funds: number,
+  perLiveCube: number,
+  perDeadCube: number,
+): BlastSettlement {
+  const bounty = slagBountyFor(destroyed, perDeadCube);
+  const owed = volatileLossFor(destroyed, perLiveCube);
+  const charged = Math.min(funds + bounty, owed);
+  return { bounty, charged, owed, net: bounty - charged };
+}
+
+/**
  * Weld a TAR cube to whatever it just touched.
  *
  * Returns the pairs that should become permanent joints. Tar is the deliberate

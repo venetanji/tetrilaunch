@@ -258,58 +258,49 @@ all. Before implementation, the findings' §7 item — a striking bot — should
 separate "cryo needs a system" from "cryo needs the counter-play it already
 has". The measurement above says the first; it cannot yet rule out the second.
 
-### 3b. THE IMPACT CUSHION: DO NOT BUILD IT YET — RE-PRICE VOLATILE FIRST
+### 3b. THE IMPACT CUSHION: the blocker is cleared — it now has a job
 
-The prototype **works perfectly**, and that is how the finding was made. At
-Tier 7, 16 paired seeds, a maxed cushion returns a belt that is one-third
-volatile to results *byte-identical* to a clean bay, on two different bays.
+> **UPDATED.** This section used to read "do not build it yet". The blocker it
+> named — volatile being worth *not* neutralising — has been removed:
+> `level.ts`'s `VOLATILE_LOSS_SHARE` bills a detonation for the live cargo it
+> destroys. The argument below is kept because it is why the re-price came
+> first, and the verdict at the end of it has changed.
 
-And the bay it returns to is **worse than the one it left**:
+The prototype always worked, and that is how the finding was made. At Tier 7, 16
+paired seeds, a maxed cushion returned a belt that was one-third volatile to
+results *byte-identical* to a clean bay. The problem was the bay it returned to:
 
-| Tier 7 bay 10, 16 seeds | clean | `volatile:6` | `+ cushion3` |
+| Tier 7 bay 10, 16 seeds | clean | `volatile:6` BEFORE | `volatile:6` AFTER |
 |---|---:|---:|---:|
-| win | 14/16 | **16/16** | 14/16 |
-| shots | 28.1 | 48.0 | 28.1 |
-| end $ | $1694 | **$1962** | $1694 |
+| win | 14/16 | **16/16** | **10/16** |
+| shots | 28.1 | 48.0 | 43.6 |
+| end $ | $1694 | **$1962** | $1212 |
 
-At the belt cap, against a pilot that lobs, **the volatile notch is an
-advantage**. `hazards.ts` states the rule it breaks: *"It is mandatory and
-unrewarded. […] A notch is pure cost."*
+Before the re-price the volatile notch was an *advantage*, so a cushion sold
+into that bay was a system a player should decline — cushioning cost you wins.
+After it, the same prototype restores the clean baseline:
 
-The mechanism is legible and it is nobody's mistake — it is two correct
-decisions meeting. `lineClear.ts` set `VOLATILE_TRIGGER_SPEED` at 22 so that
-"lob it and it survives (67% of launches), fire it hard and it goes off", and
-the `aim` search takes the steepest candidate within tolerance, i.e. **it always
-lobs**. So a competent pilot pays the arrival cost approximately never and
-collects the pile-thinning upside every time something lands on a cube already
-down. A cushion sold into that bay is a system a player should decline.
+| | bare | + Cushion 1 (20 pts) | + Cushion 3 (110 pts) |
+|---|---:|---:|---:|
+| `volatile:6`, Tier 7 bay 10 | 10/16 | **14/16** | **14/16** |
+| `volatile:6`, Tier 7 bay 5 | 8/16 | **15/16** | **15/16** |
+| `volatile:3 wind:3`, bay 10 (8 seeds) | 5/8 | **8/8** | **8/8** |
 
-**The two conditions that flip the sign are exactly the cushion's real brief**,
-and they are why this is "not yet" rather than "no":
+It lands **on** the clean control (14/16 against 14/16, 15/16 against 15/16),
+never past it — which is exactly the §1 test: a system makes one hazard cheap
+for you, it does not delete it.
 
-| condition | baseline | + cushion |
-|---|---|---|
-| `volatile:3 wind:3`, bay 10, 8 seeds | 6/8 | **8/8** at every tier |
-| `lob-flat` pilot (fixed arc), `volatile:6`, 8 seeds | 7/8 | **8/8** = clean exactly |
+**What is still owed before it ships**, unchanged by any of this:
 
-A crosswind takes away the pilot's control of landing speed; a fixed-arc pilot
-never had it. In both cases the cushion pays. **That is the system: not "volatile
-insurance" but "landing-speed insurance", and its natural pairing is the
-Crosswind axis rather than the Volatile one.** Which is a different card, a
-different Tier gate (Mark 2, not Mark 7), and a different exam — and it is worth
-designing deliberately rather than shipping the volatile-shaped version and
-discovering the wind case by accident.
-
-**Order of work:**
-
-1. Re-price volatile so a notch is a cost. Two knobs, neither of them the
-   cushion's: `VOLATILE_TRIGGER_SPEED` (drop it toward the lob's 19.5 so a soft
-   landing is no longer free), or what a detonation costs the player — today it
-   removes neighbours *and* pays `slagBounty` for any dead cargo it takes, and
-   the removal alone is worth more to a jammed bay than the loss.
-2. Re-measure with `--mode counter`. If volatile is then a real cost, the
-   cushion has a job.
-3. Only then decide whether it is a volatile counter or a weather counter.
+1. Tier 1 already restores the baseline on its own, so the three-tier ladder as
+   specified in §2a is not what the data asks for. Either the tiers need
+   re-sizing against the re-priced axis, or the system is one purchase rather
+   than a track.
+2. The model is still **field-wide** where the proposal is rear-bay only. That
+   gap is stated in `sim/counters.ts` and is unchanged: these numbers remain the
+   most a cushion could be worth.
+3. §3c's Hair Trigger overshoot still stands and still wants fixing on the
+   clause side.
 
 ### 3c. The Hair Trigger overshoot
 
@@ -329,6 +320,8 @@ This is the section that justifies the instrument. Most of what the sweep found
 is answered by things that already exist, or by numbers that already exist, and
 shipping a system for any of it would be building the wrong thing.
 
+- **VOLATILE — done.** This was listed here as a number change rather than a
+  system, and it has been made: `VOLATILE_LOSS_SHARE`. See §3b.
 - **THE ECONOMY, which is the actual finding.** Every wall in the findings'
   §2 and §3 is `broke` — at Tier 1 as much as at Tier 10, under every draft
   policy, at every corner of the notch space. Tier 10 ran 112 runs across

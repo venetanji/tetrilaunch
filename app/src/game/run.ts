@@ -97,6 +97,19 @@ export interface RunState {
    *  reasoning about, and a total nobody ever prints is a trade the player
    *  never gets to settle. */
   salvagedFunds: number;
+  /** Funds volatile detonations took for the LIVE cargo they obliterated
+   *  (Game.volatileLosses per bay, summed here) — the exact mirror of
+   *  salvagedFunds above, and a READOUT for the same reason: the money already
+   *  left the bay's score the moment the blast settled, so this must never
+   *  touch `carry` or the player would be charged twice.
+   *
+   *  It exists for the reason salvagedFunds does, read the other way round. A
+   *  bomb's refund is the whole reason its price is worth reasoning about, and
+   *  a volatile ratchet's charge is the whole reason that notch is a cost and
+   *  not a bargain (lineClear.ts's volatileLossFor carries the measurement).
+   *  Priced and never printed, the notch reads to the player exactly the way it
+   *  read to the sim before it was billed: as free pile relief. */
+  volatileLosses: number;
   /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
    *
    *  It lives here, beside carry and scrap, because it is exactly that kind of
@@ -348,8 +361,10 @@ export function newRun(
     filed: false,
     scrap: startingScrap,
     scrapEarned: startingScrap,
-    // No starting-scrap equivalent: nothing has been blown up yet.
+    // No starting-scrap equivalent: nothing has been blown up yet, and
+    // nothing has been blown up ON the player either.
     salvagedFunds: 0,
+    volatileLosses: 0,
     // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
@@ -547,6 +562,10 @@ export const CARRY_CAP = 150;
  *  stock, so a caller that forgets it under-reports a single bay, where
  *  defaulting to the running total would re-count every bay before it.
  *
+ *  `volatileLosses` is what volatile detonations charged the just-played bay
+ *  for its live cargo (Game.volatileLosses), and defaults to 0 for exactly the
+ *  reason salvagedFunds does — same kind of number, same failure mode.
+ *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
   run: RunState,
@@ -557,6 +576,7 @@ export function advanceRun(
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
   salvagedFunds = 0,
+  volatileLosses = 0,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -583,6 +603,7 @@ export function advanceRun(
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,
+    volatileLosses: run.volatileLosses + volatileLosses,
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),
