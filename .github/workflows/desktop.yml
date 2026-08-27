@@ -16,9 +16,20 @@ name: Desktop builds
 # the run, no release created. Use it after changing electron-builder.yml,
 # because a packaging mistake that only shows up on macOS is not something the
 # Linux build proves.
+#
+# THERE ARE TWO WAYS A RELEASE STARTS and both have to end in the same place.
+# Someone pushes a v* tag from git and this workflow creates the release; or
+# someone publishes a release from the GitHub UI, which creates the tag on the
+# way. Those are different events — `push` and `release` — and which of them a
+# UI publish emits is not something to bet a release on, so both are listed.
+# Listing both can run this workflow twice for one release; that costs minutes,
+# not correctness, because the publish step below is idempotent. Missing the
+# only event that fires would cost a release its desktop artifacts.
 on:
   push:
     tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 # Read-only by default. Only the release job below widens this, and only to
@@ -169,14 +180,19 @@ jobs:
   release:
     name: Publish release
     needs: package
-    # Tags only. A workflow_dispatch run stops after the matrix, leaving its
-    # artifacts on the run page — that is the dry run.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tags only, and never a dispatch. The event_name clause is not redundant
+    # with the ref check: a dispatch can be pinned to a tag ref from the Actions
+    # tab, and "a dispatch never publishes" should hold however it was started.
+    if: github.event_name != 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The one place in this workflow that can write to the repository.
+    # The one place in this workflow that can write anything.
     permissions:
       contents: write
+      # For `gh workflow run` against android.yml — see the dispatch step. This
+      # grant is the price of the tag-first path working at all; it is scoped to
+      # this job, so the packaging matrix still cannot start a workflow.
+      actions: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -195,10 +211,13 @@ jobs:
       # Create-or-upload rather than plain create, because the release may
       # already exist. android.yml builds its signed bundle on `release:
       # published`, so the normal path for a real release is a human publishing
-      # one — which creates the tag, which fires this workflow — and by the time
-      # the matrix finishes, `gh release create` would fail on a release that is
-      # already there.
+      # one — and by the time the matrix finishes, `gh release create` would
+      # fail on a release that is already there.
+      #
+      # `created` is not bookkeeping. It is the difference between the two entry
+      # points, and the next step needs it: see the dispatch below.
       - name: Publish the desktop artifacts
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -207,6 +226,7 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "release $TAG exists; uploading assets into it"
             gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            echo "created=false" >> "$GITHUB_OUTPUT"
           else
             echo "creating release $TAG"
             gh release create "$TAG" assets/* \
@@ -214,4 +234,38 @@ jobs:
               --title "Tetrilaunch ${TAG#v}" \
               --generate-notes \
               --verify-tag
+            echo "created=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # THE RELEASE WE JUST CREATED DOES NOT TRIGGER ANYTHING.
+      #
+      # GitHub suppresses workflow runs for events raised by GITHUB_TOKEN, so
+      # the `release: published` that `gh release create` above emits reaches
+      # nobody — and android.yml's signed .aab hangs off exactly that event, its
+      # `push` trigger being branch-filtered to main/staging with no tags. So on
+      # the tag-first path the desktop artifacts would ship and the Android
+      # bundle would silently never be built. It has to be asked for explicitly.
+      #
+      # workflow_dispatch is the one thing that survives the suppression — it
+      # and repository_dispatch are the documented exceptions to it — which is
+      # why this is a dispatch and not, say, a second release event. android.yml
+      # already declares workflow_dispatch and its `bundle` job already runs
+      # under it, so nothing over there has to change; pinning --ref to the tag
+      # is what makes its ANDROID_VERSION_NAME resolve to the right version.
+      #
+      # Only when we created the release. If a human published it, android.yml
+      # already ran on the real `release: published` event and dispatching here
+      # would build the same bundle twice — burning a second versionCode, which
+      # is a one-way ratchet Play will not give back.
+      - name: Ask android.yml for the signed bundle
+        if: steps.publish.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"; then
+            echo "::error::could not dispatch android.yml for $TAG. The desktop artifacts are published, but the signed Android bundle is NOT built — run android.yml by hand from the Actions tab with ref $TAG."
+            exit 1
+          fi
+          echo "dispatched android.yml at $TAG"

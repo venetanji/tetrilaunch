@@ -137,9 +137,34 @@ with the repo. Bump both files, commit, then tag.
 ### CI
 
 `.github/workflows/desktop.yml` builds all three on a matrix and publishes to a
-GitHub Release. It runs on `v*` tags and on `workflow_dispatch`; a dispatch is
-the dry run — same build, artifacts attached to the run, no release created.
-Only the release job holds `contents: write`.
+GitHub Release. A `workflow_dispatch` is the dry run — same build, artifacts
+attached to the run, never a release, however the dispatch was pinned. Only the
+release job holds any write permission.
+
+A release starts one of two ways and both have to end in the same state —
+desktop artifacts published *and* the signed Android bundle built:
+
+- **A human publishes a release** from the GitHub UI. `release: published`
+  reaches both workflows: android.yml builds the signed `.aab`, and desktop.yml
+  uploads its artifacts into the release that already exists.
+- **Someone pushes a `v*` tag.** desktop.yml creates the release itself, then
+  **explicitly dispatches android.yml at the tag**. That dispatch is not
+  belt-and-braces: GitHub suppresses workflow runs for events raised by
+  `GITHUB_TOKEN`, so the `release: published` from our own `gh release create`
+  reaches nobody, and android.yml's `push` trigger is branch-filtered to
+  main/staging with no tags — so without the dispatch, the tag-first path would
+  ship desktop builds and silently never produce the Android bundle.
+  `workflow_dispatch` is the documented exception to that suppression, which is
+  why it is the mechanism. android.yml needed no change: it already declares
+  `workflow_dispatch`, and its `bundle` job already runs under it.
+
+The dispatch fires **only** when this workflow created the release. If a human
+published it, android.yml has already run on the real event, and dispatching
+again would build the bundle twice — burning a second `versionCode`, which Play
+never gives back.
+
+The `.aab` lands as a workflow artifact for a human to upload to Play, exactly
+as it did before; it is not attached to the public release.
 
 ## Known gotchas
 
