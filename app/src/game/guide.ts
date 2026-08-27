@@ -201,10 +201,15 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
     },
     {
       m: "volatile", axis: "volatile",
+      // "Aimed into a dead pile, it is a free demolition charge" used to close
+      // this, and it was true — measurably so, which was the problem. The bay
+      // pays for the live cargo a blast destroys now (lineClear.ts's
+      // volatileLossFor), and the line that taught the old reading is the one
+      // the player would have carried into the bay that bills them for it.
       body: `A hard landing detonates it, taking every cube within`
         + ` <b>${VOLATILE_BLAST_CELLS} cells</b>. The trigger is impact SPEED, so the dial is`
-        + ` your <b>power</b>: a soft lob lands like anything else. Aimed into a dead pile, it`
-        + ` is a free demolition charge.`,
+        + ` your <b>power</b>: a soft lob lands like anything else. Every live cube the blast`
+        + ` takes is billed <b>$${lv.volatileLoss}</b>, so the fuller the pile, the more it costs.`,
     },
     {
       m: "tar", axis: "tar",

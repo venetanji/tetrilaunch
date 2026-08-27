@@ -97,6 +97,19 @@ export interface RunState {
    *  reasoning about, and a total nobody ever prints is a trade the player
    *  never gets to settle. */
   salvagedFunds: number;
+  /** Funds volatile detonations took for the LIVE cargo they obliterated
+   *  (Game.volatileLosses per bay, summed here) — the exact mirror of
+   *  salvagedFunds above, and a READOUT for the same reason: the money already
+   *  left the bay's score the moment the blast settled, so this must never
+   *  touch `carry` or the player would be charged twice.
+   *
+   *  It exists for the reason salvagedFunds does, read the other way round. A
+   *  bomb's refund is the whole reason its price is worth reasoning about, and
+   *  a volatile ratchet's charge is the whole reason that notch is a cost and
+   *  not a bargain (lineClear.ts's volatileLossFor carries the measurement).
+   *  Priced and never printed, the notch reads to the player exactly the way it
+   *  read to the sim before it was billed: as free pile relief. */
+  volatileLosses: number;
   /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
    *
    *  It lives here, beside carry and scrap, because it is exactly that kind of
@@ -265,6 +278,72 @@ export function tracksLadder(run: RunState): boolean {
   return !run.sandbox && run.skydeck === null;
 }
 
+/**
+ * What the seal is DOING on this run, or null when the run has no seal question
+ * at all (Tier S, the Skydeck — recordRunEnd never seals either).
+ *
+ * Three states, because there are three truths and the button that reports them
+ * had only two. The third was found in review (codex, PR #135): a re-fly of a
+ * Mark the player has ALREADY sealed answered "at stake" on a fresh run, so the
+ * confirmation claimed a price that cannot be charged and the end card drew an
+ * intact seal about to be spent. It cannot be spent. meta.ts's recordRunEnd
+ * only ever APPENDS to sealedMarks — a Mark's stamp, once pressed, survives
+ * every later run however messy — so on that re-fly a bay retry is free.
+ *
+ *  - **held** — this Mark's stamp is already on the tower. Nothing this run
+ *    does can take it, so a retry costs nothing. Checked FIRST, because it
+ *    outranks whatever this run has done: a retried re-fly of a sealed Mark is
+ *    still a sealed Mark.
+ *  - **at-stake** — the Mark is unsealed and this run has retried no bay, so
+ *    the run is still able to seal it and a retry would end that. The only
+ *    state that charges anything, and the one the confirmation exists for.
+ *  - **spent** — the Mark is unsealed and this run has already retried, so the
+ *    chance is gone until the next run. Free from here on.
+ *
+ * THE RUN'S SEAL AND THE MARK'S STAMP ARE DIFFERENT THINGS, which is the
+ * distinction this function exists to keep straight and the one the copy has to
+ * respect: "held" is a fact about the MARK and says nothing about this run,
+ * while "at-stake" and "spent" are facts about this RUN and say nothing about
+ * whether the Mark has ever been sealed. A surface that blurred them would tell
+ * a player their re-fly had sealed something.
+ *
+ * `sealedMarks` is passed rather than reached for — a plain number list, so
+ * this module still imports nothing from meta.ts and sim/systems.ts can call it
+ * with a literal.
+ */
+export type SealState = "held" | "at-stake" | "spent";
+
+export function sealStateFor(
+  run: RunState, sealedMarks: readonly number[],
+): SealState | null {
+  if (!tracksLadder(run)) return null;
+  if (sealedMarks.includes(run.mark)) return "held";
+  return run.restarts === 0 ? "at-stake" : "spent";
+}
+
+/**
+ * Would retrying a bay of THIS run spend its seal?
+ *
+ * The question every door into a bay retry asks (main.ts's requestBayRetry —
+ * the pause modal's Restart Bay, the held ⏸, the game-over card's Retry Bay).
+ * Defined on sealStateFor rather than beside it so the gate and the button
+ * cannot disagree about whether a cost is being charged.
+ *
+ * TRUE AT MOST ONCE PER RUN, which is the property that makes confirming EVERY
+ * seal-breaking retry cheap rather than nagging: after the first retry
+ * `restarts` is no longer 0, so every later one answers false and goes straight
+ * through. The panel therefore appears at most once in a run, exactly at the
+ * moment the irreversible thing happens.
+ *
+ * …and NEVER on a Mark already sealed, which is the half review caught. A
+ * confirmation for a free action is worse than none: it teaches the player to
+ * click past the panel, and the press it exists to stop is the one that spends
+ * something.
+ */
+export function retryBreaksSeal(run: RunState, sealedMarks: readonly number[]): boolean {
+  return sealStateFor(run, sealedMarks) === "at-stake";
+}
+
 /** Every standing clause in force on this run's current bay, in arm order.
  *  Empty for a ladder run, which carries its single clause in `final` instead.
  *
@@ -318,8 +397,10 @@ export function newRun(
     filed: false,
     scrap: startingScrap,
     scrapEarned: startingScrap,
-    // No starting-scrap equivalent: nothing has been blown up yet.
+    // No starting-scrap equivalent: nothing has been blown up yet, and
+    // nothing has been blown up ON the player either.
     salvagedFunds: 0,
+    volatileLosses: 0,
     // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
@@ -527,11 +608,23 @@ export const CARRY_CAP = 150;
  *  stock, so a caller that forgets it under-reports a single bay, where
  *  defaulting to the running total would re-count every bay before it.
  *
+ *  `volatileLosses` is what volatile detonations charged the just-played bay
+ *  for its live cargo (Game.volatileLosses), and defaults to 0 for exactly the
+ *  reason salvagedFunds does — same kind of number, same failure mode.
+ *
  *  `thawLeft` is the Thaw Lance stock the just-played bay ENDED with
  *  (Game.thawCharges), and it matters on exactly one mode — see the field
  *  below. It takes `bondsLeft`'s defensive default for `bondsLeft`'s reason: a
  *  caller that forgets to thread it leaves a Skydeck pilot's charges alone
  *  rather than silently confiscating them.
+ *
+ *  The four trailing arguments are two of each KIND and they alternate, which
+ *  is worth naming because it is the one way this signature can bite: a STOCK
+ *  (`bondsLeft`, `thawLeft`) defaults to what the run already holds, and a STAT
+ *  (`salvagedFunds`, `volatileLosses`) defaults to 0. They are in arrival order
+ *  rather than grouped by kind on purpose — regrouping would move
+ *  `salvagedFunds` and silently re-point every positional caller, which for a
+ *  bare number is a bug no type checker can see.
  *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
@@ -543,6 +636,7 @@ export function advanceRun(
   pickedAxes: HazardId[] = [],
   bondsLeft: number = run.bondCharges,
   salvagedFunds = 0,
+  volatileLosses = 0,
   thawLeft: number = run.thawCharges,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
@@ -570,6 +664,7 @@ export function advanceRun(
     scrap: run.scrap + scrapEarned,
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,
+    volatileLosses: run.volatileLosses + volatileLosses,
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),

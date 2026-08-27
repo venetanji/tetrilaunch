@@ -394,7 +394,13 @@ export const HAZARDS: HazardDef[] = [
   contentAxis("cryo", "Cryo Contract", "Frozen shipments arrive; press one cold and it shatters.", 4, "cryo"),
   contentAxis("rebar", "Rebar Contract", "Rebar shipments never come apart — what lands is what you keep.", 5, "rebar"),
   contentAxis("slag", "Slag Contract", "Dead cubes ride the belt — they fill a slot and never count.", 6, "slag"),
-  contentAxis("volatile", "Volatile Contract", "Volatile shipments detonate on a hard landing, taking neighbours.", 7, "volatile"),
+  // Names the CHARGE, not just the blast. The draft card is where a notch is
+  // priced, and this axis is the one that reads as an upgrade if it is not:
+  // a detonation thins the pile, which is a benefit, and the bill for the
+  // cargo it took is the only thing that makes taking it a cost. Stated in
+  // words rather than dollars because the amount rides the bay's own spill
+  // fine (level.ts's VOLATILE_LOSS_SHARE) and so has no single number to name.
+  contentAxis("volatile", "Volatile Contract", "Volatile shipments detonate on a hard landing, taking neighbours — and the bay is billed for every live cube lost.", 7, "volatile"),
   contentAxis("tar", "Tar Contract", "Tar welds to whatever it touches, and Bond Breakers will not split it.", 8, "tar"),
   contentAxis("magnetic", "Magnetic Contract", "Magnetic shipments snap themselves square against their neighbours.", 9, "magnetic"),
 ];

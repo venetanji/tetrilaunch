@@ -182,6 +182,17 @@ export interface LevelConfig {
    *  that they run out, not that they underpay, and bombResupplyLines answers
    *  that directly. */
   slagBounty: number;
+  /** Funds charged per LIVE cube a VOLATILE detonation destroys (lineClear.ts's
+   *  volatileLossFor). The mirror of `slagBounty` directly above: that pays for
+   *  the dead cargo a blast clears, this charges for the live cargo it wastes,
+   *  and the two share a test, a unit and a currency.
+   *
+   *  A FIELD rather than a constant read at the call site because it is the
+   *  seam the same things move that move slagBounty — a Final clause, a future
+   *  ship system — and because it rides the tier ladder: it is derived from the
+   *  bay's own penaltyPerLostPiece (see VOLATILE_LOSS_SHARE), so one number
+   *  scales across ten tiers instead of being right at one of them. */
+  volatileLoss: number;
   /** Lines per demolition charge returned mid-bay; 0 = no resupply. Written
    *  only by the MAXED Demolition Rack (upgrades.ts), which is what turns that
    *  capstone from another +2 into a change in kind. A bay can out-last six
@@ -978,6 +989,60 @@ export function payoutMult(combo: number, tier: PileTier | null): number {
  */
 export const SLAG_BOUNTY = 20;
 
+/**
+ * What share of the bay's own SPILL FINE a volatile detonation is billed, per
+ * live cube it destroys (lineClear.ts's volatileLossFor).
+ *
+ * A SHARE OF AN EXISTING PRICE, not a new ladder. The bay already knows what
+ * losing a cube of cargo is worth — penaltyPerLostPieceFor, billed per cube
+ * (game.ts bills `lostCubes.length * penaltyPerLostPiece`) and already ramped
+ * across the tiers and along the bays. A second price for the same event would
+ * be a number free to drift out of the first and would have to be re-derived at
+ * every tier; riding the fine means volatile costs what losing cargo costs,
+ * wherever the player is standing. Across the axis's whole life — it opens at
+ * Mark 7 — that is $22 a cube at Tier 7 bay 5 and $43 at Tier 10 bay 10.
+ *
+ * WHY A SHARE AND NOT THE WHOLE FINE. The two losses are not the same loss. A
+ * spilled shipment leaves the bay entirely and takes its slot with it; a
+ * detonation destroys cargo that was already ON the pile and hands back the
+ * space it occupied — space the measurement below showed is worth having. The
+ * player is billed for the cargo and credited, implicitly, with the room.
+ *
+ * 0.25, AND THE SWEEP THAT PICKED IT. Measured at Tier 7 bay 10, 16 paired
+ * seeds, on the material rig, against an 88% clean control — the `demo` pilot
+ * (adaptive, re-aims every shot) and `lob-flat` (a fixed high arc), because the
+ * two detonate at very different rates and a price that only works for one is
+ * not a price:
+ *
+ *            volatile:1        volatile:3        volatile:6 (belt cap)
+ *   share    demo / lob-flat   demo / lob-flat   demo / lob-flat
+ *   0.00      94% /  88%       100% /  94%       100% /  94%   <- the defect
+ *   0.25      94% /  88%       100% /  94%        63% /  63%
+ *   0.30      94% /  88%       100% /  94%        56% /  69%
+ *   0.35      94% /  88%       100% /  94%        38% /  56%
+ *   0.40      94% /  81%        94% /  94%        25% /  50%
+ *   0.50        -               88% /  88%        19% /  50%
+ *
+ * Two things that table settles. First, 0.25 is the SMALLEST share that removes
+ * the defect, and it removes it for both pilots by the same amount — 63% each,
+ * against 88% clean. Anything above it buys no extra symmetry and spends the
+ * cap: by 0.4 the adaptive pilot is at 25% while the fixed-arc one is still at
+ * 50%, which is a price that depends on how you fly rather than on what you
+ * took. Second, the shallow notches barely move at any share, and that is a
+ * property of the mechanic rather than a gap in the pricing: one notch fires
+ * ~2.5 detonations a bay against the cap's ~19.4, so there is very little to
+ * bill. 94% against an 88% control is one seed in sixteen — inside this
+ * instrument's noise, which is why sim/systems.ts pins the CAP and says so.
+ *
+ * WHY THE COST GROWS FASTER THAN THE BENEFIT, deliberately. Live cubes caught
+ * per detonation is flat (~5, whatever the notch), so the bill scales with the
+ * detonation COUNT and therefore with the notch; the relief saturates instead
+ * (mean pile 31.4 clean -> 27.4 at one notch -> 20.2 at the cap). A hazard that
+ * hurts more the deeper it is taken is the right shape, and it is the shape
+ * hazards.ts's Fibonacci ladders already give the number axes.
+ */
+export const VOLATILE_LOSS_SHARE = 0.25;
+
 /** Lines per returned charge at a MAXED Demolition Rack. A clean bay clears ~8
  *  lines, so the capstone runs ~8 charges instead of 6 and a long grinding bay
  *  keeps paying — which is the case this exists for, since a bay can out-last
@@ -1180,6 +1245,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // autoLaunchMs 0 take.
     volatileTriggerMult: 1,
     slagBounty: SLAG_BOUNTY,
+    volatileLoss: Math.round(penaltyPerLostPieceFor(i, mark) * VOLATILE_LOSS_SHARE),
     bombResupplyLines: 0,
     launchPower: 1,
     windAssist: 0,

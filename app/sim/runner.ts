@@ -39,6 +39,11 @@ export interface BayOutcome {
    *  READOUT, never income: the money already landed in the bay's score when
    *  the charge blew. */
   salvagedFunds: number;
+  /** What volatile detonations CHARGED this bay for its live cargo
+   *  (`Game.volatileLosses`) — salvagedFunds read the other way, and a READOUT
+   *  for the same reason: the money already left the bay's score when the
+   *  blast settled. The number a volatile sweep is actually asking about. */
+  volatileLosses: number;
 }
 
 /**
@@ -92,6 +97,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     scrapEarned: g.scrapEarned,
     bondsLeft: g.bondCharges,
     salvagedFunds: g.salvagedFunds,
+    volatileLosses: g.volatileLosses,
   };
 
   g.destroy();

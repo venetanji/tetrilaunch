@@ -303,6 +303,7 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
       picks,
       outcome.bondsLeft,
       outcome.salvagedFunds,
+      outcome.volatileLosses,
     );
     if (chosenFinal) run = { ...run, final: chosenFinal };
 
