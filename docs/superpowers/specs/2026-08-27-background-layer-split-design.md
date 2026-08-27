@@ -496,6 +496,41 @@ validation, for any future run: check the **distribution** of gaps per arm
 (e.g. the share of gaps at ~8.3ms vs ~16.7ms) and discard windows after a
 fallback, rather than reading one minimum for the whole window.
 
+### How far to throttle: 15Hz is the knee, and lower buys nothing
+
+The throttle's divisor was swept, rotating rates every 400ms inside single
+live-bay windows, both arms of every pair medianing at 8.3ms. Two overlapping
+sweeps, each compared only within itself:
+
+| HUD update rate | fps | on-time |
+| --- | --- | --- |
+| every frame (~120Hz) | 85.4 | 65.8% |
+| ~60Hz | 93.8 | 74.4% |
+| ~30Hz | 100.5 | 83.6% |
+| **~15Hz** | **107.4** | **88.9%** |
+| ~8Hz | 107.3 | 88.9% |
+| ~4Hz | 109.8 | 91.4% |
+
+Each halving of the update rate buys roughly 7fps down to 15Hz, and then the
+curve **flattens**: 15Hz, 8Hz and 4Hz are the same answer within noise. So 15Hz
+is the knee — the *highest* rate that captures the whole win — and anything
+below it degrades every readout in exchange for nothing. A design that wants a
+number should use this one.
+
+**It also bounds what throttling alone can do.** The sweep saturates around
+108-110fps, which is the ceiling section's territory, so no divisor reaches 120.
+The remaining ~10fps is not the HUD's update RATE; it is the cost of each
+individual repaint plus the residual the ceiling section prices (canvas ~3fps,
+JS, DOM invalidation). Past this point the lever is repainting a smaller region,
+not repainting less often.
+
+Which points at the split this document already proposes, and now with a reason
+to prefer it over a flat gate: the readouts that genuinely move every frame —
+the reload ring and the PWR bar — are exactly the ones a 15Hz gate makes steppy,
+and they are also the ones expressible as transform/opacity, which composite
+without repainting at all. Text on a 15Hz tick plus smooth things on the
+compositor would take the 107fps here without the 15Hz look.
+
 ### What this means for the sprite pass
 
 The sprite-pass work (draw-call census, redundant property writes, `save`/`restore`
