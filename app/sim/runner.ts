@@ -35,6 +35,13 @@ export interface BayOutcome {
    *  consumable that crosses bay boundaries (`RunState.bondCharges`), so a
    *  full-run driver has to thread what is left rather than re-granting it. */
   bondsLeft: number;
+  /** Thaw Lance charges the bay ENDED with. Unlike the Bond magazine this rack
+   *  RENEWS every bay (`run.ts`'s thawChargesFor grants it per bay on the
+   *  ladder), so nothing has to thread it — it is here because it is the only
+   *  readout of what a lance policy actually SPENT, and an arms table comparing
+   *  a greedy trigger against a disciplined one is otherwise comparing two
+   *  win rates with no idea what either cost. Spent = `cfg.thawCharges − this`. */
+  thawLeft: number;
   /** What demolition charges refunded in this bay (`Game.salvagedFunds`) — a
    *  READOUT, never income: the money already landed in the bay's score when
    *  the charge blew. */
@@ -96,6 +103,7 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     target: g.target,
     scrapEarned: g.scrapEarned,
     bondsLeft: g.bondCharges,
+    thawLeft: g.thawCharges,
     salvagedFunds: g.salvagedFunds,
     volatileLosses: g.volatileLosses,
   };

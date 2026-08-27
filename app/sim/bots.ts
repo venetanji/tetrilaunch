@@ -11,6 +11,11 @@ import { BOMB_BLAST_R } from "../src/game/game";
 import { CELL, WALL_INNER, WORLD } from "../src/game/engine";
 import { pieceCells, type Cube } from "../src/game/pieces";
 import { MATERIAL_SPEC, type PieceSize, type PieceType } from "../src/game/theme";
+// TYPE-ONLY, and it has to stay that way: `aim-strategies.ts` imports `aimBot`
+// from here at runtime, so a value import in this direction would close the
+// cycle. The aim search is the thing being shared; a strategy is a rule about
+// how to read its output, and rules live over there.
+import type { AimStrategy, ShotTarget } from "./aim-strategies";
 
 export interface Bot {
   name: string;
@@ -208,7 +213,7 @@ const AIM_POWER_CANDIDATES = [19, 22, 25, 28];
  *  SWAPS the bounding box's width and height (see MIN_HEIGHT_TURNS' derivation),
  *  so the flattest orientation's WIDTH is simply the larger of the two extents.
  */
-function pieceHalfWidthPx(type: PieceType, size: PieceSize): number {
+export function pieceHalfWidthPx(type: PieceType, size: PieceSize): number {
   const cells = pieceCells(type, size);
   const w = Math.max(...cells.map(([x]) => x)) - Math.min(...cells.map(([x]) => x)) + 1;
   const h = Math.max(...cells.map(([, y]) => y)) - Math.min(...cells.map(([, y]) => y)) + 1;
@@ -245,7 +250,7 @@ const AIM_PENDING_MS = 2200;
  *  that it doesn't starve itself into a single desperate endgame volley (see
  *  AIM_PATIENCE_DEADLINE_MS) over ordinary, easily-correctable miss margins.
  *  See aimBot's patience gate. */
-const AIM_PATIENCE_TOL = CELL;
+export const AIM_PATIENCE_TOL = CELL;
 /** Once the clock has under this much time left, patience stops being
  *  affordable — firing the best (even if mediocre) candidate beats banking a
  *  guaranteed zero by waiting out gusts the clock will outlast. */
@@ -496,10 +501,57 @@ function candidateHitsBar(
   return false;
 }
 
-interface AimCandidate {
+/**
+ * Estimated RELATIVE SPEED (px/step) the shipment arrives at, for the candidate
+ * whose arc this is.
+ *
+ * The unit is the one the collision side compares against: matter reports
+ * `body.velocity` as a per-step delta, `volatileBlast` reads
+ * `hypot(a.velocity - b.velocity)`, and `VOLATILE_TRIGGER_SPEED` (22) was
+ * measured in it. A trajectory point is one physics step apart from the next
+ * (predictTrajectory pushes one point per `stepFlight`), so the length of the
+ * segment the arc is on IS its speed in that unit — no conversion, and no
+ * second copy of the integrator.
+ *
+ * Taken at the SAME place `estimateLandingX` takes its landing: the crossing of
+ * `compactor.top` on the way down. That is a deliberate over-estimate of what a
+ * real landing carries — a shipment that lands on a pile meets it higher and
+ * therefore slower, because the arc is still accelerating — and it errs the way
+ * every bias in this harness errs, against the player: a cushion-aware
+ * strategy reading this number thinks its softest arc is harder than it is, and
+ * so under-claims what the liner bought.
+ */
+function estimateImpactSpeed(traj: Matter.Vector[], compactorTopY: number): number {
+  if (traj.length < 2) return 0;
+  for (let i = 1; i < traj.length; i++) {
+    const a = traj[i - 1];
+    const b = traj[i];
+    if (a.y < compactorTopY && b.y >= compactorTopY) return Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  const a = traj[traj.length - 2];
+  const b = traj[traj.length - 1];
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+/**
+ * One shot the aim search considered.
+ *
+ * `landX`/`impact` are READOUTS of the arc the search already flew, added when
+ * strategies arrived (sim/aim-strategies.ts) and computed inside the same loop
+ * for the same reason `solveAim` is shared rather than copied: a strategy that
+ * re-derived where a candidate lands, or how hard, would be ranking arcs the
+ * cannon is not going to fly. Nothing in the baseline ranking reads them, so
+ * adding them cannot move a number — `sim/systems.ts` pins that.
+ */
+export interface AimCandidate {
   deg: number;
   power: number;
+  /** |landX − target|, the baseline's whole score. */
   err: number;
+  /** Estimated landing x (see estimateLandingX). */
+  landX: number;
+  /** Estimated arrival speed, px/step (see estimateImpactSpeed). */
+  impact: number;
 }
 
 /**
@@ -553,6 +605,29 @@ interface AimOpts {
    * between the two is what a charge is actually worth.
    */
   demolish?: boolean;
+  /**
+   * The AIMING POLICY this bot flies — `sim/aim-strategies.ts`.
+   *
+   * The counter-play switch for the systems whose value is a DECISION rather
+   * than a passive effect, and it exists for the third time for the same reason
+   * `congestionAware` and `demolish` do: a system priced against a pilot that
+   * cannot make the play the system is for is priced against the pilot. The
+   * Impact Cushion is the case that forced it — #145's honest arrival gate left
+   * the three liner rungs at 56/63/59 of 96 and `winnability.ts`'s own ledger
+   * says why: *"no bot lobs a volatile shipment on purpose"*.
+   *
+   * ONLY THE TWO AIM HOOKS ARE READ HERE (`target`, `select`). A strategy's
+   * ABILITY hook is fired by `strategyHands` over in that file, outside this
+   * function, because this act() is behind a cooldown-and-funds gate and an
+   * ability is not — `counters.ts`'s `thawHands` pulls its trigger on every
+   * tick, and a lance measured behind a cooldown would be a different lance.
+   *
+   * Absent (or a strategy with neither hook) leaves every line below on the
+   * exact path it took before strategies existed. That identity is the pin
+   * `sim/systems.ts` checks, and it checks it by ALSO proving the comparison
+   * can see a strategy that does something.
+   */
+  strategy?: AimStrategy;
 }
 
 /**
@@ -569,6 +644,30 @@ interface AimOpts {
  * deliberate — reading the return value is the contract, not the cannon.
  */
 function solveAim(g: Game, target: number, halfWidthPx: number): AimCandidate {
+  return aimCandidates(g, target, halfWidthPx).best;
+}
+
+/**
+ * The same search, with the POOL it chose from handed back.
+ *
+ * Lifted out of `solveAim` (which is now a one-line wrapper) when strategies
+ * arrived: a strategy that ranks arcs by something other than landing error —
+ * the cushion-aware one ranks by arrival speed — has to see the candidates the
+ * search flew, not re-fly its own. Two aim searches in one harness is the thing
+ * `solveAim`'s own note warns about, and a second one that quietly sampled a
+ * different angle grid would make an arm's result a fact about the grid.
+ *
+ * `pool` is the BAR-CLEAR pool wherever one exists (the unconstrained list only
+ * when every candidate grazes the compactor's swept column), so a strategy
+ * cannot select its way into the bar — bar avoidance is the search's rule, not
+ * a preference a strategy is allowed to overrule.
+ *
+ * `best` is byte-for-byte what `solveAim` returned before this split: nearest
+ * landing, steepest among ties.
+ */
+export function aimCandidates(
+  g: Game, target: number, halfWidthPx: number,
+): { pool: AimCandidate[]; best: AimCandidate } {
   const safeCands: AimCandidate[] = [];
   const allCands: AimCandidate[] = [];
   for (let deg = 15; deg <= 55; deg += 2) {
@@ -585,7 +684,9 @@ function solveAim(g: Game, target: number, halfWidthPx: number): AimCandidate {
       const traj = g.trajectory;
       const landX = estimateLandingX(traj, g.compactor.top, target);
       const err = Math.abs(landX - target);
-      const cand: AimCandidate = { deg, power: pw, err };
+      const cand: AimCandidate = {
+        deg, power: pw, err, landX, impact: estimateImpactSpeed(traj, g.compactor.top),
+      };
       allCands.push(cand);
       if (!candidateHitsBar(traj, g.compactor, halfWidthPx)) safeCands.push(cand);
     }
@@ -603,7 +704,7 @@ function solveAim(g: Game, target: number, halfWidthPx: number): AimCandidate {
   // the steepest.
   const near = pool.filter((c) => c.err <= bestErr + AIM_TIE_TOL_PX);
   near.sort((a, b) => b.deg - a.deg);
-  return near[0];
+  return { pool, best: near[0] };
 }
 
 /* ---------------------------------------------------------------------------
@@ -744,7 +845,7 @@ function fireCharge(g: Game, now: number): boolean {
   return false;
 }
 
-function aimBot(seed = 1, opts: AimOpts = {}): Bot {
+export function aimBot(seed = 1, opts: AimOpts = {}): Bot {
   const rng = mulberry32(seed);
   const gapTargeter = makeGapTargeter();
   /** `now` at which the current congestion hold began, or null when not
@@ -753,9 +854,13 @@ function aimBot(seed = 1, opts: AimOpts = {}): Bot {
   let holdingSince: number | null = null;
 
   return {
-    name: opts.demolish
+    name: (opts.demolish
       ? "demo"
-      : opts.congestionAware ? "patient" : opts.impatient ? "impatient" : "aim",
+      : opts.congestionAware ? "patient" : opts.impatient ? "impatient" : "aim")
+      // The strategy is part of the pilot's identity, not a footnote: two rows
+      // of an arms table differ ONLY by it, so a table that printed the same
+      // bot name on both would be unreadable.
+      + (opts.strategy ? `:${opts.strategy.name}` : ""),
     act(g, now) {
       if (!g.cannon.canShoot(now)) return;
       if (g.score < g.level.launchCost) return;
@@ -780,14 +885,27 @@ function aimBot(seed = 1, opts: AimOpts = {}): Bot {
       // same cooldown — see fireCharge.
       if (opts.demolish && fireCharge(g, now)) return;
 
-      const { x: target, slot } = gapTargeter.read(g, now);
+      // WHERE TO LAND IT. The gap read is the baseline's whole answer; a
+      // strategy may replace it (and only replace it — returning null is how a
+      // strategy says "this shot is not one of mine", which is most shots).
+      const read = gapTargeter.read(g, now);
+      const shot: ShotTarget = opts.strategy?.target?.(g, now, read) ?? read;
+      const { x: target, slot } = shot;
       const halfWidthPx = pieceHalfWidthPx(g.cannon.currentType, g.level.pieceSize);
-      const chosen = solveAim(g, target, halfWidthPx);
+      // WHICH ARC GETS IT THERE. Same search, same pool; a strategy re-ranks it
+      // or declines to. `best` is the nearest-landing/steepest pick this bot has
+      // always made, so a strategy with no `select` is on the old path exactly.
+      const { pool, best } = aimCandidates(g, target, halfWidthPx);
+      const chosen = opts.strategy?.select?.(g, now, pool, shot) ?? best;
 
       // Patience: sit out a shot whose best-found landing still misses badly
       // — UNLESS the clock is running out, in which case firing something
-      // beats a guaranteed zero from waiting out a gust that never ends.
-      if (!opts.impatient && chosen.err > AIM_PATIENCE_TOL && g.timeLeftMs >= AIM_PATIENCE_DEADLINE_MS) {
+      // beats a guaranteed zero from waiting out a gust that never ends. A
+      // strategy that deliberately aims somewhere awkward (into a liner, at a
+      // frozen cube) may widen the tolerance for its OWN shot rather than
+      // starve behind a rule written for the middle of an empty bay.
+      const tol = shot.tol ?? AIM_PATIENCE_TOL;
+      if (!opts.impatient && chosen.err > tol && g.timeLeftMs >= AIM_PATIENCE_DEADLINE_MS) {
         // Still leave the cannon parked on the best candidate found, so the
         // live preview reflects the closest option even while holding fire.
         g.cannon.angle = (chosen.deg * Math.PI) / 180;
