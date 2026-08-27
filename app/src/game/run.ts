@@ -245,6 +245,29 @@ export function tracksLadder(run: RunState): boolean {
   return !run.sandbox && run.skydeck === null;
 }
 
+/**
+ * Would retrying a bay of THIS run spend its seal?
+ *
+ * The question every door into a bay retry asks (main.ts's requestBayRetry —
+ * the pause modal's Restart Bay, the held ⏸, the game-over card's Retry Bay),
+ * and the question the end card's button draws its two states from. One
+ * function so the three doors and the button cannot disagree about whether a
+ * cost is being charged.
+ *
+ * TRUE AT MOST ONCE PER RUN, which is the property that makes confirming EVERY
+ * seal-breaking retry cheap rather than nagging: after the first retry
+ * `restarts` is no longer 0, so every later one answers false and goes straight
+ * through. The panel therefore appears at most once in a run, exactly at the
+ * moment the irreversible thing happens.
+ *
+ * A run the ladder does not track keeps no seal at all — Tier S never
+ * increments `restarts` and the Skydeck is never offered a retry — so those
+ * answer false for the same reason recordRunEnd never seals them.
+ */
+export function retryBreaksSeal(run: RunState): boolean {
+  return tracksLadder(run) && run.restarts === 0;
+}
+
 /** Every standing clause in force on this run's current bay, in arm order.
  *  Empty for a ladder run, which carries its single clause in `final` instead.
  *

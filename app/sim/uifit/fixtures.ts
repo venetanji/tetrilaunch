@@ -939,6 +939,16 @@ export const SCREENS: Record<string, () => string> = {
   // tierOpenableBy returns null on a finished ladder), so the worst case and
   // the honest case are the same panel here.
   //
+  // …and `explain: true`, the LONG form, for the same reason and on the same
+  // kind of measurement. The panel now has two lengths as well as two branches
+  // — the first-time explainer and the confirmation every seal-breaking retry
+  // after it — and all four combinations were measured rather than reasoned
+  // about: 457 / 487 chars with the lesson, 263 / 293 without it. The long
+  // re-fly panel is the maximum of the four, and the short form is a strict
+  // subset of it (the same panel with one paragraph removed, the same width,
+  // the same button row), so measuring the maximum covers both and a second
+  // fixture would buy the matrix nothing.
+  //
   // It arrives carrying two baseline entries, exactly as `pause-pad` did and
   // for the identical reason: they are the 800x600 window's undersized ability
   // chips and tight rig badges, byte-for-byte the ones `pause` already records,
@@ -947,7 +957,7 @@ export const SCREENS: Record<string, () => string> = {
   // measures clean on all nineteen rows.
   "seal-break": () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) + S.sealBreakModal({
-      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1,
+      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1, explain: true,
     }),
 
   // TIER S itself, in all three of the shapes it takes. The mode ships, so

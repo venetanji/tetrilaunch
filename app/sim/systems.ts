@@ -86,7 +86,7 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
+  tracksLadder, retryBreaksSeal, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
 // in this module records — which is exactly what makes runMode safe to import:
@@ -8753,14 +8753,36 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     primary === "restart", primary ?? "no primary");
   // NEVER SILENT. The glyph is on the button and the sentence is above the row,
   // and the sentence carries the half a player will otherwise get wrong.
-  check("the retry wears the broken seal", lost.includes("btn__seal"));
+  check("the retry wears the seal it is about to spend", lost.includes("btn__seal"));
   check("...and says what it does and does not cost",
     /breaks this run's seal/.test(lost) && /still opens/.test(lost));
-  // …and stops saying it once the price has been paid. A warning that outlives
-  // its cost is how a player learns to stop reading warnings.
+
+  // ---- THE BUTTON HOLDS THE MARK, BOTH WAYS -------------------------------
+  // Playtest: "restart bay button should hold the mark of whether the seal has
+  // been broken or not". It used to draw the glyph while the seal was INTACT
+  // and nothing at all once it was spent — so the one state a player most wants
+  // to read back (this run's seal is already gone, further retries are free)
+  // was the state with no mark on it. Absence is not something a player can
+  // read; two distinct faces are.
   const spent = end({ retryBay: { sealed: false } });
-  check("a run that has already retried is not warned again",
-    spent.includes('data-action="retry-bay"') && !spent.includes("btn__seal"));
+  check("a spent seal is drawn, not omitted", spent.includes("btn__seal--broken"));
+  check("...and an intact one is drawn differently",
+    lost.includes("btn__seal") && !lost.includes("btn__seal--broken"));
+  // The struck stamp means on this button what it means on the tower: a seal
+  // that is GONE. It used to mean "about to go", which is the glyph predicting
+  // the press rather than reporting the run.
+  check("the struck stamp reports the run, not the press",
+    !spent.includes('class="btn__seal"'));
+  // Both faces reach a screen reader, which the shape cannot — it is
+  // aria-hidden on both.
+  check("both states are named, not merely drawn",
+    /breaks this run's seal/.test(lost)
+      && /this run's seal is already broken/.test(spent));
+  // …and the line above the row is a READOUT rather than a warning now, so it
+  // has something to say in both states. The second is not the first repeated:
+  // it is the opposite news, and it is news the player can act on.
+  check("the spent state says retries are free now",
+    /costs nothing now/.test(spent) && !/breaks this run's seal/.test(spent));
   // THE MODES THAT HAVE NO BAY TO GIVE BACK. main.ts passes `retryBay` only for
   // a run tracksLadder accepts — Tier S re-flies its whole configuration from
   // the primary, and the Skydeck is the day's single attempt, which is the
@@ -8771,9 +8793,13 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   check("...and neither does a win",
     !end({ won: true, runComplete: true, reason: null }).includes('data-action="retry-bay"'));
 
-  // ---- THE ONE-TIME NOTICE ------------------------------------------------
+  // ---- THE SEAL CONFIRMATION ----------------------------------------------
+  // It was a one-time notice. It is a confirmation now (playtest: "we can also
+  // keep the confirmation on breaking the seal, not just the first time"), and
+  // the watermark that used to decide whether it appeared at all now decides
+  // only how much of it there is — see the `explain` block below.
   {
-    const note = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3 });
+    const note = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: true });
     // The second paragraph is the whole point of the panel: a player who thinks
     // a retry forfeits the tier will abandon runs they could still win.
     check("the notice promises the tier still opens", /Tier 4 still opens/.test(note));
@@ -8791,7 +8817,7 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // Mark-10 player read "Tier 10 still opens" about a run that can move
     // nothing at all. It names the run's own Mark now, and drops the tier
     // clause entirely when there is no tier to open.
-    const refly = S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9 });
+    const refly = S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9, explain: true });
     check("a re-fly names the Mark whose seal is actually at stake",
       /Mark 3<\/b> cannot be\s+sealed/.test(refly) && !/Mark 10/.test(refly));
     check("...and promises no tier it cannot open", !/Tier \d+ still opens/.test(refly));
@@ -8803,6 +8829,76 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // a build that printed the tier in the seal sentence would pass the re-fly
     // check above by accident.
     check("the frontier panel names its Mark as well", /Mark 4<\/b> cannot be/.test(note));
+
+    // ---- LONG ONCE, SHORT EVERY TIME AFTER --------------------------------
+    // The watermark's whole remaining job. The LESSON — what a seal is, what
+    // the full set opens — is worth exactly one reading; the DECISION is worth
+    // asking every time it is real, and the short form is that decision with
+    // the lesson taken out.
+    const brief = S.sealBreakModal({ bayNum: 7, mark: 4, tier: 4, sealed: 3, explain: false });
+    check("the first panel teaches what a seal is",
+      note.includes(`${MARK_COUNT} Marks carry a stamp`));
+    check("...and every one after it does not",
+      !brief.includes(`${MARK_COUNT} Marks carry a stamp`));
+    check("...and is genuinely shorter for it", brief.length < note.length,
+      `${brief.length} vs ${note.length}`);
+    // WHAT THE SHORT FORM MUST KEEP is everything the decision needs: the cost,
+    // the correction to the fear (tierOpenableBy's promise, still branch-aware)
+    // and both answers. A confirmation stripped to a bare "are you sure?" is a
+    // dialog people dismiss without reading.
+    check("...while still stating the cost", /Mark 4<\/b> cannot be\s+sealed/.test(brief));
+    check("...and still correcting the fear", /Tier 4 still opens/.test(brief));
+    check("...and still offering both answers",
+      brief.includes('data-action="seal-break-go"')
+        && brief.includes('data-action="seal-break-back"'));
+    const briefKeep =
+      /<button class="btn btn--primary"[^>]*data-action="([a-z-]+)"/.exec(brief)?.[1];
+    check("...with the reversible answer still the default",
+      briefKeep === "seal-break-back", briefKeep ?? "none");
+    // The re-fly branch survives the shortening, which is the one place the two
+    // features cross: a short panel on a re-fly must still not promise a tier.
+    const briefRefly =
+      S.sealBreakModal({ bayNum: 7, mark: 3, tier: null, sealed: 9, explain: false });
+    check("...and a short re-fly panel promises no tier either",
+      !/Tier \d+ still opens/.test(briefRefly) && /still earns/.test(briefRefly));
+  }
+
+  // ---- WHEN THE CONFIRMATION IS ASKED AT ALL (run.ts's retryBreaksSeal) ----
+  // The predicate every door into a bay retry shares with the button's face
+  // (main.ts's requestBayRetry, endModal's `retryBay.sealed`), so a build where
+  // the button says one thing and the panel does another cannot exist.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    check("a clean ladder run has a seal to spend", retryBreaksSeal(ladder));
+    // TRUE AT MOST ONCE PER RUN — the property that makes confirming EVERY
+    // seal-breaking retry cheap rather than nagging, and the reason a panel on
+    // every retry is not a toll.
+    check("...and only until it is spent",
+      !retryBreaksSeal({ ...ladder, restarts: 1 })
+        && !retryBreaksSeal({ ...ladder, restarts: 9 }));
+    // A CONFIRMATION FOR A FREE ACTION IS WORSE THAN NONE: it teaches the
+    // player to click through the one panel that matters. The modes that keep
+    // no seal answer false for the same reason recordRunEnd never seals them.
+    check("Tier S has nothing to confirm", !retryBreaksSeal({ ...ladder, sandbox: true }));
+    check("...and neither has the Skydeck",
+      !retryBreaksSeal(skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)))));
+    // The rule is exactly the seal's own rule, asked one bay earlier: a run
+    // this predicate calls spendable is a run recordRunEnd would still seal.
+    check("...and it agrees with what actually seals",
+      recordRunEnd(newMeta(), 4, true, RUN_LEVELS, ladder.restarts).meta.sealedMarks.includes(4)
+        === retryBreaksSeal(ladder));
+    // THE CRUX OF THE CHANGE, stated as an independence rather than as a call
+    // site (main.ts's requestBayRetry is where it is read, and no harness can
+    // call that). The confirmation used to be gated on `stakes && watermark`,
+    // so it appeared once per SAVE; it is gated on this predicate alone now, so
+    // it appears once per RUN. A build that folded the watermark back in here
+    // would silently restore the old behaviour, and this is what catches it:
+    // the predicate is a function of the RUN and takes no meta at all.
+    check("whether to confirm does not depend on having confirmed before",
+      retryBreaksSeal.length === 1);
+    // …and the watermark still has its own, smaller job: the LESSON.
+    check("the watermark now gates only the explainer",
+      sealBreakOwed(newMeta()) && !sealBreakOwed(sealBreakShown(newMeta())));
   }
 
   // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------

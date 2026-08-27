@@ -3779,16 +3779,22 @@ export function endModal(opts: {
    *  Absent means "no board to speak of" and the route is not drawn — which is
    *  what every caller that predates it gets, uifit fixtures included. */
   contracts?: { remaining: number; next: boolean };
-  /** The bay the run died in can be handed back (main.ts's retryBay), and this
-   *  run has not retried one yet. Two facts in one flag because the button is
-   *  drawn on exactly the runs where both hold: a ladder run only — Tier S has
-   *  its bench one tap away and the Skydeck is the day's single attempt, which
-   *  is the whole of what the mode sells.
+  /** The bay the run died in can be handed back (main.ts's retryBay). Drawn on
+   *  a ladder run only — Tier S has its bench one tap away and the Skydeck is
+   *  the day's single attempt, which is the whole of what the mode sells.
    *
-   *  `sealed` is the SEAL still being on the table, which is what the button's
-   *  subtitle warns about. False once this run has already spent it: a second
-   *  retry costs nothing that is not already gone, and a warning repeated after
-   *  the thing it warns about has happened is noise. */
+   *  `sealed` is whether this run's seal is still INTACT (run.ts's
+   *  retryBreaksSeal). It selects between two states of the button rather than
+   *  switching a warning on and off, and that is the change playtest asked
+   *  for: the button "should hold the mark of whether the seal has been broken
+   *  or not". Absence is not a state a player can read — a button with nothing
+   *  on it looks like a button nobody finished — so both answers are drawn.
+   *
+   *   - intact: the stamp, in the danger wash, over a line saying a retry
+   *     breaks it. This press costs something.
+   *   - broken: the same stamp struck through and muted, over a line saying so.
+   *     This run's seal is already spent and further retries are free, which is
+   *     a thing worth being able to read at a glance rather than remember. */
   retryBay?: { sealed: boolean };
 }): string {
   const title = opts.runComplete ? "Run Complete!" : opts.won ? "Level Cleared!" : "Game Over";
@@ -3934,11 +3940,17 @@ export function endModal(opts: {
           // in an implicit row under the whole panel — which is where this line
           // first rendered, three inches below the button it prices.
           //
-          // Drawn only while the seal is still on the table. Once this run has
-          // spent it there is nothing left to warn about, and a warning that
-          // outlives its cost is the line people learn to stop reading.
-          opts.retryBay?.sealed
-            ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
+          // BOTH STATES, like the button under it. It used to be drawn only
+          // while the seal was on the table, on the argument that a warning
+          // outliving its cost is a line people learn to stop reading — which
+          // is true of a WARNING and not of a READOUT. The second line is not
+          // the first one repeated; it is the opposite news, and it is news the
+          // player can act on: the price has been paid, and every further retry
+          // in this run is free.
+          opts.retryBay
+            ? opts.retryBay.sealed
+              ? `<p class="muted end__seal">Retrying a bay breaks this run's seal. Tier ${opts.progress.tier} still opens — the seal is a record, not a reward.</p>`
+              : `<p class="muted end__seal">This run's seal is already broken — retrying a bay costs nothing now.</p>`
             : ""
         }
         <button class="btn btn--primary" data-action="restart">${
@@ -3978,14 +3990,24 @@ export function endModal(opts: {
           // It sits FIRST after the primary all the same: it is the thing that
           // hands back the bay they just lost, and burying it under Menu would
           // be hiding the feature this row exists to add.
+          //
+          // BOTH SEAL STATES ARE DRAWN, and the glyph means the same thing on
+          // this button that it means on the tower: a stamp is a seal you have,
+          // a struck stamp is one that is gone. It used to wear the struck
+          // stamp while the seal was still INTACT — the glyph was predicting
+          // the press rather than reporting the run — and then nothing at all
+          // once the seal was actually spent, which is the one state a player
+          // most wants to be able to read back.
           opts.retryBay
             ? `<button class="btn btn--secondary" data-action="retry-bay"
-              aria-label="Retry Bay ${opts.bayNum}${opts.retryBay.sealed ? " — breaks this run's seal" : ""}"
-            >Retry Bay${
-              opts.retryBay.sealed
-                ? `<span class="btn__seal" aria-hidden="true"></span>`
-                : ""
-            }</button>`
+              aria-label="Retry Bay ${opts.bayNum} — ${
+                opts.retryBay.sealed
+                  ? "breaks this run's seal"
+                  : "this run's seal is already broken"
+              }"
+            ><span class="btn__seal${
+              opts.retryBay.sealed ? "" : " btn__seal--broken"
+            }" aria-hidden="true"></span>Retry Bay</button>`
             : ""
         }
         ${
@@ -4068,14 +4090,32 @@ export function sealBreakModal(opts: {
   /** Marks sealed so far, out of the ladder — the price of the roof, stated in
    *  the same numbers the tower draws. */
   sealed: number;
+  /** Draw the LONG form: the paragraph that teaches what a seal is and what
+   *  the whole set opens (meta.ts's sealBreakSeen, once per save).
+   *
+   *  The watermark used to decide whether this panel appeared at all. It does
+   *  not any more — the confirmation is asked every time the seal is genuinely
+   *  at stake — so what is left for it to gate is the LESSON, which is the only
+   *  part that is worth exactly one reading. Every later confirmation drops
+   *  that paragraph and keeps the decision. */
+  explain: boolean;
 }): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal seal-note pop">
       <div class="eyebrow" style="color:var(--danger)">Seal</div>
       <h2 class="display">Retrying breaks the seal</h2>
-      <p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
+      ${
+        // ONE TITLE FOR BOTH FORMS. The short panel is a confirmation and a
+        // question ("Break Mark 4's seal?") would read more naturally on it —
+        // but the panel is doing the same job both times, the buttons under it
+        // already ask the question, and two titles is two strings to keep true
+        // of the same moment.
+        opts.explain
+          ? `<p class="seal-note__body">A Mark is <b>sealed</b> when you clear all ${RUN_LEVELS} of its bays
       in one run without retrying a single one. The tower stamps that floor, and the
-      <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>
+      <b>Skydeck opens when all ${MARK_COUNT} Marks carry a stamp</b> — ${opts.sealed} of ${MARK_COUNT} so far.</p>`
+          : ""
+      }
       <p class="seal-note__body">Retry bay ${opts.bayNum} and <b>Mark ${opts.mark}</b> cannot be
       sealed by this run. ${
         // THE PROMISE, ONLY WHERE IT IS TRUE. On the frontier the thing a
@@ -4102,7 +4142,7 @@ export function sealBreakModal(opts: {
         <button class="btn btn--primary" data-action="seal-break-back">Keep the seal</button>
         <button class="btn btn--secondary" data-action="seal-break-go"
           aria-label="Retry Bay ${opts.bayNum} — breaks this run's seal"
-        >Retry Bay<span class="btn__seal" aria-hidden="true"></span></button>
+        ><span class="btn__seal" aria-hidden="true"></span>Retry Bay</button>
       </div>
     </div>
   </div>`;
