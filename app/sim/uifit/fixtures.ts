@@ -1055,6 +1055,29 @@ export const SCREENS: Record<string, () => string> = {
       nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
 
+  // THE LAST RUNG. A tier completion that opens no floor says so, and says
+  // what is still open instead (screens.ts's tierOpenedClause) — which makes
+  // this the LONGEST the salvage row's body ever gets: the same three-part
+  // sentence as any completion, with a clause naming the shelf and the seals
+  // where the other states print "Tier N is open". Measured rather than
+  // assumed, because that row wraps inside a fixed-height modal.
+  "contract-end-ladder": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: { firstClear: true, completedTier: MARK_COUNT, salvage: 15 },
+      progress: tierProgressFor({ ...newMeta(), mark: MARK_COUNT }),
+      salvageTotal: 1_700,
+      nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
   // The Tier S variant of the same modal: the award row is replaced and the
   // actions point back at the bench, so it is a different row count and a
   // different widest string.
