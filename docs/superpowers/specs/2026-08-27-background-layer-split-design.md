@@ -369,6 +369,36 @@ change per frame, and whether the ones that do can be isolated — a small
 independently-composited element repainting is not the same bill as the whole
 overlay.
 
+### ...and the throttle is measured now: +21.3fps
+
+The hypothesis above was tested. `syncHud` was gated behind a frame counter and
+the two conditions interleaved every 400ms, in a live bay at a confirmed 120Hz
+(minimum gap 8.1ms in both arms, 764 and 943 frames):
+
+| `syncHud` runs | fps | on-time |
+| --- | --- | --- |
+| every frame (today) | 74.9 | 53.4% |
+| **every 8th frame (~15Hz)** | **96.2** | **77.6%** |
+| never painted at all (the ceiling) | 112.2 | 93.7% |
+
+**+21.3fps and on-time from 53% to 78%, from throttling one call.** That is about
+two thirds of the total headroom the `visibility:hidden` ceiling says exists, so
+the mechanism is confirmed: the HUD's per-frame repaint is the bill, and not
+repainting it most frames is most of the fix.
+
+The remaining 16fps to the ceiling is the repaint still happening 15 times a
+second. Closing that means repainting less each time, not less often — isolating
+the handful of nodes that actually change so a repaint is a small region rather
+than the whole overlay.
+
+**This is a measurement, not a shipped design.** A flat 8-frame gate is the crude
+version, and it throttles everything including the two readouts that genuinely
+move every frame — the reload ring and the clock. The shape a real fix wants is a
+split: the smooth things updated per frame (ideally through transform/opacity,
+which composite without repainting), everything else — funds, combo, scrap,
+notches, target — on a slow tick. What the crude gate proves is that the budget
+is there to be won.
+
 ### What this means for the sprite pass
 
 The sprite-pass work (draw-call census, redundant property writes, `save`/`restore`
