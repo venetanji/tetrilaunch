@@ -1,5 +1,18 @@
 # The background is cached and still costs a full canvas of fill every frame
 
+> **RESULT — 2026-08-27: THE PREMISE IS REFUTED. DO NOT BUILD THE SPLIT.**
+>
+> The validation step this document demanded was run on hardware. The
+> background blit's own share of the frame is **zero within measurement noise**,
+> so splitting it onto its own canvas buys nothing. Per this spec's own
+> instruction — *"If (1) is small, stop"* — the work stops here.
+>
+> The document is kept because the ~20fps it chased is real and still
+> unclaimed; it just is not where this proposal said it was. See
+> **[What the measurements actually said](#what-the-measurements-actually-said)**
+> for the numbers, and **[Where the frame really goes](#where-the-frame-really-goes)**
+> for the target that survives.
+
 `render.ts`'s `getBackgroundLayer` already does the expensive half of this
 right. The letterbox backdrop, field gradient, grid, wall glow and congestion
 floor are baked once into an opaque device-resolution canvas and re-baked only
@@ -13,7 +26,9 @@ ctx.drawImage(getBackgroundLayer(cssW, cssH, dpr, vp, congestionRows(scene)), 0,
 A 1584x720 opaque blit, 120 times a second, into the same canvas that then
 receives every moving thing on top of it. The bake is cached. The *fill* is not.
 
-## The measurement that motivates this
+That was the argument. It did not survive contact with the device.
+
+## The measurement that motivated this
 
 Taken on the OnePlus CPH2573 over CDP into the shipping WebView, after
 `MainActivity.requestHighestRefreshRate()` made a sustained 120Hz vsync
@@ -42,9 +57,93 @@ garbage instead of the cached layer — wrong pixels, right cost). Whatever
 that buys is the prize; if it is small, the split is not worth building and
 this document ends at the validation step.
 
+## What the measurements actually said
+
+That validation was run. Two independent methods, both on the CPH2573, both
+through the shipping WebView.
+
+### 1. Remove the real blit, at 120Hz
+
+`CanvasRenderingContext2D.prototype.drawImage` was wrapped to identify the
+background blit exactly — three-argument form, destination `0,0`, source a
+canvas whose dimensions equal the destination canvas — and to skip it on
+demand. Conditions were **interleaved every 400ms** rather than run as blocks,
+so drift in a live scene lands on both equally. ~1,300 frames per condition:
+
+| condition | mean frame | median | on-time |
+| --- | --- | --- | --- |
+| blit drawn | 12.978ms | 8.3ms | 55.8% |
+| blit skipped | 13.273ms | 8.4ms | 54.0% |
+
+**Saving from removing the background blit: −0.295ms per frame.** Removing the
+work made frames marginally *slower*, which is what zero effect looks like
+through noise.
+
+### 2. Fill headroom, on a frozen scene
+
+With the game paused (`paused` is not in `COVERS_CANVAS`, so the canvas keeps
+drawing an unchanging scene) extra full-canvas blits were injected per frame
+and the frame time watched for the first sign of strain:
+
+| extra fill per frame | mean frame |
+| --- | --- |
+| 0 MP | 16.69ms |
+| 4.6 MP | 16.69ms |
+| 9.1 MP | 16.69ms |
+| **18.2 MP** | **16.69ms** |
+| 36.5 MP | 17.27ms ← first slip |
+
+**Eighteen megapixels per frame of extra fill cost nothing.** The real
+background blit is **1.14 MP** — under 7% of an amount that demonstrably does
+not register. Halving that headroom for the 8.33ms budget at 120Hz leaves the
+conclusion intact with room to spare.
+
+### Two traps this cost, so nobody repeats them
+
+**Long A/B/A blocks are useless here.** Three 4-second blocks during live play
+returned a background blit "prize" of **−11.7fps** — removing work apparently
+costing 12fps. The scene had simply been busier during the baseline blocks:
+`otherDraws` swung 16k → 21k between them. Only fast interleaving cancels it.
+
+**Opaque overdraw is culled, so it measures nothing.** Injecting 129 opaque
+full-canvas blits — 147 MP/frame — produced a dead-flat 16.67ms at every step.
+That is not a fast GPU; each blit is a fully opaque full-canvas cover, so every
+one but the last is provably invisible and Skia discards it. Small destination
+offsets do not defeat it, because each still covers essentially everything.
+Only forcing `globalAlpha` below 1 makes the injected fill real work. **Any
+future fill-rate probe on this codebase has to blend or it is measuring
+nothing.**
+
+## Where the frame really goes
+
+The quarter-area result stands: ~20fps *is* in raster. Since the background's
+share of it is ~0, the cost is in the rest of the frame — the roughly 100+
+sprite draw calls per frame for cubes, seams, effects and chrome, counted
+directly as `otherDraws` in the probes above. That is where a render-perf
+effort should point next, and it is a different shape of problem from this
+proposal: many small draws, not one big one.
+
+Not yet measured, and the obvious first questions: how much of that is overdraw
+between stacked cubes, how much is per-draw state change (`save`/`restore`,
+transforms, `globalAlpha`), and whether the baked sprite cache is being hit or
+silently re-baking mid-run.
+
+## What "the GPU is idle" did and did not mean
+
+`dumpsys gfxinfo` reports a *50th gpu percentile* of 3ms while putting *Slow
+issue draw commands* on essentially every janky frame. That number is the
+**Android view hierarchy's** GPU time — HWUI compositing the WebView's surface
+into the window. It is not the WebView's internal canvas raster, which happens
+in a different context and does not appear in that counter at all.
+
+So the GPU is not sitting unused waiting to be given work. It is already doing
+the canvas raster. The useful lever was never "start using the GPU" — it is
+"give it less to do per frame", and per the results above the background blit
+is not the part worth taking away.
+
 ## Where the cost is NOT
 
-Two things were measured and ruled out, so nobody repeats them:
+Ruled out and measured, so nobody repeats them:
 
 **It is not CPU-side command issuing.** Timed in-page over 120 iterations at
 the live canvas size:
@@ -56,97 +155,40 @@ the live canvas size:
 | full-canvas `fillRect` | 0.000ms |
 
 Canvas 2D records the command and returns; the raster is deferred. So the blit
-is nearly free on the thread that issues it and expensive on the one that
-executes it. Any fix framed as "stop calling drawImage so often" is aimed at
-the 0.002ms and will do nothing.
+is nearly free on the thread that issues it. Any fix framed as "stop calling
+drawImage so often" is aimed at the 0.002ms and will do nothing.
 
 **It is not a per-frame readback.** `getImageData` appears exactly once in
 `render.ts`, inside `trimToInk`, which is per-bake and documented as such — a
 few dozen sprites over a run. There is no GPU-to-CPU stall in the frame path.
 
-## What "the GPU is idle" did and did not mean
+## The change that is no longer proposed
 
-`dumpsys gfxinfo` reports a *50th gpu percentile* of 3ms while putting *Slow
-issue draw commands* on essentially every janky frame. That number is the
-**Android view hierarchy's** GPU time — HWUI compositing the WebView's surface
-into the window. It is not the WebView's internal canvas raster, which happens
-in a different context and does not appear in that counter at all.
-
-So the GPU is not sitting unused waiting to be given work. It is already doing
-the canvas raster, and the fill measurement above is what that costs. The
-useful lever is not "start using the GPU" — it is "give the GPU less area to
-fill per frame."
-
-## The change
+Kept for the record, since the reasoning is what the measurements answered.
 
 Split the single `<canvas>` into two stacked, identically-sized canvases:
 
-- **`#game-bg`** — opaque. Receives exactly what `getBackgroundLayer` bakes
-  today, painted only when the existing cache key changes. Between those
-  changes it is never touched, so the compositor holds its texture and re-uses
-  it.
-- **`#game-fg`** — transparent. Cleared and repainted every frame with
-  everything from the world clip onward: chute, wind indicator, compactor,
-  pistons, cubes, seams, bombs, trajectory, cannon, effects.
+- **`#game-bg`** — opaque, painted only when the existing cache key changes.
+- **`#game-fg`** — transparent, cleared and repainted every frame.
 
-`getBackgroundLayer` mostly survives as-is; its cache key becomes the trigger
-for painting `#game-bg` rather than for returning a canvas to blit. The offscreen
-bake canvas can then go away entirely — the bg canvas *is* the cache.
+The trade was a per-frame opaque full-canvas fill for a per-frame `clearRect`
+plus one extra compositor layer. Since the fill it removes measures as zero,
+the trade is all cost and no benefit: a DOM element, a resize path, and a
+second surface for `layout.ts` and `sim/uifit` to agree about.
 
-### What this trades
+## A note on measuring anything else on this device
 
-The per-frame opaque full-canvas fill is replaced by a per-frame full-canvas
-`clearRect` on the foreground plus one extra compositor layer to blend. Clearing
-to transparent is cheaper than filling from a texture, and HWUI has headroom
-(3ms), so the expected direction is a win — but **this is a prediction, not a
-measurement**, and it is the main thing the implementation has to prove.
+Two conditions have to hold or the numbers are worthless, and both bit this
+investigation:
 
-## The risk that would kill it
-
-If the WebView promotes the two canvases into one composited layer anyway, or
-re-rasters the foreground's transparent pixels at the same cost as opaque ones,
-this buys nothing and adds a DOM element plus a resize path. That is a real
-possibility and it is cheap to find out.
-
-**Validate before building the whole thing.** Two measurements, both on a
-throwaway page, both with the rAF sampler used above, both in minutes:
-
-1. **Size the prize at full resolution first.** One canvas at 1584x720
-   drawing the real frame minus the background blit (over garbage — wrong
-   pixels, right cost). The delta against the full frame is the background's
-   actual share of the ~20fps; the quarter-area table above cannot provide
-   it, because shrinking the backing store cheapens every layer at once.
-2. **Then prove the split keeps it.** Two stacked canvases at 1584x720, one
-   static and one cleared-and-drawn per frame. If the WebView composites them
-   back into one layer, this number collapses toward the full-frame cost.
-
-If (1) is small, stop — the split is not worth building. If (1) is real and
-(2) loses it, the compositor ate the win and the spec's premise fails cheaply.
-
-## Open questions for a human
-
-1. **Is ~20fps worth a structural change to the render path?** After the
-   refresh-rate fix the game presents 85-98fps on this device. This work plausibly
-   closes part of the gap to 120 but is very unlikely to close all of it — quarter
-   fill only reached 108. A locked, evenly-paced 90 may be the better product
-   decision than a jittery reach for 120.
-
-2. **`congestionRows` is in the bake key**, so the background currently re-bakes
-   mid-run as the pile crosses a row boundary. Under the split that becomes a
-   full repaint of the background canvas during play. Should the congestion floor
-   move to the foreground layer instead, trading a small per-frame cost for no
-   mid-run bake spike? Not measured either way.
-
-3. **`layout.ts`'s solver and `sim/uifit`** both assume one canvas. The uifit
-   harness measures real pixels across 13 devices and is CI-gated; a second
-   canvas element needs its fixtures checked, not assumed.
-
-## What must not change
-
-The viewport transform, the world clip opened upward to `skyTop`, and the draw
-order within the foreground. The clip note in `render()` records a real bug —
-a lofted shot apexing ~250 world px above `y=0` vanished into a black band —
-and the split must keep the foreground's clip identical to today's.
+1. **Confirm the refresh rate you are actually getting**, per window, not once
+   at the start. The OEM parks an idle app at 60Hz regardless of the window's
+   `preferredRefreshRate`, so a probe must either keep a finger moving or gate
+   itself on a measured median gap — a 16.67ms budget hides costs an 8.33ms one
+   exposes.
+2. **Hold the scene still, or interleave fast enough that it cannot drift.**
+   Live play varies draw counts by 30%+ between adjacent seconds, which is far
+   larger than anything being measured.
 
 ## Related
 
