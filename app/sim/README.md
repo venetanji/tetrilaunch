@@ -41,6 +41,7 @@ From `app/`:
 npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --mods all --carry 100
 npm run sim:perf -- --counts 50,100,150,200,300,400 --steps 600
 npm run sim:renderperf -- --counts 0,100,200,300 --frames 240
+npm run sim:strategy -- --system cushion --mark 7 --bay 10 --ratchets volatile:6 --seeds 96
 ```
 
 (the `--` forwards flags through the npm script to the underlying `tsx`
@@ -109,6 +110,10 @@ shot. Presets:
 
 No lookahead, no trajectory awareness — these approximate "hold roughly the
 same aim and keep firing," not a strong player.
+
+Every preset above flies ONE aiming policy. Swapping it is
+`aim-strategies.ts` (below), which is a separate axis from the preset: a
+strategy is hooks *inside* `aim`'s search, not a bot of its own.
 
 #### Valuing a blast (`demo`)
 
@@ -569,11 +574,102 @@ questions rather than plumbing:
 `skydeck.ts`'s own harness answers the questions that mode actually raises. The
 note is here so the option is on the record rather than rediscovered.
 
+### The aiming strategy is now a dimension of the answer
+
+`--strategies naive,cushion,lance` (default `naive`) runs the cheapest-strategy
+search once per aiming policy on the same seeds, prints the policy in every row
+and reports the cheapest clear across all of them. Before this the search
+walked three levers — the loadout ladder, the refit stance and the draft — and
+held a fourth fixed without saying so.
+
+Two `--build` orders exist to make that dimension mean something: `chill`
+(Thaw Lance first) and `liner` (Impact Cushion first). No other order installs
+either track, so a cushion-aware pilot flown on `spatial` is a pilot with no
+hands — the third time this harness has made that mistake.
+
 ### Findings
 
 Live in `design/balance/` — `winnability-sweep-findings.md` (what the sweep
-found) and `counter-systems-proposal.md` (what to build about it). Both quote
-the numbers a re-run reproduces; neither is a substitute for re-running it.
+found), `aim-strategy-findings.md` (what the sweep found once the pilot could
+play the systems it was pricing) and `counter-systems-proposal.md` (what to
+build about it). All quote the numbers a re-run reproduces; none is a
+substitute for re-running it.
+
+## `aim-strategies.ts` — the pilot, as a swappable policy
+
+Three ship systems are not passive. The Thaw Lance, the Impact Cushion and the
+Incinerator (in flight) are worth what a **decision** makes them worth, and
+until this landed the harness had exactly one decision-maker: `bots.ts`'s
+`aim`, which reads gaps, re-solves against the wind, and does nothing else.
+Measured against it the cushion's three rungs came back at 56/63/59 wins of 96,
+and `winnability.ts`'s own ledger says why — *"no bot lobs a volatile shipment
+on purpose"*.
+
+A strategy is **three optional hooks** over that same pilot, never a second bot:
+
+| hook | when | what it decides |
+|---|---|---|
+| `abilities(g, now)` | every tick, outside the cooldown | spend the consumables (where `thawHands` fires its own) |
+| `target(g, now, base)` | per shot | where to land this shipment (null = keep the gap read) |
+| `select(g, now, pool, shot)` | per shot | which arc gets it there (null = keep nearest/steepest) |
+
+`select` re-ranks the candidates the search **already flew** (`bots.ts`'s
+`aimCandidates`, which hands back its pool). It never runs a second aim search:
+two arms of one table have to be flying the same cannon, or the row measures
+the search grid.
+
+- **`naive`** — no hooks. The control arm, on the *identical code path*, not a
+  re-implementation. `systems.ts` pins that a bay flown with it is
+  byte-identical to one flown without a strategy, and pins separately that the
+  same comparison can see a strategy that changes the aim and one that changes
+  only the arc.
+- **`lance`** — divides cryo's job between its two tools. The lance is **held**
+  for a frozen cube within `LANCE_URGENT_CELLS` of the advancing face (the one
+  a shipment can no longer reach in time); the **shipment** is sent at the
+  nearest cube outside that band, which is the cryo-striking bot the findings
+  asked for by name. Both targets come from `lineClear.ts`'s own
+  `nextColdCryo`, asked twice — once with the urgent cube removed — so every
+  exclusion the game applies is intact and none is copied here.
+- **`cushion`** — lands volatile shipments **inside** the liner on the
+  **slowest** arc under `cushionedTrigger`'s own threshold, and refuses to drop
+  a non-volatile shipment onto a slot whose top cube is an intact volatile one
+  (the deferred bomb §5b-ter identified). Inert with no liner aboard, which is
+  what makes the arms table's control row a control.
+- **`incinerator`** — deliberately **absent**. The track is not on staging; the
+  placeholder throws rather than quietly behaving like `naive`, which would let
+  an arms table report the system as worth nothing.
+
+### One relationship worth knowing about
+
+Pinned in `systems.ts`, and neither table shows it alone: the aim search's
+softest power candidate is **19**, so every arc a bot can fire arrives at
+**22.7-25.6 px/step** — *entirely above* `VOLATILE_TRIGGER_SPEED` (22). That is
+the mechanical reason no bot lobs volatile safely: none fires soft enough. The
+first liner rung (25.3) sits just above the grid's softest arrival, which is
+precisely what gives a cushion-aware pilot a shot to choose.
+
+## `strategy-arms.ts` — what the system pays vs what the player does with it
+
+```sh
+npx tsx sim/strategy-arms.ts --system cushion --mark 7 --bay 10 \
+  --ratchets volatile:6 --seeds 96 --build material
+npx tsx sim/strategy-arms.ts --system lance --ratchets cryo:3 --seeds 48
+```
+
+A **2x2**: system off/on crossed with pilot naive/aware, one bay, one explicit
+stack, every cell on the same seeds inside one process. Two arms cannot answer
+the question — what they measure is *(system + a pilot who cannot use it)*
+minus *(no system)*, and a pilot who cannot use it is a floor of unknown depth.
+The tool prints the system's passive effect, the strategy's effect, their
+interaction, and the totals.
+
+The no-system/aware cell means different things by system, so each declares
+which: `expectInert: true` (cushion) makes it a **control** that must land on
+no-system/naive; `expectInert: false` (lance) makes it a **measurement** — the
+free counter-play a player gets with no rig at all.
+
+Flags: `--system`, `--mark`, `--bay`, `--ratchets`, `--seeds`, `--tiers`,
+`--build`, `--json`.
 
 ## `perf.ts` — physics step-cost sweep
 
