@@ -834,7 +834,7 @@ export function skydeckStartingFunds(mark = TIER_COUNT): number {
 }
 
 /**
- * THE ROOF'S SCRAP RATE — the ladder's LINES, and none of its clear bonus.
+ * THE ROOF'S SCRAP RATE — half the ladder's, on both halves of it.
  *
  * The Skydeck earned no scrap at all while it had no yard (the currency had
  * nowhere to go). The yard is back — run.ts's refitAfterBay carries the design
@@ -850,31 +850,40 @@ export function skydeckStartingFunds(mark = TIER_COUNT): number {
  * place to spend the one lever is the number this mode already owns rather than
  * a second price table that would give one rung two prices.
  *
- * WHICH HALF OF THE PAYOUT IS WITHHELD is the decision, and it is not a scaling.
- * Scrap has two rates and they are two different kinds of income:
+ * SO THE ROOF PAYS HALF, ON BOTH RATES — and the size of that cut is the one
+ * number here that was argued from a table rather than from a principle,
+ * because purchasing power is not a matter of opinion: income and price are both
+ * deterministic, so what a run can buy is arithmetic once you fix how many lines
+ * a bay clears. design/balance/skydeck-yard.md carries it in full. The short
+ * version, for the endgame player this floor is for (~12 lines a bay):
  *
- *  - SCRAP_PER_LINE is paid for WORK. Its own note is explicit that the split
- *    exists so "a rough bay you barely survive still moves the build forward" —
- *    a participation payment, and exactly right for a player still learning the
- *    ladder.
- *  - SCRAP_PER_BAY is paid for ARRIVING. On a floor whose pilot has beaten the
- *    ladder ten times and sealed every Mark of it, arriving is not the
- *    achievement, and a bonus for it is three free stop-payments a run.
+ *   ladder payout   34/bay   stop 1 at 102   FIVE of the eight rungs, a run
+ *   HALF (shipped)  17/bay   stop 1 at  51   THREE, and the first stop is
+ *                                            reachable only by an opening that
+ *                                            really dismantled its three bays
+ *   lines only      24/bay   stop 1 at  72   THREE for an expert and ONE for a
+ *                                            weak run — the same tightening
+ *                                            aimed at the wrong player
  *
- * So the roof pays the ladder's line rate in full and pays nothing for the
- * clear. Every point of scrap on the day's run is earned by dismantling a bay,
- * which makes the first stop something a strong opening reaches and a scraped-
- * through one does not — measured, and the table is in
- * design/balance/skydeck-yard.md (sim/skyyard.ts flies it).
+ * The last row is the one worth recording as REJECTED, because it was the
+ * design-nicer idea. Withholding SCRAP_PER_BAY alone ("the roof pays for lines,
+ * not for arriving") reads beautifully and taxes exactly the wrong pilot: a
+ * player who clears twelve lines a bay barely notices it, while a rough run
+ * loses most of its income — and the owner's brief is that the EXPECTED
+ * Skydeck player, the one with the finished Workshop, is the one arriving with
+ * too much. Halving both rates cuts the strong run and the weak one by the same
+ * fraction, which is what "tighten the endgame" actually asks for.
  *
- * The line rate is the LADDER'S constant rather than a copy of its value, so a
- * play pass that re-prices a line moves the roof with it — the same discipline
- * the step above keeps with the target and launch curves. The withheld bonus is
- * its own named number, because it is the one a play pass will argue with, and
- * 0 is a position rather than an absence.
+ * A SHARE rather than a second pair of typed numbers, so re-pricing a line on
+ * the ladder moves the roof with it — the same discipline the step above keeps
+ * with the target and launch curves. Both halves come out whole at the shipped
+ * rates (2 -> 1, 10 -> 5); sim/systems.ts pins that they are EXACTLY half, so a
+ * future rate that halves untidily fails a check and asks for a decision rather
+ * than rounding one silently.
  */
-export const SKYDECK_SCRAP_PER_LINE = SCRAP_PER_LINE;
-export const SKYDECK_SCRAP_PER_BAY = 0;
+export const SKYDECK_SCRAP_SHARE = 0.5;
+export const SKYDECK_SCRAP_PER_LINE = Math.round(SCRAP_PER_LINE * SKYDECK_SCRAP_SHARE);
+export const SKYDECK_SCRAP_PER_BAY = Math.round(SCRAP_PER_BAY * SKYDECK_SCRAP_SHARE);
 
 /**
  * Write the Skydeck's economy onto a bay — the roof's opening terms, in the

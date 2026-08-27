@@ -6953,6 +6953,27 @@ section("THE THAW LANCE — one grant, two horizons (upgrades.ts / run.ts)");
       buyUpgrades(docked, { reactor: 1 }, MAX_TIER) === null
       || buyUpgrades({ ...docked, tiers: { ...docked.tiers, reactor: 1 } }, { reactor: 1 }, MAX_TIER)!
         .thawCharges === docked.thawCharges);
+    // --- AND THE SAME RUNG ON THE ROOF, which is the ruling the reopened yard
+    // had to make (run.ts's thawChargesFor). The stop sells a BIGGER RACK, never
+    // a refill: a Skydeck pilot who has spent the lot and then buys the lance's
+    // last rung undocks with exactly the charges that rung ADDS, not with a
+    // full new-tier grant. This is the case where the two readings differ — on
+    // a full rack a delta and a refill look identical, which is why the pin is
+    // written on an emptied one.
+    const skyDocked = {
+      ...skydeckRunFor(lanced, [], new Date(Date.UTC(2026, 7, 27))),
+      levelIndex: 3, scrap: 999, thawCharges: 0,
+    };
+    const skyRaised = buyUpgrades(skyDocked, { thaw: 1 }, MAX_TIER)!;
+    check("a spent Skydeck rack buys the rung's charges, not a fresh rack",
+      skyRaised.thawCharges === THAW_CHARGES_PER_TIER
+        && skyRaised.thawCharges < thawChargesFor(3),
+      `${skyRaised.thawCharges} vs a full rack of ${thawChargesFor(3)}`);
+    // …and the next bay boundary does not quietly hand the rest back either:
+    // the mode's no-resupply rule survives the yard reopening.
+    check("...and the bay boundary still refuses to resupply it",
+      advanceRun(skyRaised, 900, 600, 4, 0, [], skyRaised.bondCharges, 0, 0, 1)
+        .thawCharges === 1);
   }
   // --- The shop -------------------------------------------------------------
   //
@@ -8306,42 +8327,46 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     // the constant: this is what a stop can spend.
     const skyBay = levelForRun(sky);
     const ladderBay = levelForRun(ladder);
-    // EVERY POINT OF SCRAP ON THE ROOF IS EARNED BY LINES. The ladder's rate
-    // has two halves and they are two kinds of income — a per-line rate paid
-    // for work, a per-bay bonus paid for arriving (SCRAP_PER_LINE's own note
-    // says the bonus is there so "a rough bay you barely survive still moves
-    // the build forward"). The roof keeps the first and withholds the second.
-    check("the roof pays the ladder's line rate in full",
-      skyBay.scrapPerLine === ladderBay.scrapPerLine
+    // HALF THE LADDER'S RATE, ON BOTH HALVES OF IT — and EXACTLY half, which is
+    // the check a future re-pricing has to answer to: a ladder rate that does
+    // not halve cleanly should stop a build and ask for a decision rather than
+    // have one rounded for it (level.ts's note).
+    check("the roof pays exactly half the ladder's line rate",
+      skyBay.scrapPerLine * 2 === ladderBay.scrapPerLine
         && skyBay.scrapPerLine === SKYDECK_SCRAP_PER_LINE,
       `${skyBay.scrapPerLine} vs ${ladderBay.scrapPerLine}`);
-    check("...and pays nothing for arriving, where the ladder pays a bonus",
-      skyBay.scrapPerBay === SKYDECK_SCRAP_PER_BAY && ladderBay.scrapPerBay > 0,
+    check("...and exactly half its clear bonus",
+      skyBay.scrapPerBay * 2 === ladderBay.scrapPerBay
+        && skyBay.scrapPerBay === SKYDECK_SCRAP_PER_BAY,
       `${skyBay.scrapPerBay} vs ${ladderBay.scrapPerBay}`);
-    check("...so a roof bay is strictly the poorer of the two",
-      8 * skyBay.scrapPerLine + skyBay.scrapPerBay
-        < 8 * ladderBay.scrapPerLine + ladderBay.scrapPerBay);
+    // BOTH halves, deliberately. Withholding the clear bonus alone was the
+    // rejected shape (level.ts records why): it taxes the rough run and barely
+    // touches the strong one, and the pilot this floor is for is the strong one.
+    check("...so neither half of the payout survives at the ladder's size",
+      skyBay.scrapPerLine < ladderBay.scrapPerLine
+        && skyBay.scrapPerBay < ladderBay.scrapPerBay);
     // WHAT THAT BUYS, against the only rung a maxed rig can still reach
     // (upgrades.ts sells to UPRATE_MAX_TIER; tier 3 exists only in the yard, and
-    // every one of them is the same price). Three bays' income is what the first
-    // stop opens on, and the design claim is that the stop is EARNED: a bay-
-    // count alone must not reach a rung, and a strong opening must.
-    const overThreeBays = (lines: number): number =>
-      REFIT_EVERY * (lines * skyBay.scrapPerLine + skyBay.scrapPerBay);
-    check("a scraped-through opening does not reach a rung by the first stop",
-      overThreeBays(8) < TIER_COSTS[UPRATE_MAX_TIER],
-      `${overThreeBays(8)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
-    check("...and a strong one does",
-      overThreeBays(10) >= TIER_COSTS[UPRATE_MAX_TIER],
-      `${overThreeBays(10)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
-    // …and it can never buy out the shelf: nine bays of strong play against
-    // eight rungs still leaves most of the ship un-deepened, which is the whole
-    // point of tightening rather than simply opening the ladder's yard.
-    check("a whole strong run cannot buy half the shelf",
-      (RUN_LEVELS - 1) * (10 * skyBay.scrapPerLine + skyBay.scrapPerBay)
-        < (UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER],
-      `${(RUN_LEVELS - 1) * (10 * skyBay.scrapPerLine + skyBay.scrapPerBay)} vs `
-      + `${(UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER]}`);
+    // every one of them is the same price). The design claim is that the FIRST
+    // stop is earned rather than arrived at, and that the run can shop from the
+    // second on — stated at the ~10 lines a bay an endgame pilot actually
+    // clears, since income here is a function of lines and nothing else.
+    const banked = (lines: number, bays: number): number =>
+      bays * (lines * skyBay.scrapPerLine + skyBay.scrapPerBay);
+    check("ten lines a bay does not reach a rung by the first stop",
+      banked(10, REFIT_EVERY) < TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, REFIT_EVERY)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...and does reach one by the second",
+      banked(10, REFIT_EVERY * 2) >= TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, REFIT_EVERY * 2)} vs ${TIER_COSTS[UPRATE_MAX_TIER]}`);
+    check("...where the LADDER's own payout would have bought one at the first",
+      REFIT_EVERY * (10 * ladderBay.scrapPerLine + ladderBay.scrapPerBay)
+        >= TIER_COSTS[UPRATE_MAX_TIER]);
+    // …and a whole run can never buy out the shelf, which is the difference
+    // between tightening the yard and simply reopening the ladder's.
+    check("a whole run cannot buy half the shelf",
+      banked(10, RUN_LEVELS - 1) < (UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER],
+      `${banked(10, RUN_LEVELS - 1)} vs ${(UPGRADES.length / 2) * TIER_COSTS[UPRATE_MAX_TIER]}`);
     // The hold is EMPTY at undock however many options the pilot owns — the
     // Scrap Cache opens a ladder run's first stop 30 ahead (main.ts), and the
     // day's run refuses it so the board is ranking play (skydeck.ts).
@@ -12732,6 +12757,23 @@ section("The winnability sweep — the enumerated combo space (sim/draft-space.t
     "...and the tap search saturated rather than running out of depth",
     neverClosed === 0, `${neverClosed} rungs still expanding at depth 6`,
   );
+  // THE LAST DRAFT IS A REAL RUNG ON THE ROOF, and the harness has to be able
+  // to deal it. rungFor answers null at the ladder's inspection rung, which is
+  // right for enumerateSpace (a clause is not a member of the notch space) and
+  // wrong for a driver flying the day's run, where the clauses are dealt and the
+  // last draft is an ordinary notch (skydeck.ts). Found the hard way: with the
+  // ladder's predicate hard-coded, deeprun.ts threw "no draft rung at levelIndex
+  // 8" the first time a Skydeck run in sim/skyyard.ts survived to bay 9.
+  {
+    const last = RUN_LEVELS - 2;
+    check("the ladder's last draft is the inspection, not a rung",
+      rungFor(7, MARK_COUNT, last, {}) === null);
+    const roofRung = rungFor(7, MARK_COUNT, last, {}, SKYDECK_PICKS_PER_BAY, false);
+    check("...where the roof's last draft deals a hand a notch can be taken from",
+      roofRung !== null && roofRung.hand.length > SKYDECK_PICKS_PER_BAY
+        && roofRung.hands.length > 0,
+      String(roofRung?.hand.length));
+  }
   // The cap's own branch, constructed directly rather than waited for: the
   // shipped ladder deals a forced hand of two MATERIALS at every capstone rung
   // (materialHand), so the number-axis partner is a fence and no seed reaches

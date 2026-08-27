@@ -3,8 +3,8 @@
  * THE ROOF'S YARD — what a refit stop is worth on the Skydeck, and at what
  * payout it stops being a gift.
  *
- *   npx tsx sim/skyyard.ts --seeds 8
- *   npx tsx sim/skyyard.ts --seeds 8 --pays 2/10,2/0,1/5
+ *   npx tsx sim/skyyard.ts --mark 3 --seeds 20 --days 2
+ *   npx tsx sim/skyyard.ts --seeds 8 --pays 2/10,1/5,2/0
  *   npx tsx sim/skyyard.ts --seeds 6 --bot demo --days 3
  *
  * ---------------------------------------------------------------------------
@@ -15,9 +15,9 @@
  * history), and the reversal comes with an economy question the mode has never
  * had to answer, because of WHO flies it. The roof opens only to a player
  * holding every Mark's seal (meta.ts's skydeckOpen), and that player's Workshop
- * is finished — every track at UPRATE_MAX_TIER, 440 of Mark 10's 880 points,
- * with nothing left the Workshop will sell them. So the stop is not the
- * ladder's stop at all:
+ * is finished — every track at UPRATE_MAX_TIER, which Mark 10's build budget
+ * covers outright, with nothing left the Workshop will sell them. So the stop is
+ * not the ladder's stop at all:
  *
  *  - on the LADDER, a stop sells the rungs a mid-budget rig has not reached,
  *    at 20 / 35 / 55 depending which rung it is;
@@ -57,7 +57,9 @@ import {
   SCRAP_PER_BAY, SCRAP_PER_LINE, SKYDECK_SCRAP_PER_BAY, SKYDECK_SCRAP_PER_LINE,
   skydeckLaunchCost, skydeckRungFor, skydeckTargetScoreFor, type LevelConfig,
 } from "../src/game/level";
-import { MARK_COUNT, TIER_COSTS, UPGRADES, newTiers, tiersCost, type UpgradeTiers } from "../src/game/upgrades";
+import {
+  MARK_COUNT, TIER_COSTS, UPGRADES, budgetForMark, newTiers, tiersCost, type UpgradeTiers,
+} from "../src/game/upgrades";
 import { UPRATE_MAX_TIER } from "../src/game/meta";
 import { REFIT_EVERY, RUN_LEVELS } from "../src/game/run";
 import { skydeckClauses, skydeckSeed, SKYDECK_MARK, type SkydeckRules } from "../src/game/skydeck";
@@ -160,9 +162,12 @@ function maxedWorkshopRig(): UpgradeTiers {
 }
 
 /** Rungs still on the shelf when the run undocks — all of them tier 3, all at
- *  one price, which is the fact this whole file turns on. */
+ *  one price, which is the fact this whole file turns on. Counted off the rig
+ *  rather than off UPGRADES, because a track the pilot does not own is a track
+ *  the yard cannot sell (run.ts's buyUpgrade refuses to install). */
 const RUNG_PRICE = TIER_COSTS[UPRATE_MAX_TIER];
-const RUNGS_FOR_SALE = UPGRADES.length;
+const rungsForSale = (rig: UpgradeTiers): number =>
+  UPGRADES.filter((u) => (rig[u.id] ?? 0) > 0).length;
 
 /* ---------------------------------------------------------------------------
  * THE ECONOMIES
@@ -176,6 +181,12 @@ interface Economy {
   label: string;
   refit: RefitPolicy;
   kit?: CounterKit;
+  /** Fly a LADDER run instead of the day's — the control the roof sits above:
+   *  the same rig and seeds under two notches a bay, one drafted clause on the
+   *  last bay, and the ladder's own bays and payout. Without it a Skydeck row
+   *  has nothing to be dear RELATIVE TO, which is the only way "the roof is a
+   *  step above the ladder" is a claim rather than a slogan. */
+  ladderRun?: boolean;
 }
 
 function payout(perLine: number, perBay: number): CounterKit {
@@ -197,6 +208,9 @@ const SPEND_ALL = greedyRefit(UPGRADES.map((u) => u.id), true);
 
 function economies(): Economy[] {
   const out: Economy[] = [
+    // (0) THE LADDER at this Mark, on the same rig: the mode the roof sits
+    // above, with its yard open at its own payout.
+    { label: "0 · LADDER run (control)", refit: SPEND_ALL, ladderRun: true },
     // (a) THE SKYDECK AS IT SHIPPED: no stop, and no scrap either — the run
     // declined the payout because there was nowhere to spend it.
     { label: "a · no yard (was shipped)", refit: noRefit, kit: payout(0, 0) },
@@ -247,7 +261,7 @@ function fly(econ: Economy, rig: UpgradeTiers): Row {
         draft: spreadSpec.build(s * 7919),
         refit: econ.refit,
         counters: econ.kit,
-        skydeck: rules,
+        skydeck: econ.ladderRun ? undefined : rules,
       }));
     }
   }
@@ -282,10 +296,11 @@ console.log(
   + (mark === MARK_COUNT ? "" : `   [shipped mode flies Mark ${SKYDECK_MARK}; see --mark]`),
 );
 console.log(
-  `Rig: every one of ${RUNGS_FOR_SALE} tracks at the Workshop's ceiling (tier ${UPRATE_MAX_TIER}, ${tiersCost(rig)} pts of Mark ${MARK_COUNT}'s budget).`,
+  `Rig: ${rungsForSale(rig)} tracks at the Workshop's ceiling (tier ${UPRATE_MAX_TIER}, ${tiersCost(rig)} pts of Mark ${MARK_COUNT}'s ${budgetForMark(MARK_COUNT)}), `
+  + `${NOT_FOR_THE_BOT.join("+")} left off (see NOT_FOR_THE_BOT).`,
 );
 console.log(
-  `Yard: stops after bays ${REFIT_EVERY}/${REFIT_EVERY * 2}/${REFIT_EVERY * 3}; every rung it can sell is tier ${UPRATE_MAX_TIER + 1} at $${RUNG_PRICE} scrap, ${RUNGS_FOR_SALE} of them.`,
+  `Yard: stops after bays ${REFIT_EVERY}/${REFIT_EVERY * 2}/${REFIT_EVERY * 3}; every rung it can sell is tier ${UPRATE_MAX_TIER + 1} at ${RUNG_PRICE} scrap, ${rungsForSale(rig)} of them.`,
 );
 console.log(
   `Bays: $${skydeckTargetScoreFor(0, mark)} -> $${skydeckTargetScoreFor(RUN_LEVELS - 1, mark)} at $${skydeckLaunchCost(mark)} a shot.`,
@@ -293,6 +308,52 @@ console.log(
 console.log(
   `Ladder payout: ${SCRAP_PER_LINE}/line + ${SCRAP_PER_BAY}/bay. Shipped roof payout: ${SKYDECK_SCRAP_PER_LINE}/line + ${SKYDECK_SCRAP_PER_BAY}/bay.\n`,
 );
+
+/* ---------------------------------------------------------------------------
+ * PURCHASING POWER — the half of this question that is arithmetic.
+ *
+ * Printed before a single bay is flown, and it is the DECISIVE table rather
+ * than a preamble to the flights. Income here is a function of exactly one
+ * thing the pilot controls — lines cleared — and every rung the yard can sell a
+ * finished rig is the same price, so "what can this economy buy" has an exact
+ * answer at any given lines-a-bay. Nothing about it is bot-dependent, which
+ * matters because the bots' weakest statistic IS lines: a table that only
+ * existed inside the flights would be reporting the pilot.
+ *
+ * The flights below then answer the question this table cannot — whether the
+ * tightened yard still leaves a run that can be flown at all.
+ *
+ * Read the ~10-12 lines-a-bay rows for the endgame pilot this floor is for; the
+ * 6-line row is roughly what the harness's own bot manages, and is here so the
+ * gap between the two is visible rather than argued about.
+ * ------------------------------------------------------------------------- */
+
+function rungsByStop(perLine: number, perBay: number, lines: number): number[] {
+  const out: number[] = [];
+  let purse = 0;
+  for (let stop = 1; stop * REFIT_EVERY < RUN_LEVELS; stop++) {
+    purse += REFIT_EVERY * (lines * perLine + perBay);
+    const bought = Math.floor(purse / RUNG_PRICE);
+    purse -= bought * RUNG_PRICE;
+    out.push(bought);
+  }
+  return out;
+}
+
+console.log("Purchasing power (deterministic — rungs bought at stops 1/2/3, and the run's total):");
+console.log(
+  `  ${"payout".padEnd(20)}${[6, 8, 10, 12, 14].map((l) => `${l} lines/bay`.padStart(14)).join("")}`,
+);
+const tableRows = [{ perLine: SCRAP_PER_LINE, perBay: SCRAP_PER_BAY }, ...pays]
+  .filter((p, i, all) => all.findIndex((q) => q.perLine === p.perLine && q.perBay === p.perBay) === i);
+for (const { perLine, perBay } of tableRows) {
+  const cells = [6, 8, 10, 12, 14].map((lines) => {
+    const stops = rungsByStop(perLine, perBay, lines);
+    return `${stops.join("/")} =${stops.reduce((a, b) => a + b, 0)}`.padStart(14);
+  });
+  console.log(`  ${`${perLine}/line + ${perBay}/bay`.padEnd(20)}${cells.join("")}`);
+}
+console.log();
 
 const rows = economies().map((e) => fly(e, rig));
 const width = Math.max(24, ...rows.map((r) => r.label.length));

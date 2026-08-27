@@ -295,7 +295,12 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
     if (finalDraftFor(run)) {
       chosenFinal = pickFinal(finalsForTier(run.mark), run);
     } else {
-      const rung = rungFor(run.seed, run.mark, i, run.ratchets, picksForRun(run));
+      // finalDraftFor is passed through as well as consulted above: on the
+      // Skydeck the branch is not taken AND the rung at RUN_LEVELS - 2 is a
+      // real one, which the ladder's own predicate inside rungFor would refuse.
+      const rung = rungFor(
+        run.seed, run.mark, i, run.ratchets, picksForRun(run), finalDraftFor(run),
+      );
       // `rungFor` returns null only past the last ratchet draft, which
       // `isFinalDraft` has already claimed — so a null here is a ladder that
       // moved under this driver, and a silent empty pick would hide it.
