@@ -137,6 +137,14 @@
 
   /* --- Motion --- */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* THE LIFT'S CURVE. Slightly overshooting (the 1.28), because the one thing
+     it moves is a car on a rail and a car that arrives with no settle reads as
+     a slide rather than a stop. Everything that travels WITH the car shares it
+     — the car itself (app.css's .tower__car) and every readout that rolls to a
+     new value while it is moving (.roll) — so the tower, the tier plate and
+     the destination panel are one motion rather than three that happen to take
+     the same time. */
+  --roll-ease: cubic-bezier(0.34, 1.28, 0.64, 1);
   --dur-fast: 120ms;
   --dur: 220ms;
   --dur-slow: 420ms;
