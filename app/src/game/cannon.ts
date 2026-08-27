@@ -252,12 +252,22 @@ export class Cannon {
   aimDown() { this.angle = Math.max(-AIM_CONE, this.angle - 0.035); }
   powerUp() { this.power = Math.min(this.speedMax, this.power + 0.4); }
   powerDown() { this.power = Math.max(this.speedMin, this.power - 0.4); }
-  /** Analog variants of the four nudges above, for the gamepad's direct
-   *  mode (gamepad.ts): the same per-frame steps the keyboard takes, scaled
-   *  by stick deflection (-1..1) so a half-tilt trims at half rate. Sharing
-   *  the step constant is the point — a pinned stick and a held key move the
+  /** Analog variants of the four nudges above, for the gamepad's rate dials
+   *  (gamepad.ts): the same per-frame steps the keyboard takes, scaled by
+   *  stick deflection (-1..1) so a half-tilt trims at half rate. Sharing the
+   *  step constant is the point — a pinned stick and a held key move the
    *  barrel at exactly the same speed, so switching devices never re-teaches
-   *  the hand. */
+   *  the hand.
+   *
+   *  `f` IS NO LONGER JUST THE DEFLECTION. The poller multiplies it by the
+   *  elapsed frames since its last poll, so the factor can exceed 1 on a
+   *  stalled frame and sits below 1 on anything faster than 60Hz — which is
+   *  why both clamp rather than assume a bounded input. The equivalence above
+   *  is therefore exact at 60Hz and, on a faster display, the KEYBOARD is now
+   *  the one that drifts: input.ts's tickKeys still charges a whole step per
+   *  rAF, so a held W trims twice as fast on a 120Hz panel as on a 60Hz one.
+   *  Same bug, same fix, different module — left for its own change rather
+   *  than smuggled in with the pad's. */
   nudgeAngle(f: number) {
     this.angle = Math.max(-AIM_CONE, Math.min(AIM_CONE, this.angle + 0.035 * f));
   }

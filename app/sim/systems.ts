@@ -73,13 +73,23 @@ import {
 } from "../src/game/meta";
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
-  newRun, CARRY_CAP, REFIT_EVERY, RUN_LEVELS,
+  newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
+  tracksLadder, CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
+// Node has no localStorage, so telemetry.recording() is false here and nothing
+// in this module records — which is exactly what makes runMode safe to import:
+// it is a pure tag function, and it is the one thing sim/playtest.ts's whole
+// grouping turns on.
+import * as telemetry from "../src/lib/telemetry";
 import {
-  FINALS, FINAL_MATERIAL_CAP, applyFinal, finalById, finalsForTier, type FinalId,
+  CLAUSE_STOPS, clauseDefs, dealableAt, schedulesDeadCargo, skydeckRulesFor, skydeckRunFor,
+  skydeckSeed,
+} from "../src/game/skydeck";
+import {
+  FINALS, FINAL_MATERIAL_CAP, applyFinal, applyFinals, finalById, finalsForTier, type FinalId,
 } from "../src/game/finals";
 import {
-  dailyContracts, dealPatternQueue, generateContract, levelForContract, contractBed,
+  dailyContracts, dailySeed, dealPatternQueue, generateContract, levelForContract, contractBed,
   contractSlotBed, CONTRACT_BED_TOP_BASE,
   variantsFor, variantSpec, CONTRACT_RARE_CHANCE, DAILY_COUNT, CUBES_PER_LINE,
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
@@ -101,7 +111,8 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller } from "../src/game/gamepad";
+import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { loadSettings } from "../src/lib/store";
 import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -3606,7 +3617,7 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
   // when it is capturing, and reports an absent pad as absent — not broken.
   const ctrlSettings = {
     sound: true, music: true, haptics: true, seenDragHint: true, seenTutorial: true, seenKeyHints: true,
-    leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+    leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
   };
   const kb = controlsScreen({ tab: "keyboard", settings: ctrlSettings, padName: null, rebinding: null });
   check("every action is a rebindable row",
@@ -3623,6 +3634,40 @@ section("Input bindings + the one hint table (bindings.ts — canvas D1/D2)");
       .includes('data-toggle="leftHandRail"'));
   check("the gamepad tab carries the stick-assist toggle",
     padPane.includes('data-toggle="stickAssist"'));
+  // The toggle's KEY is what main.ts's generic onToggle writes into settings,
+  // so a pane still naming the retired stickPull would flip a field nothing
+  // reads and leave the mode stuck — silently, since neither end would error.
+  check("the slingshot toggle writes the field the poller reads",
+    padPane.includes('data-toggle="stickSling"') && !padPane.includes("stickPull"));
+  // The dials' defining property is the one a player cannot discover by
+  // pushing the stick — you find out a centred stick holds by NOT touching it
+  // — so the row that describes the stick has to say it.
+  check("...and the aim row states that a centred stick holds",
+    padPane.includes("centre holds"));
+  // THE AIM ROW DESCRIBES THE MODE THAT IS ON. Found in review: the row said
+  // "centre holds" whatever the toggle underneath it was set to, so a player
+  // who chose the slingshot was told the centre holds by the same screen whose
+  // next row told them releasing lets the pull go. Two opposite answers to
+  // "what happens when I let go", on one pane, one of them false.
+  const slingPane = controlsScreen({
+    tab: "gamepad",
+    settings: { ...ctrlSettings, stickSling: true },
+    padName: null,
+    rebinding: null,
+  });
+  check("the slingshot's aim row describes the slingshot",
+    slingPane.includes("pull back to aim") && slingPane.includes("release lets go"));
+  check("...and does not also claim the centre holds",
+    !slingPane.includes("centre holds"));
+  check("...while the dials' row still claims it and not the pull",
+    padPane.includes("centre holds") && !padPane.includes("pull back to aim"));
+  // The assist only ever smoothed the SLINGSHOT's stick (gamepad.ts) — the
+  // dials need none. Unqualified, the row offered a dial player a control that
+  // does nothing. It names its scope instead of switching, so one string is
+  // true in both modes.
+  check("the assist toggle names the mode it actually smooths",
+    padPane.includes("Smooth the slingshot stick")
+      && slingPane.includes("Smooth the slingshot stick"));
   // The fixed menu buttons (ui/padnav.ts) are the one part of the pad's scheme
   // that has no row in the table below, because they have no binding — so the
   // pane states them, or they are documented nowhere at all.
@@ -6589,6 +6634,403 @@ section("Final Inspection: the run's last draft (finals.ts, run.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
+// ---------------------------------------------------------------------------
+{
+  const skyRun = (levelIndex = 0, d = new Date(Date.UTC(2026, 7, 27))): RunState =>
+    ({ ...skydeckRunFor(newTiers(), [], d), levelIndex });
+
+  // ---- THE DAY IS THE RUN -------------------------------------------------
+  // Two players who open the Skydeck on the same UTC day must fly the same
+  // thing, which is the whole reason it has a seed at all rather than
+  // Date.now(). Checked across the rollover in both directions, because "the
+  // same day" is a claim about a boundary and a boundary is where an off-by-one
+  // lives.
+  {
+    const a = new Date(Date.UTC(2026, 7, 27, 0, 0, 1));
+    const b = new Date(Date.UTC(2026, 7, 27, 23, 59, 59));
+    const c = new Date(Date.UTC(2026, 7, 28, 0, 0, 1));
+    check("one UTC day deals one Skydeck run",
+      skydeckSeed(a) === skydeckSeed(b) && JSON.stringify(skydeckRulesFor(a).clauses)
+        === JSON.stringify(skydeckRulesFor(b).clauses));
+    check("the next day deals a different seed", skydeckSeed(b) !== skydeckSeed(c));
+    // Shares a DATE with the Contract board, not a stream: the two dailies must
+    // roll over at the same instant, and must not correlate.
+    check("the Skydeck rolls over with the Contract board", dailySeed(a) === dailySeed(b));
+    check("the Skydeck's stream is not the Contract board's",
+      skydeckSeed(a) !== dailySeed(a));
+  }
+
+  // ---- NO YARD ------------------------------------------------------------
+  // "You play with the rig you have." Every bay of every Skydeck run, against
+  // the ladder run that opens a stop on three of them.
+  {
+    const sky = skyRun();
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    const skyStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
+      .filter((i) => refitAfterBay(sky, i));
+    const ladderStops = Array.from({ length: RUN_LEVELS }, (_, i) => i)
+      .filter((i) => refitAfterBay(ladder, i));
+    check("a Skydeck run opens no refit stop", skyStops.length === 0, skyStops.join(","));
+    check("...where the ladder run it sits above opens three",
+      ladderStops.length === 3, ladderStops.join(","));
+    check("and the draft is told there is no stop coming",
+      baysUntilRefitFor(sky) === null && baysUntilRefitFor(ladder) !== null);
+  }
+
+  // ---- ONE NOTCH A BAY ----------------------------------------------------
+  // At the capstone Mark, where the LADDER's own rule is two (picksPerBay). The
+  // Skydeck pays that pressure in standing clauses instead, and charging both
+  // would charge twice for one rung.
+  {
+    const sky = skyRun();
+    check("the Skydeck charges one notch a bay", picksForRun(sky) === SKYDECK_PICKS_PER_BAY);
+    check("...at a Mark whose ladder rule is two",
+      sky.mark === CAPSTONE_MARK && picksPerBay(sky.mark) === 2
+        && picksForRun(newRun(7, [], 0, newTiers(), CAPSTONE_MARK)) === 2);
+    // The hand is still one card bigger than the picks — hazards.ts's rule, and
+    // the one thing that makes a draft a draft rather than a bill. Checked on
+    // every bay a Skydeck run drafts on, forced-material bays included.
+    const thin: number[] = [];
+    for (let i = 0; i < RUN_LEVELS - 1; i++) {
+      const hand = hazardOffers(sky.seed, i, sky.mark, undefined, sky.ratchets);
+      if (hand.length <= SKYDECK_PICKS_PER_BAY) thin.push(i + 1);
+    }
+    check("every Skydeck hand is bigger than its picks", thin.length === 0, thin.join(","));
+  }
+
+  // ---- NO DRAFTED INSPECTION ----------------------------------------------
+  // The clauses are the DAY's, so the last draft of a Skydeck run is an
+  // ordinary notch. A run that dealt both would charge for the inspection twice.
+  {
+    const sky = skyRun(RUN_LEVELS - 2);
+    const ladder = { ...newRun(7, [], 0, newTiers(), MARK_COUNT), levelIndex: RUN_LEVELS - 2 };
+    check("the Skydeck never deals the drafted inspection", !finalDraftFor(sky));
+    check("...where the ladder run does", finalDraftFor(ladder));
+  }
+
+  // ---- THE STOPS ----------------------------------------------------------
+  {
+    check("every stop is a real bay",
+      CLAUSE_STOPS.every((s) => s.fromBay >= 1 && s.fromBay <= RUN_LEVELS),
+      CLAUSE_STOPS.map((s) => s.fromBay).join(","));
+    check("the stops arm in order",
+      CLAUSE_STOPS.every((s, i) => i === 0 || s.fromBay > CLAUSE_STOPS[i - 1].fromBay));
+    // DERIVED from the yard's spacing, not typed out: a stop is the bay a Deep
+    // Run would have opened on a fresh rig, and a ladder that re-spaces its
+    // refits has to re-space these with it.
+    check("the stops are the bays after the yard's own",
+      CLAUSE_STOPS.every((s, i) => s.fromBay === REFIT_EVERY * (i + 1) + 1),
+      CLAUSE_STOPS.map((s) => s.fromBay).join(","));
+    check("every stop can deal at least two different clauses",
+      CLAUSE_STOPS.every((_, i) => new Set(dealableAt(i).map((f) => f.id)).size >= 2),
+      CLAUSE_STOPS.map((_, i) => dealableAt(i).length).join(","));
+  }
+
+  // ---- DEAD CARGO IS NEVER A STANDING RULE --------------------------------
+  // Slag is the one material with no passive counter — a dead cube leaves the
+  // field by Demolition or not at all (theme.ts's countsForLines). hazards.ts
+  // already refuses to FORCE it; a clause the day deals is a forced pick with
+  // no seat to dodge into, so the same rule has to hold here.
+  //
+  // Asserted as the PROPERTY, not as "tier 6 is excluded": a clause added later
+  // that schedules dead cargo has to be caught by this without anyone
+  // remembering the rule exists.
+  {
+    const offenders: string[] = [];
+    CLAUSE_STOPS.forEach((stop, i) => {
+      if (stop.fromBay >= RUN_LEVELS) return; // one bay of exposure — see below
+      for (const def of dealableAt(i)) {
+        if (schedulesDeadCargo(def)) offenders.push(`bay ${stop.fromBay}: ${def.id}`);
+      }
+    });
+    check("no clause that stands for more than one bay schedules dead cargo",
+      offenders.length === 0, offenders.join(" · "));
+    // The rule really has teeth: the table it filters DOES contain such
+    // clauses, so a check that passed on an empty filter would be checking
+    // nothing.
+    check("...and the table it filters really contains some",
+      FINALS.some((f) => schedulesDeadCargo(f)),
+      FINALS.filter((f) => schedulesDeadCargo(f)).map((f) => f.id).join(", "));
+    // The LAST stop is the exception, deliberately: it rides exactly one bay,
+    // which is the same exposure a Deep Run's Final Inspection gives the
+    // capstone pair (finals.ts).
+    check("the last stop still deals the capstone pair",
+      dealableAt(CLAUSE_STOPS.length - 1).map((f) => f.id).sort().join(",")
+        === finalsForTier(MARK_COUNT).map((f) => f.id).sort().join(","));
+  }
+
+  // ---- THE CLAUSES ACTUALLY STAND -----------------------------------------
+  // Each one applies from its own bay and every bay after it, and NOT before.
+  // A clause that leaked backwards would rewrite a bay the player already flew;
+  // one that stopped applying would be a cost the day charged and never
+  // collected.
+  {
+    const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
+    let early = 0;
+    let missing = 0;
+    for (const c of rules.clauses) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        const active = standingClauses(skyRun(i));
+        if (i < c.from && active.includes(c.id)) early += 1;
+        if (i >= c.from && !active.includes(c.id)) missing += 1;
+      }
+    }
+    check("no clause applies before its own bay", early === 0, `${early}`);
+    check("every clause applies from its bay to the end", missing === 0, `${missing}`);
+    check("the last bay carries the whole stack",
+      standingClauses(skyRun(RUN_LEVELS - 1)).length === CLAUSE_STOPS.length);
+    // …and each one MOVES the bay. A dealt cost that changed nothing would be
+    // the same failure finals.ts pins for its own pair.
+    const inert: string[] = [];
+    for (const c of rules.clauses) {
+      const at = skyRun(c.from);
+      const without = levelForRun({
+        ...at,
+        skydeck: { ...at.skydeck!, clauses: rules.clauses.filter((x) => x !== c) },
+      });
+      if (JSON.stringify(without) === JSON.stringify(levelForRun(at))) inert.push(c.id);
+    }
+    check("every standing clause changes the bay it arms on", inert.length === 0, inert.join(", "));
+  }
+
+  // ---- THE BELT SURVIVES THE STACK ----------------------------------------
+  // finals.ts caps ONE clause against MIX_TOTAL_CAP. Three clauses on the same
+  // bay, on top of nine notches poured into the materials none of them writes,
+  // is the arrival that can push past it — the same worst case the Final
+  // Inspection section constructs, with three cards instead of one.
+  {
+    let worst = 0;
+    let worstAt = "";
+    const contentAxes = hazardsForMark(MARK_COUNT).filter((h) => h.kind === "content");
+    for (let day = 0; day < 60; day++) {
+      const d = new Date(Date.UTC(2026, 7, 27 + day));
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        // Pour every notch into content axes — the arrival that arrives with
+        // the belt already full, so the clauses land on top of a cap.
+        const ratchets: Ratchets = {};
+        for (let n = 0; n < i; n++) {
+          const a = contentAxes[n % contentAxes.length];
+          ratchets[a.id] = (ratchets[a.id] ?? 0) + 1;
+        }
+        const cfg = levelForRun({ ...skydeckRunFor(newTiers(), [], d), levelIndex: i, ratchets });
+        const total = mixTotal(cfg.materialMix);
+        if (total > worst) { worst = total; worstAt = `${dailySeed(d)} bay ${i + 1}`; }
+      }
+    }
+    // At or under the ceiling everywhere EXCEPT where the capstone's full-belt
+    // pair states the whole belt (finals.ts: total 1 is that pair's authored
+    // case, and belt.ts's spacing rule deliberately stands down for it).
+    check("the stacked belt never exceeds the ceiling, bar the full-belt pair",
+      worst <= MIX_TOTAL_CAP + 1e-9 || Math.abs(worst - 1) < 1e-9,
+      `worst ${worst.toFixed(3)} at ${worstAt}`);
+  }
+
+  // ---- THE MODE SURVIVES A BAY BOUNDARY -----------------------------------
+  // advanceRun rebuilds the run field by field, so a rebuild that dropped
+  // `skydeck` would open the yard, double the notch quota and stop applying the
+  // day's clauses — all at the first bay boundary, and all silently.
+  {
+    const after = advanceRun(skyRun(0), 900, 780, 6, 40, ["time"]);
+    check("the mode survives advanceRun", after.skydeck !== null);
+    check("...with the same clauses",
+      JSON.stringify(after.skydeck) === JSON.stringify(skyRun(0).skydeck));
+    check("...and the Skydeck still refuses the yard and the second notch",
+      !refitAfterBay(after, after.levelIndex) && picksForRun(after) === SKYDECK_PICKS_PER_BAY);
+    // A ladder run is untouched by any of this.
+    const ladderAfter = advanceRun(newRun(7, [], 0, newTiers(), MARK_COUNT), 900, 780, 6, 40, ["time"]);
+    check("a ladder run stays a ladder run", ladderAfter.skydeck === null);
+  }
+
+  // ---- A LADDER RUN IS UNCHANGED ------------------------------------------
+  // The whole feature is additive or it is a regression. Every bay of a ladder
+  // run at every Mark must build byte-identically to what it built before the
+  // mode existed, which is what `skydeck: null` short-circuiting every one of
+  // the four predicates is FOR.
+  {
+    let moved = 0;
+    for (let mark = 1; mark <= MARK_COUNT; mark++) {
+      for (let i = 0; i < RUN_LEVELS; i++) {
+        const run = { ...newRun(7, [], 0, newTiers(), mark), levelIndex: i };
+        const cfg = levelForRun(run);
+        // The same config built the long way round: base, ship, ratchets, and
+        // the single final clause — i.e. everything levelForRun does EXCEPT the
+        // standing-clause line this change added.
+        const manual = applyRatchets(makeBaseLevel(i, mark), {});
+        if (i === RUN_LEVELS - 1) applyFinal(manual, run.final);
+        manual.bondBreakerCharges = Math.max(0, run.bondCharges);
+        if (JSON.stringify(cfg) !== JSON.stringify(manual)) moved += 1;
+      }
+    }
+    check("a ladder run's bays are untouched by the mode", moved === 0, `${moved}`);
+  }
+
+  // ---- applyFinals: the stack's own rules ---------------------------------
+  {
+    // Order-independence. Which bay a clause was signed on must not change the
+    // bay it is flown on, so applyFinals sorts by tier rather than by argument
+    // order.
+    const ids: FinalId[] = ["cold-chain", "tight-gauge", "odd-lots"];
+    const a = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    const b = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    applyFinals(a, ids);
+    applyFinals(b, [...ids].reverse());
+    check("a stack is order-independent", JSON.stringify(a) === JSON.stringify(b));
+
+    // A clause signed twice is one clause. Applying it twice would double a
+    // floor the card states as a floor.
+    const once = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    const twice = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+    applyFinals(once, ["rush-order"]);
+    applyFinals(twice, ["rush-order", "rush-order"]);
+    check("a duplicate clause applies once", JSON.stringify(once) === JSON.stringify(twice));
+
+    // The one-clause case is exactly what applyFinal always did.
+    const disagreed: string[] = [];
+    for (const f of FINALS) {
+      const viaOne = makeBaseLevel(RUN_LEVELS - 1, f.tier);
+      const viaMany = makeBaseLevel(RUN_LEVELS - 1, f.tier);
+      applyFinal(viaOne, f.id);
+      applyFinals(viaMany, [f.id]);
+      if (JSON.stringify(viaOne) !== JSON.stringify(viaMany)) disagreed.push(f.id);
+    }
+    check("applyFinal is applyFinals' one-clause case",
+      disagreed.length === 0, disagreed.join(", "));
+
+    // NO CLAUSE IS EATEN BY ANOTHER. The re-cap holds everything the STACK
+    // raised, so a material clause stacked under a second one still delivers at
+    // least the rate its card quotes — the "a mandatory cost that can be
+    // pre-paid is not a cost" rule, read at stack scope.
+    {
+      const stacked = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+      applyFinals(stacked, ["cold-chain", "tar-run"]);
+      const alone = makeBaseLevel(RUN_LEVELS - 1, MARK_COUNT);
+      applyFinals(alone, ["cold-chain"]);
+      check("a stacked clause is not scaled below its own rate",
+        stacked.materialMix.cryo >= alone.materialMix.cryo - 1e-9,
+        `${stacked.materialMix.cryo.toFixed(3)} vs ${alone.materialMix.cryo.toFixed(3)}`);
+    }
+  }
+
+  // ---- THE LADDER IS NEVER TICKED BY A DAILY ------------------------------
+  // Found in review (PR #124). meta.ts's recordRunEnd ticks the tier at
+  // markUnlocked(meta), and markUnlocked SATURATES at MARK_COUNT — while the
+  // Skydeck opens only once the whole ladder is beaten. So every player who can
+  // reach the roof is parked on that saturated tier, and an unguarded daily win
+  // set tierRunDone, banked a tier milestone's salvage and printed Tier 10
+  // completion copy, every day, for as long as they kept winning.
+  //
+  // run.ts's tracksLadder is the rule, and it is what main.ts's finishRun
+  // branches on — no harness can call that method, so the predicate is what
+  // gets pinned, with the meta identity asserted THROUGH it so a predicate that
+  // started answering "yes" fails here rather than in a save file.
+  {
+    const beaten: MetaState = {
+      // The arrival that makes the bug reachable: the ladder finished, so
+      // markUnlocked saturates and the "tier in progress" is Mark 10 again.
+      ...newMeta(), mark: MARK_COUNT, salvage: 40,
+    };
+    check("the arrival is the one that opens the Skydeck",
+      markUnlocked(beaten) === MARK_COUNT && beaten.mark >= MARK_COUNT);
+
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck run does not track the ladder", !tracksLadder(sky));
+    check("...where a ladder run at the same Mark does", tracksLadder(ladder));
+    check("...and Tier S still does not either",
+      !tracksLadder({ ...ladder, sandbox: true }));
+
+    // finishRun's branch, exactly: tick only when the run tracks the ladder.
+    const finish = (run: RunState, won: boolean): MetaState =>
+      tracksLadder(run)
+        ? recordRunEnd(beaten, run.mark, won, RUN_LEVELS, 0).meta
+        : beaten;
+
+    // The control first — without it "nothing moved" could mean the arrival was
+    // inert rather than that the gate held.
+    check("a ladder win at that Mark really would tick it",
+      JSON.stringify(finish(ladder, true)) !== JSON.stringify(beaten)
+        && finish(ladder, true).tierRunDone && !beaten.tierRunDone);
+    // Compared as JSON rather than field by field, because the failure is a
+    // whole function running that should not have: `runs`, `bestBay`,
+    // `salvage`, `tierRunDone` and `sealedMarks` all move in it, and a check
+    // that listed today's fields would pass the day a sixth is added.
+    check("a Skydeck win leaves the ladder's meta byte-identical",
+      JSON.stringify(finish(sky, true)) === JSON.stringify(beaten));
+    check("...and so does a Skydeck loss",
+      JSON.stringify(finish(sky, false)) === JSON.stringify(beaten));
+    // The seal is the half NOT gated on the Mark being current (recordRunEnd's
+    // `sealed`), so it is the one an "it is already done at Mark 10" argument
+    // would have missed.
+    check("a Skydeck run never seals a Mark",
+      finish(sky, true).sealedMarks.length === 0
+        && recordRunEnd(beaten, MARK_COUNT, true, RUN_LEVELS, 0).meta.sealedMarks.length === 1);
+  }
+
+  // ---- THE ANALYSER IS TOLD WHICH MODE IT IS LOOKING AT --------------------
+  // Also found in review. A Skydeck bay carries mark 10 and a clock, so nothing
+  // else about its telemetry record tells it apart from an ordinary Mark-10
+  // Deep Run bay — and sim/playtest.ts's medians are what the tier ladder is
+  // tuned against. Fixed daily seed, no refit behind it and standing clauses on
+  // it, pooled into those medians, is corrupted balance data.
+  {
+    const sky = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    const ladder = newRun(7, [], 0, newTiers(), MARK_COUNT);
+    check("a Skydeck bay is tagged as its own mode",
+      telemetry.runMode(sky) === "skydeck", telemetry.runMode(sky));
+    check("...and a ladder bay is still tagged run",
+      telemetry.runMode(ladder) === "run", telemetry.runMode(ladder));
+    // The two runs are otherwise indistinguishable to the record, which is why
+    // the tag has to exist at all.
+    check("...on two runs the record could not otherwise tell apart",
+      sky.mark === ladder.mark && telemetry.runMode(sky) !== telemetry.runMode(ladder));
+  }
+
+  // ---- THE SCREENS SAY WHAT THE RUN DOES ----------------------------------
+  {
+    const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
+    const listed = clauseDefs(rules);
+    check("the menu lists one row per stop", listed.length === CLAUSE_STOPS.length);
+    check("...naming the bay each arms on",
+      listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
+      listed.map((r) => r.bay).join(","));
+    // The draft's third bank cell is the clause tally INSTEAD of scrap, because
+    // a scrap readout on a mode with no yard can only ever be 0.
+    const draft = S.draftScreen({
+      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
+      picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 0, baysToRefit: null,
+      standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
+    });
+    check("the Skydeck draft counts clauses where the ladder counts scrap",
+      draft.includes(`1/${CLAUSE_STOPS.length}`) && !/Scrap/.test(draft));
+    const ladderDraft = S.draftScreen({
+      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
+      picksNeeded: 2, preview: [], scrap: 40, baysToRefit: 2,
+    });
+    check("...and the ladder draft still counts scrap", /Scrap/.test(ladderDraft));
+    // The bay-clear card is the ONE screen between the bay that earned a clause
+    // and the projection whose numbers it has already moved.
+    const armed = S.bayClearScreen({
+      bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 0,
+      slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },
+    });
+    check("the bay-clear card announces the arming clause",
+      armed.includes("Cold Chain") && armed.includes("from Bay 4"));
+    // ...and takes the SCRAP slot to do it, rather than growing the card. The
+    // card is centred in a fixed viewport with no scroller: a fourth row put
+    // the HUD's own controls off the bottom of the 640x360 phone (sim/uifit).
+    check("...in the slot the scrap payout would have had",
+      !/scrap/i.test(armed) && (armed.match(/class="stat/g) ?? []).length === 3);
+    check("...and says nothing on a ladder clear",
+      /scrap/i.test(S.bayClearScreen({
+        bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,
+      })));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Music beds (run ladder + Contract picks vs public/audio/music)");
 {
   // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
@@ -8214,7 +8656,7 @@ section("A held direction repeats into the menus (gamepad.ts)");
     onCapture: () => false,
     onUiButton: (b) => { ui.push(b); return true; },
     assist: () => false,
-    pull: () => false,
+    sling: () => false,
   });
   /** Polls the stub at 60Hz from `t0` for `ms`, as main.ts's loop does. */
   const run = (t0: number, ms: number): number => {
@@ -8251,6 +8693,310 @@ section("A held direction repeats into the menus (gamepad.ts)");
   playing = false;
 
   if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+}
+
+// ---------------------------------------------------------------------------
+section("The stick's rate dials hold the aim at centre (gamepad.ts)");
+// ---------------------------------------------------------------------------
+// The play-test report these exist for, verbatim: "the gamepad controls still
+// reset the aim when the stick goes to the center ... a resting stick should
+// not modify the aim". Every check below is a behaviour run through the REAL
+// poller against a REAL Game, because the property is about what happens over
+// many frames of doing nothing — which no reading of a constant can state.
+{
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  let axes = [0, 0];
+  let buttons: number[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      getGamepads: () => [{
+        id: "stub", connected: true, mapping: "standard",
+        axes: axes.slice(),
+        buttons: Array.from({ length: 18 }, (_, i) => ({ pressed: buttons.includes(i) })),
+      }],
+    },
+  });
+
+  /** One pad wired to one bay, with the stick mode supplied per case.
+   *
+   *  `stepMs` is the POLL CADENCE — main.ts polls once per rendered frame, so
+   *  this is the display's refresh, and the whole point of some of the checks
+   *  below is that it stops mattering. Defaults to 60Hz, the rate everything
+   *  was tuned at. */
+  const rig = (sling: boolean, stepMs = 1000 / 60, assist = false) => {
+    const shots: { angle: number; power: number }[] = [];
+    const g = new Game(makeBaseLevel(0), { onShoot: (s) => shots.push({ angle: s.angle, power: s.power }) }, 7);
+    const pad = new GamepadPoller({
+      game: () => g,
+      playing: () => true,
+      onActivity: () => {},
+      onPause: () => {},
+      onCapture: () => false,
+      onUiButton: () => false,
+      assist: () => assist,
+      sling: () => sling,
+    });
+    let t = 0;
+    const frames = (n: number): void => {
+      for (let i = 0; i < n; i++) { pad.poll(t); t += stepMs; }
+    };
+    /** Skip the clock forward WITHOUT polling — a backgrounded tab, a stall. */
+    const skip = (ms: number): void => { t += ms; };
+    return { g, shots, frames, skip, now: () => t };
+  };
+  const aim = (g: Game) => ({ angle: g.cannon.angle, power: g.cannon.power });
+  const same = (a: { angle: number; power: number }, b: { angle: number; power: number }) =>
+    a.angle === b.angle && a.power === b.power;
+
+  // THE RATE FUNCTION. Zero everywhere inside the deadzone including its exact
+  // edge, and rescaled so the first live rate is a hair off zero rather than a
+  // fifth of full speed.
+  check("a centred axis asks for no rate at all", stickRate(0) === 0);
+  check("...and neither does one resting inside the deadzone",
+    stickRate(0.2) === 0 && stickRate(-0.2) === 0 && stickRate(0.22) === 0);
+  check("the rate starts from zero at the deadzone's edge",
+    stickRate(0.23) > 0 && stickRate(0.23) < 0.02, String(stickRate(0.23)));
+  check("a pinned axis asks for the full rate, signed",
+    Math.abs(stickRate(1) - 1) < 1e-9 && Math.abs(stickRate(-1) + 1) < 1e-9);
+
+  // THE REPORT ITSELF, on the default mode: deflect, let go, and wait a long
+  // time. Five seconds of polling is far longer than any pause between shots.
+  {
+    const r = rig(false);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    check("the dials move the aim while the stick is deflected",
+      held.angle > Math.PI / 9 && held.power > 9, `${held.angle.toFixed(3)}/${held.power.toFixed(2)}`);
+    axes = [0, 0];
+    r.frames(300);
+    check("a centred stick holds the aim, indefinitely", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+
+    // A stick that rests off true zero — worn, or just a pad's idle bias. This
+    // one clears a CIRCULAR 0.22 gate (0.28 from centre) while sitting inside
+    // both axes' own deadzones, which is precisely the case a shared radial
+    // test would wave through into the aim path.
+    axes = [0.2, -0.2];
+    r.frames(300);
+    check("a resting stick off true zero still modifies nothing", same(aim(r.g), held),
+      `${r.g.cannon.angle.toFixed(4)}/${r.g.cannon.power.toFixed(3)}`);
+
+    // …and the trigger spends the aim the player left there, with the stick
+    // still at rest. Firing must never require a deflection to be alive.
+    buttons = [padFor("fire")];
+    r.frames(2);
+    buttons = [];
+    r.frames(2);
+    check("the trigger fires the held aim with the stick centred",
+      r.shots.length === 1 && same(r.shots[0], held),
+      r.shots.length ? `${r.shots[0].angle.toFixed(4)}/${r.shots[0].power.toFixed(3)}` : "no shot");
+    check("...and the aim survives its own shot", same(aim(r.g), held));
+  }
+
+  // THE TWO AXES ARE INDEPENDENT DIALS. A stick pushed straight up must not
+  // touch the power, which is what makes them dials rather than a vector.
+  {
+    const r = rig(false);
+    const before = aim(r.g);
+    axes = [0, -0.9];
+    r.frames(20);
+    check("Y alone trims the angle and leaves the power alone",
+      r.g.cannon.angle > before.angle && r.g.cannon.power === before.power);
+    const mid = aim(r.g);
+    axes = [0.9, 0];
+    r.frames(20);
+    check("X alone trims the power and leaves the angle alone",
+      r.g.cannon.power > mid.power && r.g.cannon.angle === mid.angle);
+    axes = [0, 0.9];
+    r.frames(20);
+    check("...and pulling back down lowers the barrel again",
+      r.g.cannon.angle < mid.angle);
+  }
+
+  // THE DIALS CHARGE TIME, NOT POLLS. main.ts polls once per rendered frame, so
+  // a per-poll rate is the display's refresh in disguise — and the owner's own
+  // surface is the Electron shell on a TV, measured at ~8.3ms pacing in #116's
+  // tests, i.e. the dials ran at twice their tuned speed for the one player who
+  // reported them.
+  //
+  // Both rigs are handed the SAME WALL-CLOCK WINDOW and must trim the same
+  // amount. One warm-up poll first, so the seeded first frame (see the poller's
+  // lastPoll) is spent before the measurement starts and each rig then charges
+  // exactly 1000ms: 60 x 16.667 against 120 x 8.333. Deflection is 0.4 rather
+  // than a pin, deliberately — a pinned stick saturates against the cone and
+  // the power ceiling inside a second, and two runs agreeing because both hit
+  // the same wall would prove nothing at all.
+  {
+    const HZ_WINDOW_MS = 1000;
+    const measure = (stepMs: number) => {
+      const r = rig(false, stepMs);
+      axes = [0.4, -0.4];
+      r.frames(1);                                  // warm-up: spends the seed frame
+      const from = aim(r.g);
+      r.frames(Math.round(HZ_WINDOW_MS / stepMs));  // exactly one second of polls
+      return {
+        dAngle: r.g.cannon.angle - from.angle,
+        dPower: r.g.cannon.power - from.power,
+        angle: r.g.cannon.angle,
+        power: r.g.cannon.power,
+        ceiling: r.g.cannon.speedMax,
+      };
+    };
+    const at60 = measure(1000 / 60);
+    const at120 = measure(1000 / 120);
+    // FIRST, that neither run ended against a wall. Checked BEFORE the two are
+    // compared, because a clamped run and a correct run agree perfectly at the
+    // limit — under the per-poll code 120Hz overshot the cone and stopped dead
+    // on it, and an equality check alone would have called that a match.
+    check("neither cadence's second of trim ends pinned against a limit",
+      at60.angle < AIM_CONE - 1e-6 && at120.angle < AIM_CONE - 1e-6
+        && at60.power < at60.ceiling - 1e-6 && at120.power < at120.ceiling - 1e-6,
+      `60Hz ${at60.angle.toFixed(4)}/${at60.power.toFixed(3)} · 120Hz ${at120.angle.toFixed(4)}/${at120.power.toFixed(3)}`);
+    check("a second of stick is a second of trim at 60Hz",
+      at60.dAngle > 0.4 && at60.dAngle < 0.55 && at60.dPower > 5 && at60.dPower < 6,
+      `${at60.dAngle.toFixed(4)}rad/${at60.dPower.toFixed(3)}`);
+    check("...and 120Hz trims the same amount in the same second",
+      Math.abs(at120.dAngle - at60.dAngle) < 1e-9 && Math.abs(at120.dPower - at60.dPower) < 1e-9,
+      `120Hz ${at120.dAngle.toFixed(6)}/${at120.dPower.toFixed(4)} vs 60Hz ${at60.dAngle.toFixed(6)}/${at60.dPower.toFixed(4)}`);
+  }
+
+  // A DROPPED FRAME MUST NOT SLAM THE AIM. A backgrounded tab hands the next
+  // poll a timestamp seconds later, and an unclamped dt would spend all of it
+  // in one step — alt-tab back with a stick leaning and find the barrel pinned.
+  {
+    const r = rig(false);
+    axes = [0.9, -0.9];
+    r.frames(1);
+    const before = aim(r.g);
+    r.skip(5000);      // five seconds away
+    r.frames(1);       // one poll charging that gap
+    const jump = Math.abs(r.g.cannon.angle - before.angle);
+    // The clamp is 100ms — six frames — so the worst one poll can do is six
+    // frames of trim, comfortably under a tenth of the cone.
+    check("a five-second stall charges the dials six frames, not five seconds",
+      jump > 0 && jump < 6.5 * 0.035, `${jump.toFixed(4)}rad`);
+    // …and a clock that goes backwards unwinds nothing.
+    const held = aim(r.g);
+    r.skip(-3000);
+    r.frames(1);
+    check("...and a backwards timestamp charges nothing rather than unwinding",
+      r.g.cannon.angle >= held.angle);
+  }
+
+  // THE SLINGSHOT'S AIM NEEDS NO CLOCK — confirmed, not assumed. aimFromDrag is
+  // an absolute map, so the same deflection is the same aim however often it is
+  // asked; only the ASSIST lerp was a per-poll time constant, and that now
+  // compounds over elapsed frames.
+  {
+    const held = (stepMs: number, assist: boolean, holdMs: number) => {
+      const r = rig(true, stepMs, assist);
+      axes = [-0.6, 0.45];
+      r.frames(1);
+      r.frames(Math.round(holdMs / stepMs));
+      return aim(r.g);
+    };
+    check("the slingshot lands the same aim at 60Hz and 120Hz, raw",
+      same(held(1000 / 60, false, 600), held(1000 / 120, false, 600)));
+    // MEASURED MID-SETTLE, at ~50ms, not after the lerp has converged. Both
+    // cadences arrive at the same place eventually — a lerp cannot run away —
+    // so a check taken at rest agrees to six decimals whether or not the time
+    // constant is honest. Halfway there is where a per-poll factor shows: at
+    // 0.3 a frame, 120Hz took six bites of the gap in the time 60Hz took three,
+    // and the "smoothing" the toggle promises was half as much smoothing on
+    // the fast panel that needs it most.
+    const a60 = held(1000 / 60, true, 50);
+    const a120 = held(1000 / 120, true, 50);
+    check("...and the assist is the same distance along after the same 50ms",
+      Math.abs(a120.angle - a60.angle) < 1e-3 && Math.abs(a120.power - a60.power) < 0.05,
+      `${a120.angle.toFixed(5)}/${a120.power.toFixed(4)} vs ${a60.angle.toFixed(5)}/${a60.power.toFixed(4)}`);
+  }
+
+  // THE SLINGSHOT STILL WORKS WHEN CHOSEN — and still lets the pull go on the
+  // way back to centre, which is what a slingshot IS. Pinned here rather than
+  // fixed: the option is "fire from the held pull", the way a finger does, and
+  // this collapse is the measured reason it is not the default.
+  {
+    const r = rig(true);
+    axes = [-0.85, 0.5];
+    r.frames(20);
+    const pulled = aim(r.g);
+    check("the slingshot option still aims from the pull vector",
+      pulled.angle > 0 && r.g.cannon.powerRatio > 0.99,
+      `${(pulled.angle * 180 / Math.PI).toFixed(1)}deg/${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+    // A real stick springs back over several frames rather than snapping.
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [-0.85 * k, 0.5 * k];
+      r.frames(1);
+    }
+    r.frames(60);
+    check("...and letting it go lets the pull go with it",
+      r.g.cannon.powerRatio < 0.3, `${(r.g.cannon.powerRatio * 100).toFixed(0)}%`);
+  }
+
+  // THE MIGRATION. `stickPull` asked which DIRECTION the vector aiming ran;
+  // `stickSling` asks whether to use vector aiming at all. A save that answered
+  // the first must not be read as answering the second — that re-reading is
+  // what left the reporter on the slingshot and produced the report above.
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      store: new Map<string, string>(),
+      getItem(k: string) { return this.store.get(k) ?? null; },
+      setItem(k: string, v: string) { this.store.set(k, v); },
+      removeItem(k: string) { this.store.delete(k); },
+    },
+  });
+  const ls = globalThis.localStorage;
+  check("a fresh save lands on the rate dials", loadSettings().stickSling === false);
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  check("a pre-dials save does not answer the question the dials ask",
+    loadSettings().stickSling === false);
+  check("...and the answer it did give stops riding along in the save",
+    !("stickPull" in (loadSettings() as unknown as Record<string, unknown>)));
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ stickSling: true }));
+  check("a save that chose the slingshot for THIS build keeps it",
+    loadSettings().stickSling === true);
+
+  // THE REPORT, END TO END, THROUGH THE SETTINGS THE APP ACTUALLY READS. The
+  // rig above proves the dials hold; this proves a player carrying a pre-dials
+  // save REACHES them. Same save, same poller main.ts wires, and a spring-back
+  // over several frames rather than a snap, because that decay is where the
+  // slingshot loses the shot.
+  //
+  // The bound is what separates the two schemes rather than a fudge. A rate
+  // dial's release is SELF-LIMITING: the rate falls with the deflection, so the
+  // last few frames of travel add ~0.02rad and ~0.23px/step and then stop for
+  // good. An absolute map has no such tail — it keeps restating the whole aim
+  // from a deflection that is on its way to zero, and hands back a quarter of
+  // the power the player was holding. Half a power step and three degrees is
+  // comfortably above the first and nowhere near the second.
+  const RELEASE_ANGLE_TOL = 0.05;
+  const RELEASE_POWER_TOL = 0.5;
+  ls.setItem("tetrilaunch.settings", JSON.stringify({ sound: true, stickPull: true }));
+  {
+    const r = rig(loadSettings().stickSling);
+    axes = [0.7, -0.7];
+    r.frames(25);
+    const held = aim(r.g);
+    for (const k of [0.75, 0.5, 0.32, 0.18, 0.06, 0]) {
+      axes = [0.7 * k, -0.7 * k];
+      r.frames(1);
+    }
+    r.frames(300);
+    const after = aim(r.g);
+    check("a pad carried over from before the dials keeps the aim it was holding",
+      Math.abs(after.angle - held.angle) < RELEASE_ANGLE_TOL
+        && Math.abs(after.power - held.power) < RELEASE_POWER_TOL,
+      `${after.angle.toFixed(4)}/${after.power.toFixed(3)} vs ${held.angle.toFixed(4)}/${held.power.toFixed(3)}`);
+  }
+
+  if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+  else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+  if (prevNav) Object.defineProperty(globalThis, "navigator", prevNav);
+  else delete (globalThis as unknown as Record<string, unknown>).navigator;
 }
 
 // ---------------------------------------------------------------------------

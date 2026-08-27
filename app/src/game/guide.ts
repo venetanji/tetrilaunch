@@ -7,6 +7,7 @@ import { VOLATILE_BLAST_CELLS } from "./lineClear";
 import { markUnlocked, TIER_CONTRACTS_REQUIRED, type MetaState } from "./meta";
 import { SIZE_SPEC } from "./pieces";
 import { REFIT_EVERY, RUN_LEVELS } from "./run";
+import { CLAUSE_COUNT, CLAUSE_STOPS } from "./skydeck";
 import { MATERIAL_SPEC, type Material } from "./theme";
 import { MARK_COUNT, MAX_TIER, UPGRADES, type UpgradeId } from "./upgrades";
 import { DRILLS, type DrillSpec } from "./drills";
@@ -74,7 +75,7 @@ export const CHAPTERS: Chapter[] = [
   { id: "cargo", name: "Cargo", blurb: "What ships on the belt, and what it does when it lands." },
   { id: "pressure", name: "Hazards", blurb: "The difficulty you choose for yourself." },
   { id: "rig", name: "The Rig", blurb: "The compactor is your ship. This is what you can bolt to it." },
-  { id: "modes", name: "Modes", blurb: "The two halves, and how a tier is won." },
+  { id: "modes", name: "Modes", blurb: "Where a run is flown, and how a tier is won." },
 ];
 
 export interface GuideTopic {
@@ -565,6 +566,20 @@ function buildTopics(mark: number): GuideTopic[] {
       + ` <b>pattern</b> Contract: you are handed the exact inventory that tiles the goal, so`
       + ` every cube must end up in a completed row. Contracts are where a new material is safe`
       + ` to learn.`,
+  },
+  {
+    // The roof, and the last thing in the catalogue to open — gated at the top
+    // of the ladder because that is exactly when the floor does (screens.ts's
+    // tierOpen). A topic about a door the player cannot see would teach them
+    // the game is bigger than it looks and then stop.
+    id: "skydeck", chapter: "modes", tier: MARK_COUNT,
+    name: "The Skydeck",
+    summary: "The day's fixed run, flown on the rig you brought. No yard, and the clauses are written for you.",
+    body: `The floor above the ladder, open once you have beaten it. One run a day, dealt from`
+      + ` the date, so everyone flies the same one. <b>No refit stops</b> \u2014 the loadout you`
+      + ` undock with is the loadout you land with \u2014 and <b>one notch a bay</b> instead of the`
+      + ` capstone's two. In their place the day writes <b>${CLAUSE_COUNT} standing clauses</b>,`
+      + ` arming at bays ${CLAUSE_STOPS.map((c) => c.fromBay).join(", ")} and riding every bay after.`,
   },
   {
     id: "tiers", chapter: "modes", tier: 1,

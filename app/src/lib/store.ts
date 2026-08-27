@@ -38,8 +38,25 @@ export interface Settings {
    *  true — PULL BACK like a slingshot: the stick vector is the touch drag,
    *  so the barrel swings opposite the thumb. The expressive mode — one
    *  gesture carries angle and power together — kept for the players who
-   *  like it, demoted for being the tiring one. */
-  stickPull: boolean;
+   *  like it, demoted for being the tiring one.
+   *
+   *  A NEW FIELD RATHER THAN THE OLD `stickPull`, and that rename is the whole
+   *  fix for a play-test report ("the gamepad controls still reset the aim
+   *  when the stick goes to the center"). `stickPull` asked a DIFFERENT
+   *  QUESTION: before the rate dials existed, both of its answers were
+   *  absolute vector aiming and the flag only chose WHICH WAY — false pushed
+   *  the barrel toward the stick, true pulled it back like the touch drag.
+   *  Promoting the dials rewrote what `false` means without touching what a
+   *  save already held, so every player who had answered "I prefer pulling
+   *  back" — the natural answer to the old question, and the reporter's — had
+   *  that answer silently re-read as "I prefer the slingshot to the dials",
+   *  and never saw the dials at all. The mode they were left on is precisely
+   *  the one where letting go of the stick rewrites the aim: aimFromDrag maps
+   *  deflection to power absolutely, so a spring-back through the deadzone
+   *  drops a pinned 100% pull to 25% on its way past (measured, sim pin
+   *  below). One question, one key: a save that answered the old one answers
+   *  nothing here and lands on the new default. */
+  stickSling: boolean;
   /** The MOUSE WHEEL's job (game/input.ts).
    *
    *  false (default) — the wheel is the ARC-HEIGHT dial: a click solves the
@@ -70,12 +87,20 @@ const META_KEY = "tetrilaunch.meta";
 const DEFAULTS: Settings = {
   sound: true, music: true, haptics: true, seenDragHint: false, seenTutorial: false,
   seenKeyHints: false,
-  leftHandRail: false, stickAssist: true, stickPull: false, wheelRotates: false, devMode: false,
+  leftHandRail: false, stickAssist: true, stickSling: false, wheelRotates: false, devMode: false,
 };
+
+/** Keys a save may still carry that this build no longer answers to. Dropped
+ *  on load so they stop riding along in every subsequent write — a dead flag
+ *  that keeps being re-saved is a trap for the next reader, who has no way to
+ *  tell it from a live one. See stickSling for what retired stickPull. */
+const RETIRED_SETTINGS = ["stickPull"];
 
 export function loadSettings(): Settings {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") as Record<string, unknown>;
+    for (const k of RETIRED_SETTINGS) delete saved[k];
+    return { ...DEFAULTS, ...saved };
   } catch {
     return { ...DEFAULTS };
   }
