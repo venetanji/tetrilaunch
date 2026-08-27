@@ -1,7 +1,12 @@
 import type { LevelConfig } from "./level";
 import { makeBaseLevel } from "./level";
-import { applyRatchets, type Ratchets, type HazardId } from "./hazards";
-import { applyFinal, type FinalId } from "./finals";
+import { applyRatchets, picksPerBay, type Ratchets, type HazardId } from "./hazards";
+import { applyFinal, applyFinals, type FinalId } from "./finals";
+// TYPE ONLY, and load-bearing: skydeck.ts imports newRun and this file's
+// spacing constants at RUNTIME, so a value import here would close a cycle.
+// `import type` is erased, which keeps the dependency one-directional — the
+// mode knows about the run, the run knows only the SHAPE of the mode's rules.
+import type { SkydeckRules } from "./skydeck";
 import {
   applyUpgrades, newTiers, nextTierCost, orderRungs, UPGRADES,
   type RefitOrder, type UpgradeTiers,
@@ -123,6 +128,84 @@ export interface RunState {
    *  a one-off clause on one bay, so it is stored as one — a single id, written
    *  once, read only by levelForRun and only on the final bay. */
   final: FinalId | null;
+  /** The day's Skydeck rules (skydeck.ts), or null for every ladder run.
+   *
+   *  ONE FIELD, not a `skydeck: boolean` beside a list of clauses, and the
+   *  reason is the same one RunState.sandbox states for being required rather
+   *  than optional: the two states nothing should be able to construct are "a
+   *  Skydeck run with no clauses" and "a ladder run carrying them", and a
+   *  single nullable object cannot express either.
+   *
+   *  Set at construction (skydeck.ts's skydeckRunFor) and never changed, again
+   *  exactly like `mark` and `sandbox`: it decides which board the run files
+   *  to, whether the yard opens, and how many notches a bay costs — a run that
+   *  could switch modes halfway through is a run whose score means nothing.
+   *
+   *  Everything downstream reads it through the four predicates below rather
+   *  than testing it directly, so "the Skydeck has no yard" is stated once. */
+  skydeck: SkydeckRules | null;
+}
+
+/* ---------------------------------------------------------------------------
+ * THE RUN'S SCHEDULE, asked of the RUN.
+ *
+ * isRefitBay, baysUntilRefit, isFinalDraft and hazards.ts's picksPerBay each
+ * state a rule of the LADDER, as a function of a bay index or a Mark. The
+ * Skydeck answers three of the four differently (skydeck.ts) — no yard, no
+ * drafted inspection, one notch a bay at a Mark whose ladder rule is two — and
+ * every one of those differences is a place where a caller that forgot to ask
+ * would silently fly the wrong mode: a refit screen with no scrap to spend, a
+ * Final Inspection dealt on top of three standing clauses, a capstone draft
+ * demanding two notches the mode does not charge for.
+ *
+ * So the four run-aware readings live here, together, next to the ladder rules
+ * they defer to. Callers hold a RunState; these are what they ask. sim/systems.ts
+ * pins each one against its ladder twin.
+ * ------------------------------------------------------------------------- */
+
+/** True when clearing bay `levelIndex` in THIS run opens a refit stop. Never in
+ *  a Skydeck run: the yard is shut, and the rig that undocks is the rig that
+ *  lands. */
+export function refitAfterBay(run: RunState, levelIndex: number): boolean {
+  return run.skydeck === null && isRefitBay(levelIndex);
+}
+
+/** Bay-clears until this run's next refit stop, or null when it has none left —
+ *  which a Skydeck run never has, having had none to begin with. */
+export function baysUntilRefitFor(run: RunState): number | null {
+  return run.skydeck === null ? baysUntilRefit(run.levelIndex) : null;
+}
+
+/** True when the draft dealt after clearing this run's current bay is the Final
+ *  Inspection. Never in a Skydeck run: its clauses are the DAY's, dealt at
+ *  three stops and standing from each (skydeck.ts's header says why they are
+ *  dealt rather than drafted), so the last draft there is an ordinary notch. */
+export function finalDraftFor(run: RunState): boolean {
+  return run.skydeck === null && isFinalDraft(run.levelIndex);
+}
+
+/** Notches this run charges after a cleared bay. hazards.ts's picksPerBay asks
+ *  two at the capstone Mark; the Skydeck asks one at that same Mark, because
+ *  the pressure the second notch exists to carry is carried by the standing
+ *  clauses instead and charging both would charge twice for one rung. */
+export function picksForRun(run: RunState): number {
+  return run.skydeck ? SKYDECK_PICKS_PER_BAY : picksPerBay(run.mark);
+}
+
+/** Notches the Skydeck charges a bay. Stated here rather than imported from
+ *  skydeck.ts for the cycle reason at the top of this file; sim/systems.ts pins
+ *  the two together so they cannot drift. */
+export const SKYDECK_PICKS_PER_BAY = 1;
+
+/** Every standing clause in force on this run's current bay, in arm order.
+ *  Empty for a ladder run, which carries its single clause in `final` instead.
+ *
+ *  A question about a RUN, so it lives here rather than in skydeck.ts — which
+ *  is also what lets that module import this one at runtime instead of the
+ *  other way round. */
+export function standingClauses(run: RunState): FinalId[] {
+  if (!run.skydeck) return [];
+  return run.skydeck.clauses.filter((c) => c.from <= run.levelIndex).map((c) => c.id);
 }
 
 /** Bond Breaker charges a Bond Emitter of `tier` ships for the WHOLE run —
@@ -168,6 +251,10 @@ export function newRun(
     sandbox: false,
     // Nothing is inspected until the run reaches its last draft.
     final: null,
+    // A ladder run unless the caller says otherwise, the same shape and the
+    // same reason as `sandbox` above: skydeck.ts's skydeckRunFor is the one
+    // caller that overrides it.
+    skydeck: null,
   };
 }
 
@@ -298,6 +385,12 @@ export function levelForRun(run: RunState): LevelConfig {
   // the bay rather than on `final` being set, so a clause can never leak
   // backwards into a replayed earlier bay.
   if (run.levelIndex === RUN_LEVELS - 1) applyFinal(cfg, run.final);
+  // …and the Skydeck's STANDING clauses, on every bay from the one each armed
+  // on (skydeck.ts). Same seam as the line above and deliberately after it —
+  // both are the last layer of conditions, and the two are mutually exclusive
+  // by construction (a Skydeck run's `final` is never written, a ladder run's
+  // `skydeck` is null), so neither guard has to know about the other.
+  applyFinals(cfg, standingClauses(run));
   if (run.levelIndex > 0) cfg.startingFunds = cfg.startingFunds + run.carry;
   cfg.bondBreakerCharges = Math.max(0, run.bondCharges);
   return cfg;
@@ -382,6 +475,14 @@ export function advanceRun(
     unlocks: [...run.unlocks],
     mark: run.mark,
     final: run.final,
+    // Carried for exactly the reason `sandbox` above is spelled out: this
+    // function rebuilds the run field by field, so a rebuild that dropped this
+    // one would turn a Skydeck run into a ladder run at the first bay boundary
+    // — the yard would open, the notch quota would double, and the clauses the
+    // day wrote would stop applying. The field is required on RunState (not
+    // optional) so this line cannot be forgotten here or in any future
+    // rebuilder.
+    skydeck: run.skydeck,
   };
 }
 

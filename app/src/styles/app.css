@@ -647,8 +647,38 @@ body.crt-off #app::after { display: none; }
    the demo panel's band. A dev-only door is what a footnote row is for, and it
    is absent from every shippable bundle (lib/sandbox.ts), so the row collapses
    to nothing in the build anyone actually plays. */
-.base-bay__extras { display: flex; gap: 6px; flex: none; }
+.base-bay__extras { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
 .base-bay__extras:empty { display: none; }
+
+/* TODAY'S SKYDECK CLAUSES (screens.ts's skydeckRulesHTML) — the one thing about
+   the roof that the panel's four stat cells and its belt cannot say.
+
+   It takes a whole row of the extras strip rather than sitting beside the dev
+   door, because it is a LIST and the strip's other tenant is a button: a
+   three-row list sharing a flex line with a control would compress whichever
+   of them the viewport disliked more.
+
+   Sized down hard on purpose. This is reference material the player reads once
+   before launching, not a readout they track, and the column it lives in is
+   the menu's tightest — the same argument the belt ladder above it settles the
+   same way. */
+.sky-rules {
+  flex: 1 1 100%; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  padding-top: 3px; border-top: var(--bw) solid var(--line);
+}
+.sky-rules__row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.sky-rules__bay {
+  flex: none;
+  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
+  color: var(--warn);
+}
+/* The clause NAME is the shrinkable half — a bay number that ellipsizes is
+   worthless, where a truncated card name still points at the card. */
+.sky-rules__name {
+  min-width: 0; font-size: 11px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .base-bay__extras .btn {
   flex: 1 1 0; min-width: 0;
   flex-direction: row; align-items: center; justify-content: center;
@@ -5676,6 +5706,24 @@ button.panel { color: var(--text); }
   letter-spacing: 0.06em;
 }
 .bayclear__stats { display: flex; gap: clamp(16px, 4vw, 40px); }
+/* THE ARMING CLAUSE (screens.ts's bayClearScreen) — the Skydeck's three stops,
+   in the slot the scrap payout occupies on a ladder run.
+
+   A CARD NAME, not a number, so it is the one stat whose value can be long
+   ("Bled Hydraulics") and the only one that has to be allowed to shrink. The
+   card itself has no height to give — it is centred in a fixed viewport with no
+   scroller — which is why this is a swapped cell rather than the block it
+   started as. */
+.stat--clause { min-width: 0; max-width: 15ch; }
+/* `display: block` is load-bearing, not tidiness: `b` is inline by default, and
+   overflow/text-overflow do nothing to an inline box — measured, the name ran
+   255px out of a 165px cell and took the whole card past the viewport with it
+   (sim/uifit's spill and offscreen assertions, both). */
+.stat--clause b {
+  display: block; max-width: 100%;
+  font-size: clamp(13px, 2.6vh, 20px);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .bayclear__hint { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.1em; color: var(--text-dim); opacity: 0.85; }
 @media (prefers-reduced-motion: reduce) {
   .bayclear__rays { animation: none; opacity: 0.4; }

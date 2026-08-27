@@ -687,12 +687,42 @@ function unknownBayPanelHTML(best: number, extras: string): string {
   </div>`;
 }
 
+/**
+ * The Skydeck's day contract, for the panel's `extras` slot.
+ *
+ * PASSED IN, never computed here, and that is a testability decision rather
+ * than a style one: the clauses are a function of today's DATE (skydeck.ts),
+ * and a screen that read the clock would render differently every morning —
+ * which is fine in the app and fatal in sim/uifit, whose whole job is to
+ * measure this markup against a fixed budget. The fixture passes a fixed set;
+ * main.ts passes the day's.
+ *
+ * Three rows, one per stop, each naming the bay it arms on and the clause. The
+ * bay number leads because that is what the player is planning against — "I
+ * have three bays before the ice" is the sentence this list exists to make
+ * available before a single launch.
+ */
+function skydeckRulesHTML(rules: { bay: number; name: string }[]): string {
+  if (rules.length === 0) return "";
+  return `<div class="sky-rules" role="list" aria-label="Today's standing clauses">
+    ${rules.map((r) => `<div class="sky-rules__row" role="listitem">
+      <span class="sky-rules__bay">Bay ${r.bay}</span>
+      <span class="sky-rules__name">${r.name}</span>
+    </div>`).join("")}
+  </div>`;
+}
+
 export function baseBayPanelHTML(opts: {
   /** The floor the panel is describing — a Mark, SKYDECK_TIER, or SANDBOX_TIER. */
   tier: number;
   best: number;
   /** The entitlement chips, if this build has any. */
   extras?: string;
+  /** The day's standing clauses, when the Skydeck is the parked floor. The
+   *  panel's `extras` slot has been empty since #90 and this is exactly what it
+   *  was kept for: the one thing about the parked floor that the four stat
+   *  cells and the belt cannot say. */
+  skydeck?: { bay: number; name: string }[];
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
@@ -718,7 +748,9 @@ export function baseBayPanelHTML(opts: {
       ${statCellHTML("bonds", "Bonds", bonds, "var(--piece-t)")}
     </div>
     ${beltLadderHTML(mark)}
-    <div class="base-bay__extras">${opts.extras ?? ""}</div>
+    <div class="base-bay__extras">${
+      (sky && opts.skydeck ? skydeckRulesHTML(opts.skydeck) : "") + (opts.extras ?? "")
+    }</div>
   </div>`;
 }
 
@@ -757,6 +789,10 @@ export function menuScreen(
    *  the shaft is the menu's centre column, and a hole there is worse than a
    *  ground floor. */
   tower?: TowerState,
+  /** Today's Skydeck clauses (game/skydeck.ts), shown on the recap panel and
+   *  summarised on the primary button when the car is parked on the roof.
+   *  Passed rather than computed — see skydeckRulesHTML. */
+  skydeck?: { bay: number; name: string }[],
 ): string {
   const twr: TowerState = tower ?? {
     unlocked: progress?.tier ?? 1,
@@ -846,7 +882,7 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best })}
+        ${baseBayPanelHTML({ tier: sel, best, skydeck })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -863,11 +899,19 @@ export function menuScreen(
              rather than being found by shape. -->
         <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${guide?.step === "run" && !sbxSel ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
-        }<span class="btn__txt"><span id="menu-play-ttl">${sbxSel ? "Sandbox" : "Deep Run"}</span><span class="btn__sub" id="menu-play-sub">${
+        }<span class="btn__txt"><span id="menu-play-ttl">${
+          sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
+        }</span><span class="btn__sub" id="menu-play-sub">${
           sbxSel
             ? "Any Mark, bay or Contract · own board"
+            // THE DAY'S TERMS, in the order they bite. It used to read "All ten
+            // marks at once · no mercy", which described a floor that was not
+            // playable yet and promised something the mode does not do — the
+            // Skydeck flies Mark 10's bays, not all ten Marks. What it actually
+            // trades is stated here: today's fixed run, no yard, and the
+            // clauses the panel above lists by bay.
             : skySel
-              ? "All ten marks at once · no mercy"
+              ? `Today's run · no refits · ${skydeck?.length ?? 0} standing clauses`
               : `Clear ${RUN_LEVELS} bays in one run`
         }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
@@ -2634,7 +2678,28 @@ export function bayClearScreen(opts: {
   target: number;
   lines: number;
   scrap: number;
+  /** What the THIRD stat says on a Skydeck run (game/skydeck.ts), in place of
+   *  the scrap payout.
+   *
+   *  It takes that slot rather than adding a block, and the reason is height:
+   *  this card is centred in a fixed viewport with no scroller, and on the
+   *  640x360 phone it is already within ~70px of the edge. A fourth row for the
+   *  clause pushed the whole layout past the bottom of that device (measured —
+   *  sim/uifit caught the HUD's auto button at y 404 in a 360px viewport). The
+   *  slot it replaces is the honest one to take: a Skydeck run earns no scrap
+   *  at all, so what stood there was a permanent 0.
+   *
+   *  It belongs on THIS card rather than on the draft that follows, and that is
+   *  the projection's fault: the draft's "as it stands" column is already built
+   *  from the bay the clause applies to (run.ts's levelForRun), so by the time
+   *  the player reads those numbers the clause has silently moved them. This is
+   *  the one screen between the bay that earned it and the numbers it changes.
+   *
+   *  Absent on every ladder run, so every caller that predates the mode renders
+   *  the card it always did. */
+  slot?: { value: string; label: string };
 }): string {
+  const slot = opts.slot;
   return `<div class="bayclear" id="bayclear" data-action="skip-bayclear">
     <div class="bayclear__rays" aria-hidden="true"></div>
     <div class="bayclear__card">
@@ -2643,7 +2708,9 @@ export function bayClearScreen(opts: {
       <div class="bayclear__stats">
         <div class="stat"><b style="color:var(--accent)">$${opts.funds}</b><span>banked / ${opts.target}</span></div>
         <div class="stat"><b>${opts.lines}</b><span>lines</span></div>
-        <div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>
+        ${slot
+          ? `<div class="stat stat--clause"><b style="color:var(--accent-2)">${slot.value}</b><span>${slot.label}</span></div>`
+          : `<div class="stat"><b style="color:var(--warn)">${scrapHTML(opts.scrap, 22)}</b><span>scrap</span></div>`}
       </div>
       <p class="muted bayclear__hint">tap to continue</p>
     </div>
@@ -3205,6 +3272,18 @@ export function draftScreen(opts: {
   /** Bay-CLEARS until the next refit stop (1 = clearing the next bay docks
    *  you), or null when no stop remains this run. */
   baysToRefit: number | null;
+  /** The Skydeck's standing-clause tally (game/skydeck.ts), which REPLACES the
+   *  scrap cell rather than joining it.
+   *
+   *  Replaces, because on that mode the scrap cell is a lie of omission: there
+   *  is no yard, so the number can only ever be 0 and the reader is left to
+   *  work out whether they are failing to earn it. What belongs in that slot is
+   *  the pressure the yard's absence was traded for — how many of the day's
+   *  clauses are already riding, and which bay the next one arms on.
+   *
+   *  Absent on every ladder run, so the bank row is the three cells it has
+   *  always been either way. */
+  standing?: { active: number; total: number; nextBay: number | null };
   /** True on a forced-material hand (hazards.ts's isMaterialDraft): the
    *  partner card there is capped at one seat (togglePick), so its footer must
    *  say "undo" where an ordinary card's says "double". */
@@ -3291,13 +3370,24 @@ export function draftScreen(opts: {
           <span class="bay-stat__lbl">Notches</span>
           <span class="bay-stat__val" style="--stat-tint:var(--danger)" id="draft-notches">${banked}${pending > 0 ? `<span class="chip__pending">+${pending}</span>` : ""}</span>
         </span></div>
-        ${statCellHTML("scrap", `Scrap${
-          opts.baysToRefit === null
-            ? ""
-            : opts.baysToRefit === 1
-              ? " · refit next bay"
-              : ` · refit in ${opts.baysToRefit}`
-        }`, String(opts.scrap), "var(--warn)")}
+        ${opts.standing
+          ? statCellHTML(
+              "bond",
+              `Clauses${
+                opts.standing.nextBay === null
+                  ? " · all signed"
+                  : ` · next Bay ${opts.standing.nextBay}`
+              }`,
+              `${opts.standing.active}/${opts.standing.total}`,
+              "var(--accent-2)",
+            )
+          : statCellHTML("scrap", `Scrap${
+              opts.baysToRefit === null
+                ? ""
+                : opts.baysToRefit === 1
+                  ? " · refit next bay"
+                  : ` · refit in ${opts.baysToRefit}`
+            }`, String(opts.scrap), "var(--warn)")}
       </div>
       <div class="draft__body">
         <div class="draft__cards" id="draft-cards">${cards}</div>
