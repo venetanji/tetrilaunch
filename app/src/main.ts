@@ -6,7 +6,7 @@ import {
   baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
   buyUpgrades, bayMusic, RUN_LEVELS, type RunState, type SealState,
 } from "./game/run";
-import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
+import { CLAUSE_COUNT, clauseArmingAt, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
 import {
   hazardOffers, hazardById, isMaterialDraft, togglePick, HAZARDS,
@@ -2055,11 +2055,7 @@ class App {
     if (!panel) return;
     const values = (tier: number): Map<string, string> => {
       const box = document.createElement("div");
-      box.innerHTML = S.baseBayPanelHTML({
-        tier,
-        best: 0,
-        skydeck: this.skydeckRules(),
-      });
+      box.innerHTML = S.baseBayPanelHTML({ tier, best: 0 });
       const out = new Map<string, string>();
       for (const cell of box.querySelectorAll<HTMLElement>(".bay-stat")) {
         const label = cell.querySelector(".bay-stat__lbl")?.textContent?.trim();
@@ -2134,19 +2130,18 @@ class App {
     }
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
-    // The DAY'S CLAUSE LIST is deliberately NOT carried across with the extras
-    // below: it is the roof's own row, so a ride down from the Skydeck has to
-    // drop it and a ride up has to add it. Lifting it with the extras would
-    // leave Tier 6's recap advertising tonight's inspection schedule.
-    const extras = panel.querySelector<HTMLElement>(".base-bay__extras .sky-rules")
-      ? Array.from(panel.querySelectorAll<HTMLElement>(".base-bay__extras > :not(.sky-rules)"))
-        .map((n) => n.outerHTML).join("")
-      : panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
+    // The extras strip carries straight across now. It used to need a filter:
+    // the roof's clause list lived in this slot, so a ride down from the
+    // Skydeck had to drop it and a ride up had to add it, or Tier 6's recap
+    // would advertise tonight's inspection schedule. The list is gone (the
+    // day's clauses are discovered at their stops, not read off the menu), so
+    // what remains in here is the dev door — the same row on every floor.
+    const extras = panel.querySelector<HTMLElement>(".base-bay__extras")?.innerHTML ?? "";
     // Tier S reads its OWN board's best — the panel is the recap of the floor
     // the car is on, and a ladder best printed over a sandbox panel would be
     // the one number on it that belonged to somewhere else.
     const best = sbx ? loadBest(BOARD_SANDBOX) : loadBest();
-    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras, skydeck: this.skydeckRules() });
+    panel.outerHTML = S.baseBayPanelHTML({ tier, best, extras });
   }
 
   /** The primary button's subtitle for `tier`, or the in-flight line when it
@@ -2161,23 +2156,11 @@ class App {
     // car at the finished ladder watched their one stated objective turn back
     // into "Clear 10 bays in one run".
     sub.textContent = S.menuPlaySub(
-      tier, this.skydeckRules().length,
+      tier, CLAUSE_COUNT,
       tier !== null && nextStep(this.meta) === "seal"
         ? { owed: unsealedMarks(this.meta).length, sealed: this.meta.sealedMarks.includes(tier) }
         : null,
     );
-  }
-
-  /** Today's Skydeck clauses as the menu prints them — bay number and card
-   *  name (game/skydeck.ts).
-   *
-   *  Re-derived per render rather than cached on the app, because the one thing
-   *  that can change it is the DATE, and a session left open across midnight
-   *  must not offer yesterday's contract on a run that will fly today's. It is
-   *  three table lookups and a seeded coin per stop, which is cheaper than the
-   *  staleness would be. */
-  private skydeckRules(): { bay: number; name: string }[] {
-    return clauseDefs(skydeckRulesFor()).map((c) => ({ bay: c.bay, name: c.def.name }));
   }
 
   private renderOverlay(): void {
@@ -2224,11 +2207,15 @@ class App {
             firstLaunch: !this.settings.seenTutorial,
           },
           this.towerState(),
-          // The roof's own row on the recap panel and the count on the primary
-          // button. Passed rather than reached for inside the screen, so the
-          // markup stays a pure function of its arguments (screens.ts's
-          // skydeckRulesHTML says why that matters to sim/uifit).
-          this.skydeckRules(),
+          // HOW MANY standing clauses the roof's run carries, for the primary
+          // button's subtitle. The count and not the list: the menu used to be
+          // handed today's clauses by name so the recap panel could print them,
+          // and the day's schedule is now something the player meets at the
+          // stops instead (screens.ts, above baseBayPanelHTML). CLAUSE_COUNT is
+          // derived from the schedule itself (skydeck.ts), so the number on the
+          // button cannot disagree with the run that produces it — and it is
+          // date-independent, which the names never were.
+          CLAUSE_COUNT,
         );
         break;
       case "workshop": this.overlay.innerHTML = S.workshopScreen(this.meta); break;

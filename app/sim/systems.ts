@@ -62,7 +62,7 @@ import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
 } from "../src/game/chute";
 import { render, screenToWorld } from "../src/game/render";
-import { Compactor } from "../src/game/compactor";
+import { Compactor, rigidPressDrag, RIGID_PRESS_DRAG_CAP } from "../src/game/compactor";
 import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
@@ -70,6 +70,7 @@ import {
   volatileLossFor, settleBlast,
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
+  settleZoneCubes, RIGID_SETTLE_ASSIST,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -5945,6 +5946,240 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
       check("the press does not dissolve a tar weld",
         welds.length === 1, `${welds.length} left`);
     }
+
+    // AND THE GRIND WAS THE OTHER HOLE. theme.ts sells rebar on three verbs —
+    // a bad landing cannot be "squeezed, shoved or shattered" into a better one
+    // — and only the shattering was enforced. settleZoneCubes reads cubes and
+    // never asked what held them together, so the press squeezed and shoved a
+    // rigid shipment onto the slot grid at full strength: not merely free, but
+    // BETTER than ordinary cargo, because a piece whose joints never break is a
+    // four-cube stamp at exact CELL spacing and every cube in it carries the
+    // same correction. See lineClear.ts's RIGID_SETTLE_ASSIST and §8 of
+    // design/balance/winnability-sweep-findings.md.
+    //
+    // The invariant, not one layout of it: a still-bonded rigid shipment is
+    // ground STRICTLY LESS than the same shipment made of ordinary cargo, and
+    // strictly more than not at all.
+    {
+      check("a rigid shipment gets a real but reduced share of the press's grind",
+        RIGID_SETTLE_ASSIST > 0 && RIGID_SETTLE_ASSIST < 1,
+        `RIGID_SETTLE_ASSIST = ${RIGID_SETTLE_ASSIST}`);
+
+      const cfg = makeBaseLevel(0);
+      const phys = createPhysics(cfg);
+      const bar = new Compactor(phys.world, cfg);
+      // Mid-press, so the grind's own preconditions (pressing, in reach) hold.
+      Matter.Body.setPosition(bar.body, { x: (bar.leftX + bar.rightX) / 2, y: bar.yCenter });
+
+      // One cube, off its slot by a third of a cell and tipped — inside both
+      // SETTLE_SLOT_TOL and SETTLE_ANGLE_CAP, i.e. exactly the correction the
+      // assist exists to make — resting on the floor row, at rest.
+      const OFFSET = CELL / 3;
+      const TILT = 0.25;
+      const place = (material: Material): { cube: Cube; joint: Matter.Constraint } => {
+        const x = WALL_INNER - CELL / 2 - CELL + OFFSET;
+        const y = WORLD.height - CELL / 2;
+        const body = Matter.Bodies.rectangle(x, y, CELL, CELL);
+        Matter.Body.setAngle(body, TILT);
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        // A partner one cell along, joined — the joint is what makes this cube
+        // part of a SHIPMENT rather than a loose cube, which is the whole test.
+        const mate = Matter.Bodies.rectangle(x - CELL, y, CELL, CELL);
+        const joint = Matter.Constraint.create({ bodyA: body, bodyB: mate, length: CELL });
+        return { cube: { body, material, struck: true, blinkStart: null } as Cube, joint };
+      };
+      // Displacement after ONE call, which is the rate the multiplier scales.
+      const groundBy = (material: Material, bonded: boolean): number => {
+        const { cube, joint } = place(material);
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, bonded ? [joint] : []);
+        return Math.abs(cube.body.position.x - x0) + Math.abs(cube.body.angle - a0) * CELL;
+      };
+
+      const rigidBonded = groundBy("rebar", true);
+      const rigidLoose = groundBy("rebar", false);
+      const plainBonded = groundBy("standard", true);
+      check("the press still works a rigid shipment — it is a knob, not a lose button",
+        rigidBonded > 0, `moved ${rigidBonded.toFixed(4)}`);
+      check("a bonded rigid shipment resists the grind an ordinary one does not",
+        rigidBonded < plainBonded,
+        `rebar ${rigidBonded.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // THE EXIT, and the reason this is a hazard rather than a tax: a Bond
+      // Breaker removes the joints (game.ts's useBondBreaker empties
+      // this.constraints), and the cubes it freed are loose cubes from that
+      // step on. Same cube, same material, joints gone.
+      check("a Bond Breaker gives a rigid shipment the full grind back",
+        Math.abs(rigidLoose - plainBonded) < 1e-9,
+        `freed ${rigidLoose.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      // NO COLLATERAL. The gate is the MATERIAL, not `breakStretch === Infinity`
+      // — which would also catch every joint on finals.ts's unbreakable-bonds
+      // bay and re-price a Final Inspection clause by accident.
+      check("ordinary cargo is ground the same whether or not it is still bonded",
+        Math.abs(plainBonded - groundBy("standard", false)) < 1e-9);
+      for (const m of ["cryo", "volatile", "tar", "magnetic", "slag"] as Material[]) {
+        check(`${m} is untouched by the rigid grind rule`,
+          Math.abs(groundBy(m, true) - plainBonded) < 1e-9);
+      }
+      // The Final Inspection's unbreakable-bonds clause stamps EVERY joint on
+      // the bay with rebar's own Infinity (pieces.ts's pieceBreakStretch off a
+      // non-finite level breakStretch). Gating the grind on the joint would
+      // therefore re-price that clause as a side effect of re-pricing a
+      // material, which is the one thing this change is not allowed to do.
+      {
+        const { cube, joint } = place("standard");
+        (joint as unknown as { breakStretch: number }).breakStretch = Infinity;
+        const x0 = cube.body.position.x;
+        const a0 = cube.body.angle;
+        settleZoneCubes([cube], bar, cfg, [joint]);
+        const moved = Math.abs(cube.body.position.x - x0)
+          + Math.abs(cube.body.angle - a0) * CELL;
+        check("an unbreakable-bonds BAY still grinds at full strength — the gate is the material",
+          Math.abs(moved - plainBonded) < 1e-9,
+          `${moved.toFixed(4)} vs standard ${plainBonded.toFixed(4)}`);
+      }
+
+      // THE BAR ITSELF WAS THE OTHER HALF. It is kinematic — moved by
+      // setPosition — so it advanced through a welded steel cage at exactly the
+      // pace it advances through air, and "cannot be squeezed" meant nothing on
+      // the one surface that does the squeezing. See compactor.ts's
+      // rigidPressDrag.
+      check("bar stock slows the press",
+        rigidPressDrag(4) < rigidPressDrag(0), `${rigidPressDrag(4)} vs ${rigidPressDrag(0)}`);
+      check("a clean bay's press runs at full pace",
+        rigidPressDrag(0) === 1);
+      // A RECIPROCAL, not a subtraction, and that is the floor argument
+      // hazards.ts makes for Shift Cut: an axis that can reach an unplayable
+      // bay is a lose button, not a difficulty knob. No count stops the bar.
+      check("no amount of bar stock can stop the press dead",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100) > 0,
+        `${rigidPressDrag(RIGID_PRESS_DRAG_CAP * 100)}`);
+      check("the drag is monotone in what is in the way",
+        [1, 2, 3, 4, 5].every((n) => rigidPressDrag(n) < rigidPressDrag(n - 1)));
+      // THE CAP HAS TO CLEAR WHAT THE BELT ACTUALLY PRODUCES, and this is the
+      // pin that says so in the numbers rather than in the constant. Measured
+      // p90 of still-bonded rigid cubes in front of the face at Tier 10 bay 10:
+      // 4 at one notch, 11 at three, 21 at six (findings doc §8c). A cap under
+      // the top of that range folds the upper rungs into each other and the
+      // axis comes back FLAT in the notch count — which is exactly what
+      // shipping the cap at 8 did (28/28/26 of 32). Written against the
+      // measured p90s, so it goes red on the specific mistake it is guarding.
+      const P90 = { one: 4, three: 11, six: 21 };
+      check("the drag separates the notch counts the belt actually produces",
+        rigidPressDrag(P90.one) > rigidPressDrag(P90.three)
+          && rigidPressDrag(P90.three) > rigidPressDrag(P90.six),
+        `${rigidPressDrag(P90.one).toFixed(3)} / ${rigidPressDrag(P90.three).toFixed(3)}`
+        + ` / ${rigidPressDrag(P90.six).toFixed(3)} at cap ${RIGID_PRESS_DRAG_CAP}`);
+      check("the drag stops counting past its cap — a late bay is the same game",
+        rigidPressDrag(RIGID_PRESS_DRAG_CAP) === rigidPressDrag(RIGID_PRESS_DRAG_CAP + 40));
+      // A dragged stroke is a SLOW stroke, never a short one: the bar still
+      // reaches full advance and still counts. A Contract budgeted in strokes
+      // (level.ts's strokeBudget) must not be refunded or robbed by what
+      // happens to be lying in the bay.
+      {
+        const cfg2 = makeBaseLevel(0);
+        const phys2 = createPhysics(cfg2);
+        const slow = new Compactor(phys2.world, cfg2);
+        const fast = new Compactor(phys2.world, cfg2);
+        let slowSteps = 0;
+        let fastSteps = 0;
+        while (slow.strokes === 0 && slowSteps < 100_000) { slow.update(rigidPressDrag(4)); slowSteps += 1; }
+        while (fast.strokes === 0 && fastSteps < 100_000) { fast.update(); fastSteps += 1; }
+        check("a dragged press still completes its stroke",
+          slow.strokes === 1 && slow.x === slow.rightX, `${slow.strokes} strokes`);
+        check("a dragged press takes strictly longer to complete it",
+          slowSteps > fastSteps, `${slowSteps} steps vs ${fastSteps}`);
+        // Retreat is free — the bar crushes nothing on the way back, and a
+        // slow retreat would take the drag out of the player's landing window
+        // instead of out of the press's crushing pace.
+        const back = new Compactor(phys2.world, cfg2);
+        back.dir = -1;
+        Matter.Body.setPosition(back.body, { x: back.rightX, y: back.yCenter });
+        const x0 = back.x;
+        back.update(rigidPressDrag(RIGID_PRESS_DRAG_CAP));
+        const opened = x0 - back.x;
+        const ref = new Compactor(phys2.world, cfg2);
+        ref.dir = -1;
+        Matter.Body.setPosition(ref.body, { x: ref.rightX, y: ref.yCenter });
+        const refX0 = ref.x;
+        ref.update();
+        check("the drag never slows the RETREAT — it costs crushing pace, not landing window",
+          Math.abs(opened - (refX0 - ref.x)) < 1e-9);
+      }
+
+      // THE BROKE GRACE WINDOW IS A CONSUMER OF THE STROKE, and it was sized
+      // off the UNDRAGGED one. Found by review on PR #151.
+      //
+      // game.ts's brokeGraceSteps exists so that "a full line already sitting
+      // in the zone must get its pressing stroke — which pays out and un-brokes
+      // the player — before the game calls it". It spent that promise as a step
+      // count derived from Compactor.cycleSteps, which is the round trip of a
+      // bar running free. A dragged advance takes up to 1/rigidPressDrag(CAP) =
+      // 3.88x longer, so the window fired first and the bay was declared broke
+      // BEFORE the stroke that was meant to rescue it.
+      //
+      // Two pins: the arithmetic that says the floor alone cannot carry the
+      // guarantee, and the bay-level behaviour that says the guarantee holds
+      // anyway.
+      {
+        const worst = rigidPressDrag(RIGID_PRESS_DRAG_CAP);
+        const cfg3 = makeBaseLevel(0);
+        const bar3 = new Compactor(createPhysics(cfg3).world, cfg3);
+        const span = bar3.rightX - bar3.leftX;
+        // The window game.ts computes, restated rather than imported: the field
+        // is private, and a pin that read it could not fail when it is wrong.
+        const floor = Math.min(bar3.cycleSteps + 2000 / (1000 / 60), 30_000 / (1000 / 60));
+        const draggedTrip = span / (bar3.speed * worst) + span / bar3.speed;
+        check("a dragged round trip OUTRUNS the broke grace floor — the floor cannot be the guarantee",
+          draggedTrip > floor,
+          `${draggedTrip.toFixed(0)} steps vs a ${floor.toFixed(0)}-step floor`);
+      }
+      {
+        // A bay nobody can shoot in: no funds, so the stuck-broke countdown
+        // arms on the first step every cube is at rest. A wall of RIGID cargo
+        // stands in front of the face and is still bonded, so the press is
+        // dragged for the whole window.
+        const cfg4 = makeBaseLevel(0);
+        cfg4.startingFunds = 0;
+        const g4 = new Game(cfg4, {}, 1);
+        // Bonded rebar, deep enough to reach the drag cap, sat on the floor
+        // right of the face where Game.rigidPressDrag counts it.
+        for (let i = 0; i < 8; i++) {
+          const p = createTetrisPiece(
+            g4.phys.world,
+            WALL_INNER - CELL * 1.5 - (i % 2) * CELL * 2,
+            WORLD.height - CELL * (1.5 + Math.floor(i / 2) * 2),
+            0, { x: 0, y: 0 }, "O", 0.95, "std", 1.7, "rebar",
+          );
+          g4.cubes.push(...p.cubes);
+          g4.constraints.push(...p.constraints);
+        }
+        let now4 = 0;
+        let steps4 = 0;
+        // Sampled DURING the window, not after it: the verdict is the moment
+        // this pin is about, and by then the pile may have moved.
+        let worstDragSeen = 1;
+        while (g4.status === "playing" && steps4 < 20_000) {
+          now4 += 1000 / 60;
+          worstDragSeen = Math.min(worstDragSeen, g4.rigidPressDrag);
+          g4.update(now4);
+          steps4 += 1;
+        }
+        const strokesAtVerdict = g4.compactor.strokes;
+        // NOT VACUOUS: if this bay's press were running free, the pin below
+        // would pass on the OLD math too and prove nothing at all.
+        check("the pin's own bay really does drag the press",
+          worstDragSeen < 0.5, `worst drag seen ${worstDragSeen.toFixed(3)}`);
+        check("a broke bay still ends",
+          g4.status === "lost" && g4.lossReason === "broke",
+          `${g4.status}/${g4.lossReason} after ${steps4} steps`);
+        // THE GUARANTEE. Whatever the drag did to the pace, the bay does not
+        // get called before the press it was promised has been flown.
+        check("the broke verdict never lands before one completed press",
+          strokesAtVerdict >= 1, `${strokesAtVerdict} strokes at the verdict`);
+        g4.destroy();
+      }
+    }
   }
 
   // Volatile needs a HARD impact — above cryo's strike speed, or the landing
@@ -8755,10 +8990,52 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
   {
     const rules = skydeckRulesFor(new Date(Date.UTC(2026, 7, 27)));
     const listed = clauseDefs(rules);
-    check("the menu lists one row per stop", listed.length === CLAUSE_STOPS.length);
-    check("...naming the bay each arms on",
+    check("the day arms one clause per stop", listed.length === CLAUSE_STOPS.length);
+    check("...each on the bay it is scheduled for",
       listed.every((r, i) => r.bay === CLAUSE_STOPS[i].fromBay),
       listed.map((r) => r.bay).join(","));
+
+    // ---- AND THE MENU GIVES NONE OF THEM AWAY ------------------------------
+    // These two pins are the inverse of the ones they replace. The recap panel
+    // used to list the day's clauses by name and bay — "the menu lists one row
+    // per stop", "…naming the bay each arms on" — so that the whole day could
+    // be planned before the first launch. The owner's call is that the Skydeck
+    // is a run you fly rather than a schedule you read: the clauses are a
+    // surprise now, met at the stops that arm them.
+    //
+    // Asserted over the WHOLE menu rather than over the recap panel, and for
+    // the same reason the "no surface calls it anything else" pin below is: the
+    // failure worth catching is a leak somewhere nobody thought to look — an
+    // aria-label, a title, a button subtitle, a tooltip. Every name and every
+    // "Bay N" the day deals is checked against all of it.
+    const roofMenu = S.menuScreen(
+      98_760, 1_480, { available: true, unlimited: false }, undefined, undefined,
+      { unlocked: MARK_COUNT, selected: S.SKYDECK_TIER, skydeck: true, contracts: 2 },
+      listed.length,
+    );
+    //
+    // EVERY clause the roof can deal, not just the three this fixed day rolled:
+    // the menu is built from today's date in the app, so a pin that only knew
+    // one day's names would pass on the three hundred and sixty-four it did not
+    // check.
+    const dealable = CLAUSE_STOPS.flatMap((_, i) => dealableAt(i));
+    const named = dealable.filter((d) => roofMenu.includes(d.name));
+    check("the menu names no clause before the run",
+      named.length === 0, named.map((d) => d.name).join(", "));
+    const bayed = listed.filter((r) => roofMenu.includes(`Bay ${r.bay}`));
+    check("...nor the bay any of them arms on",
+      bayed.length === 0, bayed.map((r) => `Bay ${r.bay}`).join(", "));
+    // The list's own markup is gone with it — a stylesheet hook left behind
+    // would be the next person's invitation to fill it back in.
+    check("...and the panel it lived on has no clause row left",
+      !roofMenu.includes("sky-rules"));
+    // WHAT STAYS PUBLIC IS THE COUNT. "Three standing clauses" is the terms of
+    // the run; which three is the run. Compared against menuPlaySub's own
+    // output rather than against a copy of its words, so this pin still holds
+    // when that line is reworded — the rule is that the number reaches the
+    // button, not that the sentence never changes.
+    check("...while how MANY there are is still on the button",
+      roofMenu.includes(menuPlaySub(S.SKYDECK_TIER, listed.length, null)));
     // THE BANK ROW IS THREE CELLS ON BOTH MODES, and the Skydeck's clause tally
     // now rides the NOTCHES cell rather than taking the scrap one.
     //
@@ -8801,7 +9078,11 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
     });
     check("...and the ladder draft still counts scrap", /Scrap/.test(ladderDraft));
     // The bay-clear card is the ONE screen between the bay that earned a clause
-    // and the projection whose numbers it has already moved.
+    // and the projection whose numbers it has already moved — and, since the
+    // menu stopped listing them, it is also where the player MEETS the clause.
+    // The pin was always here; what changed is what it is load-bearing for. A
+    // reveal that is nowhere is not a surprise, it is a missing feature, so the
+    // two halves are asserted together: no name on the menu, the name here.
     const armed = S.bayClearScreen({
       bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 18,
       slot: { value: "Cold Chain", label: "clause \u00b7 from Bay 4" },

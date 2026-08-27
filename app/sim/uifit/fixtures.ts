@@ -31,9 +31,7 @@ import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } fr
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
-import {
-  CLAUSE_STOPS, clauseDefs, skydeckRulesFor, skydeckRunFor,
-} from "../../src/game/skydeck";
+import { CLAUSE_STOPS, skydeckRunFor } from "../../src/game/skydeck";
 import { dailyContracts } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
@@ -76,9 +74,6 @@ const STORE = { available: true, unlimited: false };
  *  budget compared against a baseline. One day, chosen and pinned, exactly the
  *  way every other fixture pins its seed. */
 const SKY_DAY = new Date(Date.UTC(2026, 7, 27));
-/** …and the three rows it puts on the menu's recap panel. Built through the
- *  same call main.ts makes, so the fixture cannot drift from the app. */
-const SKY_RULES = clauseDefs(skydeckRulesFor(SKY_DAY)).map((c) => ({ bay: c.bay, name: c.def.name }));
 /** Every Mark sealed — what the roof now costs (meta.ts's skydeckOpen), and
  *  therefore what any fixture drawing an OPEN Skydeck has to hold. A roof open
  *  over unsealed floors is a state the app can no longer produce, and a fixture
@@ -487,14 +482,24 @@ export const SCREENS: Record<string, () => string> = {
   // reduced-motion / no-2D-context fallback, not an artificial state: it is what
   // a player with "reduce motion" on actually sees.
   menu: () => S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE),
-  // THE ROOF PARKED. The recap panel grows a three-row clause list in its
-  // extras slot and the primary button re-labels, on the menu column that is
-  // already the screen's tightest — so this is the tallest that column gets in
-  // any build. Fixed clauses (SKY_DAY) rather than today's: see skydeckDraft.
+  // THE ROOF PARKED: the tower's top floor selected, the primary button
+  // re-labelled, and its subtitle counting the day's standing clauses.
+  //
+  // The recap panel used to grow a three-row clause list in its extras slot
+  // here, which made this the tallest the menu's tightest column ever got. The
+  // list is gone — the day's clauses are met at the stops that arm them, not
+  // read off the home screen — so what this row now measures is the roof's
+  // BUTTON copy against the ladder's, which is a different and still real worst
+  // case: the roof's subtitle is the longest the primary carries, and it got
+  // longer again when the yard reopened — "no refits" was replaced by the term
+  // that actually separates the floor now that it has one, "a step above Mark
+  // 10" (screens.ts's menuPlaySub, level.ts's SKYDECK_RUNG). The clause COUNT is
+  // all the screen is given, and it is date-independent, so this fixture no
+  // longer needs a pinned day at all.
   "menu-skydeck": () =>
-    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, SKY_RULES),
+    S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
   "menu-skydeck-live": () =>
-    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, SKY_RULES)),
+    live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length)),
   "menu-live": () => live(S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE)),
   // The entitled state swaps the upsell chip for the ★ badge; both have to fit.
   "menu-unlimited": () =>

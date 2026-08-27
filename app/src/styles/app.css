@@ -946,35 +946,12 @@ body.crt-off #app::after { display: none; }
 .base-bay__extras { display: flex; flex-wrap: wrap; gap: 6px; flex: none; }
 .base-bay__extras:empty { display: none; }
 
-/* TODAY'S SKYDECK CLAUSES (screens.ts's skydeckRulesHTML) — the one thing about
-   the roof that the panel's four stat cells and its belt cannot say.
-
-   It takes a whole row of the extras strip rather than sitting beside the dev
-   door, because it is a LIST and the strip's other tenant is a button: a
-   three-row list sharing a flex line with a control would compress whichever
-   of them the viewport disliked more.
-
-   Sized down hard on purpose. This is reference material the player reads once
-   before launching, not a readout they track, and the column it lives in is
-   the menu's tightest — the same argument the belt ladder above it settles the
-   same way. */
-.sky-rules {
-  flex: 1 1 100%; min-width: 0;
-  display: flex; flex-direction: column; gap: 2px;
-  padding-top: 3px; border-top: var(--bw) solid var(--line);
-}
-.sky-rules__row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.sky-rules__bay {
-  flex: none;
-  font-family: var(--font-pixel); font-size: 8px; letter-spacing: 0.06em;
-  color: var(--warn);
-}
-/* The clause NAME is the shrinkable half — a bay number that ellipsizes is
-   worthless, where a truncated card name still points at the card. */
-.sky-rules__name {
-  min-width: 0; font-size: 11px; color: var(--text-dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+/* The .sky-rules block that used to sit here — the roof's three-row clause
+   list, one row per stop, naming each clause and the bay it armed on — is gone
+   with the markup that carried it (screens.ts, above baseBayPanelHTML). The
+   day's clauses are discovered at the stops now, on the bay-clear card, so the
+   menu has nothing to style: the extras strip is back to the dev door alone,
+   and `:empty` collapses it in every shippable build. */
 .base-bay__extras .btn {
   flex: 1 1 0; min-width: 0;
   flex-direction: row; align-items: center; justify-content: center;
