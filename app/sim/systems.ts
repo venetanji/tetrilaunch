@@ -4352,6 +4352,98 @@ section("The scrollbar's chrome (app.css ::-webkit-scrollbar)");
   const radii = [...gated.matchAll(/border-radius:\s*var\(--r-(sm|md)\)/g)].length;
   check("the thumb keeps the design system's square corner", radii > 0,
     "the thumb's border-radius is not one of the --r-* tokens");
+
+  // --- CONTRAST, RECOMPUTED ------------------------------------------------
+  // WCAG 2.2 SC 1.4.11 asks 3:1 of a non-text UI component against the colour
+  // it sits on. The thumb sits on its own track, both are written as alphas
+  // over a token, and NEITHER number is legible by reading the stylesheet —
+  // `rgba(0, 240, 255, 0.22)` looks like a perfectly reasonable resting cyan
+  // and is in fact 1.60:1, which is how it shipped to review. So the ratios are
+  // derived here, from the alphas in app.css and the token in tokens.css, and
+  // the stylesheet's own comment table is the thing under test.
+  //
+  // Nothing here can be satisfied by editing a comment, and nothing about it is
+  // reachable from sim/uifit — Playwright hides scrollbars outright, so this is
+  // the only place in the repo where the bar's colours are checked at all.
+  const chan = (h: string): [number, number, number] =>
+    [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+  // The palette itself, because the alphas in app.css are meaningless without
+  // the two colours they interpolate between.
+  const paletteSrc = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "tokens.css"),
+    "utf8",
+  );
+  const deepHex = paletteSrc.match(/--bg-deep:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  const accentHex = paletteSrc.match(/--accent:\s*(#[0-9a-fA-F]{6})/)?.[1];
+  check("the scrollbar's two source colours are still tokens", !!deepHex && !!accentHex,
+    `${deepHex ?? "no --bg-deep"} / ${accentHex ?? "no --accent"}`);
+  const toLinear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = ([r, g, b]: [number, number, number]): number =>
+    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  const contrast = (a: [number, number, number], b: [number, number, number]): number => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const track = chan(deepHex ?? "#000000");
+  const accent = chan(accentHex ?? "#ffffff");
+  const composite = (alpha: number): [number, number, number] =>
+    accent.map((c, i) => Math.round(c * alpha + track[i] * (1 - alpha))) as [number, number, number];
+
+  // The three states, read in source order out of the gated block: the bare
+  // thumb rule, then :hover, then :active (which is the token at full opacity).
+  const alphaOf = (decl: string): number | null => {
+    const m = decl.match(/rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/);
+    if (m) return Number(m[1]);
+    return /var\(--accent\)/.test(decl) ? 1 : null;
+  };
+  const thumbDecls = [...gated.matchAll(/::-webkit-scrollbar-thumb(:[a-z]+)?\s*\{[^}]*?background:\s*([^;]+);/g)]
+    .map((m) => ({ state: m[1] ?? ":rest", alpha: alphaOf(m[2]) }));
+  check("all three thumb states are readable as an accent alpha",
+    thumbDecls.length === 3 && thumbDecls.every((d) => d.alpha !== null),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" "));
+
+  const WCAG_NON_TEXT = 3;
+  const rest = thumbDecls[0]?.alpha ?? 0;
+  check("the RESTING thumb clears the 3:1 non-text contrast floor against its track",
+    contrast(composite(rest), track) >= WCAG_NON_TEXT,
+    `alpha ${rest} composites to rgb(${composite(rest).join(", ")}) = ` +
+      `${contrast(composite(rest), track).toFixed(2)}:1`);
+  // Rest is the one that matters most and the one that was wrong: a control has
+  // to be FOUND before it can be hovered, so a bright hover cannot stand in for
+  // a dim rest. Asserted separately from the ramp below for exactly that reason.
+
+  // ...and the ramp above it still reads as three states. Each step is measured
+  // against the previous state rather than against the track, because what is
+  // being checked is whether the CHANGE is perceivable, not whether the end
+  // point is legible.
+  const STEP_MIN = 1.5;
+  for (let i = 1; i < thumbDecls.length; i++) {
+    const prev = composite(thumbDecls[i - 1]!.alpha ?? 0);
+    const here = composite(thumbDecls[i]!.alpha ?? 0);
+    check(`the thumb's ${thumbDecls[i]!.state} state steps visibly up from ${thumbDecls[i - 1]!.state}`,
+      contrast(here, prev) >= STEP_MIN,
+      `${contrast(here, prev).toFixed(2)}:1 between rgb(${prev.join(", ")}) and rgb(${here.join(", ")})`);
+  }
+  // Monotonic, so "climbs on approach" stays true and a future edit cannot
+  // leave hover dimmer than rest while both individually pass.
+  check("the thumb only ever gets brighter towards the pointer",
+    thumbDecls.every((d, i) => i === 0 || (d.alpha ?? 0) > (thumbDecls[i - 1]!.alpha ?? 0)),
+    thumbDecls.map((d) => `${d.state}=${d.alpha}`).join(" < "));
+
+  // FIREFOX GETS NO RAMP. `scrollbar-color` names one thumb colour and offers
+  // the page no hover or active selector, so that single value is the whole
+  // control's contrast for its whole life and has to clear the floor by itself.
+  const ffAlpha = bare.match(/scrollbar-color:\s*rgba\(0,\s*240,\s*255,\s*([\d.]+)\)/)?.[1];
+  check("the Firefox fallback names its thumb as an accent alpha too", ffAlpha !== undefined,
+    "no rgba() thumb in the scrollbar-color declaration");
+  const ff = Number(ffAlpha ?? 0);
+  check("...and clears 3:1 on its own, having no hover state to climb to",
+    contrast(composite(ff), track) >= WCAG_NON_TEXT,
+    `alpha ${ff} composites to rgb(${composite(ff).join(", ")}) = ` +
+      `${contrast(composite(ff), track).toFixed(2)}:1`);
 }
 
 // ---------------------------------------------------------------------------
