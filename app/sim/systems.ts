@@ -48,6 +48,7 @@ import { runBay } from "./runner";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
   BOND_MIN_CUBES, bondHands, cushionKit, thawHands, thawKit,
+  dumpHands,
 } from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -57,14 +58,15 @@ import {
 } from "../src/game/cannon";
 import {
   CHUTE, CHUTE_MOUTH_X0, CHUTE_SURFACE_Y, chuteMouth, chuteRightEdge, inChute, pathStrands,
+  INCINERATOR_Y, inIncinerator,
 } from "../src/game/chute";
 import { render, screenToWorld } from "../src/game/render";
 import { Compactor, rigidPressDrag, RIGID_PRESS_DRAG_CAP } from "../src/game/compactor";
-import { createPhysics, WORLD, WALL_INNER } from "../src/game/engine";
+import { createPhysics, SKY, WORLD, WALL_INNER } from "../src/game/engine";
 import {
   fillsSlots, strikeCryo, shatterColdCryo, updateLineClear, CRYO_STRIKE_SPEED,
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
-  volatileLossFor, settleBlast,
+  volatileLossFor, settleBlast, chargeAfterRelief,
   markLostPieces, slagBountyFor, nextColdCryo,
   cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
   settleZoneCubes, RIGID_SETTLE_ASSIST,
@@ -77,6 +79,7 @@ import {
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
   THAW_CHARGES_PER_TIER, CUSHION_TIERS, cushionThreshold, type UpgradeId,
+  INCINERATOR_TIERS, incineratorRelief,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
@@ -335,7 +338,7 @@ section("Ship upgrades (upgrades.ts)");
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
-  check("a full rig now costs 990", FULL_BUILD_COST === 990, String(FULL_BUILD_COST));
+  check("a full rig now costs 1100", FULL_BUILD_COST === 1100, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -404,11 +407,12 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     String(FULL_BUILD_COST),
   );
   // 770 until the Thaw Lance made it eight tracks, 880 until the Impact
-  // Cushion made it nine. The literal is kept beside
-  // the derivation above rather than deleted as redundant: the derived check
-  // proves FULL_BUILD_COST agrees with TIER_COSTS, and only a typed-out number
-  // catches a roster or a price moving by accident. Both moved on purpose here.
-  check("a full rig costs 990", FULL_BUILD_COST === 990, String(FULL_BUILD_COST));
+  // Cushion made it nine, 990 until the Incinerator made it ten. The literal is
+  // kept beside the derivation above rather than deleted as redundant: the
+  // derived check proves FULL_BUILD_COST agrees with TIER_COSTS, and only a
+  // typed-out number catches a roster or a price moving by accident. Every one
+  // of those moves was on purpose.
+  check("a full rig costs 1100", FULL_BUILD_COST === 1100, String(FULL_BUILD_COST));
   // The Workshop's own ceiling — every track at UPRATE_MAX_TIER — lands exactly
   // on budgetForMark(5), which is what makes the build budget a real gate for
   // Marks 1-5 (meta.ts's installAvailable). It is not a coincidence and it does
@@ -442,7 +446,19 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   // one track as long as it fits.
   const oneTrackMaxed = { ...newTiers(), hydraulics: MAX_TIER };
   check("a single maxed track is legal once affordable", loadoutLegal(oneTrackMaxed, MARK_COUNT));
-  check("...and illegal at Mark 1", !loadoutLegal(oneTrackMaxed, 1));
+  // ONE FULL TRACK IS EXACTLY MARK 1'S MONEY, and that is budgetForMark's own
+  // definition rather than a coincidence to be pinned around: "one system's
+  // money at Mark 1, a fully-kitted rig at Mark 10". The budget is
+  // FULL_BUILD_COST x M/10 and FULL_BUILD_COST is TRACKS x 110, so Mark 1 buys
+  // TRACKS/10 of a track — one exactly at a ten-track roster, and 0.9 of one at
+  // nine, i.e. the doc was true of the intent and false of the arithmetic until
+  // the tenth track landed. This check used to read "...and illegal at Mark 1"
+  // on that off-by-a-tenth. Pinned as the RELATIONSHIP, so an eleventh track
+  // moves it correctly instead of failing.
+  check("...and it is exactly what Mark 1 can afford, no more",
+    loadoutLegal(oneTrackMaxed, 1) === (tiersCost(oneTrackMaxed) <= budgetForMark(1))
+      && !loadoutLegal({ ...oneTrackMaxed, reactor: 1 }, 1),
+    `${budgetForMark(1)} vs ${tiersCost(oneTrackMaxed)}`);
   check("an empty loadout is always legal", loadoutLegal(newTiers(), 1));
   check(
     "a full rig is illegal below the top Mark",
@@ -460,10 +476,17 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
   check("buyLoadoutTier raises the tier", one!.bay === 1);
   check("buyLoadoutTier does not mutate the input", start.bay === 0);
   check("buyLoadoutTier refuses a maxed track", buyLoadoutTier({ ...newTiers(), bay: MAX_TIER }, "bay", MARK_COUNT) === null);
-  // Mark 1's budget (66) buys 20+35 = 55 but not the 55-point third tier.
+  // Mark 1's budget is one whole track (see the note above), so it buys all
+  // three rungs of ONE and cannot open a second — which is the shape "one
+  // system's money" is supposed to have. Both halves are checked, because only
+  // the second one is a cap.
   const twoTiers = buyLoadoutTier(buyLoadoutTier(newTiers(), "bay", 1)!, "bay", 1);
   check("Mark 1 affords two tiers of a track", twoTiers !== null && twoTiers.bay === 2);
-  check("Mark 1 cannot afford the third", buyLoadoutTier(twoTiers!, "bay", 1) === null);
+  const threeTiers = buyLoadoutTier(twoTiers!, "bay", 1);
+  check("Mark 1 affords the third, which is one whole system",
+    threeTiers !== null && threeTiers.bay === MAX_TIER);
+  check("Mark 1 cannot open a SECOND system",
+    buyLoadoutTier(threeTiers!, "reactor", 1) === null);
 
   // safeLoadout is the gate that stops a hand-edited save flying an illegal rig.
   const cheat = { ...newMeta(), mark: 0, loadout: { ...newTiers(), reactor: MAX_TIER, bay: MAX_TIER } };
@@ -2837,7 +2860,7 @@ section("Draft gating (mods.ts + meta.ts)");
   // It used to read `${total}` on both sides, so the message a failure printed
   // agreed with itself no matter what broke and the reader had to go and look
   // up the number the check wanted.
-  check("the shelf costs 545 salvage", total === 545, String(total));
+  check("the shelf costs 575 salvage", total === 575, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
   const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
@@ -12535,6 +12558,250 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
  *     a cushion softens and never primes, and it never reaches "volatile is
  *     inert".
  * ========================================================================= */
+section("The Incinerator's flue (chute.ts / upgrades.ts / lineClear.ts / game.ts)");
+{
+  const cube = (material: Material, x: number, y: number): Cube => ({
+    body: { position: { x, y }, velocity: { x: 0, y: 0 } },
+    material, struck: true, blinkStart: null,
+  } as unknown as Cube);
+
+  /* -------------------------------------------------------------------------
+   * 1. THE PLANE IS AUTHORED, NEVER DRAWN.
+   *
+   * The obvious reading of "the space above the HUD" is layout.ts's skyTop, and
+   * it is a viewport function — it is however much letterbox band the player's
+   * aspect ratio leaves. A ledger written against it would charge two players
+   * different money for the same seed. chute.ts's rect note carries the whole
+   * argument ("Physics that varied with HUD size would break seed
+   * determinism"); this is that argument as a check, and it is the pin that
+   * fails first if anyone ever "simplifies" the plane into the renderer.
+   * ----------------------------------------------------------------------- */
+  check("the flue plane is the plant's roof — where the power bar is mounted",
+    INCINERATOR_Y === CHUTE_SURFACE_Y, `${INCINERATOR_Y} vs ${CHUTE_SURFACE_Y}`);
+  {
+    // Three viewports whose letterboxing differs wildly: a 16:9 phone (no band
+    // at all), a 4:3 tablet (a tall band) and a desktop window.
+    const boxes: [number, number][] = [[800, 450], [1024, 768], [1600, 900]];
+    const skies = boxes.map(([w, h]) => {
+      const l = computeLayout(w, h);
+      return skyTop(l.scale, l.oy);
+    });
+    check("...and the sky's own top edge is NOT one number but three",
+      new Set(skies.map((s) => Math.round(s))).size > 1, skies.join(" / "));
+    check("...so the flue is device-independent where the sky is not",
+      boxes.every(() => inIncinerator(900, INCINERATOR_Y) && !inIncinerator(900, INCINERATOR_Y + 1)),
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 2. WHAT IS IN THE FLUE AND WHAT IS NOT.
+   * ----------------------------------------------------------------------- */
+  // The open shaft PR #128 opened is inside it, all the way up — that is the
+  // half of the owner's request the plane has to keep even though it anchors at
+  // the roof rather than at y=0.
+  check("the whole open sky above the field is in the flue",
+    [0, -1, -CELL, -SKY].every((y) => inIncinerator(900, y)), "");
+  check("...and so is the open bay above the power bar",
+    inIncinerator(900, INCINERATOR_Y - 1) && inIncinerator(300, 100));
+  // The pile is NOT. This is the check that says the system has no passive
+  // floor: cargo destroyed down in the works pays full price, and the
+  // winnability tables in design/balance are what that costs.
+  check("the bay floor and the pile that sits on it are NOT in the flue",
+    [INCINERATOR_Y + 1, 500, 600, WORLD.height - CELL / 2]
+      .every((y) => !inIncinerator(WALL_INNER - CELL, y)),
+    "");
+
+  /* -------------------------------------------------------------------------
+   * 3. WHATEVER THE INTAKE TAKES IS IN THE FLUE — AT ANY SPEED.
+   *
+   * The hood sits ON the machine, so the maw is part of the burner. The
+   * tempting implementation is arithmetic — push the plane half a cell under
+   * the roof so a plain `y <= plane` test happens to cover a cube the intake
+   * caught — and chute.ts records why that is wrong: the intake is tested once
+   * per step, so the deepest centre it can take a cube at rises with fall
+   * speed, and a margin sized for today's fastest arrival is one a future
+   * muzzle-speed rung walks silently through. So the second clause asks the
+   * INTAKE'S OWN QUESTION, and this sweeps the whole depth of the maw to prove
+   * no speed can outrun it.
+   * ----------------------------------------------------------------------- */
+  {
+    const rightEdge = chuteRightEdge(780);
+    let allBurn = true;
+    let deepest = 0;
+    // Every centre-y the bottom-edge test admits, a pixel at a time, from the
+    // shallowest capture to the floor of the maw.
+    for (let y = CHUTE_SURFACE_Y - CELL / 2; y <= CHUTE.y1; y += 1) {
+      if (!inChute(100, y + CELL / 2, rightEdge)) continue;
+      if (!inIncinerator(100, y, rightEdge)) allBurn = false;
+      deepest = y;
+    }
+    check("every cube the intake can take is in the flue, however fast it fell",
+      allBurn && deepest > INCINERATOR_Y + CELL,
+      `deepest ${deepest}, plane ${INCINERATOR_Y}`);
+    // ...and the mouth is still a mouth: the same depth OUTSIDE the maw's span
+    // is ordinary bay, and pays full price.
+    check("...but the same depth out in the open bay is not",
+      !inIncinerator(WALL_INNER - CELL, CHUTE_SURFACE_Y + CELL, rightEdge));
+    // The mouth narrows with the press, exactly as the maw does — a Bay
+    // Extension that walks the open stop inside the panel must not leave the
+    // flue claiming cells the press can still reach (chute.ts's chuteRightEdge).
+    const narrow = chuteRightEdge(547);
+    check("...and the flue's mouth narrows with the maw's",
+      inIncinerator(500, CHUTE_SURFACE_Y + CELL, rightEdge)
+        && !inIncinerator(600, CHUTE_SURFACE_Y + CELL, narrow),
+      `${rightEdge} vs ${narrow}`);
+  }
+
+  /* -------------------------------------------------------------------------
+   * 4. THE LADDER, AND THE CEILING IT MUST NOT REACH.
+   * ----------------------------------------------------------------------- */
+  check("a bay with no hood remits nothing", incineratorRelief(0) === 0);
+  check("the ladder is a quarter a rung",
+    INCINERATOR_TIERS.length === MAX_TIER
+      && INCINERATOR_TIERS.every((r, i) => Math.abs(r - 0.25 * (i + 1)) < 1e-9),
+    INCINERATOR_TIERS.join("/"));
+  check("...and it stops one rung short of free, which hazards.ts forbids",
+    INCINERATOR_TIERS[MAX_TIER - 1] < 1, String(INCINERATOR_TIERS[MAX_TIER - 1]));
+  check("a hand-edited tier past the ladder reads as the capstone, not a fourth rung",
+    incineratorRelief(MAX_TIER + 9) === INCINERATOR_TIERS[MAX_TIER - 1]
+      && incineratorRelief(-3) === 0);
+  {
+    const cfg = makeBaseLevel(9, 10);
+    applyUpgrades(cfg, { ...newTiers(), incinerator: 2 });
+    check("the track writes the bay's relief", cfg.incineratorRelief === INCINERATOR_TIERS[1],
+      String(cfg.incineratorRelief));
+    const bare = makeBaseLevel(9, 10);
+    applyUpgrades(bare, newTiers());
+    check("...and an uninstalled track leaves the bay priced exactly as before",
+      bare.incineratorRelief === 0, String(bare.incineratorRelief));
+  }
+
+  /* -------------------------------------------------------------------------
+   * 5. THE ARITHMETIC — one rule, both bills, rounded per cube.
+   * ----------------------------------------------------------------------- */
+  check("a full-price cube is unchanged", chargeAfterRelief(40, 0) === 40);
+  check("the rungs take a quarter, a half and three quarters",
+    chargeAfterRelief(40, 0.25) === 30
+      && chargeAfterRelief(40, 0.5) === 20
+      && chargeAfterRelief(40, 0.75) === 10);
+  // Clamped both ends: a relief above 1 would PAY the player for losing cargo,
+  // which is the income inversion slagBountyFor refuses by name.
+  check("relief is clamped, so no hand-edited loadout can make a loss profitable",
+    chargeAfterRelief(40, 2) === 0 && chargeAfterRelief(40, -1) === 40);
+
+  /* -------------------------------------------------------------------------
+   * 6. PER CUBE, NOT PER BLAST — the centroid trap.
+   *
+   * A detonation can straddle the plane. Pricing it off one position would let
+   * a single high cube buy the discount for everything under it, which is the
+   * opposite of what a positional system is for.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 40;
+    const high = cube("standard", 900, INCINERATOR_Y - CELL);
+    const low1 = cube("standard", 900, 600);
+    const low2 = cube("standard", 900, 640);
+    const straddle = [high, low1, low2];
+    const relief = (c: Cube): number => (inIncinerator(c.body.position.x, c.body.position.y) ? 0.75 : 0);
+    check("a straddling blast discounts the cube in the flue and bills the rest in full",
+      volatileLossFor(straddle, perLive, relief) === 10 + 40 + 40,
+      String(volatileLossFor(straddle, perLive, relief)));
+    check("...where the whole blast in the flue is discounted whole",
+      volatileLossFor([high, high, high], perLive, relief) === 30,
+      String(volatileLossFor([high, high, high], perLive, relief)));
+    check("...and a blast entirely in the pile is untouched by the hood",
+      volatileLossFor([low1, low2], perLive, relief) === 80,
+      String(volatileLossFor([low1, low2], perLive, relief)));
+    check("a blast priced with no hood is byte-identical to one priced before the track existed",
+      volatileLossFor(straddle, perLive) === volatileLossFor(straddle, perLive, () => 0),
+    );
+  }
+
+  /* -------------------------------------------------------------------------
+   * 7. HOW IT COMPOSES WITH settleBlast — the ruling this branch had to make.
+   *
+   * PR #136 nets the slag bounty against the live-cargo charge atomically. The
+   * hood touches the CHARGE and only the charge, and it lands BEFORE the
+   * netting and BEFORE the clamp. Each of the three is checked, because the
+   * obvious alternative gets each of them wrong.
+   * ----------------------------------------------------------------------- */
+  {
+    const perLive = 40;
+    const perDead = 12;
+    const burn = (): number => 0.75;
+    const blast = [cube("standard", 900, 0), cube("slag", 900, 0)];
+    const bare = settleBlast(blast, 500, perLive, perDead);
+    const hooded = settleBlast(blast, 500, perLive, perDead, burn);
+    check("the hood never touches the bounty — burning slag is not an income route",
+      hooded.bounty === bare.bounty && hooded.bounty === perDead,
+      `${hooded.bounty} vs ${bare.bounty}`);
+    check("...it takes its share off the charge",
+      hooded.owed === 10 && bare.owed === 40, `${hooded.owed} vs ${bare.owed}`);
+    check("...and the netting is done on the DISCOUNTED charge, not after it",
+      hooded.net === perDead - 10, String(hooded.net));
+    // BEFORE THE CLAMP. The clamp forgives what a broke bay cannot pay;
+    // discounting after it would remit money that never moved, and would make
+    // the hood worth nothing at all to the near-broke player it was asked for.
+    const brokeBare = settleBlast(blast, 0, perLive, perDead);
+    const brokeHood = settleBlast(blast, 0, perLive, perDead, burn);
+    check("at $0 the hood still reduces what is actually taken",
+      brokeHood.charged < brokeBare.charged && brokeHood.charged === 10,
+      `${brokeHood.charged} vs ${brokeBare.charged}`);
+    check("...and the settlement still never drives the balance below zero",
+      0 + brokeHood.net >= 0, String(brokeHood.net));
+  }
+
+  /* -------------------------------------------------------------------------
+   * 8. THE RUN'S READOUT, and the positional tail it sits in.
+   *
+   * run.ts's advanceRun takes a growing list of bare numbers, and the file's own
+   * note says why the newest one goes on the END. Pinned with an unmistakable
+   * value, exactly as the volatile stat before it is.
+   * ----------------------------------------------------------------------- */
+  {
+    const run = newRun(1, [], 0, newTiers(), 5);
+    const after = advanceRun(run, 900, 600, 4, 10, [], run.bondCharges, 111, 222, run.thawCharges, 777);
+    check("advanceRun takes the hood's saving as argument 11",
+      after.incineratedFunds === 777, String(after.incineratedFunds));
+    check("...without disturbing the two stats in front of it",
+      after.salvagedFunds === 111 && after.volatileLosses === 222,
+      `${after.salvagedFunds} / ${after.volatileLosses}`);
+    check("...and it accumulates across bays rather than being replaced",
+      advanceRun(after, 900, 600, 4, 10, [], after.bondCharges, 0, 0, after.thawCharges, 23)
+        .incineratedFunds === 800);
+    check("a fresh run has burned nothing", run.incineratedFunds === 0);
+  }
+
+  /* -------------------------------------------------------------------------
+   * 9. THE BAY, END TO END. The only pin here that flies the real Game — the
+   * two above price the rule, this one proves the rule reaches the ledger.
+   * ----------------------------------------------------------------------- */
+  {
+    // A cube destroyed by the intake, with and without the hood: same seed,
+    // same bay, one field different. Driven through the real dump policy so the
+    // path is the one a player actually takes.
+    const play = (tier: number): { score: number; saved: number } => {
+      const cfg = makeBaseLevel(9, 7);
+      applyUpgrades(cfg, { ...newTiers(), incinerator: tier });
+      // Ratchets RETURN a config rather than mutating one (hazards.ts), the
+      // same layering winnability.ts's counter mode uses: base ladder, ship,
+      // then the conditions it is flown in.
+      const flown = applyRatchets(cfg, { slag: 3 });
+      flown.startingFunds += CARRY_CAP;
+      const out = runBay(flown, dumpHands(bondHands(BOTS.demo(7))), 7);
+      return { score: out.endScore, saved: out.incineratedFunds };
+    };
+    const bare = play(0);
+    const hooded = play(MAX_TIER);
+    check("a bare bay's hood saves nothing at all", bare.saved === 0, String(bare.saved));
+    check("...and a hooded one saves real money on the same seed",
+      hooded.saved > 0, String(hooded.saved));
+    check("...which the bay keeps: the same seed ends richer",
+      hooded.score > bare.score, `${hooded.score} vs ${bare.score}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Volatile is billed for the cargo it destroys (level.ts / lineClear.ts / game.ts)");
 {
   const cube = (material: Material): Cube => ({

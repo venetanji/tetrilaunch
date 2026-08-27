@@ -475,9 +475,18 @@ export function btn(action: string, label: string, variant = "secondary", extra 
  *  line answers "what is this bay doing to me" and is read mid-shot, while the
  *  rack answers "what have I built" and is read at a refit stop or a glance
  *  between shots. It is also what the eighth slot is paid out of — see the
- *  header. 13px is the size the refit card already draws these at
- *  (screens.ts's refitScreen), so the two surfaces agree by construction. */
-const PLATE_MARK_PX = 13;
+ *  header.
+ *
+ *  13 -> 11 for the TENTH slot, with app.css's .ship-plate__g and .ship-plate,
+ *  all three in the same proportion so the mark keeps the air it has always had
+ *  (the arithmetic is in the stylesheet, beside the assertion that holds it).
+ *  The stylesheet is what actually sizes the drawn mark — the SVG takes its box
+ *  in ems — so this number is the AUTHORED size rather than the rendered one,
+ *  and it is kept in step so the two never disagree about what a rack mark is.
+ *  The refit card draws its own at 13 still: that surface has six cards and all
+ *  the room in the world, and matching it here would put a phone-sized
+ *  constraint on a screen that does not have one. */
+const PLATE_MARK_PX = 11;
 
 export function shipPlatesHTML(tiers: UpgradeTiers): string {
   // ONE BLOCK, not N siblings of the ability chips, and that is how the NINTH

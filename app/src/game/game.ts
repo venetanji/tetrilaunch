@@ -1030,8 +1030,9 @@ export class Game {
     // cargo went before the ledger did.
     let owed = 0;
     let saved = 0;
+    const rightEdge = chuteRightEdge(this.strandCutoffX);
     for (const p of lost) {
-      const relief = this.reliefFor(p.y);
+      const relief = this.reliefFor(p.x, p.y, rightEdge);
       const charge = chargeAfterRelief(this.level.penaltyPerLostPiece, relief);
       owed += charge;
       saved += this.level.penaltyPerLostPiece - charge;
@@ -1051,9 +1052,9 @@ export class Game {
    *  was at the moment it was destroyed. The single reader of the config seam,
    *  so the two bills (spill fine, volatile charge) cannot disagree about where
    *  the flue is. */
-  private reliefFor(y: number): number {
+  private reliefFor(x: number, y: number, rightEdge: number): number {
     if (this.level.incineratorRelief <= 0) return 0;
-    return inIncinerator(y) ? this.level.incineratorRelief : 0;
+    return inIncinerator(x, y, rightEdge) ? this.level.incineratorRelief : 0;
   }
 
   /**
@@ -2365,7 +2366,7 @@ export class Game {
     // a body's position after Composite.remove, so reading it later would work
     // by accident today; recording it here says out loud that the price of a
     // blast is a function of where its victims stood when it went off.
-    const razedY = new Map<Cube, number>();
+    const razedAt = new Map<Cube, { x: number; y: number }>();
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const cube = this.cubes[i];
       const b = cube.body;
@@ -2374,7 +2375,7 @@ export class Game {
       cy += b.position.y;
       n += 1;
       razed.push(cube);
-      razedY.set(cube, b.position.y);
+      razedAt.set(cube, { x: b.position.x, y: b.position.y });
       gone.push({ x: b.position.x, y: b.position.y });
       this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -2399,7 +2400,7 @@ export class Game {
       // price. The player should see both halves land together, which is why
       // this is one place and not two.
       // THE HOOD'S RELIEF, read off each cube's LAST POSITION — the one it held
-      // when the blast razed it, captured in `razedY` above before the bodies
+      // when the blast razed it, captured in `razedAt` above before the bodies
       // were removed. A blast is the one loss path whose victims are spread
       // out, so this is where "per cube, at the moment of destruction" earns its
       // keep: a detonation that catches a shipment in the air over the machine
@@ -2407,7 +2408,10 @@ export class Game {
       const owedGross = volatileLossFor(razed, this.level.volatileLoss);
       const settled = settleBlast(
         razed, this.score, this.level.volatileLoss, this.level.slagBounty,
-        (cube) => this.reliefFor(razedY.get(cube) ?? cube.body.position.y),
+        (cube) => {
+          const p = razedAt.get(cube) ?? cube.body.position;
+          return this.reliefFor(p.x, p.y, chuteRightEdge(this.strandCutoffX));
+        },
       );
       this.score += settled.net;
       this.volatileLosses += settled.charged;
