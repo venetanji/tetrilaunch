@@ -17,8 +17,9 @@ ladder (`marks.ts`), the Skydeck's standing-clause stack (`skydeck.ts`), the
 congestion tax (`pile.ts` and `pile-metrics.ts`),
 whether the non-physics systems are wired up at all (`systems.ts`), whether a
 pattern Contract can actually be built (`patterns.ts`), what a human's session
-looks like next to a bot's (`playtest.ts`), and whether every screen fits every
-device (`uifit/`). `bots.ts`, `runner.ts` and `ratchet-model.ts` are shared
+looks like next to a bot's (`playtest.ts`), whether every screen fits every
+device (`uifit/`), and what a frame of HUD costs the DOM (`hudperf/`).
+`bots.ts`, `runner.ts` and `ratchet-model.ts` are shared
 parts rather than CLIs.
 
 This directory lives **outside** `app/src/`, so the app's own build never
@@ -46,8 +47,11 @@ npm run sim:renderperf -- --counts 0,100,200,300 --frames 240
 call; you can also invoke directly with `npx tsx sim/sweep.ts ...` /
 `npx tsx sim/perf.ts ...` from `app/`.)
 
-`perf.ts` and `renderperf/` are the two halves of one frame — physics and
-drawing — and neither is a frame on its own. A budget claim needs both.
+`perf.ts`, `renderperf/` and `hudperf/` are the three parts of one frame —
+physics, drawing, and writing the HUD's DOM — and none is a frame on its own.
+A budget claim needs all three, and on the device it was the third that bound:
+the whole canvas scene measured 0.414ms while the HUD's per-frame repaint was
+worth about 33fps.
 
 Both scripts print markdown tables to stdout and write full per-run JSON to
 `sim/results/` (gitignored — see below).
@@ -663,9 +667,54 @@ These are before/after numbers on one machine and a ranking of draw paths, not
 a device budget. They are also worthless on a loaded machine — check the run
 is alone before trusting a delta.
 
+## `hudperf/` — what does a frame of HUD cost the DOM?
+
+The third half of the frame, and on a phone it turned out to be the biggest
+one. `perf.ts` times the physics, `renderperf/` times the canvas — and neither
+of them touches `main.ts`'s `syncHud`, which writes the HUD's DOM once per
+drawn frame. The device measurement in
+`docs/superpowers/specs/2026-08-27-background-layer-split-design.md` put about
+**33fps of a 120Hz CPH2573 frame in that one call's repaint**, against 0.414ms
+for drawing the entire canvas scene.
+
+```sh
+npm run sim:hudperf                       # census + the five pins
+npm run sim:hudperf -- --frames 900
+npm run sim:hudperf -- --no-assert        # census only, never fails
+```
+
+It boots the **shipping page** — `index.html`, the real `main.ts` — drives the
+real App through the dev-only `window.__tl` handle, and counts DOM mutations
+per frame under `#overlay` with a `MutationObserver`, tallied per node. Three
+arms: an idle bay (loaded cannon, nobody touching it), a live one (firing
+whenever the cannon is loaded), and the idle one again with every CSS
+animation stilled, which is an **attribution** arm rather than a proposal —
+once `syncHud` stops writing on quiet frames, the style work left over belongs
+to running keyframes and it is worth knowing how much.
+
+**Mutation counts, not milliseconds**, for the same reason `renderperf/`'s
+draw counts travel and its timings do not: headless Chromium rasterises in
+software on a desktop CPU. A mutation is the *input* to the phone's
+style/layout/paint bill rather than a measurement of it, and a frame that
+mutates nothing cannot repaint. Chromium's own `RecalcStyleDuration` and
+`LayoutDuration` are pulled over CDP alongside as corroboration.
+
+The five pins are the contract the split has to keep, and each one exists
+because the obvious cheap fix violates it: an idle bay writes nothing but the
+clock; the clock writes once a second; the reload fill still moves on
+essentially every reloading frame (this is what a flat frame-gate breaks); no
+HUD write names a layout property; and a funds change reaches the DOM on the
+**very next frame** (this is what a time-gated throttle breaks).
+
+`systems.ts` holds the browser-less half of the same contract — that the three
+bar fills are still transforms, that the caches are still dropped in one place
+— because a fill respelled back to a `width` passes every `uifit` assertion:
+the box is identical either way, which is exactly the point.
+
 ## `uifit/` — does every screen fit every device?
 
-The only harness here that runs a browser besides `renderperf/`. `systems.ts` checks the layout
+The only harness here that runs a browser besides `renderperf/` and
+`hudperf/`. `systems.ts` checks the layout
 solver's *arithmetic*; `uifit` checks what that arithmetic plus
 `src/styles/app.css` actually **lay out** in a real engine, at real device
 viewports with real landscape safe-area insets.

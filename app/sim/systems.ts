@@ -4283,6 +4283,152 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
 }
 
 // ---------------------------------------------------------------------------
+section("The HUD's per-frame writes (main.ts syncHud, app.css bar fills)");
+// Painting the DOM HUD is worth about 33fps of a 120Hz frame on the CPH2573 —
+// measured on the device, interleaved, in a live bay, and written up in
+// docs/superpowers/specs/2026-08-27-background-layer-split-design.md. The same
+// document measured that gating syncHud to every eighth frame recovers 21.3 of
+// them, and refused to call that the fix: a flat clock throttles the reload bar
+// and the bay clock along with everything else, and those are the two readouts
+// a player would notice stuttering. What shipped instead is a split by KIND —
+// the things that move every frame move through `transform`, everything else
+// writes only when its value changes.
+//
+// sim/hudperf is where that is measured (mutation counts per frame, off the
+// live loop in a real browser). What is pinned HERE is the part that has no
+// browser in it: the SHAPE the two files have to keep for those measurements to
+// stay true. A bar fill respelled back to `width` would pass every check in
+// sim/uifit — the box is identical either way, which is the point — and would
+// quietly put the layout engine back in the frame path.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const src = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+
+  /** One rule's declaration block, by exact selector text. Comments are already
+   *  stripped above, so a selector quoted inside a comment cannot match. */
+  const rule = (selector: string): string => {
+    const at = css.indexOf(`\n${selector} {`);
+    if (at < 0) return "";
+    return css.slice(at, css.indexOf("}", at) + 1);
+  };
+
+  // THE THREE FILLS. Each is a full-width element scaled about its left edge.
+  // `width: 100%` is as load-bearing as the transform: a fill left at `width:
+  // 0%` would be scaled from nothing and would never appear at all, which is
+  // the failure a half-applied revert produces.
+  for (const sel of [".pl-goal i", ".pl-load__track i", ".pl-pwr__fill"]) {
+    const body = rule(sel);
+    check(`${sel} is a full-width fill scaled about its left edge`,
+      body.includes("width: 100%") &&
+        /transform:\s*scaleX\(/.test(body) &&
+        /transform-origin:\s*left/.test(body),
+      body ? body.replace(/\s+/g, " ").slice(0, 160) : "rule not found");
+  }
+
+  // THE TRANSITIONS. The goal bar keeps one, because it is written on a payout
+  // and the slide is the payout. The two that are rewritten every frame lost
+  // theirs: a transition retargeted before it can finish is lag plus
+  // main-thread work, not smoothing. Either way it must never name `width`,
+  // which would animate layout for the length of the transition.
+  check("the goal bar's slide transitions the transform, not the width",
+    /transition:\s*transform\b/.test(rule(".pl-goal i")) &&
+      !/transition:[^;]*\bwidth\b/.test(rule(".pl-goal i")));
+  for (const sel of [".pl-load__track i", ".pl-pwr__fill"]) {
+    check(`${sel} carries no transition — it is rewritten every frame`,
+      !/transition:/.test(rule(sel)), rule(sel).replace(/\s+/g, " ").slice(0, 160));
+  }
+
+  // PROMOTION IS SCOPED. A layer held for the life of the bay is memory a phone
+  // does not have spare, so each fill is promoted only while it is the thing
+  // that is moving — the reload fill while the cannon is NOT ready, the PWR
+  // meter while a drag is live. A bare `.pl-load__track i { will-change }`
+  // would pass a naive "is it promoted" check and be the regression.
+  check("the reload fill is promoted only while it is reloading",
+    /\.pl-load:not\(\.ready\) \.pl-load__track i \{[^}]*will-change:\s*transform/.test(css) &&
+      !/^\.pl-load__track i \{[^}]*will-change/m.test(css));
+  check("the PWR fill is promoted only while a drag is live",
+    /\.hud--aiming \.pl-pwr__fill \{[^}]*will-change:\s*transform/.test(css) &&
+      !/^\.pl-pwr__fill \{[^}]*will-change/m.test(css));
+
+  // THE MARKUP'S STARTING STATE has to be spelled the way syncHud will spell
+  // it. If the HTML says `width:0%` and the first syncHud writes a transform,
+  // the bar renders at full width until that first frame lands — and on a
+  // screen that renders the HUD without ever running syncHud (the draft and
+  // refit overlays mount it behind them), it stays there.
+  const hud = hudHTML({
+    beltPreview: { bomb: false, type: "T" as const, quarterTurns: 0, empty: false, hidden: false, material: "standard" as const },
+    loaded: { bomb: false, type: "L" as const, quarterTurns: 1, empty: false, hidden: false, material: "standard" as const },
+    tier: null, target: 800, score: 200, launchCost: 20, bayNum: 1,
+    timeLimitSec: 180, timeLeftMs: 180_000, pieceSize: "std" as const,
+    bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+    thawOwned: false, thawCharges: 0,
+    autoloaderOwned: false, ratchets: {}, tiers: newTiers(),
+  });
+  check("the goal bar mounts empty, as a scale",
+    hud.includes('id="hud-goal" style="transform:scaleX(0)"'));
+  check("the reload bar mounts full, as a scale",
+    hud.includes('id="hud-load" style="transform:scaleX(1)"'));
+  check("no HUD element mounts carrying an inline width",
+    !/style="[^"]*width:/.test(hud), (hud.match(/style="[^"]*width:[^"]*"/) ?? [""])[0]);
+
+  // THE FUNCTION ITSELF. Two source properties, because there is no rAF and no
+  // compositor in this process and the shape is what can be asserted: syncHud
+  // writes no layout property inline, and every cache it keeps is dropped in
+  // one place. The second is the one that fails silently — a guard whose cache
+  // outlives its element does not throw, it leaves the new element on the
+  // stylesheet default for as long as the value it guards holds still.
+  const bodyOf = (name: string): string => {
+    const at = src.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = src.indexOf("{", at);
+    const start = i;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}" && --depth === 0) return src.slice(start, i + 1);
+    }
+    return "";
+  };
+  const sync = bodyOf("syncHud").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("syncHud exists and writes no geometry inline",
+    sync.length > 0 && !/\.style\.(width|height|top|left|right|bottom|margin|padding)\b/.test(sync),
+    (sync.match(/\.style\.\w+/g) ?? []).join(" "));
+  const forget = bodyOf("forgetHudCache");
+  check("every HUD cache is dropped in one place",
+    forget.includes("hudNodes.clear()") &&
+      forget.includes("hudShown.clear()") &&
+      forget.includes("abilityShown.clear()") &&
+      forget.includes("timeSecShown"),
+    forget.replace(/\s+/g, " ").slice(0, 200));
+  const render = bodyOf("renderOverlay");
+  check("...and renderOverlay drops them before it rewrites the overlay",
+    render.indexOf("forgetHudCache()") >= 0 &&
+      render.indexOf("forgetHudCache()") < render.indexOf("overlay.innerHTML ="));
+  // The clock is the third class in the split: it changes every frame and is
+  // read once a second. The bucket has to be formatMMSS's own arithmetic or
+  // the readout turns over on a different frame than the string says it does.
+  check("the clock is bucketed at the second it displays",
+    /Math\.max\(0,\s*Math\.ceil\(g\.timeLeftMs \/ 1000\)\)/.test(sync),
+    "syncHud no longer buckets #hud-time at whole seconds");
+  // The ability triggers are the one readout hudEl's cache cannot reach (two
+  // elements per ability, either can be absent), so the guard has to sit in
+  // front of the SELECTORS, not just the writes.
+  const ability = bodyOf("syncAbility").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("an unchanged ability never reaches querySelectorAll",
+    ability.indexOf("abilityShown") >= 0 &&
+      ability.indexOf("abilityShown") < ability.indexOf("querySelectorAll"),
+    ability.replace(/\s+/g, " ").slice(0, 200));
+}
+
+// ---------------------------------------------------------------------------
 section("The odometer (app.css .roll — the lift's readouts)");
 // Riding the tower changes the tier plate's number AND the destination panel's
 // four readouts, and one shared mechanism rolls all five so the screen makes

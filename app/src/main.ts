@@ -537,6 +537,42 @@ class App {
    * paying full price for precisely the absent ones.
    */
   private hudNodes = new Map<string, Element | null>();
+  /**
+   * What each guarded HUD write LAST PUT ON THE DOM, keyed by the same
+   * selector that keys hudNodes above.
+   *
+   * hudNodes killed the per-frame querySelector; this kills the per-frame
+   * WRITE, which is the half the device could actually feel. Measured on the
+   * CPH2573 at a confirmed 120Hz and recorded in
+   * docs/superpowers/specs/2026-08-27-background-layer-split-design.md: the
+   * HUD's per-frame repaint is worth about 33fps of the frame, and gating this
+   * whole function to every eighth frame recovered 21.3 of them. A flat gate is
+   * not the fix — it also throttles the reload bar, which genuinely moves every
+   * frame — so the split is by KIND rather than by clock: a value that has not
+   * changed writes nothing at all, and the handful that change every frame
+   * write `transform`, which composites.
+   *
+   * A CACHE RATHER THAN A DOM READ, unlike `set` below, which guards by
+   * comparing against textContent. Both are correct; this one is cheaper (no
+   * tree walk, no string materialised off the DOM) and it is the only option
+   * for a style property, where reading back what was written means reading a
+   * re-serialised value that may not match the string handed in. The price is
+   * the same discipline hudNodes already carries: it is dropped in
+   * forgetHudCache, and forgetting to drop it would leave a fresh element on
+   * the stylesheet defaults for as long as its value held still.
+   */
+  private hudShown = new Map<string, string>();
+  /** Whole seconds left on the bay clock, as last shown. #hud-time renders
+   *  mm:ss (components.ts's formatMMSS, which ceils), so it owes the DOM one
+   *  write a second — this is what stops the other 119 frames of that second
+   *  from even building the string to find out it is the same one. */
+  private timeSecShown = -1;
+  /** Each ability's `charges:armed` as last pushed to its pair of triggers
+   *  (see syncAbility). The triggers are found by querySelectorAll rather than
+   *  by id — there are two of them per ability and either can be absent — so
+   *  this guard is what keeps six live selector queries off every frame, not
+   *  just six writes. */
+  private abilityShown = new Map<string, string>();
   /** Cached once: the beat is decoration in motion, so it is never driven
    *  under prefers-reduced-motion — the same call the crest's jiggle and
    *  spark animations make in app.css. */
@@ -2157,21 +2193,9 @@ class App {
     // exactly the way the row element is not.
     const focusedToggle = (document.activeElement as HTMLElement | null)
       ?.closest("[data-toggle]")?.getAttribute("data-toggle") ?? null;
-    // Every arm below rewrites overlay.innerHTML wholesale, so any .plant on
-    // screen is about to be replaced by a fresh one carrying none of the crest
-    // variables syncHud wrote inline. Those writes are guarded by a "last value
-    // shown" cache, so without this the next value landing in the same
-    // quantised bin would skip the write and leave the new element on the
-    // stylesheet defaults — indefinitely, if the music holds steady. Cheaper to
-    // drop the cache here than to make three guards each track the element they
-    // were applied to.
-    this.crestBeatShown = -1;
-    this.crestHeatShown = -1;
-    this.crestStepShown = -1;
-    this.crestMatShown = null;
-    // Same rewrite, same reason, one line further: every node syncHud
-    // remembered belongs to the overlay that is about to stop existing.
-    this.hudNodes.clear();
+    // Every arm below rewrites overlay.innerHTML wholesale, so the HUD syncHud
+    // has been patching is about to stop existing. See forgetHudCache.
+    this.forgetHudCache();
     // WAS THE SCREEN BEING REPLACED ALREADY DIMMED? Asked of the outgoing DOM
     // rather than of a list of states, so a new modal cannot forget to join the
     // list. See app.css .modal-scrim--continued for what this suppresses.
@@ -4426,6 +4450,33 @@ class App {
   }
 
   /**
+   * Drop everything syncHud remembers about the HUD currently on screen.
+   *
+   * ONE CALL, because every cache here is remembering the same thing: which
+   * elements exist and what is already painted on them. A renderOverlay rewrite
+   * invalidates all of it at once, and splitting the reset across call sites is
+   * how one of them gets forgotten when a fourth cache is added.
+   *
+   * The failure mode is silent and long-lived rather than loud, which is why it
+   * is worth a method of its own: every guard here skips a write when the value
+   * matches what it last wrote, so a stale cache does not throw or flicker — it
+   * leaves the NEW element sitting on the stylesheet's default, indefinitely,
+   * for as long as the value it is guarding holds still. A crest whose music
+   * has settled, a launch quote in an uncongested bay and a reload bar on a
+   * loaded cannon are all values that hold still for a long time.
+   */
+  private forgetHudCache(): void {
+    this.hudNodes.clear();
+    this.hudShown.clear();
+    this.abilityShown.clear();
+    this.crestBeatShown = -1;
+    this.crestHeatShown = -1;
+    this.crestStepShown = -1;
+    this.crestMatShown = null;
+    this.timeSecShown = -1;
+  }
+
+  /**
    * One HUD node, found on first ask and remembered until the overlay is
    * rebuilt (see hudNodes). Drop-in for `overlay.querySelector` — same
    * selector, same `null` for an absent node — so every reader below reads
@@ -4441,6 +4492,76 @@ class App {
     return el;
   }
 
+  /**
+   * Scale one bar fill along its own length — the goal bar, the reload bar and
+   * the PWR meter (app.css's "THE THREE BAR FILLS").
+   *
+   * A TRANSFORM RATHER THAN A WIDTH. Each fill is a full-width element scaled
+   * about its left edge, which paints identically (a scaled element's
+   * background scales with it) and costs the layout engine nothing. That is the
+   * whole point: the reload bar is written on essentially every frame of a bay,
+   * and as a width it was a layout re-solve of the plant panel at the frame
+   * rate. Chromium's own Layout counter over a ten-second live bay fell from
+   * 152.4ms to 16.3ms when these three stopped being widths, and over an idle
+   * bay from 132.3ms to 3.3ms (sim/hudperf).
+   *
+   * QUANTISED TO FOUR PLACES, and the guard compares the STRING that would be
+   * written rather than the number behind it, so a value that rounds to where
+   * it already sits costs nothing at all. Four places is 1e-4 of the fill's own
+   * length; the widest bar track this panel produces across the device matrix
+   * measures 739 CSS px, where one step is 0.07px — a small fraction of a
+   * device pixel at any dpr, so nothing the quantum drops was ever going to be
+   * a different picture.
+   */
+  private barFill(sel: string, ratio: number): void {
+    const v = `scaleX(${ratio.toFixed(4)})`;
+    if (this.hudShown.get(sel) === v) return;
+    const el = this.hudEl<HTMLElement>(sel);
+    // Not cached on a miss: a bay that renders no such bar should keep asking
+    // hudEl (which remembers the miss for free) rather than recording a value
+    // it never wrote, which would then suppress the first real write after a
+    // remount that DOES have the bar.
+    if (!el) return;
+    el.style.transform = v;
+    this.hudShown.set(sel, v);
+  }
+
+  /**
+   * Patch the live HUD from the live Game, once per DRAWN frame.
+   *
+   * THE SPLIT THIS FUNCTION IS BUILT AROUND. Painting the DOM HUD is worth
+   * about 33fps of a 120Hz frame on the CPH2573 — measured, interleaved, in a
+   * live bay, and written up in
+   * docs/superpowers/specs/2026-08-27-background-layer-split-design.md, which
+   * also recorded that gating this call to every eighth frame recovers 21.3 of
+   * them. That gate is not what shipped, because a flat clock throttles the
+   * reload bar and the bay clock along with everything else, and the two
+   * readouts that genuinely move are the two a player would notice stuttering.
+   *
+   * So the split is by KIND:
+   *
+   *  - THINGS THAT MOVE EVERY FRAME move through `transform` (see barFill),
+   *    which the compositor applies without repainting and without asking the
+   *    layout engine anything.
+   *  - EVERYTHING ELSE — funds, combo, scrap, launches, the launch quote, the
+   *    belt, the abilities — is written only when its value actually changes.
+   *    Change-driven rather than time-driven on purpose: a payout is on screen
+   *    the next frame, where an eight-frame gate would have shown it up to 66ms
+   *    late at 120Hz.
+   *  - THINGS THAT CHANGE EVERY FRAME BUT ARE READ ONCE A SECOND — the clock —
+   *    are bucketed at the resolution they are displayed at, so the other 119
+   *    frames of that second do not even build the string.
+   *
+   * A NO-OP WRITE IS NOT FREE, which is what makes the guards worth having and
+   * is not obvious. Measured in Blink (sim/hudperf, an idle bay, 600 frames):
+   * assigning `textContent` a string identical to the one already there
+   * produced a childList mutation on all 600 frames — the text node is
+   * replaced, not compared — while assigning `style.width` a string identical
+   * to the one already there produced none, because inline style DOES compare
+   * first. The one unguarded text write on this panel therefore cost a DOM
+   * mutation, a style recalc and a layout of the meta line on every frame of
+   * every bay, for a number that changes when congestion re-prices a launch.
+   */
   private syncHud(g: Game): void {
     const set = (id: string, v: string) => {
       const el = this.hudEl(id);
@@ -4510,6 +4631,24 @@ class App {
       // only on real change at a 1/40 quantum — the style write is the only
       // cost, so silence and steady passages cost nothing. Never driven
       // under reduced motion; the var stays 0 and the CSS line is inert.
+      //
+      // THE ONE PER-FRAME WRITE THE SPLIT ABOVE DID NOT CLAIM, and worth
+      // stating rather than leaving to be rediscovered. --crest-beat feeds
+      // app.css's --crest-h, which is the HEIGHT (or width) of twelve
+      // absolutely-positioned crest strips — so unlike the three bar fills,
+      // this one cannot become a transform without fighting the jiggle
+      // animations that already own transform on those elements, which is why
+      // app.css's own note says "brightness, not transform".
+      //
+      // It is left alone on evidence rather than on principle. In a headless
+      // bay with no music tap it wrote on 49 of 600 frames; what it would cost
+      // with a live bed is unmeasured. What IS measured is that it is not the
+      // biggest thing left: with syncHud quiet on an idle bay, stilling every
+      // CSS animation on the page took Chromium's RecalcStyle over ten seconds
+      // from 202.6ms to 18.4ms (sim/hudperf's attribution arm) — so roughly
+      // nine tenths of the style work still on the frame is running keyframes,
+      // not DOM writes at all. That is the next thing to measure on a phone,
+      // and it is a different job from this one.
       if (!this.motionMQ?.matches) {
         const raw = musicLevel();
         // A dead tap and a silent one both read 0 (see audio.ts's musicTapLive).
@@ -4646,7 +4785,16 @@ class App {
       const tierIdx = g.pileTier ? g.level.pileTiers.indexOf(g.pileTier) : -1;
       const launchEl = this.hudEl("#hud-launch");
       if (launchEl) {
-        launchEl.textContent = `Launch $${g.launchCostNow}`;
+        // THROUGH `set`, and it is the whole reason this branch was rewritten.
+        // This was the one readout on the panel assigning its text
+        // unconditionally, and per the "a no-op write is not free" note over
+        // syncHud that cost a DOM mutation on 600 of 600 frames of an idle bay
+        // — the entire per-frame DOM traffic of a bay where nothing was
+        // happening, spent re-writing "Launch $20" over "Launch $20". The
+        // classList toggles beside it were always free: DOMTokenList.toggle
+        // with an explicit force is specified to skip its update steps when
+        // the class is already in the state asked for.
+        set("#hud-launch", `Launch $${g.launchCostNow}`);
         launchEl.classList.toggle("pl-meta__launch--warn", tierIdx === 0);
         launchEl.classList.toggle("pl-meta__launch--danger", tierIdx >= 1);
       }
@@ -4664,8 +4812,7 @@ class App {
     // objectiveProgress reads whichever win condition this bay is running, so
     // the bar works for a Contract's line goal and a Deep Run's funds target
     // without the HUD needing to know which mode it's in.
-    const goal = this.hudEl<HTMLElement>("#hud-goal");
-    if (goal) goal.style.width = Math.min(100, g.objectiveProgress * 100) + "%";
+    this.barFill("#hud-goal", Math.min(1, g.objectiveProgress));
     // Aim-state ✕ (see screens.ts's .cancel-aim-btn): shown only mid-drag.
     // Also drives the tutorial's aim-through fade — see app.css's Aim-through
     // block, which is scoped to .hud--aiming[data-coach].
@@ -4687,8 +4834,11 @@ class App {
     const liveRatio = this.input.liveDragRatio;
     const ratio = liveRatio ?? g.cannon.powerRatio;
     const powerPct = Math.round(ratio * 100);
-    const power = this.hudEl<HTMLElement>("#hud-power");
-    if (power) power.style.width = powerPct + "%";
+    // The meter and its figure move together but not at the same resolution:
+    // the fill carries the ratio to four places, the readout beside it rounds
+    // to a whole percent. Both are guarded, so a drag that has stalled between
+    // two percent stops still writes nothing.
+    this.barFill("#hud-power", ratio);
     set("#hud-power-val", powerPct + "%");
     // Below the floor, mid-drag: the pull as it stands would be discarded as an
     // accidental touch. Shown WHILE the finger is down, which is the only time
@@ -4703,9 +4853,21 @@ class App {
     // (render.ts's drawReloadRing). Two views of one number on purpose: the
     // ring is what you read mid-aim with your eyes on the cannon, this is what
     // you catch in peripheral vision while looking at the pile.
+    //
+    // THE ONE READOUT THAT REALLY DOES MOVE EVERY FRAME, and the reason the
+    // fix here is a split rather than a throttle: measured over 600 frames of
+    // live play, this fill's inline style changed on 563 of them (sim/hudperf).
+    // As a `width` that was a layout re-solve of the panel at the frame rate;
+    // as a scaleX on a promoted fill it is the compositor's problem, which is
+    // where a smooth thing belongs.
+    //
+    // The 60ms width transition that used to smooth it is gone with the width.
+    // A transition on a value rewritten every frame from a continuous source
+    // was never a smoothing — it was 60ms of lag, retargeted before it could
+    // finish — and the one thing it did change, the snap back to empty on a
+    // launch, reads better instant.
     const reload = g.cannon.reloadRatio(performance.now());
-    const load = this.hudEl<HTMLElement>("#hud-load");
-    if (load) load.style.width = Math.round(reload * 100) + "%";
+    this.barFill("#hud-load", reload);
     const ready = reload >= 1;
     this.hudEl("#hud-load-row")?.classList.toggle("ready", ready);
     // Audible AND felt, on the RISING edge only. syncHud runs every frame, so
@@ -4722,7 +4884,19 @@ class App {
     this.reloadWasReady = ready;
 
     if (g.timeLeftMs !== Infinity) {
-      set("#hud-time", formatMMSS(g.timeLeftMs));
+      // BUCKETED AT THE RESOLUTION IT IS READ AT. The clock moves every frame
+      // and is displayed to the whole second, which is the third class in the
+      // split over syncHud: 119 of every 120 frames at 120Hz have nothing to
+      // say here. `set` would already have caught the duplicate — this catches
+      // it one step earlier, before formatMMSS builds a string to be thrown
+      // away. The bucket is formatMMSS's own arithmetic (components.ts: a ceil
+      // over a floor at zero), copied rather than inferred so the two can
+      // never disagree about which frame the readout turns over on.
+      const sec = Math.max(0, Math.ceil(g.timeLeftMs / 1000));
+      if (sec !== this.timeSecShown) {
+        this.timeSecShown = sec;
+        set("#hud-time", formatMMSS(g.timeLeftMs));
+      }
       this.hudEl("#hud-time-chip")?.classList.toggle("pl-stat--danger", g.timeLeftMs < 20_000);
     }
 
@@ -4800,8 +4974,20 @@ class App {
    *  the live count into both badges, and mark both `armed` when the ability is
    *  currently armed (only Demolition Charges use that — the armed state is what
    *  tells the player their next launch will fire a bomb, and it has to be
-   *  unmistakable since it changes what the trigger pull does). */
+   *  unmistakable since it changes what the trigger pull does).
+   *
+   *  GUARDED ON THE WHOLE STATE, before the selectors run. hudEl's cache does
+   *  not reach here — an ability has TWO triggers on screen at once (the plant
+   *  chip and the rail button) and either can be absent — so this ran six live
+   *  querySelectorAll calls per frame across the three abilities, plus a text
+   *  write per badge, to re-state a count that changes when a charge is spent.
+   *  One string compare answers all of it, and a charge count with an armed
+   *  flag is small enough to be that string. Dropped in forgetHudCache with
+   *  everything else, so a remounted rail is repainted on its first frame. */
   private syncAbility(name: string, charges: number, armed: boolean): void {
+    const state = `${charges}:${armed ? 1 : 0}`;
+    if (this.abilityShown.get(name) === state) return;
+    this.abilityShown.set(name, state);
     this.overlay.querySelectorAll<HTMLButtonElement>(`.${name}-trigger`).forEach((b) => {
       b.disabled = charges <= 0 && !armed;
       b.classList.toggle("armed", armed);
