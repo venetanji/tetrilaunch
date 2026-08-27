@@ -4827,6 +4827,23 @@ export function contractEndModal(opts: {
    *  exits back at the sandbox — a practice Contract has no board to return
    *  to, and the daily board is not it. */
   sandbox?: boolean;
+  /** The attempt came off the SKYDECK's board (contracts.ts's
+   *  SKYDECK_CONTRACT_TIER), which is not a tier.
+   *
+   *  Same shape as `sandbox` above and for the same reason, which is the
+   *  precedent this file already set: a mode whose clear banks nothing gets a
+   *  row that SAYS so, rather than borrowing the ladder's. Without it a first
+   *  roof clear arrives here with `award.firstClear` true and takes the ladder
+   *  branch below — captioning a clear that moved nothing as "Tier 10 ·
+   *  Contracts 0/3" with three more owed and a Deep Run to fly. The settlement
+   *  was never wrong (recordContractClear banks and ticks nothing off the
+   *  ladder); the card was. It is the third time in this repo that the
+   *  celebration has outrun the state it was celebrating.
+   *
+   *  It differs from `sandbox` in exactly one way, and the difference is real:
+   *  a Tier S Contract has no board to go back to, and a Skydeck one does. So
+   *  the exits are untouched here. */
+  skydeck?: boolean;
 }): string {
   const pattern = opts.kind === "pattern";
   const supplyLabel = pattern ? "Shipments" : "Launches";
@@ -4894,6 +4911,28 @@ export function contractEndModal(opts: {
             salvage and logs no clear — re-roll it and fly it again.</span>
         </div>
         <button class="btn btn--secondary" data-action="sandbox">Tier S</button>
+      </div>`
+      : opts.skydeck
+      // THE ROOF'S OWN WIN, ahead of every award branch below rather than
+      // folded into one of them. All three of those read `progress`, which is
+      // markUnlocked's tier — a number this clear cannot move and therefore
+      // cannot honestly caption. The quiet "Already logged" replay row is no
+      // safer: its one claim is that the Contract "counted on your first
+      // clear", and off the ladder it never counted for anything.
+      //
+      // So the roof gets one row for both the first clear and every replay,
+      // because on this floor there is no difference between them worth
+      // drawing — nothing banked either time. It reuses `--quiet`'s styling
+      // (nothing moved, so nothing shouts) and the tower's own ★, which is the
+      // face the plate already wears for this floor.
+      ? `<div class="salvage-row salvage-row--quiet">
+        <div class="salvage-row__amt">★</div>
+        <div class="salvage-row__body">
+          <b>Skydeck · logged</b>
+          <span class="muted">The roof's board is not a rung, so this clear banks nothing and
+            moves no quota — the ladder is already behind you. It is on the day's record, and
+            it stays replayable.</span>
+        </div>
       </div>`
       : opts.award?.firstClear && opts.award.completedTier !== null
       ? `<div class="salvage-row salvage-row--tier-done">

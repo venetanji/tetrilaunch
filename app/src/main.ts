@@ -76,7 +76,7 @@ import {
 } from "./game/meta";
 import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
-  PATTERN_SLOT, SKYDECK_CONTRACT_TIER,
+  PATTERN_SLOT, SKYDECK_CONTRACT_TIER, isSkydeckBoard,
   type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import {
@@ -2315,6 +2315,14 @@ class App {
       }
       case "contract-end":
         if (g && this.contract) {
+          // THE SETTLEMENT'S OWN IDENTITY, carried to the card that reports it.
+          // Read off the CONTRACT rather than off the parked floor: the
+          // Contract is the thing that was settled, its tier is baked into the
+          // id recordContractClear logged, and the tower is a control the
+          // player could in principle have moved while the bay was open. Every
+          // "no salvage, no tier" claim the card makes has to be the same claim
+          // the recorder acted on, or the two disagree the moment either moves.
+          const skyContract = isSkydeckBoard(this.contract.tier);
           this.overlay.innerHTML =
             S.hudHTML(this.hudOpts(g)) +
             S.contractEndModal({
@@ -2341,6 +2349,13 @@ class App {
                   }
                 : null,
               sandbox: this.sandboxContract,
+              // ONE field, deliberately, and everything below it left alone.
+              // The obvious second edit is `nextInstall: sky ? null : …`, and
+              // it is the wrong instinct: the roof's award row never reads it,
+              // so the guard would be dead code — and a call site with two
+              // things to remember is one that will eventually remember one.
+              // The mode is stated once; the modal decides what it means.
+              skydeck: skyContract,
               progress: tierProgressFor(this.meta),
               salvageTotal: this.meta.salvage,
               nextInstall: this.nextInstall(),

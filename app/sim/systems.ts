@@ -2245,6 +2245,27 @@ section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
       after.meta.tierContracts === 0, `${after.meta.tierContracts}`);
     check("...but is still logged, so the board can show it cleared",
       after.firstClear && after.meta.claimedContracts.includes(sky.id));
+    // THE SIBLING SURFACES, as one property rather than one pin each. #140's
+    // lesson is that a lying celebration comes in sets, and the set here is
+    // everything downstream that reads ladder standing after a clear: the
+    // Workshop's counters, the menu's pips, the end card's quota line, the
+    // guide's next step. All of them are derived from tierProgressFor and
+    // nextStep, so what has to hold is that a roof clear moves NEITHER — and
+    // asserting the derivations rather than their readers is what makes a
+    // surface added tomorrow covered by this line today.
+    check("a Skydeck clear moves no tier standing at all",
+      JSON.stringify(tierProgressFor(after.meta)) === JSON.stringify(tierProgressFor(meta)),
+      JSON.stringify(tierProgressFor(after.meta)));
+    check("...and does not move the guide's next step",
+      nextStep(after.meta) === nextStep(meta), `${nextStep(meta)} -> ${nextStep(after.meta)}`);
+    // The IN-BAY progress row got this right before the end card did, and by a
+    // different route: hudOpts gates on `contract.tier === tierProgressFor().tier`
+    // (main.ts). That gate is only correct because markUnlocked can never reach
+    // the roof's tier — the check above this block — so the two are pinned
+    // together rather than separately.
+    check("the in-bay progress gate refuses a roof Contract",
+      sky.tier !== tierProgressFor(meta).tier,
+      `${sky.tier} vs ${tierProgressFor(meta).tier}`);
     // Ids embed the tier, so the roof's board can never collide with the
     // tier-10 board a player is still working through on the ladder.
     const ladder = dailyContracts(MARK_COUNT, 20260101).map((x) => x.id);
@@ -2371,6 +2392,117 @@ section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
     check("no ladder tier deals a pentomino", ladderPent === 0);
   }
 
+  // ---- The AWARD CARD has to agree with the settlement ---------------------
+  //
+  // The third instance of one bug class in this repo, and the first two are why
+  // this pin exists rather than a comment: the settlement is right and the
+  // CELEBRATORY SURFACE lies (PR #140's badge promising a seal a run could not
+  // land; the run-end card naming a tier that had opened when markUnlocked had
+  // saturated). Here recordContractClear correctly banks nothing and ticks
+  // nothing for a roof clear — and the end modal then read `award.firstClear`,
+  // took the ladder's first-clear branch, and captioned it "Tier 10 · Contracts
+  // 0/3 — 3 more Contracts and the Deep Run to complete the tier". Every word
+  // of that is about a board this clear cannot move. (codex P1, PR #154.)
+  //
+  // Asserted on the RENDERED CARD rather than on a flag, because the flag is
+  // not what lied: the modal is a chain of ternaries over award/progress and
+  // any of them can reach the ladder's copy. What has to be true is a property
+  // of the string a player reads.
+  {
+    // Each side is given the award ITS OWN settlement produces, which is the
+    // whole point of the comparison: recordContractClear pays a milestone share
+    // on the ladder and exactly 0 off it, and both arrive here with
+    // `firstClear` true. That shared flag is what made one card wear the
+    // other's copy.
+    const card = (
+      tier: number, progress: ReturnType<typeof tierProgressFor>, salvage: number,
+    ): string => contractEndModal({
+      won: true, name: "Quota Run", kind: "pattern", lines: 4, goal: 4,
+      launchesUsed: 8, launches: 0, queue: ["I", "O", "O", "T", "L", "J", "S", "S"],
+      cubesWasted: 0,
+      award: { firstClear: true, completedTier: null, salvage },
+      progress, salvageTotal: 120,
+      nextInstall: { name: "Reactor", cost: 15 },
+      skydeck: isSkydeckBoard(tier),
+    });
+    // READ AS THE PLAYER READS IT — tags stripped, entities folded. The first
+    // cut of this matched the raw HTML and went red on `class="salvage-row"`,
+    // which is markup the player never sees; a pin that cannot tell copy from a
+    // class name is a pin that will be silenced by renaming the class. Currency
+    // amounts survive stripping (salvageHTML wraps an icon and a NUMBER), which
+    // is what keeps the ladder half of this meaningful.
+    const copy = (html: string): string =>
+      html.replace(/<[^>]*>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+    const roofFixture = (): string =>
+      card(SKYDECK_CONTRACT_TIER, tierProgressFor(topMeta()), 0);
+    const roof = copy(roofFixture());
+    const ladderHtml = card(4, tierProgressFor(topMeta({ mark: 3, tierContracts: 1 })), 5);
+    const ladder = copy(ladderHtml);
+    check("a Skydeck clear's card names no tier", !/\bTier\b/.test(roof), roof.slice(0, 300));
+    check("...nor a Contracts quota", !/Contracts \d+\/\d+/.test(roof), roof.slice(0, 300));
+    check("...nor any salvage", !/salvage/i.test(roof), roof.slice(0, 300));
+    check("...nor sends the player to the Workshop",
+      !/workshop/i.test(roof) && !/data-action="workshop"/.test(roofFixture()));
+    check("...but does say the clear was logged", /logged/i.test(roof), roof.slice(0, 300));
+    // The other half, so this is a DISTINCTION and not a deletion: the ladder's
+    // card must still do all four, or "the roof says less" could be satisfied
+    // by deleting the award row for everyone.
+    check("a ladder clear's card still names its tier and quota",
+      /Tier 4/.test(ladder) && /Contracts \d+\/\d+/.test(ladder), ladder.slice(0, 300));
+    check("...and still points at the salvage and the Workshop",
+      /salvage/i.test(ladder) && /data-action="workshop"/.test(ladderHtml));
+
+    // ---- …AND THE CALL SITE ACTUALLY SAYS SO ------------------------------
+    //
+    // The checks above render the modal directly, so they prove the modal is
+    // right and say nothing about the one caller. Deleting `skydeck:` from
+    // main.ts's contract-end case left every one of them green — measured, by
+    // doing it — which is precisely the gap that let the original defect ship:
+    // the mode was known at the settlement and simply never travelled to the
+    // surface that reported it.
+    //
+    // A SOURCE property, for the reason the tower's roll pins are: there is no
+    // Game, no DOM and no overlay in this process, so what can be asserted is
+    // that the code cannot reintroduce the shape that caused it. The modal has
+    // exactly one caller and one field to forget, which is what makes this
+    // narrow enough to be worth pinning rather than brittle.
+    const mainSrc = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+      "utf8",
+    );
+    // Anchored on the CALL, by brace matching, rather than on the surrounding
+    // `case "contract-end":`. The first cut sliced between that case label and
+    // `case "howto":` and silently spanned 72,000 characters — there are two of
+    // the former and three of the latter in main.ts, and the pair it found
+    // straddled the menu, whose own `skydeck:` argument satisfied the check.
+    // Deleting the field under test left it green. An anchor that can match the
+    // wrong thing is the same defect as a pin that cannot fail.
+    const callAt = mainSrc.indexOf("S.contractEndModal({");
+    const endCase = (() => {
+      if (callAt < 0) return "";
+      let depth = 0;
+      const start = mainSrc.indexOf("{", callAt);
+      for (let i = start; i < mainSrc.length; i++) {
+        if (mainSrc[i] === "{") depth++;
+        else if (mainSrc[i] === "}" && --depth === 0) return mainSrc.slice(callAt, i + 1);
+      }
+      return "";
+    })();
+    check("the contract-end call site exists to be checked",
+      endCase.length > 0 && endCase.length < 4000, `${endCase.length} chars`);
+    check("...and tells the card which board settled it",
+      /\bskydeck:\s*\w/.test(endCase), "main.ts's contractEndModal call omits `skydeck:`");
+    // And that the value it passes is derived from the CONTRACT, not from the
+    // tower. The two agree today; they are different questions, and only one of
+    // them is the thing recordContractClear priced. Checked against the whole
+    // file rather than the call's own braces — the binding is declared just
+    // above the call, outside them, which the narrowed anchor above correctly
+    // excludes.
+    check("...derived from the settled Contract, not the parked floor",
+      /const skyContract = isSkydeckBoard\(this\.contract\.tier\)/.test(mainSrc)
+        && /\bskydeck: skyContract\b/.test(endCase),
+      "the roof identity is not read off this.contract.tier");
+  }
 }
 
 // ---------------------------------------------------------------------------
