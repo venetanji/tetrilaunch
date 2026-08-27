@@ -8608,14 +8608,24 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       listed.map((r) => r.bay).join(","));
     // The draft's third bank cell is the clause tally INSTEAD of scrap, because
     // a scrap readout on a mode with no yard can only ever be 0.
+    // S.SKYDECK_TIER, not MARK_COUNT — mirroring the fixed caller
+    // (main.ts's draftHTML). The run flies Mark 10's numbers, but the mark is
+    // an input to the bay, not the floor's name: passing it here had the
+    // between-bays eyebrow filing the day run as "Tier 10" (device report).
     const draft = S.draftScreen({
-      bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
+      bayNum: 4, tier: S.SKYDECK_TIER, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
       picksNeeded: SKYDECK_PICKS_PER_BAY, preview: [], scrap: 0, baysToRefit: null,
       standing: { active: 1, total: CLAUSE_STOPS.length, nextBay: 7 },
     });
     check("the Skydeck draft counts clauses where the ladder counts scrap",
       draft.includes(`1/${CLAUSE_STOPS.length}`) && !/Scrap/.test(draft));
+    // The eyebrow follows the plate's spelling (screens.ts's tierText): "Tier
+    // SKY", never the borrowed mark and never the sentinel's raw number.
+    check("...and its eyebrow names the floor, not the borrowed mark",
+      draft.includes("Tier SKY") && !/Tier 1[01]\b/.test(draft));
+    check("...while a ladder draft's eyebrow still prints its tier",
+      S.tierText(MARK_COUNT) === `Tier ${MARK_COUNT}`);
     const ladderDraft = S.draftScreen({
       bayNum: 4, tier: MARK_COUNT, funds: 900, carry: 120,
       offers: hazardOffers(1, 4, MARK_COUNT), ratchets: {}, selected: [],
@@ -8639,6 +8649,25 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       /scrap/i.test(S.bayClearScreen({
         bayNum: 3, bayName: "Cryo Vault", funds: 1200, target: 1100, lines: 9, scrap: 40,
       })));
+    // The bay banner — the run's title, top-center of the field. Given the
+    // sentinel it wears the tower's Sky plate and says "Skydeck" to assistive
+    // tech; the raw "tier 11" the sentinel would print as a number is exactly
+    // the leak this asserts against.
+    const skyHud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+      tier: S.SKYDECK_TIER,
+      target: 800, score: 200, launchCost: 25, bayNum: 1, timeLimitSec: 150,
+      timeLeftMs: 150_000, pieceSize: "std",
+      bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+      thawOwned: true, thawCharges: 4,
+      autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const banner = skyHud.slice(skyHud.indexOf('class="bay-banner"'), skyHud.indexOf('class="bay-banner__pips"'));
+    check("the Skydeck bay banner wears the Sky plate",
+      banner.includes('aria-label="Skydeck"') && banner.includes("tier-plate--sky"));
+    check("...and its accessible label says Skydeck, not a tier number",
+      banner.includes(", Skydeck") && !/tier 1[01]\b/i.test(banner), banner.slice(0, 160));
   }
 }
 
