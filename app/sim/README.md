@@ -42,6 +42,7 @@ npm run sim:balance -- --bays 1,2,3 --seeds 5 --bots middle,lob,flat,lob-rot --m
 npm run sim:perf -- --counts 50,100,150,200,300,400 --steps 600
 npm run sim:renderperf -- --counts 0,100,200,300 --frames 240
 npm run sim:strategy -- --system cushion --mark 7 --bay 10 --ratchets volatile:6 --seeds 96
+npm run sim:slots -- --marks 5,10 --slots 3,4,5,6,8 --seeds 8
 ```
 
 (the `--` forwards flags through the npm script to the underlying `tsx`
@@ -641,6 +642,77 @@ found), `aim-strategy-findings.md` (what the sweep found once the pilot could
 play the systems it was pricing) and `counter-systems-proposal.md` (what to
 build about it). All quote the numbers a re-run reproduces; none is a
 substitute for re-running it.
+
+## `slots.ts` — how WIDE does a rig have to be?
+
+```sh
+npx tsx sim/slots.ts --marks 5,10 --slots 3,4,5,6,8 --seeds 8
+npx tsx sim/slots.ts --marks 7 --slots 4 --content cryo --mounts mount-generic,mount-cryo --seeds 8
+npx tsx sim/slots.ts --marks 10 --slots 4,8 --content skydeck --seeds 8
+```
+
+The instrument behind the **system slots** economy (`meta.ts`'s
+`SLOT_BASE`/`SLOT_PRICES`), and it makes an axis explicit that every other sweep
+in this directory has been holding at an accidental value.
+
+`winnability.ts` and `marks.ts` both spend a Mark's budget through
+`builds.ts`'s `loadoutFor`, which walks a named priority order breadth-first —
+so how many DISTINCT systems the rig ends up carrying is a side effect of how
+long that order happens to be. **Every table in `design/balance/` was flown on
+an order of five to seven tracks, and none of them says so**, because until
+slots existed nothing turned on it.
+
+Three axes, crossed:
+
+| axis | flag | what it varies |
+|---|---|---|
+| width | `--slots` | how many systems may be MOUNTED (`builds.ts`'s `mountedLoadout`) |
+| choice | `--mounts` | WHICH ones, as a full-roster priority order |
+| content | `--content` | what the belt and the ratchet stack actually deal |
+
+`--mounts auto` (the default) picks the order whose first seat is the content's
+own answer — the lance for `cryo`, the liner for `volatile`, the rack for
+`slag` — which is what makes the viability table a test of "with the RIGHT
+choices" rather than of one fixed shopping list. Naming several orders instead
+crosses them against the content, which is the identity table.
+
+### The pilot matches the rack, and only when the belt is asking
+
+A strategy (`aim-strategies.ts`) is flown when the content has an answer AND the
+rig is carrying it; everywhere else the pilot is `naive`, which is what every
+existing table was measured on. Both halves are needed. Keying on the rack alone
+flew `clean` at ten slots with `lance` and `clean` at four with `naive` — two
+different pilots in the two cells of a paired comparison about the rig — and it
+is not a neutral swap, since `aim-strategy-findings.md` puts the lance's PLAY at
+−15 of 48 on top of a +16 rung. The wider rack would have been handed a worse
+pilot and the slot axis would have paid for it.
+
+### Read the mean, not the clears
+
+At the Tiers a slot ladder has to be priced at, the bots clear whole runs so
+rarely that `clears` is 0 in most cells and the median moves in whole bays.
+`avg` — mean bays cleared — moves in tenths and is the only readout here fine
+enough to show one slot paying for itself. The wall is still printed, and
+`winnability.ts`'s doctrine still applies: a combo that dies on bay 2 and one
+that dies on bay 9 are nothing alike.
+
+### Two biases this tool inherits and cannot fix
+
+- **The tenth slot is unmeasurable here.** The mount orders end
+  `… incinerator, magazine`, and those are precisely the two systems this
+  harness cannot fly: `marks.ts`'s CALIBRATION_TRACKS note records that the
+  Magazine "reads as a self-inflicted wound to a bot that fires on every
+  cooldown", and PR #156 measured the Incinerator at exactly **zero** for a
+  pilot that never aims into the flue. So the 8 → 10 step measures the
+  instrument, not the game, and every claim in `design/balance/system-slots.md`
+  stops at eight.
+- **One content per run.** A real ratchet stack is several axes at once, and a
+  rack that must answer all of them is worth more than any corner policy can
+  show. The `spread` profile is the closest this tool gets.
+
+### Findings
+
+`design/balance/system-slots.md`.
 
 ## `aim-strategies.ts` — the pilot, as a swappable policy
 

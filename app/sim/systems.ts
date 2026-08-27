@@ -99,6 +99,8 @@ import {
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
   skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
+  SLOT_BASE, SLOT_CAP, SLOT_PRICES, buySlot, isMounted, mountedIds, slotPrice, slotsFor,
+  stowedIds, toggleMount,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -144,7 +146,7 @@ import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
 import { GamepadPoller, stickRate } from "../src/game/gamepad";
-import { loadSettings } from "../src/lib/store";
+import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
@@ -185,7 +187,7 @@ import {
 } from "../src/game/guide";
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
-import { runNotchTallyHTML } from "../src/ui/components";
+import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
 import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
 
 let failures = 0;
@@ -1192,6 +1194,234 @@ section("Installs — what salvage buys (meta.ts)");
     (mark1.match(/class="shop-card refit-card/g) ?? []).length === 1 &&
       mark1.includes(`data-upgrade="reactor"`));
   check("a Tier-1 stop says why the yard is short", mark1.includes("opens at Tier 2"));
+}
+
+// ---------------------------------------------------------------------------
+section("System slots — the rack (meta.ts, store.ts, components.ts)");
+// ---------------------------------------------------------------------------
+// Salvage now buys HOW MANY of the systems you own can be aboard at once. The
+// design's three load-bearing claims are all here as INVARIANTS rather than as
+// numbers, because a play pass will edit the numbers first:
+//
+//   1. a slot can never buy power the Mark has not already paid for
+//   2. a stowed system is tier 0 everywhere, so a refit stop cannot sell it
+//   3. nobody's existing rig shrinks on the first launch after this build
+{
+  const withLoadout = (tiers: Partial<UpgradeTiers>, extra: Partial<MetaState> = {}): MetaState =>
+    ({ ...newMeta(), mark: MARK_COUNT - 1, loadout: { ...newTiers(), ...tiers }, ...extra });
+  /** A rig carrying `n` systems at tier 1, in UPGRADES order. */
+  const owning = (n: number, extra: Partial<MetaState> = {}): MetaState =>
+    withLoadout(
+      Object.fromEntries(UPGRADES.slice(0, n).map((u) => [u.id, 1])) as Partial<UpgradeTiers>,
+      extra,
+    );
+
+  // --- the ladder ---------------------------------------------------------
+  // Pinned as RELATIONSHIPS, not as the six numbers: the prices are the first
+  // thing a play pass will move, and a pin that only restated them would fail
+  // for the wrong reason on every edit.
+  check("the base rack is narrower than the roster",
+    SLOT_BASE >= 1 && SLOT_BASE < UPGRADES.length, `${SLOT_BASE} of ${UPGRADES.length}`);
+  check("the cap never sells a slot with nothing to put in it",
+    SLOT_CAP <= UPGRADES.length, `${SLOT_CAP} vs ${UPGRADES.length}`);
+  check("there is exactly one price per slot above the base",
+    SLOT_PRICES.length === SLOT_CAP - SLOT_BASE,
+    `${SLOT_PRICES.length} prices for ${SLOT_CAP - SLOT_BASE} slots`);
+  // Each slot is worth less than the one before it (the measured saturation
+  // curve — design/balance/system-slots.md), so a flat ladder would be a better
+  // deal every rung and the last slots would be the obvious buy.
+  check("the ladder never gets cheaper",
+    SLOT_PRICES.every((p, i) => i === 0 || p >= SLOT_PRICES[i - 1]), SLOT_PRICES.join(","));
+  check("slotPrice indexes off the base, not off zero",
+    slotPrice(SLOT_BASE) === SLOT_PRICES[0] && slotPrice(SLOT_BASE + 1) === SLOT_PRICES[1]);
+  check("a full rack has nothing left to sell", slotPrice(SLOT_CAP) === null);
+  // The whole ladder against one climb of the tier ladder. NOT affordable
+  // inside it, deliberately — this is what the endgame faucet buys (meta.ts's
+  // SLOT_PRICES note), and the day it becomes affordable in one climb it has
+  // stopped being an endgame sink.
+  check("a full rack outlasts one climb of the ladder",
+    SLOT_PRICES.reduce((a, b) => a + b, 0) > TIER_SALVAGE_BASE * MARK_COUNT,
+    `${SLOT_PRICES.reduce((a, b) => a + b, 0)} vs ${TIER_SALVAGE_BASE * MARK_COUNT}`);
+
+  // --- buying one ---------------------------------------------------------
+  const poor = { ...newMeta(), salvage: (slotPrice(SLOT_BASE) ?? 0) - 1 };
+  check("a slot is refused when the salvage is short", buySlot(poor) === null);
+  const rich = { ...newMeta(), salvage: 10_000 };
+  const bought = buySlot(rich);
+  check("buying a slot widens the rack by one",
+    bought !== null && slotsFor(bought) === SLOT_BASE + 1);
+  check("...and charges exactly the ladder's price",
+    bought !== null && rich.salvage - bought.salvage === slotPrice(SLOT_BASE));
+  check("...and does not mutate the meta it was given", slotsFor(rich) === SLOT_BASE);
+  check("a full rack refuses to widen",
+    buySlot({ ...newMeta(), salvage: 10_000, slots: SLOT_CAP }) === null);
+  check("slotsFor clamps a hand-edited rack",
+    slotsFor({ ...newMeta(), slots: -4 }) === SLOT_BASE
+      && slotsFor({ ...newMeta(), slots: 99 }) === SLOT_CAP);
+
+  // --- what is aboard -----------------------------------------------------
+  const six = owning(6);
+  check("an empty shed still cannot fly more than the rack holds",
+    mountedIds(six).length === SLOT_BASE, `${mountedIds(six).length} of 6 owned`);
+  check("...and the ones that fly are the first in RACK order",
+    mountedIds(six).join() === UPGRADES.slice(0, SLOT_BASE).map((u) => u.id).join());
+  check("the overflow reads as stowed on every surface",
+    stowedIds(six).length === 6 - SLOT_BASE);
+  const stowFirst = toggleMount(six, UPGRADES[0].id);
+  check("stowing a mounted system takes it off the rack",
+    stowFirst !== null && !isMounted(stowFirst, UPGRADES[0].id));
+  check("...and the slot it frees goes to the next system in rack order",
+    stowFirst !== null && mountedIds(stowFirst).length === SLOT_BASE
+      && mountedIds(stowFirst).includes(UPGRADES[SLOT_BASE].id));
+  check("a full rack refuses a new mount rather than evicting one to make room",
+    toggleMount(stowFirst!, UPGRADES[0].id) === null);
+  check("an unowned system cannot be mounted",
+    toggleMount(owning(2), UPGRADES[9].id) === null);
+  const three = owning(3);
+  check("a rig narrower than its rack flies everything it owns",
+    mountedIds(three).length === 3 && stowedIds(three).length === 0);
+
+  // --- claim 1: a slot cannot outrun the Mark -----------------------------
+  // The subset argument stated as arithmetic, and checked across the WHOLE
+  // ladder rather than at one Mark: this is the claim that makes slots safe to
+  // sell for a grindable currency, and a single sample would not be the claim.
+  let neverOverBudget = true;
+  for (let m = 0; m < MARK_COUNT; m++) {
+    const wide = { ...owning(UPGRADES.length, { mark: m }), slots: SLOT_CAP };
+    const narrow = { ...wide, slots: SLOT_BASE };
+    if (tiersCost(safeLoadout(narrow)) > tiersCost(safeLoadout(wide))) neverOverBudget = false;
+    if (tiersCost(safeLoadout(wide)) > budgetForMark(markUnlocked(wide))) neverOverBudget = false;
+  }
+  check("a wider rack never flies a rig the Mark has not paid for", neverOverBudget);
+  check("a hand-edited over-budget save cannot duck under the cap by stowing itself",
+    tiersCost(safeLoadout({
+      ...withLoadout({ reactor: MAX_TIER, bay: MAX_TIER }, { mark: 0 }),
+      stowed: ["bay"],
+    })) === 0);
+
+  // --- claim 2: a stowed system is tier 0 everywhere ----------------------
+  // THE ONE THE REFIT STOP TURNS ON. Scrap rungs on a system that is not
+  // aboard must not be sellable — and nothing in run.ts was taught about slots.
+  // The mask makes a stowed track tier 0, which buyUpgrade already refuses.
+  const stowedMeta = { ...owning(5), stowed: [UPGRADES[1].id] };
+  const flown = safeLoadout(stowedMeta);
+  check("a stowed system is masked to tier 0 on the way into a run",
+    flown[UPGRADES[1].id] === 0 && stowedMeta.loadout[UPGRADES[1].id] === 1);
+  check("...and the slot it freed goes to the next system in rack order",
+    flown[UPGRADES[SLOT_BASE].id] === 1);
+  const stowedRun = newRun(1, [], 200, flown, MARK_COUNT);
+  check("a refit stop cannot sell scrap rungs on a system that is not aboard",
+    buyUpgrade(stowedRun, UPGRADES[1].id, TIER_COSTS[0], MAX_TIER) === null);
+  check("...while it can still raise one that is",
+    buyUpgrade(stowedRun, UPGRADES[0].id, TIER_COSTS[0], MAX_TIER) !== null);
+  check("safeLoadout still copies rather than aliasing", flown !== stowedMeta.loadout);
+
+  // --- buying past a full rack --------------------------------------------
+  // A slot is not an ownership gate: the sale goes through and the system lands
+  // in the shed, where the player can see it and swap it in. The alternative —
+  // mountedIds's slice quietly dropping the thing just bought — is the surprise
+  // this is here to prevent.
+  const fullRack = { ...owning(SLOT_BASE, { mark: MARK_COUNT - 1 }), salvage: 10_000 };
+  const fifth = buyInstall(fullRack, UPGRADES[SLOT_BASE].id);
+  check("a full rack does not refuse the sale",
+    fifth !== null && (fifth.loadout[UPGRADES[SLOT_BASE].id] ?? 0) === 1);
+  check("...and the new system waits in the shed rather than pushing one out",
+    fifth !== null && (fifth.stowed ?? []).includes(UPGRADES[SLOT_BASE].id)
+      && mountedIds(fifth).join() === mountedIds(fullRack).join());
+  const uprated = buyInstall(fullRack, UPGRADES[0].id);
+  check("an UPRATE of something already aboard is never stowed",
+    uprated !== null && !(uprated.stowed ?? []).includes(UPGRADES[0].id)
+      && (uprated.loadout[UPGRADES[0].id] ?? 0) === 2);
+
+  // --- claim 3: nobody's rig shrinks --------------------------------------
+  // Through the REAL loadMeta, against a save written by a build that had never
+  // heard of slots. The property is an EQUALITY against the pre-slot rig — not
+  // "it still works" but "it is the same rig" — because that is the promise,
+  // and anything weaker would pass while quietly confiscating a system.
+  {
+    const prevStore = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+    });
+    try {
+      // Seven systems, no `slots` key and no `stowed` key — exactly the shape a
+      // save written before this build has.
+      const legacyLoadout = { ...newTiers() };
+      for (const u of UPGRADES.slice(0, 7)) legacyLoadout[u.id] = 1;
+      const legacy = {
+        salvage: 12, unlocks: [], runs: 40, bestBay: 9, mark: MARK_COUNT - 1,
+        tierRunDone: false, tierContracts: 1, loadout: legacyLoadout,
+        claimedContracts: [], sealedMarks: [], celebratedMark: MARK_COUNT - 1,
+        sealBreakSeen: true, skydeckCelebrated: false,
+      };
+      localStorage.setItem("tetrilaunch.meta", JSON.stringify(legacy));
+      const loaded = loadMeta();
+      check("a save that predates slots gets one for every system it owns",
+        slotsFor(loaded) === 7, `${slotsFor(loaded)} slots for 7 systems`);
+      check("...so its rig is the one it undocked with yesterday, exactly",
+        JSON.stringify(safeLoadout(loaded)) === JSON.stringify(legacyLoadout));
+      check("...and nothing is in the shed", stowedIds(loaded).length === 0);
+      // A ONE-TIME migration, not a floor: the value is written back, so the
+      // eighth system does not quietly arrive with an eighth slot.
+      saveMeta({ ...loaded, loadout: { ...loaded.loadout, [UPGRADES[7].id]: 1 } });
+      check("the grandfather is spent once, not re-granted on the next system",
+        slotsFor(loadMeta()) === 7 && stowedIds(loadMeta()).length === 1);
+      // A save written by THIS build round-trips its rack and its shed.
+      saveMeta({ ...loaded, slots: SLOT_BASE, stowed: [UPGRADES[0].id] });
+      const round = loadMeta();
+      check("a rack and a shed survive a save/load round trip",
+        slotsFor(round) === SLOT_BASE && !isMounted(round, UPGRADES[0].id));
+      // A fresh save is the base rack, never a grandfathered one.
+      localStorage.removeItem("tetrilaunch.meta");
+      check("a brand new save starts on the base rack", slotsFor(loadMeta()) === SLOT_BASE);
+    } finally {
+      if (prevStore) Object.defineProperty(globalThis, "localStorage", prevStore);
+      else delete (globalThis as unknown as Record<string, unknown>).localStorage;
+    }
+  }
+
+  // --- the rack the player sees -------------------------------------------
+  // The HUD row is the RIG now, not the catalogue (components.ts's header), so
+  // its width is the slot count and its contents are what is aboard. The FLOOR
+  // property is the one pinned hardest: the rack can never hide a system the
+  // rig is carrying, whatever width it is told.
+  // The class boundary is load-bearing: `.ship-plate__g` and `.ship-plate__pips`
+  // live INSIDE every plate, so a prefix match counts three per box and every
+  // number below would be triple.
+  const plateCount = (html: string): number =>
+    (html.match(/class="ship-plate[ "]/g) ?? []).length;
+  const fourAboard = safeLoadout(owning(4));
+  check("the rack draws one plate per slot", plateCount(shipPlatesHTML(fourAboard, 6)) === 6);
+  check("...filled with what is aboard and then with open ones",
+    (shipPlatesHTML(fourAboard, 6).match(/ship-plate--open/g) ?? []).length === 2);
+  check("a rack told nothing draws exactly the rig",
+    plateCount(shipPlatesHTML(fourAboard)) === 4
+      && !shipPlatesHTML(fourAboard).includes("ship-plate--open"));
+  check("the rack NEVER hides a system the rig is carrying",
+    plateCount(shipPlatesHTML(
+      safeLoadout({ ...owning(UPGRADES.length), slots: SLOT_CAP }), 1,
+    )) === SLOT_CAP);
+  check("...and never draws more boxes than the roster has systems",
+    plateCount(shipPlatesHTML(fourAboard, 999)) === UPGRADES.length);
+  check("an open slot carries no system's mark",
+    !shipPlatesHTML(newTiers(), SLOT_BASE).includes("<svg"));
+
+  // --- the sandbox is the free lab ----------------------------------------
+  // Tier S builds its rig from sandbox.ts rather than from the loadout, so the
+  // slot economy is not in the room. Pinned because it is a claim about a path
+  // that does NOT go through safeLoadout, and the only way to be sure of that
+  // is to fly it.
+  const labTiers = { ...newTiers() };
+  for (const u of UPGRADES) labTiers[u.id] = 2;
+  const lab = sandboxRunFor({ ...newSandbox(), tiers: labTiers });
+  check("Tier S flies every system regardless of the rack",
+    UPGRADES.every((u) => lab.tiers[u.id] === 2));
 }
 
 // ---------------------------------------------------------------------------
