@@ -1,0 +1,271 @@
+name: Desktop builds
+
+# Windows installer, macOS dmg/zip and Linux AppImage, published to a GitHub
+# Release.
+#
+# TAGS AND HAND-DISPATCHES ONLY, for the same reason android.yml rations
+# Gradle: this is three runners, one of them macOS, each downloading ~250 MB of
+# Electron and packaging a 32 MB game bundle into four artifacts. Running that
+# on every push would be minutes of paid macOS time per PR to prove something
+# no PR changes. The code itself is already gated on every push — android.yml
+# typechecks and smoke-tests, ui-fit.yml measures every screen — so by the time
+# a v* tag exists the bundle is known good and this workflow's only remaining
+# job is packaging it.
+#
+# A workflow_dispatch is the dry run: identical build, artifacts uploaded to
+# the run, no release created. Use it after changing electron-builder.yml,
+# because a packaging mistake that only shows up on macOS is not something the
+# Linux build proves.
+#
+# THERE ARE TWO WAYS A RELEASE STARTS and both have to end in the same place.
+# Someone pushes a v* tag from git and this workflow creates the release; or
+# someone publishes a release from the GitHub UI, which creates the tag on the
+# way. Those are different events — `push` and `release` — and which of them a
+# UI publish emits is not something to bet a release on, so both are listed.
+# Listing both can run this workflow twice for one release; that costs minutes,
+# not correctness, because the publish step below is idempotent. Missing the
+# only event that fires would cost a release its desktop artifacts.
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Read-only by default. Only the release job below widens this, and only to
+# contents: write, which is what creating a release and uploading assets needs.
+# The packaging matrix touches nothing in the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  # Never cancel in flight. A cancelled tag build leaves a release with some
+  # platforms' assets and not others, which looks like a shipped release and is
+  # not one.
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      # One platform's toolchain breaking should still tell you about the other
+      # two, and on a tag build you want to see every failure at once rather
+      # than discover them one re-run at a time.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows installer
+            script: dist:win
+          - os: macos-latest
+            name: macOS dmg + zip
+            script: dist:mac
+          - os: ubuntu-latest
+            name: Linux AppImage
+            script: dist:linux
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, matching android.yml and ui-fit.yml.
+          node-version: "22"
+          cache: npm
+          # Two lockfiles, two packages: app/ holds the game and its build
+          # toolchain, app/desktop/ holds Electron. desktop/README.md explains
+          # why they are not one package.
+          cache-dependency-path: |
+            app/package-lock.json
+            app/desktop/package-lock.json
+
+      # Electron's binary is ~250 MB per platform and electron-builder fetches
+      # its own helpers (appimagetool, 7za, the Windows NSIS toolchain) on top.
+      # Both land in per-user caches keyed by version, so a cache hit takes a
+      # minute or two off every leg and takes the build off the network for the
+      # part of it most likely to be flaky.
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          # The Windows locations differ; listing all of them is harmless
+          # because a path that does not exist is skipped.
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-${{ hashFiles('app/desktop/package-lock.json') }}
+          restore-keys: ${{ runner.os }}-electron-
+
+      - name: Install the app's dependencies
+        run: npm ci
+
+      # Before anything expensive. On a tag, this asserts that v1.2.3 and the
+      # committed version agree; the script explains why the tag is checked
+      # rather than written into the build.
+      - name: Check the version
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: npm --prefix desktop run check:version
+
+      # --mode native, not the plain web build: that mode is what leaves the
+      # service worker out, and a worker inside a shell that already ships every
+      # asset locally caches local files against local files while adding a
+      # stale-code hazard. app/vite.config.ts and desktop/README.md both spell
+      # this out.
+      #
+      # No VITE_REVENUECAT_* keys here, unlike android.yml's release job. The
+      # desktop shell bundles no purchase plugin, so there is no in-app store to
+      # disable — a key would be inlined into a bundle that can never reach a
+      # billing SDK.
+      - name: Build the native-mode web bundle
+        run: npm run build:native
+
+      - name: Install the desktop package's dependencies
+        run: npm ci
+        working-directory: app/desktop
+
+      # THE POSTINSTALL GOTCHA (desktop/README.md). Electron's binary is not in
+      # the tarball; a postinstall script downloads it. That script has been
+      # observed to silently not run — reproduced here on npm 10.9.7 as well as
+      # the npm 11 the README recorded — leaving node_modules/electron with a
+      # cli.js and no dist/ or path.txt. The failure surfaces much later, as
+      # electron-builder packaging an app around a missing binary, so check for
+      # the marker file and run the downloader by hand rather than trusting it.
+      #
+      # bash on all three runners: windows-latest ships Git bash, and one
+      # script beats maintaining a PowerShell copy of six lines.
+      - name: Ensure Electron's binary was actually downloaded
+        shell: bash
+        working-directory: app/desktop
+        run: |
+          if [ ! -f node_modules/electron/path.txt ]; then
+            echo "::warning::electron postinstall did not run; fetching the binary by hand"
+            (cd node_modules/electron && node install.js)
+          fi
+          test -f node_modules/electron/path.txt
+
+      # Nothing is signed. Windows gets a SmartScreen warning, macOS gets an
+      # ad-hoc signature (which arm64 requires to run at all) and a Gatekeeper
+      # prompt. electron-builder.yml documents all three; there are no
+      # certificates to add here.
+      - name: Package
+        run: npm run ${{ matrix.script }}
+        working-directory: app/desktop
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          # Installers only. release/ also holds the unpacked app trees and
+          # electron-builder's debug yml, which together are several hundred MB
+          # of things nobody downloads. A pattern that matches nothing on a
+          # given runner is fine; if-no-files-found fires only when the whole
+          # set is empty, which is what a silently broken package would look
+          # like.
+          path: |
+            app/desktop/release/*.exe
+            app/desktop/release/*.dmg
+            app/desktop/release/*.zip
+            app/desktop/release/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish release
+    needs: package
+    # Tags only, and never a dispatch. The event_name clause is not redundant
+    # with the ref check: a dispatch can be pinned to a tag ref from the Actions
+    # tab, and "a dispatch never publishes" should hold however it was started.
+    if: github.event_name != 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The one place in this workflow that can write anything.
+    permissions:
+      contents: write
+      # For `gh workflow run` against android.yml — see the dispatch step. This
+      # grant is the price of the tag-first path working at all; it is scoped to
+      # this job, so the packaging matrix still cannot start a workflow.
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: assets
+
+      - name: List what will be published
+        run: ls -lh assets
+
+      # gh, not a third-party release action: it is preinstalled on the runner,
+      # it authenticates with the job's own GITHUB_TOKEN, and it is one fewer
+      # supply-chain dependency in the job that holds the only write permission
+      # in this file.
+      #
+      # Create-or-upload rather than plain create, because the release may
+      # already exist. android.yml builds its signed bundle on `release:
+      # published`, so the normal path for a real release is a human publishing
+      # one — and by the time the matrix finishes, `gh release create` would
+      # fail on a release that is already there.
+      #
+      # `created` is not bookkeeping. It is the difference between the two entry
+      # points, and the next step needs it: see the dispatch below.
+      - name: Publish the desktop artifacts
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release $TAG exists; uploading assets into it"
+            gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "creating release $TAG"
+            gh release create "$TAG" assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Tetrilaunch ${TAG#v}" \
+              --generate-notes \
+              --verify-tag
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # THE RELEASE WE JUST CREATED DOES NOT TRIGGER ANYTHING.
+      #
+      # GitHub suppresses workflow runs for events raised by GITHUB_TOKEN, so
+      # the `release: published` that `gh release create` above emits reaches
+      # nobody — and android.yml's signed .aab hangs off exactly that event, its
+      # `push` trigger being branch-filtered to main/staging with no tags. So on
+      # the tag-first path the desktop artifacts would ship and the Android
+      # bundle would silently never be built. It has to be asked for explicitly.
+      #
+      # workflow_dispatch is the one thing that survives the suppression — it
+      # and repository_dispatch are the documented exceptions to it — which is
+      # why this is a dispatch and not, say, a second release event. android.yml
+      # already declares workflow_dispatch and its `bundle` job already runs
+      # under it, so nothing over there has to change; pinning --ref to the tag
+      # is what makes its ANDROID_VERSION_NAME resolve to the right version.
+      #
+      # Only when we created the release. If a human published it, android.yml
+      # already ran on the real `release: published` event and dispatching here
+      # would build the same bundle twice — burning a second versionCode, which
+      # is a one-way ratchet Play will not give back.
+      - name: Ask android.yml for the signed bundle
+        if: steps.publish.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"; then
+            echo "::error::could not dispatch android.yml for $TAG. The desktop artifacts are published, but the signed Android bundle is NOT built — run android.yml by hand from the Actions tab with ref $TAG."
+            exit 1
+          fi
+          echo "dispatched android.yml at $TAG"
