@@ -292,6 +292,22 @@ export interface LevelConfig {
    *  (targetScore), which is the Deep Run condition. Contracts carry no
    *  bankroll, so funds can't be their objective. */
   objectiveLines: number;
+  /** Thaw Lance charges available in THIS BAY — the "thaw one settled frozen
+   *  cube" ability (see game.ts's useThawLance). Cryo's bought counter: it pays
+   *  strikeCryo's sequencing cost ("land it, then spend a second shot hitting
+   *  it") out of a charge instead of out of a launch.
+   *
+   *  Written by run.ts's levelForRun from RunState.thawCharges, exactly as
+   *  bondBreakerCharges is, and for a reason the two modes disagree about: a
+   *  LADDER run's rack is resupplied between bays, so the field is refilled to
+   *  the tier's allowance at every bay boundary; a SKYDECK run never docks, so
+   *  what it launched with is what it has (run.ts's advanceRun, skydeck.ts's
+   *  yard bullet). upgrades.ts's `apply` writes the same rule at the config
+   *  layer for a single bay outside a run.
+   *
+   *  0 = the ship carries no lance, which is every bay until the track is
+   *  installed and every Contract (contracts.ts never calls applyUpgrades). */
+  thawCharges: number;
   /** Bond Breaker charges granted at the START of this RUN — the "shatter
    *  every joint on the field into loose cubes" special ability (see game.ts's
    *  useBondBreaker). Consumable and rare by design: the run's total stock is
@@ -1247,6 +1263,7 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // other one-off does.
     windLock: null,
     bondBreakerCharges: 0,
+    thawCharges: 0,
     // ON. sim/pile.ts measured it, the bay now SHOWS it (render.ts's
     // congestion rows light the bay floor-up and the plant's Launch price
     // glows with them), and Bay Extension buys relief from it — the three

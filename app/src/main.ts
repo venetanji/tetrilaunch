@@ -765,7 +765,7 @@ class App {
     // conservative default (a full seven-slot draft) could pick the
     // bottom-strip layout on a 360dp phone that the real rail fits fine.
     setRailSlots(railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     }));
     // The rail's edge (Controls → left-handed rail) has to be set before the
@@ -1049,6 +1049,13 @@ class App {
     const owned = {
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
     };
     const strip = this.overlay.querySelector(".kbd-hint");
@@ -1090,7 +1097,7 @@ class App {
     this.railKey = null;
     this.railSlotsLatch = RAIL_SLOTS_BASE;
     const slots = railSlotsFor({
-      bond: false, demo: false, auto: false,
+      bond: false, demo: false, thaw: false, auto: false,
       finePointer: this.finePointer(), fullscreen: fullscreenSupported(),
     });
     if (slots !== getRailSlots()) {
@@ -1125,6 +1132,13 @@ class App {
     const slots = railSlotsFor({
       bond: g.bondCharges > 0,
       demo: g.level.bombCharges > 0,
+      // The BAY'S grant, not what is left in hand — the demo idiom, and here it
+      // carries the Skydeck rule for free. levelForRun writes level.thawCharges
+      // from the run's stock at bay start, so a ladder bay that spends its rack
+      // still shows a "x0" trigger it knows will refill, while a Skydeck run
+      // that has spent the lot opens its NEXT bay at 0 and the trigger is gone
+      // for the rest of the run.
+      thaw: g.level.thawCharges > 0,
       auto: g.level.autoLaunchMs > 0,
       finePointer: this.finePointer(),
       fullscreen: fullscreenSupported(),
@@ -1182,6 +1196,8 @@ class App {
       bondCharges: g.bondCharges,
       demoOwned: g.level.bombCharges > 0,
       bombCharges: g.bombCharges,
+      thawOwned: g.level.thawCharges > 0,
+      thawCharges: g.thawCharges,
       ratchets: this.run?.ratchets ?? {},
       // Only on the bay the clause actually applies to (run.ts's levelForRun
       // guards the same boundary): it is banked at the draft BEFORE that bay,
@@ -2169,6 +2185,7 @@ class App {
             S.pauseModal(fullscreenSupported(), this.profile, {
               bond: g.bondCharges > 0,
               demo: g.level.bombCharges > 0,
+              thaw: g.level.thawCharges > 0,
               auto: g.level.autoLaunchMs > 0,
             });
         }
@@ -2579,6 +2596,20 @@ class App {
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -3013,6 +3044,7 @@ class App {
       onLineClear: () => { void successHaptic(); playLineClear(1); this.flashGoal(); },
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => { void impactHaptic(); playBondBreak(); },
+      onThawLance: () => { void tapHaptic(); },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
       onCryoShatter: () => playFx("cryoShatter"),
@@ -3069,6 +3101,20 @@ class App {
       onPieceLost: () => { void impactHaptic(); playFx("pieceLost"); },
       onBondBreak: () => {
         telemetry.ability("bond", this.game?.elapsedMs ?? 0); void impactHaptic(); playBondBreak();
+      },
+      // …and the lance, ON THE EVENT rather than at the button. Every input
+      // path converges on Game.useThawLance — the rail, the plant chip, the
+      // keyboard's C and the pad's LT — so a record wired to onGameAction
+      // counted only the two that go through the DOM and quietly under-reported
+      // every keyboard and gamepad use. That is the exact contract the event
+      // exists for (see game.ts's onBombArmed note), and it is why bond is
+      // recorded here and not at its own four call sites.
+      //
+      // The cue is a TAP, not the Bond Breaker's thump: one cube changed state,
+      // and a field-wide impact for it would tell the player something bigger
+      // happened than did.
+      onThawLance: () => {
+        telemetry.ability("thaw", this.game?.elapsedMs ?? 0); void tapHaptic();
       },
       onSettleStart: () => { void successHaptic(); playFx("settleStart"); this.showSettleNote(true); },
       onImpact: (strength) => playImpact(strength),
@@ -3370,6 +3416,10 @@ class App {
       g.bondCharges,
       g.salvagedFunds,
       g.volatileLosses,
+      // And what the bay left in the LANCE. advanceRun ignores this on the
+      // ladder — the rack is resupplied between bays there — and it is the
+      // whole of the magazine on the Skydeck, where nothing resupplies.
+      g.thawCharges,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1. Asked of the RUN, not of the bay
@@ -4579,6 +4629,9 @@ class App {
     // together via shared classes instead of hardcoded ids per trigger.
     this.syncAbility("bond", g.bondCharges, false);
     this.syncAbility("demo", g.bombCharges, g.bombArmed);
+    // Never armed: the lance fires on the tap rather than riding the next
+    // launch, so it has no armed state for a trigger to reflect.
+    this.syncAbility("thaw", g.thawCharges, false);
 
     if (this.tutorialStep !== null) this.syncCoach(g);
   }
@@ -5462,6 +5515,11 @@ class App {
     else if (a === "rotr") { g.cannon.rotateRight(); g.updateTrajectory(); }
     else if (a === "bond") g.useBondBreaker(performance.now());
     else if (a === "demo") { if (g.armBomb()) telemetry.ability("bomb-arm", g.elapsedMs); }
+    // No telemetry here: the record rides onThawLance (see startLevel), which
+    // every input path reaches. Recording at this one call site was the defect
+    // codex caught on the first push — it counted the rail and the chip and
+    // missed the keyboard and the pad.
+    else if (a === "thaw") g.useThawLance(performance.now());
     else if (a === "cancel") this.input.cancelAim();
   }
 

@@ -26,6 +26,23 @@ import { newRun, REFIT_EVERY, RUN_LEVELS, type RunState } from "./run";
  *    10's build budget and nothing else. The Deep Run's answer to a bay going
  *    wrong is "buy your way out at the next stop"; the Skydeck's answer is that
  *    there isn't one.
+ *
+ *    AND NOTHING IS RESUPPLIED EITHER, which is the same rule read one step
+ *    further and the reason the Thaw Lance has a branch in run.ts's advanceRun.
+ *    A ladder run docks three times and flies a lance rack that renews at every
+ *    bay boundary (upgrades.ts sizes the charges per BAY); a Skydeck run gets
+ *    ONE rack at undock, spends it down across ten bays, and never sees another
+ *    charge. The mode's identity is that the rig you brought is the rig you
+ *    have, and a consumable that quietly refilled itself ten times would be a
+ *    supply line the mode does not have.
+ *
+ *    Bond Breakers already worked this way everywhere (a run magazine by
+ *    design), and DEMOLITION charges still do not — they are re-granted onto a
+ *    fresh config every bay by applyUpgrades, on the Skydeck as on the ladder.
+ *    That asymmetry is left alone deliberately rather than tidied up here:
+ *    changing it is an unmeasured nerf to a mode whose per-bay rate was swept
+ *    (sim/skydeck.ts) with the rack refilling, and it belongs to whoever
+ *    re-measures it.
  *  - **One notch a bay, not the capstone's two.** hazards.ts's picksPerBay asks
  *    for two at Mark 10 because Mark 10 opens no new axis and needs somewhere
  *    to put the pressure. Here that pressure has a home already — the clauses

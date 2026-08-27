@@ -288,6 +288,127 @@ body.crt-off #app::after { display: none; }
 .modal-scrim, .modal, .draft__body { overscroll-behavior: contain; }
 .pl-mods, .guide__tabs { overscroll-behavior-x: contain; }
 
+/* ---------- The scrollbar, on the engines that draw one ----------
+   Reported from a windowed desktop build: the refit stop's shelf wearing the
+   stock Chromium scrollbar — a 15px light-grey track, a bevelled thumb and an
+   arrow button at each end, straight through a panel whose every other edge is
+   a 1px neon line. It is the one piece of chrome in the app that was still the
+   platform's rather than the game's, and it shows up on every scroller the
+   game has, not just that one: the refit shelf, the workshop shelf, the
+   leaderboard body, the controls grid, the guide list, the sandbox columns and
+   the draft body's backstop.
+
+   WHY THIS IS BEHIND `pointer: fine`, which is the load-bearing decision here.
+   A touch engine gives these panes an OVERLAY scrollbar: it floats over the
+   content, fades out, and costs the layout nothing. Authoring any
+   `::-webkit-scrollbar` rule with a width opts that scroller OUT of overlay
+   and into a classic one that takes real inline space. Measured in Chromium at
+   both pointer types: a coarse-pointer scroller is 0px of gutter unstyled and
+   10px styled; gated like this it stays 0. Ten pixels off the inline size of
+   every allowlisted pane on a 360px-tall phone is a real cost for chrome that
+   phone never shows, so the phones and both WebViews keep exactly what they
+   have and only the pointer that can actually hover a thumb gets one.
+
+   Nothing in sim/uifit would have caught that: Playwright launches headless
+   Chromium with `--hide-scrollbars`, so the harness measures every device row
+   as if no scrollbar existed — which is also why this whole area went unstyled
+   for so long, and why the numbers above were taken by hand with that flag
+   turned back off.
+
+   WEBKIT PSEUDO-ELEMENTS, NOT `scrollbar-color`, and the two cannot be mixed:
+   Chromium gives `scrollbar-color` precedence and DISCARDS the pseudo-element
+   rules when both are set, so declaring the standards pair "as a fallback"
+   here would silently throw away everything below it on the exact engine the
+   report came from. The pseudo-elements are also the only half that can do the
+   two things the report actually asks for — square corners and no arrow
+   buttons. Chromium and WebKit cover every shell this game ships in (Electron,
+   Android WebView, iOS WKWebView, Chrome, Edge, Safari), so the standards pair
+   is scoped to the engines with no pseudo-element at all — Firefox on the web
+   build — where `thin` is the same 10px Chromium resolves and the colours are
+   the closest two the property can carry. */
+@media (pointer: fine) {
+  /* 10px because that is what Chromium's own `scrollbar-width: thin` resolves
+     to, so the Firefox branch below lands on the same measurement rather than
+     a near-miss. `height` as well as `width`: the same channel has to serve a
+     horizontal scroller, and the four strips that deliberately hide theirs
+     (.pl-queue b, .pl-notch b, .pl-mods, .guide__tabs) all say `display: none`
+     from a class selector, which outranks this and keeps them hidden. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  /* The track is a channel CUT INTO the panel, so it goes darker than any
+     surface token rather than lighter — the opposite of the platform's
+     light-grey trough, which is what made it read as a foreign control. */
+  *::-webkit-scrollbar-track { background: var(--bg-deep); }
+  /* Muted accent at rest, and it climbs on hover rather than changing hue: the
+     thumb is chrome until you reach for it. --r-sm is 2px, which on a 10px bar
+     is a corner rather than a pill — the rounded default was the other half of
+     why the stock bar looked borrowed, in a design system whose largest radius
+     anywhere is 3px. The transparent border plus padding-box clip insets the
+     thumb to 6px inside its 10px channel, so the track reads as a rail the
+     thumb rides in and not as a second, wider thumb.
+
+     THE RESTING ALPHA IS AN ACCESSIBILITY FLOOR, not a taste setting, and it
+     is the number this ramp is built downwards from. WCAG 2.2 SC 1.4.11 asks
+     3:1 of a non-text UI component against what it sits on, and the thumb sits
+     on its own track. Composited over --bg-deep, 22% cyan is rgb(3, 56, 64) —
+     1.60:1, less than half the floor. A brighter hover does not rescue it: a
+     thumb has to be FOUND before it can be hovered, so the resting state is
+     the one doing the work of saying "there is a control here".
+
+     45% is the answer and it is not a nudge — it is the colour this rule
+     already called `:hover`, promoted. rgb(2, 110, 120), 3.41:1, which clears
+     the floor with room rather than sitting on it (the arithmetic minimum is
+     40.9%, and a value that close to a threshold is one antialiased edge away
+     from failing it). The ramp is then rebuilt ABOVE the new rest so the climb
+     survives: 70% for hover and full accent while dragging.
+
+     Every number measured, none eyeballed, all composited over --bg-deep:
+
+         state    alpha   composited        vs track   step from previous
+         rest      45%    rgb(2, 110, 120)    3.41:1   —
+         hover     70%    rgb(1, 169, 182)    7.16:1   2.10:1
+         active   100%    rgb(0, 240, 255)   14.52:1   2.03:1
+
+     The two steps are nearly even, where the old ramp's were 2.13 and 4.25 —
+     so the thumb reads as three deliberate states rather than one dim one and
+     two bright ones. sim/systems recomputes this table from the stylesheet and
+     tokens.css and fails if any of it drifts. */
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 240, 255, 0.45);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: var(--r-sm);
+  }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.7); background-clip: padding-box; }
+  *::-webkit-scrollbar-thumb:active { background: var(--accent); background-clip: padding-box; }
+  /* The arrow buttons the report names. They are a scroll affordance from an
+     era of 1px-precision mice, they are under the 44px tap floor this app
+     holds everywhere else, and every pane here is also reachable by wheel,
+     drag and keyboard. */
+  *::-webkit-scrollbar-button { display: none; }
+  /* Where a vertical and a horizontal bar meet, the default corner is another
+     patch of platform grey. */
+  *::-webkit-scrollbar-corner { background: var(--bg-deep); }
+
+  /* Firefox, which has no ::-webkit-scrollbar at all. Kept in its own feature
+     query rather than declared alongside: set unconditionally, `scrollbar-color`
+     wins over the pseudo-elements in Chromium and undoes the block above. */
+  @supports not selector(::-webkit-scrollbar) {
+    /* 45%, the same resting alpha as the pseudo-element thumb above, and it has
+       to clear 3:1 on its OWN — `scrollbar-color` names one thumb colour and
+       gives the page no hover or active selector to ramp from, so this single
+       value is the whole control's contrast for its whole life. The 35% it used
+       to carry composited to rgb(3, 87, 96) — 2.47:1, under the floor and with
+       nothing above it to make up the difference. Matching the Chromium rest
+       exactly also keeps the two engines drawing the same bar, which is the
+       same reason `thin` is used above: one measurement, not a near-miss. */
+    * { scrollbar-width: thin; scrollbar-color: rgba(0, 240, 255, 0.45) var(--bg-deep); }
+    /* ...and the four strips that hide their bar keep hiding it, since the
+       `display: none` they rely on is a pseudo-element rule this engine also
+       cannot see. */
+    .pl-queue b, .pl-notch b, .pl-mods, .guide__tabs { scrollbar-width: none; }
+  }
+}
+
 /* ---------- .split — the landscape two-column block ----------
    The one layout that reliably fits a landscape phone. The viewport this game
    actually runs in is about 792x360 CSS px (measured, OnePlus 12 at dpr 3):
@@ -2157,6 +2278,35 @@ body.crt-off #app::after { display: none; }
   .demo-trigger.armed { animation: none; outline: 2px solid #fff; }
 }
 
+/* Thaw Lance (see screens.ts's hudHTML / game.ts's useThawLance) — the same
+   icon-button treatment in CRYO's own colour (theme.ts's MATERIAL_SPEC reads
+   #9fe8ff for the material), because the one thing a player has to know about
+   this trigger is which cargo it acts on. It is the third accent on the rail
+   and the three must not be confusable: bond is amber, demolition is hazard
+   red, this is ice blue.
+
+   NO .armed STATE, and the absence is the design. A demolition charge rides
+   the NEXT launch, so its trigger has to say "your next shot is a bomb"; the
+   lance fires on the tap and is finished before the finger lifts, so there is
+   nothing between press and effect for an armed state to describe. */
+.thaw-btn {
+  position: relative;
+  color: #9fe8ff;
+  border-color: rgba(159, 232, 255, 0.6);
+  background: radial-gradient(circle at 35% 30%, rgba(159, 232, 255, 0.24), rgba(18, 18, 31, 0.85) 65%);
+  box-shadow: 0 0 10px rgba(159, 232, 255, 0.3), var(--shadow-hard-sm);
+}
+.thaw-btn:hover { border-color: #9fe8ff; color: #dff5ff; }
+.thaw-btn:disabled { filter: grayscale(0.7) brightness(0.55); box-shadow: none; cursor: default; }
+.thaw-btn__count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 9px;
+  background: #9fe8ff; color: #04222b;
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px; line-height: 18px;
+  text-align: center;
+}
+
 /* Desktop keyboard-hint strip — replaces the touch rail entirely on
    fine-pointer devices (mouse/trackpad). The keys shown are never hardcoded:
    screens.ts's hintStripHTML renders them from game/bindings.ts's LIVE
@@ -2263,13 +2413,15 @@ body.crt-off #app::after { display: none; }
 :root[data-profile="gamepad"] .kbd-hint { display: flex; }
 
 @media (pointer: fine) {
-  /* Keyboard covers rotate/bond/demo/cancel; only fullscreen + pause remain.
+  /* Keyboard covers rotate/bond/demo/thaw/cancel; only fullscreen + pause
+     remain.
      They sit at their conventional top-right anchor for free — the rail is
      top-anchored for everyone now (see .side-rail), which this rule used to
      ask for on its own. */
   .side-rail .rotate-btn,
   .side-rail .bond-btn,
   .side-rail .demo-btn,
+  .side-rail .thaw-btn,
   .side-rail .auto-btn,
   .side-rail .cancel-aim-btn { display: none; }
   .kbd-hint {
@@ -4055,7 +4207,14 @@ body.crt-off #app::after { display: none; }
 /* Run-mods row — horizontally scrollable (a full run can draft many stacked
    mods) with a small vertical "Run mods" label like the mockup's rail tag. */
 .pl-mods {
-  display: flex; align-items: center; gap: max(5px, calc(10.7 * var(--fpx)));
+  /* GAP 10.7 -> 8.4. The row now carries eleven items where it carried ten —
+     eight rack slots and three ability chips — so it pays its gap eleven times,
+     and at the narrowest ROOMY window in the matrix (800x600, where the plates
+     and the chips are both already sitting on their own floors) that eleventh
+     gap is the difference between the last rack slot being on screen and 18px
+     off it. Taking 2.7 units off each gap gives back more than a slot's width
+     and costs the row nothing a reader can name. */
+  display: flex; align-items: center; gap: max(4px, calc(8 * var(--fpx)));
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   /* headroom so the xN badge (top:-7px) and the B-key tag (bottom:-8px)
      survive this row's own scroll clipping */
@@ -4122,7 +4281,8 @@ body.crt-off #app::after { display: none; }
    gaps against a 209px row is. */
 [data-density="compact"] .pl-mods { padding-top: 5px; padding-bottom: 2px; gap: max(4px, calc(10.7 * var(--fpx))); }
 [data-density="compact"] .mod--bb,
-[data-density="compact"] .mod--demo { display: none; }
+[data-density="compact"] .mod--demo,
+[data-density="compact"] .mod--thaw { display: none; }
 [data-density="compact"] .pl-mods .mod,
 [data-density="compact"] .pl-mods .ship-plate { height: max(25px, calc(44 * var(--fpx))); }
 [data-density="compact"] .pl-mods .mod { width: max(30px, calc(52 * var(--fpx))); }
@@ -4176,7 +4336,15 @@ body.crt-off #app::after { display: none; }
 
    sim/uifit's `rack` assertion holds the fit; its `badge` assertion holds the
    air inside the box, which is the half that was silent. */
-[data-density="compact"] .pl-mods .ship-plate { width: clamp(26px, calc(65 * var(--fpx)), 30px); }
+/* …and the compact clamp comes down with it. The paragraph above is the
+   arithmetic for SEVEN 3-character codes; eight marks re-run it. The tightest
+   row in the matrix is the iPhone 13 mini's 209px: 8 slots + 7 gaps at the
+   row's 4.03px gap is 8w + 28.2, so w = 22.6 — hence the 22px floor, which the
+   mark can pay for where a 3-character code could not (there is no letter
+   spacing to run out of, only a box). The growth term and cap fall in the same
+   proportion, 65 -> 55 and 30 -> 26, so the shape of the slot is unchanged and
+   only its count moved. */
+[data-density="compact"] .pl-mods .ship-plate { width: clamp(22px, calc(55 * var(--fpx)), 26px); }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -4315,12 +4483,27 @@ body.crt-off #app::after { display: none; }
 .mod.k-bane { border-top-color: var(--danger); }
 
 /* Bond Breaker's plant-panel chip — glowing purple, tappable (reuses the
-   bond-breaker action; see the .bond-trigger note near .bond-btn above). */
+   bond-breaker action; see the .bond-trigger note near .bond-btn above).
+
+   74.7 -> 58 ON ALL THREE ABILITY CHIPS, and the number is the third chip's
+   fault rather than a tidy-up. The build row is BUILD tag + chips + the whole
+   ship rack, and it held two chips beside eight plates and not three: the Thaw
+   Lance's arrival pushed the last two rack slots past the row's visible edge on
+   every roomy device in the matrix (sim/uifit's `rack`, 15-92px over depending
+   on --fpx — it scales, because everything in the row does).
+
+   The width was set by ONE label, "BOND BRK", the longest string any chip
+   carries; `.mod .nm` already wraps at line-height 1.3 inside a 69.3-tall box,
+   so at 58 that label takes two lines and the other two ("DEMO", "THAW") still
+   take one. 58 x 3 gives back 50 --fpx-units against the ~60 the third chip
+   cost, and the plates gave the rest (40 -> 34, components.ts's header).
+
+   The 44px floor is untouched: it is the tap floor, and these are buttons. */
 .mod--bb {
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(122,92,255,.34), rgba(122,92,255,.10));
   border-color: var(--accent-2);
   border-top-color: var(--accent-2);
@@ -4339,7 +4522,7 @@ body.crt-off #app::after { display: none; }
   appearance: none; -webkit-appearance: none;
   font: inherit; color: inherit; margin: 0; padding: 0;
   cursor: pointer;
-  width: max(44px, calc(74.7 * var(--fpx)));
+  width: max(44px, calc(58 * var(--fpx)));
   background: linear-gradient(180deg, rgba(255,45,85,.32), rgba(255,45,85,.10));
   border-color: var(--danger);
   border-top-color: var(--danger);
@@ -4353,9 +4536,37 @@ body.crt-off #app::after { display: none; }
 }
 .mod--demo:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 
-/* No keyboard on touch — the chips' "B"/"X" key tags only make sense with one. */
+/* The lance's plant-panel chip — the same treatment in cryo's ice blue, for
+   the reason .thaw-btn states: the accent names the cargo. */
+.mod--thaw {
+  appearance: none; -webkit-appearance: none;
+  font: inherit; color: inherit; margin: 0; padding: 0;
+  cursor: pointer;
+  width: max(44px, calc(58 * var(--fpx)));
+  /* A DEEPER blue than the ink. #9fe8ff at 30% over the panel reads as grey
+     rather than as ice — the material's colour is a highlight, and a highlight
+     is the wrong thing to wash a whole box in. The wash is the same hue two
+     stops down so the chip sits beside the emitter's purple and the rack's red
+     as a third COLOUR, while the glyph, the badge and the border stay the exact
+     #9fe8ff theme.ts gives the cargo. */
+  background: linear-gradient(180deg, rgba(56,178,232,.34), rgba(56,178,232,.10));
+  border-color: #9fe8ff;
+  border-top-color: #9fe8ff;
+}
+.mod--thaw .g { color: #dff5ff; font-size: max(13px, calc(23 * var(--fpx))); text-shadow: 0 0 9px rgba(159,232,255,.75); }
+.mod--thaw .stk { background: #9fe8ff; color: #04222b; }
+.mod--thaw .key {
+  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: max(6px, calc(9.3 * var(--fpx))); background: var(--surface-3);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-dim);
+}
+.mod--thaw:hover:not(:disabled) { border-color: #dff5ff; }
+.mod--thaw:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
+
+/* No keyboard on touch — the chips' "B"/"X"/"C" key tags only make sense with
+   one. */
 @media (pointer: coarse) {
-  .mod--bb .key, .mod--demo .key { display: none; }
+  .mod--bb .key, .mod--demo .key, .mod--thaw .key { display: none; }
 }
 
 /* Ship plates — one per system, ALL SEVEN, tier shown as pips (see
@@ -4380,14 +4591,52 @@ body.crt-off #app::after { display: none; }
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  width: max(25px, calc(40 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  /* 40 -> 30 with the code swapped for the mark (components.ts's header). The
+     old width was 4.44 glyph-ems around a 3-character code; the mark is one
+     square box, so the plate keeps the same air around a narrower thing —
+     which is what buys the eighth slot its place in the row. 31 rather than the
+     8/7 of 40 the count alone would ask for (35): the row also has to hold a
+     THIRD ability chip now, and the three levers split the bill — the chips
+     gave 50 --fpx-units (74.7 -> 58), the row's gap gave 2.7 x 11 (10.7 -> 8),
+     and the plates gave the rest. The mark still sits in ~0.53em of side air at
+     this width, comfortably over sim/uifit's 0.4em badge floor. */
+  /* FLOOR 18, and it is a different number from the compact clamp's 22 below
+     on purpose: this one is the narrowest ROOMY window (800x600), where the
+     rack shares the row with three ability chips, and that one is the narrowest
+     PHONE, where the chips are hidden and the slots have the row to themselves.
+     18px still leaves the mark 0.45em of side air against sim/uifit's 0.4em
+     badge floor — a mark can be given a tighter box than a three-letter code
+     could, because there is no letter-spacing in it to run out of. */
+  width: max(18px, calc(30 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
   border-top: 2px solid var(--accent);
   box-shadow: var(--shadow-hard-sm);
 }
-.ship-plate__g { font-family: var(--font-pixel); font-size: max(6px, calc(9 * var(--fpx))); color: var(--accent); letter-spacing: 0.02em; }
+/* The mark scales with the plate the way the code used to scale with it: the
+   SVG is sized in px by components.ts and then set to a --fpx-relative box
+   here, so a plate on a small phone gets a small mark rather than a full-size
+   one crammed into a shrunken slot. `color` still does the lighting — the
+   icons stroke currentColor, so .ship-plate--empty's drained state below keeps
+   working untouched. */
+.ship-plate__g {
+  display: flex; color: var(--accent);
+  /* The MARK'S OWN scale, carried as a font-size even though nothing here sets
+     type: sim/uifit's `badge` assertion measures the plate's side air in ems of
+     "the glyph's OWN font size", and with the pixel-font size gone this element
+     would otherwise inherit the body's 16px and read every slot as crowded. So
+     the box is declared once here and the svg takes it in ems. */
+  /* 13.5, which is also components.ts's PLATE_MARK_PX at --fpx 1, so the size
+     the SVG is authored at and the box it lands in agree. The ratio to the
+     slot is what sim/uifit's `badge` floor actually constrains: air is
+     (slot - mark) / 2 and the floor is 0.4 of the mark, so a slot has to be at
+     least 1.8 marks wide. At 30 and 13.5 it is 2.2, which leaves the same room
+     the three-letter code had at regular density and more than it had on a
+     phone. */
+  font-size: max(9px, calc(13.5 * var(--fpx)));
+}
+.ship-plate__g svg { width: 1em; height: auto; }
 .ship-plate__pips { display: flex; gap: 2px; }
 .ship-plate__pips i { width: max(3px, calc(5 * var(--fpx))); height: max(3px, calc(5 * var(--fpx))); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }

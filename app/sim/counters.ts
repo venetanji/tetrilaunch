@@ -12,12 +12,19 @@
  *     a proposal; it is an instrument fix, and every number it moves was a
  *     number the harness was getting wrong.
  *
- *  2. **HYPOTHETICAL counters that do not exist.** `cushionKit` and `thawHands`
- *     are prototypes of proposed systems, run headlessly so a design proposal
- *     can quote a measurement instead of an intuition. They ship NO
- *     player-facing gameplay: the cushion is a multiplier on a `LevelConfig`
- *     seam the game already has, and the thaw rig acts through `Game`'s public
- *     cube list, exactly as a bot's hands do.
+ *  2. **HYPOTHETICAL counters that do not exist.** `cushionKit` is a prototype
+ *     of a proposed system, run headlessly so a design proposal can quote a
+ *     measurement instead of an intuition. It ships NO player-facing gameplay:
+ *     it is a multiplier on a `LevelConfig` seam the game already has.
+ *
+ * **THE THAW LANCE HAS MOVED FROM (2) TO (1).** It was the prototype this file
+ * was written to price; it is now a ship system (`upgrades.ts`'s `thaw` track),
+ * and `thawKit` below drives the SHIPPED implementation — it grants the real
+ * `LevelConfig.thawCharges` and its hands pull the real `Game.useThawLance`.
+ * The kit ids and the CLI flags are unchanged on purpose, so the before/after
+ * in the findings doc is one command run twice rather than two commands. What
+ * the numbers mean changed with it: they are no longer an upper bound on what a
+ * lance COULD be worth, they are what the lance IS worth to this pilot.
  *
  * The distinction matters to the finding, not just to the tidiness. A combo the
  * sweep calls unwinnable while the bot is holding a charge it never fires is a
@@ -25,10 +32,10 @@
  * is in the bot's hands is a statement about the game — and only that second
  * kind licenses proposing a new system.
  */
-import type { Game } from "../src/game/game";
 import type { LevelConfig } from "../src/game/level";
-import { MATERIAL_SPEC } from "../src/game/theme";
 import { VOLATILE_TRIGGER_SPEED } from "../src/game/lineClear";
+import { thawChargesFor } from "../src/game/run";
+import { MAX_TIER, TIER_COSTS } from "../src/game/upgrades";
 import type { Bot } from "./bots";
 
 /* ---------------------------------------------------------------------------
@@ -94,7 +101,7 @@ export function bondHands(base: Bot, name = `${base.name}+bond`): Bot {
  * wrapper). The price is in UPGRADE LADDER POINTS (upgrades.ts's TIER_COSTS,
  * 20/35/55 a rung) rather than in salvage or scrap, because that is the
  * currency the build budget is denominated in and the only one in which a
- * proposal can be compared against the seven systems that already exist.
+ * proposal can be compared against the systems that already exist.
  * ------------------------------------------------------------------------- */
 
 export interface CounterKit {
@@ -197,113 +204,85 @@ export function cushionThreshold(tier: number): number {
   return VOLATILE_TRIGGER_SPEED * CUSHION_TRIGGER_MULT[t - 1];
 }
 
-/* --- 2b. THE THAW RIG ---------------------------------------------------- */
+/* --- 1b. EXISTING — the THAW LANCE, which used to live in section 2 ------- */
+
+/** Ladder price per lance tier — CUMULATIVE `TIER_COSTS` (20 / 55 / 110), the
+ *  shared ladder every track pays. Derived from `upgrades.ts` rather than typed
+ *  out, now that the track is real: a re-priced ladder must not leave this
+ *  table quoting the old one into a findings doc. */
+export const THAW_TIER_COST = TIER_COSTS.map(
+  (_, i) => TIER_COSTS.slice(0, i + 1).reduce((a, b) => a + b, 0),
+);
 
 /**
- * Thaw charges a rig of `tier` carries PER BAY.
+ * Wrap a bot with a pair of hands for the Thaw Lance.
  *
- * Per bay, not per run, and that is the proposal's one real disagreement with
- * the Bond Emitter it would sit beside. A Bond Breaker is a once-a-run reset
- * ("shatter the field flat, once, where it counts most"), so a run-long
- * magazine of three is the right shape for it. Cryo is not an emergency, it is
- * a TAX: `hazards.ts` puts the material's rate at 0.07 for a first notch and
- * `belt.ts` caps the belt at one special in three, so a two-notch cryo run
- * meets several frozen shipments EVERY bay and needs an answer that renews.
- * The user's framing — "replenishable charges" — is the same reading.
+ * The same shape as `bondHands` above, and now the same KIND of thing: it pulls
+ * the shipped trigger (`Game.useThawLance`) rather than reaching into the cube
+ * list. Everything about which cube is taken, whether a charge is spent, and
+ * what an empty bay costs is therefore the game's rule and not the harness's —
+ * which is the whole reason the prototype had to be retired the moment the
+ * system landed. A wrapper that still marked cubes struck by hand would keep
+ * measuring the proposal after the implementation had diverged from it.
  *
- * Sized against the belt rather than against a feel: at `MATERIAL_BASE` 0.07
- * and a bay that lands 40-60 shipments, one notch of cryo puts 3-4 frozen
- * cubes' worth of shipment on the floor per bay. Two charges answers a first
- * notch and leaves the second notch genuinely unanswered, which is the shape
- * `upgrades.ts` gives every other track.
+ * THE RULE, deliberately the simplest honest one, held to `bondHands`'s bar:
+ * pull the trigger whenever it will do something. `useThawLance` already
+ * refuses an empty rack and a bay with nothing frozen the press can reach
+ * (returning false and spending nothing), so "whenever" costs nothing and needs
+ * no threshold of its own — the game is a better judge of a wasted charge than
+ * a wrapper is.
+ *
+ * WHAT IS STILL OPTIMISTIC, and it is the same item the findings' ledger has
+ * carried since the prototype: the lance costs this pilot no attention. A human
+ * decides between firing it and lining up the next shot; this fires it on the
+ * tick it becomes useful, every time. The launch is not consumed either way —
+ * that is the system's design, not the harness's licence — so the gap is one of
+ * timing rather than of resources.
+ *
+ * WHAT IS NO LONGER OPTIMISTIC, and this is what changed with the
+ * implementation: the prototype "never missed" and took the FIRST eligible cube
+ * in the field list. The shipped lance never misses either — it aims itself —
+ * but it takes the cube the PRESS is about to reach (lineClear.ts's
+ * nextColdCryo), which is a strictly better target than the prototype's. So the
+ * re-measurement is not a like-for-like replay of an upper bound; it is the
+ * real system, and it is entitled to come out slightly ahead of the rig that
+ * stood in for it.
  */
-export const THAW_CHARGES_PER_TIER = 2;
-
-/** Ladder price per thaw tier — the shared ladder again, as for the cushion. */
-export const THAW_TIER_COST = [20, 55, 110] as const;
-
-/**
- * Cubes the rig will not thaw below. A charge spent on a single cube sitting
- * alone in an empty bay is a charge wasted; the material's cost is a row it
- * cannot sell, so the rig waits until the frozen cube has settled with company.
- * 1 means "as soon as it is down", which is the generous reading — see the
- * upper-bound note on `thawHands`.
- */
-export const THAW_MIN_TARGETS = 1;
-
-/**
- * Wrap a bot with a hypothetical thaw rig.
- *
- * WHAT IT ACTUALLY DOES: on any tick where a cryo cube is settled and still
- * unstruck, spend a charge and mark it struck — precisely what
- * `lineClear.ts`'s `strikeCryo` does when a fast shipment hits a resting frozen
- * cube, minus the shipment. That is the proposal: a Bond-Breaker-shaped button
- * that pays the SEQUENCING cost of cryo (`strikeCryo`'s note: "cryo costs a
- * shipment: land it, then spend a second shot hitting it") out of a charge
- * instead of out of a launch.
- *
- * WHY IT IS ALSO AN UPPER BOUND, twice over:
- *
- *  - It never misses. A player striking cryo with a shipment has to land that
- *    shipment on the cube; a charge that always connects is the best case.
- *  - It costs no cooldown and no launch. The charge is a button, like the Bond
- *    Breaker, so the shot the player would have spent striking is still
- *    available for cargo.
- *
- * Both are deliberate. The question a prototype has to answer first is whether
- * the system helps AT ALL — if the most generous possible version does not
- * rescue the combo, a real one cannot, and the proposal dies cheaply. Where it
- * does rescue the combo, the gap between this and a real implementation is the
- * design work the proposal then owes.
- *
- * ONE WAY IT IS PESSIMISTIC, and it is worth naming beside the two above so the
- * bound is not read as tight in both directions: it thaws the FIRST eligible
- * cube in the field list, not the most urgent one. A player aims at the cube
- * the press is about to reach (the one `shatterColdCryo` is about to punish
- * them for); this rig may spend a charge on a cube in no danger at all. That is
- * a naive rule rather than a generous one, and the reason it stays naive is the
- * same reason `bots.ts`'s `demo` refuses to model tar: "the most urgent cryo
- * cube" is a judgement about the press band, and a proxy for it here would
- * measure the proxy.
- */
-export function thawHands(base: Bot, chargesPerBay: number, name?: string): Bot {
-  let left = chargesPerBay;
-  let lastGame: Game | null = null;
+export function thawHands(base: Bot, name?: string): Bot {
   return {
     name: name ?? `${base.name}+thaw`,
     act(g, now) {
-      // Charges renew per BAY, and a wrapper is reused across the ten bays of a
-      // deep run, so the magazine has to notice a new Game. Identity, not a
-      // counter: the driver builds one Game per bay.
-      if (g !== lastGame) { lastGame = g; left = chargesPerBay; }
-      if (left > 0) {
-        const targets = g.cubes.filter(
-          (c) => MATERIAL_SPEC[c.material].needsStrike && !c.struck
-            && c.body.velocity.x * c.body.velocity.x
-              + c.body.velocity.y * c.body.velocity.y < 1,
-        );
-        if (targets.length >= THAW_MIN_TARGETS) {
-          // One charge thaws ONE cube — the same unit a strike buys, so the
-          // charge count is comparable to the shipment count it replaces. A
-          // field-wide thaw would be a Bond Breaker for cryo, which is a
-          // different (and much larger) proposal.
-          targets[0].struck = true;
-          left -= 1;
-        }
-      }
+      // Returns false and spends nothing when there is no charge or no
+      // reachable frozen cube, so this falls through to the base bot's shot on
+      // the same tick — exactly as bondHands does on an all-welded field.
+      g.useThawLance(now);
       base.act(g, now);
     },
   };
 }
 
+/** The lance at `tier`, as a kit: the real charge grant onto the bay's config,
+ *  and the hands that fire it.
+ *
+ *  Charges come from `run.ts`'s `thawChargesFor`, so a re-tuned
+ *  THAW_CHARGES_PER_TIER moves the harness and the game together. `--mode
+ *  counter` flies ONE bay, which is the unit the ladder is sized in and the
+ *  unit a ladder run's rack renews on — so a single grant here is exactly a
+ *  ladder bay's rack, and no bay-boundary rule is being modelled or skipped. */
 export function thawKit(tier: number): CounterKit {
-  const t = Math.max(1, Math.min(THAW_TIER_COST.length, Math.floor(tier)));
-  const charges = THAW_CHARGES_PER_TIER * t;
+  const t = Math.max(1, Math.min(MAX_TIER, Math.floor(tier)));
   return {
     id: `thaw${t}`,
     name: `Thaw Lance ${t}`,
     cost: THAW_TIER_COST[t - 1],
-    hands: (bot) => thawHands(bot, charges, `${bot.name}+thaw${t}`),
+    level(cfg) {
+      // Assigned, not added: the kit IS the rig's lance for this bay, and a
+      // config that already carried one would otherwise be measured at two
+      // tiers stacked. (No `--build` order installs the track today, so this is
+      // a guard rather than a live case — see sim/builds.ts.)
+      cfg.thawCharges = thawChargesFor(t);
+    },
+    hands: (bot) => thawHands(bot, `${bot.name}+thaw${t}`),
   };
 }
 

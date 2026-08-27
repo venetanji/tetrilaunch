@@ -815,6 +815,12 @@ export class InputController {
       // Arms/disarms a demolition charge — the next launch then fires the
       // bomb along the current aim instead of the loaded piece (armBomb).
       case "demo": g.armBomb(); break;
+      // Thaws the frozen cube the press is about to reach (useThawLance). A
+      // TAP, not an arm and not a hold: it takes no aim, costs no launch and
+      // renews every bay, so there is nothing for a confirmation gesture to
+      // protect — the Bond Breaker holds because its charge is rare and its
+      // effect is the whole field.
+      case "thaw": g.useThawLance(performance.now()); break;
       // Autoloader: HELD, not tapped. setAutoHeld is idempotent, so OS key
       // repeat re-asserts the same state instead of restarting the burst.
       case "auto": g.setAutoHeld(true); break;
