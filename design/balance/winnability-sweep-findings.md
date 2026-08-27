@@ -804,6 +804,7 @@ npx tsx sim/_scratch-rebar.ts --seeds 32 --mark 10 --bay 10   # §8a, §8d
 npx tsx sim/_scratch-why.ts   --seeds 24 --mark 10 --bay 5    # §8b, the mechanism
 npx tsx sim/_scratch-drag.ts  --seeds 12 --mark 10 --bay 10   # §8c, the cap
 npx tsx sim/_scratch-drill.ts --seeds 24 --ids mat-rebar,bondbreaker,mat-magnetic,mat-cryo
+npx tsx sim/_scratch-grace.ts                                 # §8e-bis, the grace window
 ```
 
 **Tier 8 bay 10, 48 paired seeds, on staging:**
@@ -1037,6 +1038,48 @@ What the run table IS good for is the shape of the complaint, and it still
 reads: at Tier 5, `max:rebar` remains the only one of the three policies that
 finishes a run. **This change did not dethrone the rebar build; it made the
 build pay.** Whether that is enough is a play question, and §8f says so.
+
+### 8e-bis. THE GRACE WINDOW WAS A CONSUMER OF THE STROKE, and review caught it
+
+Found by review on PR #151, and it is the kind of thing a balance change drags
+behind it: a knob that slows a surface breaks whatever was sized off that
+surface's old speed.
+
+`game.ts`'s `brokeGraceSteps` exists so that *"a full line already sitting in
+the zone must get its pressing stroke — which pays out and un-brokes the player
+— before the game calls it"*. It spent that promise as a step count derived from
+`Compactor.cycleSteps`, which is the round trip of a bar running **free**. A
+dragged advance takes up to `1/rigidPressDrag(24)` = **3.88x** longer, so the
+window ran out first:
+
+| bay | undragged cycle | grace window | round trip at worst-case drag |
+|---|---:|---:|---:|
+| Tier 1 bay 1, stock | 266.7 | **386.7** | **650.7** |
+| Tier 9 bay 10, stock | 193.9 | 313.9 | 473.2 |
+| Tier 10 bay 10, `rebar:6` material rig | 167.2 | 287.2 | 407.9 |
+
+Driven rather than derived — stepping a real bar from the worst phase (just
+reversed, so it owes a full retreat and a full dragged advance) — the next
+stroke lands at step 652 where the verdict fires at 387. **The bay was declared
+broke before the press that was supposed to rescue it had happened.**
+
+**The fix counts the press instead of predicting it.** Bumping the constant
+would only move the arithmetic, and would need moving again the next time
+`RIGID_PRESS_DRAG` does. `brokeGraceSteps` stays exactly as it was and becomes
+the FLOOR — the earliest the verdict may land — and the verdict additionally
+waits for `Compactor.strokes` to advance past what it was when the countdown
+armed. A third term, the 30s `brokeGraceMaxSteps`, answers "and if a press never
+completes": a bay must always reach a verdict.
+
+**It is inert without drag, by construction and in measurement.** One undragged
+round trip always contains a completed advance, so on a bay with nothing rigid
+in front of the bar the stroke condition is already satisfied when the floor
+elapses and the verdict lands on exactly the step it always did. And **not one
+cell of §8d moved** — the Tier 10 bay 10 and Tier 8 bay 10 tables and the drill
+table all re-ran byte-identical after the fix, on every stack including the
+dragged ones. The guarantee was broken in principle and reachable by
+construction (the pin builds the bay that reaches it); across 96 measured bays
+no seed happened to arm the countdown at the phase that exposes it.
 
 ### 8f. What this does NOT claim
 

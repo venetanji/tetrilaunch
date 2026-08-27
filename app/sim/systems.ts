@@ -6083,6 +6083,79 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         check("the drag never slows the RETREAT — it costs crushing pace, not landing window",
           Math.abs(opened - (refX0 - ref.x)) < 1e-9);
       }
+
+      // THE BROKE GRACE WINDOW IS A CONSUMER OF THE STROKE, and it was sized
+      // off the UNDRAGGED one. Found by review on PR #151.
+      //
+      // game.ts's brokeGraceSteps exists so that "a full line already sitting
+      // in the zone must get its pressing stroke — which pays out and un-brokes
+      // the player — before the game calls it". It spent that promise as a step
+      // count derived from Compactor.cycleSteps, which is the round trip of a
+      // bar running free. A dragged advance takes up to 1/rigidPressDrag(CAP) =
+      // 3.88x longer, so the window fired first and the bay was declared broke
+      // BEFORE the stroke that was meant to rescue it.
+      //
+      // Two pins: the arithmetic that says the floor alone cannot carry the
+      // guarantee, and the bay-level behaviour that says the guarantee holds
+      // anyway.
+      {
+        const worst = rigidPressDrag(RIGID_PRESS_DRAG_CAP);
+        const cfg3 = makeBaseLevel(0);
+        const bar3 = new Compactor(createPhysics(cfg3).world, cfg3);
+        const span = bar3.rightX - bar3.leftX;
+        // The window game.ts computes, restated rather than imported: the field
+        // is private, and a pin that read it could not fail when it is wrong.
+        const floor = Math.min(bar3.cycleSteps + 2000 / (1000 / 60), 30_000 / (1000 / 60));
+        const draggedTrip = span / (bar3.speed * worst) + span / bar3.speed;
+        check("a dragged round trip OUTRUNS the broke grace floor — the floor cannot be the guarantee",
+          draggedTrip > floor,
+          `${draggedTrip.toFixed(0)} steps vs a ${floor.toFixed(0)}-step floor`);
+      }
+      {
+        // A bay nobody can shoot in: no funds, so the stuck-broke countdown
+        // arms on the first step every cube is at rest. A wall of RIGID cargo
+        // stands in front of the face and is still bonded, so the press is
+        // dragged for the whole window.
+        const cfg4 = makeBaseLevel(0);
+        cfg4.startingFunds = 0;
+        const g4 = new Game(cfg4, {}, 1);
+        // Bonded rebar, deep enough to reach the drag cap, sat on the floor
+        // right of the face where Game.rigidPressDrag counts it.
+        for (let i = 0; i < 8; i++) {
+          const p = createTetrisPiece(
+            g4.phys.world,
+            WALL_INNER - CELL * 1.5 - (i % 2) * CELL * 2,
+            WORLD.height - CELL * (1.5 + Math.floor(i / 2) * 2),
+            0, { x: 0, y: 0 }, "O", 0.95, "std", 1.7, "rebar",
+          );
+          g4.cubes.push(...p.cubes);
+          g4.constraints.push(...p.constraints);
+        }
+        let now4 = 0;
+        let steps4 = 0;
+        // Sampled DURING the window, not after it: the verdict is the moment
+        // this pin is about, and by then the pile may have moved.
+        let worstDragSeen = 1;
+        while (g4.status === "playing" && steps4 < 20_000) {
+          now4 += 1000 / 60;
+          worstDragSeen = Math.min(worstDragSeen, g4.rigidPressDrag);
+          g4.update(now4);
+          steps4 += 1;
+        }
+        const strokesAtVerdict = g4.compactor.strokes;
+        // NOT VACUOUS: if this bay's press were running free, the pin below
+        // would pass on the OLD math too and prove nothing at all.
+        check("the pin's own bay really does drag the press",
+          worstDragSeen < 0.5, `worst drag seen ${worstDragSeen.toFixed(3)}`);
+        check("a broke bay still ends",
+          g4.status === "lost" && g4.lossReason === "broke",
+          `${g4.status}/${g4.lossReason} after ${steps4} steps`);
+        // THE GUARANTEE. Whatever the drag did to the pace, the bay does not
+        // get called before the press it was promised has been flown.
+        check("the broke verdict never lands before one completed press",
+          strokesAtVerdict >= 1, `${strokesAtVerdict} strokes at the verdict`);
+        g4.destroy();
+      }
     }
   }
 

@@ -508,6 +508,10 @@ export class Game {
    *  update()), or null. Step-based rather than wall-clock: see
    *  brokeGraceSteps below for why. */
   private brokeSinceStep: number | null = null;
+  /** Compactor.strokes at the moment the countdown armed, or null when it is
+   *  not armed. The window's promise is "one completed press", and this is the
+   *  half that MEASURES one — see brokeGraceSteps. */
+  private brokeSinceStroke: number | null = null;
   /** Grace window (physics steps) before stuck-broke becomes a loss: one full
    *  compactor round trip (Compactor.cycleSteps, retreat to open + press back
    *  to full advance), plus a small buffer (2000ms worth of steps), capped at
@@ -519,8 +523,31 @@ export class Game {
    *  Steps, not wall-clock ms: update() doesn't run while paused, so a
    *  wall-clock deadline armed just before a long pause would already be
    *  expired the instant play resumes — the same pause-safety reasoning as
-   *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS). */
+   *  the bomb arm/fuse timers below (BOMB_ARM_STEPS/BOMB_FUSE_STEPS).
+   *
+   *  THIS IS A FLOOR, NOT THE WHOLE RULE, and it stopped being the whole rule
+   *  when the press learned to LABOUR. `cycleSteps` is the undragged round
+   *  trip; the stroke this window is guaranteeing is the one the bay is
+   *  actually flying, and a bar dragged by bonded rigid cargo
+   *  (compactor.ts's RIGID_PRESS_DRAG) advances up to 3.88x slower. Measured
+   *  on the real bays: a Tier 1 bay 1 round trip at worst-case drag takes 652
+   *  steps against a 387-step window, and Tier 10 bay 10 on a `rebar:6` belt
+   *  takes 409 against 287 — so the verdict landed BEFORE the stroke that was
+   *  supposed to be allowed to rescue it. Bumping this constant would only
+   *  move the arithmetic; the guarantee is a stroke, so update() now waits for
+   *  the stroke (brokeSinceStroke) and keeps this as the earliest it may fire.
+   *  Found by review on PR #151. */
   private readonly brokeGraceSteps: number;
+  /** The absolute ceiling on the whole broke window, however slow the press
+   *  the bay is flying.
+   *
+   *  Once the verdict waits for a completed press, something has to answer
+   *  "and what if the press never completes one" — a degenerate compactorSpeed
+   *  mutator, or a drag deep enough that a stroke outruns any sane window. It
+   *  is the same 30s this file already used to cap brokeGraceSteps, kept at the
+   *  same value and for the same reason, but now applied where it is actually
+   *  load-bearing: a bay must always reach a verdict. */
+  private readonly brokeGraceMaxSteps = 30_000 / DT;
 
   /** Ceiling on an overtime window, in physics steps — the backstop half of
    *  settleDone, and the only exit a pile in permanent contact-jitter can
@@ -1917,9 +1944,15 @@ export class Game {
     // price, so a rescue fixes both halves at once.
     if (this.score >= this.launchCostNow) {
       this.brokeSinceStep = null;
+      this.brokeSinceStroke = null;
     } else if (this.brokeSinceStep === null) {
       const allAtRest = this.cubes.every((c) => isAtRest(c.body));
-      if (allAtRest) this.brokeSinceStep = this.stepCount;
+      if (allAtRest) {
+        this.brokeSinceStep = this.stepCount;
+        // Snapshot the stroke count with it: the verdict below counts presses
+        // FROM HERE, so the two halves of the window have to arm together.
+        this.brokeSinceStroke = this.compactor.strokes;
+      }
     }
 
     // Funding target met: open the SETTLE window rather than winning on the
@@ -1938,10 +1971,7 @@ export class Game {
     } else if (this.isToppedOut()) {
       this.lossReason = "topout";
       this.setStatus("lost");
-    } else if (
-      this.brokeSinceStep !== null &&
-      this.stepCount - this.brokeSinceStep > this.brokeGraceSteps
-    ) {
+    } else if (this.brokeSinceStep !== null && this.brokeVerdictDue()) {
       this.lossReason = "broke";
       this.setStatus("lost");
     } else if (this.piecesLeft <= 0 || this.objectiveUnreachable) {
@@ -2449,6 +2479,43 @@ export class Game {
       this.scrapEarned += Math.floor((vaporized * this.level.scrapPerLine) / 4);
       this.effects.push({ kind: "salvage", x: cx, y: cy - 24, amount: refund, t0: now });
     }
+  }
+
+  /**
+   * Has the stuck-broke countdown actually run out?
+   *
+   * Two conditions, and they answer different halves of the same promise. The
+   * window exists so that "a full line already sitting in the zone must get its
+   * pressing stroke — which pays out and un-brokes the player — before the game
+   * calls it" (brokeGraceSteps). That is a promise about a STROKE, and it used
+   * to be enforced with a step count derived from an UNDRAGGED round trip:
+   *
+   *  - `brokeGraceSteps` is the floor — the earliest the verdict may land. It
+   *    is unchanged, so on every bay with nothing rigid in front of the bar the
+   *    verdict lands on exactly the step it always did. One undragged round
+   *    trip always contains a completed advance, so the stroke condition below
+   *    is already satisfied by the time this elapses and the two agree.
+   *  - the STROKE is the guarantee itself. Once the press can be dragged
+   *    (compactor.ts's RIGID_PRESS_DRAG) an advance takes up to 3.88x longer,
+   *    and the floor alone fired at 387 steps on a round trip that took 652 —
+   *    i.e. it called the bay before the rescuing press had happened. Counting
+   *    the press rather than predicting it is the fix that cannot drift again
+   *    when the drag constants move.
+   *  - `brokeGraceMaxSteps` is the backstop, because "wait for a press" needs
+   *    an answer to "and if one never comes". A bay must always reach a
+   *    verdict.
+   *
+   * Deliberately NOT a check that the press cleared anything: a stroke that
+   * finds no full row still had its chance, and a line clear cancels the
+   * countdown outright (update() clears brokeSinceStep on funds recovery), so
+   * reaching here means the stroke was flown and paid nothing.
+   */
+  private brokeVerdictDue(): boolean {
+    if (this.brokeSinceStep === null) return false;
+    const elapsed = this.stepCount - this.brokeSinceStep;
+    if (elapsed <= this.brokeGraceSteps) return false;
+    if (elapsed > this.brokeGraceMaxSteps) return true;
+    return this.compactor.strokes > (this.brokeSinceStroke ?? this.compactor.strokes);
   }
 
   /** Lose when a settled cube stacks up to the ceiling. */
