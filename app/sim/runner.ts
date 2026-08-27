@@ -20,6 +20,25 @@ export interface BayOutcome {
   lost: number;
   endScore: number;
   maxCubes: number;
+  /** The bay's own funding target (`Game.target`). Reported rather than
+   *  re-derived by the caller because `deeprun.ts` needs it to compute the
+   *  carry-over exactly as `run.ts`'s `advanceRun` does — the overshoot above
+   *  the just-cleared bay's target — and a second reading of `cfg.targetScore`
+   *  at the call site is a reading that can drift from what was played. */
+  target: number;
+  /** Scrap the BAY paid out (`Game.scrapEarned`), before `run.ts` adds the
+   *  per-bay clear bonus. Split the same way `main.ts`'s `afterBayClear`
+   *  splits it (`g.scrapEarned + g.level.scrapPerBay`), so a caller chaining
+   *  bays into a run banks the same number the game does. */
+  scrapEarned: number;
+  /** Bond Breaker charges the bay ENDED with. The run's magazine is a
+   *  consumable that crosses bay boundaries (`RunState.bondCharges`), so a
+   *  full-run driver has to thread what is left rather than re-granting it. */
+  bondsLeft: number;
+  /** What demolition charges refunded in this bay (`Game.salvagedFunds`) — a
+   *  READOUT, never income: the money already landed in the bay's score when
+   *  the charge blew. */
+  salvagedFunds: number;
 }
 
 /**
@@ -69,6 +88,10 @@ export function runBay(cfg: LevelConfig, bot: Bot, seed: number): BayOutcome {
     lost: g.lostTotal,
     endScore: g.score,
     maxCubes,
+    target: g.target,
+    scrapEarned: g.scrapEarned,
+    bondsLeft: g.bondCharges,
+    salvagedFunds: g.salvagedFunds,
   };
 
   g.destroy();
