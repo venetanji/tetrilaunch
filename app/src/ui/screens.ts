@@ -63,6 +63,19 @@ export function tierPlateHTML(tier: number, size: "menu" | "button" | "banner"):
   return `<span class="tier-plate tier-plate--${size}${tint}" aria-label="${label}"><span class="tier-plate__lbl">${sky ? "Sky" : "Tier"}</span><span class="tier-plate__n">${sky ? "★" : sbx ? "S" : tier}</span></span>`;
 }
 
+/** The tier as running text — "Tier 7", "Tier S", "Tier SKY" — for the lines
+ *  that name a tier mid-sentence (the draft eyebrow, the bay banner's
+ *  accessible label) rather than wearing the plate. The special floors follow
+ *  the plate's spelling ("S" in the number slot, "Sky" on the label) so a
+ *  screen and its eyebrow never disagree about a floor's name: a Skydeck run
+ *  is flown at Mark 10's numbers, but printing "Tier 10" here filed the day
+ *  run as a ladder run — the device-reported bug this helper exists for. */
+export function tierText(tier: number): string {
+  if (tier === SKYDECK_TIER) return "Tier SKY";
+  if (tier === SANDBOX_TIER) return "Tier S";
+  return `Tier ${tier}`;
+}
+
 /* ---------------------------------------------------------------------------
  * THE TWO CURRENCIES. Both used to print as the ♻ character — the same emoji
  * for scrap and for salvage, side by side on the refit chip and the workshop
@@ -2071,7 +2084,7 @@ export function hudHTML(opts: {
     ? `<div class="bay-banner bay-banner--contract" role="status">
         <span class="bay-banner__mode">Contract</span> ${contract.name}
       </div>`
-    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, tier ${tier}` : ""}">
+    : `<div class="bay-banner" role="status" aria-label="Bay ${bayNum} of ${RUN_LEVELS}${tier ? `, ${tier === SKYDECK_TIER ? "Skydeck" : tierText(tier)}` : ""}">
         ${tier ? tierPlateHTML(tier, "banner") : ""}
         <span class="bay-banner__mode">Bay</span>
         <span class="bay-banner__n">${bayNum}<span class="bay-banner__of">/${RUN_LEVELS}</span></span>
@@ -3700,7 +3713,7 @@ export function draftScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · ${tierText(opts.tier)}</div>
       <h2 class="display">${opts.picksNeeded > 1 ? `Ratchet ${opts.picksNeeded} axes` : "Ratchet one axis"}</h2>
       ${quotaHTML(pending, opts.picksNeeded, opts.offers.length, opts.selected.map((id) => {
         // Resolved against the whole table, not just the dealt hand: a pick is
@@ -3887,7 +3900,7 @@ export function finalScreen(opts: {
     .join("");
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal modal--draft pop" style="width:min(940px,96vw)">
-      <div class="eyebrow">Bay ${opts.bayNum} cleared · Tier ${opts.tier}</div>
+      <div class="eyebrow">Bay ${opts.bayNum} cleared · ${tierText(opts.tier)}</div>
       <h2 class="display">Final Inspection</h2>
       ${quotaHTML(ready ? 1 : 0, 1, opts.offers.length,
         ready ? [{ glyph: icon("check", 11), kind: "final" }] : [],

@@ -1223,7 +1223,11 @@ class App {
         hidden: false,
         material: g.cannon.currentMaterial,
       },
-      tier: this.run?.mark ?? null,
+      // The Skydeck flies Mark 10's numbers but is not Tier 10 to the player —
+      // the banner's plate and its accessible label follow the tower's naming
+      // (tierPlateHTML wears the Sky face for this sentinel), not the run's
+      // internal mark.
+      tier: this.run ? (this.run.skydeck ? S.SKYDECK_TIER : this.run.mark) : null,
       profile: this.profile,
       // The strip's transience (armKeyHints): every HUD mount has to carry the
       // current fade state, or a pause/draft round-trip would resurrect it.
@@ -3947,7 +3951,10 @@ class App {
       // afterBayClear, so it IS the just-cleared bay's 1-based number, and
       // makeBaseLevel(levelIndex) is the bay about to be played.
       bayNum: run.levelIndex,
-      tier: run.mark,
+      // The sentinel, not the mark, for the same reason as hudOpts: the
+      // eyebrow names the floor being flown, and a Skydeck run's floor is the
+      // Skydeck (screens.ts's tierText), not the Mark it borrows numbers from.
+      tier: run.skydeck ? S.SKYDECK_TIER : run.mark,
       funds: g.score,
       // Read the carry the RUN actually recorded rather than recomputing it, so
       // what's displayed can't drift from what the next bay's float is really
