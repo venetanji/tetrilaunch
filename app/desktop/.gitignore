@@ -1,0 +1,4 @@
+node_modules
+# electron-builder output, once packaging lands
+release/
+dist/
