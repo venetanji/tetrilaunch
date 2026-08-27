@@ -918,17 +918,53 @@ section("Installs — what salvage buys (meta.ts)");
   // run — sealing is flown, never bought), and the button has to say how many
   // Marks are still owed, because the count lives nowhere else on this screen
   // except as sockets a sighted player has to add up floor by floor.
-  const menuSeal = menuScreen(0, 0, undefined,
-    tierProgressFor(freshMeta({ mark: MARK_COUNT })),
-    { step: "seal", install: null, firstLaunch: false },
-    { unlocked: MARK_COUNT, selected: MARK_COUNT, skydeck: false, sealed: [1, 2, 3] });
+  const sealTower = (selected: number, sealed: number[]): S.TowerState =>
+    ({ unlocked: MARK_COUNT, selected, skydeck: false, sealed });
+  const sealMenu = (selected: number, sealed: number[]): string =>
+    menuScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
+      { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
+  const playButton = (html: string): string =>
+    /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+  // The car parked on Mark 10, which still owes its seal.
+  const menuSeal = sealMenu(MARK_COUNT, [1, 2, 3]);
   check("the seal step still badges exactly one action",
     (menuSeal.match(/next-badge/g) ?? []).length === 1);
-  const sealPrimary = /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(menuSeal)?.[0] ?? "";
   check("...and it is the run, because a seal is flown and not bought",
-    sealPrimary.includes("next-badge"));
+    playButton(menuSeal).includes("next-badge"));
   check("...and the button says how many Marks are left to seal",
     menuSeal.includes(`${MARK_COUNT - 3} Marks left to seal`), "no seal count on the primary");
+
+  // A BADGE IS A CLAIM ABOUT THE BUTTON UNDER IT, and at the finished ladder
+  // that button flies ONE floor: the one the car is parked on (screens.ts —
+  // "the floor you park on is what the primary action does"). A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the parked
+  // floor becomes sealed — and the primary went on wearing NEXT STEP and
+  // promising Marks were left to seal over a run that could not seal
+  // anything, because that floor already holds its stamp. (Codex P2, #140.)
+  //
+  // The claim goes, not the parking: the tower is the chooser here, it
+  // already draws an empty socket on every floor that owes one, and the
+  // subtitle points at it. Redirecting the car instead would move a player
+  // off a floor they deliberately picked — which is the re-fly-for-the-board
+  // flow — and could not be expressed in the pick's own staleness rule
+  // anyway, since that is keyed to meta.mark and meta.mark never moves again
+  // up here.
+  const menuSealed = sealMenu(3, [3, 4]);
+  check("a parked floor that is already sealed wears no seal badge",
+    !playButton(menuSealed).includes("next-badge"),
+    "the primary claims a seal it cannot earn");
+  check("...and claims no seal the run cannot land",
+    !menuSealed.includes("left to seal"));
+  // NOT A REFUSAL. Re-flying a sealed Mark for the board is a real thing to
+  // want, and the button still does it — what changed is only what it says.
+  check("...but still flies the floor, for the board",
+    playButton(menuSealed).includes('data-action="play"'));
+  // …and it still answers the question the badge stopped answering: how many
+  // are owed, and where to pick one.
+  check("...while naming the count and pointing at the tower",
+    menuSealed.includes(`${MARK_COUNT - 2} Marks still owed`)
+      && /pick one on the tower/.test(menuSealed));
+
   // ONE SUBTITLE RULE. main.ts patches this line by id while the elevator
   // travels (it must not re-render the menu mid-ride — that tears down the
   // attract demo), so the rule has to be a function both callers ask rather
@@ -936,11 +972,22 @@ section("Installs — what salvage buys (meta.ts)");
   // markup and the in-flight rewrite produce the same string for the same
   // state — the drift the seal step would otherwise have introduced.
   check("the menu's subtitle and the ride's rewrite are one rule",
-    menuSeal.includes(menuPlaySub(MARK_COUNT, 0, MARK_COUNT - 3)));
+    menuSeal.includes(menuPlaySub(MARK_COUNT, 0, { owed: MARK_COUNT - 3, sealed: false })));
+  check("...on the sealed floor as well as the unsealed one",
+    menuSealed.includes(menuPlaySub(3, 0, { owed: MARK_COUNT - 2, sealed: true })));
+  // AND THE BADGE IS ONE RULE TOO, for the same reason: the ride patches this
+  // button by id, so a badge that only the markup knew how to compute would
+  // stop being true the moment the player tapped a floor — which at the seal
+  // step is the gesture that CHANGES the answer.
+  check("the badge is the same rule on both sides of a ride",
+    S.menuPlayBadged("seal", 4, false) && !S.menuPlayBadged("seal", 4, true));
+  check("...Tier S is never the next step", !S.menuPlayBadged("run", S.SANDBOX_TIER, false));
+  check("...and every other step still badges the floor the car is on",
+    S.menuPlayBadged("run", 4, true) && !S.menuPlayBadged("contracts", 4, false));
   check("...and a ladder floor with nothing owed still counts bays",
     menuPlaySub(4, 0, null) === `Clear ${RUN_LEVELS} bays in one run`);
-  check("...and the roof still trades in clauses", menuPlaySub(S.SKYDECK_TIER, 5, 3)
-    .includes("5 standing clauses"));
+  check("...and the roof still trades in clauses",
+    menuPlaySub(S.SKYDECK_TIER, 5, { owed: 3, sealed: false }).includes("5 standing clauses"));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));

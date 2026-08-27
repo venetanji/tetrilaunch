@@ -802,13 +802,48 @@ export function baseBayPanelHTML(opts: {
  * time. A player tapping a floor at the finished ladder would have watched the
  * objective disappear.
  *
- * `sealsOwed` is non-null only while sealing is the next step (meta.ts's
- * nextStep), which is why it selects the line rather than being read from the
- * tower every time: on nine tiers out of ten the seals are a badge, not the
- * thing the game is asking for. `tier` null is the in-flight line.
+ * `seal` is non-null only while sealing is the next step (meta.ts's nextStep),
+ * which is why it selects the line rather than being read from the tower every
+ * time: on nine tiers out of ten the seals are a badge, not the thing the game
+ * is asking for. `tier` null is the in-flight line.
+ *
+ * Its `sealed` half is about the PARKED FLOOR, not the ladder — the primary
+ * flies one floor, and a floor that already holds its stamp cannot be sealed
+ * again however many the roof is still waiting for. See the note on the two
+ * seal lines below.
  */
+export interface SealPrompt {
+  /** Marks the roof is still waiting for (meta.ts's unsealedMarks). */
+  owed: number;
+  /** The floor this button would fly already holds its seal. */
+  sealed: boolean;
+}
+
+/**
+ * Does the primary wear the NEXT STEP badge with the car parked on `tier`?
+ *
+ * The same shape as menuPlaySub and for the same reason: the ride patches this
+ * button by id (main.ts's setSelectedTier), so a rule stated only inside the
+ * markup would be a rule that stops applying the moment the player taps a
+ * floor. The badge used to be a property of the STEP alone, which was fine
+ * while every step named a screen; the seal step names a floor, and a floor
+ * that already holds its stamp cannot be sealed by flying it again.
+ *
+ * `sealed` is about that floor. Tier S is never badged — the guide points at
+ * the ladder and the sandbox is not on it — and at the seal step only a ladder
+ * floor can be, since only a Mark has a seal to owe.
+ */
+export function menuPlayBadged(
+  step: NextStepId | undefined, tier: number, sealed: boolean,
+): boolean {
+  if (tier === SANDBOX_TIER) return false;
+  if (step === "run") return true;
+  if (step !== "seal") return false;
+  return tier >= 1 && tier <= MARK_COUNT && !sealed;
+}
+
 export function menuPlaySub(
-  tier: number | null, clauses: number, sealsOwed: number | null,
+  tier: number | null, clauses: number, seal: SealPrompt | null,
 ): string {
   if (tier === null) return "Elevator moving…";
   if (tier === SANDBOX_TIER) return "Any Mark, bay or Contract · own board";
@@ -824,8 +859,20 @@ export function menuPlaySub(
   // bay retried is a seal (meta.ts's recordRunEnd), and every Mark sealed
   // opens the Skydeck (skydeckOpen). Until this line the count lived only in
   // the tower's sockets and one aria-label.
-  if (sealsOwed !== null) {
-    return `${sealsOwed} Mark${sealsOwed === 1 ? "" : "s"} left to seal · win with no bay retried`;
+  //
+  // TWO LINES, because the primary flies ONE floor and the objective is a set.
+  // A seal lands without moving meta.mark, so the car stays parked exactly
+  // where it was — and on the floor it just sealed, "N Marks left to seal ·
+  // win with no bay retried" describes a run that cannot seal anything. The
+  // second line says so and hands the player back to the tower, which is the
+  // control that picks a floor and already draws an empty socket on every one
+  // that owes a stamp. It is deliberately not a refusal: re-flying a sealed
+  // Mark for the board is a real thing to want, and this button still does it.
+  if (seal) {
+    const owed = `${seal.owed} Mark${seal.owed === 1 ? "" : "s"}`;
+    return seal.sealed
+      ? `Sealed · ${owed} still owed — pick one on the tower`
+      : `${owed} left to seal · win with no bay retried`;
   }
   return `Clear ${RUN_LEVELS} bays in one run`;
 }
@@ -891,9 +938,18 @@ export function menuScreen(
   // for in words. The count comes off the tower's own list rather than a new
   // parameter: the building already draws a socket per owed Mark, and two
   // sources for one number is how they end up disagreeing.
+  //
+  // …EXCEPT ON A FLOOR THAT IS ALREADY SEALED. The badge is a claim about the
+  // button under it, and this button flies the PARKED floor. A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the floor the
+  // car is on becomes sealed, and the badge went on promising a seal that run
+  // could not land. (Codex P2, #140.) The claim goes rather than the parking:
+  // the tower is the chooser, and menuPlaySub's second line sends the player
+  // there instead of quietly driving them there.
   const sealStep = guide?.step === "seal";
-  const runStep = guide?.step === "run" || sealStep;
   const sealsOwed = MARK_COUNT - (twr.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
+  const selSealed = (twr.sealed ?? []).includes(sel);
+  const badged = menuPlayBadged(guide?.step, sel, selSealed);
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -983,15 +1039,15 @@ export function menuScreen(
              floor you park on is what the primary action does. main.ts rewrites
              the label in place while the car travels, so both faces carry ids
              rather than being found by shape. -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${runStep && !sbxSel ? " btn--next" : ""}" data-action="play" id="menu-play">${
+        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
           sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
         }</span><span class="btn__sub" id="menu-play-sub">${
           // The rule lives in menuPlaySub, because the ride rewrites this exact
           // node by id and two copies of it would drift — see the note there.
-          menuPlaySub(sel, skydeck?.length ?? 0, sealStep ? sealsOwed : null)
-        }</span></span>${runStep && !sbxSel ? nextBadgeHTML() : ""}</button>
+          menuPlaySub(sel, skydeck?.length ?? 0, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
+        }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
           // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
           // replaced the run-end "Tier N progress" banner: a sentence about

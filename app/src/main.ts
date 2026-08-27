@@ -1821,7 +1821,23 @@ class App {
     if (ttl) ttl.textContent = sbx ? "Sandbox" : tier === S.SKYDECK_TIER ? "Skydeck" : "Deep Run";
     const btn = this.overlay.querySelector<HTMLElement>("#menu-play");
     btn?.classList.toggle("btn--sbx", sbx);
-    if (sbx) btn?.classList.remove("btn--next");
+    // THE BADGE IS PER-FLOOR, so the ride has to carry it rather than only
+    // strip it on the way to Tier S. The seal step is what made it per-floor
+    // (screens.ts's menuPlayBadged): a floor that already holds its stamp
+    // cannot be sealed by flying it again, so riding onto one has to take the
+    // claim off the button and riding off one has to put it back. The chip
+    // moves with the class — it is the visible half, and removing only the
+    // glow left a "Next step" label sitting on a button that was no longer the
+    // next step (visible on the old Tier S path, which this replaces).
+    if (btn) {
+      const badged = S.menuPlayBadged(
+        nextStep(this.meta), tier, this.meta.sealedMarks.includes(tier),
+      );
+      btn.classList.toggle("btn--next", badged);
+      const chip = btn.querySelector(".next-badge");
+      if (badged && !chip) btn.insertAdjacentHTML("beforeend", S.nextBadgeHTML());
+      else if (!badged && chip) chip.remove();
+    }
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     // The DAY'S CLAUSE LIST is deliberately NOT carried across with the extras
@@ -1852,7 +1868,9 @@ class App {
     // into "Clear 10 bays in one run".
     sub.textContent = S.menuPlaySub(
       tier, this.skydeckRules().length,
-      nextStep(this.meta) === "seal" ? unsealedMarks(this.meta).length : null,
+      tier !== null && nextStep(this.meta) === "seal"
+        ? { owed: unsealedMarks(this.meta).length, sealed: this.meta.sealedMarks.includes(tier) }
+        : null,
     );
   }
 
