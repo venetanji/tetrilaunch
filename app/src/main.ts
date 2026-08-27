@@ -3,8 +3,8 @@ import { Game, type GameStatus } from "./game/game";
 import { makeBaseLevel } from "./game/level";
 import {
   newRun, advanceRun, levelForRun, finalRunScore, refitAfterBay, finalDraftFor,
-  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, buyUpgrades, bayMusic,
-  RUN_LEVELS, type RunState,
+  baysUntilRefitFor, picksForRun, standingClauses, tracksLadder, retryBreaksSeal, sealStateFor,
+  buyUpgrades, bayMusic, RUN_LEVELS, type RunState,
 } from "./game/run";
 import { clauseArmingAt, clauseDefs, skydeckRulesFor, skydeckRunFor } from "./game/skydeck";
 import { finalById, finalsForTier, type FinalDef, type FinalId } from "./game/finals";
@@ -383,6 +383,14 @@ class App {
    *  AppState — a notice that could return to the menu would be a way out of a
    *  live run with no run end filed. */
   private sealBreakBack: "paused" | "lost" = "paused";
+  /** Whether the seal panel currently up is the LONG first-time explainer
+   *  (screens.ts's sealBreakModal `explain`).
+   *
+   *  Held rather than re-derived at render time, and that is load-bearing:
+   *  requestBayRetry burns the watermark on show, so by the time renderOverlay
+   *  runs `sealBreakOwed` is already false and asking it again would draw the
+   *  short panel on the one occasion the long one is owed. */
+  private sealBreakExplain = false;
   /** Consecutive taps on the tower's headhouse beacon — the Tier S gesture
    *  (lib/devmode.ts). Held on the app rather than in the DOM because the
    *  menu's markup is rewritten wholesale by renderOverlay, and a counter
@@ -2121,12 +2129,20 @@ class App {
               // clamps values, not range), and "11 of 10 sealed" is the kind
               // of number that makes a player distrust every other one.
               sealed: MARK_COUNT - unsealedMarks(this.meta).length,
+              // Long the first time ever, short every time after — held on the
+              // app rather than re-asked here, because requestBayRetry has
+              // already burned the watermark by now (see sealBreakExplain).
+              explain: this.sealBreakExplain,
             });
         }
         break;
       case "won":
       case "lost":
         if (g && this.run) {
+          // Read once, above the modal: the end card needs it twice (whether
+          // to draw the retry at all, and which of its three faces), and it is
+          // the same read the retry's own gate makes.
+          const seal = sealStateFor(this.run, this.meta.sealedMarks);
           this.overlay.innerHTML = S.hudHTML(this.hudOpts(g));
           this.mountEndScrim(
             S.endModal({
@@ -2178,12 +2194,18 @@ class App {
               // THE BAY, OFFERED BACK — on a lost ladder run only. Tier S has
               // its bench one tap away and re-flies the same configuration
               // from the primary; the Skydeck is the day's single attempt, and
-              // a retryable daily is a leaderboard nobody can read. Both are
-              // exactly the runs tracksLadder refuses, which is why the test
-              // is that one rather than two.
+              // a retryable daily is a leaderboard nobody can read.
+              //
+              // ONE CALL ANSWERS BOTH QUESTIONS. sealStateFor returns null for
+              // exactly the runs tracksLadder refuses, so "is there a seal
+              // question here" and "which of the three is it" are the same
+              // read — and the button's face comes from the SAME function
+              // requestBayRetry gates its confirmation on (retryBreaksSeal is
+              // defined on it), so the face and the panel that press opens can
+              // never disagree about whether anything is being spent.
               retryBay:
-                this.state === "lost" && tracksLadder(this.run)
-                  ? { sealed: this.run.restarts === 0 }
+                this.state === "lost" && seal !== null
+                  ? { seal, mark: this.run.mark }
                   : undefined,
             }),
           );
@@ -3888,23 +3910,48 @@ class App {
    *
    * THE STAKES TEST is what stops the panel firing where there is nothing to
    * charge: a run the ladder does not track keeps no seal at all (Tier S never
-   * increments `restarts`, and the Skydeck is never offered a retry), and a run
-   * that has already retried a bay has already spent it. Quoting a price that
-   * has been paid is how a warning teaches itself to be ignored.
+   * increments `restarts`, and the Skydeck is never offered a retry), a run
+   * that has already retried a bay has already spent it, and a run re-flying a
+   * Mark whose stamp is ALREADY on the tower can never spend anything at all.
+   * Quoting a price that has been paid — or one that cannot be charged — is how
+   * a warning teaches itself to be ignored.
    */
   private requestBayRetry(): void {
     const run = this.run;
-    const stakes = !!run && tracksLadder(run) && run.restarts === 0;
-    if (!stakes || !sealBreakOwed(this.meta)) {
+    // A RETRY THAT BREAKS NOTHING GOES STRAIGHT THROUGH, and that is the half
+    // of this rule that protects the other half. Confirming a free action would
+    // train the player to click past the panel, and the one press it has to
+    // stop is the press that spends something. Tier S, the Skydeck, every retry
+    // after the first in a run, and every re-fly of an already-sealed Mark all
+    // land here (run.ts's retryBreaksSeal).
+    //
+    // THE SEALED-MARK CASE was found in review (codex, PR #135) and is the one
+    // this test could not see on its own: recordRunEnd only ever APPENDS to
+    // sealedMarks, so a Mark's stamp survives any later run however messy, and
+    // a fresh re-fly of one was being charged for something no retry can take.
+    // The saved record is what the run alone cannot know, so it is passed in.
+    if (!run || !retryBreaksSeal(run, this.meta.sealedMarks)) {
       this.resetBay();
       return;
     }
-    // BURNED ON SHOW, not on confirm. The player who reads the panel and backs
-    // out has been told; making the watermark depend on which button they
-    // pressed would replay the lecture at every restart until they finally
-    // agreed to it, which is the toll this panel exists not to be.
-    this.meta = sealBreakShown(this.meta);
-    saveMeta(this.meta);
+    // …and one that DOES break something is confirmed every time, not just the
+    // first time ever (playtest: "we can also keep the confirmation on breaking
+    // the seal"). retryBreaksSeal is true at most once per run, so this costs a
+    // player at most one panel per run — asked at the moment the irreversible
+    // thing happens, which is the only moment a confirmation is worth anything.
+    //
+    // THE WATERMARK NO LONGER DECIDES WHETHER THE PANEL EXISTS, only how much
+    // of it there is: the long explainer is a first-session lesson and is shown
+    // once, and every later confirmation is the short form. Burned on SHOW
+    // rather than on confirm, as before — the player who reads it and backs out
+    // has been taught, and making the lesson depend on which button they
+    // pressed would replay it until they finally agreed.
+    const explain = sealBreakOwed(this.meta);
+    this.sealBreakExplain = explain;
+    if (explain) {
+      this.meta = sealBreakShown(this.meta);
+      saveMeta(this.meta);
+    }
     // Where "Keep the seal" hands them back. From play (the held ⏸) that is
     // the pause modal rather than the live bay: the gesture had already taken
     // the bay away from them, and dropping them back into a field mid-flight

@@ -245,6 +245,72 @@ export function tracksLadder(run: RunState): boolean {
   return !run.sandbox && run.skydeck === null;
 }
 
+/**
+ * What the seal is DOING on this run, or null when the run has no seal question
+ * at all (Tier S, the Skydeck — recordRunEnd never seals either).
+ *
+ * Three states, because there are three truths and the button that reports them
+ * had only two. The third was found in review (codex, PR #135): a re-fly of a
+ * Mark the player has ALREADY sealed answered "at stake" on a fresh run, so the
+ * confirmation claimed a price that cannot be charged and the end card drew an
+ * intact seal about to be spent. It cannot be spent. meta.ts's recordRunEnd
+ * only ever APPENDS to sealedMarks — a Mark's stamp, once pressed, survives
+ * every later run however messy — so on that re-fly a bay retry is free.
+ *
+ *  - **held** — this Mark's stamp is already on the tower. Nothing this run
+ *    does can take it, so a retry costs nothing. Checked FIRST, because it
+ *    outranks whatever this run has done: a retried re-fly of a sealed Mark is
+ *    still a sealed Mark.
+ *  - **at-stake** — the Mark is unsealed and this run has retried no bay, so
+ *    the run is still able to seal it and a retry would end that. The only
+ *    state that charges anything, and the one the confirmation exists for.
+ *  - **spent** — the Mark is unsealed and this run has already retried, so the
+ *    chance is gone until the next run. Free from here on.
+ *
+ * THE RUN'S SEAL AND THE MARK'S STAMP ARE DIFFERENT THINGS, which is the
+ * distinction this function exists to keep straight and the one the copy has to
+ * respect: "held" is a fact about the MARK and says nothing about this run,
+ * while "at-stake" and "spent" are facts about this RUN and say nothing about
+ * whether the Mark has ever been sealed. A surface that blurred them would tell
+ * a player their re-fly had sealed something.
+ *
+ * `sealedMarks` is passed rather than reached for — a plain number list, so
+ * this module still imports nothing from meta.ts and sim/systems.ts can call it
+ * with a literal.
+ */
+export type SealState = "held" | "at-stake" | "spent";
+
+export function sealStateFor(
+  run: RunState, sealedMarks: readonly number[],
+): SealState | null {
+  if (!tracksLadder(run)) return null;
+  if (sealedMarks.includes(run.mark)) return "held";
+  return run.restarts === 0 ? "at-stake" : "spent";
+}
+
+/**
+ * Would retrying a bay of THIS run spend its seal?
+ *
+ * The question every door into a bay retry asks (main.ts's requestBayRetry —
+ * the pause modal's Restart Bay, the held ⏸, the game-over card's Retry Bay).
+ * Defined on sealStateFor rather than beside it so the gate and the button
+ * cannot disagree about whether a cost is being charged.
+ *
+ * TRUE AT MOST ONCE PER RUN, which is the property that makes confirming EVERY
+ * seal-breaking retry cheap rather than nagging: after the first retry
+ * `restarts` is no longer 0, so every later one answers false and goes straight
+ * through. The panel therefore appears at most once in a run, exactly at the
+ * moment the irreversible thing happens.
+ *
+ * …and NEVER on a Mark already sealed, which is the half review caught. A
+ * confirmation for a free action is worse than none: it teaches the player to
+ * click past the panel, and the press it exists to stop is the one that spends
+ * something.
+ */
+export function retryBreaksSeal(run: RunState, sealedMarks: readonly number[]): boolean {
+  return sealStateFor(run, sealedMarks) === "at-stake";
+}
+
 /** Every standing clause in force on this run's current bay, in arm order.
  *  Empty for a ladder run, which carries its single clause in `final` instead.
  *

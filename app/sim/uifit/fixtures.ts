@@ -939,6 +939,16 @@ export const SCREENS: Record<string, () => string> = {
   // tierOpenableBy returns null on a finished ladder), so the worst case and
   // the honest case are the same panel here.
   //
+  // …and `explain: true`, the LONG form, for the same reason and on the same
+  // kind of measurement. The panel now has two lengths as well as two branches
+  // — the first-time explainer and the confirmation every seal-breaking retry
+  // after it — and all four combinations were measured rather than reasoned
+  // about: 457 / 487 chars with the lesson, 263 / 293 without it. The long
+  // re-fly panel is the maximum of the four, and the short form is a strict
+  // subset of it (the same panel with one paragraph removed, the same width,
+  // the same button row), so measuring the maximum covers both and a second
+  // fixture would buy the matrix nothing.
+  //
   // It arrives carrying two baseline entries, exactly as `pause-pad` did and
   // for the identical reason: they are the 800x600 window's undersized ability
   // chips and tight rig badges, byte-for-byte the ones `pause` already records,
@@ -947,7 +957,7 @@ export const SCREENS: Record<string, () => string> = {
   // measures clean on all nineteen rows.
   "seal-break": () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) + S.sealBreakModal({
-      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1,
+      bayNum: RUN_LEVELS, mark: MARK_COUNT, tier: null, sealed: MARK_COUNT - 1, explain: true,
     }),
 
   // TIER S itself, in all three of the shapes it takes. The mode ships, so
@@ -1016,7 +1026,19 @@ function endModal(won: boolean, sandbox = false): string {
     // own three, so both of those states are still measured by the other two
     // fixtures rather than being replaced by this one.
     contracts: { remaining: 3, next: !won },
-    retryBay: !won && !sandbox ? { sealed: true } : undefined,
+    // …and the seal line at ITS widest, which is now the "held" state — a
+    // re-fly of an already-sealed Mark (run.ts's sealStateFor, added for the
+    // #135 P2). MEASURED, not guessed, because the last fixture in this file
+    // shipped a wrong guess about exactly this: stripped of tags the three
+    // lines run 113 (held) / 96 (at-stake) / 69 (spent) characters, so the
+    // state this row has to be measured against is the one that names a Mark
+    // and explains why the press is free. Two digits in the Mark for the same
+    // reason the bay number is a worst case.
+    //
+    // The glyph is the same box in all three (same clip, same 11px), so this
+    // choice moves the line and nothing else — which is why one fixture still
+    // covers the row rather than three.
+    retryBay: !won && !sandbox ? { seal: "held" as const, mark: 10 } : undefined,
     // The board a run posts to is its own Mark (main.ts's boardTier).
     boardTier: 1,
     won,
