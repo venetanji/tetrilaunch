@@ -4135,6 +4135,12 @@ export function endModal(opts: {
    *  reason salvagedFunds is, and printed in the breakdown row rather than on
    *  the sandbox foot beside it — see the `volatileFoot` note below. */
   volatileLosses: number;
+  /** Funds the Incinerator saved across the run (run.ts's
+   *  RunState.incineratedFunds). Worded as FUNDS for the same reason its two
+   *  neighbours are, and printed in the same breakdown row — it is the only
+   *  ship system on the shelf whose whole effect is invisible while the bay is
+   *  being played, so this line is where the purchase gets settled up. */
+  incineratedFunds: number;
   tiers: UpgradeTiers;
   /** The board this score posts to — the RUN's own Mark (RunState.mark), never
    *  `progress.tier`: a run that completed its tier has already advanced the
@@ -4207,6 +4213,14 @@ export function endModal(opts: {
   // that reconciles the run's money, and this belongs beside "$N left".
   const volatileFoot = opts.volatileLosses > 0
     ? ` · $${opts.volatileLosses} lost to detonations` : "";
+  // What the hood saved, beside what the bay lost, and suppressed at zero on
+  // the same rule as its two neighbours. It sits AFTER volatileFoot rather than
+  // before it because the order is the order the money moved: the bill first,
+  // then what was taken off it. "saved by the Incinerator" and not "burned" —
+  // the number is money that stayed in the bankroll, and the breakdown row's
+  // whole job is reconciling the bankroll.
+  const incinFoot = opts.incineratedFunds > 0
+    ? ` · $${opts.incineratedFunds} saved by the Incinerator` : "";
   const eyebrow = opts.runComplete
     ? `All ${RUN_LEVELS} bays cleared`
     : opts.won
@@ -4267,7 +4281,7 @@ export function endModal(opts: {
       <div class="muted end__breakdown">
         ${opts.baysCleared} bay${opts.baysCleared === 1 ? "" : "s"} ×${SCORE_PER_BAY}
         · ${opts.lines} line${opts.lines === 1 ? "" : "s"} ×${SCORE_PER_LINE}
-        · $${Math.max(0, opts.funds)} left${volatileFoot}
+        · $${Math.max(0, opts.funds)} left${volatileFoot}${incinFoot}
       </div>
       <!-- AWARDS ONLY. The "Tier N progress" banner that used to sit here —
            ✓/○ pips in prose, "finish both to open Tier N+1", a foot of scrap

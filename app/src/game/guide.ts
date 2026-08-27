@@ -152,6 +152,13 @@ function systemTopics(): GuideTopic[] {
     // Same rule: volatile opens at Mark 7 (hazards.ts), so its counter's guide
     // row opens with the tier that opens the axis.
     cushion: 7,
+    // THE ONE ROW THAT IS NOT GATED ON AN AXIS, because the Incinerator does
+    // not answer one: it discounts the two bills every material can run up
+    // (a spilled shipment and a detonation), so there is no single axis whose
+    // arrival is the right moment to open it. Tier 5 instead, which is the
+    // rung MATERIAL_DRAFT_BAYS stops being dodgeable (hazards.ts) — the first
+    // tier at which a player is guaranteed cargo they may have to write off.
+    incinerator: 5,
   };
   // Sorted by the tier that opens each system, ties keeping the UPGRADES order
   // — so the chapter reads as the ladder the player will actually buy it in
@@ -403,12 +410,19 @@ function buildTopics(mark: number): GuideTopic[] {
     id: "lost", chapter: "economy", tier: 1,
     name: "Lost cargo",
     summary: `Cubes that never reach the press are fined $${lv.penaltyPerLostPiece} each.`,
+    // THE INCINERATOR EARNED ITS CLAUSE HERE the way the cushion earned one in
+    // volatile's topic: this is the pane that teaches the fine, so it is the
+    // pane that owes the player the fact that the fine can be bought down. Room
+    // was made by tightening the tier-price sentence rather than by dropping
+    // it — the pane is capped at 370 plain characters (sim/systems.ts's COPY
+    // BUDGET) and every number below is still in it.
     body: `A cube that drops short of the zone, or bounces back out of it, blinks away and costs you`
-      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. It is billed <b>per cube</b>`
-      + ` — a standard shipment is ${SIZE_SPEC.std.cubes} of them — and the tier sets the price:`
-      + ` $${penaltyPerLostPieceFor(0, 1)} a cube at Tier 1,`
-      + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing bay by bay at Tier ${TIER_COUNT}.`
-      + ` So the question mid-drag is "does this reach the zone" before "does this fit the row".`,
+      + ` <b>$${lv.penaltyPerLostPiece}</b> — a red −$ marks the spot. Billed <b>per cube</b>`
+      + ` (a standard shipment is ${SIZE_SPEC.std.cubes}), and the tier sets the price:`
+      + ` $${penaltyPerLostPieceFor(0, 1)} at Tier 1,`
+      + ` $${penaltyPerLostPieceFor(0, TIER_COUNT)} and climbing at Tier ${TIER_COUNT}.`
+      + ` An <b>Incinerator</b> cuts it for cargo destroyed above the power bar.`
+      + ` Otherwise: does this reach the zone, before does it fit the row.`,
   },
   {
     id: "clock", chapter: "economy", tier: 1,

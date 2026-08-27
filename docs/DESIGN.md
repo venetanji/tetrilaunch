@@ -89,7 +89,7 @@ and it is the build the Contracts half is least able to teach.
 
 ### What Contracts cannot teach
 
-Two of the nine tracks are invisible without a clock and a bankroll:
+Two of the ten tracks are invisible without a clock and a bankroll:
 
 - **Reactor** — no launch cost means the economy track does nothing.
 - **Magazine** — no clock means faster reload buys less waiting, not more
@@ -136,7 +136,7 @@ Mark N clear mean the same thing for every player who has one.
 
 This is the load-bearing rule of the whole design, so it goes first.
 
-> **Mark N grants a fixed upgrade budget, spent freely across the nine tracks.
+> **Mark N grants a fixed upgrade budget, spent freely across the ten tracks.
 > Contracts unlock what you may spend it *on*. Only completing tier N — its
 > Deep Run beaten and three of its Contracts cleared — raises the budget.**
 
@@ -163,20 +163,24 @@ There are only two escapes, and one is bad:
 ### How it works
 
 `MAX_TIER` stays 3 and the 20/35/55 ladder in `upgrades.ts` is unchanged, so
-nine tracks fully maxed is **990 points** (`FULL_BUILD_COST`, derived from
+ten tracks fully maxed is **1100 points** (`FULL_BUILD_COST`, derived from
 `UPGRADES.length` rather than written down, so adding a track can never leave the
-budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 88
-(four tracks opened at tier 1, or one to tier 2 with two opened alongside),
-scaling to 990 at Mark 10 — the arc from "you can afford one system" to "you can
+budget behind). The Mark sets how many of those you get. First-pass: Mark 1 = 110
+(four tracks opened at tier 1, or one system built out entirely),
+scaling to 1100 at Mark 10 — the arc from "you can afford one system" to "you can
 afford everything" *is* the ladder, which is FTL's own shape. One number per
 Mark, no second cap to reason about.
 
-**The total moved when the eighth track (Thaw Lance) landed and again for the
-ninth (Impact Cushion), and that is the rule working rather than a side effect
-to be pinned out.** The promise is "a fully-kitted rig at Mark 10"; freezing the
-budget while the roster grows would quietly leave Mark 10 a system short of
-everything. Every Mark's allowance rose by an eighth and then by a ninth
-(Mark 1 77 → 88 → 99, Mark 10 770 → 880 → 990). The relationship that makes the budget a real gate survives
+**The total moved when the eighth track (Thaw Lance) landed, again for the
+ninth (Impact Cushion) and again for the tenth (Incinerator), and that is the
+rule working rather than a side effect to be pinned out.** The promise is "a
+fully-kitted rig at Mark 10"; freezing the budget while the roster grows would
+quietly leave Mark 10 a system short of everything. Every Mark's allowance rose
+in step (Mark 1 77 → 88 → 99 → 110, Mark 10 770 → 880 → 990 → 1100). At ten
+tracks Mark 1's allowance is **exactly one whole system**, which is the first
+time the arithmetic has matched the sentence this section opens with; before the
+tenth track it was nine tenths of one, and `sim/systems.ts` pins the
+relationship rather than the number so an eleventh moves it correctly. The relationship that makes the budget a real gate survives
 the move exactly: the Workshop's own ceiling is `TRACKS × (20+35)` and the
 budget is `TRACKS × 110 × M/10`, so they meet at **M = 5 for any roster size**
 (`meta.ts`'s `installAvailable`, pinned in `sim/systems.ts` as the relationship
@@ -266,7 +270,7 @@ it's a different set of problems.
 
 | Rig | Identity | Trade |
 |---|---|---|
-| **Standard Hauler** | balanced, all nine tracks available | the tutorial rig |
+| **Standard Hauler** | balanced, all ten tracks available | the tutorial rig |
 | **Scrapper** | starts with Demolition; bombs refund more | weak launcher — plays the salvage economy |
 | **Overpressure** | huge hydraulics and settle assist | brutal cooldown; few shots, each flattens |
 | **Swarm** | micro payloads native, fast cooldown | can't run bulk; Bond Breaker dependent |

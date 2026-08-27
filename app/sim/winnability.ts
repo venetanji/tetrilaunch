@@ -583,13 +583,21 @@ function priceCounters(mark: number): void {
   );
   console.log(
     "  " + [padE("counter", 14), pad("cost", 5), pad("win", 6), pad("lines", 6),
-      pad("shots", 6), pad("end$", 7), padE("losses", 24)].join(" "),
+      pad("shots", 6), pad("end$", 7), pad("saved$", 7), padE("losses", 24)].join(" "),
   );
   for (const v of variants) {
     let wins = 0;
     let lines = 0;
     let shots = 0;
     let end = 0;
+    // What the INCINERATOR took off this row's loss bills (runner.ts's
+    // incineratedFunds). The one column here that measures a SYSTEM rather than
+    // an outcome, and it is here because the hood is the only track on the shelf
+    // whose whole effect is the ABSENCE of a charge — in every other column that
+    // is indistinguishable from never having been charged. A row with wins and a
+    // zero here is a row the hood did not touch, which is a finding rather than
+    // a null result.
+    let saved = 0;
     const losses: Record<string, number> = {};
     for (const seed of seeds) {
       // The same layering `run.ts`'s levelForRun uses: base ladder, then the
@@ -609,12 +617,14 @@ function priceCounters(mark: number): void {
       lines += out.lines;
       shots += out.shots;
       end += out.endScore;
+      saved += out.incineratedFunds;
     }
     const n = seeds.length;
     console.log("  " + [
       padE(v?.id ?? "none", 14), pad(String(v?.cost ?? 0), 5),
       pad(`${wins}/${n}`, 6), pad((lines / n).toFixed(1), 6),
       pad((shots / n).toFixed(1), 6), pad(`$${Math.round(end / n)}`, 7),
+      pad(`$${Math.round(saved / n)}`, 7),
       padE(Object.entries(losses).map(([k, c]) => `${k}x${c}`).join(" "), 24),
     ].join(" "));
   }

@@ -2543,6 +2543,7 @@ class App {
               // it has to be added here, exactly as scrapEarned above.
               salvagedFunds: this.run.salvagedFunds + g.salvagedFunds,
               volatileLosses: this.run.volatileLosses + g.volatileLosses,
+              incineratedFunds: this.run.incineratedFunds + g.incineratedFunds,
               tiers: this.run.tiers,
               // runBoard(), not run.mark: a Tier S run's board is Tier S, and
               // labelling it with the Mark it borrowed would say the practice
@@ -3666,6 +3667,10 @@ class App {
       // ladder — the rack is resupplied between bays there — and it is the
       // whole of the magazine on the Skydeck, where nothing resupplies.
       g.thawCharges,
+      // ...and what the hood took off this bay's loss bills. A STAT, like
+      // salvagedFunds and volatileLosses above: the discount was already taken
+      // when each cube was billed, so this only ever accumulates a readout.
+      g.incineratedFunds,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
     // already stepped past — hence the -1. Still asked of the RUN rather than

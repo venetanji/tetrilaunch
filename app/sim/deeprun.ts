@@ -328,6 +328,13 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
       outcome.bondsLeft,
       outcome.salvagedFunds,
       outcome.volatileLosses,
+      // thawLeft, restated as the field's own defensive default rather than
+      // left implicit: the hood's stat sits BEHIND it in the positional tail
+      // (run.ts's advanceRun spells out why the tail only ever grows at the
+      // end), so it has to be named to reach past it. The ladder resupplies the
+      // rack between bays, so advanceRun ignores the value here either way.
+      run.thawCharges,
+      outcome.incineratedFunds,
     );
     if (chosenFinal) run = { ...run, final: chosenFinal };
 

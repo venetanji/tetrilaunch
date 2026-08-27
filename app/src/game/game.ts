@@ -6,7 +6,7 @@ import {
   AIM_CONE, AIM_LOFT_DEFAULT, CANNON, Cannon, predictTrajectory, solveAimForTarget,
 } from "./cannon";
 import {
-  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, pathStrands, shredInChute,
+  CHUTE_BLAST_R, CHUTE_LIP_Y, chuteRightEdge, inChute, inIncinerator, pathStrands, shredInChute,
 } from "./chute";
 import { Compactor, rigidPressDrag } from "./compactor";
 import {
@@ -38,6 +38,9 @@ import {
   nextColdCryo,
   type ClearResult,
   settleBlast,
+  chargeAfterRelief,
+  reliefRealised,
+  blastRelief,
 } from "./lineClear";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
@@ -497,6 +500,20 @@ export class Game {
    *  player never gets to settle — the argument salvagedFunds makes for
    *  itself in RunState. */
   volatileLosses = 0;
+  /** Funds the INCINERATOR saved this bay — what the two loss bills WOULD have
+   *  come to for cargo destroyed inside the flue, minus what they actually
+   *  came to (chute.ts's inIncinerator, upgrades.ts's incinerator track).
+   *
+   *  A READOUT like the two above, and it is the one of the three that reads
+   *  the OTHER way: salvagedFunds and volatileLosses are money that moved, and
+   *  this is money that did not. It exists for exactly the reason they do —
+   *  upgrades.ts's refit note, "a shop where a purchase projects nothing
+   *  teaches that the purchase does nothing". A passive positional discount is
+   *  invisible by construction (nothing on screen says what the bill would have
+   *  been), so without this total the hood is a purchase the player can never
+   *  settle up on. Never added to the score: the discount was already taken at
+   *  the moment each cube was billed. */
+  incineratedFunds = 0;
   /** Render-facing FX events (shatter/payout/rowflash/explosion); spawned
    *  here, pruned here by FX_TTL, drawn by render.ts. */
   effects: FxEvent[] = [];
@@ -1000,13 +1017,46 @@ export class Game {
    * Contract prices a lost piece at nothing, and a $0 penalty would teach a
    * rule that isn't there.
    */
-  private chargeLostCubes(n: number, _now: number): number {
+  private chargeLostCubes(lost: { x: number; y: number }[], _now: number): number {
+    const n = lost.length;
     this.combo = 0;
     this.lostTotal += n;
-    const deducted = Math.min(this.score, n * this.level.penaltyPerLostPiece);
+    // PRICED A CUBE AT A TIME, and the position each cube was AT when it was
+    // destroyed. Both halves are the Incinerator (chute.ts's INCINERATOR_Y):
+    // the hood is a place, so a batch that straddles it has to be billed cube
+    // by cube, and a batch billed off one number could only ever be billed off
+    // the wrong cube's. Callers hand over the last positions rather than a
+    // count for exactly this reason — updateBlinking and shredInChute both
+    // already return them, because the "−$" toast needed to know where the
+    // cargo went before the ledger did.
+    let owed = 0;
+    const rightEdge = chuteRightEdge(this.strandCutoffX);
+    for (const p of lost) {
+      const relief = this.reliefFor(p.x, p.y, rightEdge);
+      owed += chargeAfterRelief(this.level.penaltyPerLostPiece, relief);
+    }
+    // What the same batch would have cost with no hood aboard. Computed rather
+    // than accumulated as a running "saved" because the two numbers have to meet
+    // the clamp SEPARATELY — see lineClear.ts's reliefRealised for the near-broke
+    // case that separates them, and preview.ts for the same stance stated
+    // generally ("a projection that models numbers separately from the game would
+    // eventually lie"). The hood is priced by running the bill twice, not by
+    // modelling its delta.
+    const gross = n * this.level.penaltyPerLostPiece;
+    const deducted = Math.min(this.score, owed);
+    this.incineratedFunds += reliefRealised(this.score, gross, owed);
     this.score -= deducted;
     this.events.onPieceLost?.(n);
     return deducted;
+  }
+
+  /** The share of one cube's loss charge the hood remits, from where that cube
+   *  was at the moment it was destroyed. The single reader of the config seam,
+   *  so the two bills (spill fine, volatile charge) cannot disagree about where
+   *  the flue is. */
+  private reliefFor(x: number, y: number, rightEdge: number): number {
+    if (this.level.incineratorRelief <= 0) return 0;
+    return inIncinerator(x, y, rightEdge) ? this.level.incineratorRelief : 0;
   }
 
   /**
@@ -1063,7 +1113,15 @@ export class Game {
     cx /= shredded.length;
     this.events.onExplosion?.("chute");
 
-    const deducted = this.chargeLostCubes(shredded.length, now);
+    // The positions the cubes were AT when the intake took them — bodies keep
+    // their last position after Composite.remove, which is the same fact
+    // updateBlinking's "−$" placement has always relied on. They are all inside
+    // the flue by construction: shredInChute takes cargo by its BOTTOM edge at
+    // the plant's roof, and chute.ts's INCINERATOR_Y is placed half a cell under
+    // that roof precisely so this path and the hood cannot disagree.
+    const deducted = this.chargeLostCubes(
+      shredded.map((c) => ({ x: c.body.position.x, y: c.body.position.y })), now,
+    );
     if (deducted > 0) {
       // Spawned a full SINK above the lip, not 20px above it. The toast
       // travels PENALTY_SINK_PX down over its life, and the plant panel's top
@@ -1908,7 +1966,7 @@ export class Game {
     markLostPieces(this.cubes, this.compactor, now);
     const lostCubes = updateBlinking(this.phys.world, this.cubes, now, this.constraints);
     if (lostCubes.length > 0) {
-      const deducted = this.chargeLostCubes(lostCubes.length, now);
+      const deducted = this.chargeLostCubes(lostCubes, now);
       // The expense twin of spawnClearFx's payout: one "−$" at the cluster's
       // centroid, where the cubes just blinked away. A penalty the player only
       // ever met in the end screen's tally read as a hidden rule (playtest,
@@ -2306,6 +2364,11 @@ export class Game {
     let n = 0;
     const gone: { x: number; y: number }[] = [];
     const razed: Cube[] = [];
+    // Where each razed cube WAS, taken before anything is removed. Matter keeps
+    // a body's position after Composite.remove, so reading it later would work
+    // by accident today; recording it here says out loud that the price of a
+    // blast is a function of where its victims stood when it went off.
+    const razedAt = new Map<Cube, { x: number; y: number }>();
     for (let i = this.cubes.length - 1; i >= 0; i--) {
       const cube = this.cubes[i];
       const b = cube.body;
@@ -2314,6 +2377,7 @@ export class Game {
       cy += b.position.y;
       n += 1;
       razed.push(cube);
+      razedAt.set(cube, { x: b.position.x, y: b.position.y });
       gone.push({ x: b.position.x, y: b.position.y });
       this.throwChunks(cube, now);
       removeConstraintsFor(this.phys.world, this.constraints, b);
@@ -2337,11 +2401,38 @@ export class Game {
       // charge here at all, and level.ts's VOLATILE_LOSS_SHARE carries its
       // price. The player should see both halves land together, which is why
       // this is one place and not two.
+      // THE HOOD'S RELIEF, read off each cube's LAST POSITION — the one it held
+      // when the blast razed it, captured in `razedAt` above before the bodies
+      // were removed. A blast is the one loss path whose victims are spread
+      // out, so this is where "per cube, at the moment of destruction" earns its
+      // keep: a detonation that catches a shipment in the air over the machine
+      // and three cubes down in the pile discounts the one and bills the three.
       const settled = settleBlast(
+        razed, this.score, this.level.volatileLoss, this.level.slagBounty,
+        (cube) => {
+          const p = razedAt.get(cube) ?? cube.body.position;
+          return this.reliefFor(p.x, p.y, chuteRightEdge(this.strandCutoffX));
+        },
+      );
+      // THE SAME BLAST SETTLED AGAIN WITH NO HOOD, and the difference in what
+      // each one actually TOOK is what the hood saved. Two settlements rather
+      // than arithmetic on one, for the reason preview.ts gives for running
+      // levelForRun twice: a number modelled separately from the thing it
+      // describes eventually lies, and this one already had. The clamp here is
+      // `funds + bounty` rather than `funds` (settleBlast's own rule, and the
+      // whole point of its netting argument), so re-deriving the ceiling at this
+      // call site would be a second copy of the very formula most likely to move.
+      //
+      // Found in review (codex, PR #156): the old version scaled the nominal
+      // discount by the share of the discounted bill that landed, which reports
+      // a saving on a bay that saved nothing — see lineClear.ts's reliefRealised
+      // for the $10-bankroll case that separates "charged less" from "kept more".
+      const bare = settleBlast(
         razed, this.score, this.level.volatileLoss, this.level.slagBounty,
       );
       this.score += settled.net;
       this.volatileLosses += settled.charged;
+      this.incineratedFunds += blastRelief(bare, settled);
       if (settled.bounty > 0) {
         // Reuses the bomb's salvage toast rather than inventing a second one:
         // it is the same statement ("that wreckage was worth something") and

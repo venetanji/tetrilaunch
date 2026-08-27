@@ -329,6 +329,28 @@ const FIELDS: Field[] = [
     higherIsWorse: false,
   },
   {
+    // THE HOOD'S RATE, printed as a percentage off rather than as the raw
+    // share, because "50% off" is the sentence the shop card, the guide and
+    // this tile all speak and a bare 0.5 would be the one number in the yard a
+    // player has to convert.
+    //
+    // This row exists for a reason the others do not have to argue: the
+    // Incinerator is the ONLY track whose effect never shows up in the bay
+    // while it is being played. A liner is drawn on the floor, a lance counts
+    // down in the rail, a reactor is in the float — the hood is the absence of
+    // a charge, which looks exactly like not having been charged. The yard is
+    // therefore the only place before the end card where the purchase can be
+    // read at all, and upgrades.ts's own refit note is the standard it has to
+    // meet: "a shop where a purchase projects nothing teaches that the purchase
+    // does nothing".
+    //
+    // Zero prints as a state, not as "0%", for the same reason the liner's does.
+    id: "incinerator", label: "Incinerator relief", short: "Flue",
+    read: (c) => c.incineratorRelief,
+    fmt: (v) => (v > 0 ? `${Math.round(v * 100)}% off` : "no hood"),
+    higherIsWorse: false,
+  },
+  {
     // The Demolition Rack's capstone is a CHANGE IN KIND rather than more
     // charges, so a projection that only counted charges would show its third
     // tier buying the same +2 the second one did. Three rows, because it moves

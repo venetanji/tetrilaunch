@@ -340,7 +340,49 @@ export const INSTALLS: InstallDef[] = [
   // prices: a tenth system needs either a re-priced shelf or a second income,
   // and the note above ("slack enough to make a wrong purchase survivable")
   // is the line it would cross.
+  //
+  // TWO CORRECTIONS, made when the tenth arrived and had to argue against this
+  // paragraph. The 565 was arithmetic on a price that changed: the nine installs
+  // come to 400 and the two live unlocks (Weather Survey 60, Scrap Cache 85) to
+  // 145, so the shelf was 545 and the slack 55, not 35. Everything the sentence
+  // concludes still stands at the true number — 55 of slack on 600 is tight —
+  // and it is left in place rather than quietly restated, because the paragraph
+  // below is the answer it demanded.
   { id: "cushion", cost: 50, requiresMark: 6 },
+  // THE TENTH, and the note directly above is the bar it had to clear: a tenth
+  // system needs "either a re-priced shelf or a second income". It gets
+  // neither. What it gets is the BAND BELOW the ones every argument on this
+  // shelf has been about, and the band is — as always here — what the system
+  // is:
+  //
+  //   70  answers every build (Bond Emitter, Demolition Rack)
+  //   50  answers one axis, with a measured ceiling (Thaw Lance, Impact Cushion)
+  //   30  answers no axis at all (Loader Magazine, and now this)
+  //
+  // The Incinerator does not remove a hazard, soften one, or open a slot. It
+  // discounts a BILL — the spill fine and the detonation charge, for cargo
+  // destroyed above the plant's roofline (chute.ts's INCINERATOR_Y) — and a
+  // bill is only ever met by a player who is already losing cargo. That makes
+  // its ceiling the weakest guarantee on the shelf, and the harness put a
+  // number on exactly how weak: with a pilot that never aims into the hood,
+  // NOTHING in a Tier-10 bay dies above the roofline, so the hood is worth
+  // literally zero (design/balance/winnability-sweep-findings.md). A system
+  // whose floor is nothing and whose value is entirely the player's to earn is
+  // a 30, and pricing it beside the two 50s — both of which do something the
+  // moment they are bolted on — would make the shelf's bands mean nothing.
+  //
+  // That puts the shelf at 575 against 600. 25 of slack is less than the 55 the
+  // cushion left and it is the honest floor of the note above: this is the last
+  // system that fits, at any band, and the eleventh needs the re-price or the
+  // second income that note asked for.
+  //
+  // GATED AT THE TIER THE WRITE-OFF BECOMES COMPULSORY, on the same rule the
+  // lance's gate states: hazards.ts's MATERIAL_DRAFT_BAYS is merely OFFERED at
+  // Mark 4 and FORCED from Mark 5, so `requiresMark: 4` puts the hood on the
+  // shelf for exactly the player flying the first tier that can hand them cargo
+  // they have no choice but to write off. Buyable at 5, and the axis that makes
+  // it necessary is unavoidable at 5.
+  { id: "incinerator", cost: 30, requiresMark: 4 },
 ];
 
 export function installById(id: string): InstallDef | undefined {

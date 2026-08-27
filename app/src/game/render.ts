@@ -1,6 +1,6 @@
 import Matter from "matter-js";
 import { CELL, SKY, WALL_INNER, WORLD, lerpAngle, lerpX, lerpY } from "./engine";
-import { CHUTE, chuteMouth, chuteRightEdge } from "./chute";
+import { CHUTE, chuteMouth, chuteRightEdge, INCINERATOR_Y } from "./chute";
 import { BASE_BREAK_STRETCH } from "./level";
 import { cushionEdgeX } from "./lineClear";
 import { computeLayout, skyTop } from "./layout";
@@ -474,6 +474,12 @@ export function render(
   // Over the cargo, with the trajectory: this is the line the player aims
   // against, and the bedding it belongs to is already buried under the pile.
   drawCushionEdge(ctx, scene.level);
+  // The Incinerator's flue plane, for the same reason and in the same layer as
+  // the liner's edge: it is a boundary the player aims relative to, and a
+  // boundary buried under the pile has stopped being one. Unlike the liner it
+  // never has cargo resting ON it, so it needs no bedding half — this one draw
+  // is the whole system's picture.
+  drawIncineratorLine(ctx, scene.level);
   drawTrajectory(ctx, scene.trajectory, scene.reload, scene.now, scene.strandWarning);
   // Drawn AFTER the cannon: the barrel is opaque and longer than its visual
   // tip, and previously painted over ghost cells at some aim angles.
@@ -1121,6 +1127,52 @@ function drawCushionEdge(ctx: CanvasRenderingContext2D, level: LevelConfig): voi
   // has faded into whatever is stacked in front of it.
   ctx.fillStyle = COLORS.aim;
   ctx.fillRect(x - 2, WORLD.height - 6, 4, 6);
+  ctx.restore();
+}
+
+/**
+ * THE FLUE, drawn as the one line the system is.
+ *
+ * Same argument drawCushionEdge makes and the same failure it exists to avoid:
+ * the Incinerator has a hard edge (chute.ts's inIncinerator — a cube destroyed
+ * a pixel below the plane pays full price), and a hard edge the player cannot
+ * see is not a rule they can play against, it is a rule that happens to them.
+ *
+ * AND IT HAS TO STAY QUIET, which is the constraint the liner did not have. The
+ * plane runs the full width of the bay across open air, and the airspace above
+ * it is the sky PR #128 opened — a band that reads as a lid is precisely the
+ * defect that change was made to remove. So this is a hairline with a short
+ * gradient fading UPWARD off it, not a filled band and not a ruled line across
+ * the shaft: enough to answer "is that above the hood" at a glance, not enough
+ * to put a ceiling back over a field whose whole point is that it has none.
+ *
+ * Amber rather than the liner's cyan, because the two are the only positional
+ * systems on the shelf and a player who owns both has to tell their marks apart
+ * without reading either — and amber is already what this game means by heat
+ * (the crest's ramp, the congestion rows).
+ */
+function drawIncineratorLine(ctx: CanvasRenderingContext2D, level: LevelConfig): void {
+  if (level.incineratorRelief <= 0) return;
+  const y = INCINERATOR_Y;
+  ctx.save();
+  // The glow first, fading upward INTO the flue — the side the discount is on,
+  // so the shading says which half of the line is the burner rather than just
+  // where the line is.
+  const glow = ctx.createLinearGradient(0, y - CELL, 0, y);
+  glow.addColorStop(0, "rgba(255,150,40,0)");
+  glow.addColorStop(1, "rgba(255,150,40,0.10)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, y - CELL, WORLD.width, CELL);
+  // The plane itself: a hairline, dashed so it reads as a threshold rather than
+  // as a surface cargo could rest on — nothing in this game rests on a dashed
+  // line, and the walls and floor are the only solid rules drawn in the field.
+  ctx.strokeStyle = "rgba(255,150,40,0.38)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([CELL / 2, CELL / 2]);
+  ctx.beginPath();
+  ctx.moveTo(0, y);
+  ctx.lineTo(WORLD.width, y);
+  ctx.stroke();
   ctx.restore();
 }
 

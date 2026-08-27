@@ -145,6 +145,77 @@ export function chuteRightEdge(strandCutoffX: number): number {
  *  enough that a piece feeding in produces a run of them. */
 export const CHUTE_BLAST_R = 34;
 
+/**
+ * THE FLUE PLANE — the Incinerator's boundary, and the one number the whole
+ * system turns on (upgrades.ts's `incinerator` track).
+ *
+ * The owner's request names the region in the HUD's own terms: *the space
+ * above the power bar*. The power bar is `.pl-pwr`, the cap mounted on the top
+ * edge of the plant panel (ui/screens.ts), and this file already owns the world
+ * geometry that edge sits on — `CHUTE_SURFACE_Y`, the plant's roof plane. So
+ * the flue is everything at or above the plant's roof: the whole open bay over
+ * the machine, continuing up through the open shaft render.ts draws above y=0.
+ *
+ * IT IS NOT `layout.ts`'s `skyTop`, and refusing that is the point rather than
+ * an implementation detail. `skyTop` is a function of the VIEWPORT — it is
+ * however much letterbox band the player's aspect ratio happens to leave — so
+ * a rule written against it would charge two players different money for the
+ * same seed, and would move a bay's economics when a phone is rotated. This
+ * file's own rect carries the argument in full ("AUTHORED, never measured from
+ * the DOM […] Physics that varied with HUD size would break seed determinism"),
+ * and the Incinerator is a bay's ledger, which is a stronger version of the
+ * same claim. The sky is *inside* the flue — every open-shaft y is above this
+ * plane — so nothing about PR #128's airspace is lost by anchoring here.
+ *
+ * THE INTAKE IS PART OF THE FLUE, and it is named rather than inferred. The
+ * hood sits ON the machine, so cargo the machine's own mouth takes is in the
+ * burner as surely as cargo destroyed in the air above it — and it is the play
+ * this system is mostly bought for (firing an unusable shipment at the intake
+ * rather than landing it). The tempting version of that is arithmetic: notice
+ * that `shredInChute` takes cargo by its BOTTOM edge, so a cube it destroys has
+ * its centre only about `CELL/2` under the roof, and push the plane down half a
+ * cell so the plain `y <= plane` test happens to cover it.
+ *
+ * THAT VERSION IS WRONG AND THE REASON IS WORTH KEEPING. "About half a cell" is
+ * really "half a cell, plus however far this step's integration carried it" —
+ * the intake is tested once per step, so the deepest centre it can take a cube
+ * at is a function of the cube's fall speed, which rises with the Launcher
+ * Coils, with a blast's shove, and with the height a lofted shot comes down
+ * from. A margin that covers today's fastest arrival is a margin that a future
+ * muzzle-speed rung silently walks through, and the failure would be invisible:
+ * a hard dump would simply be charged full price, with nothing on screen to say
+ * why. So the two clauses are stated separately and the second one asks the
+ * INTAKE'S OWN QUESTION, with the intake's own bottom-edge test — whatever the
+ * maw takes is in the flue, at any speed, forever.
+ */
+export const INCINERATOR_Y = CHUTE_SURFACE_Y;
+
+/**
+ * Is a cube at this position inside the flue — i.e. above the power bar, or in
+ * the mouth of the machine the burner is mounted on?
+ *
+ * The height clause takes the y ALONE, deliberately. The hood spans the bay:
+ * cargo destroyed high over the deep slots is as burned as cargo destroyed over
+ * the machine, because what the system prices is HEIGHT, not which half of the
+ * bay you were over. A two-axis region would also be unreadable — the player can
+ * see one horizontal line, and a rule they cannot see is a rule that happens to
+ * them (render.ts's drawCushionEdge makes the same argument for the liner's
+ * near edge).
+ *
+ * `rightEdge` is the maw's, from `chuteRightEdge` — passed rather than assumed
+ * so a Bay Extension that walks the press inside the panel narrows the flue's
+ * mouth exactly as it narrows the maw's, and the two cannot disagree about
+ * where the machine ends.
+ */
+export function inIncinerator(x: number, y: number, rightEdge: number = CHUTE.x1): boolean {
+  // Above the roofline — the open bay over the machine, and the sky above that.
+  if (y <= INCINERATOR_Y) return true;
+  // ...or inside the mouth, asked exactly as shredInChute asks it (the cube's
+  // BOTTOM edge against the surface), so every cube the intake destroys is in
+  // the flue by construction rather than by a margin that could be outrun.
+  return inChute(x, y + CELL / 2, rightEdge);
+}
+
 /** Is this point inside the machine? Measured against the SURFACE — see
  *  CHUTE_SURFACE_Y for why the airspace over the maw is part of it now.
  *

@@ -4395,7 +4395,21 @@ body.crt-off #app::after { display: none; }
    The growth term and the cap come down in the same 8/9 proportion the eighth
    slot used, 55 -> 49 and 26 -> 23, so the shape of the slot is unchanged and
    only its count moved. */
-[data-density="compact"] .pl-mods .ship-plate { width: clamp(21px, calc(49 * var(--fpx)), 23px); }
+/* …and the TENTH (the Incinerator) ends the clamp, which is the honest reading
+   of what has been happening to this line. The tightest row is still the
+   iPhone 13 mini's 209px and the rack's gap is now 1px (.ship-rack below), so
+   ten slots need 10w + 9 <= 209, i.e. w <= 20. The clamp's own three terms had
+   converged to within 2px of each other over the last two systems; a flat 19
+   is what they were describing, and it says the thing a clamp had stopped
+   saying — at compact density the rack is at its floor, and there is no
+   growth left in it. 199 against 209 leaves the row 10px, which is the first
+   slack this line has had since the eighth slot.
+
+   The badge floor still clears with room: sim/uifit measures air as
+   (clientWidth - mark)/2 against 0.4 of the mark, i.e. a slot's PADDING box
+   must be 1.8 marks wide. 19 less the 1px borders is 17, against a mark on its
+   own 8.5px floor at every compact density — 2.0 marks. */
+[data-density="compact"] .pl-mods .ship-plate { width: 19px; }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -4648,8 +4662,14 @@ body.crt-off #app::after { display: none; }
    The gap is deliberately far tighter than .pl-mods's own. These are cells of
    a single readout; the row's gap is what holds that readout apart from the
    ability chips, which are controls. Nine slots is what forced the two apart
-   — see the compact clamp above for the arithmetic. */
-.ship-rack { flex: none; display: flex; align-items: center; gap: 2px; }
+   — see the compact clamp above for the arithmetic.
+
+   ONE PIXEL since the tenth, and it is the cheapest 9px on the row: every
+   plate carries its own 1px border, so adjacent slots are still two drawn
+   lines apart at a 1px gap and the rack reads as the same run of cells. The
+   alternative was another proportional shave off the plate, and the plate is
+   what carries the mark. */
+.ship-rack { flex: none; display: flex; align-items: center; gap: 1px; }
 
 .ship-plate {
   flex: none; position: relative;
@@ -4670,7 +4690,25 @@ body.crt-off #app::after { display: none; }
      18px still leaves the mark 0.45em of side air against sim/uifit's 0.4em
      badge floor — a mark can be given a tighter box than a three-letter code
      could, because there is no letter-spacing in it to run out of. */
-  width: max(18px, calc(30 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
+  /* 30 -> 24 for the TENTH slot, and the floor 18 -> 17.5 with it, MEASURED at
+     the one window that actually overflowed rather than derived from the count:
+     the 800x600 roomy box on the `hud-lance` fixture, where the rack shares the
+     row with a fourth ability chip. Ten plates at 30 ran 15px past it; at 27
+     they still ran 8; 24 clears it with room.
+
+     THE FLOOR HAD TO MOVE TOO, which the last two systems did not have to do,
+     and that is the sign this row is near the end of what proportional shaving
+     can buy. At this window --fpx is ~0.74, so the plate sits on its FLOOR
+     rather than on the coefficient — dropping only the coefficient bought
+     nothing there. 17.5 is the smallest floor sim/uifit's badge assertion
+     admits: the padding box must be 1.8 marks wide (see .ship-plate__g), which
+     is 15.3px against the mark's own 8.5px floor, and 17.5 less the 1px borders
+     is 15.5.
+
+     The mark comes down in the same proportion (13.5 -> 11, floor 9 -> 8.5), so
+     the plate's shape — the ratio of box to mark — is unchanged at every
+     density and only its size moved. */
+  width: max(17.5px, calc(24 * var(--fpx))); height: max(40px, calc(69.3 * var(--fpx)));
   border-radius: var(--r-sm);
   background: linear-gradient(180deg, rgba(0,240,255,.16), rgba(0,240,255,.04));
   border: 1px solid var(--line);
@@ -4696,8 +4734,15 @@ body.crt-off #app::after { display: none; }
      (slot - mark) / 2 and the floor is 0.4 of the mark, so a slot has to be at
      least 1.8 marks wide. At 30 and 13.5 it is 2.2, which leaves the same room
      the three-letter code had at regular density and more than it had on a
-     phone. */
-  font-size: max(9px, calc(13.5 * var(--fpx)));
+     phone.
+
+     13.5 -> 11 (floor 9 -> 8.5) with the plate, for the TENTH slot. The ratio
+     is what this constant is for and it is preserved exactly: 24/11 is 2.18
+     against the old 30/13.5's 2.22, so the mark sits in the same proportion of
+     air it always has and only the whole plate got smaller. components.ts's
+     PLATE_MARK_PX is the SVG's authored size and moves with it, so the size the
+     mark is drawn at and the box it lands in still agree. */
+  font-size: max(8.5px, calc(11 * var(--fpx)));
 }
 .ship-plate__g svg { width: 1em; height: auto; }
 .ship-plate__pips { display: flex; gap: 2px; }
