@@ -306,16 +306,33 @@ capable of 120Hz (minimum rAF gap 8.1ms — see the caveat below on what that do
 and does not prove), conditions interleaved every 400ms so scene drift lands on
 both:
 
-| HUD state | fps | on-time |
-| --- | --- | --- |
-| painted (normal) | 79.6 | 61.2% |
-| **`visibility: hidden`** — laid out, NOT painted | **112.2** | **93.7%** |
-| `display: none` — no layout, no paint | 115.4 | 96.1% |
+...and those are **two separate runs**, so they are reported as two pairs rather
+than one three-row table. Their painted baselines differ by 10.6fps (69.0 against
+79.6) — larger than the drift this document records two sections down, and larger
+than the gap between the two hidden arms a fused table invites you to compare.
+Compare within a pair; never across one.
 
-`visibility: hidden` recovers almost everything `display: none` does. Layout is
-therefore cheap and **painting the DOM HUD is the cost — about 33fps of it.**
-With the HUD not painted the game holds 112fps and makes 94% of its 8.33ms
-deadlines, on the same renderer, the same bay, the same device.
+Run A — does the HUD's *paint* cost anything?
+
+| HUD | median gap | fps | on-time | frames |
+| --- | --- | --- | --- | --- |
+| painted | 8.3ms | 79.6 | 61.2% | 647 |
+| **`visibility: hidden`** — laid out, NOT painted | **8.3ms** | **112.2** | **93.7%** | 884 |
+
+Run B — does removing its *layout* as well add anything?
+
+| HUD | median gap | fps | on-time | frames |
+| --- | --- | --- | --- | --- |
+| painted | 16.5ms | 69.0 | 48.8% | 568 |
+| `display: none` — no layout, no paint | 8.3ms | 115.4 | 96.1% | 898 |
+
+Run A's hidden arm skips **paint only** and already reaches 112fps at an 8.3ms
+median — +32.6fps over its own baseline. Run B additionally skips layout and wins
++46.4fps over its own, lower baseline. Neither pair shows a second jump the size
+of the first when layout is removed on top of paint. So layout is cheap,
+**painting the DOM HUD is the cost**, and on this device it is worth something in
+the region of 33fps — a region rather than a figure, because the two runs do not
+share a baseline.
 
 **So the canvas was never the dominant term.** Two measurements say so, and they
 are different kinds. Issuing the entire scene — background, every cube, chrome,
