@@ -349,7 +349,7 @@ const HUD_BASE = {
   ratchets: { wind: 2, sweeper: 1, cryo: 1, slag: 2 } as Ratchets,
   tiers: {
     bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0,
-    thaw: 0, cushion: 0,
+    thaw: 0, cushion: 0, incinerator: 0,
   },
 };
 
@@ -365,7 +365,7 @@ const SANDBOX_BAY: SandboxState = {
   target: { kind: "bay", bay: RUN_LEVELS },
   tiers: {
     bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3,
-    thaw: 3, cushion: 3,
+    thaw: 3, cushion: 3, incinerator: 3,
   },
   material: "all",
   ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,

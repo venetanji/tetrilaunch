@@ -200,6 +200,25 @@ export interface LevelConfig {
    *  make the rig's liner cover the whole bay — which is precisely the gap the
    *  prototype that priced this system declared it could not close. */
   cushionMult: number;
+  /** The share of a loss the INCINERATOR remits for cargo destroyed inside the
+   *  flue — chute.ts's `inIncinerator`, i.e. at or above the plant's roofline.
+   *  0 = no hood, which is every bay until the track is aboard; 0.75 is the
+   *  capstone. upgrades.ts's INCINERATOR_TIERS carries the ladder.
+   *
+   *  ONE RATE FOR BOTH BILLS, and that is the design rather than a saving. The
+   *  bay charges for wasted cargo in two places — `penaltyPerLostPiece` for a
+   *  shipment that never reached the press, `volatileLoss` for live cargo a
+   *  detonation took — and they are the same economic event told twice (cargo
+   *  the player paid to launch and will get no line out of). A hood that
+   *  discounted one and not the other would be teaching the player that where a
+   *  cube died matters sometimes.
+   *
+   *  A SHARE, not a per-cube price, because it has to compose with two ladders
+   *  it does not own: both bills already ride the tier (penaltyPerLostPieceFor,
+   *  VOLATILE_LOSS_SHARE), so a flat discount would be worth a quarter as much
+   *  at Tier 10 as at Tier 1 — the exact inversion of the case it was asked
+   *  for. */
+  incineratorRelief: number;
   /** Funds paid per DEAD cube (one that can never count toward a line — slag)
    *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
    *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
@@ -1274,6 +1293,10 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // representable state rather than an accident of one packed number.
     cushionCells: 0,
     cushionMult: 1,
+    // No hood. Inert-by-default like the liner above: a bay with no Incinerator
+    // remits nothing, so every bay played before the track existed prices its
+    // losses byte-identically.
+    incineratorRelief: 0,
     slagBounty: SLAG_BOUNTY,
     volatileLoss: Math.round(penaltyPerLostPieceFor(i, mark) * VOLATILE_LOSS_SHARE),
     bombResupplyLines: 0,

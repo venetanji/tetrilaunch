@@ -145,6 +145,56 @@ export function chuteRightEdge(strandCutoffX: number): number {
  *  enough that a piece feeding in produces a run of them. */
 export const CHUTE_BLAST_R = 34;
 
+/**
+ * THE FLUE PLANE — the Incinerator's boundary, and the one number the whole
+ * system turns on (upgrades.ts's `incinerator` track).
+ *
+ * The owner's request names the region in the HUD's own terms: *the space
+ * above the power bar*. The power bar is `.pl-pwr`, the cap mounted on the top
+ * edge of the plant panel (ui/screens.ts), and this file already owns the world
+ * geometry that edge sits on — `CHUTE_SURFACE_Y`, the plant's roof plane. So
+ * the flue is everything at or above the plant's roof: the whole open bay over
+ * the machine, continuing up through the open shaft render.ts draws above y=0.
+ *
+ * IT IS NOT `layout.ts`'s `skyTop`, and refusing that is the point rather than
+ * an implementation detail. `skyTop` is a function of the VIEWPORT — it is
+ * however much letterbox band the player's aspect ratio happens to leave — so
+ * a rule written against it would charge two players different money for the
+ * same seed, and would move a bay's economics when a phone is rotated. This
+ * file's own rect carries the argument in full ("AUTHORED, never measured from
+ * the DOM […] Physics that varied with HUD size would break seed determinism"),
+ * and the Incinerator is a bay's ledger, which is a stronger version of the
+ * same claim. The sky is *inside* the flue — every open-shaft y is above this
+ * plane — so nothing about PR #128's airspace is lost by anchoring here.
+ *
+ * WHY HALF A CELL BELOW THE ROOF, rather than on it. `shredInChute` takes cargo
+ * by its BOTTOM EDGE ("a piece dies exactly as it touches down"), so a cube the
+ * intake destroys has its CENTRE at roughly `CHUTE_SURFACE_Y - CELL/2` and, on
+ * the step the test first passes, anywhere up to a step of fall below that. The
+ * charge side reads a cube's centre — that is the position every other rule in
+ * the game reads, and the position a blast victim has. Putting the plane half a
+ * cell UNDER the roof is what makes those two agree: "burned in the hood" and
+ * "taken by the intake" then cannot disagree by a rounding of geometry, at any
+ * arrival speed the cannon can produce (SPEED_MAX 28 px/step against 20px of
+ * margin below the deepest centre the bottom-edge test admits). sim/systems.ts
+ * pins that margin.
+ */
+export const INCINERATOR_Y = CHUTE_SURFACE_Y + CELL / 2;
+
+/**
+ * Is a cube at this centre-y inside the flue — i.e. above the power bar?
+ *
+ * Takes the y ALONE, deliberately. The hood spans the bay: cargo destroyed high
+ * over the deep slots is as burned as cargo destroyed over the machine, because
+ * what the system prices is height, not which half of the bay you were over. A
+ * two-axis region would also be unreadable — the player can see one horizontal
+ * line, and a rule they cannot see is a rule that happens to them (render.ts's
+ * drawCushionEdge makes the same argument for the liner's near edge).
+ */
+export function inIncinerator(y: number): boolean {
+  return y <= INCINERATOR_Y;
+}
+
 /** Is this point inside the machine? Measured against the SURFACE — see
  *  CHUTE_SURFACE_Y for why the airspace over the maw is part of it now.
  *

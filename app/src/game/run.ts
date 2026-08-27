@@ -110,6 +110,19 @@ export interface RunState {
    *  Priced and never printed, the notch reads to the player exactly the way it
    *  read to the sim before it was billed: as free pile relief. */
   volatileLosses: number;
+  /** Funds the Incinerator saved across the run (Game.incineratedFunds per bay,
+   *  summed here) — the third of these READOUTS and the only one that totals
+   *  money that never moved.
+   *
+   *  It is here for the reason its two neighbours are, stated by salvagedFunds
+   *  and inverted: a bomb's refund is why its price is worth reasoning about,
+   *  and a hood's relief is why ITS price is. Every other ship system shows its
+   *  work while the bay is being played — the liner is drawn on the floor, the
+   *  lance counts down in the rail, the reactor is in the float. A passive
+   *  discount shows nothing at all: the bill simply arrives smaller than a bill
+   *  the player never saw. Without this line the tenth system is the only one on
+   *  the shelf a player cannot tell they own. */
+  incineratedFunds: number;
   /** Bond Breaker charges left in the run's magazine — the rare CONSUMABLE.
    *
    *  It lives here, beside carry and scrap, because it is exactly that kind of
@@ -401,6 +414,8 @@ export function newRun(
     // nothing has been blown up ON the player either.
     salvagedFunds: 0,
     volatileLosses: 0,
+    // ...and nothing has been burned in the hood either.
+    incineratedFunds: 0,
     // The whole run's Bond Breaker magazine, granted once. bondChargesFor is
     // the single place the tier-to-charges rule lives, so the refit top-up in
     // buyUpgrade cannot drift from the run-start grant.
@@ -618,13 +633,18 @@ export const CARRY_CAP = 150;
  *  caller that forgets to thread it leaves a Skydeck pilot's charges alone
  *  rather than silently confiscating them.
  *
- *  The four trailing arguments are two of each KIND and they alternate, which
- *  is worth naming because it is the one way this signature can bite: a STOCK
+ *  `incineratedFunds` is what the Incinerator saved the just-played bay
+ *  (Game.incineratedFunds) — a STAT, defaulting to 0 like the other two.
+ *
+ *  The five trailing arguments are STOCKS and STATS mixed, which is worth
+ *  naming because it is the one way this signature can bite: a STOCK
  *  (`bondsLeft`, `thawLeft`) defaults to what the run already holds, and a STAT
- *  (`salvagedFunds`, `volatileLosses`) defaults to 0. They are in arrival order
- *  rather than grouped by kind on purpose — regrouping would move
- *  `salvagedFunds` and silently re-point every positional caller, which for a
- *  bare number is a bug no type checker can see.
+ *  (`salvagedFunds`, `volatileLosses`, `incineratedFunds`) defaults to 0. They
+ *  are in arrival order rather than grouped by kind on purpose — regrouping
+ *  would move `salvagedFunds` and silently re-point every positional caller,
+ *  which for a bare number is a bug no type checker can see. The newest one
+ *  goes on the END for the same reason, even though it would read better
+ *  beside the two stats it belongs with.
  *
  *  Returns a new RunState; never mutates the one passed in. */
 export function advanceRun(
@@ -638,6 +658,7 @@ export function advanceRun(
   salvagedFunds = 0,
   volatileLosses = 0,
   thawLeft: number = run.thawCharges,
+  incineratedFunds = 0,
 ): RunState {
   const ratchets: Ratchets = { ...run.ratchets };
   for (const id of pickedAxes) ratchets[id] = (ratchets[id] ?? 0) + 1;
@@ -665,6 +686,7 @@ export function advanceRun(
     scrapEarned: run.scrapEarned + scrapEarned,
     salvagedFunds: run.salvagedFunds + salvagedFunds,
     volatileLosses: run.volatileLosses + volatileLosses,
+    incineratedFunds: run.incineratedFunds + incineratedFunds,
     // Clamped to the stock the run actually held: a bay cannot hand back more
     // charges than it was issued, however it reports its ending count.
     bondCharges: Math.max(0, Math.min(run.bondCharges, Math.floor(bondsLeft))),

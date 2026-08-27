@@ -29,7 +29,7 @@ import { VOLATILE_TRIGGER_SPEED } from "./lineClear";
  */
 export type UpgradeId =
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
-  | "thaw" | "cushion";
+  | "thaw" | "cushion" | "incinerator";
 
 export const MAX_TIER = 3;
 
@@ -144,6 +144,45 @@ export const CUSHION_TIERS = [
   { cells: 6, mult: 1.30 },
   { cells: 8, mult: 1.40 },
 ] as const;
+
+/**
+ * THE INCINERATOR'S LADDER — the share of a loss the hood remits for cargo
+ * destroyed inside the flue (chute.ts's INCINERATOR_Y).
+ *
+ * A QUARTER A RUNG, and the round numbers are the specification rather than a
+ * placeholder: the owner asked for 25 / 50 / 75, and unusually for a number in
+ * this file that request is already the right shape for a reason the shelf can
+ * state. A relief ladder has a hard ceiling nothing else here has — 100% would
+ * make writing cargo off FREE, which is not a counter but a second, cheaper
+ * disposal economy, and hazards.ts's rule ("a system makes one specific hazard
+ * cheap for you", never free) forbids it. Three even steps that stop one step
+ * short of the ceiling is the only ladder that reaches "most of it" without
+ * ever reaching "all of it", and the capstone's remaining quarter is what keeps
+ * a dumped shipment a decision instead of a reflex.
+ *
+ * WHAT A RUNG IS WORTH, in the currency the player actually feels. The two
+ * bills it discounts both ride the tier ladder, so one rung is worth more the
+ * deeper the run goes — which is the whole point, since this was asked for
+ * about Tier 10 bay 10. At Tier 10's last bay a spilled shipment is
+ * `penaltyPerLostPieceFor` x 4 cubes and a detonation bills `volatileLoss` per
+ * live cube; the tiers turn those into three quarters, a half and a quarter of
+ * themselves. See design/balance/winnability-sweep-findings.md for the measured
+ * table, and for the finding that licensed the flue's position: with a pilot
+ * that never aims into the hood, NOTHING in a Tier-10 bay dies above the
+ * roofline, so this system is worth exactly zero to a player who does not fly
+ * it. That is the shape a skill-expressive counter should have and it is also
+ * the reason the ladder is a share rather than a flat sum — there is no
+ * passive floor here to be generous with.
+ */
+export const INCINERATOR_TIERS = [0.25, 0.5, 0.75] as const;
+
+/** The share of a loss a hood at `tier` remits inside the flue. Tier 0 is a
+ *  bare bay, which remits nothing — derived rather than typed beside the copy
+ *  so the shop card, the guide and the config all quote one ladder. */
+export function incineratorRelief(tier: number): number {
+  const t = Math.max(0, Math.min(INCINERATOR_TIERS.length, Math.floor(tier)));
+  return t === 0 ? 0 : INCINERATOR_TIERS[t - 1];
+}
 
 /** The trigger speed a cushion tier produces inside its liner on a stock bay.
  *  Derived so the shop copy, the guide and the docs quote the constants rather
@@ -462,6 +501,32 @@ export const UPGRADES: UpgradeDef[] = [
       cfg.cushionMult = rung.mult;
     },
   },
+  {
+    id: "incinerator",
+    name: "Incinerator",
+    glyph: "INC",
+    blurb: "A flare hood over the plant — cargo destroyed above the power bar burns off cheap.",
+    tiers: [
+      `${Math.round(INCINERATOR_TIERS[0] * 100)}% off every loss charged above the roofline`,
+      `${Math.round(INCINERATOR_TIERS[1] * 100)}% off — half of what a written-off shipment costs`,
+      `${Math.round(INCINERATOR_TIERS[2] * 100)}% off — a quarter price, and never free`,
+    ],
+    current: (t) => (t === 0
+      ? "no hood"
+      : `${Math.round(incineratorRelief(t) * 100)}% off losses in the flue`),
+    step: (t) => (t + 1 >= MAX_TIER
+      ? { dir: "up", text: "+25% off — a quarter price, and never free" }
+      : { dir: "up", text: "+25% off" }),
+    apply(cfg, tier) {
+      if (tier <= 0) return;
+      // ASSIGNED, like the cushion's two fields directly above and for the same
+      // reason: nothing else in the game writes this seam, so a tier states the
+      // hood the rig HAS rather than compounding with one nobody sold. If a
+      // Final clause ever drives it the other way, the composition rule belongs
+      // beside cushionedTrigger's floor, not here.
+      cfg.incineratorRelief = incineratorRelief(tier);
+    },
+  },
 ];
 
 export type UpgradeTiers = Record<UpgradeId, number>;
@@ -469,7 +534,7 @@ export type UpgradeTiers = Record<UpgradeId, number>;
 export function newTiers(): UpgradeTiers {
   return {
     bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0,
-    thaw: 0, cushion: 0,
+    thaw: 0, cushion: 0, incinerator: 0,
   };
 }
 
@@ -674,7 +739,7 @@ export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
  * leaderboard.
  * ------------------------------------------------------------------------- */
 
-/** Ladder cost of every track maxed: 8 tracks x (20+35+55) = 880. Derived, not
+/** Ladder cost of every track maxed: 10 tracks x (20+35+55) = 1100. Derived, not
  *  typed in, so re-pricing TIER_COSTS or adding a system can't leave a stale
  *  constant behind — and the eighth track this note used to anticipate (the
  *  Thaw Lance) arrived and moved it from 770 without a line changing here.
@@ -689,7 +754,18 @@ export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
  *  both budgets, because the Workshop's own ceiling — not the allowance — is
  *  what binds there, so the counter table below is paired against an unchanged
  *  control. See meta.ts's installAvailable for the relationship that survives
- *  the move exactly. */
+ *  the move exactly.
+ *
+ *  IT HAS MOVED AGAIN, twice, on the same rule and with the same check: the
+ *  Impact Cushion took it to 880 and the Incinerator takes it to 1100 (Mark 1
+ *  88 → 110, Mark 5 440 → 550, Mark 10 880 → 1100). The check is the one that
+ *  matters and it still holds — `builds.ts`'s `loadoutFor` walks breadth-first
+ *  through `ownableTracks`, and every rig the winnability sweep flies is bound
+ *  by what the Workshop will SELL at that Mark (installs are `requiresMark`
+ *  gated and uprates stop at tier 2), not by the allowance. So the paired
+ *  tables in the findings doc are paired against unchanged controls. The day a
+ *  sweep's rig stops being install-bound and starts being budget-bound, this
+ *  paragraph is the one that has to be re-measured rather than re-read. */
 export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
 
 /** Marks in the ladder. Placeholder that rhymes with RUN_LEVELS; the real

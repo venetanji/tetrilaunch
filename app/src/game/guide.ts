@@ -152,6 +152,13 @@ function systemTopics(): GuideTopic[] {
     // Same rule: volatile opens at Mark 7 (hazards.ts), so its counter's guide
     // row opens with the tier that opens the axis.
     cushion: 7,
+    // THE ONE ROW THAT IS NOT GATED ON AN AXIS, because the Incinerator does
+    // not answer one: it discounts the two bills every material can run up
+    // (a spilled shipment and a detonation), so there is no single axis whose
+    // arrival is the right moment to open it. Tier 5 instead, which is the
+    // rung MATERIAL_DRAFT_BAYS stops being dodgeable (hazards.ts) — the first
+    // tier at which a player is guaranteed cargo they may have to write off.
+    incinerator: 5,
   };
   // Sorted by the tier that opens each system, ties keeping the UPGRADES order
   // — so the chapter reads as the ladder the player will actually buy it in

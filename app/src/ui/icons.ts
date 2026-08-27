@@ -27,7 +27,7 @@ export type IconName =
   // needed reading rather than recognising, and at refit-card size the reading
   // cost was the whole point of the header.
   | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
-  | "thaw" | "cushion"
+  | "thaw" | "cushion" | "incinerator"
   // One per option unlock (meta.ts's UNLOCKS). Same id-is-the-icon-name
   // convention as the tracks above: the shop card casts the id at the call
   // site, so there is no glyph field on UnlockDef and meta.ts never imports
@@ -138,6 +138,21 @@ const PATHS: Record<IconName, string> = {
   cushion:
     `<path d="M14 2v12"/><path d="M4 11h9v3H4z" fill="currentColor" stroke="none"/>`
     + `<path d="M5 11l1.5-2 1.5 2 1.5-2 1.5 2"/><path d="M7 2h4v4H7z"/><path d="M9 7v2"/>`,
+  // Incinerator: the hood's throat as a solid horizontal bar — the line the
+  // system IS (chute.ts's INCINERATOR_Y) — with a cube above it and flame
+  // tongues licking up off it. Built around a HORIZONTAL rule where `cushion`
+  // beside it is built around the VERTICAL wall, so at 13px the two counters
+  // separate on their axis before anything else about them has to be read.
+  //
+  // The cube sits ABOVE the bar and is an outline, the bar is filled: what is
+  // bought is the hood, and the cargo is what passes through it. Reversing that
+  // would draw the same picture `hydraulics` already draws (a solid face with
+  // something above it).
+  incinerator:
+    `<path d="M2 9h12v2H2z" fill="currentColor" stroke="none"/>`
+    + `<path d="M4 9c0-1.6 1-2 1-3 .8.6 1 1.2 1 2"/>`
+    + `<path d="M10 9c0-1.6 1-2 1-3 .8.6 1 1.2 1 2"/>`
+    + `<path d="M6 2h4v4H6z"/>`,
 
   // ---- Option unlocks (meta.ts's UNLOCKS) ---------------------------------
   // Demolition Licence: a detonation, not a charge — `demolition` above is the

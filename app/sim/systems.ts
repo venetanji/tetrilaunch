@@ -2487,7 +2487,7 @@ section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
   // nothing, and three tracks used to do exactly that.
   const stopped = { ...newRun(4, [], 0, {
     bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
-    thaw: 1, cushion: 1,
+    thaw: 1, cushion: 1, incinerator: 1,
   }, 6), levelIndex: 6, scrap: 999 };
   for (const u of UPGRADES) {
     const after = buyUpgrades(stopped, { [u.id]: 1 }, MAX_TIER)!;

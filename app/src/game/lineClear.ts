@@ -425,12 +425,50 @@ export function slagBountyFor(destroyed: Cube[], perCube: number): number {
  * finals.ts's Hair Trigger and anything else reading volatileTriggerMult. One
  * knob, aimed at the thing that was actually wrong.
  */
-export function volatileLossFor(destroyed: Cube[], perCube: number): number {
-  let n = 0;
+export function volatileLossFor(
+  destroyed: Cube[],
+  perCube: number,
+  /** The share of THIS cube's charge the Incinerator remits, 0..1 — read from
+   *  the cube's position at the moment the blast razed it (game.ts's
+   *  resolveVolatile calls this with the bodies still holding their last
+   *  position). Defaults to none, so every existing caller and every bay with
+   *  no hood aboard prices a blast byte-identically to before the track
+   *  existed.
+   *
+   *  PER CUBE, and that is a rule rather than a convenience. A blast can
+   *  straddle the flue plane — one cube caught in the air over the machine,
+   *  three down in the pile — and pricing the whole blast off its centroid
+   *  would let a single high cube buy the discount for everything under it,
+   *  which is the opposite of what a positional system is for. */
+  relief: (cube: Cube) => number = () => 0,
+): number {
+  let owed = 0;
   for (const cube of destroyed) {
-    if (MATERIAL_SPEC[cube.material].countsForLines) n += 1;
+    if (!MATERIAL_SPEC[cube.material].countsForLines) continue;
+    owed += chargeAfterRelief(perCube, relief(cube));
   }
-  return n * perCube;
+  return owed;
+}
+
+/**
+ * One cube's loss charge after the Incinerator has taken its share.
+ *
+ * The single place the relief arithmetic happens, shared by both bills the hood
+ * discounts (this file's volatile charge and game.ts's spill fine), so the two
+ * can never round a quarter differently. Rounded per CUBE rather than on a
+ * batch total for the same reason the relief is applied per cube: a batch that
+ * straddles the flue has to be priced a cube at a time, and once it is, the
+ * batch total is just their sum.
+ *
+ * Clamped both ends. A relief above 1 would PAY the player for losing cargo,
+ * which is the income-strategy inversion `slagBountyFor` refuses in the
+ * neighbouring note; a negative one would surcharge it. Neither is a state the
+ * ladder can produce today — INCINERATOR_TIERS stops at 0.75 — and the clamp is
+ * here so that stays true of a saved loadout somebody hand-edited.
+ */
+export function chargeAfterRelief(perCube: number, relief: number): number {
+  const r = Math.max(0, Math.min(1, relief));
+  return Math.round(perCube * (1 - r));
 }
 
 /** What one detonation actually moves on the bay's ledger. */
@@ -470,9 +508,27 @@ export function settleBlast(
   funds: number,
   perLiveCube: number,
   perDeadCube: number,
+  /** The Incinerator's per-cube relief (see volatileLossFor). */
+  relief: (cube: Cube) => number = () => 0,
 ): BlastSettlement {
   const bounty = slagBountyFor(destroyed, perDeadCube);
-  const owed = volatileLossFor(destroyed, perLiveCube);
+  // THE HOOD TOUCHES THE CHARGE AND ONLY THE CHARGE, and it does it HERE —
+  // before the netting, before the clamp. Three rulings in one line, each of
+  // which the obvious alternative gets wrong:
+  //
+  //  - Not the BOUNTY. That is payment for dead cargo, and a hood that raised
+  //    it would make burning slag a way to earn — the exact income strategy
+  //    slagBountyFor's note refuses ("paying for one would make ratcheting the
+  //    volatile axis an income strategy").
+  //  - Before the NETTING, because this function's whole argument is that the
+  //    charge must meet the bounty before either reaches the balance. Relief
+  //    applied to `net` afterwards would silently discount the bounty too, and
+  //    on a mixed blast that is a different number.
+  //  - Before the CLAMP, because the clamp forgives what the player cannot pay.
+  //    Discounting after it would remit money that never moved — the same lie
+  //    the "−$" toast refuses to print — and would make the hood worth nothing
+  //    at all to the near-broke player, who is the one it was asked for.
+  const owed = volatileLossFor(destroyed, perLiveCube, relief);
   const charged = Math.min(funds + bounty, owed);
   return { bounty, charged, owed, net: bounty - charged };
 }
