@@ -27,8 +27,13 @@ const WALL_T = 40;
  *  Max power (28 px/step, see cannon.ts's SPEED_MAX) at up to 60° gives vy
  *  ~= 24.2 px/step against a per-step gravity accel of ~0.611 px/step^2, for
  *  an apex ~250px above y=0 (cannon at y=288, barrel tip up to ~55px
- *  higher). 600px comfortably exceeds that ~250px max overshoot. */
-const SKY = 600;
+ *  higher). 600px comfortably exceeds that ~250px max overshoot.
+ *
+ *  Exported because render.ts draws the wall glow up into the open sky as far
+ *  as the letterbox band reaches (layout.ts's skyTop) and clamps it HERE — the
+ *  drawn rails end exactly where the colliders do, so the neon never promises
+ *  a surface that would not actually stop a piece. */
+export const SKY = 600;
 
 export function createPhysics(level: LevelConfig): PhysicsWorld {
   const engine = Matter.Engine.create();

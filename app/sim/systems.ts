@@ -24,7 +24,7 @@ import {
   tierDemands,
   PILE_TIERS, UNBREAKABLE_MARK, WIND_GUST_FRACTION,
   penaltyPerLostPieceFor, SPILL_FINE_TIER1, SPILL_FINE_TOP_BASE, SPILL_FINE_TOP_PER_BAY,
-  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES,
+  bombResupply, SLAG_BOUNTY, DEMO_RESUPPLY_LINES, SCRAP_PER_BAY,
   DEMO_BLAST_MULT, DEMO_SALVAGE_MULT, NO_MATERIALS,
   type LevelConfig, type PileTier,
 } from "../src/game/level";
@@ -35,8 +35,18 @@ import {
   picksPerBay, applyRatchets, togglePick,
   materialRate, totalNotches, MATERIAL_CAP, MIX_TOTAL_CAP, TARGET_NOTCH, COST_NOTCH, TIME_NOTCH,
   CAPSTONE_MARK, TIME_LADDER, COST_LADDER, notchTotal,
-  type HazardId, type Ratchets,
+  type HazardDef, type HazardId, type Ratchets,
 } from "../src/game/hazards";
+// The winnability harness (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts,
+// sim/builds.ts) — its section is at the bottom of this file.
+import {
+  comboKey, dodgePolicy, enumerateSpace, legalHands, randomSpec, rungFor, spreadPolicy,
+} from "./draft-space";
+import { greedyRefit, runDeepRun } from "./deeprun";
+import { loadoutFor, PRIORITY_ORDERS } from "./builds";
+import {
+  BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold, thawHands,
+} from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
@@ -125,6 +135,7 @@ import {
   railSlotsFor,
   setRailSlots,
   setSafeAreaInsets,
+  skyTop,
   UI_SCALE_MIN,
 } from "../src/game/layout";
 import {
@@ -3146,6 +3157,71 @@ section("Layout solver (layout.ts)");
   const notched = computeLayout(2400, 1080);
   check("a left notch shifts the field right", notched.ox > plain.ox, `${notched.ox} vs ${plain.ox}`);
   setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+}
+
+// ---------------------------------------------------------------------------
+section("Open sky above the field (layout.ts skyTop)");
+// The reported bug: fullscreen on a 16:9 desktop or TV drew a black band across
+// the top of the screen and the field stopped short of it. Nothing was broken
+// in the solver — the band IS the letterbox, and at exactly 16:9 it exists
+// because "snug" reserves a rail band out of the WIDTH, which costs height when
+// the world is refitted. The renderer then clipped every layer to the world
+// rect, so the band could only ever be backdrop colour.
+//
+// engine.ts's top boundary is deliberately OPEN (pieces fly above y=0 and fall
+// back in, the side walls span y=-SKY..H to keep them in the shaft), so the
+// band was capping a shaft the physics treats as unbounded. skyTop is how far
+// above the world's own top edge the canvas reaches, in world px — the number
+// the background bake and the render clip open upward by, so the sky reaches
+// the top of the screen at every aspect.
+{
+  setSafeAreaInsets({ left: 0, right: 0, top: 0, bottom: 0 });
+  setRailSlots(RAIL_SLOTS_MAX);
+  const cases: [string, number, number][] = [
+    ["1080p fullscreen", 1920, 1080],
+    ["4K fullscreen", 3840, 2160],
+    ["960x540 window", 960, 540],
+    ["16:10 laptop", 1600, 1000],
+    ["4:3 tablet", 1024, 768],
+    ["21:9 phone", 2400, 1080],
+    ["19.5:9 phone", 2556, 1179],
+    ["short phone", 960, 400],
+  ];
+  for (const [name, w, h] of cases) {
+    const l = computeLayout(w, h);
+    const top = skyTop(l.scale, l.oy);
+    // THE invariant: map the sky's top edge back through the very transform
+    // render() draws with. It must land at or above the canvas's first row —
+    // if it lands below, that difference is the black band the player sees.
+    const topCss = l.oy + top * l.scale;
+    check(`${name} paints the sky to the canvas top`, topCss <= 0, `${topCss.toFixed(2)}px of bare backdrop`);
+    // ...and it may only ever open UPWARD. A positive skyTop would crop the
+    // world's own first rows, which is the same bug pointing the other way.
+    check(`${name} never crops the world's top`, top <= 0, String(top));
+    // Nothing is opened that the viewport does not actually show: the sky is
+    // the letterbox band converted to world px and one px of overdraw, never a
+    // fixed slab bolted above the field.
+    const band = l.oy / l.scale;
+    check(`${name} opens only the band it has`, -top <= band + 2 + 1e-9, `${(-top).toFixed(2)} world px for a ${band.toFixed(2)} px band`);
+  }
+
+  // Why this is not a rounding curiosity: 1920x1080 is the world's OWN aspect,
+  // and it still letterboxes, because the rail band comes out of the width
+  // before the world is fitted. 23.6 CSS px at 1080p, and the same 23.6 at 4K
+  // — a band that survives every resolution the player might pick.
+  check("16:9 fullscreen still letterboxes (this is why the sky exists)",
+    computeLayout(1920, 1080).oy > 20, String(computeLayout(1920, 1080).oy));
+  // A viewport whose height is fully used has no band to open, and opens
+  // EXACTLY nothing — every landscape phone comes out of this pixel-identical,
+  // rather than pixel-identical-plus-a-rounding-margin.
+  const wide = computeLayout(2400, 1080);
+  check("a height-filling viewport opens no sky at all", wide.oy === 0 && skyTop(wide.scale, wide.oy) === 0,
+    `${wide.oy} / ${skyTop(wide.scale, wide.oy)}`);
+  // The world is 1280x720 and the sky is measured in the same units — a sanity
+  // rail against a future change that starts returning CSS px here.
+  check("the sky is measured in world px", Math.abs(skyTop(1, 100) - -101) < 1 + 1e-9, String(skyTop(1, 100)));
+  check("the sky scales with the field", skyTop(2, 100) > skyTop(1, 100), `${skyTop(2, 100)} vs ${skyTop(1, 100)}`);
+  check("the world's own height is untouched by the sky", WORLD.height === 720);
 }
 
 // ---------------------------------------------------------------------------
@@ -9841,6 +9917,467 @@ section("The mouse buttons rotate, the wheel lofts, only the left fires (input.t
 
   delete glob.window;
   glob.requestAnimationFrame = prevRaf;
+}
+
+/* ===========================================================================
+ * THE WINNABILITY HARNESS (sim/draft-space.ts, sim/deeprun.ts, sim/counters.ts)
+ *
+ * These pins guard three claims the findings in `design/balance/` are written
+ * on, and each is a property rather than a number, because a number here would
+ * only re-state what the sweep printed on the day it ran.
+ *
+ *  1. The enumerated notch-combo space is EXACTLY what the draft can reach.
+ *     `legalHands` states the rule in closed form; `togglePick` is the rule the
+ *     player actually meets. If the two ever disagree the sweep is describing a
+ *     ladder nobody is dealt, which is the one failure that would make every
+ *     "unwinnable" claim worthless.
+ *  2. The deep-run driver walks `run.ts`'s real ladder — the refit stops, the
+ *     Final Inspection rung, the capped carry — rather than a re-derivation of
+ *     it, and does so deterministically.
+ *  3. The proposed counter systems are bounded the way their design notes say:
+ *     a cushion softens and never primes, and it never reaches "volatile is
+ *     inert".
+ * ========================================================================= */
+section("The winnability sweep — the enumerated combo space (sim/draft-space.ts)");
+{
+  /**
+   * Brute force: every hand of size `need` reachable by TAPPING, folded through
+   * the real `togglePick`.
+   *
+   * Breadth-first over tap sequences rather than a formula, deliberately — this
+   * is the independent witness, so it must not share an argument with the thing
+   * it is checking. Depth 6 is well past saturation for a two-card hand at one
+   * or two picks (a hand of two cards has at most three states at need 2, and
+   * every one is reachable in two taps), and the check below asserts the
+   * frontier actually closed rather than assuming the depth was enough.
+   */
+  const reachableByTapping = (
+    hand: HazardDef[], need: number, forced: boolean,
+  ): { hands: Set<string>; closed: boolean } => {
+    const seen = new Set<string>();
+    const hands = new Set<string>();
+    let frontier: HazardId[][] = [[]];
+    seen.add("");
+    let closed = false;
+    for (let d = 0; d < 6; d++) {
+      const next: HazardId[][] = [];
+      for (const picks of frontier) {
+        for (const card of hand) {
+          const after = togglePick(picks, card.id, need, forced);
+          const key = after.join(",");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (after.length === need) hands.add([...after].sort().join(","));
+          next.push(after);
+        }
+      }
+      if (next.length === 0) { closed = true; break; }
+      frontier = next;
+    }
+    return { hands, closed };
+  };
+
+  let mismatches = 0;
+  let neverClosed = 0;
+  let handsChecked = 0;
+  let cappedSeen = 0;
+  // Every rung of every Mark, on several seeds — the whole space the sweep can
+  // ever enumerate, checked in closed form against the taps that reach it.
+  for (let mark = 1; mark <= MARK_COUNT; mark++) {
+    for (const seed of [1, 2, 7, 4242]) {
+      for (let levelIndex = 0; levelIndex < RUN_LEVELS - 1; levelIndex++) {
+        const rung = rungFor(seed, mark, levelIndex, {});
+        if (!rung) continue;
+        handsChecked += 1;
+        const brute = reachableByTapping(rung.hand, rung.need, rung.forced);
+        if (!brute.closed) neverClosed += 1;
+        const mine = new Set(rung.hands.map((h) => [...h].sort().join(",")));
+        if (mine.size !== brute.hands.size
+          || [...mine].some((k) => !brute.hands.has(k))) mismatches += 1;
+        // Did this rung actually EXERCISE the forced-hand cap? A pin that never
+        // reaches the branch it is guarding is a pin that passes for the wrong
+        // reason, so the run counts the branch and asserts it was reached.
+        if (rung.forced && rung.need > 1
+          && rung.hand.some((h) => h.kind !== "content")) cappedSeen += 1;
+      }
+    }
+  }
+  check(
+    "legalHands enumerates exactly the hands togglePick can reach, at every rung of every Mark",
+    mismatches === 0 && handsChecked > 0,
+    `${mismatches} mismatches over ${handsChecked} rungs`,
+  );
+  check(
+    "...and the tap search saturated rather than running out of depth",
+    neverClosed === 0, `${neverClosed} rungs still expanding at depth 6`,
+  );
+  // The cap's own branch, constructed directly rather than waited for: the
+  // shipped ladder deals a forced hand of two MATERIALS at every capstone rung
+  // (materialHand), so the number-axis partner is a fence and no seed reaches
+  // it. hazards.ts's togglePick note says exactly that, and says the rule is
+  // kept as the invariant rather than as a patch for one layout — which is
+  // precisely what has to be pinned when the live ladder cannot reach it.
+  {
+    const material = HAZARDS.find((h) => h.kind === "content")!;
+    const number = HAZARDS.find((h) => h.kind === "number" && h.id !== "target")!;
+    const synthetic = [number, material];
+    const brute = reachableByTapping(synthetic, 2, true);
+    const mine = new Set(legalHands(synthetic, 2, true).map((h) => [...h].sort().join(",")));
+    check(
+      "a forced hand's number partner may never absorb the whole quota (synthetic rung)",
+      !mine.has([number.id, number.id].sort().join(",")),
+      `enumerated ${[...mine].join(" | ")}`,
+    );
+    check(
+      "...and togglePick agrees, so the enumeration is not a second opinion",
+      mine.size === brute.hands.size && [...mine].every((k) => brute.hands.has(k)),
+      `enum ${[...mine].join(" | ")} vs taps ${[...brute.hands].join(" | ")}`,
+    );
+    check(
+      "...while a forced MATERIAL card may still be doubled",
+      mine.has([material.id, material.id].sort().join(",")),
+    );
+    check(
+      "the live ladder never reaches that branch — it is a fence, as hazards.ts says",
+      cappedSeen === 0, `${cappedSeen} live rungs carried a number partner at 2 picks`,
+    );
+  }
+
+  // The space's SIZE is a closed form, and the sweep's coverage banner quotes
+  // it. Pinned as the product of the per-rung hand counts rather than as a
+  // literal, so a change to picksPerBay or to the hand size fails here instead
+  // of silently re-scaling every "N reachable paths" line in the docs.
+  for (const mark of [1, 5, 10]) {
+    const space = enumerateSpace(1, mark);
+    const product = space.rungs.reduce((a, r) => a * r.hands.length, 1);
+    check(
+      `Mark ${mark}: the enumerated path count is the product of its rungs' hands`,
+      space.paths === product,
+      `${space.paths} paths vs product ${product} over ${space.rungs.length} rungs`,
+    );
+    check(
+      `Mark ${mark}: every rung deals ${picksPerBay(mark)} pick(s) from a hand of 2`,
+      space.rungs.every((r) => r.need === picksPerBay(mark) && r.hand.length === 2),
+    );
+    check(
+      `Mark ${mark}: distinct terminal combos never outnumber the paths that reach them`,
+      space.vectors.size > 0 && space.vectors.size <= space.paths,
+      `${space.vectors.size} combos from ${space.paths} paths`,
+    );
+  }
+  // The ratchet ladder is RUN_LEVELS - 2 rungs long: one draft after each
+  // cleared bay except the last two — bay 10 ends the run, and the draft after
+  // bay 9 is the Final Inspection (finals.ts), which deals clauses, not notches.
+  check(
+    "the enumerated ladder stops where the Final Inspection starts",
+    enumerateSpace(1, 10).rungs.length === RUN_LEVELS - 2,
+    `${enumerateSpace(1, 10).rungs.length} rungs`,
+  );
+}
+
+section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
+{
+  // A Mark-10 run, which the sweep measures as walling early — chosen for the
+  // pin precisely because it is SHORT. The claim being guarded is that the
+  // driver is deterministic and walks the real ladder, and neither needs ten
+  // bays of physics to state.
+  // A bare ladder RunState at `mark`, for asking run.ts's run-aware schedule
+  // questions the same way the driver does. `newRun` writes skydeck: null, so
+  // this is a ladder run by construction — which is the point: the pins below
+  // check that the driver reads the RUN rather than the bay index, and a
+  // ladder run is the one where a wrong reading would still pass.
+  const deepRunAt = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+  const loadout = loadoutFor(PRIORITY_ORDERS.spatial, 10);
+  const opts = {
+    mark: 10, seed: 1, bot: BOTS.aim, loadout, draft: spreadPolicy,
+    refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+  };
+  const a = runDeepRun(opts);
+  const b = runDeepRun(opts);
+  check(
+    "two deep runs with identical inputs are identical outcomes",
+    JSON.stringify(a.bays.map((x) => x.outcome)) === JSON.stringify(b.bays.map((x) => x.outcome))
+      && comboKey(a.ratchets) === comboKey(b.ratchets),
+    `${a.baysCleared}/${b.baysCleared} bays, ${comboKey(a.ratchets)} vs ${comboKey(b.ratchets)}`,
+  );
+  check(
+    "a run that did not clear reports the bay it died in, and played exactly that many",
+    a.cleared ? a.diedAt === null : a.diedAt === a.bays.length && a.baysCleared === a.bays.length - 1,
+    `cleared ${a.cleared}, diedAt ${a.diedAt}, played ${a.bays.length}, cleared ${a.baysCleared}`,
+  );
+  check(
+    "every notch the run banked came from a hand the draft actually dealt",
+    a.bays.every((rec, i) => {
+      if (rec.picks.length === 0) return true;
+      const rung = rungFor(1, 10, i, rec.ratchets);
+      return !!rung && rung.hands.some(
+        (h) => [...h].sort().join() === [...rec.picks].sort().join(),
+      );
+    }),
+  );
+  // Asked of the RUN's own reading (run.ts's picksForRun), not of the ladder's
+  // picksPerBay. The two agree on a ladder run and #124 pins that they do; what
+  // this guards is that the DRIVER asks the run-aware one, so pointing it at a
+  // mode that charges differently cannot silently over-charge the draft.
+  check(
+    "the driver takes exactly the notches the RUN charges, at every draft it reached",
+    a.bays.slice(0, Math.max(0, a.bays.length - 1))
+      .every((rec) => rec.picks.length === picksForRun(deepRunAt(10))),
+    a.bays.map((r) => r.picks.length).join(","),
+  );
+
+  // The three couplings a per-bay sweep cannot have, asserted on a run long
+  // enough to have them. A Mark-1 run reaches the first refit stop.
+  const long = runDeepRun({
+    mark: 1, seed: 3, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.economy, 1),
+    draft: dodgePolicy, refit: greedyRefit(PRIORITY_ORDERS.economy, true),
+  });
+  check(
+    "the carry into every bay is the previous bay's overshoot, capped at CARRY_CAP",
+    long.bays[0].carryIn === 0 && long.bays.every((rec, i) => {
+      if (i === 0) return true;
+      const prev = long.bays[i - 1].outcome;
+      return rec.carryIn === Math.min(CARRY_CAP, Math.max(0, prev.endScore - prev.target));
+    }),
+    long.bays.map((r) => `${r.carryIn}`).join(","),
+  );
+  check(
+    "scrap is only ever spent at a stop the RUN opens (run.ts's refitAfterBay)",
+    long.bays.every((rec) => rec.refitSpend === 0
+      || refitAfterBay(deepRunAt(1), rec.bay - 1)),
+    long.bays.filter((r) => r.refitSpend > 0).map((r) => `bay${r.bay}:${r.refitSpend}`).join(" "),
+  );
+  check(
+    "a run that reached bay 10 accepted a Final Inspection clause, and one that did not, did not",
+    long.bays.length >= RUN_LEVELS ? long.final !== null : long.final === null,
+    `bays ${long.bays.length}, final ${long.final}`,
+  );
+  // The Bond magazine is a RUN consumable, and the bug it replaced ("a free
+  // 'flatten the whole field' every level is what let one fat carry-over clear
+  // two bays back to back", run.ts's RunState.bondCharges) is invisible unless
+  // a charge is actually spent — so the check is run on a pilot that fires
+  // them, at a Mark whose loadout carries the emitter, and asserts the spend
+  // happened before asserting it stuck.
+  {
+    const armed = runDeepRun({
+      mark: 5, seed: 2, bot: (s) => bondHands(BOTS.aim(s)),
+      loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5), draft: spreadPolicy,
+      refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const magazine = armed.bays.map((r) => r.outcome.bondsLeft);
+    const issued = bondChargesFor(loadoutFor(PRIORITY_ORDERS.spatial, 5).bonds);
+    check(
+      "the run's Bond magazine is actually spent down by a pilot that fires it",
+      issued > 0 && magazine.some((n) => n < issued),
+      `issued ${issued}, left per bay ${magazine.join(",")}`,
+    );
+    check(
+      "...and never refills across a bay boundary",
+      magazine.every((n, i) => i === 0 || n <= magazine[i - 1]),
+      magazine.join(","),
+    );
+  }
+}
+
+section("The winnability sweep — proposed counters (sim/counters.ts)");
+{
+  // A cushion SOFTENS. Every tier must raise the trigger threshold, never lower
+  // it — a "cushion" that primed the material finer would be finals.ts's Hair
+  // Trigger wearing a system's name, and the sweep would read it as the
+  // proposal working.
+  check(
+    "every cushion tier raises the volatile trigger, and each tier raises it further",
+    CUSHION_TRIGGER_MULT.every((m) => m > 1)
+      && CUSHION_TRIGGER_MULT.every((m, i) => i === 0 || m > CUSHION_TRIGGER_MULT[i - 1]),
+    CUSHION_TRIGGER_MULT.join(","),
+  );
+  // The ceiling the design note argues for: the top tier lands ON the measured
+  // maximum first-contact speed (lineClear.ts's VOLATILE_TRIGGER_SPEED note
+  // records the range as 17.3 to 30.8) and not past it. Past it, no impact of
+  // ANY kind sets a cube off and the cushion is a delete button — which
+  // hazards.ts forbids outright ("a system does not DELETE a hazard").
+  check(
+    "the top cushion tier reaches the measured maximum arrival speed and stops there",
+    Math.abs(cushionThreshold(3) - 30.8) < 0.5,
+    `threshold ${cushionThreshold(3).toFixed(1)} vs measured max 30.8`,
+  );
+  check(
+    "the first cushion tier still leaves a full-power shot dangerous (median 25.5)",
+    cushionThreshold(1) < 25.6, `threshold ${cushionThreshold(1).toFixed(1)}`,
+  );
+  // Applied as a multiplier on whatever is already there, so a cushion and Hair
+  // Trigger compose instead of one overwriting the other.
+  {
+    const cfg = makeBaseLevel(9, 10);
+    applyFinal(cfg, "hair-trigger");
+    const primed = cfg.volatileTriggerMult;
+    const plain = makeBaseLevel(9, 10);
+    cushionKit(3).level!(cfg);
+    cushionKit(3).level!(plain);
+    check(
+      "a cushion composes with Hair Trigger rather than overwriting it",
+      Math.abs(cfg.volatileTriggerMult - primed * CUSHION_TRIGGER_MULT[2]) < 1e-9,
+      `${primed} -> ${cfg.volatileTriggerMult}`,
+    );
+    check(
+      "...and the clause still costs the same share of whatever rig accepted it",
+      Math.abs(cfg.volatileTriggerMult / plain.volatileTriggerMult - primed) < 1e-9,
+      `${(cfg.volatileTriggerMult / plain.volatileTriggerMult).toFixed(3)} vs ${primed}`,
+    );
+    // A FINDING, pinned so it cannot quietly stop being true. The maxed cushion
+    // lifts a Hair Trigger bay to 1.19x STOCK — the clause is not merely bought
+    // back, it is overshot, and a Tier-7 exam a rig can walk past is not an
+    // exam. The arithmetic is unavoidable (finals.ts primes at 0.85 and the
+    // cushion's own ceiling is 1.40 = the measured maximum arrival speed, so
+    // any cushion that achieves its stated job clears 1/0.85 = 1.176 on the
+    // way), which is why design/balance/counter-systems-proposal.md puts the
+    // fix on the CLAUSE side rather than on the cushion's number.
+    check(
+      "KNOWN: a maxed cushion overshoots Hair Trigger — the clause needs re-sizing, not the cushion",
+      cfg.volatileTriggerMult > 1,
+      `net ${cfg.volatileTriggerMult.toFixed(3)}x stock`,
+    );
+  }
+  // The thaw rig's magazine renews per BAY, which is the proposal's one real
+  // disagreement with the Bond Emitter it would sit beside. A wrapper is reused
+  // across the ten bays of a run, so "per bay" has to be noticed at the Game
+  // boundary rather than assumed at construction.
+  {
+    let acts = 0;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = thawHands(stub, 2, "stub+thaw");
+    const frozen = (): Cube => ({
+      body: { position: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } },
+      material: "cryo", struck: false, blinkStart: null,
+    } as unknown as Cube);
+    const bay = (cubes: Cube[]): Game => ({ cubes } as unknown as Game);
+    const bay1 = bay([frozen(), frozen(), frozen()]);
+    for (let i = 0; i < 5; i++) rig.act(bay1, i * 16);
+    check(
+      "a thaw rig spends its whole magazine and no more inside one bay",
+      bay1.cubes.filter((c) => c.struck).length === 2,
+      `${bay1.cubes.filter((c) => c.struck).length} thawed of 3`,
+    );
+    const bay2 = bay([frozen(), frozen(), frozen()]);
+    for (let i = 0; i < 5; i++) rig.act(bay2, i * 16);
+    check(
+      "...and the magazine renews at the next bay, not at the next run",
+      bay2.cubes.filter((c) => c.struck).length === 2,
+      `${bay2.cubes.filter((c) => c.struck).length} thawed of 3`,
+    );
+    check("...while still handing every tick to the bot it wraps", acts === 10, `${acts} acts`);
+  }
+  // Bond hands must not spend the run's rarest consumable on an empty bay.
+  {
+    let acts = 0;
+    let used = 0;
+    const stub = { name: "stub", act: () => { acts += 1; } };
+    const rig = bondHands(stub);
+    const bay = (n: number, charges: number): Game => ({
+      cubes: new Array(n).fill(null),
+      bondCharges: charges,
+      timeLeftMs: 120_000,
+      level: { timeLimitSec: 144 },
+      useBondBreaker: () => { used += 1; return true; },
+    } as unknown as Game);
+    rig.act(bay(BOND_MIN_CUBES - 1, 3), 0);
+    check("bond hands hold fire on a bay below the pile floor", used === 0 && acts === 1);
+    rig.act(bay(BOND_MIN_CUBES, 3), 0);
+    check("...and fire once the pile is deep enough", used === 1);
+    rig.act(bay(BOND_MIN_CUBES + 20, 0), 0);
+    check("...and never fire a charge the run does not have", used === 1 && acts === 2);
+  }
+
+  // A SAMPLED policy must not carry its RNG stream between runs. Review found
+  // it doing exactly that — draft-space.ts's POLICY SPECS note has the repro
+  // and the reasoning; this is the guard.
+  //
+  // Stated on the POLICY rather than on a deep run, deliberately. A run-level
+  // version is what was tried first and it was vacuous: the pair of runs it
+  // chose both died on bay 2, so the shared stream only ever advanced one draw
+  // and the buggy code and the fixed code agreed. Driving the policy directly
+  // over one rung makes the carry-over visible in six draws and costs no
+  // physics at all.
+  {
+    const spec = randomSpec(20973);
+    // A capstone rung: two picks from a two-card hand is three distinct hands,
+    // so six draws off one stream is a sequence, not a coin flip.
+    const rung = rungFor(1, CAPSTONE_MARK, 0, {})!;
+    const seq = (pol: { choose: (r: typeof rung, x: Ratchets) => HazardId[] }): string =>
+      Array.from({ length: 6 }, () => pol.choose(rung, {}).join("+")).join(" ");
+
+    check(
+      "two runs at one seed draw the same sampled walk when the policy is built per run",
+      seq(spec.build(4)) === seq(spec.build(4)),
+      `${seq(spec.build(4))} vs ${seq(spec.build(4))}`,
+    );
+    {
+      // The shape the bug had: ONE built policy, asked twice. Its stream
+      // carries, so the second pass is a continuation rather than a repeat —
+      // and this asserts that it IS, because a pin blind to the defect it
+      // guards is not a pin.
+      const shared = spec.build(4);
+      const passA = seq(shared);
+      const passB = seq(shared);
+      check(
+        "...and a SHARED policy continues its stream instead, which is the defect",
+        passA !== passB, `${passA} then ${passB}`,
+      );
+      check(
+        "...so the per-run build is what makes the first pass of each pair agree",
+        passA === seq(spec.build(4)),
+      );
+    }
+    // And the run-level consequence the repro reported: same seed, same
+    // options, identical outcome.
+    const flight = () => runDeepRun({
+      mark: 5, seed: 4, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 5),
+      draft: spec.build(4), refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const a = flight();
+    const b = flight();
+    check(
+      "a deep run under a sampled policy reproduces on the same seed",
+      comboKey(a.ratchets) === comboKey(b.ratchets)
+        && a.baysCleared === b.baysCleared && a.diedAt === b.diedAt,
+      `${comboKey(a.ratchets)} @${a.diedAt} vs ${comboKey(b.ratchets)} @${b.diedAt}`,
+    );
+  }
+
+  // Every bay's scrap payout reaches the reported total, INCLUDING the last one
+  // played. The last bay never goes through advanceRun — the run ends on it —
+  // so a bay-10 win returned before the accounting its nine clears went
+  // through, and every successful run under-reported by that bay's payout.
+  //
+  // Mark 1 seed 1 is the fixture because its last bay actually PAYS (6 of the
+  // run's 146). A run whose final bay earned nothing cannot tell the fixed code
+  // from the broken code, which is how the first attempt at this pin passed
+  // while proving nothing.
+  {
+    const o = runDeepRun({
+      mark: 1, seed: 1, bot: BOTS.aim, loadout: loadoutFor(PRIORITY_ORDERS.spatial, 1),
+      draft: spreadPolicy, refit: greedyRefit(PRIORITY_ORDERS.spatial, true),
+    });
+    const paid = o.bays.map((b) => b.scrapPaid);
+    const tally = paid.reduce((x, y) => x + y, 0);
+    const last = paid[paid.length - 1];
+    check(
+      "a run reports the scrap every bay it played paid out, the last one included",
+      o.scrapEarned === tally, `reported ${o.scrapEarned}, bays paid ${tally}`,
+    );
+    check(
+      "...on a fixture whose last bay pays, so the check can see the bug it guards",
+      last > 0 && o.scrapEarned - last === tally - last && tally > last,
+      `paid [${paid.join(",")}], last ${last}`,
+    );
+    check(
+      "...and only a CLEARED bay collects the per-bay clear bonus",
+      o.bays.every((b, i) => (i === o.bays.length - 1 && !o.cleared
+        ? b.scrapPaid === b.outcome.scrapEarned
+        : b.scrapPaid === b.outcome.scrapEarned + SCRAP_PER_BAY)),
+      o.bays.map((b) => `${b.outcome.scrapEarned}->${b.scrapPaid}`).join(" "),
+    );
+  }
 }
 
 console.log(
