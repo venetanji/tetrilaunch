@@ -735,30 +735,29 @@ function unknownBayPanelHTML(best: number, extras: string): string {
   </div>`;
 }
 
-/**
- * The Skydeck's day contract, for the panel's `extras` slot.
+/*
+ * THE DAY'S CLAUSES USED TO BE PRINTED HERE, and their absence is the feature.
  *
- * PASSED IN, never computed here, and that is a testability decision rather
- * than a style one: the clauses are a function of today's DATE (skydeck.ts),
- * and a screen that read the clock would render differently every morning —
- * which is fine in the app and fatal in sim/uifit, whose whole job is to
- * measure this markup against a fixed budget. The fixture passes a fixed set;
- * main.ts passes the day's.
+ * The recap panel listed them by name and bay — "Bay 4 Tight Gauge", "Bay 7
+ * Cold Weld", "Bay 10 Odd Lots" — as three rows in its extras slot, so that a
+ * player could plan the whole day before touching the launcher. That is a
+ * different game from the one the Skydeck is: a fixed daily run, no refit yard,
+ * and a schedule you fly rather than a schedule you read. Handed the names on
+ * the home screen, bay 7 is arithmetic the moment bay 1 starts; discovered at
+ * the stop, it is the thing that just happened to your bay.
  *
- * Three rows, one per stop, each naming the bay it arms on and the clause. The
- * bay number leads because that is what the player is planning against — "I
- * have three bays before the ice" is the sentence this list exists to make
- * available before a single launch.
+ * So the names are gone from every menu surface, and they are gone from the
+ * DATA the menu is given as well as from its markup: menuScreen now takes a
+ * COUNT (see its `standingClauses`), not a list, which is why nothing
+ * downstream — no aria-label, no title, no tooltip — can leak one by accident.
+ * The count is not a spoiler and stays public on the primary button's subtitle;
+ * "three standing clauses" is the terms of the run, and which three is the run.
+ *
+ * WHERE THEY FIRST APPEAR: the bay-clear card, at the stop the clause arms on
+ * ("Cold Chain · from Bay 4" — see bayClearScreen's standing announcement).
+ * That announcement is now the reveal, and sim/systems.ts pins both halves —
+ * that the menu carries no name, and that the card still does.
  */
-function skydeckRulesHTML(rules: { bay: number; name: string }[]): string {
-  if (rules.length === 0) return "";
-  return `<div class="sky-rules" role="list" aria-label="Today's standing clauses">
-    ${rules.map((r) => `<div class="sky-rules__row" role="listitem">
-      <span class="sky-rules__bay">Bay ${r.bay}</span>
-      <span class="sky-rules__name">${r.name}</span>
-    </div>`).join("")}
-  </div>`;
-}
 
 export function baseBayPanelHTML(opts: {
   /** The floor the panel is describing — a Mark, SKYDECK_TIER, or SANDBOX_TIER. */
@@ -766,18 +765,14 @@ export function baseBayPanelHTML(opts: {
   best: number;
   /** The entitlement chips, if this build has any. */
   extras?: string;
-  /** The day's standing clauses, when the Skydeck is the parked floor. The
-   *  panel's `extras` slot has been empty since #90 and this is exactly what it
-   *  was kept for: the one thing about the parked floor that the four stat
-   *  cells and the belt cannot say. */
-  skydeck?: { bay: number; name: string }[];
 }): string {
   // Tier S quotes nothing, because nothing is chosen yet — see above.
   if (opts.tier === SANDBOX_TIER) return unknownBayPanelHTML(opts.best, opts.extras ?? "");
-  const sky = opts.tier === SKYDECK_TIER;
   // The Skydeck flies the top of the ladder, so it reads off MARK_COUNT's bays
   // — the floor is a different CONTRACT, not a different bay table.
-  const mark = sky ? MARK_COUNT : Math.max(1, Math.min(MARK_COUNT, opts.tier));
+  const mark = opts.tier === SKYDECK_TIER
+    ? MARK_COUNT
+    : Math.max(1, Math.min(MARK_COUNT, opts.tier));
   const bay = baseBayFor(mark);
   const bonds = `×${bay.bondMult.toFixed(1)}${bay.unbreakableCapstone ? " ∞" : ""}`;
   // No "Tier N \u00b7 Base bay" line any more. It named the floor the car is
@@ -796,9 +791,7 @@ export function baseBayPanelHTML(opts: {
       ${statCellHTML("bonds", "Bonds", bonds, "var(--piece-t)")}
     </div>
     ${beltLadderHTML(mark)}
-    <div class="base-bay__extras">${
-      (sky && opts.skydeck ? skydeckRulesHTML(opts.skydeck) : "") + (opts.extras ?? "")
-    }</div>
+    <div class="base-bay__extras">${opts.extras ?? ""}</div>
   </div>`;
 }
 
@@ -925,10 +918,23 @@ export function menuScreen(
    *  the shaft is the menu's centre column, and a hole there is worse than a
    *  ground floor. */
   tower?: TowerState,
-  /** Today's Skydeck clauses (game/skydeck.ts), shown on the recap panel and
-   *  summarised on the primary button when the car is parked on the roof.
-   *  Passed rather than computed — see skydeckRulesHTML. */
-  skydeck?: { bay: number; name: string }[],
+  /** HOW MANY standing clauses today's Skydeck run carries (game/skydeck.ts's
+   *  CLAUSE_COUNT), for the primary button's subtitle when the car is parked on
+   *  the roof.
+   *
+   *  A COUNT, and it used to be the list. The recap panel printed the clauses by
+   *  name and bay, and the owner's call is that the day's schedule is something
+   *  you fly rather than something you read — so the names now first reach the
+   *  player on the bay-clear card at the stop each one arms on (see the note
+   *  above baseBayPanelHTML). Narrowing the parameter is what makes that a
+   *  property of the code rather than a promise: a screen that is never told a
+   *  clause name cannot leak one into an aria-label, a title or a tooltip.
+   *
+   *  Passed rather than computed, for the reason every other date-derived
+   *  argument on this screen is: a screen that read the clock would render
+   *  differently every morning, which is fine in the app and fatal in
+   *  sim/uifit. */
+  standingClauses = 0,
 ): string {
   const twr: TowerState = tower ?? {
     unlocked: progress?.tier ?? 1,
@@ -1037,7 +1043,7 @@ export function menuScreen(
              thing under it — across the screen from it (where it started) the
              player had to hold four numbers in their head while their eye
              travelled past the whole tower to reach the button they qualify. -->
-        ${baseBayPanelHTML({ tier: sel, best, skydeck })}
+        ${baseBayPanelHTML({ tier: sel, best })}
         <!-- Plain-language subtitles under the thematic names (playtest
              feedback: "Deep Run", "Contracts" and "Workshop" mean nothing to
              a new player until each is explained). The subtitles state the
@@ -1059,7 +1065,7 @@ export function menuScreen(
         }</span><span class="btn__sub" id="menu-play-sub">${
           // The rule lives in menuPlaySub, because the ride rewrites this exact
           // node by id and two copies of it would drift — see the note there.
-          menuPlaySub(sel, skydeck?.length ?? 0, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
+          menuPlaySub(sel, standingClauses, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
         }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
           // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
