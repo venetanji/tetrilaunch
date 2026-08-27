@@ -76,7 +76,8 @@ import {
 } from "./game/meta";
 import {
   dailyContracts, generateContract, levelForContract, contractBed, variantSpec,
-  PATTERN_SLOT, type Contract, type ContractBed, type ContractVariant,
+  PATTERN_SLOT, SKYDECK_CONTRACT_TIER,
+  type Contract, type ContractBed, type ContractVariant,
 } from "./game/contracts";
 import {
   GUIDE_TOPICS, topicById, topicsIn, drillUnlocked, type ChapterId, type GuideTopic,
@@ -1364,11 +1365,43 @@ class App {
     };
   }
 
-  /** The day's Contracts at the player's current tier. Tier tracks the Mark
+  /**
+   * The tier the Contracts board is dealt at — THE PARKED FLOOR's, not the
+   * ladder's high-water mark.
+   *
+   * Everywhere below the roof those are the same number, because every ladder
+   * floor deals `markUnlocked`'s board: a Contract tier is the Mark it teaches,
+   * and parking the car on Tier 2 for a practice run must not hand back Tier
+   * 2's Contracts, which earn nothing (meta.ts's recordContractClear gates its
+   * milestone on `contract.tier === markUnlocked`).
+   *
+   * The SKYDECK is the one floor with a board of its own, and it is the one
+   * floor where reading the parking is right rather than merely harmless. The
+   * roof is not a rung — its Contracts pay no salvage and tick no tier by the
+   * same rule quoted above, so there is nothing for a wrong board to cost the
+   * player — and what it deals instead is the pentomino board (contracts.ts's
+   * SKYDECK_CONTRACT_TIER). That is the owner's ask read literally: the
+   * pentomino Contracts are AT this floor, reached by riding to it, the same
+   * way the floor's run and its standing clauses are.
+   *
+   * Read through `towerState()` rather than off `pickedTier`, exactly as
+   * runMark() is and for the same reason: towerState is the only thing that
+   * clamps a stale or locked pick, so a save that went backwards cannot open
+   * the roof's board through here. The `skydeck` half is belt-and-braces on top
+   * of that clamp.
+   */
+  private contractsTier(): number {
+    const state = this.towerState();
+    return state.selected === S.SKYDECK_TIER && state.skydeck
+      ? SKYDECK_CONTRACT_TIER
+      : markUnlocked(this.meta);
+  }
+
+  /** The day's Contracts at the parked floor's tier. Tier tracks the Mark
    *  ladder, so clearing a Mark opens harder Contracts — the loop's other half
-   *  (see docs/DESIGN.md). */
+   *  (see docs/DESIGN.md) — and the roof deals its own board (contractsTier). */
   private todaysContracts(): Contract[] {
-    return dailyContracts(markUnlocked(this.meta));
+    return dailyContracts(this.contractsTier());
   }
 
   private storeState(): S.StoreState {
@@ -2124,6 +2157,18 @@ class App {
       if (badged && !chip) btn.insertAdjacentHTML("beforeend", S.nextBadgeHTML());
       else if (!badged && chip) chip.remove();
     }
+    // THE CONTRACTS DOOR IS PER-FLOOR TOO, since the board behind it became
+    // per-floor (contractsTier). The roof deals pentomino cargo and banks no
+    // salvage, so riding onto it has to take the milestone claim and the tier
+    // pips off this button, and riding away has to put them back — the same
+    // shape as the badge above, and for the same reason: the ride patches the
+    // menu instead of re-rendering it, so a rule left only in the markup stops
+    // applying the moment the player taps a floor.
+    const cprog = tierProgressFor(this.meta);
+    const pips = this.overlay.querySelector<HTMLElement>("#menu-contracts-pips");
+    if (pips) pips.innerHTML = S.menuContractsPips(tier, cprog);
+    const csub = this.overlay.querySelector<HTMLElement>("#menu-contracts-sub");
+    if (csub) csub.innerHTML = S.menuContractsSub(tier, cprog);
     const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
     if (!panel) return;
     // The DAY'S CLAUSE LIST is deliberately NOT carried across with the extras
@@ -2245,20 +2290,29 @@ class App {
             })
           : "";
         break;
-      case "contracts":
+      case "contracts": {
+        // The roof's board is not on the ladder, so it carries neither of the
+        // two things a tier board does: no `progress` (nothing here banks a
+        // milestone or ticks a half — see contractsTier), and a floor NAME in
+        // place of a tier number the eyebrow could not truthfully print. Both
+        // are the absence of a claim rather than a new one, which is why the
+        // screen needed one optional prop and no branch of its own.
+        const sky = this.contractsTier() === SKYDECK_CONTRACT_TIER;
         this.overlay.innerHTML = S.contractsScreen({
           contracts: this.todaysContracts(),
-          tier: markUnlocked(this.meta),
+          tier: this.contractsTier(),
+          floor: sky ? "Skydeck" : undefined,
           // The PERSISTED clear list, not a session one. A Contract id embeds
           // the daily seed and tier, so today's board only ever matches today's
           // clears and the ticks reset themselves at the rollover — while a
           // tick that lived in memory vanished on any reload, which is exactly
           // when the player comes back to see what they'd already done.
           cleared: this.meta.claimedContracts,
-          progress: tierProgressFor(this.meta),
-          nextInstall: this.nextInstall(),
+          progress: sky ? undefined : tierProgressFor(this.meta),
+          nextInstall: sky ? null : this.nextInstall(),
         });
         break;
+      }
       case "contract-end":
         if (g && this.contract) {
           this.overlay.innerHTML =

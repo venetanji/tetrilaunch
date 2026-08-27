@@ -113,6 +113,7 @@ import {
   PATTERN_SLOT, VARIANTS, PLANNING_EFFICIENCY, SPARE_SHIPMENTS,
   TINY_PATTERN_MIN_TIER, contractEfficiency, contractMaterialTier, launchesFor,
   CONTRACT_MATERIAL_CAP, SALVAGE_WALL_ATTEMPTS, SALVAGE_PROBE_NODES,
+  SKYDECK_CONTRACT_TIER, isSkydeckBoard, SIZE_EFFICIENCY, PENTOMINO_LINE_CELLS,
   type ContractVariant,
 } from "../src/game/contracts";
 import {
@@ -131,7 +132,7 @@ import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devm
 import { InputController, wheelNotch } from "../src/game/input";
 import { GamepadPoller, stickRate } from "../src/game/gamepad";
 import { loadSettings } from "../src/lib/store";
-import { tilesRegion, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
+import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
 import {
   computeLayout,
@@ -1182,20 +1183,31 @@ section("Contracts (contracts.ts)");
   let windiestTierOne = 0;
   let windiestEver = 0;
   let worstRatio = Infinity;
-  // The pentomino Contract is gone by design (playtest, 2026-08-09): bulk
-  // pieces pack visibly worse than tetrominoes, so those Contracts read as
-  // dice rolls rather than puzzles. Its slot went to materials, which the
-  // budget model can actually price — so the sweep also proves no bulk
-  // Contract, no slag, no material below its hazard rung, and a rate the
-  // model priced for.
-  let everBulk = false;
+  // The pentomino Contract is gone FROM THE LADDER by design (playtest,
+  // 2026-08-09): bulk pieces pack visibly worse than tetrominoes, so those
+  // Contracts read as dice rolls rather than puzzles. Its slot went to
+  // materials, which the budget model can actually price — so the sweep also
+  // proves no bulk Contract below the roof, no slag, no material below its
+  // hazard rung, and a rate the model priced for.
+  //
+  // "Below the roof" is the whole of what changed when Wide Gauge arrived.
+  // SKYDECK_CONTRACT_TIER is not a Mark and cannot be reached by markUnlocked,
+  // and the removal's argument is an on-ramp argument that does not apply on a
+  // floor gated behind ten sealed Marks (contracts.ts). Everything from tier 1
+  // to MARK_COUNT is held to the original rule, and the sweep still walks past
+  // the top of the ladder so a tier that should have no bulk and grows some is
+  // still caught.
+  let ladderBulk = 0;
+  let skydeckBulk = 0;
   let everSlagOrUnpriced = false;
   let everEarlyMaterial = false;
-  let everMaterialOffStd = false;
+  let everMaterialUnderStd = false;
   for (let tier = 1; tier <= 12; tier++) {
     for (let seed = 20260101; seed < 20260101 + 40; seed++) {
       for (const c of dailyContracts(tier, seed)) {
-        if (c.pieceSize === "bulk") everBulk = true;
+        if (c.pieceSize === "bulk") {
+          if (isSkydeckBoard(tier)) skydeckBulk += 1; else ladderBulk += 1;
+        }
         // Pattern Contracts are bounded by their queue, not a launch budget,
         // and their feasibility is exact rather than statistical — they get
         // their own block below.
@@ -1203,8 +1215,15 @@ section("Contracts (contracts.ts)");
         // The material-aware efficiency IS the feasibility model now: a
         // material Contract budgeted at plain PLANNING_EFFICIENCY would be
         // exactly the silently-tighter Contract this sweep exists to forbid.
-        const supply =
-          c.launches * SIZE_SPEC[c.pieceSize].cubes * contractEfficiency(c.material, c.materialRate);
+        //
+        // The SIZE is part of that model now (SIZE_EFFICIENCY), and passing it
+        // is load-bearing rather than tidy: a pentomino Contract budgeted at
+        // std efficiency would read as having 18% more supply than the
+        // generator actually gave it, so this line would bless exactly the
+        // silently-tighter Contract it exists to forbid — the same failure the
+        // material factor was added to close.
+        const supply = c.launches * SIZE_SPEC[c.pieceSize].cubes
+          * contractEfficiency(c.material, c.materialRate, c.pieceSize);
         const demand = c.goal * CUBES_PER_LINE;
         worstRatio = Math.min(worstRatio, supply / demand);
         if (supply < demand) everImpossible = true;
@@ -1223,8 +1242,13 @@ section("Contracts (contracts.ts)");
           // in a Contract before the Mark whose Deep Run deals it.
           if (contractMaterialTier(c.material) > tier) everEarlyMaterial = true;
           // The budget prices waste per STD shipment, and the cannon's
-          // size-normalized roll would double a domino belt's rate.
-          if (c.pieceSize !== "std") everMaterialOffStd = true;
+          // size-normalized roll would double a domino belt's rate. Both halves
+          // of that are DOMINO arguments — halved cubes a shipment, doubled
+          // shipments a mix — so what is forbidden is a payload SMALLER than
+          // standard, not one that merely differs from it. A pentomino moves
+          // both the other way and MATERIAL_WASTE is a fraction of a shipment's
+          // cubes, so the closed form prices it correctly.
+          if (SIZE_SPEC[c.pieceSize].cubes < SIZE_SPEC.std.cubes) everMaterialUnderStd = true;
         }
       }
     }
@@ -1235,10 +1259,15 @@ section("Contracts (contracts.ts)");
   // is SLACK_TIGHT (1.02 since the 2026-08 balance pass tightened it from
   // 1.05) — ceil rounding can only add headroom above it, never take it away.
   check(`tightest contract keeps headroom (${worstRatio.toFixed(2)}x)`, worstRatio >= 1.02);
-  check("no contract ships bulk pentominoes", !everBulk);
+  check("no LADDER contract ships bulk pentominoes", ladderBulk === 0,
+    `${ladderBulk} bulk Contracts at tiers 1-${MARK_COUNT}`);
+  // ...and the other half of that sentence, which is what stops the check above
+  // from passing because the roof's board silently stopped existing. A pin that
+  // only forbids is a pin a deletion satisfies.
+  check(`the Skydeck board DOES ship them (${skydeckBulk} sampled)`, skydeckBulk > 0);
   check("contract materials are always countable and priced", !everSlagOrUnpriced);
   check("no material appears before its hazard rung", !everEarlyMaterial);
-  check("material contracts ship std payloads", !everMaterialOffStd);
+  check("no material contract ships a payload smaller than std", !everMaterialUnderStd);
 
   // The 2026-08 balance pass tightened SLACK 1.25 -> 1.15 (~8% fewer launches
   // on every lines Contract). Two seams have to hold through that. The
@@ -1723,7 +1752,15 @@ section("Pattern variants (contracts.ts VARIANTS)");
   const wallRng = (() => { let z = 0x51ed270; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
 
   for (const v of VARIANTS) {
-    for (let tier = 1; tier <= 10; tier++) {
+    // Up to the ROOF, not up to the ladder. This loop stopped at MARK_COUNT
+    // while every rung was a Mark, and the day Wide Gauge landed on
+    // SKYDECK_CONTRACT_TIER that bound made the whole block silently skip it:
+    // `v.tier > tier` held at every iteration, so the new variant was never
+    // sampled and "every variant produces a range of inventories" passed on
+    // zero inventories. It failed loudly instead, which is the only reason this
+    // line is right — the sweep's range has to reach the top rung that exists,
+    // not the top rung that existed when it was written.
+    for (let tier = 1; tier <= SKYDECK_CONTRACT_TIER; tier++) {
       // A variant must never be generated below its rung, and forcing one is
       // the sandbox's job, not the board's — so the ladder is checked here
       // against what variantsFor offers rather than against a forced roll.
@@ -1791,6 +1828,23 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("Guided really ships magnetic", at("guided", 9).materialMix.magnetic === 1);
   check("Blackout really hides the preview", at("blind", 7).hideNextPreview);
   check("Part Load really opens on a wall", at("salvage", 6).standingWall.some((h) => h > 0));
+  {
+    const wide = at("wide", SKYDECK_CONTRACT_TIER);
+    // The bay is built to the width the inventory was sized to — the tiling
+    // bug's own defect class. That the width is the RIGHT one is a separate
+    // question with a separate pin (see the Skydeck board section); this half
+    // would stay green at any width, which is why the other half exists.
+    check("Wide Gauge really widens the line",
+      wide.compactorMinLineCells === PENTOMINO_LINE_CELLS
+        && wide.compactorMinLineCells > CUBES_PER_LINE, `${wide.compactorMinLineCells}`);
+    // A press with no travel stops moving entirely — the floor levelForContract
+    // enforces, and the reason a width cannot simply be raised to the bay's
+    // open stop. Ten leaves two cells against the stock open of 12.
+    check("...and the press still has room to move",
+      wide.compactorOpenCells > wide.compactorMinLineCells,
+      `${wide.compactorMinLineCells} -> ${wide.compactorOpenCells}`);
+    check("Wide Gauge really ships pentominoes", wide.pieceSize === "bulk");
+  }
   check(
     "Single Stock really ships one shape",
     new Set(generateContract(20260101, 5, PATTERN_SLOT, "single").queue).size === 1,
@@ -1815,7 +1869,6 @@ section("Pattern variants (contracts.ts VARIANTS)");
     if (shapes < (v.oneShape ? 2 : 4)) stuck += `${v.id}:${shapes} `;
   }
   check("every variant produces a range of inventories", stuck === "", stuck);
-
   // ---- A card may not advertise a wall the bay does not have ---------------
   //
   // salvageProfile guarantees ARITHMETIC (the empty area divides by the payload)
@@ -2152,6 +2205,172 @@ section("Pattern variants (contracts.ts VARIANTS)");
   // than trailing off. A card that only stops lying is not yet an endgame.
   check("...and names the two things still worth flying for",
     /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
+}
+
+
+// ---------------------------------------------------------------------------
+section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
+// ---------------------------------------------------------------------------
+{
+  // ---- The floor exists, and it is the floor the tower thinks it is --------
+  //
+  // SKYDECK_CONTRACT_TIER and screens.ts's SKYDECK_TIER are arrived at
+  // independently — one is the generator's key, the other the tower's sentinel
+  // — and main.ts's contractsTier is the seam that assumes they agree. If they
+  // ever part company, parking the car on the roof deals a board nobody can
+  // reach any other way, and the screen shows someone else's Contracts.
+  check("the roof's board key is the tower's roof",
+    SKYDECK_CONTRACT_TIER === S.SKYDECK_TIER,
+    `${SKYDECK_CONTRACT_TIER} vs ${S.SKYDECK_TIER}`);
+  // OFF THE LADDER, which is what makes every "pays nothing, ticks nothing"
+  // claim in contracts.ts true by construction rather than by a branch. It is
+  // asserted against markUnlocked's own saturation, not against the literal 11:
+  // meta.ts is where the ceiling lives, and this is the property that depends
+  // on it.
+  const topMeta = (over: Partial<MetaState> = {}): MetaState =>
+    ({ ...newMeta(), mark: MARK_COUNT, ...over });
+  check("no save can put markUnlocked on the roof's tier",
+    markUnlocked(topMeta()) < SKYDECK_CONTRACT_TIER,
+    `${markUnlocked(topMeta())} < ${SKYDECK_CONTRACT_TIER}`);
+  {
+    // The consequence, played out through the real recorder rather than
+    // restated: a first clear on the roof logs the id (so the board ticks) and
+    // banks nothing (so the roof cannot be farmed for Workshop salvage, which
+    // would make the endgame floor a grind and hand a subscription real power).
+    const meta = topMeta({ salvage: 0, tierContracts: 0 });
+    const sky = dailyContracts(SKYDECK_CONTRACT_TIER, 20260101)[0];
+    const after = recordContractClear(meta, sky);
+    check("a Skydeck Contract banks no salvage", after.salvage === 0, `${after.salvage}`);
+    check("...and does not tick the tier's quota",
+      after.meta.tierContracts === 0, `${after.meta.tierContracts}`);
+    check("...but is still logged, so the board can show it cleared",
+      after.firstClear && after.meta.claimedContracts.includes(sky.id));
+    // Ids embed the tier, so the roof's board can never collide with the
+    // tier-10 board a player is still working through on the ladder.
+    const ladder = dailyContracts(MARK_COUNT, 20260101).map((x) => x.id);
+    check("the roof's ids never collide with the ladder's",
+      dailyContracts(SKYDECK_CONTRACT_TIER, 20260101)
+        .every((x) => !ladder.includes(x.id)));
+  }
+
+  // ---- What the board actually deals ---------------------------------------
+  let boards = 0, cards = 0, bulk = 0, wideSlots = 0, patternCards = 0;
+  let offBed = 0, untileable = 0, undealable = 0;
+  const inventories = new Set<string>();
+  const dealRng = (() => { let z = 0x5c1de; return () => ((z = (z * 1664525 + 1013904223) >>> 0) / 4294967296); })();
+  for (let seed = 20260101; seed < 20260101 + 24; seed++) {
+    const board = dailyContracts(SKYDECK_CONTRACT_TIER, seed);
+    boards += 1;
+    for (const c of board) {
+      cards += 1;
+      if (c.pieceSize === "bulk") bulk += 1;
+      // THE BED, by the EXISTING rule and not a floor check. contractBed's
+      // pentomino clause was written before anything in the game could satisfy
+      // it — bay 5's track is in 5/4 and a pentomino is five cubes — and the
+      // roof is what finally does. The rare roll is suppressed (it outranks
+      // everything by design, and this is a question about the rule below it).
+      if (contractBed(c, () => 1) !== "bay-5") offBed += 1;
+      if (c.kind !== "pattern") continue;
+      patternCards += 1;
+      if (c.variant === "wide") wideSlots += 1;
+      // TILEABILITY, re-derived by the independent checker rather than trusted
+      // from the generator that built it — the same rule the ladder's pattern
+      // sweep follows, and the one that catches an [I,O,J,J].
+      if (!tilesRegion(c.queue, c.goal, c.lineCells, c.pieceSize, c.standing)) untileable += 1;
+      // Packing is not building: the order has to be assemblable under gravity.
+      const dealt = dealPatternQueue(c, c.lineCells, dealRng);
+      if (!isBuildable(dealt, c.lineCells, c.pieceSize, "drop", c.standing)
+        && !isBuildable(dealt, c.lineCells, c.pieceSize, "tuck", c.standing)) undealable += 1;
+      inventories.add([...c.queue].sort().join(""));
+    }
+  }
+  check(`the Skydeck deals a full board (${boards} boards, ${cards} cards)`,
+    cards === boards * DAILY_COUNT);
+  check("every Skydeck Contract ships pentominoes", bulk === cards, `${bulk}/${cards}`);
+  check("its pattern slot is always Wide Gauge — dealt, never rolled",
+    patternCards === boards && wideSlots === patternCards, `${wideSlots}/${patternCards}`);
+  check("every Skydeck Contract plays bay 5's 5/4 bed", offBed === 0, `${offBed} off-bed`);
+  check("every Wide Gauge inventory tiles its 10-wide region", untileable === 0);
+  check("every Wide Gauge deal is provably finishable", undealable === 0);
+  // A daily board that deals the same puzzle forever is not a daily board. Ten
+  // rows of pentominoes has plenty of tilings; THREE has four in total, which
+  // is why the variant's goalBonus is 0 and not the -1 it was first written as.
+  check(`the roof's inventories vary across days (${inventories.size} distinct in ${boards})`,
+    inventories.size >= boards / 2, `${inventories.size}/${boards}`);
+
+  // ---- Ten is load-bearing, not decorative --------------------------------
+  //
+  // The negative control for the whole feature, and it took a deliberate
+  // mutation to get it right. The first cut of the check below asserted only
+  // that levelForContract writes PENTOMINO_LINE_CELLS into the bay — which is
+  // worth pinning (a bay built to a width the inventory was not sized to is the
+  // tiling bug's whole defect class) and is TAUTOLOGICAL about the width
+  // itself: setting the constant to 8 left it green.
+  //
+  // What actually makes 10 the answer is one line of arithmetic. A zero-waste
+  // pentomino inventory needs `goal * lineCells` divisible by 5 — so a width
+  // that is itself a multiple of 5 makes EVERY goal exact, and any other width
+  // makes the goal do the dividing (at 8, only multiples of 5: "a 40-cube,
+  // 8-shipment monster or nothing"). That is the property, so that is the pin.
+  check(`every goal is exact at ${PENTOMINO_LINE_CELLS} cells`,
+    PENTOMINO_LINE_CELLS % SIZE_SPEC.bulk.cubes === 0,
+    `${PENTOMINO_LINE_CELLS} % ${SIZE_SPEC.bulk.cubes}`);
+  check("...on a line WIDER than the bay's own, never narrower",
+    PENTOMINO_LINE_CELLS > CUBES_PER_LINE, `${PENTOMINO_LINE_CELLS} vs ${CUBES_PER_LINE}`);
+  // And the arithmetic borne out on the shipped shape table: at the bay's own
+  // line no goal below 5 is even possible, which is exactly what patternSize's
+  // note said and exactly why bulk waited for a wider line. Written against
+  // CUBES_PER_LINE rather than a literal 8 so it tracks the bay it is about.
+  const pent = ["I", "O", "T", "L", "J", "S", "Z"] as const;
+  const fiveOf = (n: number): PieceType[] =>
+    Array.from({ length: n }, (_, i) => pent[i % pent.length]);
+  const atBayWidth = (rows: number): boolean =>
+    tilesRegion(fiveOf((rows * CUBES_PER_LINE) / SIZE_SPEC.bulk.cubes), rows, CUBES_PER_LINE, "bulk");
+  check(`no pentomino set fills 2 rows of ${CUBES_PER_LINE}`, !atBayWidth(2));
+  check("...nor 3 rows", !atBayWidth(3));
+  check("...nor 4 rows", !atBayWidth(4));
+  // ...where every one of those goals tiles at ten. Measured 30/30 per goal
+  // when the width was chosen; re-derived here on the shipped shape table so a
+  // change to PENTA_SHAPES that broke it could not land quietly.
+  for (const goal of [2, 3, 4, 5, 6]) {
+    const q = tilingQueue(goal, PENTOMINO_LINE_CELLS, [...pent], dealRng, 4, "bulk");
+    check(`pentominoes tile ${goal} rows of ${PENTOMINO_LINE_CELLS}`,
+      q !== null && tilesRegion(q, goal, PENTOMINO_LINE_CELLS, "bulk"));
+  }
+
+  // ---- The ladder is untouched --------------------------------------------
+  //
+  // SIZE_EFFICIENCY is a new factor in the one formula every launch budget on
+  // every board has always been priced by, so the claim that it changes nothing
+  // below the roof has to be a proof and not a promise. std and tiny at 1 is
+  // what makes it one, and it is asserted on the FUNCTION rather than on the
+  // table, because the table being right is only half of it — a caller that
+  // multiplied it in twice would pass a table check.
+  check("the size factor is a no-op for tetrominoes", SIZE_EFFICIENCY.std === 1);
+  check("...and for dominoes, which measured no worse per cube", SIZE_EFFICIENCY.tiny === 1);
+  check("...and prices the pentomino's worse packing at all", SIZE_EFFICIENCY.bulk < 1);
+  check("a std belt prices identically with and without the size argument",
+    contractEfficiency("cryo", 0.2) === contractEfficiency("cryo", 0.2, "std")
+      && contractEfficiency(null, 0) === contractEfficiency(null, 0, "tiny"));
+  // And the board itself, byte for byte. Every ladder tier has to deal exactly
+  // what it dealt before the roof existed — the generator now branches on the
+  // tier in three places (payload, variant, conditions) and any one of them
+  // leaking downward would re-tune the whole game silently.
+  {
+    let ladderPent = 0, ladderWide = 0;
+    for (let tier = 1; tier <= MARK_COUNT; tier++) {
+      for (let seed = 20260101; seed < 20260101 + 20; seed++) {
+        for (const c of dailyContracts(tier, seed)) {
+          if (c.pieceSize === "bulk") ladderPent += 1;
+          if (c.variant === "wide") ladderWide += 1;
+          if (isSkydeckBoard(tier)) ladderWide += 1; // the predicate itself
+        }
+      }
+    }
+    check("no ladder tier is mistaken for the roof", ladderWide === 0);
+    check("no ladder tier deals a pentomino", ladderPent === 0);
+  }
+
 }
 
 // ---------------------------------------------------------------------------

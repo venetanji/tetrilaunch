@@ -371,7 +371,14 @@ re-derived rather than remembered.
 ```sh
 npm run sim:patterns
 npm run sim:patterns -- --seeds 3000 --tiers 5,6,7 --orders 200
+npm run sim:patterns -- --seeds 60 --tiers 9,11 --orders 40 --per-variant 25
 ```
+
+The default `--tiers` list runs the ladder **and the roof**
+(`contracts.ts`'s `SKYDECK_CONTRACT_TIER`), because Wide Gauge — the
+10-cell-line pentomino variant — exists on no other rung, and a sweep that
+skipped it would report "every variant packs" over a table missing the one
+variant whose geometry is new.
 
 It exists because "provably feasible" turned out to have two meanings and the
 generator only guaranteed the weaker one. `tiling.ts` proves the inventory

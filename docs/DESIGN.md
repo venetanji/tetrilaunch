@@ -661,9 +661,32 @@ Two more facts from that sweep are worth carrying:
   exactly that shape, which is why it read as impossible before it was one.
 
 **Exactness constrains piece size, arithmetically.** A queue is exact only if
-`goal * 8` divides by the piece's cube count. 4 always divides it; bulk's 5 only
-does at goals that are multiples of 5, putting the smallest legal bulk pattern at
-40 cubes. So pattern Contracts are std-only — not a preference, a consequence.
+`goal * lineCells` divides by the piece's cube count. 4 always divides an 8-wide
+line; bulk's 5 only does at goals that are multiples of 5, putting the smallest
+legal bulk pattern at 40 cubes. So pattern Contracts are std-only on the
+ladder — not a preference, a consequence.
+
+**…and the consequence names its own exit, which the Skydeck took.** Widen the
+line to 10 and `goal * 10` divides by 5 at *every* goal, so the tier's ladder
+decides the size of the puzzle instead of arithmetic doing it. That is **Wide
+Gauge** (`contracts.ts`'s `PENTOMINO_LINE_CELLS`), the pattern variant on
+`SKYDECK_CONTRACT_TIER` — a rung the ladder cannot reach, since `markUnlocked`
+saturates at `MARK_COUNT`. Divisibility is necessary and not sufficient (the
+`[I, O, J, J]` bug was an area that counted perfectly and tiled nothing), so it
+was **measured** on the shipped `PENTA_SHAPES` table: 30 seeds a goal at four
+distinct shapes, a tiling found 30/30 at goals 2–6 with the independent checker
+agreeing on every one, against nothing tileable below goal 5 at eight cells. The
+bay already passes through ten — the press opens at 12 and closes to 8 — so the
+width costs the compactor two cells of travel and nothing else.
+
+Its goal is **4 rows**, and that number was measured against the cautious guess
+rather than chosen. Three rows of ten (30 cubes, 6 shipments) reads like the
+right first cut and is unshippable for a reason difficulty would never surface:
+a 3×10 rectangle has almost no distinct pentomino tilings — 30 seeds produced
+**four** inventories in total, a "daily" board dealing the same puzzle every
+third day forever. At four rows the same sweep gives 24 of 30 distinct, which is
+the ladder's own figure (tier-9 Standard: 27 of 30). Area is what buys a
+generated board its variety, and 30 cells is below the knee.
 
 **Zero waste needs a fail-fast signal or it is dead-man-walking.** With an exact
 manifest, one cube lost off the deck makes the attempt unwinnable *immediately*,
@@ -816,14 +839,74 @@ Two things the build settled that this table could not:
   reintroduce the defect class that once made 35% of Contracts unwinnable.
   **Pattern Contracts stay clean altogether** — their queue is an exact tiling,
   and a material that changes what a landed cube does would un-prove it.
-- **The pentomino Contract is gone** (playtest, 2026-08-09). Bulk pieces pack
-  visibly worse than tetrominoes, so a bulk Contract read as a dice roll rather
-  than a puzzle — the one failure the mode cannot carry. Its complication slot
-  is what the materials above now occupy; a material is priceable where a
-  worse-packing shape is not, because it is a per-shipment risk with a per-cube
-  cost rather than a change to the geometry of every landing. Bulk itself is
-  untouched in Deep Run, where it is a draft choice with a payout attached
-  rather than a roll inflicted by the board.
+- **The pentomino Contract is gone from the ladder** (playtest, 2026-08-09).
+  Bulk pieces pack visibly worse than tetrominoes, so a bulk Contract read as a
+  dice roll rather than a puzzle — the one failure the mode cannot carry. Its
+  complication slot is what the materials above now occupy; a material is
+  priceable where a worse-packing shape is not, because it is a per-shipment
+  risk with a per-cube cost rather than a change to the geometry of every
+  landing. Bulk itself is untouched in Deep Run, where it is a draft choice with
+  a payout attached rather than a roll inflicted by the board.
+
+  **The Skydeck is where it came back, and the exception is argued rather than
+  carved out.** Every clause of the removal is an *on-ramp* clause — "deals it
+  to you", "reads as a dice roll" — and the roof is the one floor where nothing
+  is an on-ramp: the door needs all ten Marks beaten *and* every one of them
+  sealed, the run's rules are dealt rather than drafted, and there is no yard.
+  Packing badly is the exam there, not the accident. Tiers 1–`MARK_COUNT` ship
+  no pentomino and `sim/systems.ts` pins it at every one of them.
+
+  The dice-roll half is also answered mechanically, because "a Contract the
+  budget cannot see" is what a dice roll actually means. Two things close it and
+  neither existed when the removal was argued: **Wide Gauge** gives the pattern
+  slot a width where the exact inventory is *proven* to tile, and
+  **`SIZE_EFFICIENCY`** prices the worse packing in the same closed form the
+  material factor uses. That factor is measured, on a bay-10 Contract bay
+  stripped the way `levelForContract` strips one, 40 launches a bay over 12
+  seeds a condition, reading cubes-landing-in-a-line over cubes-fired:
+
+  | bot | std | bulk | bulk/std |
+  |---|---|---|---|
+  | `aim` | 0.738 | 0.620 | 0.841 |
+  | `lob-flat` | 0.554 | 0.610 | 1.101 |
+
+  The pentomino is *not* uniformly worse: the fixed-arc bot does better with it,
+  because a bulk shipment lands at ×1.35 density and ×1.60 joint strength and
+  its weight squares the pile under it — worth more to a bot that cannot aim
+  than the packing costs it. The aiming bot loses 16%, and that is the number a
+  budget has to believe. `SIZE_EFFICIENCY.bulk` is 0.85, the worse ratio rounded
+  pessimistic; `tiny` measured 0.717/0.683 against std's 0.738/0.554 and stays
+  at 1, and std is 1 by definition — the two being 1 is what makes the table a
+  provable no-op for every ladder tier. Usual pessimism: no bot fires a Bond
+  Breaker, only `demo` fires a charge, fixed arcs never read the pile.
+
+  **Board shape.** The roof deals its own board when the car is parked on it
+  (`main.ts`'s `contractsTier`): all three cards ship pentominoes as standing
+  cargo rather than a rolled complication — what the floor *is*, the way the
+  Skydeck run has no refits — and the pattern slot is dealt Wide Gauge every
+  day, the way the standing clauses are dealt rather than drafted. Because
+  `SKYDECK_CONTRACT_TIER` is off the ladder, `recordContractClear` banks no
+  milestone and ticks no half for it, which is the same rule that already stops
+  a Skydeck *run* paying scrap. All three cards land on **bay 5's bed** — 5/4,
+  five cubes — by `contractBed`'s existing pentomino rule, which was written
+  before anything in the game could satisfy it.
+
+  **Measured** (`npm run sim:patterns -- --seeds 60 --tiers 9,11 --orders 40
+  --per-variant 25`; 900 Contracts, 283 distinct inventories):
+
+  | variant | inventories | all pack | min drop% | mean drop% | dealable | worst deal |
+  |---|---|---|---|---|---|---|
+  | Standard (t9) | 25 | yes | 2.5% | 53.0% | 25/25 | 54ms |
+  | Narrow Gauge (t9) | 25 | yes | 0.0% | 34.3% | 25/25 | 12ms |
+  | Full Rebar (t9) | 25 | yes | 7.5% | 41.3% | 25/25 | 11ms |
+  | Guided (t9) | 25 | yes | 5.0% | 61.7% | 25/25 | 678ms |
+  | **Wide Gauge** | 25 | yes | **2.5%** | **30.8%** | **25/25** | 492ms |
+
+  Wide Gauge sits below Narrow Gauge on the mean and *above* it on the worst
+  case, on the deepest board in the game — and 0 inventories that do not pack,
+  0 deals that could not be proven finishable, across the whole sweep. A player
+  is never handed a random arrival order (`dealPatternQueue` proves one before
+  the bay opens), so `drop%` is a difficulty reading, not a feasibility one.
 
 The same vocabulary has a **shape** axis, and one system now answers it. S and Z
 are the delivery-hard tetrominoes — the ones that tip, wedge and strand cubes

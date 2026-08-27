@@ -331,6 +331,19 @@ global level value, because sizes coexist on the field: a micro run that later
 drafts Bulk still has old dominoes lying around and they must keep the fragility
 they were launched with.
 
+**The density asymmetry is measurable, and it turns up in the one place that has
+to price a size in dollars.** A Contract's launch budget is derived from the
+share of fired cubes that reach a completed line (`contracts.ts`'s
+`PLANNING_EFFICIENCY`), and `SIZE_EFFICIENCY` is the per-size factor on it,
+measured rather than assumed: bulk delivers 0.841 of std's ratio to the *aiming*
+bot and 1.101 to the fixed-arc one — worse where a shape can be placed, better
+where the extra weight is doing the placing. It is set to **0.85**, the worse of
+the two, on the same asymmetry that sets `PLANNING_EFFICIENCY` below its own
+measurement: a low number is a slightly dull Contract, a high one an unwinnable
+one. `tiny` and `std` are both **1**, which is what makes the whole table a
+provable no-op for every board that existed before the Skydeck's (see
+docs/DESIGN.md).
+
 ## The Autoloader (micro endgame)
 
 **Status: built, but currently UNREACHABLE in a shipped run.** The only thing
