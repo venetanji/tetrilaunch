@@ -324,18 +324,36 @@ export const LANCE_URGENT_CELLS = 3;
  */
 export const LANCE_DUMP_MS = 30_000;
 
-function lanceAware(): AimStrategy {
+/**
+ * The two halves, built as ONE strategy with a switch, so the arms table can
+ * attribute a result to the half that caused it.
+ *
+ * `ration` false is the SHIPMENT half alone: the lance is pulled whenever it
+ * will do anything — `counters.ts`'s `thawHands` rule exactly — and the only
+ * change from the naive pilot is that shipments go at frozen cubes. `ration`
+ * true adds the discipline. Run against `naive` the three pilots decompose the
+ * strategy: naive → strike is what the shipment half is worth, strike → lance
+ * is what the discipline is worth, and reading only the second against the
+ * first would credit or blame one half for the other's work.
+ */
+function lanceAware(ration: boolean): AimStrategy {
+  /** Will the lance take the cube the press is about to reach, this tick?
+   *  Asked in both hooks off one rule, so the shipment can never be sent at a
+   *  cube the charge is about to spend itself on. */
+  const lanceTakes = (g: Game, urgent: Cube): boolean => {
+    if (g.thawCharges <= 0) return false;
+    if (!ration) return true;
+    const face = g.compactor.x + g.compactor.width / 2;
+    if (urgent.body.position.x - face <= LANCE_URGENT_CELLS * CELL) return true;
+    return g.level.timeLimitSec > 0 && g.timeLeftMs < LANCE_DUMP_MS;
+  };
+
   return {
-    name: "lance",
+    name: ration ? "lance" : "strike",
 
     abilities(g, now) {
-      if (g.thawCharges <= 0) return false;
       const urgent = nextColdCryo(g.cubes, g.compactor);
-      if (!urgent) return false;
-      const face = g.compactor.x + g.compactor.width / 2;
-      const closeIn = urgent.body.position.x - face <= LANCE_URGENT_CELLS * CELL;
-      const endgame = g.level.timeLimitSec > 0 && g.timeLeftMs < LANCE_DUMP_MS;
-      if (!closeIn && !endgame) return false;
+      if (!urgent || !lanceTakes(g, urgent)) return false;
       g.useThawLance(now);
       // NEVER claims the tick: the lance does not consume a launch, and
       // `thawHands` — the arm this is measured against — does not claim it
@@ -353,11 +371,9 @@ function lanceAware(): AimStrategy {
 
       const urgent = nextColdCryo(g.cubes, g.compactor);
       if (!urgent) return null;
-      const face = g.compactor.x + g.compactor.width / 2;
-      const closeIn = urgent.body.position.x - face <= LANCE_URGENT_CELLS * CELL;
-      // Inside the band the lance has it; ask the same function for the next
-      // one out. Outside it, the urgent cube IS the shipment's job.
-      const mark = closeIn
+      // The lance has that one; ask the same function for the next one out.
+      // Where the lance is standing down, the urgent cube IS the shipment's job.
+      const mark = lanceTakes(g, urgent)
         ? nextColdCryo(g.cubes.filter((c) => c !== urgent), g.compactor)
         : urgent;
       if (!mark) return null;
@@ -374,7 +390,11 @@ function lanceAware(): AimStrategy {
   };
 }
 
-export const lanceStrategy: AimStrategySpec = { name: "lance", build: lanceAware };
+/** Shipment-striking plus a RATIONED lance: the charge is held for the cube a
+ *  shot can no longer reach in time. */
+export const lanceStrategy: AimStrategySpec = { name: "lance", build: () => lanceAware(true) };
+/** Shipment-striking alone, over the shipped greedy trigger. The middle arm. */
+export const strikeStrategy: AimStrategySpec = { name: "strike", build: () => lanceAware(false) };
 
 /* ---------------------------------------------------------------------------
  * 3. CUSHION-AWARE — the pilot the findings say the cushion needs
@@ -629,6 +649,7 @@ export function incineratorAware(): AimStrategy {
  *  something. */
 export const STRATEGIES: Record<string, AimStrategySpec> = {
   naive: naiveStrategy,
+  strike: strikeStrategy,
   lance: lanceStrategy,
   cushion: cushionStrategy,
 };

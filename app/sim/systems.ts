@@ -49,6 +49,7 @@ import { aimBot, aimCandidates } from "./bots";
 import {
   cushionStrategy, incineratorAware, lanceStrategy, linerTriggerSpeed,
   naiveStrategy, slotCenterX, slotIsLined, slotOf, STRATEGIES, strategyHands, strategyPilot,
+  strikeStrategy,
 } from "./aim-strategies";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
@@ -13616,6 +13617,25 @@ section("Aiming strategies — the cushion play and the lance play (sim/aim-stra
       });
       lance.abilities!(bay, 0);
       check("...and an empty rack is never pulled on", fired === 0);
+    }
+    {
+      // THE MIDDLE ARM. `strike` is the same shipment rule over the SHIPPED
+      // greedy trigger, and it exists because a strategy with two independent
+      // halves cannot be attributed from one table: run alone against `naive`,
+      // `lance` produced one number for two changes. So the contrast has to be
+      // real — same cube, same rack, opposite decision.
+      let rationed = 0;
+      let greedy = 0;
+      const bayFor = (count: () => void): Game => stubBay({
+        cubes: [far], thawCharges: 3, compactor: barAt,
+        useThawLance: () => { count(); return true; },
+      });
+      lanceStrategy.build(1).abilities!(bayFor(() => { rationed += 1; }), 0);
+      strikeStrategy.build(1).abilities!(bayFor(() => { greedy += 1; }), 0);
+      check(
+        "`strike` pulls on the far cube where `lance` holds — the two halves are separable",
+        rationed === 0 && greedy === 1, `lance ${rationed}, strike ${greedy}`,
+      );
     }
 
     // THE DIVISION OF LABOUR: the shipment takes the cube the lance is NOT

@@ -84,7 +84,8 @@ import { bondHands, cushionKit, thawKit, type CounterKit } from "./counters";
 import { comboKey } from "./draft-space";
 import { runBay, type BayOutcome } from "./runner";
 import {
-  cushionStrategy, lanceStrategy, naiveStrategy, strategyHands, type AimStrategySpec,
+  cushionStrategy, lanceStrategy, naiveStrategy, strategyHands, STRATEGIES,
+  type AimStrategySpec,
 } from "./aim-strategies";
 
 /* ---------------------------------------------------------------------------
@@ -180,6 +181,25 @@ if (tiers.length === 0) {
   console.error("--tiers named no tier in 1..3");
   process.exit(1);
 }
+
+/**
+ * Which strategy plays the AWARE cells. Defaults to the system's own, and
+ * exists because a strategy with two independent halves cannot be attributed
+ * from one table.
+ *
+ * The lance is the case that needed it. `lance` both rations charges and sends
+ * shipments at frozen cubes; run alone against `naive` it produced one number
+ * for two changes, and at tier 3 that number was -15 wins — impossible to read
+ * as "rationing is wrong" or "striking is wrong" without a middle arm. Running
+ * the tool twice, once `--aware strike` and once `--aware lance`, against the
+ * SAME control gives naive -> strike -> lance and each step is one change.
+ */
+const awareName = get("--aware");
+if (awareName && !(awareName in STRATEGIES)) {
+  console.error(`Unknown --aware "${awareName}" — available: ${Object.keys(STRATEGIES).join(", ")}`);
+  process.exit(1);
+}
+const aware = awareName ? STRATEGIES[awareName] : sut.aware;
 
 /** Parse `--ratchets volatile:6,wind:2`. Copied in behaviour from
  *  `winnability.ts`'s own parser rather than imported, because that file is a
@@ -303,9 +323,9 @@ console.log(
 );
 console.log(
   sut.expectInert
-    ? `  \`none / ${sut.aware.name}\` is a CONTROL here — this strategy is inert without the rig,`
+    ? `  \`none / ${aware.name}\` is a CONTROL here — this strategy is inert without the rig,`
       + " so it must land on `none / naive`."
-    : `  \`none / ${sut.aware.name}\` is a MEASUREMENT here, not a control — this strategy's`
+    : `  \`none / ${aware.name}\` is a MEASUREMENT here, not a control — this strategy's`
       + " free half needs no rig.",
 );
 console.log(
@@ -317,11 +337,11 @@ console.log(
 
 const arms: Arm[] = [
   { tier: 0, strategy: naiveStrategy, kitHands: false },
-  { tier: 0, strategy: sut.aware, kitHands: false },
+  { tier: 0, strategy: aware, kitHands: false },
 ];
 for (const t of tiers) {
   arms.push({ tier: t, strategy: naiveStrategy, kitHands: true });
-  arms.push({ tier: t, strategy: sut.aware, kitHands: false });
+  arms.push({ tier: t, strategy: aware, kitHands: false });
 }
 
 console.log([
@@ -374,7 +394,7 @@ for (const t of tiers) {
 console.log("");
 if (sut.expectInert) {
   console.log(
-    `control: none/${sut.aware.name} ${freePlay.wins}/${freePlay.runs}`
+    `control: none/${aware.name} ${freePlay.wins}/${freePlay.runs}`
     + ` vs none/naive ${base.wins}/${base.runs}`
     + (freePlay.wins === base.wins
       ? " — inert without the system, as designed."
@@ -383,7 +403,7 @@ if (sut.expectInert) {
   );
 } else {
   console.log(
-    `free counter-play: none/${sut.aware.name} ${freePlay.wins}/${freePlay.runs}`
+    `free counter-play: none/${aware.name} ${freePlay.wins}/${freePlay.runs}`
     + ` vs none/naive ${base.wins}/${base.runs} — what the play is worth with NO rig aboard.`
     + " Read the ladder above against this row, not against zero.",
   );
@@ -396,7 +416,7 @@ if (jsonOut) {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `strategy-arms-${sut.id}-${Date.now()}.json`);
   fs.writeFileSync(file, JSON.stringify({
-    system: sut.id, mark, bay, seeds: seedCount, build: buildName,
+    system: sut.id, aware: aware.name, mark, bay, seeds: seedCount, build: buildName,
     ratchets: comboKey(stack), loadout,
     arms: results.map((r) => ({
       tier: r.arm.tier, strategy: r.arm.strategy.name, kitHands: r.arm.kitHands,
