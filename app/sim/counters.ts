@@ -33,9 +33,8 @@
  * kind licenses proposing a new system.
  */
 import type { LevelConfig } from "../src/game/level";
-import { VOLATILE_TRIGGER_SPEED } from "../src/game/lineClear";
 import { thawChargesFor } from "../src/game/run";
-import { MAX_TIER, TIER_COSTS } from "../src/game/upgrades";
+import { applyUpgrades, MAX_TIER, newTiers, TIER_COSTS } from "../src/game/upgrades";
 import type { Bot } from "./bots";
 
 /* ---------------------------------------------------------------------------
@@ -117,91 +116,43 @@ export interface CounterKit {
   hands?(bot: Bot): Bot;
 }
 
-/* --- 2a. THE REAR-BAY CUSHION ------------------------------------------- */
+/* --- 2a. THE IMPACT CUSHION --------------------------------------------- */
 
-/**
- * What a cushion tier multiplies the volatile trigger threshold by.
- *
- * SIZED FROM THE MEASUREMENT ALREADY IN THE TREE, not guessed.
- * `lineClear.ts`'s `VOLATILE_TRIGGER_SPEED` note records the whole distribution
- * it was set against: "measured over every angle/power the cannon can produce,
- * first-contact relative speed runs 17.3 to 30.8", with the median running
- * 19.5 at power 0 and 25.5 at full, and the threshold placed at 22 so that
- * "lob it and it survives (67% of launches), fire it hard and it goes off".
- *
- * A cushion softens the landing. Softening the blow by a factor and raising the
- * threshold by that same factor are the same arithmetic on the same comparison
- * (`rel < VOLATILE_TRIGGER_SPEED * mult`), which is why this is modelled on the
- * seam `level.ts` already ships — `volatileTriggerMult`, today written only by
- * finals.ts's Hair Trigger, and only downward. Nothing new is invented.
- *
- * The three tiers are placed against that measured range rather than round
- * numbers:
- *
- *   tier 1  x1.15 -> threshold 25.3, above the full-power MEDIAN (25.5 is a
- *           hair over it): a hard shot is a coin flip instead of a detonation.
- *   tier 2  x1.30 -> threshold 28.6, inside the top decile of the range.
- *   tier 3  x1.40 -> threshold 30.8, the measured MAXIMUM first-contact speed:
- *           no launch the cannon can produce sets a cube off on arrival.
- *
- * Tier 3 is deliberately the exact top of the range and not past it. A cushion
- * that makes volatile inert is not a counter, it is a delete button, and the
- * design's own rule is that "a system does not DELETE a hazard, it makes one
- * specific hazard cheap for you" (hazards.ts). At x1.40 a volatile cube still
- * detonates when something else lands ON it hard — the neighbour case that is
- * the material's whole identity ("the one material whose cost lands on cubes
- * that were already safely down") — it just cannot be set off by its own
- * arrival.
- */
-export const CUSHION_TRIGGER_MULT = [1.15, 1.30, 1.40] as const;
-
-/** Ladder price per cushion tier — the shared 20/35/55 every other track pays
- *  (upgrades.ts's TIER_COSTS). Priced the same on purpose: `upgrades.ts` says
- *  the tracks "are meant to be balanced against each other by EFFECT, and a
- *  shared price keeps 'which system do I want' the whole decision". A proposal
- *  that arrives with its own price table is a proposal asking not to be
- *  compared. */
+/** Ladder price per cushion tier — the shared 20/35/55 every track pays
+ *  (upgrades.ts's TIER_COSTS), read cumulatively so a kit's `cost` is what
+ *  reaching that tier actually costs from bare. */
 export const CUSHION_TIER_COST = [20, 55, 110] as const;
 
 /**
- * THE MODEL IS AN UPPER BOUND, AND THE PROPOSAL IS NOT.
+ * The shipped Impact Cushion, as a counter kit.
  *
- * The proposed system is a cushion at the BACK of the bay: it softens landings
- * in the deep slots, where a lob has furthest to fall, and does nothing at the
- * near end. `volatileTriggerMult` is field-wide, so this kit measures a cushion
- * that covers the whole floor.
+ * THIS USED TO BE A PROTOTYPE AND IS NOT ONE ANY MORE. What stood here was a
+ * field-wide multiplier on `volatileTriggerMult`, and its own note said what
+ * that cost: the proposal specifies a liner at the BACK of the bay, the model
+ * covered the whole floor, and so "every cushion number this harness prints
+ * reads: this is the most a cushion could possibly be worth". The track now
+ * exists (upgrades.ts's `cushion`), it is positional, and this kit installs the
+ * real thing — so the command that priced the proposal prices the
+ * implementation, on the same flags, and the upper bound is retired along with
+ * the guess it was standing in for.
  *
- * That gap is stated rather than closed because closing it here would be worse:
- * a positional cushion needs a real collision-side rule (which contact points
- * count as "cushioned"), and inventing a proxy for it in the harness would
- * measure the proxy — the same refusal `bots.ts`'s `demo` makes about tar. So
- * every cushion number this harness prints reads: *this is the most a cushion
- * could possibly be worth.* If the upper bound does not rescue a combo, no
- * cushion will.
+ * The ladder and the reason for each rung live with the track, not here: a
+ * second copy of CUSHION_TIERS in the harness is exactly the drift the
+ * retirement is meant to end.
  */
 export function cushionKit(tier: number): CounterKit {
-  const t = Math.max(1, Math.min(CUSHION_TRIGGER_MULT.length, Math.floor(tier)));
-  const mult = CUSHION_TRIGGER_MULT[t - 1];
+  const t = Math.max(1, Math.min(MAX_TIER, Math.floor(tier)));
   return {
     id: `cushion${t}`,
     name: `Impact Cushion ${t}`,
     cost: CUSHION_TIER_COST[t - 1],
     level(cfg) {
-      // Multiplied onto whatever is there rather than assigned, so a cushion
-      // and finals.ts's Hair Trigger compose the way two multipliers should —
-      // a cushioned run that accepts Hair Trigger has bought back part of it,
-      // which is exactly the trade the clause should be offering.
-      cfg.volatileTriggerMult = (cfg.volatileTriggerMult > 0 ? cfg.volatileTriggerMult : 1) * mult;
+      // Applied through the track's own apply(), rather than by writing the two
+      // config fields here: the kit is then the SYSTEM, and a rung that grows a
+      // third field later cannot leave this behind measuring two.
+      applyUpgrades(cfg, { ...newTiers(), cushion: t });
     },
   };
-}
-
-/** The effective trigger speed a cushion tier produces on a stock bay — quoted
- *  by the findings doc and pinned in `sim/systems.ts`, so the doc's numbers are
- *  derived from the constants rather than typed beside them. */
-export function cushionThreshold(tier: number): number {
-  const t = Math.max(1, Math.min(CUSHION_TRIGGER_MULT.length, Math.floor(tier)));
-  return VOLATILE_TRIGGER_SPEED * CUSHION_TRIGGER_MULT[t - 1];
 }
 
 /* --- 1b. EXISTING — the THAW LANCE, which used to live in section 2 ------- */

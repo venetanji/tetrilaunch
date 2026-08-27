@@ -47,8 +47,7 @@ import { greedyRefit, runDeepRun } from "./deeprun";
 import { runBay } from "./runner";
 import { loadoutFor, PRIORITY_ORDERS } from "./builds";
 import {
-  BOND_MIN_CUBES, bondHands, CUSHION_TRIGGER_MULT, cushionKit, cushionThreshold,
-  thawHands, thawKit,
+  BOND_MIN_CUBES, bondHands, cushionKit, thawHands, thawKit,
 } from "./counters";
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
@@ -67,6 +66,7 @@ import {
   volatileBlast, tarWelds, alignMagnetic, VOLATILE_TRIGGER_SPEED, updateBlinking,
   volatileLossFor, settleBlast,
   markLostPieces, slagBountyFor, nextColdCryo,
+  cushionedTrigger, cushionEdgeX, NO_CUSHION, arrivingBody,
 } from "../src/game/lineClear";
 import type { Cube } from "../src/game/pieces";
 import type { Material, PieceType } from "../src/game/theme";
@@ -75,7 +75,7 @@ import {
   clearTrack, orderCost, orderRungs, orderSize, orderedTier, orderedTiers, stageTier,
   MAX_TIER, TIER_COSTS, UPGRADES, type RefitOrder, type UpgradeTiers,
   budgetForMark, buyLoadoutTier, FULL_BUILD_COST, loadoutLegal, MARK_COUNT,
-  THAW_CHARGES_PER_TIER,
+  THAW_CHARGES_PER_TIER, CUSHION_TIERS, cushionThreshold, type UpgradeId,
 } from "../src/game/upgrades";
 import {
   contractClaimed, markUnlocked, markUnlockCelebrated, newMeta, pendingUnlockMark,
@@ -334,7 +334,7 @@ section("Ship upgrades (upgrades.ts)");
   const demoStock = makeBaseLevel(0);
   applyUpgrades(demoStock, newTiers());
   check("an uninstalled demolition track grants none", demoStock.bombCharges === 0, String(demoStock.bombCharges));
-  check("a full rig now costs 880", FULL_BUILD_COST === 880, String(FULL_BUILD_COST));
+  check("a full rig now costs 990", FULL_BUILD_COST === 990, String(FULL_BUILD_COST));
 }
 
 // ---------------------------------------------------------------------------
@@ -402,11 +402,12 @@ section("Build budget + Mark ladder (upgrades.ts / meta.ts / level.ts)");
     FULL_BUILD_COST === tiersCost(Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER])) as never),
     String(FULL_BUILD_COST),
   );
-  // 770 until the Thaw Lance made it eight tracks. The literal is kept beside
+  // 770 until the Thaw Lance made it eight tracks, 880 until the Impact
+  // Cushion made it nine. The literal is kept beside
   // the derivation above rather than deleted as redundant: the derived check
   // proves FULL_BUILD_COST agrees with TIER_COSTS, and only a typed-out number
   // catches a roster or a price moving by accident. Both moved on purpose here.
-  check("a full rig costs 880", FULL_BUILD_COST === 880, String(FULL_BUILD_COST));
+  check("a full rig costs 990", FULL_BUILD_COST === 990, String(FULL_BUILD_COST));
   // The Workshop's own ceiling — every track at UPRATE_MAX_TIER — lands exactly
   // on budgetForMark(5), which is what makes the build budget a real gate for
   // Marks 1-5 (meta.ts's installAvailable). It is not a coincidence and it does
@@ -2485,7 +2486,7 @@ section("Refit order: stage, revise, undock (upgrades.ts, run.ts, preview.ts)");
   // nothing, and three tracks used to do exactly that.
   const stopped = { ...newRun(4, [], 0, {
     bay: 1, launcher: 1, hydraulics: 1, magazine: 1, reactor: 1, bonds: 1, demolition: 1,
-    thaw: 1,
+    thaw: 1, cushion: 1,
   }, 6), levelIndex: 6, scrap: 999 };
   for (const u of UPGRADES) {
     const after = buyUpgrades(stopped, { [u.id]: 1 }, MAX_TIER)!;
@@ -2822,13 +2823,20 @@ section("Draft gating (mods.ts + meta.ts)");
   const liveUnlocks = UNLOCKS.filter((u) => !u.retired);
   const total = liveUnlocks.reduce((a, u) => a + u.cost, 0)
     + INSTALLS.reduce((a, i) => a + i.cost, 0);
-  // 445 until the Thaw Lance added the eighth install at 50. The proposal that
-  // argued for it also argued the ceiling: two more systems at the 70 band
-  // would have taken this to 585 against 600 of tier income and closed the
-  // shelf's slack to nothing. One shipped, priced a band down, and the slack is
-  // 105 — see meta.ts's INSTALLS for why a single-axis counter is not worth a
-  // tier plus its run win.
-  check(`the shelf costs ${total} salvage`, total === 495, String(total));
+  // 445 until the Thaw Lance added the eighth install at 50; 495 until the
+  // Impact Cushion added the ninth at 70. The proposal that argued for both
+  // also argued the ceiling: TWO more systems at the 70 band would have taken
+  // this to 585 against 600 of tier income and closed the slack to nothing.
+  // What shipped is one at 50 and one at 70 — 565, i.e. 35 of slack — because
+  // the two are not the same kind of system and meta.ts's INSTALLS says which
+  // is which: a single-axis counter with a measured ceiling is not worth a tier
+  // plus its run win, and one that answers two axes is.
+  //
+  // The EXPECTED total is typed into the label, not interpolated from `total`.
+  // It used to read `${total}` on both sides, so the message a failure printed
+  // agreed with itself no matter what broke and the reader had to go and look
+  // up the number the check wanted.
+  check("the shelf costs 545 salvage", total === 545, String(total));
   // Rank is what the Workshop groups by, and it promises rising price. A rank-2
   // unlock cheaper than a rank-1 would sort into a band it undercuts.
   const maxOf = (r: number) => Math.max(...liveUnlocks.filter((u) => u.rank === r).map((u) => u.cost));
@@ -6796,6 +6804,36 @@ section("THE THAW LANCE — one grant, two horizons (upgrades.ts / run.ts)");
       lance.cost < installById("bonds")!.cost
       && lance.cost < installById("demolition")!.cost,
       String(lance.cost));
+  }
+
+  /* -------------------------------------------------------------------------
+   * THE IMPACT CUSHION'S SHELF ENTRY — the same two rules, and the second one
+   * had to be decided against a measurement that overturned the proposal.
+   *
+   * The counter-systems proposal argued this system into the 70 band on the
+   * grounds that it answers volatile AND crosswind. It does not. Measured at
+   * Tier 7 bay 10 over 48 paired seeds, a `wind:3` bay is byte-identical at
+   * every cushion tier — 44/48, 9.7 lines, 29.5 shots, $1838 — because the
+   * only thing this system touches is the speed at which a VOLATILE cube goes
+   * off, and wind on its own detonates nothing. The proposal's crosswind
+   * evidence was a `volatile:3 wind:3` bay, where the damage runs THROUGH
+   * volatile; the cushion helps there for the same single-axis reason.
+   *
+   * So it is priced with the Thaw Lance, at the band meta.ts reserves for a
+   * counter that answers one axis, and the two are pinned to the same band
+   * rather than to the same number.
+   * ----------------------------------------------------------------------- */
+  {
+    const cushion = installById("cushion")!;
+    const volatileAxis = HAZARDS.find((h) => h.id === "volatile")!;
+    check("the cushion is on the shelf for the Mark that first deals volatile",
+      cushion.requiresMark === volatileAxis.mark - 1,
+      `install ${cushion.requiresMark} vs axis Mark ${volatileAxis.mark}`);
+    check("...and is priced in the single-axis band, with the lance and not with the two general answers",
+      cushion.cost === installById("thaw")!.cost
+      && cushion.cost < installById("bonds")!.cost
+      && cushion.cost < installById("demolition")!.cost,
+      String(cushion.cost));
   }
 }
 
@@ -12539,15 +12577,34 @@ section("The winnability sweep — the deep-run driver (sim/deeprun.ts)");
 
 section("The winnability sweep — proposed counters (sim/counters.ts)");
 {
-  // A cushion SOFTENS. Every tier must raise the trigger threshold, never lower
+  /* -------------------------------------------------------------------------
+   * THE IMPACT CUSHION (upgrades.ts CUSHION_TIERS / lineClear.ts volatileBlast)
+   *
+   * These pins used to guard a PROTOTYPE — a field-wide multiplier standing in
+   * for a system that did not exist — and the block they lived in was headed
+   * "proposed counters". The track shipped, so what they guard now is the
+   * shipped rule, and the two things the prototype could not express (the liner
+   * is positional; a clause and a liner meet under a floor) are where most of
+   * the new ones are.
+   * ----------------------------------------------------------------------- */
+
+  // A CUSHION SOFTENS. Every tier must raise the trigger threshold, never lower
   // it — a "cushion" that primed the material finer would be finals.ts's Hair
-  // Trigger wearing a system's name, and the sweep would read it as the
-  // proposal working.
+  // Trigger wearing a system's name, and the sweep would read it as the system
+  // working. Both halves of the ladder are monotone, because a rung that bought
+  // a deeper liner and a HARDER one would be a rung that sells two things and
+  // takes one back.
   check(
-    "every cushion tier raises the volatile trigger, and each tier raises it further",
-    CUSHION_TRIGGER_MULT.every((m) => m > 1)
-      && CUSHION_TRIGGER_MULT.every((m, i) => i === 0 || m > CUSHION_TRIGGER_MULT[i - 1]),
-    CUSHION_TRIGGER_MULT.join(","),
+    "every cushion tier softens, and each tier softens more than the last",
+    CUSHION_TIERS.every((r) => r.mult > 1)
+      && CUSHION_TIERS.every((r, i) => i === 0 || r.mult > CUSHION_TIERS[i - 1].mult),
+    CUSHION_TIERS.map((r) => r.mult).join(","),
+  );
+  check(
+    "...and every tier lines more of the floor than the last",
+    CUSHION_TIERS.every((r) => r.cells > 0)
+      && CUSHION_TIERS.every((r, i) => i === 0 || r.cells > CUSHION_TIERS[i - 1].cells),
+    CUSHION_TIERS.map((r) => r.cells).join(","),
   );
   // The ceiling the design note argues for: the top tier lands ON the measured
   // maximum first-contact speed (lineClear.ts's VOLATILE_TRIGGER_SPEED note
@@ -12563,39 +12620,310 @@ section("The winnability sweep — proposed counters (sim/counters.ts)");
     "the first cushion tier still leaves a full-power shot dangerous (median 25.5)",
     cushionThreshold(1) < 25.6, `threshold ${cushionThreshold(1).toFixed(1)}`,
   );
-  // Applied as a multiplier on whatever is already there, so a cushion and Hair
-  // Trigger compose instead of one overwriting the other.
+  // THE LINER STOPS AT THE LINE ZONE, and that is a relationship rather than
+  // the number 8. The top rung's depth IS compactorMinLineCells — the cushion
+  // lines the slots a line is made in and no more — so a bay that changes how
+  // many cells a row needs moves the liner with it instead of leaving a
+  // constant behind that used to mean something.
+  check(
+    "the deepest liner covers the slots a line is made in, and stops there",
+    CUSHION_TIERS[CUSHION_TIERS.length - 1].cells === makeBaseLevel(0).compactorMinLineCells,
+    `${CUSHION_TIERS[CUSHION_TIERS.length - 1].cells} cells`
+      + ` vs a line's ${makeBaseLevel(0).compactorMinLineCells}`,
+  );
+
+  // THE LINER IS POSITIONAL, which is the whole difference between the shipped
+  // system and the prototype that priced it. Asserted through volatileBlast
+  // itself rather than off the config, because "the liner covers the deep end"
+  // is a claim about the collision side: the same shot, at the same speed, must
+  // detonate in a shallow slot and survive in a lined one.
   {
-    const cfg = makeBaseLevel(9, 10);
-    applyFinal(cfg, "hair-trigger");
-    const primed = cfg.volatileTriggerMult;
-    const plain = makeBaseLevel(9, 10);
-    cushionKit(3).level!(cfg);
-    cushionKit(3).level!(plain);
+    const shot = 26; // clears stock's 22 AND tier 1's 25.3, so one speed reads
+                     // the whole ladder: a shot the bare floor sets off.
+    /**
+     * One fixture read two ways. Two cubes meeting at `shot` in the slot at x,
+     * and the ONLY difference between the readings is which of them carried the
+     * speed in — written as one builder because that difference IS the rule
+     * being pinned, and two hand-written fixtures could drift apart by a stray
+     * constant and still both pass.
+     */
+    const blastAt = (
+      x: number,
+      cushion: { cells: number; mult: number },
+      volatileArrives: boolean,
+    ): boolean => {
+      const moving = { x: 0, y: shot };
+      const still = { x: 0, y: 0 };
+      const vol = {
+        position: { x, y: volatileArrives ? 360 : 400 },
+        velocity: volatileArrives ? moving : still,
+      } as Matter.Body;
+      const other = {
+        position: { x, y: volatileArrives ? 400 : 360 },
+        velocity: volatileArrives ? still : moving,
+      } as Matter.Body;
+      const cubes = [
+        { body: vol, material: "volatile", struck: true, blinkStart: null },
+        { body: other, material: "standard", struck: true, blinkStart: null },
+      ] as unknown as Cube[];
+      return volatileBlast(cubes, vol, other, 1, cushion).length > 0;
+    };
+    /** A volatile shipment coming DOWN into the slot at x — the landing the
+     *  liner is insurance on. */
+    const at = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, true);
+    /** A volatile cube already lying in the slot at x, with ordinary cargo
+     *  landing on top of it. Not a landing of its own. */
+    const landedOn = (x: number, cushion: { cells: number; mult: number }): boolean =>
+      blastAt(x, cushion, false);
+    const deep = WALL_INNER - 1 * CELL;               // hard against the wall
+    const shallow = WALL_INNER - 11 * CELL;           // outside every liner
+    const maxed = { cells: CUSHION_TIERS[2].cells, mult: CUSHION_TIERS[2].mult };
     check(
-      "a cushion composes with Hair Trigger rather than overwriting it",
-      Math.abs(cfg.volatileTriggerMult - primed * CUSHION_TRIGGER_MULT[2]) < 1e-9,
-      `${primed} -> ${cfg.volatileTriggerMult}`,
+      "a shot that detonates on a bare floor still detonates outside the liner",
+      at(shallow, NO_CUSHION) && at(shallow, maxed),
+      `bare ${at(shallow, NO_CUSHION)}, lined ${at(shallow, maxed)}`,
     );
     check(
-      "...and the clause still costs the same share of whatever rig accepted it",
-      Math.abs(cfg.volatileTriggerMult / plain.volatileTriggerMult - primed) < 1e-9,
-      `${(cfg.volatileTriggerMult / plain.volatileTriggerMult).toFixed(3)} vs ${primed}`,
+      "...and the same shot into a lined slot does not",
+      at(deep, NO_CUSHION) && !at(deep, maxed),
+      `bare ${at(deep, NO_CUSHION)}, lined ${at(deep, maxed)}`,
     );
-    // A FINDING, pinned so it cannot quietly stop being true. The maxed cushion
-    // lifts a Hair Trigger bay to 1.19x STOCK — the clause is not merely bought
-    // back, it is overshot, and a Tier-7 exam a rig can walk past is not an
-    // exam. The arithmetic is unavoidable (finals.ts primes at 0.85 and the
-    // cushion's own ceiling is 1.40 = the measured maximum arrival speed, so
-    // any cushion that achieves its stated job clears 1/0.85 = 1.176 on the
-    // way), which is why design/balance/counter-systems-proposal.md puts the
-    // fix on the CLAUSE side rather than on the cushion's number.
+
+    // THE LINER INSURES A LANDING, NOT A CUBE — and this is the same shot in
+    // the same slot under the same liner, differing only in which body arrived.
+    //
+    // The liner is bedding: a volatile shipment comes down ON it and the
+    // bedding takes the blow. A volatile cube that is ALREADY lying in it has
+    // had its landing; there is nothing between it and the cargo dropped on top
+    // of it, so that impact meets the stock threshold like any other. Without
+    // the arriving test, `primed` is simply whichever body is volatile, so the
+    // settled cube reads its own position and softens an impact it played no
+    // part in — and a maxed liner then makes volatile inert for the rest of the
+    // bay everywhere it lies deep, which hazards.ts forbids in as many words:
+    // "a system does not DELETE a hazard". upgrades.ts sells the narrow
+    // version, and the copy is the promise this pin holds it to: the deep slots
+    // it lines are where volatile "lands without going off".
     check(
-      "KNOWN: a maxed cushion overshoots Hair Trigger — the clause needs re-sizing, not the cushion",
-      cfg.volatileTriggerMult > 1,
-      `net ${cfg.volatileTriggerMult.toFixed(3)}x stock`,
+      "a cushion softens a volatile cube's OWN landing",
+      !at(deep, maxed),
+      `arriving into a maxed liner detonates: ${at(deep, maxed)}`,
+    );
+    check(
+      "...and never protects one already lying there from what lands on top of it",
+      CUSHION_TIERS.every((r) => landedOn(deep, { cells: r.cells, mult: r.mult })),
+      CUSHION_TIERS.map((r) => `${r.cells}c:${landedOn(deep, { cells: r.cells, mult: r.mult })}`)
+        .join(" "),
+    );
+    // Not an artefact of that one slot: nothing anywhere under the deepest
+    // liner is protected once it is down. Sampled every cell of the liner,
+    // because "inside the liner" is exactly the region the bug covered.
+    {
+      const depths = Array.from({ length: maxed.cells }, (_, i) => WALL_INNER - (i + 0.5) * CELL);
+      check(
+        "...at every lined slot, and on a bare floor alike",
+        depths.every((x) => landedOn(x, maxed) && landedOn(x, NO_CUSHION)),
+        `${depths.filter((x) => !landedOn(x, maxed)).length} of ${depths.length} lined slots suppressed`,
+      );
+    }
+    // WHICH cube the liner is asked about cannot fall out of pile order. The
+    // one impact where the arriving cube and the primed cube can differ is a
+    // volatile shipment coming down on a volatile cube already lying there —
+    // and `cubes.find` would answer that with whichever of the two the pile
+    // happens to list first, which is nothing a player can see, let alone play
+    // against. There is one impact and one threshold, so the question has one
+    // answer: did a volatile cube ARRIVE inside the liner.
+    {
+      const bomb = (x: number, y: number, vy: number) => ({
+        position: { x, y }, velocity: { x: 0, y: vy },
+      }) as Matter.Body;
+      const chainAt = (x: number, listArrivalFirst: boolean): boolean => {
+        const down = bomb(x, 400, 0);      // already lying in the slot
+        const inbound = bomb(x, 360, shot); // the shipment coming down on it
+        const cubes = (listArrivalFirst ? [inbound, down] : [down, inbound]).map((body) => (
+          { body, material: "volatile", struck: true, blinkStart: null }
+        )) as unknown as Cube[];
+        return volatileBlast(cubes, down, inbound, 1, maxed).length > 0;
+      };
+      check(
+        "a volatile shipment landing on a volatile cube reads the same either way round",
+        chainAt(deep, true) === chainAt(deep, false)
+          && chainAt(shallow, true) === chainAt(shallow, false),
+        `lined ${chainAt(deep, true)}/${chainAt(deep, false)}`
+          + ` · bare ${chainAt(shallow, true)}/${chainAt(shallow, false)}`,
+      );
+    }
+    // The rule underneath both readings, pinned on its own so the next system
+    // that needs "who arrived" inherits a definition rather than re-deriving
+    // one: the arriving body is the one carrying the speed, and a pair of cubes
+    // at rest against each other has no arrival in it at all.
+    {
+      const body = (vx: number, vy: number) => ({ velocity: { x: vx, y: vy } }) as Matter.Body;
+      const fast = body(0, shot);
+      const slow = body(0, 0);
+      const jitter = body(0, 1); // pile chatter, below lineClear's SETTLE
+      check(
+        "the arriving body is the one that carried the impact in",
+        arrivingBody(fast, slow) === fast && arrivingBody(slow, fast) === fast,
+        "and it is found whichever side of the pair it is on",
+      );
+      check(
+        "...and a pile settling against itself has nothing arriving in it",
+        arrivingBody(slow, jitter) === null && arrivingBody(jitter, slow) === null,
+      );
+    }
+
+    // The edge is where the tier says it is, to the cell. Checked either side of
+    // ONE rung's boundary rather than trusting the two extremes above, which a
+    // liner of any depth at all would satisfy.
+    const t1 = { cells: CUSHION_TIERS[0].cells, mult: CUSHION_TIERS[2].mult };
+    const inside = WALL_INNER - (CUSHION_TIERS[0].cells - 0.5) * CELL;
+    const outside = WALL_INNER - (CUSHION_TIERS[0].cells + 0.5) * CELL;
+    check(
+      "the liner's edge sits exactly where its tier's depth says",
+      !at(inside, t1) && at(outside, t1),
+      `inside ${at(inside, t1)}, outside ${at(outside, t1)}`,
+    );
+    // THE DRAWN EDGE AND THE TESTED EDGE ARE ONE NUMBER. render.ts's
+    // drawCushion paints the line the player aims against and volatileBlast
+    // decides whether an impact cleared it; both read cushionEdgeX, and this
+    // pins that the boundary the collision side actually uses IS that function
+    // rather than a second copy of the same arithmetic. The precedent is
+    // Compactor.strandCutoffX, whose own note is the argument: its readers "all
+    // have to agree on it exactly", because "a warning drawn against one number
+    // and a penalty charged against another is a game lying about its own
+    // rules". A cushion the player can see but cannot trust is worse than one
+    // they cannot see.
+    for (const rung of CUSHION_TIERS) {
+      const edge = cushionEdgeX(rung.cells);
+      const spec = { cells: rung.cells, mult: CUSHION_TIERS[2].mult };
+      check(
+        `the ${rung.cells}-cell liner softens from exactly the x it is drawn at`,
+        !at(edge + 1, spec) && at(edge - 1, spec),
+        `edge ${edge}: inside ${at(edge + 1, spec)}, outside ${at(edge - 1, spec)}`,
+      );
+    }
+    // An unbought track must leave the material byte-identical to a bay that
+    // never heard of the system — the inert-by-default stance level.ts takes
+    // for windMax and volatileTriggerMult, asserted rather than assumed.
+    const bare = makeBaseLevel(9, 7);
+    applyUpgrades(bare, newTiers());
+    check(
+      "a rig with no cushion aboard leaves the bay's floor bare",
+      bare.cushionCells === 0 && bare.cushionMult === 1,
+      `${bare.cushionCells} cells x${bare.cushionMult}`,
     );
   }
+
+  /* -------------------------------------------------------------------------
+   * THE HAIR TRIGGER FLOOR — the finding this system's proposal made about
+   * itself, now closed.
+   *
+   * The pin that stood here was headed KNOWN and asserted the BUG: a maxed
+   * cushion multiplied Hair Trigger's 0.85 by 1.40 and landed at 1.19x stock,
+   * so the Tier-7 exam was not paid off but walked past, into a bay safer than
+   * one carrying no clause at all. The proposal called the arithmetic
+   * unavoidable and put the fix on the clause side. lineClear.ts's
+   * cushionedTrigger is that fix, as a FLOOR: where something has primed the
+   * bay finer than stock, a cushion may buy it back to stock and no further.
+   *
+   * Three properties, and the third is the one that keeps the clause worth
+   * accepting: the cushion must still BE worth something under Hair Trigger, or
+   * the floor would have solved the overshoot by deleting the purchase.
+   * ----------------------------------------------------------------------- */
+  {
+    const clause = 0.85;
+    const maxed = CUSHION_TIERS[2].mult;
+    check(
+      "a maxed cushion under Hair Trigger lands ON stock, never past it",
+      Math.abs(cushionedTrigger(clause, maxed) - 1) < 1e-9,
+      `${cushionedTrigger(clause, maxed).toFixed(3)}x stock`,
+    );
+    check(
+      "...and no cushion tier walks past it either",
+      CUSHION_TIERS.every((r) => cushionedTrigger(clause, r.mult) <= 1 + 1e-9),
+      CUSHION_TIERS.map((r) => cushionedTrigger(clause, r.mult).toFixed(3)).join(","),
+    );
+    check(
+      "...while still buying the clause back, so accepting it is still a trade",
+      CUSHION_TIERS.every((r) => cushionedTrigger(clause, r.mult) > clause),
+      CUSHION_TIERS.map((r) => cushionedTrigger(clause, r.mult).toFixed(3)).join(","),
+    );
+    // The floor is a rule about SUB-STOCK multipliers, not about Hair Trigger by
+    // id, so a second clause that primes volatile inherits it and an ordinary
+    // bay is untouched by it.
+    check(
+      "an ordinary bay's cushion is not floored — the liner is worth its full tier",
+      Math.abs(cushionedTrigger(1, maxed) - maxed) < 1e-9,
+      `${cushionedTrigger(1, maxed).toFixed(3)}`,
+    );
+    check(
+      "the floor is stated for any sub-stock priming, not for one clause id",
+      FINALS.filter((f) => {
+        const cfg = makeBaseLevel(9, f.tier);
+        applyFinal(cfg, f.id);
+        return cfg.volatileTriggerMult < 1;
+      }).every((f) => {
+        const cfg = makeBaseLevel(9, f.tier);
+        applyFinal(cfg, f.id);
+        return cushionedTrigger(cfg.volatileTriggerMult, maxed) <= 1 + 1e-9;
+      }),
+    );
+  }
+  /* -------------------------------------------------------------------------
+   * A MATERIAL WITH A BOUGHT ANSWER SAYS SO, where the player meets the
+   * material — not only in the rig chapter, where they will look once they
+   * already know the system exists.
+   *
+   * This is the shape the guide has been growing toward one system at a time:
+   * slag's topic has always named the demolition charge, and the Thaw Lance
+   * took the sentence that used to end cryo's ("land it early and low, then
+   * thaw it on the way past") because the two said the same thing and only one
+   * of them named the system that does it. Pinned as the RULE rather than left
+   * as three habits, so the next counter inherits it.
+   *
+   * The counter has to be NAMED, not alluded to: the string is the shop card's
+   * own name, so a player can go and find it. It is checked against
+   * upgrades.ts's `name` rather than a literal, which is what stops the guide
+   * and the shelf drifting apart the first time a system is renamed.
+   * ----------------------------------------------------------------------- */
+  {
+    const answers: [Material, UpgradeId][] = [
+      ["slag", "demolition"],
+      ["cryo", "thaw"],
+      ["volatile", "cushion"],
+    ];
+    for (const [material, track] of answers) {
+      const name = UPGRADES.find((u) => u.id === track)!.name;
+      const topic = guideTopics(10).find((t) => t.id === `mat-${material}`);
+      check(
+        `${material}'s guide topic names the system that answers it`,
+        !!topic && topic.body.includes(name),
+        topic?.body,
+      );
+    }
+  }
+
+  // THE KIT INSTALLS THE SHIPPED TRACK, and asserts nothing about the numbers
+  // itself. The same retirement the lance's kit went through: what the harness
+  // may own is which rung is fitted, and never what a rung does — a kit that
+  // kept its own copy of CUSHION_TIERS would go on measuring the proposal after
+  // the implementation had moved. Checked against applyUpgrades rather than
+  // against the constants, so the delegation is what fails if it breaks.
+  for (const t of [1, 2, 3]) {
+    const viaKit = makeBaseLevel(9, 7);
+    cushionKit(t).level!(viaKit);
+    const viaTrack = makeBaseLevel(9, 7);
+    applyUpgrades(viaTrack, { ...newTiers(), cushion: t });
+    check(
+      `the sweep's cushion ${t} is the shipped tier ${t}, not a second copy of it`,
+      viaKit.cushionCells === viaTrack.cushionCells
+        && viaKit.cushionMult === viaTrack.cushionMult
+        && viaKit.cushionCells === CUSHION_TIERS[t - 1].cells,
+      `${viaKit.cushionCells}x${viaKit.cushionMult} vs ${viaTrack.cushionCells}x${viaTrack.cushionMult}`,
+    );
+  }
+
   // THE THAW LANCE'S HANDS, and what changed when the system shipped.
   //
   // This wrapper used to BE the proposal — it marked cubes struck out of a

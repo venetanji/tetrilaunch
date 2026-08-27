@@ -149,6 +149,9 @@ function systemTopics(): GuideTopic[] {
     // the same rule every other row here follows and the reason cryo's material
     // topic below can point at it (meta.ts's INSTALLS states the gate).
     thaw: 4,
+    // Same rule: volatile opens at Mark 7 (hazards.ts), so its counter's guide
+    // row opens with the tier that opens the axis.
+    cushion: 7,
   };
   // Sorted by the tier that opens each system, ties keeping the UPGRADES order
   // — so the chapter reads as the ladder the player will actually buy it in
@@ -196,7 +199,7 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
       m: "slag", axis: "slag",
       body: `Dead cargo. A slag cube fills a slot and can <b>never</b> count, so a row holding`
         + ` one will not sell until it leaves the bay. Nothing passive removes it — a`
-        + ` <b>demolition charge</b> is the answer, and refunds`
+        + ` <b>Demolition Rack</b> charge is the answer, and refunds`
         + ` <b>$${lv.salvagePerCube}</b> a cube.`,
     },
     {
@@ -206,10 +209,20 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
       // pays for the live cargo a blast destroys now (lineClear.ts's
       // volatileLossFor), and the line that taught the old reading is the one
       // the player would have carried into the bay that bills them for it.
+      // The cushion earned its clause the way the Thaw Lance earned cryo's:
+      // by naming the system that does what the sentence was already telling
+      // the player to do. 235 plain characters against the pane's 250, which
+      // the copy-budget pin in sim/systems.ts counts.
+      //
+      // LANDING, not "shot", and the word is doing work: the liner insures an
+      // arrival and nothing else (lineClear.ts's volatileBlast). A cube already
+      // lying in a lined slot still goes off when cargo lands hard on top of
+      // it, so a sentence that let the slots read as safe ground would be
+      // teaching the player a rule the bay does not have.
       body: `A hard landing detonates it, taking every cube within`
-        + ` <b>${VOLATILE_BLAST_CELLS} cells</b>. The trigger is impact SPEED, so the dial is`
-        + ` your <b>power</b>: a soft lob lands like anything else. Every live cube the blast`
-        + ` takes is billed <b>$${lv.volatileLoss}</b>, so the fuller the pile, the more it costs.`,
+        + ` <b>${VOLATILE_BLAST_CELLS} cells</b>, and every live cube it takes is billed`
+        + ` <b>$${lv.volatileLoss}</b>. The trigger is impact SPEED: lob it soft, or land it on an`
+        + ` <b>Impact Cushion</b> — the deep slots it lines take a much harder LANDING.`,
     },
     {
       m: "tar", axis: "tar",

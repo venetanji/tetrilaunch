@@ -793,7 +793,10 @@ export class Game {
         // rather than removed inline for the same reason bombs are — matter is
         // mid-solve here, and deleting bodies out from under the pair loop
         // corrupts the very iteration that found them.
-        const blast = volatileBlast(this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult);
+        const blast = volatileBlast(
+          this.cubes, pair.bodyA, pair.bodyB, this.level.volatileTriggerMult,
+          { cells: this.level.cushionCells, mult: this.level.cushionMult },
+        );
         for (const c of blast) this.pendingBlast.add(c.body);
         // TAR: welds to whatever it settled against. Also deferred — adding a
         // constraint during collisionStart is the same mid-solve mutation.

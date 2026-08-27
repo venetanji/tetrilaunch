@@ -175,6 +175,31 @@ export interface LevelConfig {
    *  18.7) leaves only the softest lob safe where stock leaves two thirds of
    *  launches safe. finals.ts's Hair Trigger is the only thing that writes it. */
   volatileTriggerMult: number;
+  /** How deep the Impact Cushion's liner runs from the wall, in cells. 0 = no
+   *  liner, which is every bay until the track is aboard.
+   *
+   *  CELLS FROM THE WALL rather than an absolute x, for the reason every other
+   *  geometry field here is in cells: the bay's landmarks are all derived from
+   *  CELL and WALL_INNER (compactorOpenCells, compactorMinLineCells,
+   *  bayWidthCells), and a pixel here would be a second copy of a relationship
+   *  free to drift out of it. lineClear.ts's volatileBlast resolves it against
+   *  the cube that would detonate. */
+  cushionCells: number;
+  /** What the liner multiplies the volatile trigger speed by for cargo landing
+   *  INSIDE it — the same seam volatileTriggerMult drives, pushed the other
+   *  way. 1 = no softening.
+   *
+   *  Two fields rather than one because the system ladders on both and they
+   *  answer different halves of the hazard: depth decides how much of the bay
+   *  is protected, softening decides how hard a shot the protected part will
+   *  take. upgrades.ts's CUSHION_TIERS carries the measurement that sized each.
+   *
+   *  Kept separate from volatileTriggerMult rather than multiplied into it at
+   *  config time, and this is not tidiness: that field is FIELD-WIDE and this
+   *  one is positional, so folding them together at build time would silently
+   *  make the rig's liner cover the whole bay — which is precisely the gap the
+   *  prototype that priced this system declared it could not close. */
+  cushionMult: number;
   /** Funds paid per DEAD cube (one that can never count toward a line — slag)
    *  removed by a VOLATILE detonation, and only by one. See lineClear.ts's
    *  slagBountyFor for why this is not the payout resolveVolatile refuses, and
@@ -1244,6 +1269,11 @@ export function makeBaseLevel(i: number, mark = 1): LevelConfig {
     // Stock priming. Inert-by-default, the same stance windMax 0 and
     // autoLaunchMs 0 take.
     volatileTriggerMult: 1,
+    // No liner. Inert-by-default like the two above, and stated as two fields
+    // so a rig that buys depth without softening (or the reverse) is a
+    // representable state rather than an accident of one packed number.
+    cushionCells: 0,
+    cushionMult: 1,
     slagBounty: SLAG_BOUNTY,
     volatileLoss: Math.round(penaltyPerLostPieceFor(i, mark) * VOLATILE_LOSS_SHARE),
     bombResupplyLines: 0,

@@ -4344,7 +4344,16 @@ body.crt-off #app::after { display: none; }
    spacing to run out of, only a box). The growth term and cap fall in the same
    proportion, 65 -> 55 and 30 -> 26, so the shape of the slot is unchanged and
    only its count moved. */
-[data-density="compact"] .pl-mods .ship-plate { width: clamp(22px, calc(55 * var(--fpx)), 26px); }
+/* …and it comes down again for the NINTH. Same arithmetic, two terms changed.
+   The tightest row is still the iPhone 13 mini's 209px, but the gaps between
+   plates are no longer the row's — the rack is one block at a 2px hairline
+   (.ship-rack below) — so it is 9w + 8x2 <= 209, i.e. w = 21.4 and hence the
+   21px floor. Verified against the two panels that actually overflowed: at
+   209px the row now measures 205, and at 241px it measures 208.
+   The growth term and the cap come down in the same 8/9 proportion the eighth
+   slot used, 55 -> 49 and 26 -> 23, so the shape of the slot is unchanged and
+   only its count moved. */
+[data-density="compact"] .pl-mods .ship-plate { width: clamp(21px, calc(49 * var(--fpx)), 23px); }
 
 /* That recovers 25px of the 41px overrun. The last 16px does NOT come out of
    the type scale — every remaining size is already sitting on its legibility
@@ -4588,6 +4597,18 @@ body.crt-off #app::after { display: none; }
    The 40:9 ratio between this width and the glyph's font-size below is the
    plate's design proportion and the thing the override is written to keep:
    4.44 glyph-ems of box around 3.06 of text. */
+/* THE RACK AS ONE OBJECT in the build row (components.ts's shipPlatesHTML).
+   `flex: none` because it is a fixed readout in a scroller: without it the
+   block is an ordinary flex item, shrinks below its plates on every narrow
+   panel, and takes the whole plant panel with it (measured: 980px against a
+   366px design box before this line existed).
+
+   The gap is deliberately far tighter than .pl-mods's own. These are cells of
+   a single readout; the row's gap is what holds that readout apart from the
+   ability chips, which are controls. Nine slots is what forced the two apart
+   — see the compact clamp above for the arithmetic. */
+.ship-rack { flex: none; display: flex; align-items: center; gap: 2px; }
+
 .ship-plate {
   flex: none; position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;

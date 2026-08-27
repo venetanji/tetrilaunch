@@ -352,7 +352,10 @@ const HUD_BASE = {
   // had, so two of the four chips the "widest child" is supposed to be measured
   // at were never rendered. Ratchets is a weak type, so the pair typechecked.
   ratchets: { wind: 2, sweeper: 1, cryo: 1, slag: 2 } as Ratchets,
-  tiers: { bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0, thaw: 0 },
+  tiers: {
+    bay: 2, launcher: 1, hydraulics: 3, magazine: 1, reactor: 2, bonds: 1, demolition: 0,
+    thaw: 0, cushion: 0,
+  },
 };
 
 const PROGRESS = tierProgressFor(midMeta());
@@ -365,7 +368,10 @@ const SANDBOX_BAY: SandboxState = {
   ...newSandbox(),
   tier: MARK_COUNT,
   target: { kind: "bay", bay: RUN_LEVELS },
-  tiers: { bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3, thaw: 3 },
+  tiers: {
+    bay: 3, launcher: 3, hydraulics: 3, magazine: 3, reactor: 3, bonds: 3, demolition: 3,
+    thaw: 3, cushion: 3,
+  },
   material: "all",
   ratchets: { wind: 3, sweeper: 2, cryo: 1, slag: 3 } as Ratchets,
 };
