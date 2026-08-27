@@ -3973,17 +3973,20 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
 
   const brandRule = css.slice(css.indexOf("\n.menu__brand {"));
   const brandBody = brandRule.slice(brandRule.indexOf("{") + 1, brandRule.indexOf("\n}"));
-  check("--brand-w is solved from the column's own height, not stepped",
+  check("--brand-w is solved from the column's own height somewhere in the sheet",
     /--brand-w:\s*min\(100%,\s*calc\(\(100cqh\s*-\s*var\(--brand-reserve\)\)\s*\*\s*16\s*\/\s*9\)\)/
-      .test(brandBody),
-    (brandBody.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
+      .test(css),
+    (css.match(/--brand-w:.*/g) ?? ["--brand-w is not declared"]).join(" | "));
 
-  // The staircase is GONE, not merely overridden. A leftover `min-height: 700px`
-  // step would win on every desktop row by source order and quietly restore the
-  // bug the equation replaced, so its absence is the assertion.
-  check("no --brand-w step survives keyed to a viewport height",
-    !/@media\s*\((?:min|max)-height:\s*(?:620|700)px\)\s*\{[^}]*--brand-w/.test(css),
-    "a height-keyed --brand-w step is still in app.css");
+  // The solver is kept off the STACKED branch, where the equation's premise
+  // fails: `100cqh` is the whole .menu row, and the row is this column only
+  // while the grid has one row. Guarded rather than overridden downstream —
+  // an override would have to sit after the @supports block to win, which is
+  // the arrangement that made the first attempt at this fragile.
+  check("the solver is scoped away from the one-column branch",
+    /@media\s+not\s+all\s+and\s*\(max-aspect-ratio:\s*1\s*\/\s*1\)\s*\{[\s\S]{0,400}?--brand-w:[^;]*100cqh/
+      .test(css),
+    "the 100cqh declaration is not inside a `not all and (max-aspect-ratio: 1/1)` guard");
 
   // The reserve, read back out of the stylesheet and re-derived here. Three
   // shelf rows is the shelf at its tallest (an entitlement entry above
@@ -4049,6 +4052,107 @@ section("The menu's demo panel is an equation (app.css --brand-w)");
   check("the wordmark's plate clamp is one cap, not a staircase",
     (css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length === 1,
     String((css.match(/font-size:\s*clamp\(8px,\s*6\.8cqw,\s*\d+px\)/g) ?? []).length));
+
+  // --- ...and the engine that cannot solve it -------------------------------
+  // THE DEPLOYMENT TARGET IS THE WHOLE REASON THE STEPS ARE STILL HERE.
+  // Container queries reached WKWebView in Safari 16; this app ships to iOS
+  // 15, so a supported device parses this stylesheet with no container units
+  // at all and has to be handed the staircase instead. Read the target out of
+  // the Xcode project rather than trusting the comment beside the CSS: the day
+  // someone raises it to 16 the fallback becomes dead weight, and this is the
+  // check that says so out loud instead of leaving it to rot.
+  const pbx = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "ios", "App",
+      "App.xcodeproj", "project.pbxproj"),
+    "utf8",
+  );
+  const targets = [...pbx.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)].map((m) => parseFloat(m[1]));
+  check("the iOS deployment target is still readable from the Xcode project",
+    targets.length > 0, String(targets.length));
+  const CONTAINER_QUERY_IOS = 16;
+  check("...and still below the iOS that has container queries, so the steps are load-bearing",
+    Math.min(...targets) < CONTAINER_QUERY_IOS, `min target ${Math.min(...targets)}`);
+
+  // The fallback CANNOT be two declarations of the same custom property, which
+  // is what this rule tried first and what a review caught. A custom property's
+  // value is an untyped token stream, so an engine with no `cqh` still accepts
+  // the declaration and still lets it win on source order; the unit is only
+  // rejected when `width: var(--brand-w)` is substituted, and an
+  // invalid-at-computed-value-time `width` falls back to `auto`, not to the
+  // earlier declaration. Measured: on the reported 1269x663 window that took
+  // the brand column to 552.6px inside a 505.7px row — a 47px overflow under
+  // .screen's `overflow: hidden`, worse than the band the change set out to
+  // fix. So: exactly one --brand-w in .menu__brand's own block.
+  const ownBlock = brandBody.replace(/\/\*[\s\S]*?\*\//g, "");
+  check("the brand rule declares --brand-w once, not as a two-declaration fallback",
+    (ownBlock.match(/--brand-w\s*:/g) ?? []).length === 1,
+    String((ownBlock.match(/--brand-w\s*:/g) ?? []).length));
+
+  // Every container-unit use of --brand-w lives inside a feature query. Cut the
+  // @supports blocks out and no `cq*` unit may be left setting this token.
+  //
+  // Comments come out FIRST, and that is not tidiness — the prose beside these
+  // rules discusses @supports by name, and a brace-matcher that starts from the
+  // first literal "@supports" in the file starts inside a comment and swallows
+  // every rule between there and the next closing brace. It did exactly that on
+  // the first run of this check, which is how the two step assertions below
+  // went red against a stylesheet that already had them.
+  const stripSupports = (s: string): string => {
+    let out = "";
+    for (let i = 0; i < s.length; ) {
+      const at = s.indexOf("@supports", i);
+      if (at < 0) { out += s.slice(i); break; }
+      out += s.slice(i, at);
+      let depth = 0, j = s.indexOf("{", at);
+      for (; j < s.length; j++) {
+        if (s[j] === "{") depth++;
+        else if (s[j] === "}" && --depth === 0) { j++; break; }
+      }
+      i = j;
+    }
+    return out;
+  };
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const noSupports = stripSupports(noComments);
+  check("stripping @supports leaves the rest of the stylesheet intact",
+    noSupports.includes(".menu__brand") && noSupports.length > noComments.length * 0.9,
+    `${noSupports.length} of ${noComments.length} chars survived`);
+  check("no --brand-w outside a feature query uses a container unit",
+    !/--brand-w\s*:[^;]*\bcq(h|w|i|b|min|max)\b/.test(noSupports),
+    (noSupports.match(/--brand-w\s*:[^;]*cq[a-z]+[^;]*/g) ?? []).join(" | "));
+  // ...and the solver really is behind one, rather than simply absent.
+  check("the solved --brand-w sits inside an @supports for container units",
+    /@supports\s*\(\s*width:\s*1cq[a-z]+\s*\)/.test(css)
+      && /--brand-w\s*:[^;]*100cqh/.test(css),
+    "no @supports (width: 1cq*) guarding the solver");
+
+  // STRIP THE ENHANCEMENT AND THE OLD SCREEN HAS TO BE UNDERNEATH IT. These are
+  // the three steps this change replaced, and an iOS 15 device gets exactly
+  // them; the simulated run (cq units stubbed out) reproduces staging's panel
+  // at all eight sampled sizes. Asserted on the stripped stylesheet so that
+  // deleting a step "because the equation covers it" fails here rather than on
+  // a device nobody in this repo owns.
+  for (const [label, re] of [
+    ["440px default", /\.menu__brand\s*\{[^}]*--brand-w:\s*min\(100%,\s*440px\)/],
+    ["360px step under a 620px-tall viewport",
+      /@media\s*\(max-height:\s*620px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*360px\)/],
+    ["640px step at 700px and over",
+      /@media\s*\(min-height:\s*700px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w:\s*min\(100%,\s*640px\)/],
+  ] as [string, RegExp][]) {
+    check(`the pre-container-query base still carries its ${label}`, re.test(noSupports),
+      "missing from the stylesheet with @supports stripped");
+  }
+  // The two thresholds must not OVERLAP. They are read back rather than
+  // assumed: if someone nudged the step-down past the step-up, both queries
+  // would match on the same viewport and the answer would come down to which
+  // rule happened to be later in the file. The band they leave between them is
+  // deliberate — it is where the 440px default lives, and on a modern engine it
+  // is exactly where the equation takes over.
+  const stepDown = noSupports.match(/@media\s*\(max-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
+  const stepUp = noSupports.match(/@media\s*\(min-height:\s*(\d+)px\)\s*\{\s*\.menu__brand\s*\{\s*--brand-w/);
+  check("the stepped fallback's two thresholds do not overlap",
+    stepDown !== null && stepUp !== null && Number(stepDown[1]) < Number(stepUp[1]),
+    `${stepDown?.[1] ?? "?"} / ${stepUp?.[1] ?? "?"}`);
 }
 
 // ---------------------------------------------------------------------------

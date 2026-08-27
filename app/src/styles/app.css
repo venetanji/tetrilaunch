@@ -445,10 +445,58 @@ body.crt-off #app::after { display: none; }
      reference box the chrome is magnified with `zoom`, and `vh` would measure
      the viewport while everything here is laid out in the divided box.
 
-     The 440px declaration below stays as the pre-container-query fallback, in
-     the same shape and for the same reason as .menu__title's `vw` line. */
+     WHICH IS WHY THE STAIRCASE IS STILL HERE, one step per rule below, and why
+     the equation sits behind an @supports instead of on top of it. This app's
+     iOS deployment target is 15.0 (ios/App/App.xcodeproj), and container
+     queries did not reach WKWebView until 16. So a supported device runs this
+     stylesheet with no container units at all, and it needs the steps.
+
+     It cannot get them from the cascade. Writing the fallback as two
+     declarations of the same custom property — the shape .menu__title's `vw`
+     line uses one rule down — DOES NOT WORK, and fails in the worst direction.
+     A custom property's value is parsed as an untyped token stream, so an
+     engine that has never heard of `cqh` still accepts the declaration and
+     still lets it win on source order. The unit is only rejected later, when
+     `width: var(--brand-w)` is substituted, and an invalid-at-computed-value
+     -time `width` does not fall back to the earlier declaration — it falls back
+     to the property's initial value, `auto`. Measured in a browser with the
+     unit stubbed out: `font-size` keeps its 20px fallback, while the same
+     two-declaration pattern on a custom property leaves the box at `auto` and
+     it stretches to the full column. iOS 15 would not have got the old 440px
+     panel; it would have got no width at all.
+
+     @supports is the only construct that asks the question before the value is
+     committed, so the steps below are the real base and the equation is an
+     enhancement layered over them. Strip the @supports block and this screen is
+     byte-for-byte what it was before the equation existed — which is exactly
+     what sim/systems asserts, so the fallback cannot rot. */
   --brand-w: min(100%, 440px);
-  --brand-w: min(100%, calc((100cqh - var(--brand-reserve)) * 16 / 9));
+}
+/* The two steps the equation replaces on modern engines and restores on old
+   ones. 360 under a 620px-tall viewport, 640 at 700 and over, 440 in the band
+   between; keyed on VIEWPORT height, which above the authored box is not the
+   same as the layout box (chromeZoom divides it) — the imprecision the
+   equation exists to remove, and the exact behaviour iOS 15 had. */
+@media (max-height: 620px) { .menu__brand { --brand-w: min(100%, 360px); } }
+@media (min-height: 700px) { .menu__brand { --brand-w: min(100%, 640px); } }
+/* ...and the enhancement, for engines that can measure the column. Scoped away
+   from the stacked branch because `100cqh` is the whole .menu row, and the row
+   is the brand column ONLY while the grid has one row — which is the landscape
+   three-column case. Stacked, the column is one of three auto rows sharing that
+   height and the equation would size the panel off roughly three times the
+   height it has. `not all and (...)` rather than a min-aspect-ratio twin so the
+   two branches cannot both match on an exactly square window. */
+@supports (width: 1cqh) {
+  @media not all and (max-aspect-ratio: 1/1) {
+    .menu__brand { --brand-w: min(100%, calc((100cqh - var(--brand-reserve)) * 16 / 9)); }
+    /* The phone tier's pin, argued in full down beside the compact block. Short
+       version: down here the shelf already sits exactly on its 44px floor, so
+       the 12px of headroom --brand-reserve keeps for taller faces would come
+       out of the PANEL rather than out of slack the row does not have. 360 is
+       what the phones already draw, and it is what the base step above gives
+       them too — so this pin only has to exist inside the enhancement. */
+    @media (max-height: 460px) { .menu__brand { --brand-w: min(100%, 360px); } }
+  }
 }
 .menu__title {
   font-size: clamp(30px, 6.2vw, 66px);
@@ -5568,25 +5616,28 @@ button.panel { color: var(--text); }
   /* Centered layout: the demo centres with everything else. Left-aligned (the
      two-column default) it stays flush with the title above it. */
   .menu__demo.is-live { margin-inline: auto; }
-  /* --brand-w goes back to being a number here, because the equation it is
-     normally solved from does not hold in this branch. `100cqh` is the whole
-     .menu row, and the row is the brand column ONLY while the grid has one row
-     — which is the landscape three-column case. Stacked, the brand column is
-     one of three auto rows sharing that height, so the equation would size the
-     panel off roughly three times the height it has and blow it out of the
-     column. 440 is the authored default, which is what this branch has always
-     drawn. */
-  .menu__brand { --brand-w: min(100%, 440px); }
+  /* No --brand-w here. The equation does not hold in this branch — see the
+     `not all and (max-aspect-ratio: 1/1)` guard on the @supports block up at
+     .menu__brand — so this branch is simply never handed it, and the stepped
+     base applies exactly as it did before the equation existed. Overriding the
+     token here instead would have had to sit AFTER the @supports block to win,
+     and a rule that has to be downstream of an enhancement to undo it is the
+     fragile half of the same idea. */
 }
 
 /* The panel's two width STEPS used to live here — 360px under a 620px-tall
    viewport, 640px at 700 and over, with the 440px default filling the band
-   between. All three are gone: --brand-w is now solved from the column's own
-   height at .menu__brand above, and both step values fall straight out of that
-   equation on the viewports that used to be keyed to them. What is left here
-   is the one case the equation cannot cover — the phone tier, which is
-   handled in the max-height:460px block below and for a reason worth stating
-   where the steps used to be.
+   between. They have MOVED, not gone: they sit beside .menu__brand now, where
+   the equation that supersedes them on modern engines can be layered over them
+   in an @supports block instead of racing them down the file. Both step values
+   fall straight out of that equation on the viewports that used to be keyed to
+   them, so on an engine with container units the steps decide nothing — and on
+   iOS 15, which this app still deploys to and which has no container units,
+   they decide everything.
+
+   What is left here is the one case the equation cannot cover — the phone
+   tier, pinned inside the @supports block and in the max-height:460px block
+   below, and worth stating at length where the steps used to be.
 
    On a landscape phone the shelf is not merely NEAR its floor, it is ON it:
    measured at 792x360, 851x393 and 852x393 the three rows come out 44.0px
@@ -5625,14 +5676,15 @@ button.panel { color: var(--text); }
      `align-items: center` can actually centre it — 24.4px above, 24.4px below.
      The inline value is untouched; width was never the constraint here. */
   .menu { padding: 6px clamp(12px, 2.2vw, 28px); gap: var(--sp-4); }
-  /* The phone tier's pin, argued in full where the old width steps used to be
-     (just above this query). Short version: down here the shelf already sits
-     exactly on its 44px floor, so the 12px of headroom --brand-reserve keeps
-     for taller faces would come out of the PANEL rather than out of slack the
-     row does not have — 35px of width, to buy a margin that is not there. 360
-     is what the phones already draw, and it is a cap, not a size: on every
-     handset narrower than a Pixel 7 the column's own `100%` still wins. */
-  .menu__brand { gap: var(--sp-2); --brand-w: min(100%, 360px); }
+  /* The gap only. The phone tier's --brand-w pin lives inside the @supports
+     block beside .menu__brand, not here, and it has to: this query is far
+     downstream of that block, so a --brand-w set here would win over the
+     equation on EVERY engine — including the landscape-phone case the
+     equation is deliberately kept away from and the desktop case it exists
+     for. Its 360 is also what the stepped base already hands a viewport this
+     short (max-height:620px covers max-height:460px), so there is nothing for
+     the old engines to miss either. */
+  .menu__brand { gap: var(--sp-2); }
   /* The base-bay panel's budget on a 360px phone is what the 16:9 demo above
      it leaves — 146px at 792x360 — against 149px of content at the desktop
      paddings. Three pixels, and every one of them has to come off the chrome
