@@ -487,6 +487,59 @@ const SOLVE_POWER_ITERS = 22;
  *  12 iterations shrink the ±2.5° bracket by (2/3)^12 to ~0.02°. */
 const SOLVE_ANGLE_ITERS = 12;
 
+/**
+ * Where the arc-height dial STARTS, per bay (game.ts's Game.aimLoft).
+ *
+ * 1 — the steepest arc the speed band affords through the point clicked — and
+ * this is a reversal. The dial shipped at 0, the minimum-power drive, on the
+ * argument written into solveAimForTarget's header below: least power is least
+ * impact energy, it sits in the middle of the preview window, and it makes the
+ * PWR meter read as "how close to your limit this spot is". All three are still
+ * true and none of them survived contact with the bay.
+ *
+ * What the owner's play pass reported, twice: the flat default ploughs through
+ * the compactor bar (the loft param's own doc records the first sighting), and
+ * "i don't need to scroll up every time" is what the fix has to buy. A dial
+ * whose useful position is one end of its range, reached by five notches of
+ * wheel, is a dial that is wrong by default — the flat arc is the SPECIAL case
+ * (drive into the face of a stack), the arc that comes down onto the spot is
+ * the ordinary one, and the ordinary one belongs on the default.
+ *
+ * The obvious objection is the power, and it does not price anything: more
+ * loft always costs more px/step and the launch is billed FLAT (level.ts's
+ * launchCost — congestion prices the bay's clutter, nothing prices the shot's
+ * energy), so the steep default costs the player exactly what the flat one did.
+ *
+ * WHAT IT DOES COST, measured across a 20x40px sweep of the reachable bay at
+ * stock trim (493 of 546 sampled points, identical at both ends of the dial):
+ *
+ *   - REACH: nothing. The same 493 points are hit at loft 1 as at loft 0 —
+ *     the lob branch only ever searches inside the band it was already handed,
+ *     and degrades to the minimum-power answer where the band is too thin to
+ *     loft inside. Defaulting high does not shrink what the player can hit.
+ *   - THE PWR METER: most of its range. Median reading 57% -> 85%, and the
+ *     meter pins on 38% of reachable points instead of 3%. That is the real
+ *     trade, and it is a genuine loss: pinned-at-the-limit used to mean "you
+ *     are at the edge of your reach" and now mostly means "you asked for the
+ *     steep one". The arc is still the honest reachability channel — it stops
+ *     short of the cursor when the point is out of range — but the meter is no
+ *     longer the quick read it was.
+ *   - ARRIVAL: +13% (18.2 -> 20.5 px/step at the target). The shipment comes
+ *     down harder, which scatters a landing slightly more; small enough that
+ *     no ladder number moves, and the shot that arrives from ABOVE is landing
+ *     where the flat one could not land at all.
+ *   - THE CONE, not the speed band, is what usually stops the climb: 66% of
+ *     these aims come back sitting exactly on AIM_CONE. The steep default is
+ *     therefore mostly "barrel at maximum elevation, power solved for the
+ *     range", which is a coherent thing for a launcher to look like.
+ *
+ * The function's OWN default stays 0. Every non-player caller (sim/bots.ts, the
+ * autopilot, anything that just wants "can this be reached") wants the cheapest
+ * answer, and none of them should inherit a preference that belongs to a human
+ * with a mouse and a compactor bar in the way.
+ */
+export const AIM_LOFT_DEFAULT = 1;
+
 /** How far in front of the pivot a target has to sit before the solver will
  *  take it seriously. The cone opens forward, so nothing behind the cannon is
  *  reachable at any angle or power; rather than return a nonsense aim for a
@@ -648,8 +701,8 @@ function powerForAngle(
  * Aim + power whose predicted arc passes through `target`.
  *
  * WHICH SOLUTION, of the two. Almost every reachable point has both a flat
- * drive and a high lob, and this returns neither by name: it returns the one
- * that needs the LEAST POWER. That is a unique answer rather than a coin toss
+ * drive and a high lob, and this returns neither by name: at loft 0 it returns
+ * the one that needs the LEAST POWER. That is a unique answer rather than a coin toss
  * — required power as a function of angle is a smooth U, and its minimum is a
  * single angle — and it earns the default three ways.
  *
@@ -669,6 +722,13 @@ function powerForAngle(
  * how close to the cannon's limit the point you chose is, which you cannot
  * otherwise see: a target that pins it at 100% is one you are on the edge of
  * reaching, and the readout says so before you spend the launch.
+ *
+ * Those three paragraphs are why this function's own `loft` defaults to 0, and
+ * they are no longer what the PLAYER gets: the game's dial now starts at the
+ * other end of the family (AIM_LOFT_DEFAULT above). The reasoning did not turn
+ * out to be wrong so much as outranked by the compactor bar. Read the two
+ * together — this is the case for the cheap arc, that is the case for the arc
+ * a human wants first.
  *
  * The player is not stuck with that arc, and this is the part worth
  * understanding: the solver matches the arc to the POINT, not to the column
