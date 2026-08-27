@@ -51,9 +51,17 @@ import { hazardsForMark, picksPerBay, type Ratchets } from "../src/game/hazards"
  * because a linear build budget cannot answer an exponential table entered at
  * exponential heights.
  */
-export function spreadRatchets(mark: number, bay: number): Ratchets {
+export function spreadRatchets(
+  mark: number,
+  bay: number,
+  /** Notches a cleared bay charges, when it is NOT the Mark's own rule — the
+   *  Skydeck charges one at the capstone Mark where the ladder charges two
+   *  (run.ts's picksForRun), and a model that could not say so would price that
+   *  mode's run at twice its real ratchet. Defaults to the ladder. */
+  picksPer = picksPerBay(mark),
+): Ratchets {
   const axes = hazardsForMark(mark).filter((h) => h.kind === "number").map((h) => h.id);
-  const picks = (bay - 1) * picksPerBay(mark);
+  const picks = (bay - 1) * picksPer;
   const out: Ratchets = {};
   for (let k = 0; k < picks; k++) {
     const id = axes[k % axes.length];
