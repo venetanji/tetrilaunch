@@ -293,6 +293,31 @@ mode's one hard rule: a slag clause took bays 7 and 10 to 0% and stayed there,
 which is `theme.ts`'s `countsForLines` showing up as a measurement, and
 `skydeck.ts` now refuses to deal dead cargo as a standing rule at all.
 
+## `skyyard.ts` — what a refit stop is worth on the roof
+
+The Skydeck's yard reopened after a playtest (`run.ts`'s schedule note carries
+the history), and this is the sweep that priced it.
+
+```sh
+npx tsx sim/skyyard.ts --mark 3 --seeds 20 --days 2 --pays 2/10,1/5,2/0,1/0
+```
+
+Two halves, and the FIRST one is the decisive one. **Purchasing power** is
+arithmetic: the roof's pilot has a finished Workshop, so every rung the yard can
+sell them is a tier-3 rung at one flat price, and income is a function of lines
+cleared alone — so "what does this payout buy" has an exact answer per
+lines-a-bay, with no bot in it. That matters because lines are the bots' weakest
+statistic. The **flights** then answer what the table cannot: whether the
+tightened yard still leaves a run that can be flown, over paired seeds through
+`deeprun.ts`'s real `advanceRun`/`buyUpgrades`.
+
+`--mark` defaults to 6 and the published run uses 3, for `skydeck.ts`'s own
+reason: at Mark 10 the instrument is on the floor and cannot show a change. The
+rig is the Workshop ceiling MINUS the Loader Magazine — `marks.ts`'s
+`CALIBRATION_TRACKS` refusal, borrowed, because a shorter reload buys a bot that
+fires on every cooldown more shots at the same fixed arc and nothing else. The
+write-up is `design/balance/skydeck-yard.md`.
+
 ## `pile.ts` — congestion-tax sweep
 
 The three questions `level.ts`'s `PILE_TIERS` cannot be tuned without.

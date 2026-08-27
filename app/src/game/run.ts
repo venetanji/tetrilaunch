@@ -1,5 +1,5 @@
 import type { LevelConfig } from "./level";
-import { makeBaseLevel } from "./level";
+import { applySkydeckEconomy, makeBaseLevel } from "./level";
 import { applyRatchets, picksPerBay, type Ratchets, type HazardId } from "./hazards";
 import { applyFinal, applyFinals, type FinalId } from "./finals";
 // TYPE ONLY, and load-bearing: skydeck.ts imports newRun and this file's
@@ -190,11 +190,12 @@ export interface RunState {
    *
    *  Set at construction (skydeck.ts's skydeckRunFor) and never changed, again
    *  exactly like `mark` and `sandbox`: it decides which board the run files
-   *  to, whether the yard opens, and how many notches a bay costs — a run that
-   *  could switch modes halfway through is a run whose score means nothing.
+   *  to, what the bays cost to open (levelForRun's economy step) and how many
+   *  notches a bay charges — a run that could switch modes halfway through is a
+   *  run whose score means nothing.
    *
-   *  Everything downstream reads it through the four predicates below rather
-   *  than testing it directly, so "the Skydeck has no yard" is stated once. */
+   *  Everything downstream reads it through the predicates below rather than
+   *  testing it directly, so each of the roof's rules is stated once. */
   skydeck: SkydeckRules | null;
 }
 
@@ -203,29 +204,50 @@ export interface RunState {
  *
  * isRefitBay, baysUntilRefit, isFinalDraft and hazards.ts's picksPerBay each
  * state a rule of the LADDER, as a function of a bay index or a Mark. The
- * Skydeck answers three of the four differently (skydeck.ts) — no yard, no
- * drafted inspection, one notch a bay at a Mark whose ladder rule is two — and
- * every one of those differences is a place where a caller that forgot to ask
- * would silently fly the wrong mode: a refit screen with no scrap to spend, a
- * Final Inspection dealt on top of three standing clauses, a capstone draft
- * demanding two notches the mode does not charge for.
+ * Skydeck answers two of the four differently (skydeck.ts) — no drafted
+ * inspection, one notch a bay at a Mark whose ladder rule is two — and each of
+ * those differences is a place where a caller that forgot to ask would silently
+ * fly the wrong mode: a Final Inspection dealt on top of three standing
+ * clauses, a capstone draft demanding two notches the mode does not charge for.
  *
  * So the four run-aware readings live here, together, next to the ladder rules
  * they defer to. Callers hold a RunState; these are what they ask. sim/systems.ts
  * pins each one against its ladder twin.
+ *
+ * TWO OF FOUR, where it used to be three. The yard was the third: the Skydeck
+ * shipped with refitAfterBay hard-false, on the argument that "the rig that
+ * undocks is the rig that lands" was the mode's identity. The owner ruled that
+ * in, played it, and ruled it back out — a ten-bay run at the top of the ladder
+ * with no purchase in it turned the mode's one long-form decision into a
+ * spectator sport, and the scrap readout it forced onto every screen could only
+ * ever say 0. The yard is open on the roof now. What survives of the old rule
+ * is the half that was never about the yard at all: consumables are still not
+ * resupplied there (see thawChargesFor and advanceRun), so a stop sells a
+ * bigger rack and never a refill.
+ *
+ * The stop is not the ladder's stop, either — the roof pays HALF the ladder's
+ * scrap for the same work (level.ts's SKYDECK_SCRAP_SHARE), because the player
+ * who can open it arrives with a maxed Workshop and every rung still on the
+ * shelf costs one flat price. The argument and the table are there.
  * ------------------------------------------------------------------------- */
 
-/** True when clearing bay `levelIndex` in THIS run opens a refit stop. Never in
- *  a Skydeck run: the yard is shut, and the rig that undocks is the rig that
- *  lands. */
-export function refitAfterBay(run: RunState, levelIndex: number): boolean {
-  return run.skydeck === null && isRefitBay(levelIndex);
+/** True when clearing bay `levelIndex` in THIS run opens a refit stop — the
+ *  ladder's own schedule, on the roof as on the ladder. The mode's difference
+ *  is what the stop can AFFORD, not whether it opens (see the note above).
+ *
+ *  The run is still ASKED, and still the thing every caller holds, even though
+ *  today every mode answers with the ladder's schedule: this is the one place
+ *  the yard's shape is stated, and the reversal above is exactly the kind of
+ *  edit that wants one line to change rather than five call sites. Underscored
+ *  because it is genuinely unread right now, which is a fact worth being able
+ *  to see. */
+export function refitAfterBay(_run: RunState, levelIndex: number): boolean {
+  return isRefitBay(levelIndex);
 }
 
-/** Bay-clears until this run's next refit stop, or null when it has none left —
- *  which a Skydeck run never has, having had none to begin with. */
+/** Bay-clears until this run's next refit stop, or null when none remains. */
 export function baysUntilRefitFor(run: RunState): number | null {
-  return run.skydeck === null ? baysUntilRefit(run.levelIndex) : null;
+  return baysUntilRefit(run.levelIndex);
 }
 
 /** True when the draft dealt after clearing this run's current bay is the Final
@@ -369,8 +391,19 @@ export function bondChargesFor(tier: number): number {
  *  WHAT A GRANT IS depends on the mode, and that is the whole of the Skydeck
  *  difference: on the ladder a grant is a BAY's rack, re-issued at every bay
  *  boundary; on the Skydeck it is the RUN's, issued once at undock and never
- *  again. One number, two horizons — see advanceRun, where the fork is written,
- *  and skydeck.ts's yard bullet for why the mode has no resupply to offer.
+ *  again. One number, two horizons — see advanceRun, where the fork is written.
+ *
+ *  THE YARD DOES NOT CHANGE THIS, which is the ruling the roof's refit stops
+ *  had to make when they came back (see the schedule note at the top of this
+ *  file). A stop there sells a BIGGER RACK, never a refill: buyUpgrade issues
+ *  the DIFFERENCE between two tiers' grants on top of what is left, so a
+ *  Skydeck pilot who has spent the lot and then buys the Thaw Lance's last rung
+ *  undocks with THAW_CHARGES_PER_TIER charges — the ones the rung adds — and
+ *  not with a full new-tier rack. That is the half of "the rig you brought is
+ *  the rig you have" worth keeping: a consumable that could be topped up three
+ *  times a run is a supply line, and buying one is a build decision priced in
+ *  scrap like every other rung. sim/systems.ts pins the spent-then-refitted
+ *  case, which is the one where a refill and a delta look different.
  *
  *  A function rather than an inline multiply for bondChargesFor's exact reason:
  *  three callers had to agree — newRun's grant, buyUpgrade's mid-run top-up and
@@ -545,6 +578,14 @@ export function bayMusic(levelIndex: number): BayTrack {
  *  the same reason the carry is: it is stock in hand, not a rate. */
 export function levelForRun(run: RunState): LevelConfig {
   const base = makeBaseLevel(run.levelIndex, run.mark);
+  // THE ROOF'S OPENING TERMS, before anything is layered on them. A Skydeck bay
+  // is a Mark-10 bay with the ladder's own target and launch curves read one
+  // rung further along, plus the roof's scrap rate (level.ts's
+  // applySkydeckEconomy). It lands HERE — on the base, ahead of the ship —
+  // because that is what "opening terms" means: the Reactor's float bonus, a
+  // Fuel Levy notch and a Rate Cut clause all price the roof's numbers rather
+  // than the ladder's, exactly as they price the ladder's on the ladder.
+  if (run.skydeck) applySkydeckEconomy(base, run.levelIndex, run.mark);
   applyUpgrades(base, run.tiers);
   const cfg = applyRatchets(base, run.ratchets);
   // The Final Inspection's clause, on the LAST bay only (finals.ts). After the
@@ -749,9 +790,14 @@ export function buyUpgrade(run: RunState, id: keyof UpgradeTiers, cost: number, 
     // the yard would undock and fly the next bay on the rack they walked in
     // with. And it must be a delta rather than the new total, so a refit at bay
     // 9 buys the charges the rung ADDS instead of resetting the ones the
-    // Skydeck's magazine already spent — a mode this path never runs in today
-    // (there is no yard there), and the rule is written so it stays true if one
-    // ever opens.
+    // Skydeck's magazine already spent.
+    //
+    // That last clause was written against a mode this path could not reach —
+    // the roof had no yard when this line shipped, and the rule was written so
+    // it would stay true if one ever opened. One did. It is now the ONLY way a
+    // Skydeck run gains a charge after undock, which is exactly the shape the
+    // ruling wanted (thawChargesFor): the yard sells a bigger rack, never a
+    // refill.
     thawCharges: id === "thaw"
       ? run.thawCharges + (thawChargesFor(tier + 1) - thawChargesFor(tier))
       : run.thawCharges,

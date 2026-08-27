@@ -156,13 +156,24 @@ export function rungFor(
    *  what `enumerateSpace` is enumerating; overriding it is how a driver stays
    *  honest about the mode it is actually flying. */
   need = picksPerBay(mark),
+  /** Whether THIS run deals the Final Inspection at this rung. Defaults to the
+   *  LADDER's own predicate (`run.ts`'s isFinalDraft), for `need`'s reason and
+   *  with the same instruction: a caller holding a RunState passes
+   *  `finalDraftFor(run)`.
+   *
+   *  It had to become a parameter the first time a driver flew a Skydeck run
+   *  the whole distance. There the last draft is an ORDINARY notch — the day
+   *  deals the clauses, so the inspection is never drafted (skydeck.ts) — and a
+   *  hard-coded ladder predicate answered null for a rung the mode really
+   *  deals, which `deeprun.ts` correctly refuses to paper over: it threw
+   *  "no draft rung at levelIndex 8". The default keeps `enumerateSpace`, which
+   *  has no run to ask, enumerating exactly the ladder it always did. */
+  finalDraft = isFinalDraft(levelIndex),
 ): DraftRung | null {
   if (levelIndex >= RUN_LEVELS - 1) return null;
   // The last draft deals the Final Inspection, not a notch — a clause is not a
-  // member of this space and finals.ts prices it as its own exam. Stated with
-  // the ladder's own predicate because enumerateSpace has no run to ask; a
-  // driver that holds one asks run.ts's finalDraftFor before it gets here.
-  if (isFinalDraft(levelIndex)) return null;
+  // member of this space and finals.ts prices it as its own exam.
+  if (finalDraft) return null;
   const hand = hazardOffers(seed, levelIndex, mark, undefined, ratchets);
   const forced = isMaterialDraft(levelIndex);
   return {

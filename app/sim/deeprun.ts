@@ -38,6 +38,7 @@ import {
   refitAfterBay, RUN_LEVELS, type RunState,
 } from "../src/game/run";
 import type { LevelConfig } from "../src/game/level";
+import type { SkydeckRules } from "../src/game/skydeck";
 import type { Bot } from "./bots";
 import type { CounterKit } from "./counters";
 import { rungFor, type DraftPolicy } from "./draft-space";
@@ -145,6 +146,18 @@ export interface DeepRunOpts {
   /** Scrap the run OPENS with. `meta.ts`'s Scrap Cache unlock is the in-game
    *  version; the search uses it as a lever with a price. */
   startingScrap?: number;
+  /**
+   * Fly the day's run instead of a ladder run — `skydeck.ts`'s rules, hung on
+   * the `RunState` exactly as `skydeckRunFor` hangs them.
+   *
+   * ONE FIELD, and the driver needs no other branch, which is the whole reason
+   * it can be added here at all: every difference the mode makes is already
+   * asked of the RUN by the functions this loop calls (`levelForRun` builds the
+   * roof's bays, `picksForRun` charges one notch, `finalDraftFor` refuses the
+   * drafted inspection, `refitAfterBay` opens the stops). A harness that had to
+   * re-state any of them would be measuring its own copy of the mode.
+   */
+  skydeck?: SkydeckRules;
 }
 
 export interface DeepBayRecord {
@@ -218,6 +231,12 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
   let run: RunState = newRun(
     opts.seed, [], opts.startingScrap ?? 0, opts.loadout, opts.mark,
   );
+  // The mode, hung on the run the way `skydeckRunFor` hangs it — after
+  // construction, never as a sixth argument to `newRun`. The seed stays the
+  // CALLER's so a paired comparison can fly the same hazard hands under both
+  // economies; a real Skydeck run takes its seed from the day, which is a
+  // property of the mode's door rather than of its rules.
+  if (opts.skydeck) run = { ...run, skydeck: opts.skydeck };
   const loadoutCost = tiersCost(opts.loadout);
   const bays: DeepBayRecord[] = [];
   let scrapSpent = 0;
@@ -276,7 +295,12 @@ export function runDeepRun(opts: DeepRunOpts): DeepRunOutcome {
     if (finalDraftFor(run)) {
       chosenFinal = pickFinal(finalsForTier(run.mark), run);
     } else {
-      const rung = rungFor(run.seed, run.mark, i, run.ratchets, picksForRun(run));
+      // finalDraftFor is passed through as well as consulted above: on the
+      // Skydeck the branch is not taken AND the rung at RUN_LEVELS - 2 is a
+      // real one, which the ladder's own predicate inside rungFor would refuse.
+      const rung = rungFor(
+        run.seed, run.mark, i, run.ratchets, picksForRun(run), finalDraftFor(run),
+      );
       // `rungFor` returns null only past the last ratchet draft, which
       // `isFinalDraft` has already claimed — so a null here is a ladder that
       // moved under this driver, and a silent empty pick would hide it.

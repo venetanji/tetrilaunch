@@ -119,10 +119,11 @@ function draft(selected: HazardId[]): string {
  *  actually shows.
  *
  *  Two things about it are not reachable through `draft` above and both can
- *  overflow: the bank's third cell counts CLAUSES instead of scrap (a longer
- *  label than "Scrap · refit in 2"), and the projection is drawn on a bay that
- *  already carries standing clauses, so more of its rows are pinned than a
- *  ladder bay's at the same notch count.
+ *  overflow: the bank's NOTCH cell carries the clause tally beside the notch
+ *  count ("Notches · clause Bay 10" over "7 · 2/3", the longest label that row
+ *  can deal), and the projection is drawn on a bay that already carries
+ *  standing clauses, so more of its rows are pinned than a ladder bay's at the
+ *  same notch count.
  *
  *  Bay 7, the second stop, deliberately: it is the one draft where a clause has
  *  just armed AND another is still coming, so the cell carries its longest
@@ -148,8 +149,11 @@ function skydeckDraft(selected: HazardId[]): string {
       levelForRun({ ...run, ratchets: withPicks }),
       HUD_BASE.ratchets,
     ),
-    scrap: 0,
-    baysToRefit: null,
+    // The roof earns and spends scrap again (run.ts's refitAfterBay), so the
+    // widest case is a bank row carrying BOTH: a three-figure scrap total with
+    // the refit countdown on its label, and the clause tally in the notch cell.
+    scrap: 104,
+    baysToRefit: 3,
     standing: { active: 2, total: CLAUSE_STOPS.length, nextBay: RUN_LEVELS },
   });
 }
@@ -486,9 +490,11 @@ export const SCREENS: Record<string, () => string> = {
   // list is gone — the day's clauses are met at the stops that arm them, not
   // read off the home screen — so what this row now measures is the roof's
   // BUTTON copy against the ladder's, which is a different and still real worst
-  // case: "Today's run · no refits · N standing clauses" is the longest
-  // subtitle the primary carries. The clause COUNT is all the screen is given
-  // (screens.ts's menuScreen), and it is date-independent, so this fixture no
+  // case: the roof's subtitle is the longest the primary carries, and it got
+  // longer again when the yard reopened — "no refits" was replaced by the term
+  // that actually separates the floor now that it has one, "a step above Mark
+  // 10" (screens.ts's menuPlaySub, level.ts's SKYDECK_RUNG). The clause COUNT is
+  // all the screen is given, and it is date-independent, so this fixture no
   // longer needs a pinned day at all.
   "menu-skydeck": () =>
     S.menuScreen(98_760, 1_480, STORE, PROGRESS, GUIDE, SKY_TOWER, CLAUSE_STOPS.length),
@@ -905,7 +911,7 @@ export const SCREENS: Record<string, () => string> = {
   "bayclear-clause": () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
-      bayNum: 6, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 0,
+      bayNum: 6, bayName: "Cryo Vault", funds: 1_820, target: 1_700, lines: 14, scrap: 28,
       slot: { value: "Bled Hydraulics", label: "clause \u00b7 from Bay 7" },
     }),
 

@@ -1584,21 +1584,25 @@ class App {
     return t;
   }
 
-  /** The bay-clear card's third stat on a Skydeck run, or undefined on a ladder
-   *  run (where it stays the scrap payout).
+  /** The bay-clear card's third stat when a Skydeck clear has something more
+   *  urgent to say there than the scrap payout — or undefined, which leaves the
+   *  payout in place on the ladder and on seven of the roof's ten bays.
    *
-   *  Two faces, because a stop is three bays out of ten: at a stop it names the
-   *  clause that just armed, and everywhere else it counts the ones already
-   *  riding — the same tally the draft's bank cell carries, so the two screens
-   *  either side of the boundary agree. */
+   *  ONE FACE now, where it had two. It used to take the slot on every Skydeck
+   *  clear, because the payout it displaced was a permanent 0 there; with the
+   *  yard back (run.ts's refitAfterBay) that payout is a real number the card
+   *  ought to quote, and the running "2/3 clauses standing" tally it printed on
+   *  the other seven bays is one tap away on the draft's bank cell. What cannot
+   *  wait is a clause ARMING: this card is the one screen between the bay that
+   *  earned it and the projection whose numbers it has already moved. */
   private baySlot(): { value: string; label: string } | undefined {
     const run = this.run;
     if (!run?.skydeck) return undefined;
     // +1: the run has not advanced yet at the bayclear state (afterBayClear).
     const arming = this.clauseAt(run.levelIndex + 1);
-    if (arming) return { value: arming.name, label: `clause \u00b7 from Bay ${arming.bay}` };
-    const active = standingClauses(run).length;
-    return { value: `${active}/${run.skydeck.clauses.length}`, label: "clauses standing" };
+    return arming
+      ? { value: arming.name, label: `clause \u00b7 from Bay ${arming.bay}` }
+      : undefined;
   }
 
   /** The Skydeck clause that ARMS on the bay at `levelIndex`, or null — for
@@ -2367,14 +2371,15 @@ class App {
               funds: g.score,
               target: g.target,
               lines: g.linesTotal,
-              // The Skydeck declines the bay's scrap (see afterBayClear), so
-              // the card must not quote a payout the run is about to refuse —
-              // a 0 in the same slot is the honest reading of "no yard".
-              scrap: this.run.skydeck ? 0 : g.scrapEarned + g.level.scrapPerBay,
-              // The third stat, on a Skydeck run only: the clause ARMING on
-              // the next bay at one of the three stops, and the running tally
-              // everywhere else. The scrap payout it displaces is a permanent
-              // 0 on that mode (see afterBayClear), so the slot was free.
+              // What the bay actually paid, on both modes — the roof's rate is
+              // half the ladder's and it is already in g.level (level.ts's
+              // applySkydeckEconomy), so the card quotes the bay rather than
+              // second-guessing the mode.
+              scrap: g.scrapEarned + g.level.scrapPerBay,
+              // …unless a clause is ARMING on the next bay, which is the one
+              // thing worth displacing a real payout for. Three of the roof's
+              // ten clears; undefined everywhere else, including every ladder
+              // clear (see baySlot).
               slot: this.baySlot(),
             });
         }
@@ -3574,14 +3579,14 @@ class App {
       g.score,
       g.target,
       g.linesTotal,
-      // NO SCRAP ON THE SKYDECK. There is no yard to spend it in (run.ts's
-      // refitAfterBay), and a currency that only ever accumulates is a number
-      // on a screen pretending to be a decision — worse, it is a number that
-      // looks like a decision the player is failing to make. The bay still
-      // PAYS it into g.scrapEarned; this is where the run declines it, in the
-      // one place a run's income is banked, rather than by zeroing rates all
-      // over level.ts for one mode.
-      this.run.skydeck ? 0 : g.scrapEarned + g.level.scrapPerBay,
+      // The bay's payout, banked WHATEVER THE MODE. This line used to zero the
+      // Skydeck's scrap outright, because the roof had no yard to spend it in;
+      // the yard is back (run.ts's refitAfterBay carries the history) and the
+      // roof's tighter rate is now a property of the BAY instead — level.ts's
+      // applySkydeckEconomy halves g.level.scrapPerLine/scrapPerBay before the
+      // bay is ever played. Which is the right seam for it: the run banks what
+      // the bay paid, and only one place decides what a bay pays.
+      g.scrapEarned + g.level.scrapPerBay,
       [],
       // What the bay ENDED with: Bond Breakers are the run's consumable, so
       // whatever this bay did not spend is what the next one opens with.
@@ -3594,9 +3599,9 @@ class App {
       g.thawCharges,
     );
     // refitAfterBay takes the just-CLEARED bay's index, which advanceRun has
-    // already stepped past — hence the -1. Asked of the RUN, not of the bay
-    // number: the Skydeck's yard is shut for the whole run (skydeck.ts), so
-    // this is also the one line that keeps it shut.
+    // already stepped past — hence the -1. Still asked of the RUN rather than
+    // of the bay number: the predicate is the one place the schedule is stated,
+    // and it is the seam a future mode with its own yard hangs on.
     // A fresh yard ticket every stop: an order is tentative by construction, so
     // one that survived a bay would be scrap queued against a rig and a bankroll
     // that have both moved since.
