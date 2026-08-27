@@ -2773,9 +2773,18 @@ body.crt-off #app::after { display: none; }
 }
 .pl-pwr .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.08em; color: var(--text-muted); flex: none; }
 .pl-pwr__track { flex: 1; height: max(5px, calc(8 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.pl-pwr__fill { display: block; height: 100%; width: 0%; border-radius: var(--r-pill);
+/* scaleX, not width — see "THE THREE BAR FILLS" over .pl-goal i. The ramp
+   still compresses into the filled length, because a scaled element's
+   background scales with it. */
+.pl-pwr__fill { display: block; height: 100%; width: 100%; border-radius: var(--r-pill);
+  transform: scaleX(0); transform-origin: left center;
   background: linear-gradient(90deg, var(--success), var(--warn) 62%, var(--danger));
-  box-shadow: 0 0 8px rgba(255,176,32,.55); transition: width 80ms linear; }
+  box-shadow: 0 0 8px rgba(255,176,32,.55); }
+/* Promoted only WHILE A DRAG IS LIVE. The meter is written every frame of an
+   aim and is perfectly still the rest of the time, and .hud--aiming (main.ts's
+   syncHud) already draws exactly that line — the same class the rail's aim ✕
+   and the tutorial's aim-through fade hang off. */
+.hud--aiming .pl-pwr__fill { will-change: transform; }
 /* THE FIRING FLOOR — a notch on the track at cannon.ts's MIN_FIRE_RATIO (0.3).
    Left of it a release is discarded as an accidental touch, so the meter owes
    the player a mark for where "this will actually launch" begins; without one,
@@ -3670,7 +3679,46 @@ body.crt-off #app::after { display: none; }
    nearly double thickness so distance-to-goal is legible at a glance mid-aim. */
 .pl-funds .v .tgt { color: var(--piece-o); font-size: 0.62em; font-weight: 800; text-shadow: 0 0 12px rgba(255,214,10,0.45); }
 .pl-goal { margin-top: max(6px, calc(16 * var(--fpx))); width: 100%; height: max(8px, calc(14 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); border: 1px solid rgba(255,255,255,0.14); overflow: hidden; }
-.pl-goal i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: width var(--dur) var(--ease); }
+/* ---------- THE THREE BAR FILLS (goal, reload, PWR) ----------
+   Every one of them is a FULL-WIDTH element scaled about its left edge, and
+   main.ts's syncHud drives them by writing `transform: scaleX(r)`. They used
+   to be `width: r%`, which is the obvious spelling and the expensive one.
+
+   WHY IT MATTERS, MEASURED. The device evidence in
+   docs/superpowers/specs/2026-08-27-background-layer-split-design.md put ~33fps
+   of a 120Hz CPH2573 frame in the HUD's per-frame repaint, and named the shape
+   of the fix: the things that move every frame move through transform/opacity,
+   which the compositor applies to an already-rastered layer, and everything
+   else writes only when it changes. The reload fill is the readout that moves
+   every frame — sim/hudperf measured its inline style being rewritten on 563
+   of 600 frames of live play — so a `width` there is a layout re-solve of the
+   plant panel a hundred and twenty times a second. Over a ten-second live bay
+   Chromium's own Layout counter fell from 152.4ms to 16.3ms when these three
+   stopped being widths; over an idle bay, from 132.3ms to 3.3ms.
+
+   THE PAINT IS UNCHANGED, which is why this is a spelling change rather than a
+   redesign: a scaled element's background scales with it, so the goal bar's
+   cyan gradient and the PWR meter's green-amber-red ramp still compress into
+   the filled length exactly as they did when that length was a width. The
+   tracks own the pill radius and clip their fill (`overflow: hidden`), so the
+   only thing the scale distorts is the horizontal reach of each fill's glow,
+   which is a few pixels of bleed past a tip inside a 7-8px tall track.
+
+   TRANSITIONS: the goal bar keeps its one, because it is written on a payout
+   and the slide IS the payout. The other two lost theirs. Both are rewritten
+   every frame from a continuous source — the reload ratio, and a drag or a
+   held key, since input.ts routes a held W/D through the same per-frame nudge
+   the stick uses — and a transition chasing a source like that is not a
+   smoothing. It is 60-80ms of lag, retargeted before it can ever finish, and
+   retargeting it is main-thread work on the frame we are trying to give back.
+   The one input that IS discrete, a pad D-pad tap, moves the PWR meter by
+   cannon.ts's 0.4 out of a 19-unit speed range — 2% of the track, under 4px,
+   which is not a jump anyone was being spared.
+
+   PROMOTION is scoped rather than blanket (see below): a permanently promoted
+   layer is memory a phone does not have spare, so each fill is promoted only
+   while it is the thing that is moving. */
+.pl-goal i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: var(--glow-accent); transition: transform var(--dur) var(--ease); }
 
 /* Tier-2 stat columns — launches (or, on a pattern Contract, shipments)
    always, paired with a second column that depends on the mode: time on a
@@ -3790,11 +3838,18 @@ body.crt-off #app::after { display: none; }
    flickers and drains as one thing without this rule owning a second copy of
    the colour ramp. */
 .dial-collapse .v .tgt { color: inherit; text-shadow: inherit; }
-/* The goal bar dies with the number it belongs to: whatever width syncHud last
-   wrote stays exactly where it is (a width change here would be a layout
-   change AND a lie about the final score), but the fill goes danger red and
-   loses its glow. Only ever reached on a `broke` loss — `.pl-time` has no bar
-   — which is the loss where the bar is the picture of what went wrong. */
+/* The goal bar dies with the number it belongs to: whatever scale syncHud last
+   wrote stays exactly where it is (moving the fill here would be a lie about
+   the final score, and when the fill was a width it would have been a layout
+   change too), but it goes danger red and loses its glow. Only ever reached on
+   a `broke` loss — `.pl-time` has no bar — which is the loss where the bar is
+   the picture of what went wrong.
+
+   NOTHING HERE TOUCHES `transform`, deliberately: the fill's own scaleX is
+   inline, the collapse's squash-and-tilt is on the COLUMN above it, and the
+   two compose the way they always did — the bar is carried by the parent's
+   crush at whatever length it died at. A transform in this rule would fight
+   the inline one and snap the bar to full on the frame the bay is lost. */
 .pl-funds.dial-collapse .pl-goal i {
   background: var(--danger);
   box-shadow: none;
@@ -3846,7 +3901,17 @@ body.crt-off #app::after { display: none; }
 .pl-load { display: flex; align-items: center; gap: max(5px, calc(10 * var(--fpx))); }
 .pl-load .lbl { font-family: var(--font-pixel); font-size: max(6px, calc(9.3 * var(--fpx))); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); flex: none; }
 .pl-load__track { flex: 1; height: max(4px, calc(7 * var(--fpx))); border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
-.pl-load__track i { display: block; height: 100%; width: 0%; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); transition: width 60ms linear; }
+/* scaleX, not width — see "THE THREE BAR FILLS" over .pl-goal i. This is the
+   one that earned the rule: it is the only readout on the panel whose value is
+   different on every single frame. */
+.pl-load__track i { display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center; background: var(--warn); box-shadow: 0 0 6px rgba(255,176,32,0.6); }
+/* Promoted only while it is RELOADING. `.ready` is on the row for as long as
+   the cannon is loaded and waiting, which — per the aim-time telemetry note in
+   cannon.ts — is most of a bay, and a layer held through all of it would be
+   memory spent on a bar that is standing still. The class flips once per
+   reload cycle, so the layer is created and dropped on the order of once a
+   second rather than once a frame. */
+.pl-load:not(.ready) .pl-load__track i { will-change: transform; }
 .pl-load.ready .lbl { color: var(--accent); }
 .pl-load.ready .pl-load__track i { background: var(--accent); box-shadow: var(--glow-accent); }
 

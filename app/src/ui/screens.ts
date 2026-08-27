@@ -2254,7 +2254,7 @@ export function hudHTML(opts: {
               ? `<div class="pl-funds">
             <div class="lbl">Lines<span class="lbl__q"> / Goal</span></div>
             <div class="v"><span id="hud-score">${contract.lines}</span> <span class="tgt">/ ${contract.goal}</span></div>
-            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+            <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">${contract.kind === "pattern" ? "Shipments" : "Launches"}</div>
@@ -2268,7 +2268,7 @@ export function hudHTML(opts: {
               : `<div class="pl-funds${collapse === "funds" ? " dial-collapse" : ""}">
             <div class="lbl">Funds<span class="lbl__q"> / Target</span></div>
             <div class="v"><span id="hud-score">$${score}</span> <span class="tgt">/ ${target}</span></div>
-            <div class="pl-goal"><i id="hud-goal" style="width:0%"></i></div>
+            <div class="pl-goal"><i id="hud-goal" style="transform:scaleX(0)"></i></div>
           </div>
           <div class="pl-stat pl-launches" id="hud-launches-chip">
             <div class="lbl">Launches</div>
@@ -2279,10 +2279,21 @@ export function hudHTML(opts: {
         </div>
         <!-- Reload: fills as the launch cooldown runs down (see
              cannon.reloadRatio). Goes .ready the instant the cannon can fire
-             again, which is the only state change that matters here. -->
+             again, which is the only state change that matters here.
+
+             THE FILL IS A TRANSFORM, not a width, and so are the PWR meter's
+             and the goal bar's. All three are full-width elements scaled about
+             their left edge, which is what lets the one readout on this panel
+             that genuinely moves every frame move without asking the layout
+             engine for anything. See app.css's "THE THREE BAR FILLS" and
+             main.ts's syncHud; the inline value here is the starting state the
+             first frame of the bay shows, before syncHud has run at all, and
+             it has to be spelled the same way syncHud will spell it or the
+             first write would be a mechanism change rather than a value
+             change. -->
         <div class="pl-load" id="hud-load-row">
           <span class="lbl">Reload</span>
-          <div class="pl-load__track"><i id="hud-load" style="width:100%"></i></div>
+          <div class="pl-load__track"><i id="hud-load" style="transform:scaleX(1)"></i></div>
         </div>
         ${
           // COMBO / LAUNCH COST / SCRAP — the small meta line, and Deep Run
