@@ -85,7 +85,7 @@ import {
   DRAFT_THIRD_SLOT_CONTRACTS, INSTALLS, installById, installAvailable, installGates,
   buyInstall, markBudget, nextStep, refundRetiredUnlocks, UPRATE_MAX_TIER,
   pendingLadderRide, pendingSkydeck, sealBreakOwed, sealBreakShown, skydeckCelebrated,
-  skydeckOpen, tierOpenableBy, unsealedMarks,
+  skydeckOpen, tierOpenableBy, tierOpenedByCompleting, unsealedMarks,
   type InstallDef, type MetaState,
 } from "../src/game/meta";
 import {
@@ -154,7 +154,7 @@ import { CELL } from "../src/game/engine";
 import {
   endBoard, fullBoard, END_BOARD_TOP, contractsScreen, workshopScreen, refitScreen,
   contractEndModal, coachSteps, coachFailSteps, coachFailHTML, controlsScreen, hudHTML,
-  menuScreen, salvageHTML,
+  menuScreen, menuPlaySub, salvageHTML,
   collapsingDial, DIAL_COLLAPSE_MS, DIAL_COLLAPSE_HOLD_MS,
 } from "../src/ui/screens";
 import {
@@ -889,6 +889,34 @@ section("Installs — what salvage buys (meta.ts)");
       tierContracts: 3, salvage: 0,
       loadout: { ...newTiers(), reactor: 1, launcher: 1, magazine: 1 },
     })) === "run");
+
+  // THE LADDER ENDS, AND THE LOOP HAS TO KNOW IT.
+  //
+  // Below the top, "Contracts still owed at this tier" is always a live
+  // objective, because completing the tier moves the tier and deals a new
+  // board. At MARK_COUNT it is neither: markUnlocked saturates onto the tier
+  // just finished and advanceTier has already cleared the counters, so the
+  // rule read "0 of 3 Contracts owed at Tier 10" forever and pointed a player
+  // who had beaten the whole ladder back at the board every single session.
+  // (Diagnosed from a live save: mark 10, five tier-10 Contracts claimed, the
+  // counter sitting at 2 on its second lap.)
+  //
+  // What is actually left up there is the SEALS — a Mark beaten with no bay
+  // retried, and the Skydeck's key (meta.ts's skydeckOpen) — so that is what
+  // the rule names. It is the same rule shape as ever: one objective, stated
+  // once, so the menu and the Workshop cannot point at different doors.
+  const allSealed = Array.from({ length: MARK_COUNT }, (_, i) => i + 1);
+  check("a finished ladder with Marks unsealed points at sealing",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0 })) === "seal");
+  check("...and never back at a board that can no longer move anything",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, tierContracts: 0 })) !== "contracts");
+  check("...and once every Mark is sealed, the run is what is left to fly",
+    nextStep(freshMeta({ mark: MARK_COUNT, salvage: 0, sealedMarks: allSealed })) === "run");
+  // The control: one rung below the top the old rule is untouched, so the
+  // branch above is measuring saturation and not something else.
+  check("...while an unfinished ladder still earns before it flies",
+    nextStep(freshMeta({ mark: MARK_COUNT - 1, salvage: 0 })) === "contracts");
+
   // …and the menu renders exactly the one badge the rule picked (A3), the
   // tier plate in the Deep Run button (A1), and — on first launch only — the
   // Guided Tutorial in How to Play's slot, with its own START HERE marker
@@ -904,6 +932,82 @@ section("Installs — what salvage buys (meta.ts)");
     menuFirst.includes('data-action="tutorial"') && !menuFirst.includes('data-action="howto"'));
   check("once seen, How to Play returns and the tutorial entry goes",
     menuMid.includes('data-action="howto"') && !menuMid.includes('data-action="tutorial"'));
+
+  // THE SEAL STEP ON THE MENU. A next step nobody can read is not a next step:
+  // the badge has to land on the action that actually does the sealing (the
+  // run — sealing is flown, never bought), and the button has to say how many
+  // Marks are still owed, because the count lives nowhere else on this screen
+  // except as sockets a sighted player has to add up floor by floor.
+  const sealTower = (selected: number, sealed: number[]): S.TowerState =>
+    ({ unlocked: MARK_COUNT, selected, skydeck: false, sealed });
+  const sealMenu = (selected: number, sealed: number[]): string =>
+    menuScreen(0, 0, undefined, tierProgressFor(freshMeta({ mark: MARK_COUNT })),
+      { step: "seal", install: null, firstLaunch: false }, sealTower(selected, sealed));
+  const playButton = (html: string): string =>
+    /<button[^>]*data-action="play"[\s\S]*?<\/button>/.exec(html)?.[0] ?? "";
+  // The car parked on Mark 10, which still owes its seal.
+  const menuSeal = sealMenu(MARK_COUNT, [1, 2, 3]);
+  check("the seal step still badges exactly one action",
+    (menuSeal.match(/next-badge/g) ?? []).length === 1);
+  check("...and it is the run, because a seal is flown and not bought",
+    playButton(menuSeal).includes("next-badge"));
+  check("...and the button says how many Marks are left to seal",
+    menuSeal.includes(`${MARK_COUNT - 3} Marks left to seal`), "no seal count on the primary");
+
+  // A BADGE IS A CLAIM ABOUT THE BUTTON UNDER IT, and at the finished ladder
+  // that button flies ONE floor: the one the car is parked on (screens.ts —
+  // "the floor you park on is what the primary action does"). A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the parked
+  // floor becomes sealed — and the primary went on wearing NEXT STEP and
+  // promising Marks were left to seal over a run that could not seal
+  // anything, because that floor already holds its stamp. (Codex P2, #140.)
+  //
+  // The claim goes, not the parking: the tower is the chooser here, it
+  // already draws an empty socket on every floor that owes one, and the
+  // subtitle points at it. Redirecting the car instead would move a player
+  // off a floor they deliberately picked — which is the re-fly-for-the-board
+  // flow — and could not be expressed in the pick's own staleness rule
+  // anyway, since that is keyed to meta.mark and meta.mark never moves again
+  // up here.
+  const menuSealed = sealMenu(3, [3, 4]);
+  check("a parked floor that is already sealed wears no seal badge",
+    !playButton(menuSealed).includes("next-badge"),
+    "the primary claims a seal it cannot earn");
+  check("...and claims no seal the run cannot land",
+    !menuSealed.includes("left to seal"));
+  // NOT A REFUSAL. Re-flying a sealed Mark for the board is a real thing to
+  // want, and the button still does it — what changed is only what it says.
+  check("...but still flies the floor, for the board",
+    playButton(menuSealed).includes('data-action="play"'));
+  // …and it still answers the question the badge stopped answering: how many
+  // are owed, and where to pick one.
+  check("...while naming the count and pointing at the tower",
+    menuSealed.includes(`${MARK_COUNT - 2} Marks still owed`)
+      && /pick one on the tower/.test(menuSealed));
+
+  // ONE SUBTITLE RULE. main.ts patches this line by id while the elevator
+  // travels (it must not re-render the menu mid-ride — that tears down the
+  // attract demo), so the rule has to be a function both callers ask rather
+  // than a ternary each of them keeps a copy of. The pin is that the menu's
+  // markup and the in-flight rewrite produce the same string for the same
+  // state — the drift the seal step would otherwise have introduced.
+  check("the menu's subtitle and the ride's rewrite are one rule",
+    menuSeal.includes(menuPlaySub(MARK_COUNT, 0, { owed: MARK_COUNT - 3, sealed: false })));
+  check("...on the sealed floor as well as the unsealed one",
+    menuSealed.includes(menuPlaySub(3, 0, { owed: MARK_COUNT - 2, sealed: true })));
+  // AND THE BADGE IS ONE RULE TOO, for the same reason: the ride patches this
+  // button by id, so a badge that only the markup knew how to compute would
+  // stop being true the moment the player tapped a floor — which at the seal
+  // step is the gesture that CHANGES the answer.
+  check("the badge is the same rule on both sides of a ride",
+    S.menuPlayBadged("seal", 4, false) && !S.menuPlayBadged("seal", 4, true));
+  check("...Tier S is never the next step", !S.menuPlayBadged("run", S.SANDBOX_TIER, false));
+  check("...and every other step still badges the floor the car is on",
+    S.menuPlayBadged("run", 4, true) && !S.menuPlayBadged("contracts", 4, false));
+  check("...and a ladder floor with nothing owed still counts bays",
+    menuPlaySub(4, 0, null) === `Clear ${RUN_LEVELS} bays in one run`);
+  check("...and the roof still trades in clauses",
+    menuPlaySub(S.SKYDECK_TIER, 5, { owed: 3, sealed: false }).includes("5 standing clauses"));
 
   const shop = workshopScreen(freshMeta({ salvage: 50 }));
   check("the Workshop offers an install to buy", shop.includes(`data-action="buy-install"`));
@@ -2001,6 +2105,52 @@ section("Pattern variants (contracts.ts VARIANTS)");
   check("the salvage row states the target price",
     ceTarget.includes(`Reactor Output costs ${salvageHTML(15)} in the Workshop`));
   check("no target price is invented without one", !ceWin.includes("in the Workshop"));
+
+  // ---- THE AWARD CARD AT SATURATION --------------------------------------
+  // A tier completion names the floor it opened. That sentence is true nine
+  // times and false on the tenth: `progress.tier` is markUnlocked read AFTER
+  // the update, and at MARK_COUNT markUnlocked saturates — so completing the
+  // last tier printed "Tier 10 is open" about the floor the player had just
+  // spent the tier flying. An owner hit exactly this ("all completed but not
+  // unlocked"): the card announced an unlock, nothing on the menu changed,
+  // and the real remaining objective (the seals) was named nowhere.
+  //
+  // It is the THIRD instance of one question — #134 fixed the same saturation
+  // in tierOpenableBy (the seal-break notice promising "Tier 10 still opens")
+  // and in pendingLadderRide (a ceremony riding to the floor the car was
+  // parked on). So the question is answered ONCE now, by a function of the
+  // completed tier alone, and every card asks it rather than re-deriving a
+  // floor number from a progress snapshot that has already saturated.
+  check("a completion below the top opens the next floor",
+    tierOpenedByCompleting(3) === 4);
+  check("...and the last rung opens no floor at all",
+    tierOpenedByCompleting(MARK_COUNT) === null);
+  check("...for every rung in between",
+    Array.from({ length: MARK_COUNT }, (_, i) => i + 1)
+      .every((t) => tierOpenedByCompleting(t) === (t < MARK_COUNT ? t + 1 : null)));
+  const ceMid = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: 3 },
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+  });
+  check("the award card names the floor the completion opened",
+    ceMid.includes("Tier 4 is open"));
+  const ceTop = contractEndModal({
+    ...endOpts, won: true,
+    award: { salvage: 15, firstClear: true, completedTier: MARK_COUNT },
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    },
+  });
+  check("...and announces no unlock when the ladder simply ended",
+    !ceTop.includes("is open"), "the top-of-ladder card still names a floor");
+  check("...saying what did happen instead", ceTop.includes("ladder is finished"));
+  // AND WHAT IS STILL OPEN. The tier-10 Contract loop keeps paying (the owner's
+  // ruling: keep the faucet, the endgame is maxing the systems out), and the
+  // seals are what the roof is waiting for — so the card names both rather
+  // than trailing off. A card that only stops lying is not yet an endgame.
+  check("...and names the two things still worth flying for",
+    /maxed rig/.test(ceTop) && /every Mark sealed/.test(ceTop) && /Contracts still pay/.test(ceTop));
 }
 
 // ---------------------------------------------------------------------------
@@ -9520,6 +9670,28 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
   check("the two doors are the same rule's two branches",
     nextStep({ ...newMeta(), salvage: 1_000 }) === "workshop"
       && nextStep(newMeta()) === "contracts");
+
+  // ---- THE RUN-END CARD AT SATURATION ------------------------------------
+  // The same sentence as the Contract card's, on the other door into the same
+  // moment: a tier completes on whichever half lands second, and either half
+  // can be the run. Both cards ask tierOpenedByCompleting now, so a fix to one
+  // cannot leave the other lying. The run card carries a second claim as well
+  // — what the new rung changes — and that one is doubly false at the top,
+  // since Mark 10 opens no hazard axis and the build budget it quotes is the
+  // budget the player already had.
+  const endMid = end({ runComplete: true, tierCompleted: 3, tierSalvage: 15,
+    progress: { tier: 4, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 } });
+  check("the run-end card names the floor the completion opened",
+    endMid.includes("Tier 4 is open"));
+  const endTop = end({ runComplete: true, tierCompleted: MARK_COUNT, tierSalvage: 15,
+    progress: {
+      tier: MARK_COUNT, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15,
+    } });
+  check("...and announces no unlock when the ladder simply ended",
+    !endTop.includes("is open"), "the top-of-ladder run card still names a floor");
+  check("...saying what did happen instead", endTop.includes("ladder is finished"));
+  check("...and promises no budget rise that cannot happen",
+    !endTop.includes("build budget rises"));
 
   // ---- RETRY BAY vs RETRY RUN --------------------------------------------
   // They were one button ("Play Again") that only ever meant the fresh start.

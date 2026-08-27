@@ -631,6 +631,32 @@ export function tierOpenableBy(meta: MetaState, runMark: number): number | null 
 }
 
 /**
+ * The floor that COMPLETING `tier` opens, or null when it opens none.
+ *
+ * A tier completion has always been reported by naming the floor it opened,
+ * and every screen derived that name the same way: read `markUnlocked` after
+ * the update and print it. Nine times out of ten that is right, because
+ * completing tier N leaves markUnlocked at N+1. On the tenth it is a lie —
+ * markUnlocked SATURATES at MARK_COUNT, so completing the last tier printed
+ * "Tier 10 is open" about the floor the player had just spent the tier flying,
+ * while nothing on the menu changed. An owner reported exactly that shape
+ * ("all completed but not unlocked") from a save sitting at mark 10.
+ *
+ * This is the THIRD site of one question. #134 answered it for the seal-break
+ * notice (tierOpenableBy) and for the ceremony (pendingLadderRide); the two
+ * end cards were still asking it in arithmetic of their own. So it is a
+ * function now, of the completed tier alone — no meta, no snapshot that has
+ * already moved — and a fourth site can only get the answer by asking here.
+ *
+ * Null is a real answer, not an error: the last rung has no successor, and the
+ * card's job at that point is to say the ladder is finished rather than to
+ * invent a floor to name.
+ */
+export function tierOpenedByCompleting(tier: number): number | null {
+  return tier < MARK_COUNT ? tier + 1 : null;
+}
+
+/**
  * Does the ladder owe the tower a RIDE — a floor that was not flyable before?
  *
  * `pendingUnlockMark` answers a different question: whether the Mark has moved
@@ -952,10 +978,22 @@ export function markUnlockCelebrated(meta: MetaState): MetaState {
  * picks it, stated once so the menu, the Workshop and the fail card can
  * never point at different doors:
  *   salvage covers an installable system  -> Workshop (spend it)
+ *   ladder finished, Marks still unsealed -> seal one (a Deep Run, clean)
  *   contracts still owed this tier        -> Contracts (earn it)
  *   otherwise                             -> Deep Run (the exam)
+ *
+ * THE SEAL STEP IS WHAT THE ENDGAME WAS MISSING. The Contracts branch reads
+ * "this tier still owes clears", which is a live objective for nine tiers
+ * because completing a tier MOVES the tier. At MARK_COUNT it moves nothing:
+ * markUnlocked saturates onto the tier just finished and advanceTier has
+ * cleared its counters, so the rule answered "Contracts" forever and sent a
+ * player who had beaten the entire ladder back to a board that could no longer
+ * open anything. Meanwhile the thing that IS still owed — the seals the
+ * Skydeck asks for — was stated on no surface at all outside the tower's
+ * sockets. So the finished ladder gets its own answer, and it names the only
+ * objective left: fly a Mark clean.
  * ---------------------------------------------------------------------- */
-export type NextStepId = "workshop" | "contracts" | "run";
+export type NextStepId = "workshop" | "contracts" | "run" | "seal";
 
 /** The cheapest system the player could install right now, or null. */
 export function cheapestInstall(meta: MetaState): InstallDef | null {
@@ -967,6 +1005,12 @@ export function cheapestInstall(meta: MetaState): InstallDef | null {
 export function nextStep(meta: MetaState): NextStepId {
   const next = cheapestInstall(meta);
   if (next && meta.salvage >= next.cost) return "workshop";
+  // Asked BEFORE the Contracts branch, because at MARK_COUNT that branch is
+  // answering a question the ladder has stopped asking — see the header. A
+  // finished ladder with every Mark sealed falls through to the run, which is
+  // the Skydeck by then: the roof is open (skydeckOpen), the tower draws it,
+  // and the primary flies whatever floor the car is parked on.
+  if (meta.mark >= MARK_COUNT) return unsealedMarks(meta).length > 0 ? "seal" : "run";
   if (meta.tierContracts < TIER_CONTRACTS_REQUIRED) return "contracts";
   return "run";
 }

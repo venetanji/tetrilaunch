@@ -15,7 +15,7 @@ import {
 import {
   UNLOCKS, unlockAvailable, unlockGates, INSTALLS, UPRATE_MAX_TIER, installAvailable,
   installGates, installById, markBudget, markUnlocked, tierMilestoneSalvage,
-  tierProgressFor, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
+  tierProgressFor, tierOpenedByCompleting, uprateCost, nextStep, TIER_CONTRACTS_REQUIRED,
   type InstallDef, type MetaState, type NextStepId, type TierProgress,
 } from "../game/meta";
 import { DAILY_COUNT } from "../game/contracts";
@@ -789,6 +789,94 @@ export function baseBayPanelHTML(opts: {
   </div>`;
 }
 
+/**
+ * The primary button's subtitle — ONE copy of the rule.
+ *
+ * It has to be a function rather than an expression inside the markup because
+ * main.ts rewrites this line IN PLACE while the elevator travels (setPlaySub):
+ * re-rendering the menu mid-ride would tear down the attract demo, so the ride
+ * patches the two halves of the button by id. That left a second copy of the
+ * three-way rule in main.ts, which agreed with this one only for as long as
+ * neither changed — and the seal step is exactly the change that breaks it,
+ * since it gives an ordinary ladder floor a subtitle of its own for the first
+ * time. A player tapping a floor at the finished ladder would have watched the
+ * objective disappear.
+ *
+ * `seal` is non-null only while sealing is the next step (meta.ts's nextStep),
+ * which is why it selects the line rather than being read from the tower every
+ * time: on nine tiers out of ten the seals are a badge, not the thing the game
+ * is asking for. `tier` null is the in-flight line.
+ *
+ * Its `sealed` half is about the PARKED FLOOR, not the ladder — the primary
+ * flies one floor, and a floor that already holds its stamp cannot be sealed
+ * again however many the roof is still waiting for. See the note on the two
+ * seal lines below.
+ */
+export interface SealPrompt {
+  /** Marks the roof is still waiting for (meta.ts's unsealedMarks). */
+  owed: number;
+  /** The floor this button would fly already holds its seal. */
+  sealed: boolean;
+}
+
+/**
+ * Does the primary wear the NEXT STEP badge with the car parked on `tier`?
+ *
+ * The same shape as menuPlaySub and for the same reason: the ride patches this
+ * button by id (main.ts's setSelectedTier), so a rule stated only inside the
+ * markup would be a rule that stops applying the moment the player taps a
+ * floor. The badge used to be a property of the STEP alone, which was fine
+ * while every step named a screen; the seal step names a floor, and a floor
+ * that already holds its stamp cannot be sealed by flying it again.
+ *
+ * `sealed` is about that floor. Tier S is never badged — the guide points at
+ * the ladder and the sandbox is not on it — and at the seal step only a ladder
+ * floor can be, since only a Mark has a seal to owe.
+ */
+export function menuPlayBadged(
+  step: NextStepId | undefined, tier: number, sealed: boolean,
+): boolean {
+  if (tier === SANDBOX_TIER) return false;
+  if (step === "run") return true;
+  if (step !== "seal") return false;
+  return tier >= 1 && tier <= MARK_COUNT && !sealed;
+}
+
+export function menuPlaySub(
+  tier: number | null, clauses: number, seal: SealPrompt | null,
+): string {
+  if (tier === null) return "Elevator moving…";
+  if (tier === SANDBOX_TIER) return "Any Mark, bay or Contract · own board";
+  // THE DAY'S TERMS, in the order they bite. It used to read "All ten marks at
+  // once · no mercy", which described a floor that was not playable yet and
+  // promised something the mode does not do — the Skydeck flies Mark 10's
+  // bays, not all ten Marks. What it actually trades is stated here: today's
+  // fixed run, no yard, and the clauses the recap panel lists by bay.
+  if (tier === SKYDECK_TIER) return `Today's run · no refits · ${clauses} standing clauses`;
+  // THE ENDGAME, STATED. With the ladder beaten there is no tier left to open
+  // and the roof is the only thing still locked, so the primary stops
+  // advertising the bay count and names the price instead: a Mark won with no
+  // bay retried is a seal (meta.ts's recordRunEnd), and every Mark sealed
+  // opens the Skydeck (skydeckOpen). Until this line the count lived only in
+  // the tower's sockets and one aria-label.
+  //
+  // TWO LINES, because the primary flies ONE floor and the objective is a set.
+  // A seal lands without moving meta.mark, so the car stays parked exactly
+  // where it was — and on the floor it just sealed, "N Marks left to seal ·
+  // win with no bay retried" describes a run that cannot seal anything. The
+  // second line says so and hands the player back to the tower, which is the
+  // control that picks a floor and already draws an empty socket on every one
+  // that owes a stamp. It is deliberately not a refusal: re-flying a sealed
+  // Mark for the board is a real thing to want, and this button still does it.
+  if (seal) {
+    const owed = `${seal.owed} Mark${seal.owed === 1 ? "" : "s"}`;
+    return seal.sealed
+      ? `Sealed · ${owed} still owed — pick one on the tower`
+      : `${owed} left to seal · win with no bay retried`;
+  }
+  return `Clear ${RUN_LEVELS} bays in one run`;
+}
+
 /** `store` is absent on web and on native builds without a RevenueCat key —
  *  the store entry point hides itself rather than offering a dead button.
  *  `guide` carries the first-session system (canvas A2/A3): which action
@@ -843,6 +931,25 @@ export function menuScreen(
   const sel = twr.selected;
   const skySel = sel === SKYDECK_TIER;
   const sbxSel = sel === SANDBOX_TIER;
+  // THE SEAL STEP RIDES THE PRIMARY, because a seal is flown and not bought
+  // (meta.ts's nextStep). It is the run's badge under another name, so it
+  // lights the same button — what changes is the subtitle, which is the only
+  // place on this screen that says how many Marks the roof is still waiting
+  // for in words. The count comes off the tower's own list rather than a new
+  // parameter: the building already draws a socket per owed Mark, and two
+  // sources for one number is how they end up disagreeing.
+  //
+  // …EXCEPT ON A FLOOR THAT IS ALREADY SEALED. The badge is a claim about the
+  // button under it, and this button flies the PARKED floor. A seal lands
+  // without moving meta.mark, so nothing dislodges the pick when the floor the
+  // car is on becomes sealed, and the badge went on promising a seal that run
+  // could not land. (Codex P2, #140.) The claim goes rather than the parking:
+  // the tower is the chooser, and menuPlaySub's second line sends the player
+  // there instead of quietly driving them there.
+  const sealStep = guide?.step === "seal";
+  const sealsOwed = MARK_COUNT - (twr.sealed ?? []).filter((m) => m >= 1 && m <= MARK_COUNT).length;
+  const selSealed = (twr.sealed ?? []).includes(sel);
+  const badged = menuPlayBadged(guide?.step, sel, selSealed);
   // NOTHING rides the recap's footnote row any more, and it took both of these
   // branches to empty it. #86 moved the entitlement entries onto the demo
   // panel, which the demo taking How to Play's job had just freed a row on.
@@ -932,23 +1039,15 @@ export function menuScreen(
              floor you park on is what the primary action does. main.ts rewrites
              the label in place while the car travels, so both faces carry ids
              rather than being found by shape. -->
-        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${guide?.step === "run" && !sbxSel ? " btn--next" : ""}" data-action="play" id="menu-play">${
+        <button class="btn btn--primary btn--lg btn--block btn--menu${sbxSel ? " btn--sbx" : ""}${badged ? " btn--next" : ""}" data-action="play" id="menu-play">${
           tierPlateHTML(sel, "menu")
         }<span class="btn__txt"><span id="menu-play-ttl">${
           sbxSel ? "Sandbox" : skySel ? "Skydeck" : "Deep Run"
         }</span><span class="btn__sub" id="menu-play-sub">${
-          sbxSel
-            ? "Any Mark, bay or Contract · own board"
-            // THE DAY'S TERMS, in the order they bite. It used to read "All ten
-            // marks at once · no mercy", which described a floor that was not
-            // playable yet and promised something the mode does not do — the
-            // Skydeck flies Mark 10's bays, not all ten Marks. What it actually
-            // trades is stated here: today's fixed run, no yard, and the
-            // clauses the panel above lists by bay.
-            : skySel
-              ? `Today's run · no refits · ${skydeck?.length ?? 0} standing clauses`
-              : `Clear ${RUN_LEVELS} bays in one run`
-        }</span></span>${guide?.step === "run" && !sbxSel ? nextBadgeHTML() : ""}</button>
+          // The rule lives in menuPlaySub, because the ride rewrites this exact
+          // node by id and two copies of it would drift — see the note there.
+          menuPlaySub(sel, skydeck?.length ?? 0, sealStep ? { owed: sealsOwed, sealed: selSealed } : null)
+        }</span></span>${badged ? nextBadgeHTML() : ""}</button>
         <button class="btn btn--secondary btn--block btn--menu${guide?.step === "contracts" ? " btn--next" : ""}" data-action="contracts">${icon("contracts")}<span class="btn__txt"><span class="btn__ttl">Contracts${
           // THE TIER'S CONTRACT PIPS, on the button that leads to them. They
           // replaced the run-end "Tier N progress" banner: a sentence about
@@ -3750,6 +3849,33 @@ function sandboxEndRowHTML(
   </div>`;
 }
 
+/**
+ * What completing `tier` OPENED, as the clause both end cards drop into the
+ * same sentence.
+ *
+ * The floor comes from meta.ts (tierOpenedByCompleting) rather than from the
+ * progress snapshot each card already holds, because that snapshot is
+ * markUnlocked read AFTER the update and markUnlocked saturates — completing
+ * the last tier printed "Tier 10 is open" about the floor the player had just
+ * spent the tier flying, which is how an owner came to report a finished
+ * ladder as "all completed but not unlocked".
+ *
+ * The null branch is not a hole to fill with silence. The ladder ending is
+ * genuinely the biggest thing that happens on the save, and what is still open
+ * there is two things the player CAN act on: the Workshop shelf, which the
+ * tier-10 Contract loop keeps paying toward, and the seals the Skydeck asks
+ * for (meta.ts's skydeckOpen). Naming them is the difference between an
+ * endgame and a screen that has run out of things to say.
+ */
+function tierOpenedClause(tier: number): string {
+  const opened = tierOpenedByCompleting(tier);
+  return opened !== null
+    ? `Tier ${opened} is open`
+    // One dash, not two: the caller has already spent the sentence's dash on
+    // "cleared — ", so the second half is a sentence of its own.
+    : "the ladder is finished. Contracts still pay, and what's left is a maxed rig and every Mark sealed";
+}
+
 export function endModal(opts: {
   won: boolean;
   /** Composite final run score (run.ts's finalRunScore) — bays + lines +
@@ -3953,7 +4079,13 @@ export function endModal(opts: {
         <div class="salvage-row__amt">${salvageHTML(`+${opts.tierSalvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.tierCompleted} complete!</b>
-          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — Tier ${opts.progress.tier} is open. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
+          <span class="muted">Run beaten and ${opts.progress.needed} Contracts cleared — ${
+            // The same saturation question the Contract card asks, answered in
+            // the same place — see tierOpenedClause. Either half of a tier can
+            // be the one that lands second, so both cards can be the one that
+            // announces the ladder's last rung.
+            tierOpenedClause(opts.tierCompleted)
+          }. <b>${opts.salvageTotal} salvage banked</b>, yours to keep.</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
@@ -3973,7 +4105,13 @@ export function endModal(opts: {
         // changes — truthfully. A Mark no longer scales the ladder's numbers
         // (level.ts's zeroed MARK_*_STEP), so what a tier opens is a hazard
         // axis and a bigger build budget, and that is what the line says.
+        //
+        // AND ONLY WHEN THERE IS A NEXT RUNG. Completing the last tier opens
+        // no floor, so this promised a hazard axis Mark 10 does not have and a
+        // budget rise that had already happened — the same saturation the
+        // salvage row above just stopped printing.
         !opts.sandbox && opts.runComplete && opts.tierCompleted !== null
+          && tierOpenedByCompleting(opts.tierCompleted) !== null
           ? `<p class="muted end__next">Tier ${opts.progress.tier}: ${
               (() => {
                 const opened = HAZARDS.find((h) => h.mark === opts.progress.tier);
@@ -4579,7 +4717,13 @@ export function contractEndModal(opts: {
         <div class="salvage-row__amt">${salvageHTML(`+${opts.award.salvage}`, 16)}</div>
         <div class="salvage-row__body">
           <b>Tier ${opts.award.completedTier} complete!</b>
-          <span class="muted">Run beaten and ${p.needed} Contracts cleared — Tier ${p.tier} is open. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
+          <span class="muted">Run beaten and ${p.needed} Contracts cleared — ${
+            // NOT `p.tier`. That is markUnlocked read after the update, and it
+            // saturates: on the last rung it named the floor the player had
+            // just finished flying as the one that had opened, which is how
+            // "all completed but not unlocked" gets reported.
+            tierOpenedClause(opts.award.completedTier)
+          }. <b>${opts.salvageTotal} salvage banked.</b>${target}</span>
         </div>
         <button class="btn btn--secondary" data-action="workshop">Workshop</button>
       </div>`
