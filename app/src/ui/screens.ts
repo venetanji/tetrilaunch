@@ -1719,6 +1719,16 @@ export function hudHTML(opts: {
    *  HELD trigger to the rail — the rig no longer fires on its own. */
   autoloaderOwned: boolean;
   bombCharges: number;
+  /** Whether this bay carries the Thaw Lance, and how many charges are left —
+   *  the same two-trigger treatment as the two above.
+   *
+   *  Charged by CHARGES like Bond Breaker rather than by the config like Demo,
+   *  and the difference is a MODE rather than a preference: a Skydeck run's
+   *  lance never resupplies (run.ts's advanceRun), so a rig that spent its last
+   *  charge in bay 4 has no lance for bays 5 to 10 and must not be shown a live
+   *  trigger for one. A ladder run reads the same field refilled. */
+  thawOwned: boolean;
+  thawCharges: number;
   /** The run's full drafted-mod pick history, in pick order — rendered as
    *  tally in the plant panel (see components.ts's runNotchTallyHTML). */
   ratchets: Ratchets;
@@ -1837,7 +1847,7 @@ export function hudHTML(opts: {
   const {
     beltPreview, target, score, launchCost, bayNum, timeLimitSec, timeLeftMs,
     pieceSize, bondBreakerOwned, bondCharges, demoOwned, bombCharges, autoloaderOwned, ratchets, tiers,
-    tier, loaded, contract, drill, fullscreenSupported = true,
+    thawOwned, thawCharges, tier, loaded, contract, drill, fullscreenSupported = true,
   } = opts;
   // An empty belt is the honest render for the last shipment of a finite queue
   // — there IS no next piece, and drawing one would promise a shot that never
@@ -1917,6 +1927,20 @@ export function hudHTML(opts: {
   const demoRailBtn = demoOwned
     ? `<button class="icon-btn demo-btn demo-trigger" data-game="demo" id="demo-btn" aria-label="Arm a demolition charge"${bombCharges <= 0 ? " disabled" : ""}>${icon("demo", 20)}<span class="demo-btn__count demo-trigger__count">${bombCharges}</span></button>`
     : "";
+  // The lance's pair. TAPPED, like Demolition and unlike Bond Breaker: it aims
+  // itself, costs no launch and renews every bay on the ladder, so there is
+  // nothing a hold-to-confirm meter would be protecting. The accessible name
+  // says which cube it takes, because that is the whole skill of the control —
+  // a player who does not know the lance melts what the BAR is about to reach
+  // will fire it at the wrong moment and read the charge as wasted.
+  const thawChip = thawOwned
+    ? `<button class="mod mod--thaw thaw-trigger" data-game="thaw" id="thaw-chip" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>
+        <span class="g">${icon("thaw", 15)}</span><span class="nm">THAW</span><span class="stk">×<span class="thaw-trigger__count">${thawCharges}</span></span><span class="key">C</span>
+      </button>`
+    : "";
+  const thawRailBtn = thawOwned
+    ? `<button class="icon-btn thaw-btn thaw-trigger" data-game="thaw" id="thaw-btn" aria-label="Thaw Lance — thaw the frozen cube the press is about to reach"${thawCharges <= 0 ? " disabled" : ""}>${icon("thaw", 20)}<span class="thaw-btn__count thaw-trigger__count">${thawCharges}</span></button>`
+    : "";
   // Held, not tapped: pointerdown starts the burst and pointerup ends it (see
   // main.ts's onGamePointerDown). Sits at the BOTTOM of the rail, nearest a
   // right thumb at rest, because it is the only rail control meant to be held
@@ -1991,6 +2015,7 @@ export function hudHTML(opts: {
       <button class="icon-btn rotate-btn" data-game="rotr" aria-label="Rotate right">${icon("rotr", 22)}</button>
       ${bondRailBtn}
       ${demoRailBtn}
+      ${thawRailBtn}
       ${autoRailBtn}
       <button class="icon-btn cancel-aim-btn" data-game="cancel" aria-label="Cancel launch">${icon("close", 22)}</button>
     </div>
@@ -2275,11 +2300,12 @@ export function hudHTML(opts: {
           // the chips are hidden at compact density (the rail carries the
           // same triggers, counts included), so app.css drops the whole row
           // there rather than leave its padding behind.
-          plates || bondChip || demoChip
+          plates || bondChip || demoChip || thawChip
             ? `<div class="pl-mods" id="hud-mods">
           <span class="lbl">Build</span>
           ${bondChip}
           ${demoChip}
+          ${thawChip}
           ${plates}
         </div>`
             : ""
@@ -2290,7 +2316,7 @@ export function hudHTML(opts: {
     <div class="hud__bottom">
       ${hintStripHTML(
         opts.profile ?? "keyboard",
-        { bond: bondBreakerOwned, demo: demoOwned, auto: autoloaderOwned },
+        { bond: bondBreakerOwned, demo: demoOwned, thaw: thawOwned, auto: autoloaderOwned },
         opts.hintsDismissed ?? false,
       )}
     </div>
@@ -2313,7 +2339,7 @@ export function hudHTML(opts: {
  */
 function hintParts(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   /** The pause card asks for the FULL scheme; the field strip stays the lean
    *  onboarding set — its two extra mouse lines wrapped it onto a second row
    *  on a 1280x720 laptop, straight into the plant panel (caught by uifit's
@@ -2339,6 +2365,7 @@ function hintParts(
     part(`${kbd(padLabel(padFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(padLabel(padFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(padLabel(padFor("demo")))} arm charge`);
+    if (owned.thaw) part(`${kbd(padLabel(padFor("thaw")))} thaw`);
     if (owned.auto) part(`${kbd(padLabel(padFor("auto")))} hold to autofire`);
     part(`${kbd(padLabel(padFor("pause")))} pause`);
     /* THE MENU GESTURES (ui/padnav.ts): the D-pad moves focus, A activates,
@@ -2373,6 +2400,12 @@ function hintParts(
     part(`${kbd(keyLabel(keyFor("fire")))} fire`);
     if (owned.bond) part(`${kbd(keyLabel(keyFor("bond")))} break bonds`);
     if (owned.demo) part(`${kbd(keyLabel(keyFor("demo")))} arm charge`);
+    // ONE WORD, and the shortest true one on the strip. The strip is
+    // width-budgeted — two extra mouse lines already wrapped it into the plant
+    // panel once (see `full` above) — and a fourth ability hint is the same
+    // pressure. "thaw" is what the verb is; which cube it takes is on the
+    // button's own accessible name and in the guide, where a sentence fits.
+    if (owned.thaw) part(`${kbd(keyLabel(keyFor("thaw")))} thaw`);
     if (owned.auto) part(`${kbd(keyLabel(keyFor("auto")))} hold to autofire`);
     /* "click to aim", not "drag to aim", and this strip is the one place the
        change is safe to state flatly. It renders only under `pointer: fine`
@@ -2443,7 +2476,7 @@ const HINT_SEP = `<span class="kbd-hint__sep">·</span>`;
  */
 export function hintStripHTML(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
   dismissed = false,
 ): string {
   const parts = hintParts(profile, owned);
@@ -2467,7 +2500,7 @@ export function hintStripHTML(
  */
 export function pauseKeysHTML(
   profile: InputProfile,
-  owned: { bond: boolean; demo: boolean; auto: boolean },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean },
 ): string {
   const parts = hintParts(profile, owned, true);
   return `<div class="pause-keys" id="pause-keys">
@@ -2843,7 +2876,7 @@ export function refitScreen(opts: {
     // problem (its cards fill the hand while there is room and edit it once it
     // is full). Two controls is what the tap floor cannot afford: at 44px a
     // second button per row costs a card's worth of height across the shelf,
-    // on the screen that already needs a scroller to hold seven of them.
+    // on the screen that already needs a scroller to hold all of them.
     //
     // So the button STAGES while the track has room and takes the track back
     // once it is ordered to MAX — and it stays live when the order has spent
@@ -3034,7 +3067,7 @@ export function workshopScreen(meta: MetaState): string {
   // is owned: tier 1 is the install, tier 2 the uprate, and tier 3 belongs to
   // the refit stop's scrap. A card that vanished the moment a track was bought
   // is what left budgetForMark with nothing to gate — 140 points of reachable
-  // loadout against a budget that climbs to 770.
+  // loadout against a budget that climbs to 880.
   const onShelf = (i: InstallDef): boolean => (meta.loadout[i.id] ?? 0) < UPRATE_MAX_TIER;
   const nextId = INSTALLS.filter(onShelf)
     .filter((i) => installAvailable(meta, i) && meta.salvage >= uprateCost(i))
@@ -3188,7 +3221,8 @@ export function workshopScreen(meta: MetaState): string {
 export function pauseModal(
   fullscreen = true,
   profile: InputProfile = "keyboard",
-  owned: { bond: boolean; demo: boolean; auto: boolean } = { bond: false, demo: false, auto: false },
+  owned: { bond: boolean; demo: boolean; thaw: boolean; auto: boolean }
+    = { bond: false, demo: false, thaw: false, auto: false },
 ): string {
   return `<div class="modal-scrim" id="scrim">
     <div class="panel modal pop">

@@ -440,14 +440,45 @@ export function btn(action: string, label: string, variant = "secondary", extra 
  * also could not see what they had NOT built, which is half of what a build
  * readout is for at a refit stop.
  *
- * Fixed slots make both work: the rack is the same seven positions from the
+ * Fixed slots make both work: the rack is the same eight positions from the
  * first bay to the last, each one either lit or waiting, and a purchase lights
- * a plate where the player was already looking. Seven of them fit the panel
+ * a plate where the player was already looking. All of them fit the panel
  * without scrolling on every device in the matrix (see app.css's .ship-plate
- * and sim/uifit) — which is the constraint the fixed count has to earn.
+ * and sim/uifit) — which is the constraint the fixed count has to earn, and the
+ * EIGHTH is what made the plate pay for it a second time.
+ *
+ * WHY THE PLATE WEARS THE TRACK'S ICON AND NOT ITS THREE-LETTER CODE. Seven
+ * codes fit; eight did not, by 17px on the tightest phone and 29px on a tablet
+ * (sim/uifit's `rack` assertion, measured when the Thaw Lance's THW arrived).
+ * A code is 3.06 glyph-ems wide inside a 4.44-em box (app.css's SLOT WIDTH AT
+ * COMPACT has the arithmetic) and every phone in the matrix already sat on both
+ * of its floors, so there was nothing left to shave off the type.
+ *
+ * The answer was already in the tree. icons.ts says why the refit cards stopped
+ * using these codes: they "were text pretending to be glyphs — they needed
+ * reading rather than recognising". The rack was the last surface still asking
+ * a player to read BAY / LCH / HYD mid-bay out of the corner of an eye, and one
+ * icon on a square box is both narrower than three capitals and the SAME mark
+ * the refit card, the Workshop shelf and the Final Inspection's clause chip
+ * already use for that system. So the eighth slot is paid for by the plate
+ * becoming more legible rather than less — and the app now has one vocabulary
+ * per system everywhere instead of one everywhere but here.
+ *
+ * UpgradeDef.glyph survives: sim/marks.ts prints rigs as `bay2 lau2 hyd2` in a
+ * terminal, where a code is exactly the right thing and an SVG is not.
  *
  * See game/upgrades.ts for the tracks, and screens.ts's hudHTML for placement.
  */
+/** The rack mark's box, in px.
+ *
+ *  Smaller than the notch line's NOTCH_MARK_PX (18) and deliberately so: that
+ *  line answers "what is this bay doing to me" and is read mid-shot, while the
+ *  rack answers "what have I built" and is read at a refit stop or a glance
+ *  between shots. It is also what the eighth slot is paid out of — see the
+ *  header. 13px is the size the refit card already draws these at
+ *  (screens.ts's refitScreen), so the two surfaces agree by construction. */
+const PLATE_MARK_PX = 13;
+
 export function shipPlatesHTML(tiers: UpgradeTiers): string {
   return UPGRADES.map((u) => {
     const tier = Math.min(MAX_TIER, tiers[u.id] ?? 0);
@@ -460,8 +491,11 @@ export function shipPlatesHTML(tiers: UpgradeTiers): string {
     // nothing.
     const empty = tier === 0 ? " ship-plate--empty" : "";
     const title = tier === 0 ? `${u.name} — not installed` : `${u.name} — tier ${tier}`;
+    // The id IS the icon name, the convention every other track surface uses
+    // (icons.ts's note on the upgrade block, and refitScreen's card header,
+    // which casts at the call site exactly like this).
     return `<div class="ship-plate${empty}" title="${title}">
-        <span class="ship-plate__g">${u.glyph}</span>
+        <span class="ship-plate__g">${icon(u.id as IconName, PLATE_MARK_PX)}</span>
         <span class="ship-plate__pips">${pips}</span>
       </div>`;
   }).join("");

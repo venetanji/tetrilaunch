@@ -1,11 +1,33 @@
 # COUNTER SYSTEMS — what to build about the combos the sweep cannot win
 
 Companion to [`winnability-sweep-findings.md`](./winnability-sweep-findings.md),
-which is the measurement. This is the argument built on it. **Nothing here is
-implemented.** The two prototypes below exist only in `app/sim/counters.ts`,
-where they mutate a `LevelConfig` seam or act through `Game`'s public cube list
-exactly as a bot's hands do; no player-facing gameplay code was written, and
-none should be until this document has been argued over.
+which is the measurement. This is the argument built on it.
+
+> **STATUS, 2026-08-27 — one of the two shipped.**
+>
+> - **§2b THE THAW LANCE: SHIPPED**, as the eighth ship system
+>   (`upgrades.ts`'s `thaw` track). What changed on the way in is recorded in
+>   §2b itself and re-measured in the findings' §5a; the short version is that
+>   the charge ladder went from 2/4/6 a bay to **3/6/9**, because the first
+>   rung at two measured as buying nothing at all.
+> - **§2a THE IMPACT CUSHION: still not built** — but no longer for the reason
+>   this line was first written with. The blocker §3b named was volatile being
+>   worth *not* neutralising, and the re-price that removed it has since landed
+>   (`level.ts`'s `VOLATILE_LOSS_SHARE`). §3b now reads "the blocker is cleared
+>   — it now has a job". Nothing about the lance turns on that; the two are
+>   adjacent systems that shipped from one document in two branches, and the
+>   cushion is the one still owed.
+>
+> Everything below the two verdict blocks is the argument as it was made, kept
+> as the argued record rather than rewritten to match what shipped. Where the
+> implementation disagreed with the proposal, the proposal is left standing and
+> the disagreement is marked.
+
+The prototypes lived in `app/sim/counters.ts`. The cushion still does — it
+mutates a `LevelConfig` seam and ships no gameplay. The lance's prototype has
+been **retired**: `thawKit` there now grants the real `LevelConfig.thawCharges`
+and its hands pull the real `Game.useThawLance`, so the CLI that priced the
+proposal now prices the system, on the same flags.
 
 The order of the sections is the order the argument has to be made in, and the
 first one is the one it is easiest to skip:
@@ -139,11 +161,52 @@ clause sized against a rig that did not yet exist.**
 
 ## 2b. THE THAW LANCE — cryo's counter
 
+> **SHIPPED.** `upgrades.ts`'s `thaw` track, `game.ts`'s `useThawLance`,
+> `lineClear.ts`'s `nextColdCryo`. Three things about the shipped system are
+> NOT what this section proposed, and each is marked below: the **targeting
+> rule** (§2b "Which cube"), the **charge ladder** (3/6/9, not 2/4/6), and the
+> **Skydeck's resupply** (there is none).
+
 ### What it is
 
-A charge, not a shot. Arm it and it thaws one settled frozen cube — the same
+A charge, not a shot. Press it and it thaws one settled frozen cube — the same
 state change `lineClear.ts`'s `strikeCryo` produces when a fast shipment hits a
-resting cryo cube, minus the shipment. **Charges renew every bay.**
+resting cryo cube, minus the shipment. **Charges renew every bay** — on the
+ladder. See "The Skydeck" below.
+
+### WHICH CUBE — the one thing the proposal left open, answered
+
+The proposal said "one settled frozen cube" and did not say which; the prototype
+took the first in the field list and called that naive. The shipped rule is
+**the frozen cube the press is about to reach** (`lineClear.ts`'s
+`nextColdCryo`), and it follows from what the charge is for:
+
+- The lance sits on the ability row beside the Bond Breaker, which takes no aim.
+  A button that then thawed an ARBITRARY cube would be unreadable. This rule is
+  one the player can hold in their head and predict.
+- It is also the only cube worth a charge. `shatterColdCryo` is what happens to
+  a frozen cube that reaches the advancing face — it breaks, and takes its row's
+  alignment with it. The cube at the bar is the one whose cost is about to be
+  paid; a cube three slots deeper is a problem a shipment can still answer,
+  which is the counter-play cryo is supposed to be about.
+
+Three exclusions, each a wasted charge rather than a nicety: stranded cargo left
+of `compactor.strandCutoffX` (never pressed, and it would otherwise have the
+smallest x on the field and swallow the whole rack), cubes above the bar's
+reach, and cubes still in flight (`strikeCryo` refuses those too).
+
+### THE SKYDECK — no yard, no resupply
+
+Not in the original proposal, and it is the mode's own rule rather than a new
+one: `skydeck.ts` shuts the yard, "the rig that undocks is the rig that lands".
+So a Skydeck run's lance is **one rack for the whole run** — it falls as it is
+spent and never comes back, exactly like the Bond Breaker magazine. A ladder run
+docks three times and flies a rack that renews at every bay boundary.
+
+Both rules are `run.ts`'s `advanceRun`, one branch apart, and that branch is why
+the charges live on `RunState` rather than being re-derived per bay the way the
+Demolition Rack's are: a config rebuilt from the tiers each bay cannot express
+"and not on the Skydeck".
 
 ### Why per-bay charges, and not a run magazine
 
@@ -168,6 +231,21 @@ why the tier ladder is stated in charges per bay:
 | 3 | 6 | a cryo-heavy build, and still not a Cold Chain final |
 
 Price: the shared ladder again, 20 / 55 / 110.
+
+> **SHIPPED AT 3 / 6 / 9, and this table is what the measurement overruled.**
+> Its own middle column is the argument against it: one notch puts *3-4 frozen
+> cubes a bay* on the floor, and two charges covers half of them. At 48 paired
+> seeds the first rung at two bought **nothing** — 29/48 against an un-lanced
+> 29/48 — where at three it buys six bay-wins. The findings' §5a has both
+> ladders side by side. The design's own bar is `upgrades.ts`'s: "a shop where a
+> purchase projects nothing teaches that the purchase does nothing."
+>
+> **Salvage price: 50, not the 70 band.** The proposal put the cushion beside
+> Bond Emitter and Demolition Rack; the lance is priced a band under both,
+> because those two answer every build (an emitter flattens any pile, a rack is
+> the only exit for dead cargo of any kind) and this one answers one axis and
+> has a measured ceiling. It also keeps §5's open question 4 open rather than
+> closing it: the shelf is 495 against 600 of income, not 585.
 
 ### Why it is NOT a Bond Breaker mode
 
@@ -257,6 +335,15 @@ shipment, so this measures the lance against a pilot with no counter-play at
 all. Before implementation, the findings' §7 item — a striking bot — should
 separate "cryo needs a system" from "cryo needs the counter-play it already
 has". The measurement above says the first; it cannot yet rule out the second.
+
+> **STILL OWED, and shipped anyway.** The striking bot was not built and this
+> item is not closed. What made shipping the right call regardless: the item is
+> a question about whether the lance is *necessary*, and the tables above and in
+> the findings' §5a answer the questions about whether it is *well-shaped* — it
+> makes one hazard cheap, monotonically, and stops short of the clean control at
+> every tier. A striking bot would move the un-lanced baseline up; if it moves
+> it far enough that cryo stops being an outlier, the lever to reach for is this
+> constant, not a removal, and re-running `--mode counter` will say so.
 
 ### 3b. THE IMPACT CUSHION: the blocker is cleared — it now has a job
 
@@ -350,16 +437,31 @@ shipping a system for any of it would be building the wrong thing.
 1. **Does a rear-bay-only cushion retain enough of the field-wide effect?** The
    harness cannot say. It needs the positional rule written, which is gameplay
    code and out of scope here.
-2. **Is one cube per thaw charge the right unit?** A field-wide thaw is a much
-   larger (and probably worse) proposal, but the middle option — thaw everything
-   in the press band — is untested and is the version that pairs with
-   `shatterColdCryo` most directly.
+2. ~~**Is one cube per thaw charge the right unit?**~~ **ANSWERED BY SHIPPING
+   IT:** one cube, and the middle option this question reached for — "thaw
+   everything in the press band" — turned out to be the *targeting rule* rather
+   than the unit. The shipped lance takes one cube and takes the one AT the
+   press, which pairs with `shatterColdCryo` exactly as this question wanted
+   while keeping the charge comparable to the shipment it replaces. A field-wide
+   thaw remains untested and remains a different, larger proposal.
 3. **Which Tier owns each exam?** If the cushion ships, Tier 7's Final
    Inspection pair is its exam and needs re-sizing (§2a). If the lance ships,
    Tier 4's pair (cold-chain / ice-wall) becomes the lance's exam and wants the
    same re-derivation.
+
+   **STILL OPEN, and now it has a deadline.** The lance shipped, so Tier 4's
+   pair IS its exam and was sized against a rig that could not carry one. It was
+   deliberately left alone here — re-sizing a clause is a measurement of its own
+   and belongs in its own branch, beside `finals.ts`'s two standing `TODO:
+   re-size it` notes, not appended to the system that made it necessary.
 4. **What comes off the shelf?** `meta.ts` prices the whole Workshop shelf at
    445 salvage against 600 of income, *"slack enough to make a wrong purchase
    survivable, tight enough that the choice is a choice"*. Two more installs at
    70 each is 585 against 600, which closes that slack to nothing. Either the
    income moves or one of these is not an install.
+
+   **ANSWERED, for now, by shipping ONE of them at a band down.** The lance is
+   an install at **50**, which puts the shelf at 495 against 600 — 105 of slack
+   where two 70s would have left 15. Nothing came off. The question returns
+   intact the day the cushion (or a ninth system) is argued for, and the answer
+   then cannot be "another 70" twice.

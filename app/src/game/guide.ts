@@ -132,7 +132,7 @@ const FIRST_NOTCH_PCT = Math.round(materialRate(1) * 100);
 /**
  * One topic per ship system, generated from UPGRADES.
  *
- * Generated rather than written out because the seven tracks already carry
+ * Generated rather than written out because the eight tracks already carry
  * their own name, blurb and per-tier copy, and a hand-written guide row for
  * each would be seven more places for a re-priced tier to go stale. The tier
  * gate is the INSTALL's gate (meta.ts's INSTALLS), stated in the same
@@ -145,6 +145,10 @@ function systemTopics(): GuideTopic[] {
   // imports upgrades.ts, and the guide imports both.
   const gate: Record<UpgradeId, number> = {
     reactor: 1, launcher: 1, magazine: 1, bay: 2, hydraulics: 2, bonds: 3, demolition: 2,
+    // The Thaw Lance opens at the tier that opens the axis it answers, which is
+    // the same rule every other row here follows and the reason cryo's material
+    // topic below can point at it (meta.ts's INSTALLS states the gate).
+    thaw: 4,
   };
   // Sorted by the tier that opens each system, ties keeping the UPGRADES order
   // — so the chapter reads as the ladder the player will actually buy it in
@@ -172,9 +176,15 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
   const spec: Array<{ m: Exclude<Material, "standard">; axis: HazardId; body: string }> = [
     {
       m: "cryo", axis: "cryo",
-      body: `Ice arrives <b>unstruck</b>: it fills a slot, but the row will not sell until`
-        + ` something hits it hard. Its own landing never counts, so cryo costs a second`
-        + ` shipment — land it early and low, then thaw it on the way past.`,
+      // 249 plain characters against the 250 a material pane holds
+      // (sim/systems.ts's COPY BUDGET). The lance earned its clause by taking
+      // the sentence that used to end this paragraph — "land it early and low,
+      // then thaw it on the way past" — because the two say the same thing and
+      // only one of them names the system that does it.
+      body: `Ice arrives <b>unstruck</b>: the row will not sell until something hits it`
+        + ` hard, and its own landing never counts. Cryo costs a second shipment — or one`
+        + ` <b>Thaw Lance</b> charge, which takes the cube the press is about to reach.`
+        + ` Pressed cold, it shatters the row.`,
     },
     {
       m: "rebar", axis: "rebar",

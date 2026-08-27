@@ -718,6 +718,54 @@ export function shatterColdCryo(
 }
 
 /**
+ * The frozen cube the press will reach NEXT — the Thaw Lance's target
+ * (game.ts's useThawLance), or null when the bay has nothing to thaw.
+ *
+ * WHY THE LANCE AIMS ITSELF. The charge sits on the ability row beside the Bond
+ * Breaker, and the Bond Breaker takes no aim — a player learns one control and
+ * has learned both. A button that then thawed an ARBITRARY frozen cube would be
+ * unreadable, so the target is a rule the player can hold in their head and
+ * predict: the bar is coming, and the lance melts what it is about to hit.
+ *
+ * That is also the only target worth a charge, which is why this is a rule and
+ * not a convenience. shatterColdCryo is what happens to a frozen cube that
+ * reaches the advancing face — it breaks, and it knocks its whole row off the
+ * slot grid on the way out. The cube in front of the bar is therefore the one
+ * cube whose cost is about to be paid; a cube three slots deeper is a problem
+ * the player still has time to solve with a shipment, which is the counter-play
+ * cryo is supposed to be about (strikeCryo's note). The lance buys back the
+ * shot for the cube you ran out of time on, never the whole material.
+ *
+ * WHICH IS FIRST is the bar's own geometry: the face advances rightward
+ * (shatterColdCryo reads `compactor.x + width/2`), so the smallest x is next.
+ *
+ * THREE EXCLUSIONS, each of which is a wasted charge rather than a nicety:
+ *  - STRANDED cargo, left of compactor.strandCutoffX. The bar can never reach
+ *    it, so it is never pressed and never shatters — markLostPieces is what
+ *    happens to it instead. Without this line a stranded cube would have the
+ *    smallest x on the field and would swallow every charge in the rack.
+ *  - Cubes ABOVE the bar's reach (the same `position.y < compactor.top` test
+ *    shatterColdCryo makes), which the press does not touch either.
+ *  - Cubes still MOVING. strikeCryo refuses to thaw a cube that is not already
+ *    at rest — "it is the target, not the projectile" — and a lance that
+ *    thawed shipments in flight would delete the sequencing the material is,
+ *    rather than pay for it.
+ */
+export function nextColdCryo(cubes: Cube[], compactor: Compactor): Cube | null {
+  let best: Cube | null = null;
+  for (const cube of cubes) {
+    if (cube.blinkStart !== null || cube.struck) continue;
+    if (!MATERIAL_SPEC[cube.material].needsStrike) continue;
+    const b = cube.body;
+    if (b.position.y < compactor.top) continue;
+    if (b.position.x < compactor.strandCutoffX) continue;
+    if (b.velocity.x * b.velocity.x + b.velocity.y * b.velocity.y >= SETTLE_SQ) continue;
+    if (!best || b.position.x < best.body.position.x) best = cube;
+  }
+  return best;
+}
+
+/**
  * Penalty path (ports main.py's check_pieces_on_left_side): settled cubes the
  * compactor bar can NEVER reach decay for a point penalty, instead of sitting
  * as unreachable dead weight forever. The cutoff is derived from the bar

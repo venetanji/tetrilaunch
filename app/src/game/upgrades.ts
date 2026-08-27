@@ -27,9 +27,68 @@ import {
  * whatever ship you're flying.
  */
 export type UpgradeId =
-  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition";
+  | "bay" | "launcher" | "hydraulics" | "magazine" | "reactor" | "bonds" | "demolition"
+  | "thaw";
 
 export const MAX_TIER = 3;
+
+/**
+ * Thaw Lance charges per tier, PER BAY on the ladder.
+ *
+ * Sized against the belt, not against a feel, and the sizing is the reason the
+ * unit is a bay rather than a run. hazards.ts puts cryo's first notch at
+ * MATERIAL_BASE (0.07 of the belt) and belt.ts caps the belt at one special in
+ * three, so a cryo run meets frozen shipments in EVERY bay, forever — 3-4 of
+ * them a bay at one notch. Cryo is not an emergency, it is a TAX, and a
+ * once-a-run answer to a per-bay tax is not an answer. That is this track's one
+ * real disagreement with the Bond Emitter it sits beside, whose charge IS an
+ * emergency reset and is therefore rightly a run-long magazine of three.
+ *
+ * THREE A TIER, AND THE PROPOSAL SAID TWO. The proposal's own belt arithmetic
+ * is what overruled it: one notch puts "3-4 frozen cubes a bay" on the floor,
+ * and a rung that covers half of them covers nothing. Measured at Tier 5 bay 5,
+ * 48 paired seeds, against a 46/48 clean control and 29/48 at cryo:1:
+ *
+ *            2 / 4 / 6 a tier      3 / 6 / 9 a tier
+ *   tier 1   29/48  (+0)           35/48  (+6)
+ *   tier 2   38/48                 42/48
+ *   tier 3   42/48                 43/48
+ *
+ * At two a tier the FIRST RUNG BUYS NOTHING — 29/48 against an un-lanced
+ * 29/48, and upgrades.ts's own refit-projection note is about exactly that
+ * failure ("a shop where a purchase projects nothing teaches that the purchase
+ * does nothing"). At three it buys six bay-wins, and every rung above it still
+ * pays: shots fall 33.3 → 32.6 → 28.0 → 26.9 against the clean bay's 25.6, and
+ * ending funds climb $776 → $962 → $1149 → $1201 against its $1260. A ladder
+ * that converges on the control without reaching it is the shape hazards.ts
+ * asks a counter to have — the hazard survives it.
+ *
+ * (An earlier 24-seed pass read the first rung as actively HARMFUL, 15/24
+ * against 17/24. It is flat, not harmful; that comparison was two wins wide on
+ * a sample whose standard error is two. The findings doc's own rule applies —
+ * no number read at 24 seeds where a 48-seed one exists.)
+ *
+ * WHERE IT STOPS, stated because it is the number a play pass will want to
+ * raise. At three notches of cryo (17% of the belt) on a late bay, 48 paired
+ * seeds: 21/48 un-lanced, 34/48 with the lance MAXED, against a 45/48 clean
+ * control. So the capstone buys back a little over half of what a three-notch
+ * stack costs and leaves the bay eleven wins short of a clean one; at 24 seeds
+ * the lower two tiers stay inside the noise there (10/24 and 9/24 against
+ * 9/24). The lance therefore scales PARTIALLY into a cryo build and never
+ * erases one, which is the shape it should have — it is an answer to the
+ * FORCED first notch (hazards.ts's MATERIAL_DRAFT_BAYS, from Mark 5), and a
+ * player who pours every notch into cryo has bought a problem no system on the
+ * shelf is sized to undo. If a cryo BUILD should be survivable, this constant
+ * is the wrong lever and the material's rate is the right one.
+ *
+ * (This is the one place the shipped system reads STRONGER than the prototype
+ * that priced it: counters.ts's rig thawed the first eligible cube in the field
+ * list, and the real lance takes the cube the press is about to reach — a
+ * strictly better target, and worth more the more cryo there is to choose
+ * between. The proposal's "buys back two, inside the noise" was an honest
+ * reading of a naive rig.)
+ */
+export const THAW_CHARGES_PER_TIER = 3;
 
 /** Scrap cost to go from tier t-1 to tier t, for every track. One shared
  *  ladder rather than per-track pricing: the tracks are meant to be balanced
@@ -279,12 +338,46 @@ export const UPGRADES: UpgradeDef[] = [
       }
     },
   },
+  {
+    id: "thaw",
+    name: "Thaw Lance",
+    glyph: "THW",
+    blurb: "Thaw charges every bay — melt the frozen cube the press is about to reach.",
+    tiers: [
+      `+${THAW_CHARGES_PER_TIER} charges per bay`,
+      `+${THAW_CHARGES_PER_TIER * 2} charges per bay`,
+      `+${THAW_CHARGES_PER_TIER * 3} per bay — a cryo-heavy build, and still not a Cold Chain final`,
+    ],
+    current: (t) => (t === 0 ? "no charges" : `+${THAW_CHARGES_PER_TIER * t} charges/bay`),
+    step: () => ({ dir: "up", text: `+${THAW_CHARGES_PER_TIER} charges` }),
+    apply(cfg, tier) {
+      // The config-layer half of the same rule run.ts's thawChargesFor states
+      // for a run — one grant, `THAW_CHARGES_PER_TIER` a tier — exactly as the
+      // Bond Emitter's `+= tier` line mirrors bondChargesFor. In a RUN this is
+      // then overwritten by levelForRun with what the run actually has left,
+      // because the two modes disagree about resupply (a ladder run's rack is
+      // refilled at every bay boundary, a Skydeck run's never is). Outside a
+      // run — a single bay flown headlessly — this line is the whole story.
+      //
+      // NOTHING ELSE. No passive rides the higher tiers, which is the
+      // difference between this track and the Bond Emitter's Seam Splitter, and
+      // it is deliberate rather than unfinished: the emitter's charges are RARE
+      // (three for ten bays), so its tiers 2-3 needed something else to be
+      // paying for. Charges that renew every bay are already a ladder — the
+      // measurement above prices each rung on its own — and a passive bolted on
+      // top would make the tier buy two things and price neither.
+      cfg.thawCharges += THAW_CHARGES_PER_TIER * tier;
+    },
+  },
 ];
 
 export type UpgradeTiers = Record<UpgradeId, number>;
 
 export function newTiers(): UpgradeTiers {
-  return { bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0 };
+  return {
+    bay: 0, launcher: 0, hydraulics: 0, magazine: 0, reactor: 0, bonds: 0, demolition: 0,
+    thaw: 0,
+  };
 }
 
 /**
@@ -488,9 +581,22 @@ export function clearTrack(order: RefitOrder, id: UpgradeId): RefitOrder {
  * leaderboard.
  * ------------------------------------------------------------------------- */
 
-/** Ladder cost of every track maxed: 7 tracks x (20+35+55) = 770. Derived, not
- *  typed in, so re-pricing TIER_COSTS or adding an eighth system can't leave a
- *  stale constant behind. */
+/** Ladder cost of every track maxed: 8 tracks x (20+35+55) = 880. Derived, not
+ *  typed in, so re-pricing TIER_COSTS or adding a system can't leave a stale
+ *  constant behind — and the eighth track this note used to anticipate (the
+ *  Thaw Lance) arrived and moved it from 770 without a line changing here.
+ *
+ *  THAT MOVE IS THE DESIGN, not a side effect to be frozen out. budgetForMark
+ *  is defined as "one system's money at Mark 1, a fully-kitted rig at Mark 10";
+ *  pinning the total while the roster grows would quietly break the second half
+ *  of that promise, leaving Mark 10 one track short of everything. Every Mark's
+ *  allowance therefore rose by an eighth (Mark 1 77 → 88, Mark 5 385 → 440,
+ *  Mark 10 770 → 880). MEASURED rather than assumed harmless: the winnability
+ *  sweep's Tier-5 `material` rig is the same six tracks at tier 2 (330 pts) at
+ *  both budgets, because the Workshop's own ceiling — not the allowance — is
+ *  what binds there, so the counter table below is paired against an unchanged
+ *  control. See meta.ts's installAvailable for the relationship that survives
+ *  the move exactly. */
 export const FULL_BUILD_COST = UPGRADES.length * TIER_COSTS.reduce((a, b) => a + b, 0);
 
 /** Marks in the ladder. Placeholder that rhymes with RUN_LEVELS; the real

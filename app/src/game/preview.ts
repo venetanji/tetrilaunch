@@ -297,6 +297,20 @@ const FIELDS: Field[] = [
     read: (c) => c.bombCharges, fmt: int, higherIsWorse: false,
   },
   {
+    // What is LEFT in the rack, for the same reason the Bond Breaker row reads
+    // the magazine rather than the grant: levelForRun overwrites the config's
+    // charges with RunState.thawCharges, so a refit projects the delta the
+    // rung issues on top of what the bay already spent. That distinction has
+    // one more consequence here than it does there — on the Skydeck the lance
+    // never resupplies (run.ts's advanceRun), so this row is the only place a
+    // player can see what a rung actually adds to a magazine that is not
+    // coming back. There is no yard on the Skydeck today, which makes the row
+    // a promise the mode cannot yet call in rather than a claim it disagrees
+    // with.
+    id: "thaw", label: "Thaw charges", short: "Thaw",
+    read: (c) => c.thawCharges, fmt: int, higherIsWorse: false,
+  },
+  {
     // The Demolition Rack's capstone is a CHANGE IN KIND rather than more
     // charges, so a projection that only counted charges would show its third
     // tier buying the same +2 the second one did. Three rows, because it moves

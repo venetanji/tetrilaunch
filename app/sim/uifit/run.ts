@@ -741,11 +741,11 @@ function measure(cfg: {
     seat("chute mouth right vs panel right", fieldX + mouth.x1 * fieldW, p.right);
   }
 
-  // --- rack: the seven system slots must all be reachable at a glance -------
+  // --- rack: every system slot must be reachable at a glance ----------------
   // The build row scrolls horizontally, which is right for the HAZARD chips
   // after it — a deep run banks up to ten distinct axes and no panel holds
-  // them — but wrong for the ship's systems. There are exactly seven, they are
-  // the same seven for the whole run, and they are the readout a player checks
+  // them — but wrong for the ship's systems. There is a fixed set of them, the
+  // same set for the whole run, and they are the readout a player checks
   // mid-bay to know what their rig can do; one of them parked off the right
   // edge is not a readout, it is a thing you have to remember to go looking
   // for. So the slots are sized to the narrowest panel in the matrix rather
