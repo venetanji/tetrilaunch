@@ -191,9 +191,9 @@ function materialTopics(lv: LevelConfig): GuideTopic[] {
     },
     {
       m: "rebar", axis: "rebar",
-      body: `Nothing breaks rebar. No landing shatters it and the press cannot split it, so`
-        + ` <b>what lands is what you keep</b> — aim it whole and flat. A <b>Bond Breaker</b>`
-        + ` is the only thing that splits it.`,
+      body: `Nothing breaks rebar, so <b>what lands is what you keep</b> — aim it whole and`
+        + ` flat. The press cannot crush a bar either: it <b>labours</b> while bar stock`
+        + ` stands in its path. A <b>Bond Breaker</b> splits it, and the press runs free.`,
     },
     {
       m: "slag", axis: "slag",

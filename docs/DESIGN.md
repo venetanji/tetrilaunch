@@ -763,7 +763,7 @@ introduction order:
 |---|---|---|
 | **Slag** ✅ | occupies a slot, can never count toward a line | Demolition, or shove it out — and blowing it up **pays a bounty** (ECONOMY.md) |
 | **Cryo** ✅ | must be struck before it will compact; pressed cold it shatters the line | sequencing — or a **Thaw Lance** charge, which pays for the strike but never for the shatter |
-| **Rebar** ✅ | joints never break — a rigid anchor | building around it |
+| **Rebar** ✅ | joints never break — a rigid anchor, and the press **labours** against every bar it cannot crush | building around it, or a **Bond Breaker** — which frees the press as well as the shape |
 | **Volatile** ✅ | detonates on hard impact, taking neighbours | soft landings, or deliberate chains |
 | **Tar** ✅ | bonds permanently on contact; Bond Breaker won't split it | avoidance |
 | **Magnetic** ✅ | self-aligns to neighbours — a *helpful* blocker | pairs with loose builds |
