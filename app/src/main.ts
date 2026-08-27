@@ -1763,12 +1763,39 @@ class App {
     // the plate's width and made the primary button grow and shrink for the
     // length of the trip (reported from a device).
     this.rollPlate(state.selected, tier, dur);
+    // ...and the destination panel rolls with it, on the same clock and in the
+    // same direction, so the screen makes ONE move when the car does. Only on a
+    // ride: the panel is also built at menu mount and rebuilt on the way back
+    // from a run, and neither of those is a change the player made — an
+    // odometer spinning on arrival would be the screen animating its own
+    // initial state.
+    this.rollBayStats(state.selected, tier, dur);
+    // ARM THE FIVE TOGETHER, and do it BEFORE the landing timer is registered.
+    // Both halves matter. Arming synchronously is what puts the tracks on the
+    // same clock as the car (see armRolls); registering the timeout after it is
+    // what guarantees the teardown can only ever be LATE — `setTimeout(dur)`
+    // fires no earlier than `dur` after this line, and the transitions are
+    // already running by the time it is written, so completion cannot fall on
+    // the far side of it.
+    this.armRolls();
     this.setPlaySub(null);
     window.clearTimeout(this.towerTravel ?? undefined);
-    this.towerTravel = window.setTimeout(() => {
+    // The car's clock decides WHEN the screen lands; the rolls get to say the
+    // last word on whether they are done. `rollRemainingMs` is normally a frame
+    // or less (see armRolls and rollRemainingMs for why it is never quite
+    // zero), so this re-arms at most once and the ride does not get visibly
+    // longer — it just stops ending early.
+    const land = (): void => {
+      const left = this.rollRemainingMs();
+      if (left > 0) {
+        this.towerTravel = window.setTimeout(land, Math.ceil(left));
+        return;
+      }
       this.towerTravel = null;
+      this.rollArmed = [];
       this.setSelectedTier(tier);
-    }, dur);
+    };
+    this.towerTravel = window.setTimeout(land, dur);
   }
 
   /**
@@ -1785,27 +1812,213 @@ class App {
     if (!n) return;
     const face = (t: number): string =>
       t === S.SKYDECK_TIER ? "★" : t === S.SANDBOX_TIER ? "S" : String(t);
-    // A HIGHER tier is a higher floor — SKYDECK_TIER is above every Mark, so
-    // the same comparison covers the Skydeck with no special case. Tier S is the
-    // one floor whose id does NOT order with its height (it is -1 and sits on
-    // the roof), so the direction is taken from the shaft index instead, which
-    // is the number the car is actually moving through.
-    const up = S.towerIndexOf(to) < S.towerIndexOf(from);
-    const cells = up ? [from, to] : [to, from];
-    n.style.setProperty("--roll-dur", `${dur}ms`);
-    n.style.setProperty("--roll-from", up ? "0" : "-1em");
-    n.style.setProperty("--roll-to", up ? "-1em" : "0");
-    n.innerHTML = `<span class="tier-plate__roll">${cells.map((t) => `<b>${face(t)}</b>`).join("")}</span>`;
+    this.roll(n, face(from), face(to), this.ridingUp(from, to), dur);
+  }
+
+  /**
+   * Is the car travelling UP the shaft from `from` to `to`?
+   *
+   * A HIGHER tier is a higher floor — SKYDECK_TIER is above every Mark, so the
+   * same comparison covers the Skydeck with no special case. Tier S is the one
+   * floor whose id does NOT order with its height (it is -1 and sits on the
+   * roof), so the direction is taken from the shaft index instead, which is the
+   * number the car is actually moving through.
+   *
+   * Its own method because everything that rolls has to agree about it: the
+   * plate and the four destination readouts roll TOGETHER, and one of them
+   * deciding "up" while the others decided "down" would read as the panel
+   * arguing with itself.
+   */
+  private ridingUp(from: number, to: number): boolean {
+    return S.towerIndexOf(to) < S.towerIndexOf(from);
+  }
+
+  /**
+   * Roll one readout from `fromHTML` to `toHTML` over `dur`, in the direction
+   * the car is going.
+   *
+   * Two cells in a track, ordered so the incoming value enters from the side
+   * the car is heading towards: riding UP the tower the old value leaves
+   * through the top, riding down it leaves through the bottom.
+   *
+   * `cellH` is the height of ONE cell and defaults to the 1em the tier plate's
+   * `line-height: 1` number box already is. The destination panel's readouts
+   * inherit `line-height: normal` instead, which is 13px against their 11px
+   * font — so they measure their resting box and pass it in rather than being
+   * cropped by two pixels for the length of the ride. See app.css's odometer
+   * block for why that number cannot be hard-coded.
+   */
+  private roll(el: HTMLElement, fromHTML: string, toHTML: string, up: boolean, dur: number,
+    cellH?: number): void {
+    const h = cellH === undefined ? "1em" : `${cellH}px`;
+    const cells = up ? [fromHTML, toHTML] : [toHTML, fromHTML];
+    el.style.setProperty("--roll-h", h);
+    el.style.setProperty("--roll-dur", `${dur}ms`);
+    el.style.setProperty("--roll-from", up ? "0px" : `calc(-1 * ${h})`);
+    el.style.setProperty("--roll-to", up ? `calc(-1 * ${h})` : "0px");
+    el.innerHTML = `<span class="roll">${cells.map((c) => `<b>${c}</b>`).join("")}</span>`;
     // Cleared before the new track is armed. A second tap while the first roll
     // is still running would otherwise find `is-rolled` already set, so the
-    // fresh track would render at its END offset immediately and the rAF pair
-    // below would have nothing left to transition — the number would snap.
-    n.classList.remove("is-rolled");
-    n.classList.add("is-rolling");
-    // Two frames, not one: the track has to be laid out AT the start offset
-    // before the end offset can transition from it, and a single rAF still
-    // lands inside the same style flush on WebKit.
-    requestAnimationFrame(() => requestAnimationFrame(() => n.classList.add("is-rolled")));
+    // fresh track would render at its END offset immediately and `armRolls`
+    // would have nothing left to transition — the value would snap.
+    el.classList.remove("is-rolled");
+    el.classList.add("is-rolling");
+    // Prepared, not armed. Every track built in one tick is armed together by
+    // armRolls below, which is what puts all five on the car's own clock.
+    this.rollPending.push(el);
+  }
+
+  /** Tracks built by `roll` this tick, waiting to be armed together. */
+  private rollPending: HTMLElement[] = [];
+
+  /**
+   * Start every prepared roll, synchronously, in this task.
+   *
+   * THIS IS THE LIFT'S CLOCK, and getting the five onto it is the whole job.
+   * `pickTier` starts the car's transition and registers the landing timeout
+   * (`setSelectedTier` after `dur`) in one tick; the tracks used to arm two
+   * `requestAnimationFrame`s later. A transition that starts late finishes
+   * late, and the timeout does not know that — so the teardown landed on the
+   * tracks BEFORE they finished, by exactly the arming delay, every single
+   * ride. Measured on the built app, riding four floors at `--roll-dur: 640ms`:
+   * the transitions began at t+64.6ms and would have ended at t+704.6, while
+   * the panel was rebuilt at t+649.0. The last 56ms of travel never happened —
+   * and it is the part that matters, because the curve
+   * (`--roll-ease`, cubic-bezier(0.34, 1.28, 0.64, 1)) spends its tail settling
+   * back out of the overshoot. `transitionend` never fired at all; removal
+   * cancels it. On a 60Hz display the theft is ~33ms and on 120Hz ~17ms, but it
+   * is never zero and it is never in the player's favour.
+   *
+   * Two forced reflows, and both are load-bearing:
+   *
+   *  - the first commits every prepared track AT its start offset, which is
+   *    what the old rAF pair was really for — a transition needs a committed
+   *    "before" value to move away from, and a single rAF still lands inside
+   *    the same style flush on WebKit. A synchronous layout read is strictly
+   *    stronger than either: it IS the flush, and it happens now.
+   *  - the second commits the end offset, which creates the transitions inside
+   *    this task rather than at the next frame. Without it the tracks would
+   *    still start one frame after the car, and the teardown would still be one
+   *    frame early.
+   *
+   * One flush for all five rather than one each, so "the plate and the four
+   * readouts start on the same tick" is a property of the mechanism rather than
+   * something that happens to be true — and so a ride costs two layouts instead
+   * of ten.
+   */
+  private armRolls(): void {
+    if (this.rollPending.length === 0) return;
+    void this.overlay.offsetHeight;
+    for (const el of this.rollPending) el.classList.add("is-rolled");
+    void this.overlay.offsetHeight;
+    this.rollArmed = this.rollPending;
+    this.rollPending = [];
+  }
+
+  /** The tracks armed for the ride in flight — what `rollRemainingMs` asks. */
+  private rollArmed: HTMLElement[] = [];
+
+  /**
+   * How much travel the armed rolls still owe, in ms. 0 when nothing is moving.
+   *
+   * The last frame of the race, and the one synchronous arming cannot win. A
+   * CSS transition created inside a task does not START in that task: it is
+   * assigned a start time at the next rendering update, so its clock begins up
+   * to one frame after `setTimeout(dur)` began counting and it finishes that
+   * much after the timer fires. Measured after arming was made synchronous, the
+   * rolls were still cut off at 0.937 of their travel — 599.9ms of a 640ms ride
+   * — because the timer's 640ms was spent from a moment 40ms before the
+   * transitions' own zero.
+   *
+   * So the landing ASKS rather than assumes. This is read at the moment the
+   * timer fires, off the animations themselves, and `pickTier` waits out
+   * whatever is left. That makes "the teardown never precedes completion" true
+   * by construction at any refresh rate, rather than true at 60Hz and false on
+   * a 120Hz phone.
+   *
+   * Only RUNNING animations count, which is what keeps the two states that have
+   * no travel from waiting for one: under `prefers-reduced-motion` the track
+   * has `transition: none` and there is no animation to find, and a transition
+   * cancelled by a second tap is no longer running either. Both answer 0 and
+   * land on time.
+   */
+  private rollRemainingMs(): number {
+    let most = 0;
+    for (const el of this.rollArmed) {
+      for (const a of el.getAnimations()) {
+        if (a.playState !== "running") continue;
+        const end = Number(a.effect?.getComputedTiming().endTime ?? 0);
+        const now = Number(a.currentTime ?? 0);
+        most = Math.max(most, end - now);
+      }
+    }
+    return most;
+  }
+
+  /**
+   * Roll the destination panel's four readouts alongside the plate.
+   *
+   * The panel answers "what is this floor like to fly", and riding the tower
+   * changes every word of that answer — but the panel used to sit still for the
+   * whole trip and then swap instantly when `setSelectedTier` rebuilt it, while
+   * the plate one column over rolled the whole way. Same event, two different
+   * accounts of it.
+   *
+   * BOTH SIDES ARE RENDERED, rather than the current values being read back out
+   * of the DOM. `baseBayPanelHTML` is the one place these four strings are
+   * formatted — the dollar signs, the arrow, the mm:ss, the ×N and the
+   * capstone's ∞ — and re-deriving them here would be a second copy to keep in
+   * step. Rendering the FROM side too (instead of reading the live elements)
+   * also makes this re-entrant for free: a second tap mid-ride finds elements
+   * whose innerHTML is a half-finished roll track, where `state.selected` is
+   * still the floor the car actually left. That is the same number rollPlate
+   * takes, which is what keeps the five in sync when a player taps twice.
+   *
+   * UNCHANGED VALUES ARE LEFT ALONE, and this is not an optimisation. A track
+   * of two identical cells does not look still while it moves — at any offset
+   * between them you see the bottom of one copy above the top of the other, so
+   * an unchanged readout would spend the ride visibly torn in half and land on
+   * the number it started with. It is not a hypothetical: every adjacent Mark
+   * step changes all four, but the Skydeck reads MARK_COUNT's bays, so riding
+   * between Mark 10 and the roof changes NONE of them — the one trip where the
+   * uniform sweep would tear all four readouts at once, in exchange for saying
+   * nothing. A readout that did not change is a fact worth showing, and holding
+   * still is how this panel says it.
+   */
+  private rollBayStats(from: number, to: number, dur: number): void {
+    const panel = this.overlay.querySelector<HTMLElement>(".base-bay");
+    if (!panel) return;
+    const values = (tier: number): Map<string, string> => {
+      const box = document.createElement("div");
+      box.innerHTML = S.baseBayPanelHTML({
+        tier,
+        best: 0,
+        skydeck: this.skydeckRules(),
+      });
+      const out = new Map<string, string>();
+      for (const cell of box.querySelectorAll<HTMLElement>(".bay-stat")) {
+        const label = cell.querySelector(".bay-stat__lbl")?.textContent?.trim();
+        const value = cell.querySelector(".bay-stat__val")?.innerHTML;
+        if (label && value !== undefined) out.set(label, value);
+      }
+      return out;
+    };
+    // Paired by LABEL rather than by position: the two panels are built by
+    // different functions (the Skydeck and the Marks share one, Tier S has its
+    // own) and a future reorder of either would otherwise roll Clock's value
+    // into the Bonds cell with nothing to catch it.
+    const before = values(from);
+    const after = values(to);
+    const up = this.ridingUp(from, to);
+    for (const cell of panel.querySelectorAll<HTMLElement>(".bay-stat")) {
+      const label = cell.querySelector(".bay-stat__lbl")?.textContent?.trim();
+      const el = cell.querySelector<HTMLElement>(".bay-stat__val");
+      if (!label || !el) continue;
+      const was = before.get(label);
+      const now = after.get(label);
+      if (was === undefined || now === undefined || was === now) continue;
+      this.roll(el, was, now, up, dur, el.getBoundingClientRect().height);
+    }
   }
 
   /**

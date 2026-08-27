@@ -4275,6 +4275,213 @@ section("Chrome scale (layout.ts uiScaleFor / data-density)");
 }
 
 // ---------------------------------------------------------------------------
+section("The odometer (app.css .roll — the lift's readouts)");
+// Riding the tower changes the tier plate's number AND the destination panel's
+// four readouts, and one shared mechanism rolls all five so the screen makes
+// one move rather than five. The parts worth pinning are the ones that would
+// break silently: the motion is a TRANSFORM (a roll that laid out would drag
+// the panel's grid for the length of every ride), the curve is one token the
+// car also uses (two copies would drift and the panel would stop travelling
+// with the lift), reduced motion keeps the value and drops the travel, and the
+// cells inherit their host's truncation.
+{
+  const styles = (name: string): string =>
+    fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", name),
+      "utf8",
+    );
+  const css = styles("app.css");
+  const tokens = styles("tokens.css");
+
+  // ONE CURVE, ONE TOKEN. The whole point of this change is that the panel
+  // reads as travelling WITH the car, which is only true while the two share an
+  // easing. They were the same literal cubic-bezier in two rules before this;
+  // a token is what stops one of them being tuned alone.
+  check("the lift's easing is a token, not a literal repeated per rule",
+    /--roll-ease:\s*cubic-bezier\([^)]*\)/.test(tokens),
+    "no --roll-ease in tokens.css");
+  // Comments stripped first — the prose around these rules names the curve to
+  // explain which motions deliberately do NOT use it, and a mention is not a
+  // second copy.
+  const cssBare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const literals = [...cssBare.matchAll(/cubic-bezier\(0\.34,\s*1\.28,\s*0\.64,\s*1\)/g)].length;
+  check("...and no rule still carries that curve as a literal", literals === 0,
+    `${literals} literal copies left in app.css`);
+  const usesEase = [...css.matchAll(/transition:[^;]*var\(--roll-ease\)/g)].length;
+  check("the car and the odometer both ride it", usesEase >= 2, `${usesEase} user(s)`);
+
+  // THE LAYOUT CONTRACT, the same one the loss dial's keyframes are held to.
+  // The track is transformed; nothing here may animate a box. A `height` or
+  // `top` in this transition would move the panel's whole grid for the length
+  // of every ride, on a screen whose column budgets are measured to the pixel.
+  const rollRule = css.slice(css.indexOf(".is-rolling .roll {"));
+  const rollBody = rollRule.slice(rollRule.indexOf("{") + 1, rollRule.indexOf("}"));
+  // The WHOLE shorthand, split on its own TOP-LEVEL commas. Two traps here and
+  // this check fell into both while it was being written: `transition` takes a
+  // LIST, so reading only the first property lets `transform ..., height ...`
+  // sail straight past — and a naive split on every comma tears
+  // `var(--roll-dur, 355ms)` in half and reports the fallback as an animated
+  // property. Depth-tracking is what distinguishes a list separator from a
+  // comma inside a function.
+  const transitionList = rollBody.match(/transition:\s*([^;]+);/)?.[1] ?? "";
+  const segments: string[] = [];
+  let depth = 0;
+  let seg = "";
+  for (const ch of transitionList) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { segments.push(seg); seg = ""; continue; }
+    seg += ch;
+  }
+  segments.push(seg);
+  const animated = segments.map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
+  check("the roll animates transform and nothing else",
+    animated.length > 0 && animated.every((p) => p === "transform"), animated.join(", "));
+
+  // The cell height is a VARIABLE with a 1em default, and that is load-bearing
+  // rather than tidy: the plate's number sets `line-height: 1` so 1em is its
+  // line box, while .bay-stat__val inherits `normal` and measures 13px against
+  // its 11px font. A hard-coded 1em would crop every readout by 2px while it
+  // rolled. main.ts measures the resting box and passes it in.
+  // BOTH boxes, counted — the window and the cells inside it. Asserting the
+  // pattern merely EXISTS passes while one of the two is hard-coded, and a
+  // hard-coded window with variable cells is precisely the 2px crop this is
+  // here to prevent.
+  const sized = [...css.matchAll(/height:\s*var\(--roll-h,\s*1em\)/g)].length;
+  check("both the roll's window and its cells take the overridable height",
+    sized >= 2, `${sized} of the 2 boxes use var(--roll-h, 1em)`);
+
+  // Reduced motion: the theatre goes, the teaching stays. With no transition
+  // the track is laid out at its END offset on the first frame, so the new
+  // value is simply there — which is the same treatment the plate has always
+  // had, and the reason this is one line rather than a second set of keyframes.
+  const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)",
+    css.indexOf(".is-rolling .roll {")));
+  check("reduced motion drops the travel and keeps the value",
+    /\.is-rolling \.roll\s*\{\s*transition:\s*none/.test(reduced.slice(0, 200)),
+    reduced.slice(0, 160).trim());
+
+  // Each cell keeps its host's truncation. `.bay-stat__val` ellipsizes — the
+  // clock's "2:24 · 10 bays" is over budget on the narrowest phones and
+  // sim/uifit warns about exactly that — and that behaviour lives on the
+  // element whose contents the roll replaces, so without this the longest
+  // readout would grow its cell and push the track out of its own window.
+  check("a rolling cell inherits the readout's own truncation",
+    /\.roll > b\s*\{[^}]*white-space:\s*inherit[^}]*text-overflow:\s*inherit/.test(css),
+    "the roll's cells do not inherit white-space/text-overflow");
+
+  // WHY THE UNCHANGED-VALUE GATE EXISTS, stated as the fact that forces it.
+  // A track of two identical cells does not look still while it moves: at any
+  // offset you see the bottom of one copy above the top of the other, so an
+  // unchanged readout would spend the ride torn in half to say nothing. Every
+  // adjacent Mark step changes all four values — but the Skydeck flies
+  // MARK_COUNT's bays, so a ride between the top Mark and the roof changes
+  // none of them. That is the trip the gate is for, and if the balance ever
+  // separates the two this check says the example has gone stale.
+  const statsFor = (tier: number): string[] => {
+    const html = S.baseBayPanelHTML({ tier, best: 0 });
+    return [...html.matchAll(/class="bay-stat__val"[^>]*>([^<]*)</g)].map((m) => m[1]);
+  };
+  const top = statsFor(MARK_COUNT);
+  const roof = statsFor(S.SKYDECK_TIER);
+  check("the roof quotes the top Mark's bay, so a ride between them changes no readout",
+    top.length === 4 && JSON.stringify(top) === JSON.stringify(roof),
+    `${JSON.stringify(top)} vs ${JSON.stringify(roof)}`);
+  // ...and the adjacent Marks are the opposite case, so the gate can never be
+  // mistaken for "this panel never animates".
+  let movedEverywhere = true;
+  for (let m = 2; m <= MARK_COUNT; m++) {
+    const a = statsFor(m - 1), b = statsFor(m);
+    if (a.some((v, i) => v === b[i])) movedEverywhere = false;
+  }
+  check("...while every adjacent Mark step changes all four", movedEverywhere,
+    "some adjacent pair shares a readout, so a normal ride would hold one still");
+
+  // --- THE ROLL RUNS ON THE LIFT'S CLOCK ------------------------------------
+  // The half of this mechanism that lives in main.ts, and the one a screenshot
+  // cannot catch: WHEN the tracks start and when they are allowed to be taken
+  // away. `pickTier` starts the car and registers the landing timeout in one
+  // tick, and the tracks used to arm two requestAnimationFrames later — so
+  // every ride tore the five tracks down before their own transitions had
+  // finished, by exactly the arming delay. Measured on the built app before the
+  // fix, riding four floors at 640ms: the transitions began at t+64.6ms and
+  // would have ended at t+704.6, while setSelectedTier rebuilt the panel at
+  // t+649.0, and `transitionend` never fired at all because removal cancels it.
+  //
+  // The delay is not a fixed two frames either; it is however long two frames
+  // happen to take, on a menu that is simultaneously running the attract demo's
+  // physics. That is the case worth pinning: at a steady 60Hz the theft is
+  // ~33ms and barely visible, and on a stuttering frame it is whatever the
+  // stutter was.
+  //
+  // Read out of main.ts because it is a SOURCE property — there is no rAF, no
+  // transition and no compositor in this process, so what can be asserted is
+  // that the code cannot reintroduce the shape that caused it.
+  const mainTs = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "main.ts"),
+    "utf8",
+  );
+  const bodyOf = (name: string): string => {
+    const at = mainTs.indexOf(`private ${name}(`);
+    if (at < 0) return "";
+    let depth = 0;
+    let i = mainTs.indexOf("{", at);
+    const start = i;
+    for (; i < mainTs.length; i++) {
+      if (mainTs[i] === "{") depth++;
+      else if (mainTs[i] === "}" && --depth === 0) return mainTs.slice(start, i + 1);
+    }
+    return "";
+  };
+  const rollFn = bodyOf("roll").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const armBody = bodyOf("armRolls").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const pickBody = bodyOf("pickTier").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  check("the roll builder exists and no longer arms on a frame callback",
+    rollFn.length > 0 && !/requestAnimationFrame/.test(rollFn),
+    "roll() still defers `is-rolled` to requestAnimationFrame");
+  // Arming is one synchronous flush for all five, which is what makes "the
+  // plate and the four readouts start on the same tick" a property rather than
+  // a coincidence. Two forced reads: one to commit the start offset (what the
+  // rAF pair was really for), one to create the transitions inside this task.
+  check("...they are armed together, synchronously, by armRolls",
+    armBody.length > 0 && !/requestAnimationFrame/.test(armBody)
+      && /is-rolled/.test(armBody),
+    "armRolls() is missing or does not add is-rolled itself");
+  check("...with a forced reflow either side of the arm",
+    (armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length >= 2,
+    `${(armBody.match(/offsetHeight|getBoundingClientRect|offsetWidth/g) ?? []).length} forced layout reads in armRolls`);
+
+  // ORDER, inside pickTier: arm, then register the landing timer. Registering
+  // first would spend part of the ride's budget before the tracks exist.
+  const armAt = pickBody.indexOf("this.armRolls()");
+  const timerAt = pickBody.search(/setTimeout\(\s*land/);
+  check("pickTier arms the rolls before it starts the landing timer",
+    armAt >= 0 && timerAt >= 0 && armAt < timerAt, `arm@${armAt} timer@${timerAt}`);
+
+  // THE PROPERTY ITSELF: the teardown asks the tracks whether they are done.
+  // A transition created inside a task is not given its start time until the
+  // next rendering update, so even a synchronous arm finishes up to a frame
+  // after `setTimeout(dur)` fires — this is what closes that last frame, at any
+  // refresh rate rather than at 60Hz only.
+  check("the landing waits out whatever travel the rolls still owe",
+    /rollRemainingMs\(\)/.test(pickBody) && /setTimeout\(\s*land/.test(pickBody),
+    "pickTier lands on a bare timer with no completion check");
+  const remBody = bodyOf("rollRemainingMs").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  check("...measured off the animations themselves, counting only running ones",
+    /getAnimations\(\)/.test(remBody) && /playState/.test(remBody),
+    "rollRemainingMs does not read the tracks' own animations");
+  // Only RUNNING animations may count, and that is what keeps the two states
+  // with no travel from waiting forever for one: reduced motion sets
+  // `transition: none` (so there is no animation at all) and a transition
+  // cancelled by a second tap is not running either. A version that waited on
+  // `transitionend` instead would hang on both.
+  check("...so reduced motion and cancelled rolls land on time",
+    /playState\s*!==\s*"running"/.test(remBody),
+    "rollRemainingMs counts animations that are not running");
+}
+
+// ---------------------------------------------------------------------------
 section("The menu's demo panel is an equation (app.css --brand-w)");
 // The home screen's attract panel is 16:9 and shares its column with a shelf
 // that has a hard floor, so its width is not a taste decision — it is the
