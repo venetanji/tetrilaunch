@@ -73,6 +73,34 @@ export function loadoutFor(
 }
 
 /**
+ * The same loadout with one track TAKEN OUT OF THE ORDER — the rig a controlled
+ * experiment on that track needs.
+ *
+ * `sim/strategy-arms.ts` is the caller and the reason. It crosses "system off"
+ * against "system on" by granting the track through a kit, which only controls
+ * anything if the rig underneath carries none of it. Point that tool at
+ * `--build liner` (Impact Cushion first) and the loadout installs a liner
+ * before the arm's own tier is applied, so BOTH "off" arms fly with a cushion
+ * and every main effect and interaction in the table is measured against a
+ * contaminated control. Review found it; the arms tool now builds every arm on
+ * this instead.
+ *
+ * REMOVED FROM THE ORDER, not zeroed after the fact. Zeroing a tier leaves the
+ * budget it consumed unspent, which is a rig no Workshop would sell and a
+ * different one from either arm; dropping the track from the priority order and
+ * re-spending gives the rig a player who was not buying that system would
+ * actually build.
+ */
+export function loadoutWithoutTrack(
+  order: UpgradeId[],
+  mark: number,
+  track: UpgradeId,
+  budget = budgetForMark(mark),
+): UpgradeTiers {
+  return loadoutFor(order.filter((id) => id !== track), mark, budget);
+}
+
+/**
  * Named priority orders — the shapes a budget gets spent in.
  *
  * The first four are `marks.ts`'s ARCHETYPES, stated once here so the two
@@ -101,4 +129,28 @@ export const PRIORITY_ORDERS: Record<string, UpgradeId[]> = {
   material: ["demolition", "bonds", "reactor", "hydraulics", "bay", "launcher"],
   // Everything, in the order salvage would realistically reach it.
   full: ["reactor", "launcher", "demolition", "bonds", "hydraulics", "bay", "magazine"],
+  /* -------------------------------------------------------------------------
+   * THE TWO ORDERS THAT ACTUALLY BUY THE DECISION-SHAPED SYSTEMS.
+   *
+   * Neither the Thaw Lance nor the Impact Cushion appears in any order above,
+   * and `counters.ts` says so in as many words ("No `--build` order installs
+   * the track today, so this is a guard rather than a live case"). That was
+   * harmless while a kit was the only way to fly one — `--mode counter` grants
+   * the track onto the config and prices it in its own ladder points.
+   *
+   * It stopped being harmless the moment the cheapest-strategy search gained an
+   * AIMING dimension (`sim/aim-strategies.ts`): a search asking "what is the
+   * cheapest rig that clears, and which pilot flies it" cannot answer with a
+   * cushion-aware pilot if no rung of the ladder it walks ever installs a
+   * cushion. The strategy would read as worthless, for the third time in this
+   * harness's history, because the rig had no hands.
+   *
+   * Ordered counter-first, like `material` and for the same reason: the point
+   * of the order is to reach the system EARLY enough that the run is actually
+   * flown with it, not to model a plausible shopping list.
+   * ----------------------------------------------------------------------- */
+  // The cryo build: the lance first, then the press that sells what it thaws.
+  chill: ["thaw", "hydraulics", "bonds", "reactor", "bay", "launcher"],
+  // The volatile build: the liner first, then the room to use it.
+  liner: ["cushion", "bay", "hydraulics", "reactor", "bonds", "launcher"],
 };

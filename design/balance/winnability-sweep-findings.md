@@ -716,8 +716,15 @@ What that leaves open, in the order it should be answered:
    placed beside the Thaw Lance on the strength of "every rung buys wins". The
    rungs no longer separate under this pilot, so the price is now an untested
    claim rather than a measured one.
-3. **A pilot that can lob on purpose**, which is the smallest instrument change
-   that would make rung 2 and rung 3 distinguishable at all.
+3. ~~**A pilot that can lob on purpose**~~ **DONE, and it did not do what this
+   item expected.** `sim/aim-strategies.ts`'s `cushion` strategy lands volatile
+   in the liner on the slowest arc the search can fly and refuses to drop
+   anything hard onto a volatile cube already lying there. The re-run is in
+   `aim-strategy-findings.md`; the short version is that the play is worth real
+   wins and the three rungs *still* do not separate, for a reason no table here
+   could have shown: the aim search's softest power candidate arrives at 22.7
+   px/step and the FIRST liner rung already insures it at 25.3, so rungs 2 and 3
+   buy this pilot depth of liner and nothing else.
 
 ---
 
@@ -764,13 +771,20 @@ What that leaves open, in the order it should be answered:
 
 ## 7. What would strengthen this next
 
+> **TWO OF THESE ARE NOW BUILT.** The cryo-striking bot and the pilot that lobs
+> on purpose ship as `sim/aim-strategies.ts`, and what they measure is in
+> **`aim-strategy-findings.md`** — including the three-arm re-run of §5b-ter's
+> table and the answer to the question it left open. The remaining items below
+> stand.
+
 - **A pilot that reads the pile.** The largest open item in the ledger. Every
   number here is a floor because of it.
-- **A cryo-striking bot.** §5a measures the lance against a pilot that cannot
-  strike cryo with a shipment *at all*. A bot that aims its next shot at a
-  settled frozen cube would separate "cryo needs a system" from "cryo needs the
-  counter-play the game already has" — the same distinction `bots.ts`'s `demo`
-  drew for slag, and the reason that bot exists.
+- ~~**A cryo-striking bot.**~~ **DONE** — `aim-strategies.ts`'s `lance`
+  strategy sends the shipment at the frozen cube the lance is *not* going to
+  take. §5a measured the lance against a pilot that could not strike cryo with a
+  shipment at all; the separation this asked for — "cryo needs a system" versus
+  "cryo needs the counter-play the game already has" — is the no-rig row of the
+  arms table in `aim-strategy-findings.md`.
 - **More seeds on §2.** 8 seeds cannot distinguish a 10%-per-run Tier from a 0%
   one; the wall statistic is what makes the table readable at that sample size,
   and it is a coarse instrument.
