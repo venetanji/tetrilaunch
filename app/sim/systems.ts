@@ -2510,6 +2510,116 @@ section("Pattern variants (contracts.ts VARIANTS)");
 
 
 // ---------------------------------------------------------------------------
+section("The payout banner (screens.ts .salvage-row + app.css)");
+// ---------------------------------------------------------------------------
+// ONE format, eight callers: the run end's salvage-banked and tier-complete
+// rows and its Tier S replacement (sandboxEndRowHTML), plus the Contract end's
+// five variants (progress, complete, Tier S, Skydeck, replay). The stylesheet
+// sets the banner's type ONCE — one rule for the figure, one for the heading,
+// one for the sentence — which only reaches all eight while all eight keep the
+// same three-part shape. A variant that hand-rolled its own text column would
+// silently opt out of every size in that block, which is how this row ended up
+// being read at 11px/1.35 on a screen whose other explanatory copy is --fs-sm.
+{
+  const bannerOpts = {
+    name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
+    launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
+    cubesWasted: 0, salvageTotal: 66,
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
+  };
+  const runOpts = {
+    won: true, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
+    name: "ACE", rows: "", reason: null, bayNum: 3, bayName: "Bay",
+    boardTier: 1, runComplete: true,
+    progress: tierProgressFor(newMeta()), salvageTotal: 66, scrapEarned: 20,
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+  };
+  /** The eight banners, each labelled by the state it reports. */
+  const banners: Array<[string, string]> = [
+    ["run · salvage banked", S.endModal({ ...runOpts, tierCompleted: null, tierSalvage: 40 })],
+    ["run · tier complete", S.endModal({ ...runOpts, tierCompleted: 3, tierSalvage: 220 })],
+    ["run · Tier S", S.endModal({
+      ...runOpts, tierCompleted: null, tierSalvage: 0,
+      sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    })],
+    ["contract · tier progress", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 15, firstClear: true, completedTier: null },
+      nextInstall: { name: "Reactor Output", cost: 15 },
+    })],
+    ["contract · tier complete", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: 1 },
+    })],
+    ["contract · Tier S", contractEndModal({ ...bannerOpts, won: true, award: null, sandbox: true })],
+    ["contract · Skydeck", contractEndModal({ ...bannerOpts, won: true, award: null, skydeck: true })],
+    ["contract · replay", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 0, firstClear: false, completedTier: null },
+    })],
+  ];
+  for (const [label, html] of banners) {
+    // The WRAPPER's class, matched to its end: every part of this component is
+    // named off the same stem, so `indexOf("salvage-row")` — or even
+    // `class="salvage-row` — is answered by a variant's own __amt one line
+    // below a wrapper that has been renamed out of the format.
+    const at = html.search(/class="salvage-row[ "]/);
+    const row = at < 0 ? "" : html.slice(at, html.indexOf("</div>", html.indexOf("salvage-row__body", at)));
+    check(`the ${label} banner is drawn as one`, at >= 0);
+    // The figure and the text column, in that order. Both are load-bearing:
+    // the figure is the only element the --amt sizes touch, the body is the
+    // only element the type block touches.
+    check(`...${label}: a figure beside a text column`,
+      row.includes("salvage-row__amt") && row.includes("salvage-row__body")
+        && row.indexOf("salvage-row__amt") < row.indexOf("salvage-row__body"));
+    // A heading FIRST, then the sentence. `.salvage-row__body > b` is the
+    // heading's leading and `.salvage-row__body span` the paragraph's; a
+    // variant that opened with a bare <span> would get the paragraph's
+    // treatment for its heading and no heading-to-body gap at all.
+    const body = row.slice(row.indexOf("salvage-row__body"));
+    const inner = body.slice(body.indexOf(">") + 1).trim();
+    check(`...${label}: a heading above the sentence`,
+      inner.startsWith("<b>") && inner.includes("<span"), inner.slice(0, 40));
+  }
+
+  // --- the stylesheet, read back --------------------------------------------
+  const bannerCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const decls = (selector: string): string[] =>
+    bannerCss.split("\n")
+      .filter((l) => l.trim().startsWith(`${selector} {`))
+      .map((l) => l.slice(l.indexOf("{") + 1, l.lastIndexOf("}")));
+  /** Every font-size this selector is given, in source order — which is
+   *  cascade order here, so [0] is the roomy setting and the last entry is the
+   *  tightest step. */
+  const sizes = (selector: string): string[] =>
+    decls(selector).map((d) => d.match(/font-size:\s*([^;]+);/)?.[1].trim() ?? "").filter(Boolean);
+  // ONE RANK, MOVING TOGETHER. The banner's sentence, .end__why's paragraph and
+  // .end__where are the same thing on the same screen — explanatory copy under
+  // a display heading — so they start from the same token and step to the same
+  // literal. The banner used to do neither: 11px at every viewport, which is
+  // two points under the rank it belongs to and below --fs-xs at that.
+  const sentence = sizes(".salvage-row__body span");
+  const why = sizes(".end__why p");
+  check("the banner's sentence starts from the type scale",
+    sentence[0] === "var(--fs-sm)" && why[0] === "var(--fs-sm)",
+    `${sentence[0] ?? "none"} vs ${why[0] ?? "none"}`);
+  check("...and steps to where the modal's other paragraph steps",
+    sentence.length > 1 && sentence[sentence.length - 1] === why[why.length - 1],
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  // LEADING ON THE HEADING ONLY. An inline <b> inside the sentence (the banked
+  // figure, the salvage total) contributes its own line-height to the line box
+  // it lands in, so a bare `.salvage-row__body b { line-height: … }` sets ONE
+  // line of a three-line wrapped paragraph taller than the two around it.
+  const anyB = decls(".salvage-row__body b");
+  const headB = decls(".salvage-row__body > b");
+  check("the heading's leading cannot reach the inline emphasis",
+    anyB.length > 0 && anyB.every((d) => !/line-height/.test(d))
+      && headB.some((d) => /line-height/.test(d)),
+    `${anyB.length} shared, ${headB.length} heading-only`);
+}
+
+
+// ---------------------------------------------------------------------------
 section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
 // ---------------------------------------------------------------------------
 {
