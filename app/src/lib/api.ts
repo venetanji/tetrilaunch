@@ -44,6 +44,8 @@ function apiBase(): string {
  *                   already draws it under the base slab with a negative id
  *                   for exactly this reason; this is the same statement, on
  *                   the wire.
+ *   BOARD_SKYDECK   the roof's daily board, and the only key with a SECOND
+ *                   part — see the day note below.
  *   0               untiered. Where a client older than tier boards lands,
  *                   since it sends no `mark` at all — it keeps working and
  *                   its scores stay out of every real board.
@@ -54,9 +56,74 @@ function apiBase(): string {
 export type BoardId = number;
 /** Tier S. Anything goes, so it is scored apart from anything that doesn't. */
 export const BOARD_SANDBOX: BoardId = -1;
-/** Is `b` a real rung of the ladder, rather than Tier S or an untiered row? */
+/**
+ * THE SKYDECK'S OWN BOARD (game/skydeck.ts).
+ *
+ * NEGATIVE, for the same reason Tier S is and not by analogy: the roof is not a
+ * rung. It flies Mark 10's bays a step further along (level.ts's SKYDECK_RUNG)
+ * under three clauses the ladder never deals at once, so its scores are not
+ * comparable to a Mark-10 Deep Run's — and the id has to be one that CLAMPING a
+ * Mark can never produce.
+ *
+ * `SKYDECK_TIER` (screens.ts, = MARK_COUNT + 1) is the obvious candidate and is
+ * exactly wrong: every server that knows only Marks clamps it to MARK_COUNT, so
+ * the roof would file onto the Tier 10 board — which is the pooling this key
+ * exists to end, arrived at through the key itself.
+ */
+export const BOARD_SKYDECK: BoardId = -2;
+/** Is `b` a real rung of the ladder, rather than Tier S, the roof, or an
+ *  untiered row? */
 export function isLadderBoard(b: BoardId): boolean {
   return b >= 1;
+}
+
+/**
+ * THE DAY a score is filed under — the board key's second part, and the only
+ * board that has one.
+ *
+ * `DAY_NONE` is every all-time board: the Tiers, Tier S and the untiered row
+ * all carry it, so the wire keeps ONE key shape and the column defaults to it
+ * for every row written before the daily board existed.
+ *
+ * A Skydeck row carries `SkydeckRules.day` — contracts.ts's `dailySeed`, a
+ * plain YYYYMMDD in UTC, stamped onto the run at undock. That is the whole of
+ * the rollover rule and it is stated once, in the run: the day a score files
+ * under is the day whose RUN it flew, not the day it happened to finish on, so
+ * a run undocked at 23:50Z and landed at 00:10Z ranks against the players who
+ * flew the same seed rather than against tomorrow's.
+ */
+export type BoardDay = number;
+export const DAY_NONE: BoardDay = 0;
+
+/** The shape of a run this module needs to file it. Structural rather than
+ *  RunState, so the transport layer keeps no dependency on the game — the two
+ *  fields below are the only run facts a board key is made of. */
+export interface BoardRun {
+  mark: number;
+  sandbox: boolean;
+  skydeck: { day: BoardDay } | null;
+}
+
+/**
+ * WHICH BOARD a finished run belongs on. The one statement of the routing rule;
+ * main.ts's runBoard() adds only the question of whether a run is on screen.
+ *
+ * Order matters. Tier S first, because a sandbox run can be configured INTO any
+ * other mode's shape and none of its claims are earned. The roof next, because
+ * a Skydeck run carries `mark = SKYDECK_MARK` (MARK_COUNT) and is otherwise
+ * indistinguishable from a Mark-10 Deep Run at this seam — which is precisely
+ * how it used to land on the Tier 10 board.
+ */
+export function boardForRun(run: BoardRun): BoardId {
+  if (run.sandbox) return BOARD_SANDBOX;
+  if (run.skydeck) return BOARD_SKYDECK;
+  return run.mark;
+}
+
+/** The day that run files under: its own dealt day on the roof, DAY_NONE
+ *  everywhere else. Read off the RUN, never off the clock — see BoardDay. */
+export function boardDayForRun(run: BoardRun): BoardDay {
+  return run.skydeck ? run.skydeck.day : DAY_NONE;
 }
 
 export interface ScoreEntry {
@@ -77,9 +144,38 @@ export interface SubmitResult {
   scores: ScoreEntry[];
 }
 
-export async function fetchLeaderboard(board: BoardId, limit = 10): Promise<ScoreEntry[]> {
+/**
+ * TWO ROUTES, and the split is a compatibility decision rather than a taste.
+ *
+ * `/api/scores` is the all-time boards and its wire is untouched. `/api/daily`
+ * is the (board, day) boards. The obvious alternative — one route, `mark=-2`
+ * plus a `day` — is what a DEPLOYED-BUT-OLD Worker turns into a bug: its mark
+ * clamp is `max(MARK_MIN, min(MARK_MAX, n))`, so `-2` silently becomes `-1` and
+ * the roof's scores land on the Tier S board, and a GET reads Tier S's rows
+ * back under the Skydeck's heading. A coercion nobody asked for is exactly the
+ * failure this key was reshaped to prevent (see the note above), and it must
+ * not be reintroduced on the wire.
+ *
+ * A path an old Worker does not serve cannot coerce anything: it 404s, and both
+ * calls below already treat a non-ok response as "no board". So against a
+ * Worker that predates this build the Skydeck board reads EMPTY and a Skydeck
+ * score posts nowhere — visibly nothing, rather than quietly wrong — and every
+ * existing board keeps behaving exactly as it does today. The Worker and the
+ * migration ship in this same repo; see the PR for the deploy step.
+ */
+function boardPath(day: BoardDay): string {
+  return day === DAY_NONE ? "/api/scores" : "/api/daily";
+}
+
+export async function fetchLeaderboard(
+  board: BoardId,
+  limit = 10,
+  /** DAY_NONE for an all-time board; a Skydeck day key otherwise. */
+  day: BoardDay = DAY_NONE,
+): Promise<ScoreEntry[]> {
   try {
-    const res = await fetch(`${apiBase()}/api/scores?mark=${board}&limit=${limit}`);
+    const q = `mark=${board}&limit=${limit}${day === DAY_NONE ? "" : `&day=${day}`}`;
+    const res = await fetch(`${apiBase()}${boardPath(day)}?${q}`);
     if (!res.ok) return [];
     const data = (await res.json()) as { scores: ScoreEntry[] };
     return data.scores ?? [];
@@ -95,12 +191,14 @@ export async function submitScore(
   /** The bay the run ended on. */
   level: number,
   lines: number,
+  /** The board key's second part — DAY_NONE on every all-time board. */
+  day: BoardDay = DAY_NONE,
 ): Promise<SubmitResult | null> {
   try {
-    const res = await fetch(`${apiBase()}/api/scores`, {
+    const res = await fetch(`${apiBase()}${boardPath(day)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, score, mark: board, level, lines }),
+      body: JSON.stringify({ name, score, mark: board, level, lines, day }),
     });
     if (!res.ok) return null;
     return (await res.json()) as SubmitResult;

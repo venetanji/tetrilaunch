@@ -188,7 +188,10 @@ import {
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
-import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, boardDayForRun, boardForRun, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore, type ScoreEntry,
+} from "../src/lib/api";
 
 let failures = 0;
 
@@ -10093,6 +10096,158 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
       banner.includes('aria-label="Skydeck"') && banner.includes("tier-plate--sky"));
     check("...and its accessible label says Skydeck, not a tier number",
       banner.includes(", Skydeck") && !/tier 1[01]\b/i.test(banner), banner.slice(0, 160));
+  }
+}
+
+// ---------------------------------------------------------------------------
+section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DAY_A = new Date(Date.UTC(2026, 7, 27, 12, 0, 0));
+  const DAY_B = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  const skyRun = (d = DAY_A): RunState => skydeckRunFor(newTiers(), [], d);
+  const ladderRun = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+
+  // ---- THE ROUTING RULE ---------------------------------------------------
+  // The bug this section exists for: a Skydeck run carries mark = SKYDECK_MARK
+  // (= MARK_COUNT), so every seam that files a score by `run.mark` filed the
+  // day's run — a rung past Mark 10, under three standing clauses — onto the
+  // Tier 10 board. The rule is now one function, and these are its cases.
+  check("the day's run files to the roof's own board",
+    boardForRun(skyRun()) === BOARD_SKYDECK);
+  check("...and not to the board of the Mark it borrows",
+    boardForRun(skyRun()) !== skyRun().mark && skyRun().mark === MARK_COUNT);
+  check("a Mark-10 Deep Run at that same Mark still files to Tier 10",
+    boardForRun(ladderRun(MARK_COUNT)) === MARK_COUNT);
+  check("every other rung files to its own Tier",
+    [1, 2, 5, 9].every((m) => boardForRun(ladderRun(m)) === m));
+  check("Tier S still outranks both — a sandbox run is filed nowhere else",
+    boardForRun({ ...skyRun(), sandbox: true }) === BOARD_SANDBOX);
+
+  // ---- THE ID -------------------------------------------------------------
+  // Negative for the reason Tier S is, and the alternative is worth pinning
+  // because it is the one a reader reaches for first: SKYDECK_TIER is the
+  // tower's floor id (MARK_COUNT + 1), and any server that knows only Marks
+  // clamps it back onto MARK_COUNT — i.e. straight back to the pooling above.
+  check("the roof is not a rung of the ladder", !isLadderBoard(BOARD_SKYDECK));
+  check("the roof's board cannot collide with a Tier",
+    !Array.from({ length: MARK_COUNT }, (_, i) => i + 1).includes(BOARD_SKYDECK));
+  check("...nor with Tier S", BOARD_SKYDECK !== BOARD_SANDBOX);
+  check("...and is not the tower's floor id, which clamps onto Mark 10",
+    BOARD_SKYDECK !== S.SKYDECK_TIER
+      && Math.min(MARK_COUNT, S.SKYDECK_TIER) === MARK_COUNT);
+
+  // ---- THE DAY ------------------------------------------------------------
+  // The board key's second part is a DERIVATION of the daily seed, not a
+  // literal: the run files under the day it was dealt, and that day is the same
+  // key the Contract board rolls on, so the two dailies can never turn over at
+  // different midnights.
+  check("the day a score files under IS the daily seed",
+    [DAY_A, DAY_B, new Date(Date.UTC(2027, 0, 1))].every(
+      (d) => boardDayForRun(skyRun(d)) === dailySeed(d)));
+  check("one UTC day is one board",
+    boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 0, 0, 1))))
+      === boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 23, 59, 59)))));
+  check("the next day is a different board",
+    boardDayForRun(skyRun(DAY_A)) !== boardDayForRun(skyRun(DAY_B)));
+  // The rollover rule the run makes possible: a run is stamped at undock, so
+  // one flown across midnight still ranks against the seed it played rather
+  // than against tomorrow's players.
+  check("a run flown across midnight keeps the day it undocked on",
+    boardDayForRun(skyRun(DAY_A)) === dailySeed(DAY_A)
+      && dailySeed(DAY_A) !== dailySeed(DAY_B));
+  check("an all-time board has no day at all",
+    boardDayForRun(ladderRun(MARK_COUNT)) === DAY_NONE
+      && boardDayForRun({ ...skyRun(), sandbox: true, skydeck: null }) === DAY_NONE);
+
+  // ---- THE WIRE -----------------------------------------------------------
+  // The compatibility guarantee, asserted where it can actually be observed:
+  // the daily board is asked for on a path of its own, so a Worker that
+  // predates it 404s instead of clamping -2 onto Tier S. Both globals are
+  // stubbed and restored the same way the settings-migration record does it.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const calls: { url: string; body: string }[] = [];
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "tetrilaunch.com" }, configurable: true, writable: true,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      value: async (url: string, init?: { body?: string }) => {
+        calls.push({ url: String(url), body: String(init?.body ?? "") });
+        return { ok: true, json: async () => ({ scores: [] }) };
+      },
+      configurable: true, writable: true,
+    });
+    try {
+      const day = dailySeed(DAY_A);
+      await fetchLeaderboard(BOARD_SKYDECK, 10, day);
+      await fetchLeaderboard(MARK_COUNT, 10);
+      await submitScore("ACE", 100, BOARD_SKYDECK, 10, 40, day);
+      await submitScore("ACE", 100, MARK_COUNT, 10, 40);
+      const [skyGet, tierGet, skyPost, tierPost] = calls;
+      check("the daily board is asked for on its own path",
+        skyGet.url.includes("/api/daily") && skyGet.url.includes(`day=${day}`)
+          && skyGet.url.includes(`mark=${BOARD_SKYDECK}`), skyGet.url);
+      check("...and a Tier board on the one it always used",
+        tierGet.url.includes("/api/scores") && !tierGet.url.includes("/api/daily")
+          && !tierGet.url.includes("day="), tierGet.url);
+      check("a Skydeck score posts to the daily route, carrying its day",
+        skyPost.url.endsWith("/api/daily")
+          && JSON.parse(skyPost.body).day === day
+          && JSON.parse(skyPost.body).mark === BOARD_SKYDECK, skyPost.body);
+      check("a Tier score posts where it always did, with no day",
+        tierPost.url.endsWith("/api/scores")
+          && JSON.parse(tierPost.body).day === DAY_NONE
+          && JSON.parse(tierPost.body).mark === MARK_COUNT, tierPost.body);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+
+  // ---- THE SCREEN ---------------------------------------------------------
+  // A board nobody can see is not a board. The tab arrives with the floor
+  // (meta.ts's skydeckOpen) and wears the tower's own identity, and the heading
+  // says WHICH day is on screen — a daily board whose contents change overnight
+  // for no visible reason is the one failure a date on it prevents.
+  const day = dailySeed(DAY_A);
+  const skyScreen = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day,
+  });
+  check("the roof's board is a tab on the leaderboard",
+    skyScreen.includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...wearing the tower's Sky identity, star and all",
+    skyScreen.includes(`${S.tierText(S.SKYDECK_TIER)} ${S.SKY_STAR}`));
+  check("...and never a raw board id",
+    !skyScreen.includes(`Tier ${BOARD_SKYDECK}`) && !S.boardText(BOARD_SKYDECK).includes("-"));
+  check("the heading names the day on screen",
+    skyScreen.includes(S.dayText(day)) && S.dayText(day) === "2026-08-27");
+  check("a save that cannot fly the roof is offered no Sky tab",
+    !S.leaderboardScreen("", { board: MARK_COUNT, tier: MARK_COUNT, sandbox: true })
+      .includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...and one that can still keeps its ladder tab to switch back to",
+    skyScreen.includes(`data-board="${MARK_COUNT}"`));
+  // The run-end modal is where the score is actually filed, so it has to name
+  // the board it went to — the same failure the bay banner's Sky plate fixed,
+  // one screen later.
+  {
+    const skyEnd = S.endModal({
+      won: true, runComplete: true, score: 40_000, lines: 90, baysCleared: 10,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", bayNum: 10,
+      bayName: "Skydeck", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+      boardTier: BOARD_SKYDECK,
+      boardDay: day,
+    });
+    check("the end card files the day's run to the roof's board",
+      skyEnd.includes(`${S.boardText(BOARD_SKYDECK)} board`));
+    check("...on the day it was dealt", skyEnd.includes(S.dayText(day)));
+    check("...and never says Tier 10",
+      !skyEnd.includes(`${S.tierText(MARK_COUNT)} board`));
   }
 }
 

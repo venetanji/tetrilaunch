@@ -1,7 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 
 // Cloudflare Worker: serves the built Vite app (via the ASSETS binding) and a
-// small D1-backed leaderboard API under /api/scores.
+// small D1-backed leaderboard API — the all-time boards under /api/scores and
+// the Skydeck's per-day board under /api/daily (see DAY_MIN below).
 
 export interface Env {
   ASSETS: Fetcher;
@@ -23,6 +24,11 @@ interface ScoreRow {
   created_at: number;
 }
 
+/** The board key's second part (lib/api.ts's BoardDay): 0 on every all-time
+ *  board, a YYYYMMDD UTC day on the Skydeck's. Not returned in a row — a row
+ *  only ever appears inside the board it was asked for. */
+type BoardDay = number;
+
 /** Tiers the ladder has (game/upgrades.ts's MARK_COUNT). Restated rather than
  *  imported: the Worker bundle has no business pulling in game code to learn
  *  one integer, and the only thing this number does here is bound a clamp, so
@@ -33,6 +39,20 @@ const MARK_MAX = 10;
  *  It is the FLOOR of the clamp rather than a special case, so a sandbox score
  *  can never be rounded onto a real Tier's board. */
 const MARK_MIN = -1;
+/** The Skydeck's board (lib/api.ts's BOARD_SKYDECK), one below Tier S and for
+ *  the same reason: the roof is not a rung either. It is reachable ONLY on
+ *  /api/daily — /api/scores keeps the domain it shipped with, so nothing this
+ *  build adds can widen an existing board's key by one clamp. */
+const MARK_SKYDECK = -2;
+/** Day bounds for /api/daily. The floor rejects 0 (that is an ALL-TIME board's
+ *  day and does not belong on this route) and anything that is not a plausible
+ *  YYYYMMDD; the ceiling bounds the column. Deliberately NOT a freshness window
+ *  against the Worker's own clock: a run undocks before it lands, a paused tab
+ *  can land a day late, and the endpoint has no authentication at all — so a
+ *  window would cost honest slow players their score while buying nothing an
+ *  attacker could not simply route around. */
+const DAY_MIN = 20_000_101;
+const DAY_MAX = 20_991_231;
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -71,6 +91,30 @@ async function getTop(env: Env, mark: number | null, limit: number): Promise<Sco
        LIMIT ?`;
   const stmt = env.DB.prepare(sql);
   const { results } = await (mark === null ? stmt.bind(limit) : stmt.bind(mark, limit))
+    .all<ScoreRow>();
+  return results ?? [];
+}
+
+/**
+ * The top `limit` scores on ONE day of one board.
+ *
+ * Both halves of the key are bound, and neither is optional: there is no
+ * "combined" daily board to fall back to. A day that has seen no submissions
+ * answers with an empty list, which is what a board nobody has flown yet is.
+ */
+async function getTopDaily(
+  env: Env,
+  mark: number,
+  day: BoardDay,
+  limit: number,
+): Promise<ScoreRow[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT name, score, mark, level, lines, created_at
+       FROM scores WHERE mark = ? AND day = ?
+       ORDER BY score DESC, created_at ASC
+       LIMIT ?`,
+  )
+    .bind(mark, day, limit)
     .all<ScoreRow>();
   return results ?? [];
 }
@@ -127,6 +171,68 @@ async function handleApi(request: Request, env: Env, url: URL): Promise<Response
     const rank = (rankRow?.higher ?? 0) + 1;
     const scores = await getTop(env, mark, 10);
     return json({ ok: true, id: insert.meta.last_row_id, rank, name, score, mark, scores }, 201);
+  }
+
+  // ---- The daily boards. -------------------------------------------------
+  //
+  // A SEPARATE ROUTE rather than a `day` parameter on /api/scores, and the
+  // reason is compatibility in the other direction: a client older than this
+  // deploy must keep getting exactly the boards it asks for, and a NEWER client
+  // talking to an older Worker must fail visibly rather than have its board id
+  // clamped onto a board that exists. lib/api.ts's boardPath states the whole
+  // argument. The consequence here is the property worth keeping: nothing above
+  // this line changed, so no all-time board can move.
+  if (url.pathname === "/api/daily" && request.method === "GET") {
+    const mark = clampInt(url.searchParams.get("mark"), MARK_SKYDECK, MARK_SKYDECK, MARK_MAX);
+    const day = clampInt(url.searchParams.get("day"), 0, 0, DAY_MAX);
+    const limit = clampInt(url.searchParams.get("limit"), 10, 1, 50);
+    if (day < DAY_MIN) return json({ error: "invalid_day" }, 400);
+    return json({ scores: await getTopDaily(env, mark, day, limit) });
+  }
+
+  if (url.pathname === "/api/daily" && request.method === "POST") {
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const name = sanitizeName(body.name);
+    const score = clampInt(body.score, -1, 0, 100_000_000);
+    // No 0 default for the board here, unlike /api/scores: nothing predates
+    // this route, so there is no old client to keep working and "untiered" has
+    // no meaning on a board that is keyed by a day.
+    const mark = clampInt(body.mark, MARK_SKYDECK, MARK_SKYDECK, MARK_MAX);
+    const day = clampInt(body.day, 0, 0, DAY_MAX);
+    const level = clampInt(body.level, 1, 1, 999);
+    const lines = clampInt(body.lines, 0, 0, 100_000);
+    if (score < 0) return json({ error: "invalid_score" }, 400);
+    if (day < DAY_MIN) return json({ error: "invalid_day" }, 400);
+
+    const created = Date.now();
+    const insert = await env.DB.prepare(
+      `INSERT INTO scores (name, score, mark, level, lines, created_at, day)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(name, score, mark, level, lines, created, day)
+      .run();
+
+    // Rank within THE DAY, not within the board — the day is half the key, and
+    // ranking a Tuesday score against every Monday that came before it is the
+    // "mixed all-time board ranks days rather than players" reading the daily
+    // exists to avoid (docs/DESIGN.md).
+    const rankRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS higher FROM scores WHERE mark = ? AND day = ? AND score > ?`,
+    )
+      .bind(mark, day, score)
+      .first<{ higher: number }>();
+
+    const rank = (rankRow?.higher ?? 0) + 1;
+    const scores = await getTopDaily(env, mark, day, 10);
+    return json(
+      { ok: true, id: insert.meta.last_row_id, rank, name, score, mark, day, scores },
+      201,
+    );
   }
 
   return json({ error: "not_found" }, 404);
