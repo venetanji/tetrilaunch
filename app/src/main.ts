@@ -3872,8 +3872,14 @@ class App {
       // answer with context has failed at the job it exists for. Left as
       // ordinary context rows they still show wherever there is height for
       // them and drop only at compact density, which is the existing rule
-      // doing exactly what it was written for.
-      preview: previewRows(levelForRun(run), levelForRun(installed)),
+      // doing exactly what it was written for. (The belt tile is the one
+      // exemption a landscape phone makes, and app.css states why: its
+      // breakdown is the only account of the cargo this screen has.)
+      //
+      // The run's notches still travel, as the `tally` the belt breakdown
+      // quotes beside each material's share (preview.ts) — that argument is
+      // about PROMOTING rows, and quoting a count promotes nothing.
+      preview: previewRows(levelForRun(run), levelForRun(installed), {}, run.ratchets),
     });
   }
 

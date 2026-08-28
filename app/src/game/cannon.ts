@@ -45,10 +45,68 @@ export const SPEED_MIN = 9;
 // (see engine.ts's SKY doc comment for the resulting apex height check).
 export const SPEED_MAX = 28;
 
-// Drag distance (px, world space) that maps to full power. Kept short so a
-// modest pull-back already reaches max power.
+/**
+ * Where the barrel pivots, in world px. Declared HERE, above the drag
+ * constants, rather than beside the class it configures: DRAG_MAX below is
+ * derived from `CANNON.x` and a `const` cannot be read before its own line.
+ * The dependency is the point — see DRAG_MAX.
+ */
+export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
+
+/**
+ * Drag distance (px, world space) that maps to full power — the slingshot's
+ * whole span, from the dead zone below which a pull reads as nothing to the
+ * pull that asks for everything.
+ *
+ * DRAG_MAX IS DERIVED, NOT CHOSEN, and the derivation is the bug fix. It used
+ * to be a flat 220, which is 70 px MORE than the cannon's entire distance from
+ * the left wall: a player who put a finger on the cannon and pulled straight
+ * back — the literal gesture the control is named for — was asking the pull to
+ * end at world x = −70. There is no such place, so a horizontal full-power
+ * pull from the cannon was geometrically impossible on every device at every
+ * viewport. It appeared to work only because `screenToWorld` does not clamp
+ * and the canvas is full-bleed, so the stroke ran out through the letterbox
+ * bars — inert black the game gives no affordance to — and off the world.
+ *
+ * That accident is not available everywhere, and where it is missing the
+ * control is simply broken. On an exact 16:9 viewport there are no bars at
+ * all: measured at 1280x720, a pull from the cannon to the very edge of the
+ * glass topped out at 58%, and the arithmetic ceiling is 63%. On a OnePlus 7T
+ * (854x384 CSS, letterboxed) 100% needed the finger to reach CSS x≈48, and
+ * that panel's outer band delivers no touches below CSS x≈95 — the kernel
+ * stream never reports past it — so the pull died with a genuine `pointerup`
+ * partway up the ramp. See docs/superpowers/specs/2026-08-28-full-power-pull-
+ * needs-offscreen-room.md for the capture.
+ *
+ * THE RULE: a full pull that starts at the cannon ends on the playfield, a
+ * cube's width clear of the wall. `CANNON.x - CELL` is that sentence. The
+ * clearance is a CELL because a cube is this game's unit of "not touching",
+ * and because it is measured to be enough: on the 7T's letterbox the field
+ * scales by 0.533, so a cube of clearance is 21 CSS px, while the panel's dead
+ * band eats only the outer 17 world px (9 CSS px) of the field. The full pull
+ * lands 12 CSS px inside live glass with the margin still to spare.
+ *
+ * WHAT IT COSTS. Full power is now a 110 px pull instead of a 220 px one, so
+ * the same finger travel buys twice the power and the ramp is half as fine —
+ * 2.3% of power per CSS px on a phone where it used to be 1.0%. That is a real
+ * feel change and it is the price of the control being possible at all; the
+ * alternative considered (normalising the ramp against the room actually left
+ * in front of the finger) preserves today's feel in the middle of the field
+ * but puts full power at the LAST PIXEL of the screen for exactly the player
+ * this fixes — the same gesture meaning different power in different places,
+ * to arrive somewhere still unreachable.
+ *
+ * DRAG_MIN stays 28: it is a property of a THUMB (the travel below which a
+ * touch is a graze, not a pull), not of the field, so it does not scale with
+ * the span. It is now 25% of the full pull rather than 13% — and that number is
+ * not decorative. Because the foot does not scale, ANY caller that reaches this
+ * mapping by rescaling its own input gets a different curve, not a rescaled
+ * one: the pad's stick did exactly that and lost 9 points of power at half
+ * deflection plus a fresh dead band at the bottom of its throw. That is what
+ * `dragLenForRatio` below exists to prevent.
+ */
 const DRAG_MIN = 28;
-const DRAG_MAX = 220;
+const DRAG_MAX = CANNON.x - CELL;
 
 /**
  * Power ratio a drag has to reach before a release counts as a SHOT rather than
@@ -63,11 +121,15 @@ const DRAG_MAX = 220;
  *
  * 0.30 rather than a raw pixel distance because the whole point is intent, and
  * intent is what the pull-back MEANS, not how far a finger moved on a
- * particular screen. It works out to 85.6 world px (DRAG_MIN + 0.3 * the span),
- * which scales with the field — about 43 CSS px on an 800x360 phone viewport.
- * Comfortably past touch jitter, comfortably short of a deliberate slingshot
- * pull, and normalized against the ship: the LAUNCHER track scales speedMin and
- * speedMax together, so 30% is 30% of whatever this hull can do.
+ * particular screen. A FRACTION OF THE SPAN, which is why it survived the span
+ * itself changing: it works out to DRAG_MIN + 0.3 * (DRAG_MAX - DRAG_MIN), now
+ * 52.6 world px where it used to be 85.6, and it scales with the field —
+ * measured at 28 CSS px on the 854x384 phone viewport this file's DRAG_MAX
+ * note is written against, down from 46. Still an order of magnitude past
+ * touch jitter (a resting thumb wanders 1-2 CSS px), still short of any
+ * deliberate slingshot pull, and normalized against the ship: the LAUNCHER
+ * track scales speedMin and speedMax together, so 30% is 30% of whatever this
+ * hull can do.
  *
  * Deliberately NOT enforced in Game.shoot. Keyboard and gamepad players sit at
  * speedMin (ratio 0) and press Fire on purpose; gating the shared path would
@@ -80,6 +142,31 @@ export const MIN_FIRE_RATIO = 0.3;
  *  whether to fire and the mapping that decides how hard cannot disagree. */
 export function powerRatioForDrag(len: number): number {
   return Math.max(0, Math.min(1, (len - DRAG_MIN) / (DRAG_MAX - DRAG_MIN)));
+}
+
+/**
+ * The exact inverse: the pull-back length, in world px, that asks for ratio `t`.
+ *
+ * EXISTS FOR CALLERS THAT ALREADY KNOW WHAT RATIO THEY WANT — which today means
+ * gamepad.ts's slingshot stick, and should mean nothing else. A thumbstick is
+ * not a finger on glass: its power curve is a function of DEFLECTION, owned by
+ * the pad, and it only reaches the cannon through `aimFromDrag` because that is
+ * where the aim-and-power pair is applied. Handing it a length instead of the
+ * span lets it say what it means without knowing DRAG_MIN or DRAG_MAX, which is
+ * the whole reason both stay module-private.
+ *
+ * The alternative — exporting DRAG_MAX and multiplying a deflection by
+ * something "past" it — is what the first draft of the pull-room fix did, and
+ * it is subtly wrong: `powerRatioForDrag` subtracts a FIXED DRAG_MIN that does
+ * not scale with the span, so rescaling the input rescales the ramp but not its
+ * foot. Halving the span turned a half-deflected stick from 48% into 39% and
+ * pushed the deadzone edge (0.22 deflection) from 13% to exactly zero — a dead
+ * band grown at the bottom of the stick's throw by a change that was supposed
+ * to be about a thumb on a phone. Caught in review, pinned in sim/systems.ts as
+ * curve equality rather than as endpoints.
+ */
+export function dragLenForRatio(t: number): number {
+  return DRAG_MIN + Math.max(0, Math.min(1, t)) * (DRAG_MAX - DRAG_MIN);
 }
 
 /**
@@ -97,8 +184,6 @@ export function powerRatioForDrag(len: number): number {
  * separate module that models the cone rather than enforcing it.)
  */
 export const AIM_CONE = Math.PI / 3;
-
-export const CANNON = { x: 150, y: Math.round(WORLD.height * 0.4), size: 60, barrel: 64 };
 
 export class Cannon {
   x = CANNON.x;

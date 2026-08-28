@@ -62,7 +62,7 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
@@ -145,7 +145,7 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
@@ -1176,6 +1176,104 @@ section("Installs — what salvage buys (meta.ts)");
     (staged.match(/refit-card__buy/g) ?? []).length === buyButtons(staged).length);
   check("a track with room left keeps offering the next rung",
     staged.includes(`data-action="stage-upgrade" data-upgrade="reactor"`));
+
+  // THE BUTTON CARRIES THE PRICE, NOT THE CHANGELOG.
+  //
+  // It used to carry both — a direction arrow, the rung's effect prose and the
+  // price — and the prose is unbounded copy on a bounded rail: the Demolition
+  // Rack's capstone reads "+2 charges, resupply, a wider blast and a better
+  // rate", which ellipsised at every width the app ships and still took the
+  // whole price track with it, collapsing the card's description column to one
+  // word per line on a landscape phone. The projection beside the shelf is
+  // where a rung's effect is already stated in the bay's own numbers, so the
+  // button states the one fact the panel cannot: what it costs.
+  //
+  // Asserted on a rig sitting at tier 2 on EVERY track, because that is the
+  // only state that reaches the capstone `step` copy the old button printed —
+  // no fixture and no default loadout ever did, which is why the harness never
+  // saw the overflow.
+  const capstoneTiers = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers;
+  const buyControls = (html: string): string[] =>
+    html.match(/<button[^>]*refit-card__buy[\s\S]*?<\/button>/g) ?? [];
+  const labelOf = (btn: string): string =>
+    btn.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const capstone = yard({ tiers: capstoneTiers });
+  const stageLabels = buyControls(capstone)
+    .filter((b) => b.includes("stage-upgrade"))
+    .map(labelOf);
+  check("every capstone rung is on offer at tier 2", stageLabels.length === UPGRADES.length,
+    String(stageLabels.length));
+  check("a stage button says its tier and its price and nothing else",
+    stageLabels.every((l) => /^T\d\s*·\s*\d+$/.test(l)),
+    stageLabels.filter((l) => !/^T\d\s*·\s*\d+$/.test(l)).join(" | "));
+  // The undo is the same control in its other state, so it is exempt from the
+  // rule above and only from it: "Undo" is the verb that names the state, not a
+  // description of what the rung does. Its figure is a REFUND, which is why it
+  // keeps a word beside it — a bare "+90" on a shelf of prices reads as a cost.
+  // Ordered to MAX, which is the state that turns the control round: there is
+  // no rung left to stage, so the button becomes the way out.
+  const maxedOrder = yard({ tiers: { ...newTiers(), reactor: MAX_TIER - 1 }, order: { reactor: 1 } });
+  const undoLabel = labelOf(buyControls(maxedOrder).find((b) => b.includes("unstage")) ?? "");
+  check("the undo button names the state and the refund",
+    /^Undo(\s*×\d+)?\s*\+\s*\d+$/.test(undoLabel), undoLabel || "no undo button");
+  // The rung's effect still reaches the player — on the card's own before →
+  // after and in the ladder the card hangs in `title`. The button is the one
+  // place it no longer needs to be.
+  check("the ladder still reaches the card that sells it",
+    UPGRADES.every((u) => capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`)),
+    UPGRADES.filter((u) => !capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`))
+      .map((u) => u.id).join(","));
+
+  // …AND A PRICE IS NOT A NAME. "T3 · 55" is the same eight characters on
+  // every card at that tier and the currency glyph is `aria-hidden`, so a
+  // shelf of price-shaped buttons exposes one accessible name seven times over
+  // and a screen reader's control list cannot say which system it is about to
+  // stage. The visible label is right and stays; the name underneath it has to
+  // carry the card's own system.
+  //
+  // Asserted as a SET rather than per button, because the failure mode is
+  // collision rather than absence: a label that named the tier and the price
+  // in words would pass a "has an aria-label" check and still read as seven
+  // identical controls.
+  const ariaNames = (html: string, action: string): string[] =>
+    (html.match(new RegExp(`<button[^>]*data-action="${action}"[^>]*>`, "g")) ?? [])
+      .map((b) => (b.match(/aria-label="([^"]*)"/) ?? ["", ""])[1]);
+  const stageNames = ariaNames(capstone, "stage-upgrade");
+  check("every stage button carries its own system's name",
+    stageNames.length === UPGRADES.length
+      && UPGRADES.every((u) => stageNames.some((n) => n.includes(u.name))),
+    stageNames.join(" | "));
+  check("no two stage buttons answer to the same name",
+    new Set(stageNames).size === stageNames.length, stageNames.join(" | "));
+  // WCAG 2.5.3: the accessible name has to CONTAIN the visible label, or a
+  // voice-input user cannot say what they can see. The visible label is
+  // "T3 · 55" — quoted into the name verbatim rather than paraphrased as
+  // "tier 3, 55 scrap".
+  check("a stage button's name quotes the label the player can see",
+    stageNames.every((n) => /T\d\s*·\s*\d+/.test(n)), stageNames.join(" | "));
+  const undoNames = ariaNames(maxedOrder, "unstage-upgrade");
+  check("the undo button names the track it takes back",
+    undoNames.length === 1 && undoNames[0].includes(upgradeById("reactor")!.name)
+      && /Undo/.test(undoNames[0]),
+    undoNames.join(" | "));
+
+  // THE WORKSHOP'S SHELF HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
+  // buttons have been a bare price since B6, which predates the yard's. One
+  // shop, one grammar, one fix.
+  const ariaShop = freshMeta({ salvage: 5_000, mark: MARK_COUNT });
+  const shopHTML = workshopScreen(ariaShop);
+  for (const action of ["buy-install", "buy-unlock"] as const) {
+    const names = ariaNames(shopHTML, action);
+    check(`every ${action} button carries its own name`,
+      names.length > 1 && names.every((n) => n.length > 0),
+      names.join(" | "));
+    check(`no two ${action} buttons answer to the same name`,
+      new Set(names).size === names.length, names.join(" | "));
+  }
+  check("a Workshop buy button quotes the price the player can see",
+    ariaNames(shopHTML, "buy-install").every((n) => /T\d\s*·\s*\d+/.test(n)),
+    ariaNames(shopHTML, "buy-install").join(" | "));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));
@@ -1191,6 +1289,69 @@ section("Installs — what salvage buys (meta.ts)");
   for (const id of ["refit-grid", "refit-order", "refit-preview", "refit-foot"]) {
     check(`the yard mounts #${id} for the in-place patch`, oneUp.includes(`id="${id}"`));
   }
+
+  // THE RECAP IS WHERE THE CHANGE IS NOW READ, so what it renders is pinned on
+  // the screen and not only on preview.ts's rows. A bay carrying two materials
+  // and an order that moves numbers: the panel has to name every material the
+  // belt knows, with the glyph the player learns it by, and say how many of its
+  // own numbers the order moved.
+  const mixRun = { ...newRun(11, [], 500, newTiers(), 6), levelIndex: 6, ratchets: { slag: 2, cryo: 1 } as Ratchets };
+  // The yard's own call, verbatim from main.ts's refitHTML: no bank, the run's
+  // notches as the tally.
+  const mixPreview = previewRows(
+    levelForRun(mixRun),
+    levelForRun(buyUpgrades({ ...mixRun, tiers: { ...newTiers(), reactor: 1 } }, { reactor: 1 }, MAX_TIER)
+      ?? mixRun),
+    {},
+    mixRun.ratchets,
+  );
+  const recap = yard({ preview: mixPreview, order: { reactor: 1 } });
+  check("the recap breaks the belt down into one line per material",
+    (recap.match(/class="preview-mix__m/g) ?? []).length === 2,
+    String((recap.match(/class="preview-mix__m/g) ?? []).length));
+  for (const m of ["Slag", "Cryo"]) {
+    check(`the recap draws ${m} with the glyph the belt teaches`,
+      recap.includes(`aria-label="${m}"`));
+  }
+  // Slag was notched twice on this run and cryo once, so both lines carry the
+  // count as well as the share — the plant panel's "×N" grammar on the panel
+  // that prices the bay. ×1 is written out rather than implied here, unlike in
+  // the tally: presence on this list means the material is ON THE BELT, which
+  // a Contract or a Final clause can arrange with no notches at all, so an
+  // absent count has to mean zero.
+  check("each material's line quotes the notches behind its share",
+    (recap.match(/preview-mix__notch">×2</g) ?? []).length === 1
+      && (recap.match(/preview-mix__notch">×1</g) ?? []).length === 1,
+    (recap.match(/preview-mix__notch">[^<]*/g) ?? ["none"]).join(","));
+  check("the material lines ride inside ONE unit, not a tile each",
+    (recap.match(/class="preview-mix"/g) ?? []).length === 1,
+    String((recap.match(/class="preview-mix"/g) ?? []).length));
+  check("the recap counts the numbers the order moved",
+    /class="projection__moved">\d+ moved</.test(recap),
+    (recap.match(/class="projection__moved">[^<]*/) ?? ["absent"])[0]);
+  check("an order that moves nothing gets no moved count",
+    !yard({ preview: previewRows(levelForRun(mixRun), levelForRun(mixRun), mixRun.ratchets) })
+      .includes("projection__moved"));
+  // …AND THE DRAFT DOES NEITHER, which is the split screens.ts's `explains`
+  // states: a ratchet card names its material and spells out its notch, so a
+  // breakdown and a count there restate what the player is already holding,
+  // and both cost height on a screen whose body fits with nothing to spare.
+  // The yard's cards say what a system is and its buttons say what a rung
+  // costs — nothing on it says what the belt is made of.
+  const mixDraft = S.draftScreen({
+    bayNum: 7, tier: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 6, 10, 2, mixRun.ratchets),
+    ratchets: mixRun.ratchets, selected: ["slag"], picksNeeded: 2,
+    preview: previewRows(
+      levelForRun(mixRun),
+      levelForRun({ ...mixRun, ratchets: { ...mixRun.ratchets, slag: 3 } }),
+      mixRun.ratchets,
+    ),
+    scrap: 340, baysToRefit: 1,
+  });
+  check("the draft's own projection leaves the explaining to its cards",
+    !mixDraft.includes("preview-mix") && !mixDraft.includes("projection__moved"),
+    mixDraft.includes("preview-mix") ? "breakdown" : "moved count");
   // The scrap readout counts what is LEFT to stage against, not what the run
   // owns: every button on the shelf prices itself against the queue in front
   // of it, and a total that ignored the order would disable nothing.
@@ -3334,13 +3495,63 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   // ONE belt row, not one per material — the owner's device pass found a Tier
   // 10 material clause moving six tiles at once, two extra rows on the screen
   // that overflows first. The total is the number that prices the bay
-  // (belt.ts's ceiling: notches past it recompose rather than thicken); which
-  // material it is lives on the card being tapped.
+  // (belt.ts's ceiling: notches past it recompose rather than thicken).
   check("the belt row appears only once a content axis is picked",
     row(idle, "belt") === undefined && row(rowsFor(["cryo"]), "belt")!.changed);
   check("a second material moves the same one belt row",
     rowsFor(["cryo", "slag"]).filter((r) => r.id === "belt").length === 1
       && row(rowsFor(["cryo", "slag"]), "belt")!.changed);
+
+  // …AND THE COMPOSITION LIVES INSIDE THAT ONE ROW. Which material the total is
+  // made of used to be readable nowhere on this panel — the argument above only
+  // ever ruled out six more TILES, and the answer to "33% of what?" was the
+  // card the player happened to be holding. The row now carries a part per
+  // material, so the tile count is unchanged and the breakdown is a dense list
+  // inside the one unit that already prices the belt.
+  const mix2 = rowsFor(["cryo", "slag"]);
+  const beltRow = row(mix2, "belt")!;
+  check("the belt row breaks its total down by material",
+    (beltRow.parts ?? []).map((p) => p.id).join(",") === "slag,cryo",
+    (beltRow.parts ?? []).map((p) => p.id).join(","));
+  check("every part quotes a percentage on both sides",
+    (beltRow.parts ?? []).every((p) => /^\d+%$/.test(p.from) && /^\d+%$/.test(p.to)),
+    (beltRow.parts ?? []).map((p) => `${p.from}->${p.to}`).join(","));
+  check("a material the picks moved is flagged, and worse",
+    (beltRow.parts ?? []).every((p) => p.changed && p.tone === "worse"));
+  // A material with BANKED notches is on the list whatever the current
+  // selection does, and it says how many — the notch tally's own grammar
+  // (components.ts's runNotchTallyHTML), on the panel that prices the bay.
+  const bankedMix = { ...drafting, ratchets: { slag: 2 } as Ratchets };
+  const bankedBelt = row(
+    previewRows(levelForRun(bankedMix), levelForRun(bankedMix), bankedMix.ratchets), "belt")!;
+  check("a banked material stays on the belt list with nothing selected",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(",") === "slag",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(","));
+  check("a banked material quotes its notch count",
+    (bankedBelt.parts ?? [])[0]?.notches === 2,
+    String((bankedBelt.parts ?? [])[0]?.notches));
+  // THE TALLY IS NOT THE BANK, and the yard is why the two are separate
+  // arguments. `banked` promotes an axis's rows to core and active, which is
+  // right on a draft and wrong in the yard (main.ts's refitHTML: four unmoved
+  // pressure tiles push the rows the ORDER moved off a landscape phone). The
+  // yard passes an empty bank and the run's notches as the tally, so its belt
+  // breakdown can say "slag, taken twice, 12% of the belt" without a single
+  // row changing kind.
+  const quoted = previewRows(
+    levelForRun(bankedMix), levelForRun(bankedMix), {}, bankedMix.ratchets);
+  check("a quoted tally puts the notch count on the breakdown",
+    (row(quoted, "belt")!.parts ?? [])[0]?.notches === 2,
+    String((row(quoted, "belt")!.parts ?? [])[0]?.notches));
+  check("…and promotes nothing while it does it",
+    quoted.every((r) => !r.active) && row(quoted, "belt")!.kind === "context",
+    quoted.filter((r) => r.active).map((r) => r.id).join(","));
+  check("a material nothing has touched is not on the list",
+    (row(rowsFor(["cryo"]), "belt")!.parts ?? []).every((p) => p.id !== "tar"));
+  // Only the belt row breaks down: every other row is one number, and a `parts`
+  // list on one of them would be a second grammar for the same tile.
+  check("nothing but the belt carries parts",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(",") === "belt",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(","));
 
   // Two notches at Mark 10 project as one bay, not as two separate promises.
   const both = rowsFor(["cost", "time"]);
@@ -10437,20 +10648,129 @@ section("Misfire prevention");
 {
   const DT = 1000 / 60;
 
-  // --- The firing floor -----------------------------------------------------
-  // The threshold in world px, re-derived from the constants rather than
-  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
-  // bounds are module-private in cannon.ts (nothing outside it has any business
-  // knowing the mapping), so this brackets the crossing through the public
-  // function instead of asserting a number.
-  let floorPx = 0;
-  for (let len = 0; len <= 260; len += 0.5) {
-    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  // --- The shape of the ramp ------------------------------------------------
+  // Three landmarks on the pull-back's power curve, all found by SCANNING the
+  // public function rather than by importing constants: the foot (where the
+  // dead zone ends and power starts rising), the firing floor (where a release
+  // starts counting as a shot), and the ceiling (where the pull is asking for
+  // everything). cannon.ts's DRAG_MIN is module-private on purpose — nothing
+  // outside it has any business knowing the mapping — so every property below
+  // is stated about what a PULL PRODUCES, which is also the only thing the
+  // player can observe.
+  const STEP = 0.05;
+  const scan = (want: (r: number) => boolean): number => {
+    for (let len = 0; len <= 600; len += STEP) if (want(powerRatioForDrag(len))) return len;
+    return NaN;
+  };
+  const footPx = scan((r) => r > 0);
+  const floorPx = scan((r) => r >= MIN_FIRE_RATIO);
+  const fullPx = scan((r) => r >= 1);
+
+  // --- A FULL PULL HAS TO FIT ON THE PLAYFIELD --------------------------------
+  // THE BUG: DRAG_MAX was a flat 220 while the cannon stands CANNON.x = 150
+  // world px from the left wall, so a finger placed on the cannon and pulled
+  // straight back — the gesture the control is named for — was asking to end at
+  // world x = -70. There is no such place. It "worked" only because the canvas
+  // is full-bleed and screenToWorld does not clamp, so the stroke ran out
+  // through the letterbox bars and off the world; on a panel with no bars (an
+  // exact 16:9 viewport) full power from the cannon was unreachable at 63%, and
+  // on a panel whose outer band eats touches (the OnePlus 7T of the spec) the
+  // pull died with a real pointerup partway up the ramp.
+  //
+  // Stated as the DERIVATION, not as a number: whatever the span becomes, a
+  // full pull from the cannon's own x must land on the field with a cube of
+  // clearance from the wall. That is DRAG_MAX = CANNON.x - CELL read backwards
+  // through the only door the mapping opens.
+  check("a full-power pull exists at all", Number.isFinite(fullPx), `${fullPx} world px`);
+  // STEP of slack, and only STEP: the scan can locate the ceiling no more
+  // finely than its own stride, and the rule leaves exactly zero margin by
+  // construction — so this goes red the moment the span outgrows the room.
+  check(
+    "a full pull from the cannon ends a cube clear of the wall",
+    CANNON.x - fullPx >= CELL - STEP,
+    `ends at world x=${(CANNON.x - fullPx).toFixed(1)}, floor ${CELL}`,
+  );
+  // The same property said through the gesture instead of through the geometry:
+  // a horizontal pull-back whose endpoint is still on the field is a 100% shot.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const reach = CANNON.x - CELL; // the furthest such pull the rule allows
+    check("...and that pull is a full-power one", c.aimFromDrag(-reach, 0) === 1,
+      String(c.aimFromDrag(-reach, 0)));
+    check("...at the cannon's top speed", Math.abs(c.power - c.speedMax) < 1e-9,
+      `${c.power} vs ${c.speedMax}`);
   }
-  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+
+  // --- The firing floor -----------------------------------------------------
+  // MIN_FIRE_RATIO is a FRACTION of the span and has to stay one. That is the
+  // property that let the span itself change without re-tuning the gate: shrink
+  // DRAG_MAX and the misfire threshold shrinks with it, in px, automatically,
+  // because "did they mean it" is about what the pull MEANS and not about how
+  // far a finger moved on a particular screen.
+  check(
+    "the misfire gate is a fixed fraction of the span, not a pixel count",
+    Math.abs((floorPx - footPx) / (fullPx - footPx) - MIN_FIRE_RATIO) < 0.01,
+    `${((floorPx - footPx) / (fullPx - footPx)).toFixed(4)} vs ${MIN_FIRE_RATIO}`,
+  );
+  // Both ends of "inside a thumb's reach", derived rather than banded: further
+  // than a whole cube of travel, so a graze cannot reach it; shorter than the
+  // full pull, so the gate is never the control.
+  check("the firing floor is further than a graze travels", floorPx > CELL, `${floorPx.toFixed(1)} world px`);
+  check("the firing floor is short of a full pull", floorPx < fullPx, `${floorPx.toFixed(1)} of ${fullPx.toFixed(1)}`);
   check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
   check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
   check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // --- The pad's power curve did not move with the span -----------------------
+  // THE PIN THAT WAS MISSING. The stick's ramp used to be spelled
+  // `powerRatioForDrag(deflection * 240)` against a 28/220 span, and shrinking
+  // DRAG_MAX rescaled that ramp WITHOUT rescaling its foot — DRAG_MIN is a
+  // fixed 28 that belongs to a thumb, not to the span. Both endpoints survived
+  // (a pinned stick still saturated, a centred one still read zero) while every
+  // interior point moved: half deflection fell 48% -> 39%, and the first
+  // deflection past the deadzone fell 13% -> 0, growing a second dead band at
+  // the bottom of the throw. Endpoint checks cannot see that. A CURVE check
+  // can, so this samples the whole throw against the mapping as it shipped.
+  {
+    // The reference: deflection * 240 through DRAG_MIN 28 / DRAG_MAX 220, the
+    // triple the pad's feel was born in. Written out rather than imported
+    // because the whole point is that cannon.ts's span is free to move again.
+    const asShipped = (d: number): number =>
+      Math.max(0, Math.min(1, (d * 240 - 28) / (220 - 28)));
+    let worst = 0;
+    let worstAt = 0;
+    for (let i = 0; i <= 2000; i++) {
+      const d = i / 2000;
+      const gap = Math.abs(asShipped(d) - stickPowerRatio(d));
+      if (gap > worst) { worst = gap; worstAt = d; }
+    }
+    // Float precision, not a tolerance: the two forms are the same line written
+    // two ways (a length through a span, versus the two deflections that line
+    // crosses), so they agree to a few ULP and nothing looser is acceptable.
+    check("the stick's power curve is the one pad players have, all the way along",
+      worst < 1e-12, `worst gap ${worst.toExponential(2)} at deflection ${worstAt.toFixed(4)}`);
+    check("a pinned stick is full power", stickPowerRatio(1) === 1);
+    check("a centred stick asks for nothing", stickPowerRatio(0) === 0);
+    check("...and a half-deflected one is neither", stickPowerRatio(0.5) > 0.4 && stickPowerRatio(0.5) < 0.6,
+      String(stickPowerRatio(0.5)));
+    // The bottom of the throw specifically: the first deflection the poller
+    // will even look at must already be asking for power, or the stick has two
+    // deadzones stacked and the first live millimetre does nothing.
+    check("the first deflection past the deadzone still asks for power",
+      stickPowerRatio(DEADZONE) > 0.1, `${(stickPowerRatio(DEADZONE) * 100).toFixed(1)}% at ${DEADZONE}`);
+    // And the whole loop, through the cannon: a deflection put through
+    // dragLenForRatio must come back off the cannon as the ratio it asked for.
+    // This is the seam the fix actually closed — the pad speaks in ratios and
+    // the touch mapping speaks in px, and only one of them may own the ramp.
+    const c = new Cannon(makeBaseLevel(0), 7);
+    let seam = 0;
+    for (const d of [DEADZONE, 0.35, 0.5, 0.7, 0.9, 1]) {
+      c.aimFromDrag(-dragLenForRatio(stickPowerRatio(d)), 0);
+      seam = Math.max(seam, Math.abs(c.powerRatio - asShipped(d)));
+    }
+    check("a deflection lands on the cannon as the power it always meant",
+      seam < 1e-12, `worst ${seam.toExponential(2)}`);
+  }
 
   // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
   // gesture asked for, not what the cannon happens to be holding — a tap
