@@ -43,6 +43,7 @@
     "sim:perf": "tsx sim/perf.ts",
     "sim:renderperf": "tsx sim/renderperf/run.ts",
     "sim:hudperf": "tsx sim/hudperf/run.ts",
+    "sim:keyframes": "tsx sim/hudperf/keyframes.ts",
     "sim:systems": "tsx sim/systems.ts",
     "sim:patterns": "tsx sim/patterns.ts",
     "sim:crest": "tsx sim/uifit/crest-shots.ts",

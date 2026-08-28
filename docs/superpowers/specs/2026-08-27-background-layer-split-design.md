@@ -515,8 +515,97 @@ zero. Only sums accumulated over many frames, or spans above ~1ms, carry meaning
 The 3.05ms, 0.414ms and the fps tables above are all accumulations or spans well
 above that floor.
 
+## The idle keyframe recalc, censused (2026-08-28)
+
+`sim/hudperf/run.ts`'s third arm had already named the category: on an idle bay —
+a loaded cannon, nothing in flight, nobody touching the glass — RecalcStyle over
+600 frames is **289.9ms with the animations running and 0.6ms with them stilled**,
+so **99.8% of an idle bay's style recalculation is running keyframes rather than
+DOM writes**. That is ~0.48–0.52ms/frame, and it is charged on a frame where by
+construction nothing has changed.
+
+`sim/hudperf/keyframes.ts` (`npm run sim:keyframes`) splits that number by
+animation. The roll call on an idle bay, post-#149:
+
+| animation | elements | properties | thread |
+| --- | --- | --- | --- |
+| `pixel-sparkle` | 13 | `opacity` | compositor |
+| `belt-arrow-pulse` | 8 | `opacity` | compositor |
+| `belt-roll` | 2 | `transform` | compositor |
+| `belt-arrows` | 1 | `transform` | compositor |
+| `belt-tread` | 1 | `background-position-x` | main |
+| `pulse-danger` | 1 | `opacity` | compositor |
+
+**Six animations across 26 elements, and five of the six are pure
+transform/opacity.** Leave-one-out, paired, five interleaved rounds, against a
+paired prize of 311.7ms: `belt-arrow-pulse` **117.5ms (38%)** and `pixel-sparkle`
+**114.3ms (37%)** are the only two rows that clear the harness's own noise floor
+by a margin worth quoting. Twenty-one of the twenty-six elements, and about
+three-quarters of the bill.
+
+### What that actually says, which is not what the property column suggests
+
+**"Composited" describes the PAINT, not the recalculation.** Blink still ticks a
+running animation and recalculates its element's style on the main thread every
+frame, whatever property the keyframes land on. Every top row here is
+`opacity` or `transform`.
+
+The sharp case is `pixel-sparkle`: `14s steps(2, jump-none)`, so its computed
+opacity takes a handful of distinct values across fourteen seconds and is
+*identical* on the overwhelming majority of frames. It costs 37% of the idle
+recalc anyway. **`steps()` saves paint; it does not save recalculation.**
+
+So the lever is the **count of continuously-animated elements**, not their
+choice of property. Moving one of these onto `transform` buys nothing this
+counter can see. Removing it, running it on fewer elements, or stopping it when
+its readout is not escalating, is what would move the number. Both leaders are
+decoration on a resting HUD — thirteen sparkle pixels on the crest and eight
+pulsing belt arrows.
+
+This also re-answers the crest question #149 opened. Removing the music-driven
+beat was worth 23.6fps and was the right call, but it did not take the crest out
+of the idle frame: `pixel-sparkle` on thirteen `.plant__crest::after` pixels is
+still the joint-largest single animation on an idle bay.
+
+### The harness had to be rebuilt twice, and both mistakes are this document's
+
+Recorded because both are the trap this document keeps re-learning, and the
+second one is subtler than anything above.
+
+**One pass over the arms is a block design.** The first version measured each
+arm once and printed six confidently-ranked rows. Re-running it moved
+`belt-arrow-pulse` from 25% to 14% and sent `pulse-danger` from +18.0ms to
+**−14.5ms** — the fourth-biggest "win" in the table came back negative. Only the
+top row survived.
+
+**Interleaving only pays if the arithmetic uses the pairs.** The second version
+interleaved the arms correctly and then compared `median(baseline)` against
+`median(arm)`, which throws the pairing away and leaves the drift in the answer.
+Measured that way the baseline arm's own spread was **106.7ms on a 289ms
+window** and *nothing at all* cleared it. The fix is the paired difference —
+`baseline[r] − arm[r]`, per round, then the median of those.
+
+The harness now carries a `(control)` arm that stills nothing, so its paired
+difference from the baseline is the method measuring a known zero. Over five
+rounds those zeros came out `2.6, −6.5, 57.9, −5.0, −25.8ms`, and the largest is
+printed as the noise floor with every row inside it marked as resolution rather
+than result. **A harness that cannot report a zero cannot be trusted to report a
+saving.**
+
+### What this does not establish
+
+The milliseconds are headless Chromium's on a desktop CPU — the caveat
+`sim/renderperf` and `sim/hudperf` both carry. The ranking and the shares are
+what transfer; the ~0.5ms/frame is not the CPH2573's ~0.5ms/frame. **The
+device-side confirmation has not been taken**, and until it is, "removing the
+sparkle is worth N fps on the phone" is not a claim this document makes. The
+mechanism is measured and the ordering is replicated across four independent
+runs of the harness; the device number is open.
+
 ## Related
 
 - `app/native/android/MainActivity.java` — `requestHighestRefreshRate()`, the
   fix that made 120Hz vsync reachable and these numbers measurable.
 - `app/sim/renderperf` — the existing render cost harness.
+- `app/sim/hudperf/run.ts` — the DOM-write census, whose stilled arm names the
+  keyframe category; `app/sim/hudperf/keyframes.ts` splits it by animation.
