@@ -231,16 +231,29 @@ yard works" and "pay more scrap per row" produce the same stop-1 total and are
 completely different designs. One makes the pilot play more bay; the other hands
 them the rung.
 
-**The instrument cannot confirm this and says so.** These bots clear 5-7 rows a
-bay on the roof, not 12, so `sim/timing.ts --mode scrap --skydeck` reports 31-35
-scrap at stop 1 and zero rungs. Twelve lines a bay is a model of a HUMAN — the
-figure `level.ts`'s own SKYDECK_SCRAP_SHARE table is built on, now named as
+**The instrument cannot confirm this and says so.** Measured on the shipped
+numbers (`--mode scrap --skydeck`, 6 seeds):
+
+| arm | bays 1-3 lines | scrap at stop 1 | rungs |
+|---|---:|---:|---:|
+| sweep | 23.3 | 38 | 0 |
+| timed | 22.7 | 38 | 0 |
+| burn | 32.5 | **48** | 0 |
+
+These bots clear 7.6-10.8 rows a bay on the roof, not 12, so none of them
+reaches the rung. Twelve lines a bay is a model of a HUMAN — the figure
+`level.ts`'s own SKYDECK_SCRAP_SHARE table is built on, now named as
 `SKYDECK_ENDGAME_LINES_PER_BAY` so a check can reach it. The bots put a floor
 under the claim; they do not verify it. **A device pass is what would.**
 
+One thing the table does say on its own, and it is the design working: the arm
+that gets CLOSEST to the rung is `burn`, the one that manufactures the most rows
+and cares least what they are worth. Skill pays funds, volume pays scrap, and
+the roof's yard is the place volume cashes in.
+
 For contrast, the ladder's stop 1 was never the problem and still is not: at the
-ladder's full rate the same three bays bank 61-73 scrap in this harness, i.e.
-one rung, measured rather than modelled.
+ladder's full rate the same three bays bank 71-92 scrap in this harness — one
+rung for every arm, measured rather than modelled.
 
 ---
 
@@ -363,10 +376,27 @@ be findings.
 between the two "The timing grade" sections. The economy pins are not there —
 the premium is checked in the tier-ladder section, the yard arithmetic in the
 Skydeck section, `advanceRun`'s tail in the Incinerator section — so those four
-rows report zero for a reason that has nothing to do with what is pinned. Pass 3
-re-runs them counting the WHOLE run, and adds three mutants the first two passes
-had no mutant for at all: the premium as a flat sum instead of a share, the roof
-sized off a weaker run, and the tail's last two arguments transposed.
+rows report zero for a reason that has nothing to do with what is pinned.
+
+### Pass 3 — the same four, counting the WHOLE run, plus three new mutants
+
+| mutation | fails |
+|---|---:|
+| `precisionPremium`: the quiet band is not quiet | 10 |
+| `precisionPremium`: dead constant, nothing above the band moves | 8 |
+| `precisionPremium`: the premium is a flat sum, not a share | 5 |
+| `skydeckScrapAtFirstStop`: the premium left out of the yard arithmetic | 2 |
+| `SKYDECK_ENDGAME_LINES_PER_BAY`: the roof's stop sized off a weaker run | 2 |
+| `advanceRun`: the grade tally lands on the wrong field | 4 |
+| `advanceRun`: the tail's last two arguments transposed | 7 |
+
+The first row is the one worth reading twice: widening the premium by seven
+rungs — the accident a future retune is most likely to have — fails ten checks,
+because the "every tier up to 8 is byte-identical" pin walks every tier and
+every bay against the ladder's own pre-premium formula. The last is the
+positional-tail hazard `run.ts` warns about in prose, made a failing test.
+
+**33 mutants across the three passes, every one of them accounted for.**
 
 ### The three genuine findings
 
