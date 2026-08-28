@@ -639,7 +639,9 @@ hands — the third time this harness has made that mistake.
 
 Live in `design/balance/` — `winnability-sweep-findings.md` (what the sweep
 found), `aim-strategy-findings.md` (what the sweep found once the pilot could
-play the systems it was pricing) and `counter-systems-proposal.md` (what to
+play the systems it was pricing), `system-slots.md` (what the rack's WIDTH is
+worth, and the fact that every table in the other two was flown on a five-to-
+seven-track rig without saying so) and `counter-systems-proposal.md` (what to
 build about it). All quote the numbers a re-run reproduces; none is a
 substitute for re-running it.
 

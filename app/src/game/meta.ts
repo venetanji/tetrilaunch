@@ -844,19 +844,30 @@ export function markBudget(meta: MetaState): number {
 /**
  * Slots a rig starts with.
  *
- * MEASURED, at the width where the ladder is still survivable and the choice is
- * already real (design/balance/system-slots.md §2). The short version: four is
- * the narrowest rack that reaches bay 10 at every Tier measured, and it is one
- * narrower than the rig every existing balance table in design/balance/ was
- * flown on — `builds.ts`'s priority orders run five to seven tracks, so the
- * record this design has to not break is itself a five-slot record.
+ * DERIVED FIRST, then measured, and the derivation is what makes it four rather
+ * than three or five.
  *
- * It is also the width at which the mount decision first BITES rather than
- * being free: the Workshop's ceiling is `slots x 55` ladder points against a
- * budget of `110 x mark`, so a four-slot rack spends its whole allowance
- * through Mark 2 and starts leaving points on the table at Mark 3 — which is
- * exactly the tier where the shelf first has more systems on it than a new
- * player has salvage for.
+ * The build budget promises that a Mark's whole allowance can be SPENT
+ * (docs/DESIGN.md). The Workshop's ceiling is `slots x 55` ladder points —
+ * UPRATE_MAX_TIER of `slots` tracks — against an allowance of `110 x mark`, so
+ * a rack of K spends every point a Mark grants exactly while `K x 55 >= 110M`,
+ * i.e. through Mark K/2. Four is therefore the NARROWEST rack that never
+ * strands a point at the two Marks a new player flies: 4 x 55 = 220 =
+ * budgetForMark(2) exactly, and the rack starts leaving points on the table at
+ * Mark 3 — which is also the first tier whose shelf holds more systems than a
+ * climbing player's salvage can buy. Three would strand budget from Mark 2,
+ * which is the one thing the budget's own promise forbids.
+ *
+ * MEASURED, and the measurement's job was to catch the derivation being wrong
+ * (design/balance/system-slots.md). It is not: across Tiers 7 and 10, four
+ * contents, 8 paired seeds each, no slot count walls a tier the wider rack
+ * survives — a four-slot rack's best seeds still reach bays 8 and 9 at Tier 10,
+ * which is deeper than the widest measurable rack reached on some of the same
+ * rows. What the width buys is a fraction of a bay per slot, not a cliff.
+ *
+ * It is also one narrower than the rig every existing table in design/balance/
+ * was flown on: `builds.ts`'s priority orders run five to seven tracks, so the
+ * record this design must not break is itself a five-slot record.
  */
 export const SLOT_BASE = 4;
 
@@ -892,11 +903,20 @@ export const SLOT_CAP = 10;
  *   180  three                  the ninth
  *   240  four                   the tenth
  *
- * ESCALATING, because each slot is worth less than the one before it and a flat
- * price would be a worse deal every rung. The measurement says so in bays:
- * widening a rack from 4 to 6 is worth about as much as widening it from 6 to
- * 10 (design/balance/system-slots.md §3), so the back half of the ladder has to
- * charge more for less or the last slots would be the obvious buy.
+ * ESCALATING, and the shape is measured rather than assumed. Mean bays cleared
+ * per extra slot, over Tiers 7 and 10, four contents, 8 paired seeds a cell
+ * (design/balance/system-slots.md):
+ *
+ *   slot 4   +0.39     slot 6   +0.23
+ *   slot 5   +0.44     slots 7-8  0.00
+ *
+ * The curve is flat by the seventh slot, so the back half of this ladder is
+ * priced as a SINK and not as power, and the copy says so in the player's own
+ * words ("dearer as each buys less" — game/guide.ts). What the last slots
+ * actually buy is not being made to re-plan the rack before every run, and no
+ * harness that flies one stationary draft policy per run can price that. A flat
+ * ladder would have made exactly the slots that buy the least the cheapest ones
+ * on the shelf.
  *
  * 780 IN TOTAL, AGAINST 600 OF LADDER INCOME, and that inequality is the
  * feature rather than an oversight. The ten-tier ladder pays 600 once; the
