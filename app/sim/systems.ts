@@ -7328,6 +7328,43 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
     const economy = plain(steps.map((s) => s.body).join(" "));
     check("the coach names the lost-cargo fine",
       economy.includes(`fine $${rowLevel.penaltyPerLostPiece}`), economy);
+    // ---- All four figures, against a bay that is nothing like Tier 1 --------
+    // The check above holds ONE number and holds it against the level the rest
+    // of this block already has, so a literal left in the copy could pass by
+    // coinciding with the real economy — which is not hypothetical, the fine
+    // was equal to the launch cost until the tier ladder moved Tier 1's shot to
+    // $20. This renders the deck against figures no bay has, so a literal
+    // cannot coincide with anything, and holds all four the card quotes.
+    const oddBay = {
+      ...rowLevel,
+      launchCost: 37, scorePerLine: 143, penaltyPerLostPiece: 61, targetScore: 929,
+    };
+    const oddEconomy = plain(coachSteps(oddBay).map((s) => s.body).join(" "));
+    check("the economy card quotes THIS bay's four figures, not a remembered example",
+      oddEconomy.includes("$37") && oddEconomy.includes("$143")
+        && oddEconomy.includes("$61") && oddEconomy.includes("$929"),
+      oddEconomy);
+    // ...and the launch cost is ONE figure on TWO surfaces. The card and the
+    // panel's meta row are the only two places a player is told what a shot
+    // costs, they are on screen together for the whole tutorial, and a
+    // disagreement between them is the kind of thing a player reads as the
+    // game lying rather than as a bug. Read off the rendered panel rather than
+    // restated here, so this fails if either surface starts quoting its own
+    // number.
+    const oddHud = hudHTML({
+      beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      loaded: { bomb: false, type: "L", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+      tier: 1,
+      target: oddBay.targetScore, score: 0, launchCost: oddBay.launchCost, bayNum: 1,
+      timeLimitSec: 180, timeLeftMs: 180_000, pieceSize: "std",
+      bondBreakerOwned: false, bondCharges: 0, demoOwned: false, bombCharges: 0,
+      thawOwned: false, thawCharges: 0,
+      autoloaderOwned: false, ratchets: {}, tiers: newTiers(), contract: null,
+    });
+    const quoted = plain(oddHud.match(/<span class="pl-meta__launch"[^>]*>([\s\S]*?)<\/span>/)?.[1] ?? "");
+    check("the tutorial and the panel quote the same launch cost",
+      quoted.trim() === `Launch $${oddBay.launchCost}` && oddEconomy.includes(`cost $${oddBay.launchCost}`),
+      `${quoted.trim()} vs the card's copy`);
     // ONE CARD PER COMPLETABLE ACTION (see coachSteps' note): aim, power and
     // release are one continuous drag, so they must be taught on one card —
     // split across cards they advance mid-gesture and flash past unread,
@@ -7373,6 +7410,52 @@ section("Materials (theme.ts / level.ts / lineClear.ts)");
         && !failCard.toLowerCase().includes("game over"));
     check("the failure card is a scrim modal, not an in-panel step",
       failCard.includes(`class="modal-scrim"`) && failCard.includes("coach--fail"));
+
+    // ---- The card's own box, read back out of app.css -----------------------
+    // Two facts about the tutorial card live in the stylesheet and nowhere
+    // else, and both of them are invisible to sim/uifit: the harness measures
+    // the tutorial's own screens, where the card renders correctly either way.
+    //
+    // 1. THE GIVE-WAY IS THE CARD'S, NOT THE HUD'S. A card handed less room
+    //    than its content wants has to lose the tail of its body rather than
+    //    push the readout it is stacked on, and that chain (shrinkable box,
+    //    flex column, scrollable body) used to be written against
+    //    `.hud[data-coach]` — the reveal attribute main.ts stamps alongside,
+    //    but separately from, mounting the card. Scoped that way the card had
+    //    two layouts, and only the one the fixtures render was ever measured:
+    //    beside a HUD without the attribute it became a rigid block over a
+    //    full readout, which is the shape a player reported. Re-scoping is a
+    //    one-character edit, so it gets a pin.
+    // 2. THE TYPE SCALES WITH THE BOX. The card's width is the plant's,
+    //    `0.4708 * var(--field-w)`; its type was fixed px, so the two diverged
+    //    on any field wider than the authored 1280 — a 904px card carrying one
+    //    14px line at 1920x1080. `--coach-px` is the multiplier that closes
+    //    that, floored at 1px so the growth direction is the only one it can
+    //    move in, and reset to a flat pixel on the failure card, which is in a
+    //    scrim app.css already magnifies by --chrome-zoom.
+    // Comments stripped first: this section of the stylesheet argues its own
+    // history in prose, `.hud[data-coach]` and `flex-direction` included, and a
+    // selector search that reads the prose finds the rule it is looking for in
+    // a paragraph explaining why that rule is gone.
+    const coachCss = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const giveWay = /(^|\n)\.coach \{[^}]*flex:\s*0 1 auto[\s\S]*?flex-direction:\s*column[\s\S]*?min-height:\s*0[^}]*\}/
+      .test(coachCss);
+    check("the tutorial card's give-way is the card's own, not the reveal attribute's",
+      giveWay && /(^|\n)\.coach__body \{[^}]*overflow-y:\s*auto/.test(coachCss),
+      "app.css");
+    check("...so no rule hands the give-way back to `.hud[data-coach]`",
+      !/\.hud\[data-coach\][^{]*\.coach(__card|__body)?\s*,?\s*[^{]*\{[^}]*(flex-direction|overflow-y)/
+        .test(coachCss));
+    check("the card's type is a multiple of the field's own pixel",
+      /--coach-px:\s*max\(1px,\s*var\(--fpx\)\)/.test(coachCss)
+        && /\.coach__body \{[^}]*font-size:\s*calc\(14 \* var\(--coach-px\)\)/.test(coachCss)
+        && /\.coach__title \{[^}]*font-size:\s*calc\(13 \* var\(--coach-px\)\)/.test(coachCss),
+      "app.css");
+    check("...and the failure card takes the scrim's magnification instead",
+      /\.coach--fail \{[^}]*--coach-px:\s*1px/.test(coachCss), "app.css");
   }
 
   // The end-to-end check the unit checks above could not make. alignMagnetic

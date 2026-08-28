@@ -7505,9 +7505,37 @@ button.panel { color: var(--text); }
    upward into empty sky rather than clipping the card's buttons. */
 .coach {
   pointer-events: none;
-  flex: none;
   margin: calc(10 * var(--fpx)) calc(10 * var(--fpx)) 0;
+  /* ---------- THE CARD'S GIVE-WAY, and why it is unconditional ----------
+     A card that is handed less room than its content wants must lose the tail
+     of its BODY — the one block in it that can scroll — rather than push the
+     readout it is stacked on. That chain is three links: the box shrinks
+     (`flex: 0 1 auto`), it lays its card out as a flex ITEM (`display: flex`,
+     so `min-height: 0` can reach it at all), and the body is what finally
+     gives (`overflow-y: auto`, below).
+
+     All three used to be scoped to `.hud[data-coach]`, i.e. to the reveal
+     attribute main.ts stamps on the HUD alongside — but separately from —
+     mounting the card. That made the card's own geometry conditional on
+     something outside the card: with the attribute absent the box became
+     `flex: none` over a plain block child, which is the rigid shape that once
+     walked straight through the readout (249x53px of overlap on the budget
+     phone — the history is on the panel's cap rule further down). A tip that
+     renders one way beside a tutorial HUD and another way beside a full one
+     is a tip with two layouts, and only one of them was ever measured.
+
+     So the give-way belongs to the card. Every value here is the one the
+     `[data-coach]` rules already computed, so nothing about the tutorial's
+     rendering changes; what changes is that no other element's state can
+     take the chain away. The failure card (`.coach--fail`, a modal over a
+     dead bay) picks it up too, which is what its own short-viewport block
+     asks for out loud: reach the retry button without scrolling the card. */
+  flex: 0 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
+.coach__card { min-height: 0; }
 /* While the card is in the panel the readout stacks UNDER it from the top
    rather than being spread down the panel's full height — space-between with
    half the blocks hidden would strand the survivors at the two extremes. */
@@ -7572,29 +7600,71 @@ button.panel { color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
   .plant, .plant__body, .pl-pwr, .coach, .belt, .bay-banner { transition: none; }
 }
+/* ---------- The card's type is field px, like its box ----------
+   `--coach-px` is one WORLD pixel at the current field scale, floored at a CSS
+   pixel, and every length in the card is written as a multiple of it. --fpx is
+   exactly 1px on the 1280-wide field app.css is authored against, so each
+   `calc(N * var(--coach-px))` below is N px there and on every viewport under
+   it — which is every phone in the matrix — and N magnified above it.
+
+   Why it has to scale at all. The card's BOX is field px already and always
+   was: it is a child of `.plant`, whose width is `0.4708 * var(--field-w)`,
+   the mockup's fraction. Its TYPE was fixed px. The two therefore diverge
+   exactly as the window grows past the authored box — at 1920x1080 the panel
+   is 904px wide and the body copy was still 14px, so the economy card rendered
+   as one short line adrift in a 900px box with its step dots and its GOT IT
+   button 700px apart at the two ends of a `space-between` row. Nothing
+   overflowed, nothing overlapped, and every assertion in sim/uifit was green:
+   the card was simply drawn at phone scale inside desktop furniture, which is
+   the defect --chrome-zoom answers for the screen-anchored scaffolds and which
+   no rule reached inside the HUD.
+
+   The FLOOR is the safety argument. `max(1px, ...)` leaves growth as the only
+   direction this can move, so a phone renders exactly as it did before and the
+   short-viewport block below keeps its tightened values — that block is only
+   ever active where --fpx is under 1px anyway, since a viewport 480px tall can
+   fit a field no wider than 853px. */
+.coach { --coach-px: max(1px, var(--fpx)); }
 .coach__card {
   background: rgba(8, 8, 18, 0.92);
   border: var(--bw) solid var(--accent);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-hard), 0 0 18px rgba(0, 240, 255, 0.22);
-  padding: 12px 16px;
-  display: flex; flex-direction: column; gap: 6px;
+  padding: calc(12 * var(--coach-px)) calc(16 * var(--coach-px));
+  display: flex; flex-direction: column; gap: calc(6 * var(--coach-px));
   animation: pop 300ms var(--ease);
 }
 .coach__eyebrow {
   font-family: var(--font-pixel);
-  font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: calc(8 * var(--coach-px)); letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--accent);
 }
-.coach__title { font-family: var(--font-pixel); font-size: 13px; color: var(--text); }
-.coach__body { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.45; }
+.coach__title { font-family: var(--font-pixel); font-size: calc(13 * var(--coach-px)); color: var(--text); }
+.coach__body { margin: 0; font-size: calc(14 * var(--coach-px)); color: var(--text-dim); line-height: 1.45; }
 .coach__body b { color: var(--text); }
-.coach__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
-.coach__dots { display: flex; gap: 4px; }
-.coach__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--surface-3); display: block; }
+.coach__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: calc(10 * var(--coach-px)); margin-top: calc(2 * var(--coach-px));
+}
+.coach__dots { display: flex; gap: calc(4 * var(--coach-px)); }
+.coach__dots i {
+  width: calc(8 * var(--coach-px)); height: calc(8 * var(--coach-px));
+  border-radius: 50%; background: var(--surface-3); display: block;
+}
 .coach__dots i.done { background: var(--accent); opacity: 0.5; }
 .coach__dots i.cur { background: var(--accent); box-shadow: 0 0 6px rgba(0, 240, 255, 0.6); }
-.coach__btn { pointer-events: auto; }
+/* The one `.btn` that lives inside the HUD rather than on a screen scaffold —
+   so it is the one that misses `--chrome-zoom` (app.css's zoom rule covers
+   .screen/.modal-scrim/.bayclear/.rotate-guard, none of which the HUD is) and
+   has to take the field's scale directly, on the same floored idiom as the
+   type above it. .btn's authored 11px/14px/26px, magnified with the card so a
+   904px-wide card is not carrying a phone-sized button. The 44px tap floor
+   .btn sets is a MINIMUM, so scaling up never crosses it. */
+.coach__btn {
+  pointer-events: auto;
+  font-size: calc(11 * var(--coach-px));
+  padding: calc(14 * var(--coach-px)) calc(26 * var(--coach-px));
+}
 /* The pad-route chip on the coach's button (screens.ts's padKey): the same
    keycap the hint strip speaks in, sized down to ride inside a button label
    without growing its line. */
@@ -7623,6 +7693,14 @@ button.panel { color: var(--text); }
   margin: auto;
   width: min(430px, calc(100% - 2 * var(--sp-3)));
   max-height: 100%;
+  /* ...and a fourth: the card's field-scale multiplier is reset to a flat CSS
+     pixel here. The teaching steps take --fpx because they sit INSIDE the HUD,
+     which no zoom rule reaches; this card sits in a `.modal-scrim`, which
+     app.css already magnifies by --chrome-zoom. Leaving --coach-px alone would
+     multiply the two — 14px of body copy through --fpx 1.5 and then zoom 1.5
+     is 31.5px on a 1920x1080 window — so the scrim's magnification is the one
+     that applies, exactly as it does for every other modal in the app. */
+  --coach-px: 1px;
 }
 .coach--fail .coach__card { gap: 10px; padding: 16px 18px; }
 .coach--fail .coach__title { font-size: 15px; color: var(--danger); }
@@ -7689,32 +7767,27 @@ button.panel { color: var(--text); }
    panel eating the cannon — min-height:0 is what lets a flex child shrink. */
 .hud[data-coach] .plant { max-height: calc(0.52 * var(--field-h)); }
 /* The card is the child that gives way at the cap, because its body is the one
-   block in the panel that can scroll. `flex: none` (the base .coach rule) pins
-   flex-shrink at 0, which quietly defeated the min-height chain below: at the
-   cap the panel could not shrink the card, so the overflow went to the READOUT
-   instead — Launches and Reload spilled below the panel's bottom edge, off the
-   bottom of a 360px viewport, on exactly the step that had just revealed them
-   (caught by the coach-final fixture on five of twelve devices). */
-.hud[data-coach] .coach {
-  flex: 0 1 auto;
-  /* ...and a flex COLUMN, which is the link that chain was still missing.
-     `.coach` did shrink — 101px against the 165px it wanted at 640x360 — but
-     the scrollable body belongs to the CARD inside it, and a block child of a
-     block box takes its own content height and spills out of a parent that
-     shrank underneath it. So the cap stopped the box while the card walked
-     straight through the readout below: 249x53px of overlap on the budget
-     phone, 314x15 on a Pixel 5, 267x39 on an iPhone 13 mini — 7 of the 13
-     devices — with Launches and Reload sitting UNDER the card's dots and its
-     GOT IT button, on the step that had just revealed them. That is what the
-     sibling placement was chosen to make impossible.
-     A flex container makes `.coach__card` a flex ITEM, which is the only thing
-     that lets the `min-height: 0` below reach it and hand the give-way to
-     `.coach__body` the way the cap above always assumed it did. */
-  display: flex;
-  flex-direction: column;
-}
-.hud[data-coach] .coach,
-.hud[data-coach] .coach__card { min-height: 0; }
+   block in the panel that can scroll — see the give-way chain on the base
+   `.coach` rule, which is where those three links now live and why they are no
+   longer written against `[data-coach]`. The history the chain answers belongs
+   here, with the cap that provokes it:
+
+   `flex: none` used to pin the card's flex-shrink at 0, so at the cap the panel
+   could not shrink it and the overflow went to the READOUT instead — Launches
+   and Reload spilled below the panel's bottom edge, off the bottom of a 360px
+   viewport, on exactly the step that had just revealed them (caught by the
+   coach-final fixture on five of twelve devices). Releasing the shrink alone
+   was not enough either: `.coach` did shrink — 101px against the 165px it
+   wanted at 640x360 — but the scrollable body belongs to the CARD inside it,
+   and a block child of a block box takes its own content height and spills out
+   of a parent that shrank underneath it. So the cap stopped the box while the
+   card walked straight through the readout below: 249x53px of overlap on the
+   budget phone, 314x15 on a Pixel 5, 267x39 on an iPhone 13 mini — 7 of the 13
+   devices — with Launches and Reload sitting UNDER the card's dots and its GOT
+   IT button. That is what the sibling placement was chosen to make impossible,
+   and it is why the card is a flex COLUMN: it makes `.coach__card` a flex ITEM,
+   which is the only thing that lets `min-height: 0` reach it and hand the
+   give-way to `.coach__body`. */
 /* ---------- The card's height budget, while it has the panel ----------
    Two gutters sized for the panel's OTHER job, cut back for the job it is
    doing here. `.plant__body`'s vertical padding is set for the full readout
@@ -7736,7 +7809,13 @@ button.panel { color: var(--text); }
    so the full readout keeps its own spacing. */
 .hud[data-coach] .coach { margin: max(2px, calc(5 * var(--fpx))) max(4px, calc(10 * var(--fpx))) 0; }
 .hud[data-coach] .plant__body { padding-top: max(2px, calc(5 * var(--fpx))); padding-bottom: max(2px, calc(5 * var(--fpx))); }
-.hud[data-coach] .coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The valve itself — unconditional, for the reason the base `.coach` rule
+   gives: it is the last link of the card's own give-way, not a property of the
+   HUD state the card happens to be sitting beside. Needing it is still the
+   defect (`.coach__body` is deliberately NOT on sim/uifit's ALLOWED_SCROLLERS
+   list, so a card whose copy outgrows its box fails CI); this is the backstop
+   that keeps a card readable instead of shoving the readout while it does. */
+.coach__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ---------- Rotate-step spotlight (tutorial only) ----------
    While the rotate card is up (data-coach="1"), the two ⟲/⟳ rail buttons
