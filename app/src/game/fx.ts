@@ -5,6 +5,8 @@
  * Game.update the step the event spawned, so a renderer can animate progress
  * as `now - t0` without Game needing to know anything about how it's drawn.
  */
+import type { ClearGrade } from "./grades";
+
 /** How far a "−$" penalty toast SINKS from where it spawned, over its life
  *  (render.ts's drawPenaltyFx). It lives here rather than in render.ts because
  *  a spawner has to be able to clear an obstacle for the toast's whole travel,
@@ -14,7 +16,17 @@ export const PENALTY_SINK_PX = 34;
 
 export type FxEvent =
   | { kind: "shatter"; x: number; y: number; color: string; t0: number }
-  | { kind: "payout"; x: number; y: number; amount: number; t0: number }
+  /** A line clear selling. `grade` is the clear's headline TIMING GRADE
+   *  (grades.ts, lineClear.ts's headlineGrade) — the callout the player reads
+   *  the shot by, drawn over the "+$" in the same toast rather than as a second
+   *  effect, because the money and the verdict on how it was earned are one
+   *  event and a second floater would race the first. Null where there is
+   *  nothing to announce, which no in-game clear produces and every hand-built
+   *  fixture does. */
+  | {
+    kind: "payout"; x: number; y: number; amount: number;
+    grade: ClearGrade | null; t0: number;
+  }
   | { kind: "rowflash"; y: number; x0: number; x1: number; t0: number }
   | { kind: "explosion"; x: number; y: number; r: number; t0: number }
   /** Salvage refund from a demolition charge (see game.ts's detonate): the

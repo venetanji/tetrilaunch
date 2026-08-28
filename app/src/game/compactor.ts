@@ -144,6 +144,20 @@ export class Compactor {
    *  trips means the count ticks at the moment the player can see something
    *  happen, which is what makes "3 strokes left" readable. */
   strokes = 0;
+  /** Stop flips since the bay opened — BOTH ends, where `strokes` counts only
+   *  the right one. Two per round trip, so equal readings mean "the bar has not
+   *  reversed since", which is the finer half of the timing grade's clock
+   *  (grades.ts): a row cleared without a reversal since its newest cargo
+   *  landed closed inside the stroke that was already running.
+   *
+   *  A SECOND COUNTER rather than arithmetic on `strokes`, even though the two
+   *  advance together at the right stop and are recoverable from each other
+   *  given the reset state. `strokes` is a Contract's budget unit and is quoted
+   *  to the player ("3 strokes left"); this is a grade's clock and is quoted to
+   *  nobody. Deriving one from the other would tie a payout rule to the exact
+   *  phase the bar happens to reset at, which is a coupling neither side asked
+   *  for and nothing would catch when it broke. */
+  halfCycles = 0;
   /** Body-center X at the open/left stop (zone = compactorOpenCells). */
   readonly leftX: number;
   /** Body-center X at the full-advance/right stop (zone = compactorMinLineCells). */
@@ -241,10 +255,19 @@ export class Compactor {
       // Count the press only on the step it actually completes — the bar sits
       // pinned at rightX for one step before reversing, and dir is still +1
       // here, so this fires exactly once per stroke.
-      if (this.dir === 1) this.strokes += 1;
+      if (this.dir === 1) {
+        this.strokes += 1;
+        this.halfCycles += 1;
+      }
       this.dir = -1;
     } else if (x <= this.leftX) {
       x = this.leftX;
+      // Guarded the same way the right stop is, and for the same reason: the
+      // bar sits pinned at a stop for one step before reversing, so an
+      // unguarded increment would tick twice on the arrival step and again on
+      // the departure one — and a half-cycle that ticks while the bar has not
+      // reversed is a grade clock that demotes a row nothing happened to.
+      if (this.dir === -1) this.halfCycles += 1;
       this.dir = 1;
     }
     Matter.Body.setPosition(this.body, { x, y: this.yCenter });
@@ -253,6 +276,7 @@ export class Compactor {
   reset(): void {
     this.dir = 1;
     this.strokes = 0;
+    this.halfCycles = 0;
     Matter.Body.setPosition(this.body, { x: this.leftX, y: this.yCenter });
     // A reset is the one move this bar makes that it does not TRAVEL, so it
     // opts out of being drawn as travel (engine.ts's markPrevStep). Without

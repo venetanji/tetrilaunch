@@ -31,6 +31,23 @@ export interface Cube {
    *  materials that don't need striking, so the line-clear check can read this
    *  one field without also re-deriving the material's rules. */
   struck: boolean;
+  /** The compactor's `strokes` / `halfCycles` the FIRST time this cube was seen
+   *  at rest — its landing, in the timing grade's own clock (grades.ts, stamped
+   *  by lineClear.ts's `stampLandings`). Null while the cube has never settled.
+   *
+   *  Stamped ONCE and never refreshed, which is the property the grade rests on:
+   *  a cube a blast, a shatter kick or a neighbour knocked back into the air
+   *  re-settles still carrying the moment it originally arrived, so a stale pile
+   *  cannot have its clock reset by being disturbed. Written as two plain
+   *  numbers on the cube rather than a shared object so a cube can be copied
+   *  without two cubes coming to share one landing.
+   *
+   *  OPTIONAL, and absent means "has never been at rest" — the same stance
+   *  `framed` takes below. `stampLandings` is the only writer and it writes
+   *  lazily, so a spawn site does not have to know the grade exists; a cube it
+   *  forgets is a cube in flight, which is what an unstamped cube IS. */
+  landedStroke?: number;
+  landedHalfCycle?: number;
   /** Does this cube draw the shape-colour frame around its material (render.ts's
    *  getCubeSprite)? Undefined means yes — only createStandingWall opts out,
    *  because it assigns `type` for looks rather than from a real shipment, and a

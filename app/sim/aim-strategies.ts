@@ -674,6 +674,162 @@ export function incineratorAware(): AimStrategy {
 }
 
 /* ---------------------------------------------------------------------------
+ * 5. TIMED — the pilot the TIMING GRADE is asking for
+ *
+ * `src/game/grades.ts` prices a row by WHEN it closed relative to the press,
+ * and every pilot in this harness fires the instant its cooldown and its purse
+ * allow. That is not a neutral default here, it is the SWEEP-RELIANT arm by
+ * construction: a shot fired at an arbitrary phase lands at an arbitrary phase,
+ * so its rows are graded by the bar's schedule rather than by the player's.
+ *
+ * The complaint this whole feature answers is about exactly that pilot — *"the
+ * maxed out systems carry you over and it's boring"* — so a table showing the
+ * new economy has to have both halves in it or it is measuring one player twice.
+ *
+ * THE ONE RULE, and it is one rule: hold fire unless this shipment will still
+ * be in the air when the press comes round, and will land with enough of an
+ * ADVANCE left in front of it for the row it closes to be crushed inside that
+ * same stroke. That is the EXCELLENT band's definition (grades.ts: the bar has
+ * not reversed since the landing) expressed as a decision the pilot can make
+ * two seconds early.
+ *
+ * WHAT IT COSTS, which is the reason this is a strategy and not a free lunch:
+ * shots. A held cooldown is a launch that never happened, the bay clock does
+ * not stop, and the bay's target is unchanged. So the arm trades VOLUME for
+ * GRADE, and whether that trade pays is precisely the question the sweep is
+ * asking rather than something this file asserts.
+ *
+ * WHAT IT DOES NOT MODEL, for the ledger. It predicts the bar with the bar's
+ * own nominal speed, so a bay labouring under rebar (`compactor.ts`'s
+ * `rigidPressDrag`) has a press slower than this arithmetic expects and the arm
+ * fires slightly early. And its flight estimate is a constant rather than a
+ * read of the arc it is about to fly — see TIMED_FLIGHT_STEPS. Both errors push
+ * the same way: they cost the arm grades it aimed for, so a timed row this arm
+ * reports is a timed row a human could also have got.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Physics steps this pilot assumes a shipment spends between leaving the muzzle
+ * and having FINISHED arriving — every cube of it at rest, which is the moment
+ * the grade's clock actually reads (a row is graded on its NEWEST landing, so
+ * the number to predict is the shipment's last cube down, not its first).
+ *
+ * MEASURED, over the aim search's own grid (15°-55° in 5° steps x four powers,
+ * on bays 1/5/10 at Mark 10, wind pinned off) — `sim/_scratch-flight.ts`:
+ *
+ *   bay    min  p25  median  p75  max
+ *   1       33   60    71     85  107
+ *   5       37   59    74     82  103
+ *   10      34   64    75     83  104
+ *
+ * 75 — the deep bays' median, and inside a step of the shallow one's. Flat
+ * across the ladder, which is worth stating because it is the reason ONE
+ * constant is defensible: `compactorSpeed` ramps per bay but gravity, drag and
+ * the muzzle range do not, so a bay's press gets faster while its flights stay
+ * the same length. That is also exactly why EXCELLENT gets rarer as the ladder
+ * climbs, which the arms table shows.
+ *
+ * A CONSTANT rather than a per-shot read of `g.trajectory`, deliberately: the
+ * preview arc ends where the cargo first CONTACTS something, and the clock
+ * starts several bounces later. The spread above (33-107) is the error this
+ * pilot carries, and it is what the margin below absorbs — badly, on purpose.
+ * A shot mistimed by the spread is a shot graded one band down, which is the
+ * arm losing grades it aimed for rather than being handed them.
+ *
+ * THE FIRST VALUE HERE WAS 120, PICKED FROM THE COOLDOWN RATHER THAN MEASURED,
+ * and the census caught it: at 120 the arm scored 0% EXCELLENT at bay 10 on
+ * every seed while the undisciplined control managed 7%, i.e. the "timed" pilot
+ * was systematically timing itself out of the band it exists to hit.
+ */
+export const TIMED_FLIGHT_STEPS = 75;
+
+/**
+ * How much of the advancing stroke has to be left ahead of the landing, in
+ * steps, before this pilot will take the shot.
+ *
+ * A landing needs the press to keep coming for two separate reasons and this
+ * one number buys both: `settleZoneCubes` grinds the cargo onto the slot grid
+ * only while the bar is advancing, and `updateLineClear` only ever runs on an
+ * advancing bar. A shipment that lands two steps before full advance is
+ * therefore a shipment graded GOOD at best, whatever the aim was worth.
+ *
+ * 40 steps is two thirds of a second at 60Hz, and it is sized off the grind
+ * rather than off the stroke: `X_RATE` is 0.5 px/step, so squaring a cube from
+ * the far edge of `SETTLE_SLOT_TOL` (half a cell, 20px) onto its slot centre
+ * takes 40 steps at stock Hydraulics. A refitted press does it faster, which is
+ * one of the things the arms table is measuring and not something to bake in.
+ */
+export const TIMED_PRESS_MARGIN_STEPS = 40;
+
+/**
+ * Clock (ms) under which the timing rule switches off entirely.
+ *
+ * `LANCE_DUMP_MS`'s argument verbatim, and the same number: discipline is a way
+ * of spending a resource better, and the resource here is the bay clock. A
+ * pilot still holding out for a perfect phase with twenty seconds left is
+ * holding out for a bay it has already lost — and the bays where that matters
+ * are exactly the deep ones this feature is aimed at, where the target is
+ * highest and the margin thinnest.
+ */
+export const TIMED_DUMP_MS = LANCE_DUMP_MS;
+
+/**
+ * Where the bar will be `steps` from now, as (advancing?, steps of advance left).
+ *
+ * Closed form rather than a simulated loop: the bar is a triangle wave between
+ * two fixed stops at one speed (`Compactor.update`), so its phase `n` steps out
+ * is arithmetic on one modulo. A loop would be a second copy of `update`'s
+ * stop-and-flip logic living in the harness, which is how a sweep ends up
+ * describing a compactor that no longer exists.
+ *
+ * Returns null when the bay's bar is degenerate (zero span or speed), which no
+ * shipped level produces and a hand-built config could — the caller then simply
+ * does not hold fire, which is the right failure: a timing rule that cannot
+ * read the clock must not become a rule against firing.
+ */
+export function pressPhaseAfter(
+  g: Game, steps: number,
+): { advancing: boolean; advanceLeft: number } | null {
+  const c = g.compactor;
+  const span = c.rightX - c.leftX;
+  if (span <= 0 || c.speed <= 0) return null;
+  const half = span / c.speed;
+  // Position along ONE round trip, measured in steps from the open stop at the
+  // start of an advance — the same origin `Compactor.reset` leaves the bar at.
+  const travelled = (c.x - c.leftX) / c.speed;
+  const nowPhase = c.dir === 1 ? travelled : 2 * half - travelled;
+  const then = ((nowPhase + steps) % (2 * half) + 2 * half) % (2 * half);
+  return then < half
+    ? { advancing: true, advanceLeft: half - then }
+    : { advancing: false, advanceLeft: 0 };
+}
+
+/** The rule itself, so the pin can call it with numbers instead of a Game. */
+export function shouldHoldForPress(
+  phase: { advancing: boolean; advanceLeft: number } | null,
+  margin = TIMED_PRESS_MARGIN_STEPS,
+): boolean {
+  if (!phase) return false;
+  return !(phase.advancing && phase.advanceLeft >= margin);
+}
+
+function timedAware(): AimStrategy {
+  return {
+    name: "timed",
+    // The HOLD lives in `abilities` because that is the only hook called
+    // outside the pilot's cooldown-and-funds gate, and returning true is
+    // exactly "spend the tick without acting" (see the interface). Nothing is
+    // actually spent — the point of this hook here is the tick, not a charge.
+    abilities(g) {
+      if (g.timeLeftMs < TIMED_DUMP_MS) return false;
+      return shouldHoldForPress(pressPhaseAfter(g, TIMED_FLIGHT_STEPS));
+    },
+  };
+}
+
+export const timedStrategy: AimStrategySpec = { name: "timed", build: timedAware };
+
+/* ---------------------------------------------------------------------------
  * THE REGISTRY
  * ------------------------------------------------------------------------- */
 
@@ -685,6 +841,7 @@ export const STRATEGIES: Record<string, AimStrategySpec> = {
   strike: strikeStrategy,
   lance: lanceStrategy,
   cushion: cushionStrategy,
+  timed: timedStrategy,
 };
 
 /** Pair a draft policy with the strategy that flies it. */

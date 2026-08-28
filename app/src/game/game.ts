@@ -41,7 +41,12 @@ import {
   chargeAfterRelief,
   reliefRealised,
   blastRelief,
+  stampLandings,
+  headlineGrade,
 } from "./lineClear";
+import {
+  gradedLinePay, newGradeTally, type ClearClock, type ClearGrade, type GradeTally,
+} from "./grades";
 import { payoutMult, bombResupply } from "./level";
 import type { LevelConfig, PileTier } from "./level";
 import { mulberry32 } from "./mods";
@@ -489,6 +494,17 @@ export class Game {
    *  run.ts's advanceRun. Accrues even in a bay that is ultimately lost, which
    *  is deliberate: the run keeps whatever the bay actually produced. */
   scrapEarned = 0;
+  /** Rows this bay has sold at each TIMING GRADE (grades.ts).
+   *
+   *  A tally rather than a running money figure, because the two questions it
+   *  answers are both counts: the end card tells the player how their bay
+   *  actually read, and the balance sweeps steer on `timedShare`. What each row
+   *  earned is already in `score`, and a second total of the same dollars is a
+   *  second thing to keep in step.
+   *
+   *  Per BAY, like `scrapEarned` and `linesTotal` above it. run.ts banks it
+   *  into the run at the bay boundary. */
+  gradeTally: GradeTally = newGradeTally();
   /** Funds recovered from demolition-charge blasts this bay — a stat for the
    *  end/HUD readouts so bomb income is visibly separate from line income. */
   salvagedFunds = 0;
@@ -1816,6 +1832,20 @@ export class Game {
     this.stepAutoLaunch(now);
     stepPhysics(this.phys);
     this.applyWind();
+    // THE LANDING HALF OF THE TIMING GRADE (grades.ts), stamped before anything
+    // this step can move the bar or clear a row.
+    //
+    // Its position is load-bearing in both directions. AFTER the physics step
+    // and the wind, so a cube that arrived on this step is already carrying the
+    // velocity the settle test will read — stamping before them would date every
+    // landing one step early and, worse, would test last step's velocity.
+    // BEFORE `compactor.update()`, so a shipment that comes to rest on the very
+    // step the bar reaches its stop is stamped on the stroke it LANDED in
+    // rather than on the one that started a moment later. That single step is
+    // the whole EXCELLENT/GOOD boundary for a shot threaded into a closing
+    // press, which is the shot the grade exists to reward.
+    stampLandings(this.cubes, this.gradeClock);
+
 
     // Fuse: a bomb that never collides with anything still has to go off.
     for (const bomb of this.liveBombs) {
@@ -1907,7 +1937,7 @@ export class Game {
     // compactor's forward (pressure) stroke — a broken joint never deletes one.
     const clear: ClearResult = pressing
       ? updateLineClear(this.phys.world, this.cubes, this.compactor, this.level, this.constraints)
-      : { lines: 0, cubes: [], rows: [] };
+      : { lines: 0, cubes: [], rows: [], graded: [] };
     if (clear.lines > 0) {
       // A clear is progress, and progress earns more strokes: reopen the
       // convergence window so no overtime branch can compare across a field
@@ -1933,15 +1963,36 @@ export class Game {
       // touch a four-row collapse. Below 1 it replaces the bonus outright,
       // which is the intent — a congested bay is not a place to build a streak.
       const bonus = payoutMult(this.combo, this.stepPileTier);
-      const awarded = Math.round(clear.lines * this.level.scorePerLine * bonus);
+      // ONE SALE PER ROW, at that row's own TIMING GRADE (grades.ts), and the
+      // congestion/combo multiplier over the top of each.
+      //
+      // Per row rather than on the clear's line count, which is the whole
+      // change: a four-row collapse used to sell four rows at one price, so an
+      // Excellent row threaded into a pile and the three stale rows the same
+      // crush happened to take were worth the same money. They are not the same
+      // play and they no longer fetch the same price.
+      //
+      // The combo bonus still multiplies the WHOLE clear rather than being
+      // graded itself. It is a streak across crushes and the grade is a verdict
+      // on one row; folding one into the other would make a streak worth more
+      // to a player who happened to close their rows on the press and would
+      // charge the grade twice.
+      let awarded = 0;
+      for (const row of clear.graded) {
+        awarded += Math.round(gradedLinePay(this.level.scorePerLine, row.grade) * bonus);
+        this.gradeTally[row.grade] += 1;
+      }
       this.score += awarded;
       this.linesTotal += clear.lines;
-      // Scrap is earned per LINE, flat and combo-free (unlike funds): capital
-      // shouldn't spike on a lucky multi-clear, or one good stroke would buy a
-      // whole upgrade track. See level.ts's SCRAP_PER_LINE note.
+      // Scrap is earned per LINE, flat, combo-free AND UNGRADED (unlike funds):
+      // capital shouldn't spike on a lucky multi-clear, or one good stroke
+      // would buy a whole upgrade track. See level.ts's SCRAP_PER_LINE note,
+      // and grades.ts's header for the other half of the rule — skill pays
+      // funds, VOLUME pays scrap, so a player who burns bankroll to manufacture
+      // rows converts one currency into the other at a price the grade sets.
       this.scrapEarned += clear.lines * this.level.scrapPerLine;
       this.events.onLineClear?.(clear.lines);
-      this.spawnClearFx(clear, awarded, now);
+      this.spawnClearFx(clear, awarded, headlineGrade(clear.graded), now);
       // A MAXED Demolition Rack returns charges as rows close. Run against the
       // cumulative line count rather than this clear's delta so a four-line
       // crush pays everything it earned — see level.ts's bombResupply for why
@@ -2152,11 +2203,23 @@ export class Game {
     }
   }
 
+  /** The compactor's counters as the TIMING GRADE reads them (grades.ts).
+   *
+   *  One accessor rather than two reads at each of the two call sites — the
+   *  landing stamp and the row scan — because the pair has to be sampled at the
+   *  same instant to mean anything, and two sites each picking their own fields
+   *  off the bar is how they end up sampling different steps. */
+  get gradeClock(): ClearClock {
+    return { stroke: this.compactor.strokes, halfCycle: this.compactor.halfCycles };
+  }
+
   /** Push the FX events a clear implies: one shatter per removed cube, one
    *  rowflash per cleared row (spanning the compactor face to the wall), and
    *  a single payout at the cluster's rough centroid/top with the actual
-   *  awarded amount (post-combo-bonus). */
-  private spawnClearFx(clear: ClearResult, awarded: number, now: number): void {
+   *  awarded amount (post-combo-bonus) and the clear's headline timing grade. */
+  private spawnClearFx(
+    clear: ClearResult, awarded: number, grade: ClearGrade | null, now: number,
+  ): void {
     for (const c of clear.cubes) {
       this.effects.push({ kind: "shatter", x: c.x, y: c.y, color: c.color, t0: now });
     }
@@ -2167,7 +2230,9 @@ export class Game {
     if (clear.cubes.length) {
       const meanX = clear.cubes.reduce((s, c) => s + c.x, 0) / clear.cubes.length;
       const minY = Math.min(...clear.cubes.map((c) => c.y));
-      this.effects.push({ kind: "payout", x: meanX, y: minY - 30, amount: awarded, t0: now });
+      this.effects.push({
+        kind: "payout", x: meanX, y: minY - 30, amount: awarded, grade, t0: now,
+      });
     }
   }
 

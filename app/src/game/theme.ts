@@ -1,4 +1,5 @@
 // Canvas-side palette. Mirrors src/styles/tokens.css (design-system single source).
+import type { ClearGrade } from "./grades";
 
 export type PieceType = "I" | "O" | "T" | "L" | "J" | "S" | "Z";
 
@@ -393,6 +394,42 @@ export const COLORS = {
   aim: "#00f0ff",
   text: "#eaeaff",
   textDim: "#8080ac",
+};
+
+/**
+ * THE TIMING CALLOUT — what the bay shouts over a row that just sold
+ * (grades.ts, render.ts's drawPayoutFx).
+ *
+ * The word is the GRADE'S OWN NAME, uppercased, and only the best band takes
+ * punctuation. The owner's brief wrote the ladder in four asides — *"clear
+ * lines immediately after they land (excellent!), shortly after (Good), after a
+ * compactor sweep (lucky or planned?), after 3 sweeps (definitely lucky)"* —
+ * and the temptation was to make each callout the aside instead of the name
+ * ("PLANNED?" for a swept row). It was refused for a reason the end card
+ * settles: the same four words appear in the bay's tally and in the guide, and
+ * a mechanic whose in-play voice and whose scoreboard use different vocabulary
+ * takes twice as long to learn. So the aside survives as the TONE — one
+ * exclamation mark at the top, nothing at all lower down, because a bay that
+ * congratulates you for a lucky collapse is teaching the wrong thing.
+ *
+ * COLOURS reuse the palette's existing money verbs rather than inventing a
+ * fifth: the payout green for the two grades that pay ABOVE the base rate, the
+ * aim cyan for the neutral one, and the dim text for the one that pays below.
+ * The player reads the price before they read the word, which is the same
+ * ordering the rising-green/sinking-red pair already teaches.
+ */
+export const GRADE_CALLOUT: Record<ClearGrade, string> = {
+  excellent: "EXCELLENT!",
+  good: "GOOD",
+  swept: "SWEPT",
+  lucky: "LUCKY",
+};
+
+export const GRADE_COLOR: Record<ClearGrade, string> = {
+  excellent: COLORS.trajectory,
+  good: COLORS.trajectory,
+  swept: COLORS.aim,
+  lucky: COLORS.textDim,
 };
 
 /** Shade helpers (port of the original dark/light pattern shading). */
