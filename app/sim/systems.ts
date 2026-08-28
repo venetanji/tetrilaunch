@@ -10508,6 +10508,73 @@ section("Tier S — the sandbox as a game mode (lib/devmode.ts, game/sandbox.ts)
   check("a cheat rewrites the save", applyCheat("sbx-grant-salvage", newMeta(), 1)!.salvage === 1000);
   check("a non-cheat is not handled", applyCheat("sbx-launch", newMeta(), 1) === null);
 
+  /* "UNLOCK EVERYTHING" HAS TO PRODUCE A RIG THAT FLIES EVERYTHING, and the
+   * property is stated against safeLoadout rather than against the loadout it
+   * writes. That is the whole finding (codex, PR #157): the cheat set
+   * `loadout: maxedTiers()` and left the save's rack at SLOT_BASE, so the meta
+   * it produced OWNED ten systems and FLEW four — the label was true of the
+   * field it wrote and false of the run it produced, which is the one thing a
+   * blunt developer action must never be.
+   *
+   * The equality is exact and deliberately not `>=`: a cheat that granted nine
+   * of ten would pass any weaker check while still being a lie, and "everything"
+   * is the only reading of the button's own word. */
+  //
+  // APPLIED TO A TOP-MARK SAVE, and the reason is the second gate this pin
+  // found once the first was fixed. safeLoadout asks TWO questions — does the
+  // rig fit the Mark's build budget, and what is aboard — and only the second
+  // is a slot question. A maxed rig costs FULL_BUILD_COST, which no Mark below
+  // the last can afford, so on a fresh save the cheat's own loadout is refused
+  // by budgetForMark long before the rack is consulted. That is correct and is
+  // pinned separately below: a Mark is the one thing no cheat except
+  // `sbx-grant-mark` may touch, so "unlock everything" granting a Mark's worth
+  // of budget as a side effect would be the worse bug. The developer flow is
+  // both buttons, which is what this meta is.
+  //
+  // WITH SOMETHING ALREADY IN THE SHED, which is the half of this pin that was
+  // vacuous on its first draft and was caught by breaking the code: a fresh
+  // save's shed is empty, so a cheat that forgot to clear one passed a pin
+  // written against `newMeta()` without changing a single character of output.
+  // The developer flow the button has to survive is "stow a system, then tap
+  // Unlock everything", so that is the meta it is asked about.
+  const topMeta: MetaState = {
+    ...newMeta(),
+    mark: MARK_COUNT - 1,
+    loadout: { ...newTiers(), [UPGRADES[0].id]: 1, [UPGRADES[1].id]: 1 },
+    stowed: [UPGRADES[0].id],
+  };
+  check("the sandbox's own fixture really does have a stowed system",
+    stowedIds(topMeta).length === 1 && !isMounted(topMeta, UPGRADES[0].id));
+  const cheated = applyCheat("sbx-unlock-all", topMeta, MARK_COUNT)!;
+  check(`"unlock everything" flies everything, not just the first ${SLOT_BASE}`,
+    JSON.stringify(safeLoadout(cheated)) === JSON.stringify(maxedTiers()),
+    `${mountedIds(cheated).length} of ${UPGRADES.length} aboard`);
+  check("...because it widens the rack rather than leaving the mask to eat it",
+    slotsFor(cheated) === SLOT_CAP && stowedIds(cheated).length === 0);
+  // THE OTHER GATE, stated so a future reader chasing a slot bug does not
+  // "fix" the budget guard on the way past. Below the top Mark the same cheat
+  // still flies a stock rig, and it is budgetForMark refusing it rather than
+  // the rack: the rig is fully mounted and simply unaffordable.
+  const cheapCheat = applyCheat("sbx-unlock-all", newMeta(), 1)!;
+  check("...while a cheated rig the MARK cannot afford is still refused",
+    tiersCost(safeLoadout(cheapCheat)) === 0
+      && mountedIds(cheapCheat).length === UPGRADES.length);
+  // THE OTHER THREE ARE NOT THE SAME CLASS, and each is checked rather than
+  // asserted in prose. `sbx-wipe` is newMeta() whole, so its rack is the base
+  // one by construction; `sbx-grant-salvage` writes no rig at all (and its
+  // salvage now buys slots like anyone else's); and `sbx-grant-mark` grants a
+  // BUDGET rather than a rig — the systems still have to be bought, and the
+  // rack it leaves behind is the one the player had. A Mark-N save whose rig
+  // could not have been mounted is not a state this cheat can reach.
+  check("wiping the save restores the base rack",
+    slotsFor(applyCheat("sbx-wipe", { ...cheated, salvage: 99 }, 1)!) === SLOT_BASE);
+  check("granting salvage touches neither the rack nor the shed",
+    slotsFor(applyCheat("sbx-grant-salvage", cheated, 1)!) === SLOT_CAP
+      && applyCheat("sbx-grant-salvage", newMeta(), 1)!.stowed.length === 0);
+  check("granting a Mark grants a budget, never a rig",
+    JSON.stringify(applyCheat("sbx-grant-mark", newMeta(), 9)!.loadout)
+      === JSON.stringify(newTiers()));
+
   // The end modal has to say what the run did NOT do, or a player will assume
   // it did.
   const sEnd = S.endModal({
