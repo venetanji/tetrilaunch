@@ -2532,6 +2532,88 @@ body.crt-off #app::after { display: none; }
 }
 :root[data-profile="gamepad"] .pause-keys { display: block; }
 
+/* ---------------------------------------------------------------------------
+   THE ARMED QUIT (screens.ts's pauseModal, run.ts's quitLosesProgress).
+
+   Quit is the one exit that ends a run without filing it, so on a run with bays
+   behind it the button takes two presses. This block draws the state between
+   them, and its whole job is that the second press lands on a control that has
+   already said what it does.
+
+   BOTH FACES ARE ALWAYS IN THE MARKUP, stacked in ONE grid cell. The cell sizes
+   to the wider of them ("QUIT ANYWAY"), so the button is the same WIDTH idle as
+   armed. That axis is the one that matters, and it is not symmetry for its own
+   sake: this is a wrapping row, so a button that grew sideways would slide its
+   neighbours along it and put RESTART BAY under a press aimed at Quit. The idle
+   button is therefore ~34px wider than the bare ghost it replaces; the row wraps
+   at var(--sp-3) and every uifit row absorbs it.
+
+   THE OTHER AXIS IS NOT RESERVED, deliberately. The note adds a row and the
+   modal is centred, so arming lifts the button 19.6px on a 915x412 phone and
+   36.3px at 1280x720 (measured, live). Reserving that too would mean a permanent
+   dead band on the most-visited modal in the game to serve a state most players
+   never see. It is also the wrong instinct here: this is not the draft's pick
+   box (.mod-card__box), which is a toggle a player taps repeatedly and must find
+   in the same place. It is a destructive confirm, and its failure mode is a
+   blind second tap at the first tap's coordinates — which now lands on the
+   warning text rather than on the button, and on no other control either way,
+   because the whole row moves together. Verified: a same-point double tap does
+   not confirm; two taps that actually aim at the armed button do.
+
+   `visibility` rather than `display` for the hidden face: a display:none child
+   contributes no intrinsic width, which would collapse the reservation above
+   back to whichever face is showing.
+
+   NOT COLOUR ALONE. The armed state relabels the button, reddens it, and mounts
+   the note below — three carriers, because the wash is the only one of the
+   three that a red-green-blind player or a screen reader gets nothing from.
+   Nothing here animates, so there is no reduced-motion branch to write: the
+   change is the words, and the words are the teaching. */
+.btn--quit {
+  display: inline-grid;
+  place-items: center;
+}
+.btn__quit-face {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.btn--quit[data-armed="false"] .btn__quit-face:not(.btn__quit-face--armed),
+.btn--quit[data-armed="true"] .btn__quit-face--armed { visibility: visible; }
+.btn--quit[data-armed="true"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+/* The hover rule on .btn--ghost pulls every ghost back to --accent; an armed
+   Quit must not go cyan under a mouse that happens to be resting on it. */
+.btn--quit[data-armed="true"]:hover { color: var(--danger); border-color: var(--danger); }
+
+/* The line that names the loss. Sits between the button row and the control
+   reference, so it reads as a consequence of the row above rather than as a
+   caption on the card.
+
+   --fs-sm, not --fs-xs: this is the only prose on the card a player is meant to
+   stop and read, and three lines of it is the whole warning.
+
+   NO MEASURE CAP. It shipped a first cut at 46ch, which is a sane reading
+   measure in the abstract and the wrong one here: the modal is already
+   min(520px, 92vw), so its content box is ~440px and a ch cap only narrows the
+   note further — measured, that turned three lines into four on the 1280x720
+   laptop and bought nothing on any phone. The modal's own width is the measure
+   this card was designed around, and every other block on it obeys that. */
+.pause__quit-note {
+  margin: 0 auto;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--danger);
+}
+@media (max-height: 480px) {
+  /* A landscape phone draws no pause-keys block at all (coarse pointer), so the
+     note is the only thing under the row — it can keep its size. It steps down
+     only where the card is genuinely stacked. */
+  .pause__quit-note { font-size: var(--fs-xs); line-height: 1.3; }
+}
+
 /* Short (landscape-phone) viewports: only the glyph size steps down. The
    stack arithmetic — button size, gap, whether the column fits at all — is
    entirely the solver's (game/layout.ts budgets the buttons the run actually
@@ -5698,6 +5780,15 @@ body.crt-off #app::after { display: none; }
   color: var(--text-muted);
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+/* HOW MANY NUMBERS MOVED (screens.ts's projectionHTML) — inside the note, not
+   beside it, so the header keeps its one line and the count is the last thing
+   the ellipsis reaches. The note's own rule above is what makes that work.
+
+   Accent rather than a tone colour: it counts the moved rows without judging
+   them, and the tiles below are already carrying red and green for that. The
+   weight is the row's, not `b`'s — this header is pixel-face at 8px, where a
+   synthesised bold is mush rather than emphasis. */
+.projection__moved { color: var(--accent); font-weight: inherit; }
 /* What the panel is FOR, said in the space it is waiting to fill. Only the
    yard passes it (screens.ts's projectionHTML): a draft always has rows to
    show, a yard with nothing staged may hold only the bay's priced five. */
@@ -5746,12 +5837,63 @@ body.crt-off #app::after { display: none; }
    which is the whole thing this screen was failing to do. */
 .preview-stat__from { font-size: 12px; font-weight: 600; color: var(--text-muted); text-decoration: line-through; }
 .preview-stat__arrow { font-size: 11px; color: var(--text-dim); }
+
+/* THE BELT'S COMPOSITION, inside the belt tile (screens.ts's previewMixHTML).
+   One grid item still — the materials are a wrapping list of marks inside the
+   tile that already prices the belt, which keeps the six-tiles argument intact
+   (preview.ts's belt note) while answering "33% of WHAT".
+
+   IN the tile rather than spanning the grid, and that is a measurement rather
+   than a preference: `grid-column: 1 / -1` cannot share a grid row, so a
+   spanning belt tile costs a whole row wherever it lands — +78px on the
+   800x600 draft, where the list itself is 17. Wrapped inside its tile it costs
+   the lines it needs and nothing else: one at the two materials a mid run
+   carries, three at all six in the yard's 96px column. */
+.preview-mix {
+  display: flex; flex-wrap: wrap; gap: 0 8px;
+  margin: 1px 0 0; padding: 2px 0 0; list-style: none;
+  border-top: 1px solid var(--line);
+}
+/* The mark, the tally and the share as one object — a material's figure must
+   never wrap away from the glyph that says which material it is. */
+.preview-mix__m {
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
+}
+.preview-mix__m .mat-icon { flex: none; }
+/* The plant panel's notch grammar ("×2"), in the pixel face it is written in
+   there — the same bill, on the screen that prices the next bay. */
+.preview-mix__notch {
+  font-family: var(--font-pixel); font-size: 7px; color: var(--warn);
+}
+/* The SHARE is the figure and the ×N beside it is the bill, so the share gets
+   the row's brightest ink — the line's own colour is muted, which would
+   otherwise leave the loudest thing on it the amber tally. */
+.preview-mix__pct { display: inline-flex; align-items: baseline; gap: 3px; }
+.preview-mix__pct .preview-stat__to { color: var(--text); }
+/* A material line inherits the tile's tones rather than restating them: the
+   struck old value and the new one are the same two spans a tile uses, so the
+   only thing a moved line adds is which way it moved. */
+.preview-mix__m .preview-stat__from { font-size: 10px; }
+.preview-mix__m .preview-stat__arrow { font-size: 9px; }
+.preview-mix__m--worse .preview-stat__to { color: var(--danger); }
+.preview-mix__m--better .preview-stat__to { color: var(--success); }
 /* Compact (landscape phones): the grid keeps the five priced numbers and every
    row the selection MOVED, and drops the axes that are merely in play. Ten
    tiles is four rows against a projection column that has three, and a row of
    context is what a player can reconstruct by tapping the card anyway — the
-   moment a pick touches crosswind, its tile comes back as a changed one. */
-[data-density="compact"] .preview-stat--context { display: none; }
+   moment a pick touches crosswind, its tile comes back as a changed one.
+
+   NOT the tile carrying the belt's breakdown, and the exemption is narrow on
+   purpose: it only ever exists in the yard (screens.ts's `explains`), where the
+   argument for dropping context does not hold. A crosswind tile can be
+   reconstructed by tapping a card; what the belt is MADE OF cannot be
+   reconstructed from anything on that screen, and it is the fact that decides
+   between a Demolition Rack and a Thaw Lance. Measured: it costs the yard's
+   compact projection one row, on the phone where that projection has been
+   running four tiles and half a column of air. */
+[data-density="compact"] .preview-stat--context:not(.preview-stat--mix) { display: none; }
 .preview-stat--worse { border-color: rgba(255,45,85,0.55); background: rgba(255,45,85,0.10); }
 .preview-stat--worse .preview-stat__to { color: var(--danger); }
 .preview-stat--better { border-color: rgba(0,255,156,0.5); background: rgba(0,255,156,0.10); }
@@ -6595,14 +6737,42 @@ button.panel { color: var(--text); }
 /* THE CARD. .shop-card carries the frame, the two-track row and the price rail;
    everything below is the parts a refit has and an unlock does not.
 
-   The price track is CAPPED, which the Workshop's is not. An unlock's foot is
-   a price or a short gate line; a refit's is a whole sentence of button ("Take
-   back ×2 · +90"), and against `auto` that nowrap content took the track it
-   needed and left the body's `minmax(0, 1fr)` at 20px on the narrowest device
-   in the matrix — the description track collapsed so the button could stay
-   unabbreviated. The delta already knows how to ellipsise; the sentence does
-   not have anywhere to go. */
-.refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 190px); }
+   THE PRICE TRACK IS 124px, and it was 190. The cap exists because an unlock's
+   foot is a price and a refit's used to be a whole sentence of button — a
+   direction arrow, the rung's effect prose and the price — and against `auto`
+   that content took the track it needed and left the body's `minmax(0, 1fr)` at
+   20px on the narrowest device in the matrix.
+
+   The prose is gone (screens.ts's buy-button note: the projection states what a
+   rung does, the button states what it costs), so the cap can come down to what
+   the widest foot actually measures. Measured at the base density, longest
+   content of each kind:
+
+     stage  "T3 · <scrap> 55"      67px
+     undo   "✕ Undo ×2 · +<scrap> 90"  118px   ← the widest, and the cap
+     MAX    "MAX"                  30px
+
+   fit-content(160px), i.e. `min(max-content, 160px)`: each card's rail is as
+   wide as its own foot needs and no wider, with 160 — the undo's own width — as
+   the ceiling nothing may pass. A flat `minmax(0, 160px)` takes the whole 160
+   on every card whatever it holds, which would have charged a stage card 64px
+   of description for a button that wants 96. The floor at the other end is
+   .shop-card__foot's `min-width: 96px`, so the prices still line up in a rail.
+
+   What actually hands the description its width back is the button itself:
+   154px -> 96px at this density, once the prose came off it.
+
+   .shop-card.refit-card, and the two classes are load-bearing. This rule was
+   `.refit-card` alone, which is (0,1,0) — the same specificity as `.shop-card`'s
+   own `minmax(0, 1fr) auto`, three hundred lines LATER in this file, so source
+   order won and the cap never applied at base density in its life. That is not
+   a tidy-up: `auto` sizes the price track to the button's max-content, which is
+   exactly the mechanism the note above says was fixed, and it is what put a
+   whole sentence of button on the rail with the description wrapped to one word
+   per line beside it. The compact override below is `.modal--refit .refit-card`
+   at (0,2,0) and always did apply, which is why the phone was merely tight
+   while the desktop was broken. */
+.shop-card.refit-card { grid-template-columns: minmax(0, 1fr) fit-content(160px); }
 /* The tier pips ride with the state line rather than the name: on a landscape
    phone a name as long as "Press Hydraulics" pushed them onto a second line of
    the name row, i.e. a line per card of the shelf to say what three dots say. */
@@ -6637,16 +6807,20 @@ button.panel { color: var(--text); }
 .refit-card__foot { align-items: center; }
 .refit-card__undo { color: var(--warn); }
 .refit-card__undo .refit-card__price { color: var(--success); }
-/* Three parts on one row: direction, what changes, what it costs. The delta is
-   the flexible one, so a long effect string ellipsises instead of pushing the
-   price off the button. */
+/* The STAGE button is a price and nothing else, so it centres it; the UNDO
+   button is the same box in its other state and still runs three parts (mark,
+   verb, refund), which is what the flex row and the gap are still here for. */
 .refit-card__buy {
   padding: 8px 10px; font-size: 10px;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   flex: 1 1 auto; min-width: 0;
 }
 .refit-card__arrow { flex: none; display: flex; align-items: center; }
-.refit-card__delta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Undo's word, and only Undo's — the stage button dropped its delta entirely
+   (screens.ts's buy-button note). It still ellipsises rather than wrapping,
+   because "Undo ×2" on two lines would take the button past the tap floor's
+   height on a shelf of seven. */
+.refit-card__delta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .refit-card__price { flex: none; font-family: var(--font-mono); font-weight: 700; display: inline-flex; align-items: center; gap: 3px; }
 .refit-card__buy:disabled { filter: grayscale(0.7) brightness(0.6); cursor: default; }
 .refit-card__max { font-family: var(--font-pixel); font-size: 9px; color: var(--success); letter-spacing: 0.08em; }
@@ -6666,6 +6840,13 @@ button.panel { color: var(--text); }
 .modal--refit .preview-stat__label { font-size: 9px; }
 .modal--refit .preview-stat__val { font-size: 14px; }
 .modal--refit .preview-stat__from { font-size: 11px; }
+/* …and the belt's breakdown with them. This is the one tile whose height is a
+   function of how many materials the run carries — six lines' worth of marks in
+   a 90px column is three wrapped lines — so on the densest projection in the
+   app it gives up the same point of type the labels around it do. */
+.modal--refit .preview-mix { gap: 0 6px; padding-top: 1px; }
+.modal--refit .preview-mix__m { font-size: 9px; line-height: 1.3; gap: 2px; }
+.modal--refit .preview-mix__m .preview-stat__from { font-size: 9px; }
 /* The display face at --fs-h1 costs an iPad 70px of header on the densest
    modal in the app. The yard states its own name once and spends the rest of
    its height on the shelf and the numbers. */
@@ -7219,19 +7400,147 @@ button.panel { color: var(--text); }
 .draft__bank { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
 .draft__bank .bay-stat { flex: 1 1 0; min-width: 0; max-width: 240px; padding: 5px 9px; }
 .draft__bank .bay-stat__val { font-size: 12px; }
+/* THE PAYOUT BANNER — one component, eight callers: the run end's
+   salvage-banked and tier-complete rows and its Tier S replacement
+   (sandboxEndRowHTML), plus the Contract end's five variants (progress,
+   complete, Tier S, Skydeck, replay). Every number below is set once, here, so
+   the format cannot drift per screen; sim/systems.ts pins that all eight keep
+   the three-part shape these rules are addressed to.
+
+   The text column is the part that was wrong. It was set at 11px/1.35 with a
+   1px heading gap, which is smaller than anything else in the modal it lives
+   in: the .end__why paragraph beside it is --fs-sm, .end__where is --fs-sm,
+   and the .stat labels immediately above the row are 9px PIXEL caps, which
+   read a good deal larger than 9px of --font-ui. So the one block on the
+   screen carrying the actual economy — what banked, what the tier still owes,
+   what it buys — was the hardest thing on the screen to read.
+
+   --fs-sm is therefore not a bump, it is the modal's existing measure for
+   explanatory copy, and the row joins it WHERE THERE IS ROOM. 1.5 leading
+   because the sentence WRAPS at every width the row is ever drawn at — 322px
+   in the run end's left column on a 640x360 phone, 576px at the Contract end's
+   full measure on a laptop — and 1.35 on a run that always wraps is the
+   setting that made this block read as noise rather than as three lines.
+
+   THE BASE COSTS NO HEIGHT, and the bigger setting is an exception gated on
+   room. That is the opposite of how this block was first written — roomy by
+   default with a `max-height` band cut out of it for small windows — and the
+   reason is that a max-height band has a CLIFF at its ceiling. Codex found it:
+   one pixel of window height above the ceiling bought ~53px of banner, so a
+   browser window at 800x621 got the roomy setting with 13px less room than it
+   needed. The overflow ran the whole way from 621 to 633 and only closed at
+   634; at 760px wide it did not close until 683. Written this way round there
+   is no cliff to fall off — a viewport that does not clear every floor keeps a
+   setting that costs nothing, and a new device row lands on the safe side.
+
+   So the base keeps the old 11px/1.35 sentence and spends nothing it has not
+   already saved: the heading gap goes 1px -> 3px (the change that made the
+   title and the paragraph read as one block) and the row's vertical padding
+   goes 10px -> 8px to pay for it. Net height across the whole banner is 0, and
+   the grid probe agrees — no viewport in 640-1400 x 560-900 draws this row
+   taller than staging drew it. */
 .salvage-row {
   display: flex; align-items: center; gap: var(--sp-3);
-  padding: 10px 14px;
+  padding: 8px var(--sp-3);
   border-radius: var(--r-md);
   background: rgba(255, 176, 32, 0.08);
   border: var(--bw) solid rgba(255, 176, 32, 0.45);
   text-align: left;
 }
 .salvage-row__amt { font-family: var(--font-mono); font-weight: 800; font-size: 24px; color: var(--warn); flex: none; }
-.salvage-row__body { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.salvage-row__body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+/* Both the heading and the inline emphasis inside the sentence, at one size:
+   the pixel face is a display face and two of it on one block is a hierarchy
+   nobody asked for. The pair tracks the sentence because Press Start 2P's caps
+   are 0.875em against Rajdhani's ~0.7em — 11px of pixel and 14px of --font-ui
+   land within 0.3px of the same cap height — so the emphasis sits IN the
+   sentence instead of on top of it, and the heading leads the block on weight
+   and colour rather than on size. */
 .salvage-row__body b { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 0.06em; }
 .salvage-row__body span { font-size: 11px; line-height: 1.35; }
+/* NO LEADING ON THE HEADING HERE. The base sets none on `b` at all, so there
+   is none to scope, and the pixel face's own `normal` is what this row has
+   always drawn — measured, because on the Tier S banner an explicit 1.3
+   cost 3px against staging and that is a budget this base does not have.
+   Every block that DOES set leading on the heading scopes it to `> b`: an
+   inline <b> inside the sentence contributes its own line-height to the line
+   box it sits in, so a bare `.salvage-row__body b { line-height: … }` sets one
+   line of a three-line wrapped paragraph taller than the two around it. */
+/* The footnote is the third rank in the block — the run's scrap and refit
+   ledger, true but not actionable — so it steps down one notch from the
+   sentence wherever the sentence is big enough for there to be a notch. Two
+   classes deep because the rule above it is `.salvage-row__body span` at
+   (0,1,1) and a bare class would lose to it. */
+.salvage-row__body .salvage-row__foot { font-size: 11px; }
 .salvage-row .btn { flex: none; padding: 8px 14px; font-size: 9px; }
+
+/* THE FULL SETTING, and all three floors are measured rather than chosen.
+
+   The probe walks viewport heights until TWO things stop happening: the end
+   modal's .panel scrolling, and the actions row covering the banner. The
+   second is the one that binds, and it is invisible to the .panel metric —
+   .end__main is the grid's `1fr` track and .end__actions the `auto` one under
+   it, so a main column taller than its track runs beneath the buttons without
+   ever growing the panel's scroll height. A banner sized on the scroll metric
+   alone passes every check and is read with Play Again lying across it.
+
+   The binding screen is the run end's TIER S variant at every width probed: it
+   is the longest body this row carries — two sentences plus the ledger
+   footnote — in the narrower of the run end's two grid columns.
+
+   HEIGHT >= 720px. Clean from 720px at 1280 and wider, 708px at 1000. It is
+   exactly the floor at the reference viewport rather than a step above it,
+   which is deliberate: 1280x720 is the size the whole game is laid out for and
+   is not a viewport this row is allowed to be too big for.
+
+   WIDTH >= 1000px. The floor rises as the window narrows, because the run end
+   keeps its two-column grid and the banner's text column narrows with it —
+   732px at 900 wide, above the height floor, and at 800 the panel itself
+   overflows until 634px while the covering never clears at all. A width floor
+   is the honest way to say the banner needs a COLUMN, which no amount of
+   height buys.
+
+   ASPECT >= 5/4. Under it the layout solver goes "tall" (layout.ts) and
+   magnifies the screen-anchored chrome; the end modal is already over its
+   panel there on staging — 91px at 900x920 with the OLD 11px banner — and the
+   full setting made a handful of those near-square cells worse. Every real
+   window is far outside it: 1280x720 is 1.78, a 1000x760 window 1.32, both
+   iPads 1.33, the Pixel Tablet 1.6.
+
+   What this leaves on the smaller setting, of the 19-row device matrix: the
+   phones, the 800x600 window, and the 1269x663 desktop-shell window — which
+   misses the height floor by 57px and whose Tier S banner is covered from
+   672px whatever this block says.
+
+   Ordering is not load-bearing here: this block cannot collide with the
+   landscape-phone step below it (nothing is both >= 720px and <= 480px tall),
+   and it only ever raises the base. */
+@media (min-width: 1000px) and (min-height: 720px) and (min-aspect-ratio: 5/4) {
+  .salvage-row { padding: 12px var(--sp-4); gap: var(--sp-4); }
+  .salvage-row__body { gap: 5px; }
+  .salvage-row__body b { font-size: 11px; }
+  .salvage-row__body > b { line-height: 1.45; }
+  .salvage-row__body span { font-size: var(--fs-sm); line-height: 1.5; }
+  .salvage-row__body .salvage-row__foot { font-size: var(--fs-xs); }
+}
+
+/* THE LANDSCAPE-PHONE STEP, at .end__why's own breakpoint rather than at the
+   520px one the row's padding and figure use a few blocks down. That is the
+   whole point of it: 11.5px is exactly what .end__why's paragraph steps to,
+   and the modal's explanatory rank moves together or it stops being a rank
+   (sim/systems.ts pins the pair). Sharing the paragraph's SIZE while using a
+   different breakpoint would have been a coincidence rather than a rule.
+
+   480 is also where the phones actually are — the tallest in the device matrix
+   is 440px — and the 41px between 481 and 520 buys the fix its only free
+   lunch. A resizable window at 1280x500 is not a phone, has no phone's padding
+   savings to spend, and measured 5px over staging when this step reached it;
+   held to 480 it keeps the base, which costs nothing. */
+@media (max-height: 480px) {
+  .salvage-row__body > b { line-height: 1.35; }
+  .salvage-row__body span { font-size: 11.5px; line-height: 1.4; }
+  .salvage-row__body .salvage-row__foot { font-size: 10.5px; }
+}
 
 /* Short (landscape-phone) viewports: the refit shelf and the salvage row are the
    two blocks most likely to overflow, so tighten both.
@@ -7299,21 +7608,28 @@ button.panel { color: var(--text); }
      what it is winning against. Left bare, only the font-size ever landed and
      the button stayed 35.5px tall: 12px per card across the whole shelf. */
   .modal--refit .refit-card__buy { padding: 5px 8px; font-size: 9px; gap: 4px; }
-  /* The cap is the button's real width at this density, not a round number:
-     under it the delta starts ellipsising, and "+2 ce…" is not a delta (the
-     .refit-card__price note above is the standing rule — the price gives back
-     its air, the delta never gives up its tail). */
-  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) minmax(0, 160px); }
-  /* B6's tier prefix widened the price; on the narrow compact cards the
-     price gives back its air rather than the delta giving up its tail
-     ("+2 ce…" is not a delta). */
+  /* 128px, and it was 160. The old cap was the button's real width when the
+     button carried a delta ("under it the delta starts ellipsising, and '+2 ce…'
+     is not a delta"); with the delta gone the widest foot at this density is
+     undo's "✕ Undo ×2 · +<scrap> 90", and a stage button is a third of that.
+     This selector is (0,2,0) and always outranked `.shop-card`'s `auto`, which
+     is why the phone was merely tight where the base cap was dead outright. */
+  .modal--refit .refit-card { grid-template-columns: minmax(0, 1fr) fit-content(128px); }
   .modal--refit .refit-card__price { gap: 2px; }
-  /* B6's tier prefix stands down here, and the price note above is what
-     sanctions it: "the price gives back its air rather than the delta giving up
-     its tail". The rung being bought is still on the card — it is what the
-     unlit pip beside the state line means — while the delta is the only thing
-     that says what the rung DOES, and "+2 ce…" says nothing. */
-  .modal--refit .refit-card__tier { display: none; }
+  /* The undo's ✕ stands down at this density and its word does not. "Undo ×2"
+     is 65px of the 128px rail here and the mark is 14px with its gap; without
+     the trade the count ellipsises to "Undo …", and the count is the half that
+     says how much of the order this button takes back. The button is still
+     unmistakable without it — it is the one secondary, amber control on a shelf
+     of cyan prices. */
+  .modal--refit .refit-card__undo .refit-card__arrow { display: none; }
+  /* THE TIER PREFIX STAYS, at every density, and its own class is gone with it
+     (screens.ts writes the rung straight into .refit-card__price). It used to
+     stand down here so the delta could keep its tail — "the price gives back
+     its air rather than the delta giving up its tail" — and with no delta on
+     the button there is nothing left to give the air to. Half of what this
+     button now says is which rung it buys; a bare "55" is a number with no
+     noun. */
   .modal--refit .refit-card__price .ico { width: 9px; height: 9px; }
   .modal--refit .price__sep { margin: 0 1px; }
   /* Undock is the commit and stays the biggest thing on the screen, but at
@@ -7334,6 +7650,18 @@ button.panel { color: var(--text); }
   .modal--refit .preview-stat__label { font-size: 7.5px; }
   .modal--refit .preview-stat__val { font-size: 11px; gap: 3px; line-height: 1.2; }
   .modal--refit .preview-stat__from { font-size: 9px; }
+  /* The belt's marks again, and here it is WIDTH rather than height: the
+     compact yard packs five tiles across a 291px column, so a material line
+     has ~42px to hold a mark, a notch count and a share on one unbreakable
+     row. Measured at 46px before this block, which spilled 4px out of the
+     narrowest phone's tile. Nothing here may wrap — a share on its own line
+     under someone else's mark is worse than no breakdown at all. */
+  .modal--refit .preview-mix { gap: 0 4px; }
+  .modal--refit .preview-mix__m { font-size: 8px; gap: 1px; }
+  .modal--refit .preview-mix__m .mat-icon { width: 10px; height: 10px; }
+  .modal--refit .preview-mix__m .preview-stat__from { font-size: 8px; }
+  .modal--refit .preview-mix__notch { font-size: 6px; }
+  .modal--refit .preview-mix__pct { gap: 2px; }
   .modal--refit .projection { gap: 2px; padding: 3px 5px; }
   /* Even shares here, against 1.15/0.85 where there is width. The shelf
      scrolls, so width it gives up costs a few wrapped words; the projection
@@ -7343,8 +7671,17 @@ button.panel { color: var(--text); }
      ("Install 3 · 90"). On a 360px-tall phone the sentence under it costs a
      whole row of projection tiles. */
   .refit__foot-note { display: none; }
-  .salvage-row { padding: 4px 10px; gap: var(--sp-2); }
+  /* 3px of block padding, not the 4px this row carried before, and the pixel
+     off each end is spent immediately below. The banner's heading used to sit
+     1px off its own sentence, which is the reason the two read as one block;
+     3px is the smallest gap that separates them. On a viewport this short the
+     row's own padding is the only place that pixel can come from, so the trade
+     is stated where both halves of it are visible: 2px of padding for 2px of
+     gap, and the Tier S banner — the only variant with two gaps — comes out
+     exactly where it came out before. */
+  .salvage-row { padding: 3px 10px; gap: var(--sp-2); }
   .salvage-row__amt { font-size: 18px; }
+  .salvage-row__body { gap: 2px; }
   .bayclear__card { padding: 12px 24px; gap: var(--sp-2); }
 }
 
@@ -8474,7 +8811,7 @@ button.panel { color: var(--text); }
   font-size: var(--fs-h3); line-height: 1.1; color: var(--accent);
 }
 .sbx-brief__sub {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.4; color: var(--text-muted);
 }
 /* The Final Inspection clause in force, printed in full. The facts grid above
    already HAS the clause in it — levelForRun applied it before the briefing was

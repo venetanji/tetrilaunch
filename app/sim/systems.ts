@@ -69,7 +69,7 @@ import {
 import { previewRows, type PreviewRow } from "../src/game/preview";
 import { applyMods, draftOffers, MODS, mulberry32 } from "../src/game/mods";
 import {
-  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, MIN_FIRE_RATIO, powerRatioForDrag,
+  AIM_CONE, AIM_HIT_TOL, AIM_LOFT_DEFAULT, Cannon, CANNON, dragLenForRatio, MIN_FIRE_RATIO, powerRatioForDrag,
   predictTrajectory, solveAimForTarget, SPEED_MAX, SPEED_MIN,
 } from "../src/game/cannon";
 import {
@@ -114,7 +114,8 @@ import {
 import {
   advanceRun, bayMusic, bondChargesFor, buyUpgrade, buyUpgrades, isFinalDraft, isRefitBay, levelForRun,
   newRun, refitAfterBay, finalDraftFor, baysUntilRefitFor, picksForRun, standingClauses,
-  tracksLadder, retryBreaksSeal, sealStateFor, thawChargesFor, type SealState,
+  tracksLadder, retryBreaksSeal, sealStateFor, quitLosesProgress, bayRetryable,
+  thawChargesFor, type SealState,
   CARRY_CAP, REFIT_EVERY, RUN_LEVELS, SKYDECK_PICKS_PER_BAY, type RunState,
 } from "../src/game/run";
 // Node has no localStorage, so telemetry.recording() is false here and nothing
@@ -153,7 +154,7 @@ import { sandboxScreen } from "../src/ui/sandbox-screen";
 import { applyCheat, cheatRowHTML } from "../src/lib/sandbox-cheats";
 import { DEV_TAPS_REQUIRED, DEV_TAP_WINDOW_MS, TapStreak } from "../src/lib/devmode";
 import { InputController, wheelNotch } from "../src/game/input";
-import { GamepadPoller, stickRate } from "../src/game/gamepad";
+import { DEADZONE, GamepadPoller, stickPowerRatio, stickRate } from "../src/game/gamepad";
 import { loadMeta, loadSettings, saveMeta } from "../src/lib/store";
 import { tilesRegion, tilingQueue, EXACT_ATTEMPTS, NODE_BUDGET } from "../src/game/tiling";
 import { isBuildable } from "../src/game/buildable";
@@ -188,7 +189,9 @@ import {
 } from "../src/game/bindings";
 import { setRailSide } from "../src/game/layout";
 import {
-  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext, type NavRect,
+  armActivate, armRelease, DISARMED,
+  PAD_BACK, PAD_CONFIRM, PAD_CONTROLS, PAD_NAV, pickNext,
+  type ArmState, type NavRect,
 } from "../src/ui/padnav";
 import * as S from "../src/ui/screens";
 import {
@@ -197,7 +200,11 @@ import {
 import { DRILLS, levelForDrill } from "../src/game/drills";
 import { icon, type IconName } from "../src/ui/icons";
 import { runNotchTallyHTML, shipPlatesHTML } from "../src/ui/components";
-import { BOARD_SANDBOX, isLadderBoard, type ScoreEntry } from "../src/lib/api";
+import {
+  BOARD_SANDBOX, BOARD_SKYDECK, BoardCache, boardDayForRun, boardDayForView,
+  boardForRun, boardForView, DAY_NONE,
+  fetchLeaderboard, isLadderBoard, submitScore, type BoardView, type ScoreEntry,
+} from "../src/lib/api";
 
 let failures = 0;
 
@@ -1242,6 +1249,104 @@ section("Installs — what salvage buys (meta.ts)");
     (staged.match(/refit-card__buy/g) ?? []).length === buyButtons(staged).length);
   check("a track with room left keeps offering the next rung",
     staged.includes(`data-action="stage-upgrade" data-upgrade="reactor"`));
+
+  // THE BUTTON CARRIES THE PRICE, NOT THE CHANGELOG.
+  //
+  // It used to carry both — a direction arrow, the rung's effect prose and the
+  // price — and the prose is unbounded copy on a bounded rail: the Demolition
+  // Rack's capstone reads "+2 charges, resupply, a wider blast and a better
+  // rate", which ellipsised at every width the app ships and still took the
+  // whole price track with it, collapsing the card's description column to one
+  // word per line on a landscape phone. The projection beside the shelf is
+  // where a rung's effect is already stated in the bay's own numbers, so the
+  // button states the one fact the panel cannot: what it costs.
+  //
+  // Asserted on a rig sitting at tier 2 on EVERY track, because that is the
+  // only state that reaches the capstone `step` copy the old button printed —
+  // no fixture and no default loadout ever did, which is why the harness never
+  // saw the overflow.
+  const capstoneTiers = Object.fromEntries(
+    UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers;
+  const buyControls = (html: string): string[] =>
+    html.match(/<button[^>]*refit-card__buy[\s\S]*?<\/button>/g) ?? [];
+  const labelOf = (btn: string): string =>
+    btn.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const capstone = yard({ tiers: capstoneTiers });
+  const stageLabels = buyControls(capstone)
+    .filter((b) => b.includes("stage-upgrade"))
+    .map(labelOf);
+  check("every capstone rung is on offer at tier 2", stageLabels.length === UPGRADES.length,
+    String(stageLabels.length));
+  check("a stage button says its tier and its price and nothing else",
+    stageLabels.every((l) => /^T\d\s*·\s*\d+$/.test(l)),
+    stageLabels.filter((l) => !/^T\d\s*·\s*\d+$/.test(l)).join(" | "));
+  // The undo is the same control in its other state, so it is exempt from the
+  // rule above and only from it: "Undo" is the verb that names the state, not a
+  // description of what the rung does. Its figure is a REFUND, which is why it
+  // keeps a word beside it — a bare "+90" on a shelf of prices reads as a cost.
+  // Ordered to MAX, which is the state that turns the control round: there is
+  // no rung left to stage, so the button becomes the way out.
+  const maxedOrder = yard({ tiers: { ...newTiers(), reactor: MAX_TIER - 1 }, order: { reactor: 1 } });
+  const undoLabel = labelOf(buyControls(maxedOrder).find((b) => b.includes("unstage")) ?? "");
+  check("the undo button names the state and the refund",
+    /^Undo(\s*×\d+)?\s*\+\s*\d+$/.test(undoLabel), undoLabel || "no undo button");
+  // The rung's effect still reaches the player — on the card's own before →
+  // after and in the ladder the card hangs in `title`. The button is the one
+  // place it no longer needs to be.
+  check("the ladder still reaches the card that sells it",
+    UPGRADES.every((u) => capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`)),
+    UPGRADES.filter((u) => !capstone.includes(`T${MAX_TIER} ${u.tiers[MAX_TIER - 1]}`))
+      .map((u) => u.id).join(","));
+
+  // …AND A PRICE IS NOT A NAME. "T3 · 55" is the same eight characters on
+  // every card at that tier and the currency glyph is `aria-hidden`, so a
+  // shelf of price-shaped buttons exposes one accessible name seven times over
+  // and a screen reader's control list cannot say which system it is about to
+  // stage. The visible label is right and stays; the name underneath it has to
+  // carry the card's own system.
+  //
+  // Asserted as a SET rather than per button, because the failure mode is
+  // collision rather than absence: a label that named the tier and the price
+  // in words would pass a "has an aria-label" check and still read as seven
+  // identical controls.
+  const ariaNames = (html: string, action: string): string[] =>
+    (html.match(new RegExp(`<button[^>]*data-action="${action}"[^>]*>`, "g")) ?? [])
+      .map((b) => (b.match(/aria-label="([^"]*)"/) ?? ["", ""])[1]);
+  const stageNames = ariaNames(capstone, "stage-upgrade");
+  check("every stage button carries its own system's name",
+    stageNames.length === UPGRADES.length
+      && UPGRADES.every((u) => stageNames.some((n) => n.includes(u.name))),
+    stageNames.join(" | "));
+  check("no two stage buttons answer to the same name",
+    new Set(stageNames).size === stageNames.length, stageNames.join(" | "));
+  // WCAG 2.5.3: the accessible name has to CONTAIN the visible label, or a
+  // voice-input user cannot say what they can see. The visible label is
+  // "T3 · 55" — quoted into the name verbatim rather than paraphrased as
+  // "tier 3, 55 scrap".
+  check("a stage button's name quotes the label the player can see",
+    stageNames.every((n) => /T\d\s*·\s*\d+/.test(n)), stageNames.join(" | "));
+  const undoNames = ariaNames(maxedOrder, "unstage-upgrade");
+  check("the undo button names the track it takes back",
+    undoNames.length === 1 && undoNames[0].includes(upgradeById("reactor")!.name)
+      && /Undo/.test(undoNames[0]),
+    undoNames.join(" | "));
+
+  // THE WORKSHOP'S SHELF HAS THE SAME IDIOM AND HAD THE SAME HOLE — its buy
+  // buttons have been a bare price since B6, which predates the yard's. One
+  // shop, one grammar, one fix.
+  const ariaShop = freshMeta({ salvage: 5_000, mark: MARK_COUNT });
+  const shopHTML = workshopScreen(ariaShop);
+  for (const action of ["buy-install", "buy-unlock"] as const) {
+    const names = ariaNames(shopHTML, action);
+    check(`every ${action} button carries its own name`,
+      names.length > 1 && names.every((n) => n.length > 0),
+      names.join(" | "));
+    check(`no two ${action} buttons answer to the same name`,
+      new Set(names).size === names.length, names.join(" | "));
+  }
+  check("a Workshop buy button quotes the price the player can see",
+    ariaNames(shopHTML, "buy-install").every((n) => /T\d\s*·\s*\d+/.test(n)),
+    ariaNames(shopHTML, "buy-install").join(" | "));
   check("a staged track shows what the order does to it",
     staged.includes(upgradeById("reactor")!.current(1)) &&
       staged.includes(upgradeById("reactor")!.current(2)));
@@ -1257,6 +1362,69 @@ section("Installs — what salvage buys (meta.ts)");
   for (const id of ["refit-grid", "refit-order", "refit-preview", "refit-foot"]) {
     check(`the yard mounts #${id} for the in-place patch`, oneUp.includes(`id="${id}"`));
   }
+
+  // THE RECAP IS WHERE THE CHANGE IS NOW READ, so what it renders is pinned on
+  // the screen and not only on preview.ts's rows. A bay carrying two materials
+  // and an order that moves numbers: the panel has to name every material the
+  // belt knows, with the glyph the player learns it by, and say how many of its
+  // own numbers the order moved.
+  const mixRun = { ...newRun(11, [], 500, newTiers(), 6), levelIndex: 6, ratchets: { slag: 2, cryo: 1 } as Ratchets };
+  // The yard's own call, verbatim from main.ts's refitHTML: no bank, the run's
+  // notches as the tally.
+  const mixPreview = previewRows(
+    levelForRun(mixRun),
+    levelForRun(buyUpgrades({ ...mixRun, tiers: { ...newTiers(), reactor: 1 } }, { reactor: 1 }, MAX_TIER)
+      ?? mixRun),
+    {},
+    mixRun.ratchets,
+  );
+  const recap = yard({ preview: mixPreview, order: { reactor: 1 } });
+  check("the recap breaks the belt down into one line per material",
+    (recap.match(/class="preview-mix__m/g) ?? []).length === 2,
+    String((recap.match(/class="preview-mix__m/g) ?? []).length));
+  for (const m of ["Slag", "Cryo"]) {
+    check(`the recap draws ${m} with the glyph the belt teaches`,
+      recap.includes(`aria-label="${m}"`));
+  }
+  // Slag was notched twice on this run and cryo once, so both lines carry the
+  // count as well as the share — the plant panel's "×N" grammar on the panel
+  // that prices the bay. ×1 is written out rather than implied here, unlike in
+  // the tally: presence on this list means the material is ON THE BELT, which
+  // a Contract or a Final clause can arrange with no notches at all, so an
+  // absent count has to mean zero.
+  check("each material's line quotes the notches behind its share",
+    (recap.match(/preview-mix__notch">×2</g) ?? []).length === 1
+      && (recap.match(/preview-mix__notch">×1</g) ?? []).length === 1,
+    (recap.match(/preview-mix__notch">[^<]*/g) ?? ["none"]).join(","));
+  check("the material lines ride inside ONE unit, not a tile each",
+    (recap.match(/class="preview-mix"/g) ?? []).length === 1,
+    String((recap.match(/class="preview-mix"/g) ?? []).length));
+  check("the recap counts the numbers the order moved",
+    /class="projection__moved">\d+ moved</.test(recap),
+    (recap.match(/class="projection__moved">[^<]*/) ?? ["absent"])[0]);
+  check("an order that moves nothing gets no moved count",
+    !yard({ preview: previewRows(levelForRun(mixRun), levelForRun(mixRun), mixRun.ratchets) })
+      .includes("projection__moved"));
+  // …AND THE DRAFT DOES NEITHER, which is the split screens.ts's `explains`
+  // states: a ratchet card names its material and spells out its notch, so a
+  // breakdown and a count there restate what the player is already holding,
+  // and both cost height on a screen whose body fits with nothing to spare.
+  // The yard's cards say what a system is and its buttons say what a rung
+  // costs — nothing on it says what the belt is made of.
+  const mixDraft = S.draftScreen({
+    bayNum: 7, tier: 10, funds: 1_820, carry: 120,
+    offers: hazardOffers(25, 6, 10, 2, mixRun.ratchets),
+    ratchets: mixRun.ratchets, selected: ["slag"], picksNeeded: 2,
+    preview: previewRows(
+      levelForRun(mixRun),
+      levelForRun({ ...mixRun, ratchets: { ...mixRun.ratchets, slag: 3 } }),
+      mixRun.ratchets,
+    ),
+    scrap: 340, baysToRefit: 1,
+  });
+  check("the draft's own projection leaves the explaining to its cards",
+    !mixDraft.includes("preview-mix") && !mixDraft.includes("projection__moved"),
+    mixDraft.includes("preview-mix") ? "breakdown" : "moved count");
   // The scrap readout counts what is LEFT to stage against, not what the run
   // owns: every button on the shelf prices itself against the queue in front
   // of it, and a total that ignored the order would disable nothing.
@@ -2597,6 +2765,132 @@ section("Pattern variants (contracts.ts VARIANTS)");
 
 
 // ---------------------------------------------------------------------------
+section("The payout banner (screens.ts .salvage-row + app.css)");
+// ---------------------------------------------------------------------------
+// ONE format, eight callers: the run end's salvage-banked and tier-complete
+// rows and its Tier S replacement (sandboxEndRowHTML), plus the Contract end's
+// five variants (progress, complete, Tier S, Skydeck, replay). The stylesheet
+// sets the banner's type ONCE — one rule for the figure, one for the heading,
+// one for the sentence — which only reaches all eight while all eight keep the
+// same three-part shape. A variant that hand-rolled its own text column would
+// silently opt out of every size in that block, which is how this row ended up
+// being read at 11px/1.35 on a screen whose other explanatory copy is --fs-sm.
+{
+  const bannerOpts = {
+    name: "Exact Manifest", kind: "pattern" as const, lines: 4, goal: 4,
+    launchesUsed: 8, launches: 0, queue: ["I", "O", "T"] as PieceType[],
+    cubesWasted: 0, salvageTotal: 66,
+    progress: { tier: 1, runDone: false, contracts: 1, needed: 3, award: 60, milestone: 15 },
+  };
+  const runOpts = {
+    won: true, score: 100, lines: 4, baysCleared: 2, funds: 10, best: 0,
+    name: "ACE", rows: "", reason: null, bayNum: 3, bayName: "Bay",
+    boardTier: 1, runComplete: true,
+    progress: tierProgressFor(newMeta()), salvageTotal: 66, scrapEarned: 20,
+    salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+  };
+  /** The eight banners, each labelled by the state it reports. */
+  const banners: Array<[string, string]> = [
+    ["run · salvage banked", S.endModal({ ...runOpts, tierCompleted: null, tierSalvage: 40 })],
+    ["run · tier complete", S.endModal({ ...runOpts, tierCompleted: 3, tierSalvage: 220 })],
+    ["run · Tier S", S.endModal({
+      ...runOpts, tierCompleted: null, tierSalvage: 0,
+      sandbox: true, sandboxSetup: "Mark 9 · from bay 7",
+    })],
+    ["contract · tier progress", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 15, firstClear: true, completedTier: null },
+      nextInstall: { name: "Reactor Output", cost: 15 },
+    })],
+    ["contract · tier complete", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 60, firstClear: true, completedTier: 1 },
+    })],
+    ["contract · Tier S", contractEndModal({ ...bannerOpts, won: true, award: null, sandbox: true })],
+    ["contract · Skydeck", contractEndModal({ ...bannerOpts, won: true, award: null, skydeck: true })],
+    ["contract · replay", contractEndModal({
+      ...bannerOpts, won: true, award: { salvage: 0, firstClear: false, completedTier: null },
+    })],
+  ];
+  for (const [label, html] of banners) {
+    // The WRAPPER's class, matched to its end: every part of this component is
+    // named off the same stem, so `indexOf("salvage-row")` — or even
+    // `class="salvage-row` — is answered by a variant's own __amt one line
+    // below a wrapper that has been renamed out of the format.
+    const at = html.search(/class="salvage-row[ "]/);
+    const row = at < 0 ? "" : html.slice(at, html.indexOf("</div>", html.indexOf("salvage-row__body", at)));
+    check(`the ${label} banner is drawn as one`, at >= 0);
+    // The figure and the text column, in that order. Both are load-bearing:
+    // the figure is the only element the --amt sizes touch, the body is the
+    // only element the type block touches.
+    check(`...${label}: a figure beside a text column`,
+      row.includes("salvage-row__amt") && row.includes("salvage-row__body")
+        && row.indexOf("salvage-row__amt") < row.indexOf("salvage-row__body"));
+    // A heading FIRST, then the sentence. `.salvage-row__body > b` is the
+    // heading's leading and `.salvage-row__body span` the paragraph's; a
+    // variant that opened with a bare <span> would get the paragraph's
+    // treatment for its heading and no heading-to-body gap at all.
+    const body = row.slice(row.indexOf("salvage-row__body"));
+    const inner = body.slice(body.indexOf(">") + 1).trim();
+    check(`...${label}: a heading above the sentence`,
+      inner.startsWith("<b>") && inner.includes("<span"), inner.slice(0, 40));
+  }
+
+  // --- the stylesheet, read back --------------------------------------------
+  const bannerCss = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "styles", "app.css"),
+    "utf8",
+  );
+  const lines = bannerCss.split("\n");
+  const decls = (selector: string): string[] =>
+    lines
+      .filter((l) => l.trim().startsWith(`${selector} {`))
+      .map((l) => l.slice(l.indexOf("{") + 1, l.lastIndexOf("}")));
+  /** Every font-size this selector is given, in source order — which is
+   *  cascade order here, so [0] is the base and the last entry is the tightest
+   *  step. */
+  const sizes = (selector: string): string[] =>
+    decls(selector).map((d) => d.match(/font-size:\s*([^;]+);/)?.[1].trim() ?? "").filter(Boolean);
+  // ONE RANK, MOVING TOGETHER. The banner's sentence, .end__why's paragraph and
+  // .end__where are the same thing on the same screen — explanatory copy under
+  // a display heading — so the banner reaches the token the paragraph is set
+  // from, and steps to the literal the paragraph steps to. It used to do
+  // neither: 11px at every viewport, below --fs-xs at that.
+  const sentence = sizes(".salvage-row__body span");
+  const why = sizes(".end__why p");
+  check("the banner's sentence reaches the paragraph's token",
+    sentence.includes("var(--fs-sm)") && why[0] === "var(--fs-sm)",
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  check("...and steps to where that paragraph steps",
+    sentence.length > 1 && sentence[sentence.length - 1] === why[why.length - 1],
+    `${sentence.join(" -> ")} vs ${why.join(" -> ")}`);
+  // THE BIG SETTING IS AN OPT-IN, never a default with small windows cut out of
+  // it. That is the shape of the bug this row shipped once: gated the other way
+  // round, on `@media (min-height: 521px) and (max-height: 620px)`, one pixel of
+  // window height above the ceiling bought ~53px of banner, and the end modal's
+  // panel overflowed from 621px to 633px at 800px wide. A query built only out
+  // of `min-` features cannot do that — every viewport that fails it keeps a
+  // setting that costs nothing, including whatever viewport is invented next.
+  const bigAt = lines.findIndex((l) => /^\s+\.salvage-row__body span \{ font-size: var\(--fs-sm\)/.test(l));
+  let gate = "";
+  for (let i = bigAt; i >= 0 && bigAt > 0; i -= 1) {
+    if (lines[i].startsWith("@media")) { gate = lines[i]; break; }
+  }
+  check("the banner's big setting is gated on minimums only",
+    gate !== "" && !/\bmax-/.test(gate) && /\bmin-/.test(gate),
+    gate || "no @media above the --fs-sm rule");
+  // LEADING ON THE HEADING ONLY. An inline <b> inside the sentence (the banked
+  // figure, the salvage total) contributes its own line-height to the line box
+  // it lands in, so a bare `.salvage-row__body b { line-height: … }` sets ONE
+  // line of a three-line wrapped paragraph taller than the two around it.
+  const anyB = decls(".salvage-row__body b");
+  const headB = decls(".salvage-row__body > b");
+  check("the heading's leading cannot reach the inline emphasis",
+    anyB.length > 0 && anyB.every((d) => !/line-height/.test(d))
+      && headB.some((d) => /line-height/.test(d)),
+    `${anyB.length} shared, ${headB.length} heading-only`);
+}
+
+
+// ---------------------------------------------------------------------------
 section("The Skydeck's Contract board (contracts.ts SKYDECK_CONTRACT_TIER)");
 // ---------------------------------------------------------------------------
 {
@@ -3400,13 +3694,63 @@ section("Bay-clear ratchet: toggle + next-bay projection (hazards.ts, preview.ts
   // ONE belt row, not one per material — the owner's device pass found a Tier
   // 10 material clause moving six tiles at once, two extra rows on the screen
   // that overflows first. The total is the number that prices the bay
-  // (belt.ts's ceiling: notches past it recompose rather than thicken); which
-  // material it is lives on the card being tapped.
+  // (belt.ts's ceiling: notches past it recompose rather than thicken).
   check("the belt row appears only once a content axis is picked",
     row(idle, "belt") === undefined && row(rowsFor(["cryo"]), "belt")!.changed);
   check("a second material moves the same one belt row",
     rowsFor(["cryo", "slag"]).filter((r) => r.id === "belt").length === 1
       && row(rowsFor(["cryo", "slag"]), "belt")!.changed);
+
+  // …AND THE COMPOSITION LIVES INSIDE THAT ONE ROW. Which material the total is
+  // made of used to be readable nowhere on this panel — the argument above only
+  // ever ruled out six more TILES, and the answer to "33% of what?" was the
+  // card the player happened to be holding. The row now carries a part per
+  // material, so the tile count is unchanged and the breakdown is a dense list
+  // inside the one unit that already prices the belt.
+  const mix2 = rowsFor(["cryo", "slag"]);
+  const beltRow = row(mix2, "belt")!;
+  check("the belt row breaks its total down by material",
+    (beltRow.parts ?? []).map((p) => p.id).join(",") === "slag,cryo",
+    (beltRow.parts ?? []).map((p) => p.id).join(","));
+  check("every part quotes a percentage on both sides",
+    (beltRow.parts ?? []).every((p) => /^\d+%$/.test(p.from) && /^\d+%$/.test(p.to)),
+    (beltRow.parts ?? []).map((p) => `${p.from}->${p.to}`).join(","));
+  check("a material the picks moved is flagged, and worse",
+    (beltRow.parts ?? []).every((p) => p.changed && p.tone === "worse"));
+  // A material with BANKED notches is on the list whatever the current
+  // selection does, and it says how many — the notch tally's own grammar
+  // (components.ts's runNotchTallyHTML), on the panel that prices the bay.
+  const bankedMix = { ...drafting, ratchets: { slag: 2 } as Ratchets };
+  const bankedBelt = row(
+    previewRows(levelForRun(bankedMix), levelForRun(bankedMix), bankedMix.ratchets), "belt")!;
+  check("a banked material stays on the belt list with nothing selected",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(",") === "slag",
+    (bankedBelt.parts ?? []).map((p) => p.id).join(","));
+  check("a banked material quotes its notch count",
+    (bankedBelt.parts ?? [])[0]?.notches === 2,
+    String((bankedBelt.parts ?? [])[0]?.notches));
+  // THE TALLY IS NOT THE BANK, and the yard is why the two are separate
+  // arguments. `banked` promotes an axis's rows to core and active, which is
+  // right on a draft and wrong in the yard (main.ts's refitHTML: four unmoved
+  // pressure tiles push the rows the ORDER moved off a landscape phone). The
+  // yard passes an empty bank and the run's notches as the tally, so its belt
+  // breakdown can say "slag, taken twice, 12% of the belt" without a single
+  // row changing kind.
+  const quoted = previewRows(
+    levelForRun(bankedMix), levelForRun(bankedMix), {}, bankedMix.ratchets);
+  check("a quoted tally puts the notch count on the breakdown",
+    (row(quoted, "belt")!.parts ?? [])[0]?.notches === 2,
+    String((row(quoted, "belt")!.parts ?? [])[0]?.notches));
+  check("…and promotes nothing while it does it",
+    quoted.every((r) => !r.active) && row(quoted, "belt")!.kind === "context",
+    quoted.filter((r) => r.active).map((r) => r.id).join(","));
+  check("a material nothing has touched is not on the list",
+    (row(rowsFor(["cryo"]), "belt")!.parts ?? []).every((p) => p.id !== "tar"));
+  // Only the belt row breaks down: every other row is one number, and a `parts`
+  // list on one of them would be a second grammar for the same tile.
+  check("nothing but the belt carries parts",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(",") === "belt",
+    mix2.filter((r) => r.parts !== undefined).map((r) => r.id).join(","));
 
   // Two notches at Mark 10 project as one bay, not as two separate promises.
   const both = rowsFor(["cost", "time"]);
@@ -10227,6 +10571,325 @@ section("The Skydeck — the day's run, no yard, one notch a bay (skydeck.ts)");
 }
 
 // ---------------------------------------------------------------------------
+section("The Skydeck's board — its own key, keyed by the day (lib/api.ts)");
+// ---------------------------------------------------------------------------
+{
+  const DAY_A = new Date(Date.UTC(2026, 7, 27, 12, 0, 0));
+  const DAY_B = new Date(Date.UTC(2026, 7, 28, 12, 0, 0));
+  const skyRun = (d = DAY_A): RunState => skydeckRunFor(newTiers(), [], d);
+  const ladderRun = (mark: number): RunState => newRun(1, [], 0, newTiers(), mark);
+
+  // ---- THE ROUTING RULE ---------------------------------------------------
+  // The bug this section exists for: a Skydeck run carries mark = SKYDECK_MARK
+  // (= MARK_COUNT), so every seam that files a score by `run.mark` filed the
+  // day's run — a rung past Mark 10, under three standing clauses — onto the
+  // Tier 10 board. The rule is now one function, and these are its cases.
+  check("the day's run files to the roof's own board",
+    boardForRun(skyRun()) === BOARD_SKYDECK);
+  check("...and not to the board of the Mark it borrows",
+    boardForRun(skyRun()) !== skyRun().mark && skyRun().mark === MARK_COUNT);
+  check("a Mark-10 Deep Run at that same Mark still files to Tier 10",
+    boardForRun(ladderRun(MARK_COUNT)) === MARK_COUNT);
+  check("every other rung files to its own Tier",
+    [1, 2, 5, 9].every((m) => boardForRun(ladderRun(m)) === m));
+  check("Tier S still outranks both — a sandbox run is filed nowhere else",
+    boardForRun({ ...skyRun(), sandbox: true }) === BOARD_SANDBOX);
+
+  // ---- THE ID -------------------------------------------------------------
+  // Negative for the reason Tier S is, and the alternative is worth pinning
+  // because it is the one a reader reaches for first: SKYDECK_TIER is the
+  // tower's floor id (MARK_COUNT + 1), and any server that knows only Marks
+  // clamps it back onto MARK_COUNT — i.e. straight back to the pooling above.
+  check("the roof is not a rung of the ladder", !isLadderBoard(BOARD_SKYDECK));
+  check("the roof's board cannot collide with a Tier",
+    !Array.from({ length: MARK_COUNT }, (_, i) => i + 1).includes(BOARD_SKYDECK));
+  check("...nor with Tier S", BOARD_SKYDECK !== BOARD_SANDBOX);
+  check("...and is not the tower's floor id, which clamps onto Mark 10",
+    BOARD_SKYDECK !== S.SKYDECK_TIER
+      && Math.min(MARK_COUNT, S.SKYDECK_TIER) === MARK_COUNT);
+
+  // ---- THE DAY ------------------------------------------------------------
+  // The board key's second part is a DERIVATION of the daily seed, not a
+  // literal: the run files under the day it was dealt, and that day is the same
+  // key the Contract board rolls on, so the two dailies can never turn over at
+  // different midnights.
+  check("the day a score files under IS the daily seed",
+    [DAY_A, DAY_B, new Date(Date.UTC(2027, 0, 1))].every(
+      (d) => boardDayForRun(skyRun(d)) === dailySeed(d)));
+  check("one UTC day is one board",
+    boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 0, 0, 1))))
+      === boardDayForRun(skyRun(new Date(Date.UTC(2026, 7, 27, 23, 59, 59)))));
+  check("the next day is a different board",
+    boardDayForRun(skyRun(DAY_A)) !== boardDayForRun(skyRun(DAY_B)));
+  // The rollover rule the run makes possible: a run is stamped at undock, so
+  // one flown across midnight still ranks against the seed it played rather
+  // than against tomorrow's players.
+  check("a run flown across midnight keeps the day it undocked on",
+    boardDayForRun(skyRun(DAY_A)) === dailySeed(DAY_A)
+      && dailySeed(DAY_A) !== dailySeed(DAY_B));
+  check("an all-time board has no day at all",
+    boardDayForRun(ladderRun(MARK_COUNT)) === DAY_NONE
+      && boardDayForRun({ ...skyRun(), sandbox: true, skydeck: null }) === DAY_NONE);
+
+  // ---- WHICH BOARD A SCREEN SHOWS -----------------------------------------
+  //
+  // `this.run` OUTLIVES the run on screen — main.ts clears it only when a
+  // Contract starts — so "there is a run" and "a run is on screen" are
+  // different questions, and a rule that asks the first one answers for a run
+  // the player has walked away from. Both sides pinned, because a fix to one
+  // that breaks the other is the shape this bug had (codex review, PR #166).
+  {
+    const TODAY = dailySeed(DAY_B);
+    const sky = skyRun(DAY_A);
+    const view = (o: Partial<BoardView>): BoardView =>
+      ({ run: null, inRun: false, skydeckParked: false, mark: MARK_COUNT, ...o });
+
+    check("a Skydeck run ON SCREEN shows the roof's board",
+      boardForView(view({ run: sky, inRun: true })) === BOARD_SKYDECK);
+    check("...and dates it with the day that run was dealt, not today",
+      boardDayForView(view({ run: sky, inRun: true }), TODAY) === dailySeed(DAY_A)
+        && dailySeed(DAY_A) !== TODAY);
+    // The regression itself: the same finished run, still in hand, with the car
+    // parked back on a Mark. The board asked for is the Mark's.
+    check("a finished Skydeck run left in hand does NOT hold the board hostage",
+      boardForView(view({ run: sky, inRun: false, mark: 7 })) === 7);
+    check("...and the roof's board comes back by PARKING there, not by the run",
+      boardForView(view({ run: sky, inRun: false, skydeckParked: true })) === BOARD_SKYDECK);
+    check("...dated TODAY, since no run is on screen to date it",
+      boardDayForView(view({ run: sky, inRun: false, skydeckParked: true }), TODAY) === TODAY);
+    check("a ladder run on screen still shows its own Mark",
+      boardForView(view({ run: ladderRun(4), inRun: true })) === 4);
+    // The inherited asymmetry, pinned so it stays a decision: a parked MARK
+    // still opens the UNLOCKED Tier's board rather than the parked floor's,
+    // exactly as it did before the roof had a board. Only the roof reads the
+    // parking, because nothing else says a Skydeck run is what comes next.
+    check("a parked Mark opens the unlocked Tier's board, as it always has",
+      boardForView(view({ mark: MARK_COUNT, skydeckParked: false })) === MARK_COUNT);
+    // Tier S is deliberately NOT gated on `inRun` — closing the mode mid-run
+    // must not move where that run was filed. Pinned so the asymmetry is a
+    // decision rather than something the next reader tidies away.
+    check("a Tier S run answers whatever the screen, on purpose",
+      boardForView(view({ run: { ...ladderRun(3), sandbox: true }, inRun: false }))
+        === BOARD_SANDBOX);
+  }
+
+  // ---- THE CACHE ----------------------------------------------------------
+  //
+  // Cached rows are drawn IMMEDIATELY and the fetch repaints behind them, so a
+  // cache keyed on the board alone paints yesterday's rows under today's
+  // heading for a session left open across UTC midnight — and leaves them there
+  // if the request is slow or fails. The date on a daily board is a promise
+  // about the rows under it (codex review, PR #166).
+  {
+    const rows = (n: string): ScoreEntry[] =>
+      [{ name: n, score: 1, mark: BOARD_SKYDECK, level: 10, lines: 1, created_at: 0 }];
+    const cache = new BoardCache();
+    const dayN = dailySeed(DAY_A);
+    const dayN1 = dailySeed(DAY_B);
+    cache.set(BOARD_SKYDECK, dayN, rows("YESTERDAY"));
+    check("yesterday's rows are not today's board",
+      cache.get(BOARD_SKYDECK, dayN1).length === 0);
+    check("...and are still yesterday's", cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY");
+    cache.set(BOARD_SKYDECK, dayN1, rows("TODAY"));
+    check("...with both days held at once, so neither tab blanks the other",
+      cache.get(BOARD_SKYDECK, dayN)[0]?.name === "YESTERDAY"
+        && cache.get(BOARD_SKYDECK, dayN1)[0]?.name === "TODAY");
+    // The all-time boards go on behaving exactly as they did: one key each.
+    cache.set(MARK_COUNT, DAY_NONE, rows("TIER10"));
+    check("an all-time board is one entry, on the day it does not have",
+      cache.get(MARK_COUNT, DAY_NONE)[0]?.name === "TIER10");
+    check("...and does not collide with another board's",
+      cache.get(BOARD_SANDBOX, DAY_NONE).length === 0);
+  }
+
+  // ---- THE WIRE -----------------------------------------------------------
+  // The compatibility guarantee, asserted where it can actually be observed:
+  // the daily board is asked for on a path of its own, so a Worker that
+  // predates it 404s instead of clamping -2 onto Tier S. Both globals are
+  // stubbed and restored the same way the settings-migration record does it.
+  {
+    const prevLoc = Object.getOwnPropertyDescriptor(globalThis, "location");
+    const prevFetch = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    const calls: { url: string; body: string }[] = [];
+    Object.defineProperty(globalThis, "location", {
+      value: { hostname: "tetrilaunch.com" }, configurable: true, writable: true,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      value: async (url: string, init?: { body?: string }) => {
+        calls.push({ url: String(url), body: String(init?.body ?? "") });
+        return { ok: true, json: async () => ({ scores: [] }) };
+      },
+      configurable: true, writable: true,
+    });
+    try {
+      const day = dailySeed(DAY_A);
+      await fetchLeaderboard(BOARD_SKYDECK, 10, day);
+      await fetchLeaderboard(MARK_COUNT, 10);
+      await submitScore("ACE", 100, BOARD_SKYDECK, 10, 40, day);
+      await submitScore("ACE", 100, MARK_COUNT, 10, 40);
+      const [skyGet, tierGet, skyPost, tierPost] = calls;
+      check("the daily board is asked for on its own path",
+        skyGet.url.includes("/api/daily") && skyGet.url.includes(`day=${day}`)
+          && skyGet.url.includes(`mark=${BOARD_SKYDECK}`), skyGet.url);
+      check("...and a Tier board on the one it always used",
+        tierGet.url.includes("/api/scores") && !tierGet.url.includes("/api/daily")
+          && !tierGet.url.includes("day="), tierGet.url);
+      check("a Skydeck score posts to the daily route, carrying its day",
+        skyPost.url.endsWith("/api/daily")
+          && JSON.parse(skyPost.body).day === day
+          && JSON.parse(skyPost.body).mark === BOARD_SKYDECK, skyPost.body);
+      check("a Tier score posts where it always did, with no day",
+        tierPost.url.endsWith("/api/scores")
+          && JSON.parse(tierPost.body).day === DAY_NONE
+          && JSON.parse(tierPost.body).mark === MARK_COUNT, tierPost.body);
+    } finally {
+      if (prevLoc) Object.defineProperty(globalThis, "location", prevLoc);
+      else delete (globalThis as unknown as Record<string, unknown>).location;
+      if (prevFetch) Object.defineProperty(globalThis, "fetch", prevFetch);
+      else delete (globalThis as unknown as Record<string, unknown>).fetch;
+    }
+  }
+
+  // ---- THE TABLE ----------------------------------------------------------
+  //
+  // Read out of worker/index.ts as SOURCE, and the limitation is worth stating
+  // rather than hiding: the Worker is in neither tsconfig and imports
+  // @cloudflare/workers-types, so it cannot be executed from this process
+  // without pulling a Workers runtime's globals into a DOM-typed program. What
+  // can be asserted is the shape of every statement it sends, which is exactly
+  // where the bug was — the same reason the rAF and pixel-arithmetic sections
+  // above read their files instead of running them.
+  //
+  // THE INVARIANT: an all-time board is `day = 0` and a daily board is
+  // `day > 0`, so the two routes PARTITION the table rather than agreeing to.
+  // Without the predicate the daily rows leak upward twice over: the combined
+  // board (no mark at all — the list a client older than tier boards gets) is
+  // unpartitioned by definition, and a per-Tier board is only safe while no
+  // daily row carries a Tier's mark, which /api/daily's clamp does not forbid.
+  {
+    const workerTs = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "worker", "index.ts"),
+      "utf8",
+    );
+    // Every statement the Worker sends, normalised to one line so a reformat
+    // cannot break a check — and EXPANDED, because two of them are templates.
+    // `${ALL_TIME}` is substituted from its own declaration (so the predicate
+    // keeps one home in the Worker and this still reads what is sent), and a
+    // `${cond ? "a" : "b"}` becomes BOTH statements, since a template that
+    // serves the combined board and a Tier's board sends two queries and each
+    // has to be checked as one.
+    const allTime = /const ALL_TIME = "([^"]+)";/.exec(workerTs)?.[1] ?? "";
+    check("the all-time predicate is a predicate about the day", allTime === "day = 0", allTime);
+    const TERNARY = /\$\{[^}]*\?\s*"([^"]*)"\s*:\s*"([^"]*)"\s*\}/;
+    const expand = (q: string): string[] => {
+      let out = [q.replaceAll("${ALL_TIME}", allTime)];
+      while (out.some((s) => TERNARY.test(s))) {
+        out = out.flatMap((s) => {
+          const m = TERNARY.exec(s);
+          return m ? [s.replace(m[0], m[1]), s.replace(m[0], m[2])] : [s];
+        });
+      }
+      return out.map((s) => s.replace(/\s+/g, " ").trim());
+    };
+    const statements = [...workerTs.matchAll(/`((?:SELECT|INSERT)[\s\S]*?)`/g)]
+      .flatMap((m) => expand(m[1]));
+    const selects = statements.filter((q) => q.startsWith("SELECT"));
+    check("the Worker's queries were found at all", selects.length >= 4, String(selects.length));
+    // A daily query names both halves of the key; an all-time query names the
+    // day it does not have. Between them, no SELECT may be silent about `day`.
+    check("no board query is silent about the day",
+      selects.every((q) => /day = 0/.test(q) || /day = \?/.test(q)),
+      selects.find((q) => !/day = 0|day = \?/.test(q)) ?? "");
+    check("the combined board — the one a legacy client gets — is all-time only",
+      selects.some((q) => /FROM scores WHERE day = 0 ORDER BY/.test(q)),
+      selects.join(" | ").slice(0, 200));
+    check("...and so is the per-Tier board, whatever mark a daily row carries",
+      selects.some((q) => /WHERE day = 0.*mark = \?/.test(q)));
+    check("...and the rank a submission is told, which is a place ON that board",
+      selects.some((q) => /COUNT\(\*\).*WHERE day = 0 AND mark = \? AND score > \?/.test(q)));
+    check("a daily board binds both halves of its key",
+      selects.some((q) => /WHERE mark = \? AND day = \? ORDER BY/.test(q))
+        && selects.some((q) => /COUNT\(\*\).*WHERE mark = \? AND day = \? AND score > \?/.test(q)));
+    // The other half of the partition: the all-time INSERT must not name `day`,
+    // so the column default (0) is what files the row.
+    const inserts = statements.filter((q) => q.startsWith("INSERT"));
+    check("the all-time insert leaves the day to the column default",
+      inserts.some((q) => /INSERT INTO scores \(name, score, mark, level, lines, created_at\)/.test(q)));
+    check("...and only the daily insert writes one",
+      inserts.filter((q) => /created_at, day\)/.test(q)).length === 1);
+    // The floor that makes `day > 0` true of every daily row — without it the
+    // partition has a hole at 0, where every all-time row lives.
+    check("a daily row can never be filed on day 0",
+      /const DAY_MIN = 20_000_101;/.test(workerTs)
+        && /day < DAY_MIN\) return json\(\{ error: "invalid_day" \}, 400\)/.test(workerTs));
+    // And the migration has to be able to serve the predicate the queries now
+    // carry, or a legacy client's board becomes a full scan.
+    const migration = fs.readFileSync(
+      path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..", "..", "migrations", "0003_daily_boards.sql",
+      ),
+      "utf8",
+    );
+    check("the day column defaults to the all-time value, so no row moves",
+      /ADD COLUMN day INTEGER NOT NULL DEFAULT 0/.test(migration));
+    check("both new queries have an index to seek on",
+      /ON scores \(mark, day, score DESC\)/.test(migration)
+        && /ON scores \(day, score DESC\)/.test(migration));
+  }
+
+  // ---- THE SCREEN ---------------------------------------------------------
+  // A board nobody can see is not a board. The tab arrives with the floor
+  // (meta.ts's skydeckOpen) and wears the tower's own identity, and the heading
+  // says WHICH day is on screen — a daily board whose contents change overnight
+  // for no visible reason is the one failure a date on it prevents.
+  const day = dailySeed(DAY_A);
+  const skyScreen = S.leaderboardScreen("", {
+    board: BOARD_SKYDECK, tier: MARK_COUNT, sandbox: false, skydeck: true, day,
+  });
+  check("the roof's board is a tab on the leaderboard",
+    skyScreen.includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...wearing the tower's Sky identity, star and all",
+    skyScreen.includes(`${S.tierText(S.SKYDECK_TIER)} ${S.SKY_STAR}`));
+  check("...and never a raw board id",
+    !skyScreen.includes(`Tier ${BOARD_SKYDECK}`) && !S.boardText(BOARD_SKYDECK).includes("-"));
+  check("the heading names the day on screen",
+    skyScreen.includes(S.dayText(day)) && S.dayText(day) === "2026-08-27");
+  // An EMPTY board still has to say what it is. "No scores at this Tier yet" on
+  // a board that is a day is the same leak tierText exists for.
+  check("an empty Sky board is a day with no scores, not a tier with none",
+    !S.emptyBoardText(BOARD_SKYDECK).includes("Tier")
+      && S.emptyBoardText(BOARD_SKYDECK).includes("today"));
+  check("...and every other board keeps the sentence it had",
+    S.emptyBoardText(MARK_COUNT) === S.emptyBoardText(BOARD_SANDBOX)
+      && S.emptyBoardText(MARK_COUNT).includes("this Tier"));
+  check("a save that cannot fly the roof is offered no Sky tab",
+    !S.leaderboardScreen("", { board: MARK_COUNT, tier: MARK_COUNT, sandbox: true })
+      .includes(`data-board="${BOARD_SKYDECK}"`));
+  check("...and one that can still keeps its ladder tab to switch back to",
+    skyScreen.includes(`data-board="${MARK_COUNT}"`));
+  // The run-end modal is where the score is actually filed, so it has to name
+  // the board it went to — the same failure the bay banner's Sky plate fixed,
+  // one screen later.
+  {
+    const skyEnd = S.endModal({
+      won: true, runComplete: true, score: 40_000, lines: 90, baysCleared: 10,
+      funds: 300, best: 50_000, name: "PILOT", rows: "", bayNum: 10,
+      bayName: "Skydeck", tierCompleted: null, tierSalvage: 0,
+      progress: tierProgressFor(newMeta()), salvageTotal: 0, scrapEarned: 100,
+      salvagedFunds: 0, volatileLosses: 0, incineratedFunds: 0, tiers: newTiers(),
+      boardTier: BOARD_SKYDECK,
+      boardDay: day,
+    });
+    check("the end card files the day's run to the roof's board",
+      skyEnd.includes(`${S.boardText(BOARD_SKYDECK)} board`));
+    check("...on the day it was dealt", skyEnd.includes(S.dayText(day)));
+    check("...and never says Tier 10",
+      !skyEnd.includes(`${S.tierText(MARK_COUNT)} board`));
+  }
+}
+
+// ---------------------------------------------------------------------------
 section("Music beds (run ladder + Contract picks vs public/audio/music)");
 {
   // The one bed that plays OUTSIDE a bay. Mirrored from lib/audio.ts's
@@ -10404,20 +11067,129 @@ section("Misfire prevention");
 {
   const DT = 1000 / 60;
 
-  // --- The firing floor -----------------------------------------------------
-  // The threshold in world px, re-derived from the constants rather than
-  // restated: DRAG_MIN + MIN_FIRE_RATIO * (DRAG_MAX - DRAG_MIN). Both drag
-  // bounds are module-private in cannon.ts (nothing outside it has any business
-  // knowing the mapping), so this brackets the crossing through the public
-  // function instead of asserting a number.
-  let floorPx = 0;
-  for (let len = 0; len <= 260; len += 0.5) {
-    if (powerRatioForDrag(len) >= MIN_FIRE_RATIO) { floorPx = len; break; }
+  // --- The shape of the ramp ------------------------------------------------
+  // Three landmarks on the pull-back's power curve, all found by SCANNING the
+  // public function rather than by importing constants: the foot (where the
+  // dead zone ends and power starts rising), the firing floor (where a release
+  // starts counting as a shot), and the ceiling (where the pull is asking for
+  // everything). cannon.ts's DRAG_MIN is module-private on purpose — nothing
+  // outside it has any business knowing the mapping — so every property below
+  // is stated about what a PULL PRODUCES, which is also the only thing the
+  // player can observe.
+  const STEP = 0.05;
+  const scan = (want: (r: number) => boolean): number => {
+    for (let len = 0; len <= 600; len += STEP) if (want(powerRatioForDrag(len))) return len;
+    return NaN;
+  };
+  const footPx = scan((r) => r > 0);
+  const floorPx = scan((r) => r >= MIN_FIRE_RATIO);
+  const fullPx = scan((r) => r >= 1);
+
+  // --- A FULL PULL HAS TO FIT ON THE PLAYFIELD --------------------------------
+  // THE BUG: DRAG_MAX was a flat 220 while the cannon stands CANNON.x = 150
+  // world px from the left wall, so a finger placed on the cannon and pulled
+  // straight back — the gesture the control is named for — was asking to end at
+  // world x = -70. There is no such place. It "worked" only because the canvas
+  // is full-bleed and screenToWorld does not clamp, so the stroke ran out
+  // through the letterbox bars and off the world; on a panel with no bars (an
+  // exact 16:9 viewport) full power from the cannon was unreachable at 63%, and
+  // on a panel whose outer band eats touches (the OnePlus 7T of the spec) the
+  // pull died with a real pointerup partway up the ramp.
+  //
+  // Stated as the DERIVATION, not as a number: whatever the span becomes, a
+  // full pull from the cannon's own x must land on the field with a cube of
+  // clearance from the wall. That is DRAG_MAX = CANNON.x - CELL read backwards
+  // through the only door the mapping opens.
+  check("a full-power pull exists at all", Number.isFinite(fullPx), `${fullPx} world px`);
+  // STEP of slack, and only STEP: the scan can locate the ceiling no more
+  // finely than its own stride, and the rule leaves exactly zero margin by
+  // construction — so this goes red the moment the span outgrows the room.
+  check(
+    "a full pull from the cannon ends a cube clear of the wall",
+    CANNON.x - fullPx >= CELL - STEP,
+    `ends at world x=${(CANNON.x - fullPx).toFixed(1)}, floor ${CELL}`,
+  );
+  // The same property said through the gesture instead of through the geometry:
+  // a horizontal pull-back whose endpoint is still on the field is a 100% shot.
+  {
+    const c = new Cannon(makeBaseLevel(0), 7);
+    const reach = CANNON.x - CELL; // the furthest such pull the rule allows
+    check("...and that pull is a full-power one", c.aimFromDrag(-reach, 0) === 1,
+      String(c.aimFromDrag(-reach, 0)));
+    check("...at the cannon's top speed", Math.abs(c.power - c.speedMax) < 1e-9,
+      `${c.power} vs ${c.speedMax}`);
   }
-  check("the firing floor sits inside a thumb's reach", floorPx > 60 && floorPx < 110, `${floorPx} world px`);
+
+  // --- The firing floor -----------------------------------------------------
+  // MIN_FIRE_RATIO is a FRACTION of the span and has to stay one. That is the
+  // property that let the span itself change without re-tuning the gate: shrink
+  // DRAG_MAX and the misfire threshold shrinks with it, in px, automatically,
+  // because "did they mean it" is about what the pull MEANS and not about how
+  // far a finger moved on a particular screen.
+  check(
+    "the misfire gate is a fixed fraction of the span, not a pixel count",
+    Math.abs((floorPx - footPx) / (fullPx - footPx) - MIN_FIRE_RATIO) < 0.01,
+    `${((floorPx - footPx) / (fullPx - footPx)).toFixed(4)} vs ${MIN_FIRE_RATIO}`,
+  );
+  // Both ends of "inside a thumb's reach", derived rather than banded: further
+  // than a whole cube of travel, so a graze cannot reach it; shorter than the
+  // full pull, so the gate is never the control.
+  check("the firing floor is further than a graze travels", floorPx > CELL, `${floorPx.toFixed(1)} world px`);
+  check("the firing floor is short of a full pull", floorPx < fullPx, `${floorPx.toFixed(1)} of ${fullPx.toFixed(1)}`);
   check("a pull just under the floor is refused", powerRatioForDrag(floorPx - 1) < MIN_FIRE_RATIO);
   check("a pull just over the floor fires", powerRatioForDrag(floorPx + 1) >= MIN_FIRE_RATIO);
   check("a dead tap reads zero power", powerRatioForDrag(0) === 0);
+
+  // --- The pad's power curve did not move with the span -----------------------
+  // THE PIN THAT WAS MISSING. The stick's ramp used to be spelled
+  // `powerRatioForDrag(deflection * 240)` against a 28/220 span, and shrinking
+  // DRAG_MAX rescaled that ramp WITHOUT rescaling its foot — DRAG_MIN is a
+  // fixed 28 that belongs to a thumb, not to the span. Both endpoints survived
+  // (a pinned stick still saturated, a centred one still read zero) while every
+  // interior point moved: half deflection fell 48% -> 39%, and the first
+  // deflection past the deadzone fell 13% -> 0, growing a second dead band at
+  // the bottom of the throw. Endpoint checks cannot see that. A CURVE check
+  // can, so this samples the whole throw against the mapping as it shipped.
+  {
+    // The reference: deflection * 240 through DRAG_MIN 28 / DRAG_MAX 220, the
+    // triple the pad's feel was born in. Written out rather than imported
+    // because the whole point is that cannon.ts's span is free to move again.
+    const asShipped = (d: number): number =>
+      Math.max(0, Math.min(1, (d * 240 - 28) / (220 - 28)));
+    let worst = 0;
+    let worstAt = 0;
+    for (let i = 0; i <= 2000; i++) {
+      const d = i / 2000;
+      const gap = Math.abs(asShipped(d) - stickPowerRatio(d));
+      if (gap > worst) { worst = gap; worstAt = d; }
+    }
+    // Float precision, not a tolerance: the two forms are the same line written
+    // two ways (a length through a span, versus the two deflections that line
+    // crosses), so they agree to a few ULP and nothing looser is acceptable.
+    check("the stick's power curve is the one pad players have, all the way along",
+      worst < 1e-12, `worst gap ${worst.toExponential(2)} at deflection ${worstAt.toFixed(4)}`);
+    check("a pinned stick is full power", stickPowerRatio(1) === 1);
+    check("a centred stick asks for nothing", stickPowerRatio(0) === 0);
+    check("...and a half-deflected one is neither", stickPowerRatio(0.5) > 0.4 && stickPowerRatio(0.5) < 0.6,
+      String(stickPowerRatio(0.5)));
+    // The bottom of the throw specifically: the first deflection the poller
+    // will even look at must already be asking for power, or the stick has two
+    // deadzones stacked and the first live millimetre does nothing.
+    check("the first deflection past the deadzone still asks for power",
+      stickPowerRatio(DEADZONE) > 0.1, `${(stickPowerRatio(DEADZONE) * 100).toFixed(1)}% at ${DEADZONE}`);
+    // And the whole loop, through the cannon: a deflection put through
+    // dragLenForRatio must come back off the cannon as the ratio it asked for.
+    // This is the seam the fix actually closed — the pad speaks in ratios and
+    // the touch mapping speaks in px, and only one of them may own the ramp.
+    const c = new Cannon(makeBaseLevel(0), 7);
+    let seam = 0;
+    for (const d of [DEADZONE, 0.35, 0.5, 0.7, 0.9, 1]) {
+      c.aimFromDrag(-dragLenForRatio(stickPowerRatio(d)), 0);
+      seam = Math.max(seam, Math.abs(c.powerRatio - asShipped(d)));
+    }
+    check("a deflection lands on the cannon as the power it always meant",
+      seam < 1e-12, `worst ${seam.toExponential(2)}`);
+  }
 
   // THE STALE-POWER BUG, asserted directly. aimFromDrag must report what THIS
   // gesture asked for, not what the cannon happens to be holding — a tap
@@ -12054,6 +12826,304 @@ section("The end card's exits: Contracts, Retry Run, Retry Bay (screens.ts)");
     // …and the watermark still has its own, smaller job: the LESSON.
     check("the watermark now gates only the explainer",
       sealBreakOwed(newMeta()) && !sealBreakOwed(sealBreakShown(newMeta())));
+  }
+
+  // ---- WHEN QUITTING COSTS SOMETHING (run.ts's quitLosesProgress) ---------
+  // The sibling of the gate above, asked about the OTHER irreversible press on
+  // the pause card. A bay retry hands the run back; Quit throws it away without
+  // settling it — main.ts's finishRun is never reached, so recordRunEnd never
+  // runs and the run banks no score, no bestBay and no place in the lifetime
+  // count. Every other exit from a run files it first.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    // BAY 1 GOES STRAIGHT THROUGH, on exactly the reasoning the block above
+    // states for a free retry: a confirmation on a press that costs nothing
+    // teaches the player to click past the one that costs something. Nothing
+    // has been cleared, so there is no carry, no scrap and no notch to lose,
+    // and the menu's Start Run hands back the same offer.
+    check("quitting bay 1 costs nothing", !quitLosesProgress(ladder));
+    check("...and quitting bay 2 costs the bay behind it",
+      quitLosesProgress({ ...ladder, levelIndex: 1 }));
+    check("...and every bay after that",
+      [2, 3, 4, 5, 6, 7, 8, 9].every((i) => quitLosesProgress({ ...ladder, levelIndex: i })));
+    // TIER S IS A BENCH, NOT A RUN TO PROTECT. It files to its own board and
+    // climbs no ladder — and it STARTS at the bay that was dialled in, so its
+    // levelIndex counts bays skipped rather than bays cleared. A bay-7 bench
+    // run has cleared nothing, which is the case a bare index test gets wrong.
+    check("Tier S has nothing to protect",
+      !quitLosesProgress({ ...ladder, sandbox: true, levelIndex: 6 }));
+    check("...and the bench really does start deep",
+      sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } }).levelIndex === 6);
+    check("...so the shipping bench run is ungated too",
+      !quitLosesProgress(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    // THE SKYDECK IS NOT EXCLUDED, and that is the distinction this predicate
+    // exists to keep straight: tracksLadder is about the ladder's BOOKKEEPING,
+    // this is about a player's work, and the roof is ten real bays flown from
+    // a cold start.
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("the roof starts cold like any run", roof.levelIndex === 0);
+    check("...so its first bay is free to leave", !quitLosesProgress(roof));
+    check("...and its sixth is not", quitLosesProgress({ ...roof, levelIndex: 5 }));
+    check("the roof is gated even though the ladder ignores it",
+      !tracksLadder(roof) && quitLosesProgress({ ...roof, levelIndex: 5 }));
+    // It reads the RUN and nothing else — no meta, no saved record — which is
+    // what lets the card's face and main.ts's gate ask the identical question.
+    check("the gate takes the run alone", quitLosesProgress.length === 1);
+  }
+
+  // ---- THE ROOF DOES NOT HAND BAYS BACK (run.ts's bayRetryable) -----------
+  // Owner report: the Skydeck's pause menu offered Restart Bay. The mode is
+  // permadeath — the day's seeded single attempt — and the retry it offered was
+  // free in every sense: the roof keeps no seal, so requestBayRetry's
+  // confirmation never fired, and resetBay rebuilds the SAME bay from the same
+  // run seed at the same levelIndex with the score back at zero. Grind bay 6
+  // until it goes perfectly, file the result against everyone who flew it once.
+  {
+    const ladder = newRun(7, [], 0, newTiers(), 4);
+    const roof = skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, 27)));
+    check("a ladder run may restart its bay", bayRetryable(ladder));
+    check("the roof may not", !bayRetryable(roof));
+    // TIER S KEEPS ITS RETRY, and it is the case that proves this rule cannot
+    // ride on the ladder bookkeeping the roof and the bench share: the bench is
+    // FOR re-flying the same bay, and its run-end card puts the re-fly on the
+    // primary. What separates the two modes is permadeath, not bookkeeping.
+    check("...but the bench does, exactly as it always has",
+      bayRetryable({ ...ladder, sandbox: true })
+        && bayRetryable(sandboxRunFor({ ...newSandbox(), target: { kind: "bay", bay: 7 } })));
+    check("...so 'no seal' was never the right question to ask",
+      sealStateFor({ ...ladder, sandbox: true }, []) === null
+        && sealStateFor(roof, []) === null
+        && bayRetryable({ ...ladder, sandbox: true }) !== bayRetryable(roof));
+    // The refusal holds at every bay of the day, not just the first.
+    check("...at every bay of the day",
+      [0, 1, 5, 9].every((i) => !bayRetryable({ ...roof, levelIndex: i })));
+    // WHAT MADE THE HOLE EXPENSIVE: the day's bay is BYTE-IDENTICAL every time
+    // it is built, so the retry was a reroll of the SCORE and nothing else —
+    // the same puzzle, the same rules, as many attempts as you like, filed
+    // against players who took one. Stated against the builder resetBay
+    // actually reaches (main.ts's startLevel → levelForRun), and against a
+    // DIFFERENT day so the equality is the seed's doing and not the check's.
+    const day = (d: number): RunState =>
+      ({ ...skydeckRunFor(newTiers(), [], new Date(Date.UTC(2026, 7, d))), levelIndex: 5 });
+    check("the day's roof bay is the same bay however often it is built",
+      JSON.stringify(levelForRun(day(27))) === JSON.stringify(levelForRun(day(27))));
+    check("...and another day's is a different one",
+      JSON.stringify(levelForRun(day(27))) !== JSON.stringify(levelForRun(day(28))));
+    check("the gate takes the run alone", bayRetryable.length === 1);
+  }
+
+  // ---- THE PAUSE CARD'S ARMED QUIT (screens.ts's pauseModal) --------------
+  // The idiom is arm-then-confirm rather than a second panel: Quit is already
+  // ON a modal, and the seal notice earned its own panel because it interrupts
+  // a press made from the field. Here the player is stopped and reading a card.
+  {
+    const abilities = { bond: true, demo: true, thaw: true, auto: true };
+    const paused = (quit?: { armed: boolean; bayNum: number }): string =>
+      S.pauseModal(true, "keyboard", abilities, undefined, quit);
+    /** Just the Quit button. Resume, Fullscreen and Restart Bay share the row
+     *  and `includes` cannot tell them apart. */
+    const quitBtn = (h: string): string =>
+      /<button[^>]*data-action="quit-run"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "";
+    const idle = paused({ armed: false, bayNum: 4 });
+    const armed = paused({ armed: true, bayNum: 4 });
+
+    // NO GATE, NO CHANGE. A Contract, a drill, Tier S and bay 1 all pause with
+    // nothing to protect, and the card there is the one-press ghost button it
+    // has always been — wired straight to the menu.
+    check("an ungated pause still leaves on one press",
+      paused().includes('<button class="btn btn--ghost" data-action="menu">Quit</button>'));
+    check("...and mounts no arming machinery at all",
+      !paused().includes("quit-run") && !paused().includes("pause__quit-note"));
+
+    // A GATED QUIT DOES NOT CARRY THE MENU ACTION AT ALL. This is the pin that
+    // says a single activation cannot end a live run: main.ts routes "menu"
+    // straight to the home screen, and the gated button is not that action, so
+    // there is no press on this card that reaches it without going through
+    // requestQuitRun. A flag on "menu" would have been one `if` away from being
+    // walked around by the next back button somebody adds.
+    check("a gated Quit is its own action", idle.includes('data-action="quit-run"'));
+    check("...and cannot reach the menu action in one press",
+      !quitBtn(idle).includes('data-action="menu"')
+        && !quitBtn(armed).includes('data-action="menu"'));
+    check("...and the rest of the card still can (Resume is the way back)",
+      idle.includes('data-action="resume"') && idle.includes('data-action="restart-bay"'));
+    // It is never the primary, so padnav's focusInitial (which lands on
+    // .btn--primary) cannot open this card with the ring on the destructive
+    // control — a stray A press finds Resume.
+    check("the pad does not open the card on Quit",
+      !quitBtn(armed).includes("btn--primary") && idle.includes('class="btn btn--primary"'));
+
+    // THE ARM IS A STATE, AND IT IS THE WORDS THAT CHANGE. Colour alone reaches
+    // neither a red-blind player nor a screen reader.
+    check("an unarmed Quit says so in the markup", quitBtn(idle).includes('data-armed="false"'));
+    check("...and an armed one says so too", quitBtn(armed).includes('data-armed="true"'));
+    // BOTH FACES SHIP IN BOTH STATES — app.css stacks them in one grid cell, so
+    // the button measures the same armed as idle and the four-button row cannot
+    // reflow under the thumb that is about to press again. A face rendered only
+    // in its own state would collapse that reservation.
+    for (const [what, h] of [["idle", idle], ["armed", armed]] as const) {
+      check(`the ${what} button reserves both faces`,
+        quitBtn(h).includes('<span class="btn__quit-face">Quit</span>')
+          && quitBtn(h).includes('class="btn__quit-face btn__quit-face--armed">Quit anyway</span>'));
+    }
+
+    // THE ACCESSIBLE NAMES, WRITTEN OUT WHOLE, one per state — the same
+    // discipline the rail's seal name is held to (codex PR #144: a substring
+    // pin cannot see an ungrammatical name, because the substring is the part
+    // that was fine).
+    const name = (h: string): string => /aria-label="([^"]*)"/.exec(quitBtn(h))?.[1] ?? "";
+    check("the idle name promises the confirmation rather than hiding it",
+      name(idle) === "Quit — ends this run, and asks once more first", name(idle));
+    check("the armed name names the consequence and the bay",
+      name(armed) === "Quit anyway — bay 4 ends here and this run files nothing", name(armed));
+    check("...and follows the bay it was handed",
+      /aria-label="Quit anyway — bay 9 /.test(paused({ armed: true, bayNum: 9 })));
+
+    // THE NOTE. Only under the arm, and it says what a quit costs that a loss
+    // does not — the half a player will otherwise get wrong, exactly as the
+    // seal notice's second paragraph does.
+    check("an unarmed card mounts no warning", !idle.includes("pause__quit-note"));
+    check("an armed card names the loss", armed.includes(S.quitArmNoteHTML(4)));
+    check("...naming the bay and what goes with it",
+      /Quitting drops bay 4 and everything behind it/.test(armed)
+        && /carry, scrap and every notch/.test(armed));
+    check("...and that a run played out banks what a quit does not",
+      /Nothing files/.test(armed) && /even a loss banks the score and the bay record/.test(armed));
+    // Announced on insertion, which is what main.ts's syncQuitArm relies on: it
+    // creates this node rather than filling a hidden region that a screen
+    // reader may never have registered.
+    check("the warning announces itself", /class="pause__quit-note" role="alert"/.test(armed));
+    // ONE RULE, TWO DOORS. The card is rendered here and PATCHED by main.ts's
+    // syncQuitArm (a re-render would replay `.pop` and destroy the button the
+    // pad is focused on, which on a two-press control is the press that
+    // confirms). Both read these two builders, so the rendered card and the
+    // patched one cannot say different things.
+    check("the rendered card is built from the shared face",
+      armed.includes(`aria-label="${S.quitArmLabel(true, 4)}"`)
+        && idle.includes(`aria-label="${S.quitArmLabel(false, 4)}"`));
+    // THE CARD IS A PURE FUNCTION OF THE ARM, which is what makes disarming a
+    // one-line rule in setState: leaving "paused" clears the flag, and the next
+    // render of this card is byte-identical to the one before it was ever
+    // armed. Nothing has to be un-patched.
+    check("disarming restores the card exactly",
+      paused({ armed: false, bayNum: 4 }) === idle);
+    // ---- …AND THE SECOND PRESS HAS TO BE A SECOND PRESS -------------------
+    // Found in review (codex, PR #167) and reproduced on a real run: with the
+    // button keyboard-focused, HOLDING Enter makes Chromium dispatch a native
+    // click per keydown REPEAT. The first repeat armed and the next confirmed,
+    // so one physical press ended a run — the warning flashing on screen under
+    // the player's own finger, which is worse than no warning because it is the
+    // pattern appearing to work. Space did it too.
+    //
+    // The plumbing is main.ts's, which no harness can drive, so what gets
+    // pinned is the machine it runs on (ui/padnav.ts).
+    {
+      /** Run one stream of events through the machine and report whether it
+       *  ever confirmed. "a" is an activation, "r" a release — a held key is
+       *  "aaa" (repeats with no release between), two real presses are "ara". */
+      const run = (stream: string): { confirms: number; end: ArmState } => {
+        let s = DISARMED;
+        let confirms = 0;
+        for (const e of stream) {
+          if (e === "r") { s = armRelease(s); continue; }
+          const step = armActivate(s);
+          s = step.state;
+          if (step.confirmed) confirms += 1;
+        }
+        return { confirms, end: s };
+      };
+
+      check("one activation arms and does not confirm",
+        run("a").confirms === 0 && run("a").end.armed && run("a").end.held);
+      // THE BUG, stated as the stream that produced it.
+      check("a held key's repeats never confirm, however long it is held",
+        run("aa").confirms === 0
+          && run("aaa").confirms === 0
+          && run("aaaaaaaaaa").confirms === 0);
+      check("...and leave the control armed and still warning",
+        run("aaaaa").end.armed);
+      // THE CONTROL: a real second press still ends it, and does so exactly
+      // once. This is the half the fix must not break.
+      check("a release and a second press confirms", run("ara").confirms === 1);
+      check("...and spends the arm rather than staying armed",
+        JSON.stringify(run("ara").end) === JSON.stringify(DISARMED));
+      // The fast double-tap this control is meant to accept: two taps ARE two
+      // releases (a click is dispatched after its own pointerup), so no amount
+      // of speed can make them look like one press.
+      check("two distinct presses confirm however fast they arrive",
+        run("arar").confirms === 1 && run("rara").confirms === 1);
+      // …and a release is genuinely the ONLY thing that opens the confirm. A
+      // stream with no 'r' in it cannot confirm at any length.
+      check("nothing confirms without a release",
+        Array.from({ length: 12 }, (_, i) => "a".repeat(i + 1))
+          .every((s) => run(s).confirms === 0));
+      // Releases are idempotent and harmless out of order — several paths can
+      // deliver one for the same press (a mouse whose pointerup and a keyup
+      // both land), and the pad delivers one on every press edge.
+      check("a release before anything is armed changes nothing",
+        JSON.stringify(armRelease(DISARMED)) === JSON.stringify(DISARMED));
+      check("...and a second release cannot re-open a spent arm",
+        run("arra").confirms === 1 && run("arrra").confirms === 1);
+      check("...and cannot confirm on its own", run("arr").confirms === 0);
+      // A release does NOT disarm: the warning stays up between the two
+      // presses, which is the entire point of the state.
+      check("releasing keeps the warning up", run("ar").end.armed && !run("ar").end.held);
+    }
+
+    check("...and the arm is the only thing the two cards differ by",
+      armed.replace(S.quitArmNoteHTML(4), "")
+        .replace(`data-armed="true"`, `data-armed="false"`)
+        .replace(`aria-label="${S.quitArmLabel(true, 4)}"`, `aria-label="${S.quitArmLabel(false, 4)}"`)
+        === idle);
+
+    // ---- AND THE ROOF'S CARD OFFERS NO RESTART AT ALL --------------------
+    // REMOVED, not disabled — the idiom the run-end card already set for this
+    // exact refusal (its `retryBay` is undefined on a Skydeck run, not a dead
+    // control) and the one every other mode-shaped absence in this file
+    // follows: Tier S drops the tier row, a drill drops the ship rack.
+    const roofCard = S.pauseModal(true, "keyboard", abilities, undefined, undefined, false);
+    check("the roof's pause card has no Restart Bay",
+      !roofCard.includes('data-action="restart-bay"') && !/Restart Bay/.test(roofCard));
+    check("...and no dead control standing in for it",
+      !roofCard.includes("disabled") && !/aria-disabled/.test(roofCard));
+    // The hint table is the OTHER place the gesture is taught (D2: every
+    // instruction renders from what the game will do). A card that removed the
+    // button and kept the line would be teaching the workaround.
+    check("...and does not teach the hold that would perform it",
+      !/hold pause to restart/.test(roofCard));
+    check("...while a ladder run's card teaches it and offers it",
+      idle.includes('data-action="restart-bay"') && /hold pause to restart/.test(idle));
+    // The way OUT is untouched — this card still resumes and still quits, which
+    // is the whole reason removing the middle button is safe.
+    check("the roof can still resume and still leave",
+      roofCard.includes('data-action="resume"')
+        && (roofCard.includes('data-action="menu"') || roofCard.includes('data-action="quit-run"')));
+    // …and the ⏸ rail button's name loses the gesture with it. This name is the
+    // only description an assistive-technology user of an icon-only control
+    // gets, so a name still offering a hold nothing performs would be the label
+    // being wrong to the one audience that cannot check.
+    const railName = (h: string): string =>
+      /aria-label="([^"]*)"/.exec(
+        /<button[^>]*data-action="pause"[\s\S]*?<\/button>/.exec(h)?.[0] ?? "",
+      )?.[1] ?? "";
+    const hudFor = (restart: boolean): string =>
+      S.hudHTML({
+        beltPreview: { bomb: false, type: "T", quarterTurns: 0, empty: false, hidden: false, material: "standard" },
+        loaded: { bomb: false, type: "L", quarterTurns: 1, empty: false, hidden: false, material: "standard" },
+        tier: 2, target: 800, score: 200, launchCost: 25, bayNum: 6, timeLimitSec: 150,
+        timeLeftMs: 150_000, pieceSize: "std",
+        bondBreakerOwned: true, bondCharges: 1, demoOwned: true, bombCharges: 2,
+        thawOwned: true, thawCharges: 4,
+        autoloaderOwned: true, ratchets: {}, tiers: newTiers(), contract: null,
+        restart,
+      });
+    check("the roof's ⏸ names no gesture it cannot perform",
+      railName(hudFor(false)) === "Pause", railName(hudFor(false)));
+    check("...and every other run's ⏸ is the name it always had",
+      railName(hudFor(true)) === S.PAUSE_HOLD_NAME, railName(hudFor(true)));
+    check("...and the field strip drops the line too",
+      !/hold pause to restart/.test(hudFor(false))
+        && /hold pause to restart/.test(hudFor(true)));
   }
 
   // ---- WHICH TIER A RUN CAN ACTUALLY OPEN (meta.ts's tierOpenableBy) -------

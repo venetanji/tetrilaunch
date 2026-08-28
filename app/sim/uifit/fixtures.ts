@@ -16,7 +16,7 @@ import * as S from "../../src/ui/screens";
 import { sandboxScreen } from "../../src/ui/sandbox-screen";
 import { cheatRowHTML } from "../../src/lib/sandbox-cheats";
 import { newSandbox, type SandboxState } from "../../src/game/sandbox";
-import { BOARD_SANDBOX, type ScoreEntry } from "../../src/lib/api";
+import { BOARD_SANDBOX, BOARD_SKYDECK, type ScoreEntry } from "../../src/lib/api";
 import type { Settings } from "../../src/lib/store";
 import type { PieceType } from "../../src/game/theme";
 import { makeBaseLevel } from "../../src/game/level";
@@ -27,12 +27,12 @@ import { makeBaseLevel } from "../../src/game/level";
 const BAY_1 = makeBaseLevel(0);
 import { newMeta, SLOT_BASE, SLOT_CAP, tierProgressFor, type MetaState } from "../../src/game/meta";
 import { hazardOffers, type HazardId, type Ratchets } from "../../src/game/hazards";
-import { MARK_COUNT, MAX_TIER, newTiers, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
+import { MARK_COUNT, MAX_TIER, newTiers, UPGRADES, type RefitOrder, type UpgradeTiers } from "../../src/game/upgrades";
 import { previewRows } from "../../src/game/preview";
 import { finalsForTier } from "../../src/game/finals";
 import { buyUpgrades, levelForRun, newRun, RUN_LEVELS } from "../../src/game/run";
 import { CLAUSE_STOPS, skydeckRunFor } from "../../src/game/skydeck";
-import { dailyContracts } from "../../src/game/contracts";
+import { dailyContracts, dailySeed } from "../../src/game/contracts";
 import { DRILLS } from "../../src/game/drills";
 import { GUIDE_TOPICS, type GuideTopic } from "../../src/game/guide";
 
@@ -250,25 +250,27 @@ function inspection(selected: string | null): string {
  *  side exactly as main.ts's refitHTML does — the same call Undock makes — so
  *  the harness measures the real number of projection rows an order can grow
  *  rather than a hand-written guess at them. */
-function refit(order: RefitOrder): string {
+function refit(order: RefitOrder, over: { tiers?: UpgradeTiers; ratchets?: Ratchets; mark?: number } = {}): string {
   const run = {
-    ...newRun(20_260_815, [], 400, HUD_BASE.tiers as UpgradeTiers, 6),
+    ...newRun(20_260_815, [], 400, (over.tiers ?? HUD_BASE.tiers) as UpgradeTiers, over.mark ?? 6),
     levelIndex: 6,
     carry: 120,
     scrap: 340,
-    ratchets: HUD_BASE.ratchets,
+    ratchets: over.ratchets ?? HUD_BASE.ratchets,
   };
   return S.refitScreen({
     bayNum: 6,
     nextBayName: "Cryo Vault",
     scrap: run.scrap,
     tiers: run.tiers,
-    mark: 6,
+    mark: over.mark ?? 6,
     order,
     // No banked ratchets — main.ts's refitHTML passes none, and the reason it
     // does is a layout one, so a fixture that passed them would measure a
-    // screen the app never renders.
-    preview: previewRows(levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run)),
+    // screen the app never renders. The run's notches travel as the `tally`
+    // the belt breakdown quotes, exactly as they do there.
+    preview: previewRows(
+      levelForRun(run), levelForRun(buyUpgrades(run, order, MAX_TIER) ?? run), {}, run.ratchets),
   });
 }
 
@@ -315,6 +317,12 @@ function ownedMeta(): MetaState {
  *  what a run that has retried nothing answers, and the Mark is one the save
  *  has not sealed — the state the owner's screenshot was taken in. */
 const PAUSE_SEAL = { state: "at-stake" as const, mark: 4 };
+
+/** The quit gate a paused Deep Run past bay 1 is really in (run.ts's
+ *  quitLosesProgress), for the pause fixtures' Quit button. Unarmed, which is
+ *  how the card mounts; `pause-armed` measures the other state. The bay matches
+ *  the seal's story above — one run, one screenshot. */
+const PAUSE_QUIT = { armed: false, bayNum: 4 };
 
 const HUD_BASE = {
   beltPreview: { bomb: false, type: "T" as PieceType, quarterTurns: 1, empty: false, hidden: false, material: "cryo" as const },
@@ -649,14 +657,25 @@ export const SCREENS: Record<string, () => string> = {
       rebinding: null,
     }),
   leaderboard: () => S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4")),
-  // The two-board state: the tab strip only exists once Tier S is open, and it
-  // takes a row off the board's own height, so both boards get a fixture.
+  // The multi-board states: the tab strip only exists once a second board does,
+  // and it takes a row off the board's own height, so each board gets a fixture.
   "leaderboard-tabs": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: 7, tier: 7, sandbox: true }),
   "leaderboard-sandbox": () =>
     S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
       { board: BOARD_SANDBOX, sandbox: true }),
+  // THE WIDEST STRIP the screen can render: a save with the roof open AND Tier
+  // S found carries three tabs, which is the state to measure — the Skydeck's
+  // own tab is the longest of the three, and the heading it sits under is the
+  // only one that carries a date. A Mark-10 ladder tab beside it, since the
+  // roof opens only on a beaten ladder.
+  "leaderboard-skydeck": () =>
+    S.leaderboardScreen(S.leaderboardRowsHTML(S.fullBoard(ENTRIES), "PILOT4"),
+      {
+        board: BOARD_SKYDECK, tier: 10, sandbox: true, skydeck: true,
+        day: dailySeed(new Date(Date.UTC(2026, 7, 27))),
+      }),
 
   // TWO fixtures, because the screen has two shapes and only one of them was
   // ever measured. `workshop` is the early save: nothing owned, so there are no
@@ -924,9 +943,22 @@ export const SCREENS: Record<string, () => string> = {
   // controls. `at-stake` is the state a fresh run pauses in; all three faces
   // are the same box, so the row's width is the same in each and this measures
   // the widest the row can get either way.
+  //
+  // …AND ITS QUIT CARRIES THE GATE, for the same reason Restart Bay carries its
+  // seal face: a paused Deep Run past bay 1 always has one (run.ts's
+  // quitLosesProgress), so a fixture passing none measured a button the app
+  // does not draw. The gated button is the WIDER of the two — app.css stacks
+  // both faces in one grid cell so the row cannot reflow when it arms, which
+  // means the idle button reserves "QUIT ANYWAY" and is ~34px past the bare
+  // ghost it replaces. That widening lands on the row this fixture exists to
+  // measure, which is why it belongs in the default pause and not only in the
+  // armed one below.
   pause: () =>
     S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
-    S.pauseModal(true, "keyboard", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
   // The PAD's reference card, which stopped being a shorter version of the
   // keyboard's the moment it took on the menu gestures (screens.ts's hintParts
   // — D-pad, A, B and the Controls button, four hints no keyboard arm has).
@@ -942,7 +974,37 @@ export const SCREENS: Record<string, () => string> = {
   // card itself measures clean on all nineteen rows.
   "pause-pad": () =>
     S.hudHTML({ ...HUD_BASE, contract: null, profile: "gamepad", seal: PAUSE_SEAL }) +
-    S.pauseModal(true, "gamepad", { bond: true, demo: true, thaw: false, auto: true }, PAUSE_SEAL),
+    S.pauseModal(
+      true, "gamepad", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, PAUSE_QUIT,
+    ),
+  // THE ARMED QUIT (screens.ts's quitArmNoteHTML) — the one state of this card
+  // that adds a row, and therefore the only one worth a fixture of its own.
+  //
+  // The note is two lines of prose between the button row and the control
+  // reference, which makes this the TALLEST the pause card ever gets: the
+  // keyboard arm with the full loadout (the longest hint list the block
+  // renders) plus the warning above it, measured on the fine-pointer rows where
+  // both are visible at once. A landscape phone draws no reference block at all
+  // (coarse pointer), so the note there costs the card nothing it did not
+  // already have room for — the desktop rows are the binding case and the
+  // reason this fixture exists.
+  //
+  // Bay 10 deliberately: the copy interpolates the bay number twice (the button
+  // name and the note), and two digits is the widest either can get.
+  //
+  // NO SKYDECK FIXTURE. The roof's card is a strict SUBSET of `pause` — the
+  // same panel with Restart Bay and one hint line removed (run.ts's
+  // bayRetryable) — so it cannot overflow anything `pause` does not, and a
+  // fixture for it would buy the matrix nothing but two more inherited HUD
+  // entries. What it removes is pinned in sim/systems.ts, where the question is
+  // whether the control is there rather than whether it fits.
+  "pause-armed": () =>
+    S.hudHTML({ ...HUD_BASE, contract: null, seal: PAUSE_SEAL }) +
+    S.pauseModal(
+      true, "keyboard", { bond: true, demo: true, thaw: false, auto: true },
+      PAUSE_SEAL, { armed: true, bayNum: RUN_LEVELS },
+    ),
   bayclear: () =>
     S.hudHTML({ ...HUD_BASE, contract: null }) +
     S.bayClearScreen({
@@ -971,6 +1033,29 @@ export const SCREENS: Record<string, () => string> = {
   // one track it cannot stage is the Demolition Rack, which is not installed,
   // so the fixture also holds the shelf's longest foot copy throughout.
   "refit-staged": () => refit({ bay: 1, launcher: 2, magazine: 1, reactor: 1, bonds: 2 }),
+  // THE STATE NO FIXTURE REACHED: a rig sitting at tier 2 on every track, and a
+  // belt carrying all six materials.
+  //
+  // Tier 2 is the only rung whose button offers the CAPSTONE, and the capstone
+  // is where the tracks' effect copy stopped being a phrase — "+2 charges,
+  // resupply, a wider blast and a better rate" on the Demolition Rack, "a
+  // deeper liner, and no launch sets one off inside it" on the Impact Cushion.
+  // HUD_BASE's rig is at 0, 1, 2 or 3 on each track and never at 2 on any of
+  // the three that carry that copy, so the shelf's widest button was measured
+  // nowhere on nineteen devices — which is how it reached a player's screenshot
+  // bursting out of the card with the description column beside it wrapped to
+  // one word per line. The buttons carry a price now (screens.ts's buy-button
+  // note); this is the fixture that holds them to it.
+  //
+  // Six material axes for the same reason on the panel beside the shelf: the
+  // belt tile's per-material breakdown is as wide as the run has materials, and
+  // HUD_BASE banks two. Mark 10, where all six axes are open, is where a rig
+  // this built actually is.
+  "refit-capstone": () => refit({}, {
+    tiers: Object.fromEntries(UPGRADES.map((u) => [u.id, MAX_TIER - 1])) as UpgradeTiers,
+    ratchets: { wind: 2, sweeper: 1, slag: 2, cryo: 1, rebar: 1, volatile: 1, tar: 1, magnetic: 1 },
+    mark: 10,
+  }),
 
   draft: () => draft([]),
   // The Skydeck's own draft, both states, for the same reason the ladder's
@@ -1150,6 +1235,40 @@ export const SCREENS: Record<string, () => string> = {
       nextInstall: { name: "Demolition Rack", cost: 40 },
     }),
 
+  // THE STATE MOST CLEARS LAND IN, and until this fixture the only one of the
+  // Contract end's five payout banners that nothing measured. Two of every
+  // three clears in a tier tick the quota rather than complete it, so this is
+  // the row a player reads most and the two fixtures above are the rare ends.
+  //
+  // It is also the banner's WIDEST HEADING: a completion heads it "Tier 10
+  // complete!", a quota tick "Tier 2 · Contracts 0/3" — 22 characters against
+  // 17, in --font-pixel, whose advance is a full em. Measured at the roomy
+  // 11px that heading is ~256px against the 290px column the 1280x720 row
+  // gives it, which is the closest this row's heading comes to wrapping
+  // anywhere in the matrix; a point more and it costs a line of modal height.
+  //
+  // The body is the sentence at its longest reachable shape: an award to
+  // announce, a quota still open, and a target price to walk toward, with the
+  // inline pixel-face emphasis mid-sentence rather than at its end (where the
+  // completion states put it). 0/3 rather than 1/3 because "3 more Contracts"
+  // is the plural, and the Deep Run clause rides along while runDone is false.
+  "contract-end-progress": () =>
+    S.contractEndModal({
+      won: true,
+      name: "Cold Storage Backlog",
+      kind: "pattern",
+      lines: 4,
+      goal: 4,
+      launchesUsed: 11,
+      launches: 12,
+      queue: ["I", "O", "T", "L", "J", "S", "Z", "I"] as PieceType[],
+      cubesWasted: 6,
+      award: { firstClear: true, completedTier: null, salvage: 15 },
+      progress: { tier: 2, runDone: false, contracts: 0, needed: 3, award: 60, milestone: 15 },
+      salvageTotal: 1_700,
+      nextInstall: { name: "Demolition Rack", cost: 40 },
+    }),
+
   // The Tier S variant of the same modal: the award row is replaced and the
   // actions point back at the bench, so it is a different row count and a
   // different widest string.
@@ -1319,6 +1438,10 @@ export function railLoadoutFor(
   if (id === "hud-lance" || id === "hud-rig4") return LANCE_RAIL;
   return id === "hud" || id === "hud-rich" || id === "hud-notched"
     || id === "hud-hints-dismissed" || id === "pause" || id === "pause-pad"
+    // …and "pause-armed", which is `pause` with one more row on the card and
+    // the SAME HUD behind it. It reproduced the identical eleven `offscreen`
+    // findings the two entries below record, from the identical cause.
+    || id === "pause-armed"
     // "bayclear-clause" is the same card over the same HUD, so it needs the
     // same rail: without it the harness sizes the rail for a bare loadout
     // while the markup still renders three ability buttons, and they overflow

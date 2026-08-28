@@ -215,11 +215,6 @@ export interface UpgradeDef {
    *  stock). The card used to show only deltas, which meant a player could see
    *  "+2 open cells" without ever being told the bay was 12 to begin with. */
   current(tier: number): string;
-  /** The step from `tier` to `tier + 1`, for the buy button: which way the
-   *  number moves and by how much. `dir` is the direction of the NUMBER, not a
-   *  judgement — a shorter cooldown is an improvement that reads "down". Never
-   *  called at MAX_TIER, where there is no next step to describe. */
-  step(tier: number): { dir: "up" | "down"; text: string };
   /** Mutate `cfg` for a track sitting at `tier` (1..MAX_TIER). Never called
    *  with tier 0 — applyUpgrades skips unbought tracks entirely, so each
    *  implementation can assume it has work to do. */
@@ -241,7 +236,6 @@ export const UPGRADES: UpgradeDef[] = [
     // only thing that moves it is this track — so the reading is exact rather
     // than an estimate that a draft could silently invalidate.
     current: (t) => `${12 + 2 * t} open cells`,
-    step: () => ({ dir: "up", text: "+2 cells" }),
     apply(cfg, tier) {
       // 12 stock -> 14/16/18. This is the "extend to 18" lever, now EARNED
       // capital instead of a random Wide Bay offer: a wide bay is the standard
@@ -277,7 +271,6 @@ export const UPGRADES: UpgradeDef[] = [
       "+18% muzzle speed · 60% wind cancelled",
     ],
     current: (t) => (t === 0 ? "stock coils" : `+${6 * t}% speed · ${20 * t}% wind`),
-    step: () => ({ dir: "up", text: "+6% power" }),
     apply(cfg, tier) {
       // The wind counter. A stock launcher at max power lands at x~1228 (see
       // cannon.ts's SPEED_MAX note); a strong steady headwind can pull that
@@ -300,7 +293,6 @@ export const UPGRADES: UpgradeDef[] = [
       "×2.8 settle assist · +24% stroke speed",
     ],
     current: (t) => (t === 0 ? "stock press" : `×${(1 + 0.6 * t).toFixed(1)} assist · +${8 * t}% stroke`),
-    step: () => ({ dir: "up", text: "+0.6 assist" }),
     apply(cfg, tier) {
       // Settle assist is what converts "nearly a line" into a payout (see
       // lineClear.ts's settleZoneCubes) — the direct upgrade for a build that
@@ -318,9 +310,6 @@ export const UPGRADES: UpgradeDef[] = [
     blurb: "Faster reload — more shots inside the same clock.",
     tiers: ["−15% cooldown", "−30% cooldown", "−45% cooldown"],
     current: (t) => (t === 0 ? "stock reload" : `−${15 * t}% cooldown`),
-    // The one track whose number falls. The arrow reports the number, so this
-    // reads "down" even though a shorter cooldown is the improvement.
-    step: () => ({ dir: "down", text: "−15% reload" }),
     apply(cfg, tier) {
       cfg.cooldownMs = Math.max(120, Math.round(cfg.cooldownMs * (1 - 0.15 * tier)));
     },
@@ -336,7 +325,6 @@ export const UPGRADES: UpgradeDef[] = [
       "+$180 float · +$45 per line",
     ],
     current: (t) => (t === 0 ? "stock reactor" : `+$${60 * t} float · +$${15 * t}/line`),
-    step: () => ({ dir: "up", text: "+$60 float" }),
     apply(cfg, tier) {
       cfg.startingFunds += 60 * tier;
       cfg.scorePerLine += 15 * tier;
@@ -357,7 +345,6 @@ export const UPGRADES: UpgradeDef[] = [
       const charges = `${t} charge${t === 1 ? "" : "s"} for the run`;
       return t >= 2 ? `${charges} · S/Z ${t >= 3 ? 50 : 30}% weaker` : charges;
     },
-    step: () => ({ dir: "up", text: "+1 charge" }),
     apply(cfg, tier) {
       // Bond Breakers are the compaction answer for any build whose pieces
       // don't flatten their own pile — most of all the light tiny build, whose
@@ -403,9 +390,6 @@ export const UPGRADES: UpgradeDef[] = [
       : t >= MAX_TIER
         ? `+${2 * t}/bay · +1 per ${DEMO_RESUPPLY_LINES} lines · ×${DEMO_BLAST_MULT} blast`
         : `+${2 * t} charges/bay`),
-    step: (t) => (t + 1 >= MAX_TIER
-      ? { dir: "up", text: "+2 charges, resupply, a wider blast and a better rate" }
-      : { dir: "up", text: "+2 charges" }),
     apply(cfg, tier) {
       // Twice the old size, and deliberately more generous than the bond
       // track: a bomb is a SALVAGE tool (it refunds what it vaporizes) rather
@@ -451,7 +435,6 @@ export const UPGRADES: UpgradeDef[] = [
       `+${THAW_CHARGES_PER_TIER * 3} per bay — a cryo-heavy build, and still not a Cold Chain final`,
     ],
     current: (t) => (t === 0 ? "no charges" : `+${THAW_CHARGES_PER_TIER * t} charges/bay`),
-    step: () => ({ dir: "up", text: `+${THAW_CHARGES_PER_TIER} charges` }),
     apply(cfg, tier) {
       // The config-layer half of the same rule run.ts's thawChargesFor states
       // for a run — one grant, `THAW_CHARGES_PER_TIER` a tier — exactly as the
@@ -484,9 +467,6 @@ export const UPGRADES: UpgradeDef[] = [
     current: (t) => (t === 0
       ? "bare floor"
       : `${CUSHION_TIERS[t - 1].cells} cells lined · sets off at ${cushionThreshold(t).toFixed(0)}`),
-    step: (t) => (t + 1 >= MAX_TIER
-      ? { dir: "up", text: "a deeper liner, and no launch sets one off inside it" }
-      : { dir: "up", text: "a deeper liner and a softer landing" }),
     apply(cfg, tier) {
       if (tier <= 0) return;
       const rung = CUSHION_TIERS[Math.min(CUSHION_TIERS.length, tier) - 1];
@@ -514,9 +494,6 @@ export const UPGRADES: UpgradeDef[] = [
     current: (t) => (t === 0
       ? "no hood"
       : `${Math.round(incineratorRelief(t) * 100)}% off losses in the flue`),
-    step: (t) => (t + 1 >= MAX_TIER
-      ? { dir: "up", text: "+25% off — a quarter price, and never free" }
-      : { dir: "up", text: "+25% off" }),
     apply(cfg, tier) {
       if (tier <= 0) return;
       // ASSIGNED, like the cushion's two fields directly above and for the same

@@ -167,3 +167,84 @@ function focusOn(el: HTMLElement): void {
   // player, since the pad has no wheel.
   el.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+
+/* ---------------------------------------------------------------------------
+ * ARM-THEN-CONFIRM — two presses, and the second one has to be a second PRESS.
+ *
+ * The pause card's Quit takes two activations before it ends a run (main.ts's
+ * requestQuitRun). "Two activations" is not the same promise as "two presses",
+ * and the gap between them is where the pattern was broken: with the button
+ * keyboard-focused, HOLDING Enter makes Chromium dispatch a native click per
+ * keydown REPEAT — the first repeat arms, the next confirms, and one physical
+ * press ends the run without the player ever making the second one. Measured
+ * on a real run, Enter and Space both (codex review, PR #167). The warning is
+ * on screen for a few milliseconds under the player's own finger, which is
+ * worse than no warning: it is the pattern appearing to work.
+ *
+ * So the machine tracks a second bit. `armed` says the first activation has
+ * landed; `held` says the activation that armed it has not been released, and
+ * while it is set every further activation is REFUSED. A release is the only
+ * thing that turns an armed control into one that can confirm.
+ *
+ * WHY A RELEASE, AND NOT A TIMER OR A REPEAT FLAG. A minimum delay would be a
+ * guess about how fast a deliberate second press can be, and it would punish
+ * the fast double-tap this control is meant to accept. Reading
+ * KeyboardEvent.repeat off the keydown behind the click works in Chromium
+ * today and depends on the click being dispatched as that keydown's default
+ * action — an ordering no platform owes us. A release is a fact about the
+ * physical control, and every input path has one.
+ *
+ * WHAT EACH PATH RELEASES WITH — the three are not symmetrical, and pretending
+ * they were is how this gate would deadlock a pad:
+ *
+ *  - KEYBOARD: keyup. Repeats arrive with no keyup between them, which is
+ *    exactly the case being refused.
+ *  - POINTER: pointerup. A click is dispatched on RELEASE, so the arming press
+ *    is already over by the time it runs — but the listener is armed during
+ *    that click and the NEXT tap's pointerup clears it before the next click,
+ *    so two distinct taps pass untouched however fast they are. A held pointer
+ *    produces no repeated clicks either way.
+ *  - GAMEPAD: every press EDGE. The pad delivers no release event at all (the
+ *    API is a state snapshot, and game/gamepad.ts arms autorepeat for
+ *    DIRECTIONS only — a confirm that repeated would fire its screen twice),
+ *    so waiting for one would leave a pad player armed forever. Its edges are
+ *    already what a fresh press means there, so main.ts releases on each.
+ *
+ * A pure machine rather than three flags on the App, because "a held key is
+ * one press" is a rule and sim/systems.ts has to be able to reach it: the
+ * event plumbing lives in main.ts, which no harness can drive.
+ * ------------------------------------------------------------------------ */
+
+export interface ArmState {
+  /** The first activation has landed and the control is showing its warning. */
+  armed: boolean;
+  /** The activation that armed it has not been released yet. */
+  held: boolean;
+}
+
+export const DISARMED: ArmState = { armed: false, held: false };
+
+export interface ArmResult {
+  state: ArmState;
+  /** The caller should now do the destructive thing. Never true on the
+   *  activation that armed, and never true while that activation is held. */
+  confirmed: boolean;
+}
+
+/** One activation of an arming control. */
+export function armActivate(s: ArmState): ArmResult {
+  // The first press arms, and counts as held until its own release: the
+  // repeats of a held key are this same press arriving again.
+  if (!s.armed) return { state: { armed: true, held: true }, confirmed: false };
+  // …so they change nothing. The control stays armed and stays warning.
+  if (s.held) return { state: s, confirmed: false };
+  // A second, distinct press. The arm is spent either way.
+  return { state: DISARMED, confirmed: true };
+}
+
+/** The arming activation has ended — a keyup, a pointerup, or the pad's next
+ *  press edge. Idempotent, so a path that delivers more than one of those
+ *  cannot clear anything twice. */
+export function armRelease(s: ArmState): ArmState {
+  return s.held ? { armed: s.armed, held: false } : s;
+}

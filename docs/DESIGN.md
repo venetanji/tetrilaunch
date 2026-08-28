@@ -599,7 +599,7 @@ of the game hands the player:
 | Refit stops | after bays 3 / 6 / 9 | **none** — you fly the rig you brought |
 | Notches | 1 a bay, 2 at the capstone | **1 a bay**, at that same capstone Mark |
 | Final Inspection | one clause, drafted, bay 10 | **three clauses, dealt, standing** from bays 4 / 7 / 10 |
-| Board | the Mark's own | the Mark-10 board (see below) |
+| Board | the Mark's own, all time | **its own, and one per day** (see below) |
 
 The seed is `contracts.ts`'s own daily key put through a salt, so the Skydeck
 and the Contract board roll over at the same instant and share a date without
@@ -669,14 +669,33 @@ class of reason: a Skydeck bay carries mark 10 and a clock, so nothing else
 about the record tells it apart from an ordinary Mark-10 bay, and pooled into
 `sim/playtest.ts` it would corrupt the medians the tier ladder is tuned against.
 
-Two things are deliberately NOT in the first cut, and both are recorded rather
-than forgotten. A Skydeck run files to the **Mark-10 board**, because a
-per-day board needs a schema column the leaderboard does not have and a mixed
-all-time board would rank days rather than players; a harder run landing on an
-easier board can only ever under-rank itself, which is the safe direction. And
-the run is **replayable all day** — the seed is the date, so a retry deals the
+**It files to a board of its own, and that board is a day.** The first cut sent
+a Skydeck run to the **Mark-10 board** and recorded the reason: a per-day board
+needs a schema column the leaderboard did not have, and a mixed all-time board
+would rank days rather than players. The column exists now
+(`migrations/0003_daily_boards.sql`), so the key is `(BOARD_SKYDECK, day)` —
+`lib/api.ts`'s `boardForRun`/`boardDayForRun`. Two reasons the pooling had to
+end rather than stay safe-in-direction: the roof reads level.ts's curves a rung
+past the capstone and carries three standing clauses, so a Mark-10 pilot and a
+Skydeck pilot on one list are not being compared at anything; and the mode whose
+entire argument is that everyone flies the same day had a board that was not one.
+The **day is the run's**, stamped at undock from `SkydeckRules.day` — the same
+`dailySeed` the Contract board rolls on — so a run undocked at 23:50Z and landed
+after midnight ranks against the seed it actually flew. The board id is negative
+for the reason Tier S's is: `SKYDECK_TIER` is `MARK_COUNT + 1` and any server
+that knows only Marks clamps it straight back onto Mark 10, which is the pooling
+arrived at through the key meant to end it. Scores already pooled onto Tier 10
+stay there — a Skydeck row carries mark 10, its bay and its lines, which is
+exactly an honest Mark-10 row, so there is nothing to filter on and a cleanup
+would be a guess applied to other people's scores.
+
+One thing is still deliberately NOT in the cut, recorded rather than forgotten.
+The run is **replayable all day** — the seed is the date, so a retry deals the
 identical run, which is the daily's whole texture (you learn today's run) and
-needs no new persistence.
+needs no new persistence. The board follows that rule rather than fighting it:
+only **today** is browsable on the leaderboard, since a history control needs a
+second axis on a screen that already carries a tab strip, to serve a board
+nobody can still post to.
 
 ### Uncapping Deep Run
 
