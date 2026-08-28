@@ -5086,8 +5086,29 @@ body.crt-off #app::after { display: none; }
    alone, which was invisible while the plate WAS 40 --fpx wide and is not now:
    at a square 99px plate on a 1920 desktop a 7px pip is a speck, and at a 25px
    one on a phone the same coefficient never left its 3px floor. Same floor,
-   same ratio, and now the three things inside the box all answer to the box. */
-.ship-plate__pips i { width: max(3px, calc(var(--plate-w) / 8)); height: max(3px, calc(var(--plate-w) / 8)); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+   same ratio, and now the three things inside the box all answer to the box.
+
+   AN EIGHTH OF THE SLOT, AND THIS CLASS IS BORROWED BY A SECOND SLOT. The
+   Workshop's rack buttons (screens.ts's slotBtn) render .ship-plate__pips
+   without being inside a .ship-plate — the tier readout is the same readout, so
+   reusing it is right — and they are the only surface that does; the other
+   three pip rows in this sheet (.refit-card__pips, .bay-banner__pips,
+   .sbx-chip__pips) are their own classes with their own rules, and
+   .ship-plate__g is never rendered outside a plate.
+
+   That reuse is why --plate-w carries a FALLBACK. An undefined custom property
+   takes the whole `width` invalid at computed-value time, which lands it on
+   `auto` — and these <i> are empty, so `auto` is ZERO. The failure renders as
+   silence: every pip on every aboard and shed slot in the Workshop simply
+   stops existing, with nothing overflowing, clipping or scrolling for
+   sim/uifit to catch. 40px is the authored plate width, so the fallback is the
+   size this rule was written to give and no surface has to rely on it — the
+   rack button states its own slot below, and the pin in sim/systems holds both
+   halves. A future borrower gets a visibly wrong pip rather than none.
+
+   The ratio itself is stated ONCE, here. A surface that borrows the pips says
+   how wide its slot is; it does not restate what a pip is. */
+.ship-plate__pips i { width: max(3px, calc(var(--plate-w, 40px) / 8)); height: max(3px, calc(var(--plate-w, 40px) / 8)); border-radius: 50%; background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
 .ship-plate__pips i.on { background: var(--accent); box-shadow: 0 0 5px rgba(0,240,255,.9); }
 
 /* AN OPEN SLOT: the same box, drained of the cyan that means "built", and
@@ -7088,7 +7109,20 @@ button.panel { color: var(--text); }
    actually hit — the HUD's 19px plates are a readout and this is a control,
    which is exactly the distinction the two sizes are drawing. */
 .rack-slot {
-  flex: none; width: 44px; height: 44px;
+  /* THE SLOT, stated once, and the shared pip rule (.ship-plate__pips i) reads
+     it: these buttons borrow the HUD plate's tier readout without being inside
+     a plate, so without this the pips fall back to a size that has nothing to
+     do with the box they sit in.
+
+     44 is the tap floor, which is what this control has always been and is the
+     whole reason it is a fixed box rather than an --fpx-scaled one. That makes
+     the pips a flat 5.5px here at every viewport — where they used to be
+     `max(3px, 5 --fpx)`, i.e. 3px on a phone and 7.2px on a 1920 desktop,
+     scaling with the GAME FIELD inside a button that never scales. Nothing was
+     reading the field on this screen; the coefficient was just the plate's,
+     inherited by a class rather than by an argument. */
+  --plate-w: 44px;
+  flex: none; width: var(--plate-w); height: var(--plate-w);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   padding: 0;
   border-radius: var(--r-sm);

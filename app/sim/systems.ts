@@ -6201,10 +6201,70 @@ section("The build rack's plate is ONE shape (app.css --plate-w)");
   // ...and so do the pips, at the 5/40 the plate was authored with. They were
   // the last thing in the box still sized off --fpx alone, which did not show
   // while the plate WAS 40 --fpx wide.
+  const pipRule = css.match(/\.ship-plate__pips i \{[^}]*\}/)?.[0] ?? "no pip rule";
   check("the pips are an eighth of the slot, not a coefficient of their own",
-    /\.ship-plate__pips i \{ width: max\(3px, calc\(var\(--plate-w\) \/ 8\)\)/.test(css)
+    /width: max\(3px, calc\(var\(--plate-w(?:, [\d.]+px)?\) \/ 8\)\)/.test(pipRule)
       && Math.abs(1 / 8 - 5 / AUTHORED_W) < 1e-9,
-    css.match(/\.ship-plate__pips i \{[^;]*/)?.[0] ?? "no pip rule");
+    pipRule.slice(0, 120));
+
+  // --- ...and the pips are BORROWED, which the derivation nearly broke ------
+  // .ship-plate__pips is rendered by the Workshop's rack buttons as well
+  // (screens.ts's slotBtn) — the tier readout is the same readout, so sharing
+  // it is right — and those buttons are NOT inside a .ship-plate. An undefined
+  // --plate-w takes the whole `width` invalid at computed-value time, which
+  // lands it on `auto`, and an empty <i> at `auto` is ZERO: measured on the
+  // `workshop-owned` fixture, all fifteen pips on the aboard and shed slots
+  // rendered 0x0 at every viewport.
+  //
+  // Nothing in sim/uifit could see it. A pip that does not exist overflows
+  // nothing, clips nothing, scrolls nothing and is not a control, so the whole
+  // 177-row matrix stayed green over a readout that had silently gone. That is
+  // exactly the shape of defect this file exists for.
+  //
+  // Two halves, and both are pinned because either alone leaves the hole:
+  // the shared rule must be valid with no --plate-w at all, and the borrowing
+  // surface must state the slot its pips are an eighth OF.
+  const pipFallback = pipRule.match(/var\(--plate-w,\s*([\d.]+)px\)/);
+  check("the shared pip rule survives with no --plate-w in scope",
+    pipFallback !== null && Number(pipFallback[1]) === AUTHORED_W,
+    pipFallback?.[0] ?? "no fallback — a borrowing surface renders 0x0 pips");
+  const rackSlotRule = css.slice(css.indexOf("\n.rack-slot {"));
+  const rackSlotBody = decomment(rackSlotRule.slice(0, rackSlotRule.indexOf("\n}")));
+  const TAP_FLOOR = 44;
+  check("...and the Workshop's rack button states its own slot, at the tap floor",
+    new RegExp(`--plate-w:\\s*${TAP_FLOOR}px`).test(rackSlotBody),
+    rackSlotBody.trim().slice(0, 120));
+  // ...stated ONCE there, too: the button's own box reads the same token, so
+  // its width and its pips can never come to disagree about how big a slot is.
+  check("...which is the same number the button is drawn at",
+    /width:\s*var\(--plate-w\);\s*height:\s*var\(--plate-w\)/.test(rackSlotBody),
+    rackSlotBody.match(/width:[^;]*;\s*height:[^;]*/)?.[0] ?? "no width/height");
+  // The reuse audit, held so this stays the LAST instance rather than the first
+  // found. .ship-plate__g is never rendered outside a plate, and the other pip
+  // rows in the app are their own classes with their own rules.
+  const screens = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "screens.ts"),
+    "utf8",
+  );
+  const sandbox = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "sandbox-screen.ts"),
+    "utf8",
+  );
+  const components = fs.readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "ui", "components.ts"),
+    "utf8",
+  );
+  const markup = screens + sandbox + components;
+  check("the mark class is never rendered outside a plate, so it needs no fallback",
+    (markup.match(/class="ship-plate__g"/g) ?? []).length === 1
+      && components.includes(`class="ship-plate__g"`),
+    `${(markup.match(/class="ship-plate__g"/g) ?? []).length} uses, ` +
+      `${components.includes(`class="ship-plate__g"`) ? "in components.ts" : "NOT in components.ts"}`);
+  check("...and the pips have exactly two homes: the plate and the rack button",
+    (markup.match(/class="ship-plate__pips"/g) ?? []).length === 2
+      && (screens.match(/class="ship-plate__pips"/g) ?? []).length === 1
+      && (components.match(/class="ship-plate__pips"/g) ?? []).length === 1,
+    `${(markup.match(/class="ship-plate__pips"/g) ?? []).length} uses across the three markup files`);
   // ...and sim/uifit's badge floor still clears at the tightest slot either
   // density can draw: air is (padding box - mark)/2 against 0.4 of the mark,
   // i.e. the padding box must be 1.8 marks wide.
